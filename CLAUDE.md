@@ -41,7 +41,8 @@
 - 사람 의존 검증은 지양한다. **반복적이고 빠른 검증**이 우선이다.
 
 ### 6. Compounding — 회고·자산화
-- 무엇이 잘못됐고 무엇을 배웠는지 기록한다 → `.dev/learning/`, `.dev/troubleshooting/`, `docs/retrospect/NNN-{name}.md`.
+- 무엇이 잘못됐고 무엇을 배웠는지 기록한다 → `.dev/learning/`, `.dev/troubleshooting/`.
+- **AI 자신의 회고는 `.dev/retrospect/NNN-{name}.md`** (AI 영역). 인간이 작성하는 회고만 `docs/retrospect/`(인간 영역, 명령 필요).
 - 같은 작업을 반복하면 **스킬/커맨드**로 도출한다.
 - 같은 실수를 반복하면 Scaffolding에서 **훅이나 장치**로 막는다.
 - 이 과정을 반복하며 절차를 선명하게, 실수를 적게, 사용자 의도에 가깝게 만든다.
@@ -52,13 +53,14 @@
 
 ```
 .claude/                        클로드 설정 파일
-.dev/
+.dev/                           (AI 영역 — 작업의 흔적)
   learning/                     배운 것
   troubleshooting/              문제 해결 과정
+  retrospect/  NNN-{name}.md     AI 회고
 docs/                           (인간 영역, 참고 전용 — 명령 없이 수정 금지)
   spec/        NNN-{name}.md     스펙·플랜
   adr/         NNN-{name}.md     아키텍처 결정 기록
-  retrospect/  NNN-{name}.md     회고
+  retrospect/  NNN-{name}.md     인간 회고
 tests/                          검증 자산
 CLAUDE.md                       루트 컨텍스트(본 문서)
 ```
