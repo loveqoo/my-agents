@@ -5,3 +5,11 @@
 .idea/
 .vscode/
 *.swp
+
+# Python / uv
+.venv/
+__pycache__/
+*.pyc
+
+# Secrets
+.env
