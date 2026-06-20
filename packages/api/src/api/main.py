@@ -1,0 +1,28 @@
+"""FastAPI 앱 — 페르소나 등록 + chat 노출.
+
+지배 스펙: docs/spec/002-persona-registry-and-chat.md
+"""
+
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+
+from . import agents, chat
+from .db import init_db
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await init_db()
+    yield
+
+
+app = FastAPI(title="Agent Persona Registry", lifespan=lifespan)
+app.include_router(agents.router)
+app.include_router(chat.router)
+
+
+def run():
+    import uvicorn
+
+    uvicorn.run("api.main:app", host="127.0.0.1", port=8000)

@@ -1,2 +1,5 @@
 [tool.uv.workspace]
 members = ["packages/*"]
+
+[tool.uv.sources]
+agent = { workspace = true }
