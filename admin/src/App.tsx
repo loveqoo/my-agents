@@ -30,7 +30,7 @@ export default function App() {
   const current = agents.find((a) => a.id === selected)
 
   return (
-    <Layout style={{ minHeight: '100vh', maxWidth: 760, margin: '0 auto', padding: 24 }}>
+    <Layout style={{ minHeight: '100vh', maxWidth: 1100, margin: '0 auto', padding: 24 }}>
       <Typography.Title level={3}>에이전트 채팅</Typography.Title>
       {loading ? (
         <Spin />
