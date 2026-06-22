@@ -74,11 +74,14 @@ approvals(id, session_id, agent_id, permission, action, args jsonb,
 2. **Phase 2 — 런타임**: build_agent를 persona+mem0+tools로 확장, 세션/메시지/트레이스 저장, HIL interrupt. CLI/HTTP 스모크.
 3. **Phase 3 — UI 배선**: api.ts 확장, 각 뷰 실데이터 로드.
 
-## 6. 검증 (완료 기준)
-- [ ] Phase 1: API 기동, 각 엔드포인트 CRUD 스모크 통과, seed 적재, codex 리뷰.
-- [ ] Phase 2: 실 채팅 스트리밍 + 세션/트레이스 저장 + (가능 시)mem0 회상, codex 리뷰.
-- [ ] Phase 3: UI가 실 데이터 렌더·조작, build/tsc 통과.
-- [ ] 타자 검증(codex/서브에이전트) 우선, 자가검증 지양.
+## 6. 검증 (결과)
+- [x] Phase 1: API 기동·seed 적재, read + create→edit→activate→expose→register→resolve 스모크 통과. codex GATE — P1 2건(fork 단일초안 가드, active 재활성화 차단) 수정.
+- [x] Phase 2: 실 채팅 스트리밍 + 세션/메시지/트레이스 영속, **mem0 저장→회상 실동작(score 0.84)**. codex GATE — P1(세션 agent 스코핑) + P2 3건 수정.
+- [x] Phase 3: UI build/tsc 통과, Vite(5173)·API(8000) 통합 가동·CORS OK, 5뷰 실 API 배선.
+- [x] 타자 검증(codex) 3회 우선 적용.
+
+### 추후 (이번 범위 밖)
+- Playground 실채팅 배선, AgentForm 블록옵션 API 로드, Alembic, sessions/approvals agentId 외부id화, mem0 재시도, 실 MCP 연결, HIL interrupt 실제화.
 
 ## 7. 리스크
 - **Mem0 + 로컬 MLX/임베더 정합**: 가장 불확실. 실패 시 메모리 비활성 폴백, 추후 안정화.
