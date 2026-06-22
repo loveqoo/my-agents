@@ -1,6 +1,6 @@
 /* my-agents admin — Agents view: list created agents, view detail, and
    create / edit / delete (composing building blocks). */
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Tag, Button, Avatar, Select, Input, Checkbox, Switch, Modal, Alert } from 'antd'
 import { Page, StatusPill, DataTable, Drawer, Desc, VersionHistory, ExposeSwitch, type Column } from '../shared'
 import { Icon } from '../icons'
@@ -9,11 +9,27 @@ import {
   ADMIN_AGENTS,
   ADMIN_SESSIONS,
   AGENT_STATUS,
+  AGENT_SOURCE,
   APPROVER,
   type Agent,
   type AgentConfig,
   type VersionMeta,
 } from '../mockData'
+
+/* 코드 에이전트의 Agent Card(엔드포인트가 보고하는 매니페스트) shape. */
+interface CodeManifest {
+  name: string
+  agentId: string
+  model: string
+  runtime: string
+  repo: string
+  commit: string
+  persona: string
+  memories: string[]
+  historyDepth: number
+  permissions: string[]
+  mcps: string[]
+}
 
 /* 폼 데이터 shape — 생성/편집에서 공유. */
 interface AgentFormData {
@@ -272,6 +288,452 @@ function IdRow({ label, value }: { label: React.ReactNode; value: string }) {
   )
 }
 
+/* ---- Register a code-defined agent by endpoint URL + token ---- */
+function RegisterAgentModal({
+  open,
+  onCancel,
+  onRegister,
+}: {
+  open: boolean
+  onCancel: () => void
+  onRegister: (data: { endpoint: string; token: string; manifest: CodeManifest }) => void
+}) {
+  const [endpoint, setEndpoint] = useState('')
+  const [token, setToken] = useState('')
+  const [testing, setTesting] = useState(false)
+  const [fetched, setFetched] = useState<CodeManifest | null>(null)
+  // 진행 중인 연결 테스트를 식별 — 입력을 바꾸거나 재테스트하면 id가 올라가
+  // 늦게 끝난 stale 테스트 결과(다른 엔드포인트의 Agent Card)가 적용되지 않는다.
+  const reqRef = useRef(0)
+
+  useEffect(() => {
+    if (open) {
+      setEndpoint('')
+      setToken('')
+      setTesting(false)
+      setFetched(null)
+      reqRef.current++
+    }
+  }, [open])
+
+  // 입력이 바뀌면 진행 중 테스트를 무효화하고 받은 카드를 폐기한다.
+  const invalidate = () => {
+    reqRef.current++
+    setFetched(null)
+    setTesting(false)
+  }
+
+  const canTest = /^https?:\/\/.+/.test(endpoint.trim()) && token.trim().length >= 6
+  const runTest = () => {
+    const myReq = ++reqRef.current
+    setTesting(true)
+    setFetched(null)
+    setTimeout(() => {
+      if (myReq !== reqRef.current) return // 입력 변경/재테스트로 무효화됨
+      setTesting(false)
+      const slug = endpoint.trim().replace(/\/+$/, '').split('/').pop() || 'agent'
+      const name = slug
+        .split(/[-_]/)
+        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(' ')
+      setFetched({
+        name,
+        agentId: 'agt_' + Math.random().toString(36).slice(2, 8),
+        model: 'claude-sonnet-4',
+        runtime: 'my-agents-sdk · Python 2.4.1',
+        repo: 'acme/' + slug,
+        commit: Math.random().toString(16).slice(2, 9),
+        persona: '코드 정의 (SDK)',
+        memories: ['단기(세션)'],
+        historyDepth: 10,
+        permissions: ['web.search', 'files.read'],
+        mcps: ['tavily'],
+      })
+    }, 850)
+  }
+
+  return (
+    <Modal
+      open={open}
+      width={560}
+      title="코드 에이전트 등록"
+      onCancel={onCancel}
+      footer={
+        <>
+          <Button onClick={onCancel}>취소</Button>
+          <Button
+            type="primary"
+            icon={<Icon name="check" />}
+            disabled={!fetched}
+            onClick={() =>
+              fetched && onRegister({ endpoint: endpoint.trim(), token: token.trim(), manifest: fetched })
+            }
+          >
+            등록
+          </Button>
+        </>
+      }
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 0 }}
+          message="SDK로 정의해 배포한 에이전트를 엔드포인트 URL과 토큰으로 연결합니다. 연결되면 에이전트가 보고한 Agent Card 구성을 읽기 전용으로 등록합니다."
+        />
+        <Field label="엔드포인트 URL">
+          <Input
+            prefix={<Icon name="global" />}
+            placeholder="https://agents.acme.dev/my-agent"
+            value={endpoint}
+            onChange={(e) => {
+              setEndpoint(e.target.value)
+              invalidate()
+            }}
+          />
+        </Field>
+        <Field label="액세스 토큰">
+          <Input
+            type="password"
+            prefix={<Icon name="key" />}
+            placeholder="sk_live_…"
+            value={token}
+            onChange={(e) => {
+              setToken(e.target.value)
+              invalidate()
+            }}
+          />
+        </Field>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Button icon={<Icon name="thunderbolt" />} loading={testing} disabled={!canTest} onClick={runTest}>
+            연결 테스트
+          </Button>
+          <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>엔드포인트의 Agent Card를 가져옵니다</span>
+        </div>
+        {fetched ? (
+          <div
+            style={{
+              border: '1px solid var(--green-3)',
+              background: 'var(--green-1)',
+              borderRadius: 'var(--radius-lg)',
+              padding: 14,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+              <Icon name="check-circle" style={{ color: 'var(--color-success)' }} />
+              <span style={{ fontWeight: 600 }}>연결됨 · Agent Card 수신</span>
+            </div>
+            <Desc label="이름" width={84}>
+              {fetched.name}
+            </Desc>
+            <Desc label="모델" width={84}>
+              <span style={{ fontFamily: 'var(--font-family-code)' }}>{fetched.model}</span>
+            </Desc>
+            <Desc label="런타임" width={84}>
+              <span style={{ fontFamily: 'var(--font-family-code)', fontSize: 13 }}>{fetched.runtime}</span>
+            </Desc>
+            <Desc label="소스" width={84}>
+              <code style={{ fontFamily: 'var(--font-family-code)', fontSize: 13 }}>
+                {fetched.repo}@{fetched.commit}
+              </code>
+            </Desc>
+            <Desc label="권한" width={84}>
+              <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6 }}>
+                {fetched.permissions.map((p) => (
+                  <PermTag key={p} name={p} />
+                ))}
+              </span>
+            </Desc>
+            <Desc label="MCP" width={84}>
+              <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6 }}>
+                {fetched.mcps.map((m) => (
+                  <Tag key={m} color="cyan">
+                    {m}
+                  </Tag>
+                ))}
+              </span>
+            </Desc>
+            <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginTop: 8 }}>
+              구성은 코드가 소유합니다 — 등록 후 콘솔에서는 읽기 전용으로 표시됩니다.
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </Modal>
+  )
+}
+
+/* ---- 읽기 전용 구성 행(코드 에이전트 상세에서 사용) ---- */
+function ReadonlyConfig({ agent }: { agent: Agent }) {
+  return (
+    <>
+      <Desc label="모델">
+        <span style={{ fontFamily: 'var(--font-family-code)' }}>{agent.model}</span>
+      </Desc>
+      <Desc label="페르소나">{agent.persona}</Desc>
+      <Desc label="메모리">
+        {(agent.memories || []).length ? (
+          <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6 }}>
+            {agent.memories.map((m) => (
+              <Tag key={m} color="purple">
+                {m}
+              </Tag>
+            ))}
+          </span>
+        ) : (
+          <span style={{ color: 'var(--color-text-tertiary)' }}>메모리 없음 (스테이트리스)</span>
+        )}
+      </Desc>
+      <Desc label="채팅 히스토리">{agent.historyDepth ? `최근 ${agent.historyDepth}개 메시지` : '기억 안 함'}</Desc>
+      <Desc label="권한">
+        <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6 }}>
+          {(agent.permissions || []).map((p) => (
+            <PermTag key={p} name={p} />
+          ))}
+        </span>
+      </Desc>
+      <Desc label="MCP">
+        <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6 }}>
+          {(agent.mcps || []).map((m) => (
+            <Tag key={m} color="cyan">
+              {m}
+            </Tag>
+          ))}
+        </span>
+      </Desc>
+      <Desc label="세션">활성 {agent.sessions}개</Desc>
+    </>
+  )
+}
+
+/* ---- Code-defined agent detail (read-only; config owned by the deployed code) ---- */
+function CodeAgentDetail({
+  agent,
+  onClose,
+  onDelete,
+  onToggleExpose,
+  onResync,
+}: {
+  agent: Agent
+  onClose: () => void
+  onDelete: (a: Agent) => void
+  onToggleExpose: (a: Agent) => void
+  onResync: (a: Agent) => void
+}) {
+  return (
+    <Drawer
+      open={!!agent}
+      title={agent.name}
+      width={480}
+      onClose={onClose}
+      footer={
+        <Button danger icon={<Icon name="delete" />} onClick={() => onDelete(agent)}>
+          등록 해제
+        </Button>
+      }
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+        <Avatar size="large" style={{ background: 'var(--geekblue-1)', color: 'var(--geekblue-7)' }}>
+          <Icon name="code" />
+        </Avatar>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 16, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+            {agent.name}
+            <Tag color="geekblue">
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <Icon name="code" size={11} />
+                Code
+              </span>
+            </Tag>
+          </div>
+          <code style={{ fontSize: 11, color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-family-code)' }}>
+            {agent.agentId}
+          </code>
+        </div>
+        <Tag color="green">
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            서빙 중 <code style={{ fontFamily: 'var(--font-family-code)' }}>{agent.commit || agent.activeVersion}</code>
+          </span>
+        </Tag>
+      </div>
+
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginBottom: 14 }}
+        message="SDK로 정의해 코드베이스에서 배포한 에이전트입니다. 구성은 코드가 소유하므로 콘솔에서는 읽기 전용입니다 — 변경하려면 코드를 수정해 다시 배포한 뒤 동기화하세요."
+      />
+
+      <ReadonlyConfig agent={agent} />
+
+      <div
+        style={{
+          marginTop: 16,
+          padding: 14,
+          border: '1px solid var(--geekblue-3)',
+          background: 'var(--geekblue-1)',
+          borderRadius: 'var(--radius-lg)',
+        }}
+      >
+        <div
+          style={{
+            fontSize: 12,
+            color: 'var(--color-text-tertiary)',
+            marginBottom: 8,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+          }}
+        >
+          <Icon name="code" size={12} style={{ color: 'var(--geekblue-7)' }} />
+          배포 / 연결
+        </div>
+        <IdRow label="Endpoint" value={agent.endpoint || '—'} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0' }}>
+          <span style={{ width: 84, flex: 'none', fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+            Access token
+          </span>
+          <code
+            style={{
+              flex: 1,
+              minWidth: 0,
+              fontFamily: 'var(--font-family-code)',
+              fontSize: 12,
+              color: 'var(--color-text)',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {agent.token || '—'}
+          </code>
+          <Icon name="key" size={13} style={{ color: 'var(--color-text-tertiary)', flex: 'none' }} />
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', margin: '2px 0 8px 84px' }}>
+          마스킹 표시 · 콘솔에 평문 저장 안 함
+        </div>
+        <Desc label="런타임" width={84}>
+          <span style={{ fontFamily: 'var(--font-family-code)', fontSize: 13 }}>{agent.runtime || '—'}</span>
+        </Desc>
+        <Desc label="소스" width={84}>
+          <code style={{ fontFamily: 'var(--font-family-code)', fontSize: 13 }}>
+            {agent.repo}
+            {agent.commit ? '@' + agent.commit : ''}
+          </code>
+        </Desc>
+        <Desc label="등록일" width={84}>
+          {agent.registeredAt || '—'}
+        </Desc>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12 }}>
+          <span style={{ flex: 1, fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+            마지막 동기화 · {agent.lastSync || '—'}
+          </span>
+          <Button size="small" icon={<Icon name="sync" />} onClick={() => onResync(agent)}>
+            재동기화
+          </Button>
+        </div>
+      </div>
+
+      <div style={{ marginTop: 18 }}>
+        <ExposeSwitch
+          on={!!agent.exposed.a2a}
+          onChange={() => onToggleExpose(agent)}
+          label="A2A로 공개"
+          onText="공개 · 다른 에이전트가 호출 가능"
+          offText="비공개 · 노출되지 않음"
+        />
+      </div>
+
+      {agent.exposed.a2a ? (
+        <div
+          style={{
+            marginTop: 10,
+            padding: 14,
+            border: '1px solid var(--green-3)',
+            background: 'var(--green-1)',
+            borderRadius: 'var(--radius-lg)',
+          }}
+        >
+          <div
+            style={{
+              fontSize: 12,
+              color: 'var(--color-text-tertiary)',
+              marginBottom: 8,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+            }}
+          >
+            <Icon name="global" size={12} style={{ color: 'var(--green-7)' }} />
+            A2A 식별자(소비자와 공유)
+          </div>
+          <IdRow label="Agent ID" value={agent.agentId} />
+          {(agent.environments || ['production']).map((env) => (
+            <IdRow key={env} label={env} value={'a2a://my-agents.' + env + '.local/' + agent.agentId} />
+          ))}
+        </div>
+      ) : null}
+
+      <div style={{ marginTop: 18 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-heading)', marginBottom: 10 }}>
+          배포 히스토리
+        </div>
+        <div
+          style={{
+            border: '1px solid var(--color-border-secondary)',
+            borderRadius: 'var(--radius-lg)',
+            overflow: 'hidden',
+          }}
+        >
+          {(agent.versions || []).map((v, i) => (
+            <div
+              key={v.version}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                padding: '10px 14px',
+                borderTop: i ? '1px solid var(--color-border-secondary)' : 'none',
+                background: v.status === 'active' ? 'var(--color-success-bg)' : 'transparent',
+              }}
+            >
+              <code
+                style={{
+                  fontFamily: 'var(--font-family-code)',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: 'var(--color-text-heading)',
+                  width: 64,
+                }}
+              >
+                {v.version}
+              </code>
+              {v.status === 'active' ? <Tag color="green">서빙 중</Tag> : <Tag>이전 배포</Tag>}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div
+                  style={{
+                    fontSize: 13,
+                    color: 'var(--color-text)',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {v.note}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>{v.createdAt}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginTop: 8 }}>
+          배포는 코드 푸시로 생성됩니다 — 콘솔에서 새 버전을 만들거나 활성화하지 않습니다.
+        </div>
+      </div>
+    </Drawer>
+  )
+}
+
 function AgentDetail({
   agent,
   onClose,
@@ -281,6 +743,7 @@ function AgentDetail({
   onActivate,
   onTest,
   onRevert,
+  onResync,
 }: {
   agent: Agent | null
   onClose: () => void
@@ -290,8 +753,19 @@ function AgentDetail({
   onActivate: (a: Agent, v: VersionMeta) => void
   onTest: (a: Agent, v: VersionMeta) => void
   onRevert: (a: Agent, v: VersionMeta) => void
+  onResync: (a: Agent) => void
 }) {
   if (!agent) return null
+  if (agent.source === 'code')
+    return (
+      <CodeAgentDetail
+        agent={agent}
+        onClose={onClose}
+        onDelete={onDelete}
+        onToggleExpose={onToggleExpose}
+        onResync={onResync}
+      />
+    )
   const draft = (agent.versions || []).find((v) => v.status === 'draft')
   return (
     <Drawer
@@ -519,6 +993,7 @@ export default function AgentsView() {
   const [editing, setEditing] = useState<{ agent: Agent; version: string | null } | null>(null)
   const [confirmDel, setConfirmDel] = useState<Agent | null>(null)
   const [exposeOff, setExposeOff] = useState<{ agent: Agent; count: number } | null>(null) // agent pending expose-off confirm
+  const [registerOpen, setRegisterOpen] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
 
   useEffect(() => {
@@ -727,6 +1202,7 @@ export default function AgentsView() {
       const created: Agent = {
         id,
         name: data.name,
+        source: 'ui',
         agentId,
         environments: ['sandbox'],
         status: 'idle',
@@ -754,28 +1230,100 @@ export default function AgentsView() {
     if (!confirmDel) return
     const target = confirmDel
     setAgents((as) => as.filter((a) => a.id !== target.id))
-    setToast(`"${target.name}" 삭제됨`)
+    setToast(`"${target.name}" ${target.source === 'code' ? '등록 해제됨' : '삭제됨'}`)
     setConfirmDel(null)
     setDetailId(null)
+  }
+
+  // ---- code-defined agents: register by endpoint + token, resync from deploy ----
+  const registerCodeAgent = (data: { endpoint: string; token: string; manifest: CodeManifest }) => {
+    const m = data.manifest
+    const tok = data.token || ''
+    const masked =
+      tok.length > 11
+        ? tok.slice(0, 7) + '••••••••' + tok.slice(-4)
+        : tok.slice(0, 3) + '••••••••'
+    const id = 'ag-' + Date.now()
+    const created: Agent = {
+      id,
+      source: 'code',
+      name: m.name || '코드 에이전트',
+      agentId: m.agentId || 'agt_' + Math.random().toString(36).slice(2, 8),
+      environments: ['production'],
+      status: 'online',
+      model: m.model || 'claude-sonnet-4',
+      persona: m.persona || '코드 정의 (SDK)',
+      memories: m.memories || [],
+      historyDepth: m.historyDepth || 0,
+      vectorTables: [],
+      permissions: m.permissions || [],
+      mcps: m.mcps || [],
+      exposed: { a2a: false },
+      sessions: 0,
+      created: '2026-06-21',
+      endpoint: data.endpoint,
+      token: masked,
+      runtime: m.runtime || 'my-agents-sdk',
+      repo: m.repo || '',
+      commit: m.commit || '',
+      registeredAt: '2026-06-21',
+      lastSync: '방금',
+      activeVersion: m.commit || '—',
+      versions: m.commit
+        ? [{ version: m.commit, status: 'active', createdAt: '2026-06-21', note: 'Deploy · 등록 시 동기화' }]
+        : [],
+    }
+    setAgents((as) => [created, ...as])
+    setToast(`"${m.name || '코드 에이전트'}" 등록됨 — 코드 정의, 읽기 전용`)
+    setRegisterOpen(false)
+  }
+  const resync = (agent: Agent) => {
+    setAgents((as) => as.map((a) => (a.id === agent.id ? { ...a, lastSync: '방금' } : a)))
+    setToast(`${agent.name} 재동기화됨 — 최신 배포(commit) 반영`)
   }
 
   const columns: Column<Agent>[] = [
     {
       key: 'name',
       title: '에이전트',
-      render: (a) => (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <Avatar size="small" style={{ background: 'var(--gray-12)' }}>
-            <Icon name="robot" size={14} />
-          </Avatar>
-          <div>
-            <div style={{ fontWeight: 500, color: 'var(--color-text-heading)' }}>{a.name}</div>
-            <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-family-code)' }}>
-              {a.model}
+      render: (a) => {
+        const isCode = a.source === 'code'
+        return (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <Avatar
+              size="small"
+              style={{
+                background: isCode ? 'var(--geekblue-1)' : 'var(--gray-12)',
+                color: isCode ? 'var(--geekblue-7)' : '#fff',
+              }}
+            >
+              <Icon name={isCode ? 'code' : 'robot'} size={14} />
+            </Avatar>
+            <div>
+              <div style={{ fontWeight: 500, color: 'var(--color-text-heading)' }}>{a.name}</div>
+              <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-family-code)' }}>
+                {a.model}
+              </div>
             </div>
           </div>
-        </div>
-      ),
+        )
+      },
+    },
+    {
+      key: 'source',
+      title: '소스',
+      width: 104,
+      render: (a) => {
+        const s = AGENT_SOURCE[a.source || 'ui'] || AGENT_SOURCE.ui
+        return (
+          <Tag color={s.tag === 'default' ? undefined : s.tag}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              {s.icon ? <Icon name={s.icon} size={11} /> : null}
+              {s.label}
+            </span>
+          </Tag>
+        )
+      },
     },
     {
       key: 'persona',
@@ -800,6 +1348,12 @@ export default function AgentsView() {
       title: '버전',
       width: 110,
       render: (a) => {
+        if (a.source === 'code')
+          return (
+            <code style={{ fontFamily: 'var(--font-family-code)', fontSize: 13, color: 'var(--color-text-heading)' }}>
+              {a.commit || a.activeVersion}
+            </code>
+          )
         const draft = (a.versions || []).find((v) => v.status === 'draft')
         return (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
@@ -840,7 +1394,17 @@ export default function AgentsView() {
       align: 'right',
       render: (a) => (
         <span onClick={(e) => e.stopPropagation()} style={{ display: 'inline-flex', gap: 2 }}>
-          <Button type="text" size="small" icon={<Icon name="edit" />} onClick={() => openEdit(a)} />
+          {a.source === 'code' ? (
+            <Button
+              type="text"
+              size="small"
+              icon={<Icon name="lock" />}
+              disabled
+              title="코드에서 관리됨 — 편집 잠금"
+            />
+          ) : (
+            <Button type="text" size="small" icon={<Icon name="edit" />} onClick={() => openEdit(a)} />
+          )}
           <Button type="text" size="small" danger icon={<Icon name="delete" />} onClick={() => setConfirmDel(a)} />
         </span>
       ),
@@ -850,11 +1414,16 @@ export default function AgentsView() {
   return (
     <Page
       title="에이전트"
-      subtitle={`빌딩 블록으로 구성한 에이전트 ${agents.length}개`}
+      subtitle={`빌딩 블록으로 구성하거나 코드로 배포한 에이전트 ${agents.length}개`}
       actions={
-        <Button type="primary" icon={<Icon name="plus" />} onClick={openCreate}>
-          새 에이전트
-        </Button>
+        <span style={{ display: 'inline-flex', gap: 8 }}>
+          <Button icon={<Icon name="code" />} onClick={() => setRegisterOpen(true)}>
+            코드 에이전트 등록
+          </Button>
+          <Button type="primary" icon={<Icon name="plus" />} onClick={openCreate}>
+            새 에이전트
+          </Button>
+        </span>
       }
     >
       <DataTable columns={columns} rows={agents} onRowClick={(a) => setDetailId(a.id)} />
@@ -868,7 +1437,9 @@ export default function AgentsView() {
         onActivate={activateVersion}
         onTest={testVersion}
         onRevert={revertToDraft}
+        onResync={resync}
       />
+      <RegisterAgentModal open={registerOpen} onCancel={() => setRegisterOpen(false)} onRegister={registerCodeAgent} />
       <AgentForm
         open={formOpen}
         mode={editing ? 'edit' : 'create'}
@@ -907,17 +1478,24 @@ export default function AgentsView() {
 
       <Modal
         open={!!confirmDel}
-        title="에이전트를 삭제할까요?"
-        okText="삭제"
+        title={confirmDel && confirmDel.source === 'code' ? '코드 에이전트 등록을 해제할까요?' : '에이전트를 삭제할까요?'}
+        okText={confirmDel && confirmDel.source === 'code' ? '등록 해제' : '삭제'}
         cancelText="취소"
         onCancel={() => setConfirmDel(null)}
         onOk={doDelete}
       >
         {confirmDel ? (
-          <div>
-            <b>{confirmDel.name}</b> 및 공개 엔드포인트가 영구 삭제됩니다. 진행 중인 세션도 종료됩니다. 되돌릴 수
-            없습니다.
-          </div>
+          confirmDel.source === 'code' ? (
+            <div>
+              <b>{confirmDel.name}</b>를 콘솔에서 등록 해제합니다. 배포된 코드는 그대로 실행되지만, 이 콘솔에서의
+              연결·모니터링과 A2A 공개가 제거됩니다.
+            </div>
+          ) : (
+            <div>
+              <b>{confirmDel.name}</b> 및 공개 엔드포인트가 영구 삭제됩니다. 진행 중인 세션도 종료됩니다. 되돌릴 수
+              없습니다.
+            </div>
+          )
         ) : null}
       </Modal>
 

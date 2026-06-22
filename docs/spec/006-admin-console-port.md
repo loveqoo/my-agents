@@ -99,6 +99,15 @@ admin/src/
 
 ---
 
+## 6b. 디자인 개정 (handoff2 — 에이전트 출처)
+
+claude.ai/design 번들이 개정됨(`Ant Design System-handoff2.zip`). 변경은 **Agents 뷰 + 데이터에 한정**(agent-debug·토큰·다른 뷰 동일).
+
+- **출처(source) 개념 추가**: `ui`(콘솔에서 블록 조합 — 편집 가능) vs `code`(SDK로 정의·코드베이스 배포 — 엔드포인트+토큰으로 등록, **콘솔에선 읽기 전용**).
+- mockData: 기존 4개에 `source:'ui'`, 코드 에이전트 `Doc Translator` 추가, `AGENT_SOURCE` 맵.
+- AgentsView: **코드 에이전트 등록 모달**(엔드포인트+토큰→연결 테스트→Agent Card 수신→등록), **CodeAgentDetail**(읽기전용 + 배포/연결 박스 + 배포 히스토리 + 재동기화), 소스 컬럼, 코드 에이전트 편집 잠금/등록 해제.
+- 검증: tsc 0, build ✓, **codex GATE PASS** — P2 2건 중 1건 수정(등록 모달 stale in-flight 테스트 가드), 1건 기록(translator `sessions:1`인데 대응 세션 행 없음 — handoff2 데이터 그대로, mock 한계).
+
 ## 7. 미해결 / 추후
 - 실제 백엔드로 채울 항목: 모델 레지스트리, 메모리(Mem0), MCP(소비/노출), A2A, 권한·승인, 세션, 버저닝.
 - URL 라우팅(딥링크 필요 시), 인증.

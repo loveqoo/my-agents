@@ -70,6 +70,15 @@ export interface Agent {
   created: string
   activeVersion: string
   versions: VersionMeta[]
+  /* ---- code-defined agent (source === 'code') ---- */
+  source?: 'ui' | 'code'
+  endpoint?: string
+  token?: string
+  runtime?: string
+  repo?: string
+  commit?: string
+  registeredAt?: string
+  lastSync?: string
 }
 export interface Session {
   id: string
@@ -168,7 +177,7 @@ export const BLOCKS: Record<string, BlockCategory> = {
 
 /* ---------- 에이전트 ---------- */
 export const ADMIN_AGENTS: Agent[] = [
-  { id: 'research', name: 'Research Assistant', agentId: 'agt_rsch_7f3a91', environments: ['sandbox', 'production'], model: 'claude-sonnet-4', status: 'online',
+  { id: 'research', name: 'Research Assistant', source: 'ui', agentId: 'agt_rsch_7f3a91', environments: ['sandbox', 'production'], model: 'claude-sonnet-4', status: 'online',
     persona: 'Methodical Researcher', memories: ['단기(세션)', '장기·의미론적'], historyDepth: 20, vectorTables: ['docs_kb', 'product_titles'],
     permissions: ['web.search', 'files.read'], mcps: ['tavily', 'filesystem'],
     exposed: { a2a: true }, sessions: 2, created: '2026-05-30',
@@ -177,7 +186,7 @@ export const ADMIN_AGENTS: Agent[] = [
       { version: 'v2', status: 'archived', createdAt: '2026-06-04', note: 'Added filesystem MCP' },
       { version: 'v1', status: 'archived', createdAt: '2026-05-30', note: 'Initial' },
     ] },
-  { id: 'reviewer', name: 'Code Reviewer', agentId: 'agt_rvw_2b91c4', environments: ['sandbox', 'production'], model: 'gpt-4o', status: 'online',
+  { id: 'reviewer', name: 'Code Reviewer', source: 'ui', agentId: 'agt_rvw_2b91c4', environments: ['sandbox', 'production'], model: 'gpt-4o', status: 'online',
     persona: 'Strict Senior Engineer', memories: ['단기(세션)'], historyDepth: 10, vectorTables: [],
     permissions: ['repo.read', 'repo.merge'], mcps: ['github', 'filesystem'],
     exposed: { a2a: true }, sessions: 1, created: '2026-06-02',
@@ -186,20 +195,34 @@ export const ADMIN_AGENTS: Agent[] = [
       { version: 'v2', status: 'active', createdAt: '2026-06-09', note: 'Added repo.merge (admin-gated)' },
       { version: 'v1', status: 'archived', createdAt: '2026-06-02', note: 'Initial' },
     ] },
-  { id: 'ops', name: 'Ops Copilot', agentId: 'agt_ops_5c0833', environments: ['sandbox'], model: 'claude-haiku-4', status: 'idle',
+  { id: 'ops', name: 'Ops Copilot', source: 'ui', agentId: 'agt_ops_5c0833', environments: ['sandbox'], model: 'claude-haiku-4', status: 'idle',
     persona: 'Calm SRE', memories: [], historyDepth: 6, vectorTables: [],
     permissions: ['k8s.read', 'k8s.write'], mcps: ['prometheus', 'kubernetes'],
     exposed: { a2a: false }, sessions: 0, created: '2026-06-10',
     activeVersion: 'v1', versions: [
       { version: 'v1', status: 'active', createdAt: '2026-06-10', note: 'Initial' },
     ] },
-  { id: 'secretary', name: 'Personal Secretary', agentId: 'agt_sec_9d4417', environments: ['sandbox', 'production'], model: 'claude-sonnet-4', status: 'online',
+  { id: 'secretary', name: 'Personal Secretary', source: 'ui', agentId: 'agt_sec_9d4417', environments: ['sandbox', 'production'], model: 'claude-sonnet-4', status: 'online',
     persona: 'Warm Secretary', memories: ['단기(세션)', '장기·일화적', '절차적'], historyDepth: 40, vectorTables: ['team_notes'],
     permissions: ['calendar.rw', 'mail.send'], mcps: ['gcal', 'gmail', 'notion'],
     exposed: { a2a: false }, sessions: 1, created: '2026-06-15',
     activeVersion: 'v2', versions: [
       { version: 'v2', status: 'active', createdAt: '2026-06-16', note: 'Warmer tone' },
       { version: 'v1', status: 'archived', createdAt: '2026-06-15', note: 'Initial' },
+    ] },
+  /* 코드 정의 에이전트 — SDK로 빌드해 코드베이스에서 배포한 뒤, 엔드포인트 URL + 토큰으로
+     콘솔에 등록한다. 구성은 실행 중인 배포가 보고(REPORTED)하므로 여기서는 읽기 전용이며,
+     버전은 git 배포(commit)다. */
+  { id: 'translator', name: 'Doc Translator', source: 'code', agentId: 'agt_xlt_a17c33', environments: ['production'], model: 'claude-sonnet-4', status: 'online',
+    persona: '코드 정의 (SDK)', memories: ['단기(세션)'], historyDepth: 10, vectorTables: [],
+    permissions: ['web.search', 'files.read'], mcps: ['tavily'],
+    exposed: { a2a: true }, sessions: 1, created: '2026-06-18',
+    endpoint: 'https://agents.acme.dev/doc-translator', token: 'sk_live_a3f••••••••91c2',
+    runtime: 'my-agents-sdk · Python 2.4.1', repo: 'acme/doc-translator', commit: 'f3a91c2',
+    registeredAt: '2026-06-18', lastSync: '12분 전',
+    activeVersion: 'f3a91c2', versions: [
+      { version: 'f3a91c2', status: 'active', createdAt: '2026-06-18', note: 'Deploy · 용어집 조회 추가' },
+      { version: '9b22d01', status: 'archived', createdAt: '2026-06-14', note: 'Deploy · 초기 배포' },
     ] },
 ]
 
@@ -238,6 +261,12 @@ export const AGENT_STATUS: Record<string, StatusMeta> = {
   idle: { label: '유휴', color: 'var(--gold-6)', tag: 'gold' },
   offline: { label: '오프라인', color: 'var(--gray-6)', tag: 'default' },
 }
+/* 에이전트가 만들어진 출처. UI 구성(이 콘솔에서 블록으로 조립) vs Code 정의(SDK로 선언해
+   코드베이스에서 배포, 엔드포인트로 등록). Code 에이전트는 여기서 읽기 전용 — 구성은 코드가 소유. */
+export const AGENT_SOURCE: Record<string, StatusMeta> = {
+  ui: { label: 'UI 구성', tag: 'default', icon: 'appstore', desc: '콘솔에서 빌딩 블록을 조합해 생성 · 편집 가능' },
+  code: { label: 'Code', tag: 'geekblue', icon: 'code', desc: 'SDK로 정의해 코드베이스에서 배포 · 읽기 전용' },
+}
 
 /* ---------- 세션 ---------- */
 export const ADMIN_SESSIONS: Session[] = [
@@ -255,6 +284,11 @@ export const ADMIN_APPROVALS: Approval[] = [
 ]
 
 /* ---------- 후처리 (adminData.js의 IIFE들) ---------- */
+
+/* source 기본값 보정 — 명시 안 된 에이전트는 UI 구성으로 간주. (스냅샷 루프보다 먼저) */
+ADMIN_AGENTS.forEach((a) => {
+  if (!a.source) a.source = 'ui'
+})
 
 /* 모든 에이전트 버전에 편집 가능한 config 스냅샷을 붙인다.
    에이전트의 top-level 필드 = 활성 버전의 config. 다른 버전은 복사본을 스냅샷한다. */

@@ -43,6 +43,10 @@ import {
   ExclamationCircleOutlined,
   ShareAltOutlined,
   CalendarOutlined,
+  CodeOutlined,
+  KeyOutlined,
+  SyncOutlined,
+  LockOutlined,
 } from '@ant-design/icons'
 
 const MAP: Record<string, ComponentType<{ style?: CSSProperties; spin?: boolean }>> = {
@@ -86,6 +90,10 @@ const MAP: Record<string, ComponentType<{ style?: CSSProperties; spin?: boolean 
   'exclamation-circle': ExclamationCircleOutlined,
   'share-alt': ShareAltOutlined,
   calendar: CalendarOutlined,
+  code: CodeOutlined,
+  key: KeyOutlined,
+  sync: SyncOutlined,
+  lock: LockOutlined,
 }
 
 export function Icon({
