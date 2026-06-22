@@ -22,7 +22,9 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest):
         if record is None:
             raise HTTPException(status_code=404, detail="agent not found")
         persona = record.persona
-        params = dict(record.params or {})
+        # Phase 1: config에서 런타임 파라미터만 추출 (Phase 2에서 mem0/툴까지 확장).
+        cfg = dict(record.config or {})
+        params = {"temperature": cfg.get("temperature", 0.7)}
 
     graph = build_agent(persona, params)
     messages = [{"role": m.role, "content": m.content} for m in body.messages]
