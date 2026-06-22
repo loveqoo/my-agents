@@ -5,11 +5,17 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .db import get_session
-from .models import Message, Session
+from .models import Agent, Message, Session
 from .schemas import MessageOut, SessionOut
 from .serializers import session_to_out
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
+
+
+async def _agent_id_map(session: AsyncSession) -> dict:
+    """agent pk(UUID) → 외부 agent_id(agt_...) 매핑."""
+    rows = (await session.execute(select(Agent.id, Agent.agent_id))).all()
+    return {row.id: row.agent_id for row in rows}
 
 
 @router.get("", response_model=list[SessionOut])
@@ -17,7 +23,8 @@ async def list_sessions(
     session: AsyncSession = Depends(get_session),
 ) -> list[SessionOut]:
     result = await session.execute(select(Session).order_by(Session.started_at.desc()))
-    return [session_to_out(s) for s in result.scalars().all()]
+    amap = await _agent_id_map(session)
+    return [session_to_out(s, amap.get(s.agent_pk)) for s in result.scalars().all()]
 
 
 async def _get_session_or_404(session: AsyncSession, session_id: str) -> Session:
@@ -36,7 +43,8 @@ async def get_session_detail(
     session: AsyncSession = Depends(get_session),
 ) -> SessionOut:
     s = await _get_session_or_404(session, session_id)
-    return session_to_out(s)
+    a = await session.get(Agent, s.agent_pk)
+    return session_to_out(s, a.agent_id if a else None)
 
 
 @router.get("/{session_id}/messages", response_model=list[MessageOut])
@@ -64,4 +72,5 @@ async def end_session(
     s = await _get_session_or_404(session, session_id)
     s.status = "completed"
     await session.commit()
-    return session_to_out(s)
+    a = await session.get(Agent, s.agent_pk)
+    return session_to_out(s, a.agent_id if a else None)

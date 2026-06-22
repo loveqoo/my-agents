@@ -11,9 +11,11 @@ import {
   APPROVER,
   type Agent,
   type AgentConfig,
+  type BlockCategory,
   type VersionMeta,
 } from '../mockData'
 import {
+  getBlocks,
   listAgents,
   createAgent,
   updateAgent,
@@ -53,12 +55,27 @@ interface AgentFormData {
   mcps: string[]
 }
 
+/* 빈 폼 기본값 — persona 기본값은 로드된 blocks에서 계산(없으면 빈 값). */
+function blankForm(blocks: Record<string, BlockCategory>): AgentFormData {
+  return {
+    name: '',
+    model: 'claude-sonnet-4',
+    persona: blocks.persona?.items?.[0]?.name ?? '',
+    memories: [],
+    historyDepth: 20,
+    vectorTables: [],
+    permissions: [],
+    mcps: [],
+  }
+}
+
 /* ---- Create / edit form (composes blocks into a version config) ---- */
 function AgentForm({
   open,
   initial,
   mode,
   draftVersion,
+  blocks,
   onCancel,
   onSave,
 }: {
@@ -66,26 +83,25 @@ function AgentForm({
   initial: AgentFormData | null
   mode: 'create' | 'edit'
   draftVersion: string | null
+  blocks: Record<string, BlockCategory>
   onCancel: () => void
   onSave: (data: AgentFormData) => void
 }) {
-  const blocks = BLOCKS
-  const blank: AgentFormData = {
-    name: '',
-    model: 'claude-sonnet-4',
-    persona: blocks.persona.items[0].name,
-    memories: [],
-    historyDepth: 20,
-    vectorTables: [],
-    permissions: [],
-    mcps: [],
-  }
-  const [form, setForm] = useState<AgentFormData>(blank)
+  const [form, setForm] = useState<AgentFormData>(() => initial ? { ...initial } : blankForm(blocks))
 
   useEffect(() => {
-    setForm(initial ? { ...initial } : blank)
+    setForm(initial ? { ...initial } : blankForm(blocks))
     /* eslint-disable-next-line */
   }, [open])
+
+  // /blocks가 폼을 연 뒤 늦게 도착하면 생성 모드의 빈 persona를 첫 항목으로 채운다
+  // (페르소나 없는 에이전트 생성 방지).
+  useEffect(() => {
+    const first = blocks.persona?.items?.[0]?.name
+    if (open && mode === 'create' && first) {
+      setForm((f) => (f.persona ? f : { ...f, persona: first }))
+    }
+  }, [open, mode, blocks])
 
   const set = <K extends keyof AgentFormData>(k: K, v: AgentFormData[K]) =>
     setForm((f) => ({ ...f, [k]: v }))
@@ -139,13 +155,13 @@ function AgentForm({
               value={form.persona}
               onChange={(v) => set('persona', v)}
               style={{ width: '100%' }}
-              options={blocks.persona.items.map((p) => ({ label: p.name, value: p.name }))}
+              options={(blocks.persona?.items ?? []).map((p) => ({ label: p.name, value: p.name }))}
             />
           </Field>
         </div>
         <Field label="메모리 타입">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {blocks.memory.items.map((m) => (
+            {(blocks.memory?.items ?? []).map((m) => (
               <label
                 key={m.id}
                 style={{ display: 'flex', alignItems: 'baseline', gap: 8, fontSize: 14, cursor: 'pointer' }}
@@ -166,7 +182,7 @@ function AgentForm({
         {form.memories.includes('장기·의미론적') ? (
           <Field label="벡터 테이블 (지식 소스)">
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {blocks.embedding.items.map((t) => (
+              {(blocks.embedding?.items ?? []).map((t) => (
                 <label
                   key={t.id}
                   style={{ display: 'flex', alignItems: 'baseline', gap: 8, fontSize: 14, cursor: 'pointer' }}
@@ -206,7 +222,7 @@ function AgentForm({
         </Field>
         <Field label="권한">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {blocks.permission.items.map((p) => {
+            {(blocks.permission?.items ?? []).map((p) => {
               const a = p.approver ? APPROVER[p.approver] : APPROVER.user
               return (
                 <label
@@ -229,7 +245,7 @@ function AgentForm({
         </Field>
         <Field label="MCP 서버">
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 16px' }}>
-            {blocks.mcp.items.map((m) => (
+            {(blocks.mcp?.items ?? []).map((m) => (
               <Checkbox key={m.id} checked={form.mcps.includes(m.name)} onChange={() => toggle('mcps', m.name)}>
                 {m.name}
               </Checkbox>
@@ -999,6 +1015,7 @@ function AgentDetail({
 /* ---- Main view ---- */
 export default function AgentsView() {
   const [agents, setAgents] = useState<Agent[]>([])
+  const [blocks, setBlocks] = useState<Record<string, BlockCategory>>({})
   const [detailId, setDetailId] = useState<string | null>(null)
   const detail = agents.find((a) => a.id === detailId) || null
   const [formOpen, setFormOpen] = useState(false)
@@ -1014,10 +1031,13 @@ export default function AgentsView() {
     return () => clearTimeout(t)
   }, [toast])
 
-  // 마운트 시 백엔드에서 에이전트 목록을 로드.
+  // 마운트 시 백엔드에서 에이전트 목록 + 빌딩 블록을 로드.
   useEffect(() => {
     listAgents()
       .then(setAgents)
+      .catch((e) => message.error(String(e)))
+    getBlocks()
+      .then(setBlocks)
       .catch((e) => message.error(String(e)))
   }, [])
 
@@ -1355,6 +1375,7 @@ export default function AgentsView() {
       <AgentForm
         open={formOpen}
         mode={editing ? 'edit' : 'create'}
+        blocks={blocks}
         draftVersion={
           editing
             ? draftOf(editing.agent)

@@ -147,6 +147,28 @@ async def seed_if_empty(session: AsyncSession) -> None:
                 )
             session.add(agent)
 
+        # 코드 정의(SDK 배포) 에이전트 — UI mock과 동일하게 1개 시드.
+        code_cfg = {
+            "model": "claude-sonnet-4", "persona": "코드 정의 (SDK)", "memories": ["단기(세션)"],
+            "vectorTables": [], "permissions": ["web.search", "files.read"], "mcps": ["tavily"],
+            "historyDepth": 10,
+        }
+        translator = Agent(
+            agent_id="agt_xlt_a17c33", name="Doc Translator", source="code", model="claude-sonnet-4",
+            persona="코드 정의 (SDK)", history_depth=10, config=code_cfg, exposed={"a2a": True},
+            status="online", active_version="f3a91c2",
+            endpoint="https://agents.acme.dev/doc-translator", token="sk_live_a3f••••••••91c2",
+            runtime="my-agents-sdk · Python 2.4.1", repo="acme/doc-translator", commit="f3a91c2",
+            registered_at="2026-06-18", last_sync="12분 전",
+        )
+        translator.versions.append(
+            AgentVersion(version="f3a91c2", status="active", note="Deploy · 용어집 조회 추가", config=dict(code_cfg))
+        )
+        translator.versions.append(
+            AgentVersion(version="9b22d01", status="archived", note="Deploy · 초기 배포", config=dict(code_cfg))
+        )
+        session.add(translator)
+
     if await _empty(session, Session):
         # agent_pk 연결을 위해 먼저 flush 필요 — 시드 에이전트가 같은 트랜잭션에 있을 수 있음
         await session.flush()

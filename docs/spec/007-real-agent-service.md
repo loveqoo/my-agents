@@ -82,7 +82,11 @@ approvals(id, session_id, agent_id, permission, action, args jsonb,
 
 ### 추후 (이번 범위 밖)
 - ✅ Playground 실채팅 배선 (완료 — 실 에이전트 + streamChat + 실 트레이스 인스펙터, E2E 검증)
-- AgentForm 블록옵션 API 로드, Alembic, sessions/approvals agentId 외부id화, mem0 재시도, 실 MCP 연결, HIL interrupt 실제화.
+- ✅ AgentForm 블록옵션 `/blocks` API 로드 (완료)
+- ✅ Alembic 마이그레이션 (완료 — sync psycopg env, 시작 시 upgrade head + create_all 폴백/stamp)
+- ✅ sessions/approvals agentId 외부 id화 (완료 — codex P2)
+- ✅ 단순 에이전트(페르소나만) 생성 → 즉시 대화 (완료 — seed에 code 에이전트 포함, E2E)
+- 남음: mem0 재시도, 실 MCP 연결, HIL interrupt 실제화.
 
 ### E2E (tests/e2e, Playwright)
 - API 통합 12 + 브라우저 9 = 20 passed / 1 skip(대기 승인 없음). 회상-주입 system 메시지 버그를 E2E가 포착·수정([[010]]).

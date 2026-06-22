@@ -46,10 +46,10 @@ def agent_to_out(a: Agent) -> AgentOut:
     )
 
 
-def session_to_out(s: Session) -> SessionOut:
+def session_to_out(s: Session, agent_external_id: str | None = None) -> SessionOut:
     return SessionOut(
         id=s.session_id,
-        agentId=str(s.agent_pk),
+        agentId=agent_external_id or str(s.agent_pk),
         agent=s.agent_name,
         channel=s.channel,
         status=s.status,
@@ -60,11 +60,11 @@ def session_to_out(s: Session) -> SessionOut:
     )
 
 
-def approval_to_out(p: Approval) -> ApprovalOut:
+def approval_to_out(p: Approval, agent_external_id: str | None = None) -> ApprovalOut:
     return ApprovalOut(
         id=p.approval_id,
         sessionId=p.session_id,
-        agentId=str(p.agent_pk) if p.agent_pk else None,
+        agentId=agent_external_id or (str(p.agent_pk) if p.agent_pk else None),
         agent=p.agent_name,
         permission=p.permission,
         action=p.action,

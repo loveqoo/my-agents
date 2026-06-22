@@ -5,11 +5,16 @@ from sqlalchemy import case, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .db import get_session
-from .models import Approval
+from .models import Agent, Approval
 from .schemas import ApprovalOut, ResolveIn
 from .serializers import approval_to_out
 
 router = APIRouter(prefix="/approvals", tags=["approvals"])
+
+
+async def _agent_id_map(session: AsyncSession) -> dict:
+    rows = (await session.execute(select(Agent.id, Agent.agent_id))).all()
+    return {row.id: row.agent_id for row in rows}
 
 
 @router.get("", response_model=list[ApprovalOut])
@@ -21,7 +26,8 @@ async def list_approvals(
     result = await session.execute(
         select(Approval).order_by(pending_first, Approval.requested_at.desc())
     )
-    return [approval_to_out(p) for p in result.scalars().all()]
+    amap = await _agent_id_map(session)
+    return [approval_to_out(p, amap.get(p.agent_pk)) for p in result.scalars().all()]
 
 
 @router.post("/{approval_id}/resolve", response_model=ApprovalOut)
@@ -38,4 +44,5 @@ async def resolve_approval(
         raise HTTPException(status_code=404, detail="not found")
     p.status = "approved" if body.decision == "approve" else "rejected"
     await session.commit()
-    return approval_to_out(p)
+    a = await session.get(Agent, p.agent_pk) if p.agent_pk else None
+    return approval_to_out(p, a.agent_id if a else None)

@@ -117,6 +117,26 @@ test.describe('에이전트 CRUD + 버저닝', () => {
     await request.delete(`/agents/${a.id}`)
   })
 
+  test('단순 에이전트(페르소나만) 생성 → 실제 대화 가능', async ({ request }) => {
+    test.setTimeout(150_000)
+    // 부가기능(mcp·memory·vectorTable·permission) 없이 페르소나만
+    const a = await createAgent(request, uniq('simple'), {
+      mcps: [],
+      memories: [],
+      vectorTables: [],
+      permissions: [],
+    })
+    const res = await request.post(`/agents/${a.id}/chat`, {
+      data: { messages: [{ role: 'user', content: '한 단어로 인사해줘' }] },
+      timeout: 120_000,
+    })
+    expect(res.ok(), `chat ${res.status()}`).toBeTruthy()
+    const sse = await res.text()
+    expect(sse, '스트리밍 텍스트 프레임').toContain('"text"')
+    expect(sse, '트레이스 프레임').toContain('event: trace')
+    await request.delete(`/agents/${a.id}`)
+  })
+
   test('expose 토글', async ({ request }) => {
     const a = await createAgent(request, uniq('agent'))
     const on = await (await request.put(`/agents/${a.id}/expose`, { data: { a2a: true } })).json()
