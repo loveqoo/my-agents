@@ -96,6 +96,19 @@ test('세션 — 목록 렌더 + 행 클릭 시 상세', async ({ page }) => {
   await expect(page.getByText('채널').first()).toBeVisible()
 })
 
+test('Playground — 실 에이전트와 대화 + 인스펙터 트레이스', async ({ page }) => {
+  test.setTimeout(150_000)
+  await page.getByRole('menuitem', { name: 'Playground' }).click()
+  // 실 에이전트 로드 → Sender 입력창 노출
+  const sender = page.getByPlaceholder(/메시지/)
+  await expect(sender).toBeVisible({ timeout: 15_000 })
+  await sender.fill('한 단어로 인사해줘')
+  await sender.press('Enter')
+  // 전체 응답 완료 시 trace 도착 → 인스펙터 자동 오픈 (실 LangGraph 경로 표시)
+  await expect(page.getByText('턴 인스펙터')).toBeVisible({ timeout: 120_000 })
+  await expect(page.getByText('LangGraph 경로')).toBeVisible()
+})
+
 test('승인 — 카드 또는 빈 상태 렌더', async ({ page }) => {
   await page.getByRole('menuitem', { name: '승인' }).click()
   // 대기 건이 있으면 "승인 및 재개" 버튼, 없으면 빈 상태 문구

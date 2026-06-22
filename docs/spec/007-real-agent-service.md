@@ -81,7 +81,11 @@ approvals(id, session_id, agent_id, permission, action, args jsonb,
 - [x] 타자 검증(codex) 3회 우선 적용.
 
 ### 추후 (이번 범위 밖)
-- Playground 실채팅 배선, AgentForm 블록옵션 API 로드, Alembic, sessions/approvals agentId 외부id화, mem0 재시도, 실 MCP 연결, HIL interrupt 실제화.
+- ✅ Playground 실채팅 배선 (완료 — 실 에이전트 + streamChat + 실 트레이스 인스펙터, E2E 검증)
+- AgentForm 블록옵션 API 로드, Alembic, sessions/approvals agentId 외부id화, mem0 재시도, 실 MCP 연결, HIL interrupt 실제화.
+
+### E2E (tests/e2e, Playwright)
+- API 통합 12 + 브라우저 9 = 20 passed / 1 skip(대기 승인 없음). 회상-주입 system 메시지 버그를 E2E가 포착·수정([[010]]).
 
 ## 7. 리스크
 - **Mem0 + 로컬 MLX/임베더 정합**: 가장 불확실. 실패 시 메모리 비활성 폴백, 추후 안정화.

@@ -1,12 +1,13 @@
 /* my-agents debug console — center: chat with the selected agent.
    Header exposes the agent's config + a "System prompt" toggle. Each assistant
-   turn is selectable (drives the Inspector) and shows trace chips. */
+   turn is selectable (drives the Inspector) and shows trace chips. Data is real:
+   agents come from the backend, turns/traces come from the streaming chat API. */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Bubble, Sender, Welcome, Prompts } from '@ant-design/x'
 import { Avatar, Button, Tag } from 'antd'
 import { Icon } from '../admin/icons'
-import { A2UISurface } from './A2UISurface'
-import type { DebugAgent, ChatMsg, Trace } from './agentData'
+import type { ChatMsg, Trace } from './agentData'
+import type { Agent } from '../admin/mockData'
 
 const agentAvatar = (
   <Avatar style={{ background: 'var(--gray-12)', flex: 'none' }}>
@@ -20,18 +21,17 @@ const STATUS_DOT: Record<string, string> = {
   idle: 'var(--gold-6)',
   offline: 'var(--gray-6)',
 }
+const statusDot = (status: string) => STATUS_DOT[status] ?? 'var(--gray-6)'
 
 interface DebugChatProps {
-  agent: DebugAgent
-  agents: DebugAgent[]
+  agent: Agent | null
+  agents: Agent[]
   onSwitchAgent: (id: string) => void
   messages: ChatMsg[]
   streaming: boolean
   selectedTurn: number | null
   onSelectTurn: (i: number) => void
   onSend: (text: string) => void
-  onResolveApproval: (i: number, decision: 'approve' | 'reject') => void
-  onA2UIAction: (i: number, action: { name: string }, data: { form: Record<string, unknown> }) => void
   onStop: () => void
   showPrompt: boolean
   onTogglePrompt: () => void
@@ -39,13 +39,8 @@ interface DebugChatProps {
   onToggleInspector: () => void
 }
 
-function ExposeBadges({ agent }: { agent: DebugAgent }) {
-  return (
-    <div style={{ display: 'flex', gap: 6 }}>
-      {agent.exposed.a2a ? <Tag color="green">A2A</Tag> : null}
-      {agent.exposed.mcp ? <Tag color="cyan">MCP 서버</Tag> : null}
-    </div>
-  )
+function ExposeBadges({ agent }: { agent: Agent }) {
+  return <div style={{ display: 'flex', gap: 6 }}>{agent.exposed?.a2a ? <Tag color="green">A2A</Tag> : null}</div>
 }
 
 /* Rich agent picker — replaces the left rail. Shows avatar, persona, model and
@@ -55,8 +50,8 @@ function AgentCombo({
   agents,
   onSwitch,
 }: {
-  agent: DebugAgent
-  agents: DebugAgent[]
+  agent: Agent
+  agents: Agent[]
   onSwitch: (id: string) => void
 }) {
   const [open, setOpen] = useState(false)
@@ -96,7 +91,7 @@ function AgentCombo({
               width: 9,
               height: 9,
               borderRadius: '50%',
-              background: STATUS_DOT[agent.status],
+              background: statusDot(agent.status),
               border: '2px solid #fff',
             }}
           />
@@ -199,7 +194,7 @@ function AgentCombo({
                       width: 8,
                       height: 8,
                       borderRadius: '50%',
-                      background: STATUS_DOT[a.status],
+                      background: statusDot(a.status),
                       border: '2px solid var(--color-bg-elevated)',
                     }}
                   />
@@ -239,8 +234,8 @@ function ChatHeader({
   inspectorOpen,
   onToggleInspector,
 }: {
-  agent: DebugAgent
-  agents: DebugAgent[]
+  agent: Agent
+  agents: Agent[]
   onSwitchAgent: (id: string) => void
   showPrompt: boolean
   onTogglePrompt: () => void
@@ -295,7 +290,7 @@ function ChatHeader({
               overflow: 'auto',
             }}
           >
-            {agent.systemPrompt}
+            {agent.systemPrompt ?? ''}
           </pre>
         </div>
       ) : null}
@@ -339,181 +334,6 @@ function TraceChips({ trace, active, onClick }: { trace?: Trace; active: boolean
   )
 }
 
-/* HIL approval card rendered inline in the thread when a run hits interrupt(). */
-function ApprovalCard({
-  msg,
-  disabled,
-  onResolve,
-}: {
-  msg: Extract<ChatMsg, { role: 'approval' }>
-  disabled: boolean
-  onResolve: (decision: 'approve' | 'reject') => void
-}) {
-  const isAdmin = msg.approver === 'admin'
-  const accent = isAdmin ? 'var(--purple-6)' : 'var(--color-primary)'
-  const resolved = msg.state === 'approved' || msg.state === 'rejected'
-  return (
-    <div style={{ display: 'flex', gap: 12, alignSelf: 'flex-start', maxWidth: '100%' }}>
-      <span
-        style={{
-          width: 32,
-          height: 32,
-          borderRadius: '50%',
-          flex: 'none',
-          background: accent,
-          color: '#fff',
-          display: 'inline-flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <Icon name="clock-circle" size={16} />
-      </span>
-      <div
-        style={{
-          border: '1px solid ' + accent,
-          borderRadius: 12,
-          overflow: 'hidden',
-          flex: 1,
-          minWidth: 0,
-          background: isAdmin ? 'var(--purple-1)' : 'var(--color-primary-bg)',
-        }}
-      >
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            padding: '10px 14px',
-            borderBottom: '1px solid ' + (isAdmin ? 'var(--purple-3)' : 'var(--color-primary-border)'),
-          }}
-        >
-          <Icon name="exclamation-circle" size={14} style={{ color: accent }} />
-          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-heading)' }}>승인 필요</span>
-          <Tag color={isAdmin ? 'purple' : 'blue'} style={{ marginInlineStart: 'auto' }}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-              <Icon name={isAdmin ? 'team' : 'user'} size={10} />
-              {isAdmin ? '관리자' : '사용자'}
-            </span>
-          </Tag>
-        </div>
-        <div style={{ padding: '12px 14px' }}>
-          <div style={{ fontSize: 14, color: 'var(--color-text-heading)', fontWeight: 500, marginBottom: 8 }}>{msg.summary}</div>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
-            <Tag color="geekblue">{msg.permission}</Tag>
-            <Tag color="cyan">
-              <code style={{ fontFamily: 'var(--font-family-code)' }}>{msg.tool}</code>
-            </Tag>
-          </div>
-          <pre
-            style={{
-              fontFamily: 'var(--font-family-code)',
-              fontSize: 12,
-              lineHeight: 1.5,
-              color: 'var(--color-text)',
-              background: 'var(--color-bg-container)',
-              border: '1px solid var(--color-border-secondary)',
-              borderRadius: 6,
-              padding: '8px 10px',
-              margin: 0,
-              whiteSpace: 'pre-wrap',
-            }}
-          >
-            {JSON.stringify(msg.args, null, 2)}
-          </pre>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10, fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-            <Icon name="clock-circle" size={12} />
-            일시정지 지점{' '}
-            <code style={{ fontFamily: 'var(--font-family-code)', color: 'var(--color-text-secondary)' }}>{msg.checkpoint}</code>
-          </div>
-
-          {isAdmin ? (
-            <div style={{ marginTop: 12, fontSize: 13, color: 'var(--purple-7)', display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Icon name="share-alt" size={13} />
-              관리자 승인 큐로 라우팅됨 — 관리자가 처리할 때까지 세션이 대기합니다.
-            </div>
-          ) : resolved ? (
-            <div
-              style={{
-                marginTop: 12,
-                fontSize: 13,
-                fontWeight: 500,
-                color: msg.state === 'approved' ? 'var(--color-success)' : 'var(--color-error)',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-              }}
-            >
-              <Icon name={msg.state === 'approved' ? 'check-circle' : 'close-circle'} size={14} />
-              {msg.state === 'approved' ? '승인됨 — 체크포인트에서 재개' : '거부됨 — 실행 중단'}
-            </div>
-          ) : (
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
-              <Button size="small" danger icon={<Icon name="close" />} disabled={disabled} onClick={() => onResolve('reject')}>
-                거부
-              </Button>
-              <Button size="small" type="primary" icon={<Icon name="check" />} disabled={disabled} onClick={() => onResolve('approve')}>
-                승인 및 재개
-              </Button>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-/* Generative-UI message: the agent replied with an A2UI surface. */
-function A2UIMessage({
-  msg,
-  disabled,
-  onAction,
-}: {
-  msg: Extract<ChatMsg, { role: 'a2ui' }>
-  disabled: boolean
-  onAction: (action: { name: string }, data: { form: Record<string, unknown> }) => void
-}) {
-  return (
-    <div style={{ display: 'flex', gap: 12, alignSelf: 'flex-start', maxWidth: '100%' }}>
-      <span
-        style={{
-          width: 32,
-          height: 32,
-          borderRadius: '50%',
-          flex: 'none',
-          background: 'var(--gray-12)',
-          color: '#fff',
-          display: 'inline-flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <Icon name="appstore" size={16} />
-      </span>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-          <Tag color="cyan">
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-              <Icon name="appstore" size={10} />
-              A2UI 서페이스
-            </span>
-          </Tag>
-          {msg.state === 'submitted' ? <Tag color="green">제출됨</Tag> : null}
-        </div>
-        <div
-          style={{
-            maxWidth: 380,
-            pointerEvents: msg.state === 'submitted' || disabled ? 'none' : 'auto',
-            opacity: msg.state === 'submitted' ? 0.7 : 1,
-          }}
-        >
-          <A2UISurface messages={msg.surface} onAction={onAction} />
-        </div>
-      </div>
-    </div>
-  )
-}
-
 export function DebugChat({
   agent,
   agents,
@@ -523,8 +343,6 @@ export function DebugChat({
   selectedTurn,
   onSelectTurn,
   onSend,
-  onResolveApproval,
-  onA2UIAction,
   onStop,
   showPrompt,
   onTogglePrompt,
@@ -536,22 +354,30 @@ export function DebugChat({
     if (scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight
   }, [messages, streaming, showPrompt])
 
+  if (!agent) {
+    return (
+      <div
+        style={{
+          flex: 1,
+          minWidth: 0,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: 'var(--color-text-tertiary)',
+          background: 'var(--color-bg-container)',
+        }}
+      >
+        에이전트를 불러오는 중…
+      </div>
+    )
+  }
+
   const empty = messages.length === 0
 
-  const hilDescription =
-    agent.id === 'reviewer'
-      ? 'PR #482를 main에 병합해줘'
-      : agent.id === 'ops'
-      ? 'prod api 배포를 증설해줘'
-      : agent.id === 'secretary'
-      ? '팀에 업데이트 이메일을 보내줘'
-      : '마지막 실행이 왜 실패했는지 재현해줘'
-
   const promptItems = [
-    { key: '1', icon: <Icon name="bulb" style={{ color: 'var(--purple-6)' }} />, label: '메모리 회상 테스트', description: '지난번에 무슨 얘기를 나눔지?' },
+    { key: '1', icon: <Icon name="bulb" style={{ color: 'var(--purple-6)' }} />, label: '메모리 회상 테스트', description: '지난번에 무슨 얘기를 나눴지?' },
     { key: '2', icon: <Icon name="thunderbolt" style={{ color: 'var(--cyan-7)' }} />, label: '도구 호출 유도', description: '스트리밍 UI 최신 동향을 검색해줘' },
-    { key: '3', icon: <Icon name="appstore" style={{ color: 'var(--cyan-7)' }} />, label: '생성형 UI (A2UI)', description: '팀과 회의 일정을 잡아줘' },
-    { key: '4', icon: <Icon name="user" style={{ color: 'var(--color-primary)' }} />, label: 'HIL 승인 트리거', description: hilDescription },
+    { key: '3', icon: <Icon name="file" style={{ color: 'var(--color-primary)' }} />, label: '시스템 프롬프트 확인', description: '너의 역할과 규칙을 한 줄로 요약해줘' },
   ]
 
   return (
@@ -602,12 +428,6 @@ export function DebugChat({
                       footer={footer}
                     />
                   )
-                }
-                if (m.role === 'approval') {
-                  return <ApprovalCard key={i} msg={m} disabled={streaming} onResolve={(d) => onResolveApproval(i, d)} />
-                }
-                if (m.role === 'a2ui') {
-                  return <A2UIMessage key={i} msg={m} disabled={streaming} onAction={(action, data) => onA2UIAction(i, action, data)} />
                 }
                 return <Bubble key={i} placement="end" variant="filled" avatar={userAvatar} content={m.text} />
               })}

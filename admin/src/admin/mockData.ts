@@ -68,6 +68,7 @@ export interface Agent {
   exposed: { a2a: boolean }
   sessions: number
   created: string
+  systemPrompt?: string
   activeVersion: string
   versions: VersionMeta[]
   /* ---- code-defined agent (source === 'code') ---- */

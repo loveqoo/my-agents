@@ -1,167 +1,122 @@
-/* my-agents debug console — app shell. Wires agent selection, conversation state,
-   fake LangGraph runs with captured traces, and the turn → Inspector link.
-   3-pane: agent picker (in header) + debug chat + right-side turn Inspector. */
+/* my-agents debug console — app shell. Loads real agents, drives the real
+   streaming chat API, and links each assistant turn → the Inspector from the
+   real execution trace. 3-pane: agent picker (in header) + debug chat + Inspector. */
 import { useEffect, useRef, useState } from 'react'
+import { message } from 'antd'
 import { DebugChat } from './DebugChat'
 import { Inspector } from './Inspector'
-import {
-  AGENTS,
-  AGENT_SEED,
-  planAgent,
-  resumeAgent,
-  runAgent,
-  type ChatMsg,
-  type Trace,
-} from './agentData'
+import type { ChatMsg, Trace } from './agentData'
+import type { Agent } from '../admin/mockData'
+import { listAgents, streamChat, type ChatMessage } from '../api'
 
 export function Playground() {
-  const agents = AGENTS
-  const [activeId, setActiveId] = useState('research')
-  const [convos, setConvos] = useState<Record<string, ChatMsg[]>>(AGENT_SEED)
+  const [agents, setAgents] = useState<Agent[]>([])
+  const [activeId, setActiveId] = useState('')
+  const [convos, setConvos] = useState<Record<string, ChatMsg[]>>({})
+  const [sessions, setSessions] = useState<Record<string, string>>({})
   const [streaming, setStreaming] = useState(false)
   const [showPrompt, setShowPrompt] = useState(false)
   const [selectedTurn, setSelectedTurn] = useState<number | null>(null)
   const [inspectorOpen, setInspectorOpen] = useState(false)
-  const timer = useRef<ReturnType<typeof setInterval> | null>(null)
+  const controllerRef = useRef<AbortController | null>(null)
 
-  const agent = agents.find((a) => a.id === activeId) ?? agents[0]
+  const activeAgent = agents.find((a) => a.id === activeId) ?? null
   const messages = convos[activeId] || []
 
-  // default-select the latest assistant turn with a trace
+  // 마운트 시 실제 에이전트 목록 로드 — 첫 번째 에이전트를 활성으로.
   useEffect(() => {
-    const idx = [...messages]
-      .map((m, i) => ({ m, i }))
-      .reverse()
-      .find((x) => x.m.role === 'ai' && x.m.trace)
-    setSelectedTurn(idx ? idx.i : null)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeId])
+    let cancelled = false
+    listAgents()
+      .then((list) => {
+        if (cancelled) return
+        setAgents(list)
+        if (list.length) setActiveId(list[0].id)
+      })
+      .catch(() => {
+        if (!cancelled) message.error('에이전트 목록을 불러오지 못했습니다.')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
-  // 언마운트 시 스트리밍 interval 정리 — 다른 뷰로 이동해도 setState가 호출되지 않도록.
+  // 언마운트 시 진행 중인 스트림 중단.
   useEffect(() => {
     return () => {
-      if (timer.current) clearInterval(timer.current)
+      controllerRef.current?.abort()
     }
   }, [])
 
   const stop = () => {
-    if (timer.current) {
-      clearInterval(timer.current)
-      timer.current = null
-    }
+    controllerRef.current?.abort()
+    controllerRef.current = null
     setStreaming(false)
   }
 
-  const streamReply = (id: string, full: string, trace: Trace) => {
-    setStreaming(true)
-    setConvos((c) => ({ ...c, [id]: [...(c[id] || []), { role: 'ai', text: '' }] }))
-    let i = 0
-    const step = Math.max(2, Math.round(full.length / 80))
-    timer.current = setInterval(() => {
-      i += step
-      const slice = full.slice(0, i)
+  const send = async (text: string) => {
+    if (streaming) return
+    const id = activeId
+    if (!id) return
+
+    // 직전 대화로 백엔드 메시지 배열 구성 — me→user, ai→assistant, 빈 텍스트 제외.
+    const prior = convos[id] || []
+    const apiMessages: ChatMessage[] = prior
+      .filter((m) => m.text.trim())
+      .map((m) => ({ role: m.role === 'me' ? 'user' : 'assistant', content: m.text }))
+    apiMessages.push({ role: 'user', content: text })
+
+    // 사용자 턴 + 빈 ai 플레이스홀더 추가.
+    setConvos((c) => ({
+      ...c,
+      [id]: [...(c[id] || []), { role: 'me', text }, { role: 'ai', text: '' }],
+    }))
+
+    const appendToLastAi = (fn: (prev: ChatMsg) => ChatMsg) => {
       setConvos((c) => {
         const arr = (c[id] || []).slice()
-        arr[arr.length - 1] = { role: 'ai', text: slice }
+        const last = arr[arr.length - 1]
+        if (last && last.role === 'ai') arr[arr.length - 1] = fn(last)
         return { ...c, [id]: arr }
       })
-      if (i >= full.length) {
-        if (timer.current) clearInterval(timer.current)
-        timer.current = null
-        setStreaming(false)
-        setConvos((c) => {
-          const arr = (c[id] || []).slice()
-          arr[arr.length - 1] = { role: 'ai', text: full, trace }
-          setSelectedTurn(arr.length - 1)
-          return { ...c, [id]: arr }
-        })
+    }
+
+    const controller = new AbortController()
+    controllerRef.current = controller
+    setStreaming(true)
+    try {
+      await streamChat(
+        id,
+        apiMessages,
+        {
+          onToken: (t) => appendToLastAi((prev) => ({ ...prev, text: prev.text + t })),
+          onSession: (sid) => setSessions((s) => ({ ...s, [id]: sid })),
+          onTrace: (tr) => {
+            const trace = tr as unknown as Trace
+            setConvos((c) => {
+              const arr = (c[id] || []).slice()
+              const lastIdx = arr.length - 1
+              const last = arr[lastIdx]
+              if (last && last.role === 'ai') arr[lastIdx] = { ...last, trace }
+              setSelectedTurn(lastIdx)
+              return { ...c, [id]: arr }
+            })
+            setInspectorOpen(true)
+          },
+        },
+        controller.signal,
+        sessions[id],
+      )
+    } catch (e) {
+      if (e instanceof DOMException && e.name === 'AbortError') {
+        /* 사용자가 취소 — 무시 */
+      } else {
+        const msg = e instanceof Error ? e.message : String(e)
+        appendToLastAi((prev) => ({ ...prev, text: prev.text + `\n[오류] ${msg}` }))
       }
-    }, 38)
-  }
-
-  // User submitted an A2UI surface — the action + data model flow back to the agent.
-  const onA2UIAction = (msgIndex: number, action: { name: string }, data: { form: Record<string, unknown> }) => {
-    if (streaming) return
-    const id = activeId
-    setConvos((c) => {
-      const arr = (c[id] || []).slice()
-      const target = arr[msgIndex]
-      if (target && target.role === 'a2ui') arr[msgIndex] = { ...target, state: 'submitted', submitted: data }
-      return { ...c, [id]: arr }
-    })
-    const f = (data && data.form) || {}
-    const base = runAgent(agent, 'confirm ' + (action && action.name))
-    base.text =
-      '완료 — "' +
-      (String(f.title || '회의')) +
-      '" 일정을 ' +
-      (String(f.date || '')) +
-      ' ' +
-      (String(f.time || '')) +
-      '에 ' +
-      (String(f.attendees || '팀')) +
-      '과(와) 잡았습니다' +
-      (f.remind ? ', 하루 전 모두에게 리마인더도 보낼게요' : '') +
-      '. A2UI 액션 ' +
-      (action && action.name) +
-      '이(가) 폼 데이터 모델과 함께 저에게 회신되었습니다.'
-    setTimeout(() => streamReply(id, base.text, base.trace), 260)
-  }
-
-  const send = (text: string) => {
-    if (streaming) return
-    const id = activeId
-    setConvos((c) => ({ ...c, [id]: [...(c[id] || []), { role: 'me', text }] }))
-    const plan = planAgent(agent, text)
-    if (plan.type === 'a2ui') {
-      // Agent replies with generative UI (A2UI) instead of text.
-      setTimeout(() => {
-        setConvos((c) => ({
-          ...c,
-          [id]: [...(c[id] || []), { role: 'a2ui', id: 'srf-' + Date.now(), surface: plan.surface, state: 'open' }],
-        }))
-      }, 260)
-      return
+    } finally {
+      controllerRef.current = null
+      setStreaming(false)
     }
-    if (plan.type === 'interrupt') {
-      // Run hit interrupt() — pause at a checkpoint and surface an approval request.
-      setTimeout(() => {
-        setConvos((c) => ({
-          ...c,
-          [id]: [
-            ...(c[id] || []),
-            {
-              role: 'approval',
-              id: 'apr-' + Date.now(),
-              approver: plan.approver,
-              permission: plan.permission,
-              tool: plan.tool,
-              args: plan.args,
-              summary: plan.summary,
-              checkpoint: plan.checkpoint,
-              state: plan.approver === 'admin' ? 'routed' : 'pending',
-            },
-          ],
-        }))
-      }, 260)
-      return
-    }
-    setTimeout(() => streamReply(id, plan.text, plan.trace), 260)
-  }
-
-  // Resolve an inline (user) approval, then resume the run from its checkpoint.
-  const resolveApproval = (msgIndex: number, decision: 'approve' | 'reject') => {
-    if (streaming) return
-    const id = activeId
-    const info = (convos[id] || [])[msgIndex]
-    if (!info || info.role !== 'approval') return
-    setConvos((c) => {
-      const arr = (c[id] || []).slice()
-      arr[msgIndex] = { ...info, state: decision === 'approve' ? 'approved' : 'rejected' }
-      return { ...c, [id]: arr }
-    })
-    const resumed = resumeAgent(agent, info, decision)
-    setTimeout(() => streamReply(id, resumed.text, resumed.trace), 260)
   }
 
   const switchAgent = (id: string) => {
@@ -181,7 +136,7 @@ export function Playground() {
   return (
     <div style={{ flex: 1, minHeight: 0, display: 'flex', background: 'var(--color-bg-container)' }}>
       <DebugChat
-        agent={agent}
+        agent={activeAgent}
         agents={agents}
         onSwitchAgent={switchAgent}
         messages={messages}
@@ -189,8 +144,6 @@ export function Playground() {
         selectedTurn={inspectorOpen ? selectedTurn : null}
         onSelectTurn={openInspector}
         onSend={send}
-        onResolveApproval={resolveApproval}
-        onA2UIAction={onA2UIAction}
         onStop={stop}
         showPrompt={showPrompt}
         onTogglePrompt={() => setShowPrompt((s) => !s)}
@@ -198,7 +151,7 @@ export function Playground() {
         onToggleInspector={() => setInspectorOpen((o) => !o)}
       />
       {inspectorOpen ? (
-        <Inspector agent={agent} turn={selectedMsg} turnIndex={selectedTurn || 0} onClose={() => setInspectorOpen(false)} />
+        <Inspector agent={activeAgent} turn={selectedMsg} turnIndex={selectedTurn || 0} onClose={() => setInspectorOpen(false)} />
       ) : null}
     </div>
   )

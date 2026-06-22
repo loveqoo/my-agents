@@ -4,7 +4,8 @@
 import { useState, type CSSProperties, type ReactNode } from 'react'
 import { Tag, Button } from 'antd'
 import { Icon } from '../admin/icons'
-import type { DebugAgent, ChatMsg, Memory, McpCallT, GraphNode, Trace } from './agentData'
+import type { ChatMsg, Memory, McpCallT, GraphNode, Trace } from './agentData'
+import type { Agent } from '../admin/mockData'
 
 function Section({
   icon,
@@ -181,7 +182,7 @@ export function Inspector({
   turnIndex,
   onClose,
 }: {
-  agent: DebugAgent | null
+  agent: Agent | null
   turn: ChatMsg | null
   turnIndex: number
   onClose?: () => void

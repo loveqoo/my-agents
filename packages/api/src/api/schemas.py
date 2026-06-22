@@ -121,7 +121,8 @@ class AgentOut(BaseModel):
     name: str
     source: str
     model: str
-    persona: str  # 해석된 페르소나 본문(또는 이름)
+    persona: str  # 페르소나 이름(블록 참조, UI 표시용)
+    systemPrompt: str = ""  # 해석된 시스템 프롬프트 본문(런타임이 쓰는 것)
     historyDepth: int
     memories: list[str] = Field(default_factory=list)
     vectorTables: list[str] = Field(default_factory=list)

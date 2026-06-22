@@ -17,6 +17,7 @@ def agent_to_out(a: Agent) -> AgentOut:
         source=a.source,
         model=cfg.get("model", a.model),
         persona=cfg.get("persona", a.persona),
+        systemPrompt=a.persona,  # 해석된 본문(서빙용)
         historyDepth=cfg.get("historyDepth", a.history_depth),
         memories=cfg.get("memories", []),
         vectorTables=cfg.get("vectorTables", []),
