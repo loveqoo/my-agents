@@ -1,15 +1,52 @@
 /* my-agents admin — Sessions view: live & past conversation sessions, each with
    status; click a session to see its state detail. */
-import { useState } from 'react'
-import { Tag, Button, Avatar, Alert, Radio } from 'antd'
+import { useEffect, useState } from 'react'
+import { Tag, Button, Avatar, Alert, Radio, message } from 'antd'
 import { Page, StatusPill, DataTable, Drawer, Desc, type Column } from '../shared'
 import { Icon } from '../icons'
-import { ADMIN_SESSIONS, SESSION_STATUS, type Session } from '../mockData'
+import { SESSION_STATUS, type Session } from '../mockData'
+import { listSessions, getSessionMessages, type SessionMessage } from '../../api'
 
 export default function SessionsView() {
-  const all = ADMIN_SESSIONS
+  const [all, setAll] = useState<Session[]>([])
   const [filter, setFilter] = useState<string>('all')
   const [detail, setDetail] = useState<Session | null>(null)
+  const [messages, setMessages] = useState<SessionMessage[]>([])
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const sessions = await listSessions()
+        if (!cancelled) setAll(sessions)
+      } catch {
+        message.error('세션을 불러오지 못했습니다')
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!detail) {
+      setMessages([])
+      return
+    }
+    let cancelled = false
+    const sessionId = detail.id
+    ;(async () => {
+      try {
+        const msgs = await getSessionMessages(sessionId)
+        if (!cancelled) setMessages(msgs)
+      } catch {
+        if (!cancelled) setMessages([])
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [detail])
 
   const rows =
     filter === 'all'
@@ -162,6 +199,17 @@ export default function SessionsView() {
             <div style={{ marginTop: 16 }}>
               <Alert type="info" showIcon message="디버그 콘솔에서 이 세션을 열면 턴별 프롬프트·메모리·MCP 호출을 확인할 수 있습니다." />
             </div>
+            {messages.length > 0 ? (
+              <div style={{ marginTop: 16 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-heading)', marginBottom: 8 }}>최근 메시지</div>
+                {messages.slice(-5).map((m, i) => (
+                  <div key={i} style={{ marginBottom: 8 }}>
+                    <div style={{ fontSize: 11, textTransform: 'uppercase', color: 'var(--color-text-tertiary)', letterSpacing: 0.5 }}>{m.role}</div>
+                    <div style={{ fontSize: 13, color: 'var(--color-text-secondary)', whiteSpace: 'pre-wrap' }}>{m.content}</div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </div>
         ) : null}
       </Drawer>

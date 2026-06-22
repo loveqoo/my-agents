@@ -1,54 +1,114 @@
+/* 어드민 백엔드 API 클라이언트 (007 Phase 3).
+   타입은 admin/mockData.ts와 일원화 — 백엔드 출력이 동일 shape다. */
+import type { Agent, Approval, BlockCategory, Session } from './admin/mockData'
+
 const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000'
 
-export interface Agent {
-  id: string
-  name: string
-  persona: string
-  params: Record<string, unknown>
-  created_at: string
-}
+export type { Agent, Approval, BlockCategory, Session }
 
 export interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
 }
 
-export async function listAgents(): Promise<Agent[]> {
-  const res = await fetch(`${BASE}/agents`)
-  if (!res.ok) throw new Error(`목록 조회 실패: ${res.status}`)
-  return res.json()
+async function j<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    headers: init?.body ? { 'Content-Type': 'application/json' } : undefined,
+    ...init,
+  })
+  if (!res.ok) throw new Error(`${init?.method ?? 'GET'} ${path} → ${res.status}`)
+  if (res.status === 204) return undefined as T
+  return res.json() as Promise<T>
 }
 
-/** SSE 프레임 1개 처리. [DONE]이면 true 반환(종료 신호). */
-function handleFrame(frame: string, onToken: (t: string) => void): boolean {
-  const dataLine = frame.split('\n').find((l) => l.startsWith('data: '))
+const post = (p: string, body?: unknown) =>
+  j(p, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) })
+const put = (p: string, body: unknown) => j(p, { method: 'PUT', body: JSON.stringify(body) })
+const del = (p: string) => j<void>(p, { method: 'DELETE' })
+
+/* ---------- 빌딩 블록 ---------- */
+export const getBlocks = () => j<Record<string, BlockCategory>>('/blocks')
+
+export const createMcp = (body: unknown) => post('/mcp-servers', body)
+export const updateMcp = (id: string, body: unknown) => put(`/mcp-servers/${id}`, body)
+export const deleteMcp = (id: string) => del(`/mcp-servers/${id}`)
+export const publishMcp = (id: string, published: boolean) =>
+  put(`/mcp-servers/${id}/publish`, { published })
+
+/* 카테고리별 생성/삭제 (BlocksView "새 항목"·삭제). category: personas|memory-types|vector-tables|permissions */
+export const createBlockItem = (resource: string, body: unknown) => post(`/${resource}`, body)
+export const deleteBlockItem = (resource: string, id: string) => del(`/${resource}/${id}`)
+
+/* ---------- 에이전트 ---------- */
+export const listAgents = () => j<Agent[]>('/agents')
+export const getAgent = (id: string) => j<Agent>(`/agents/${id}`)
+export const createAgent = (name: string, config: unknown) =>
+  post('/agents', { name, config }) as Promise<Agent>
+export const updateAgent = (id: string, name: string, config: unknown) =>
+  put(`/agents/${id}`, { name, config }) as Promise<Agent>
+export const deleteAgent = (id: string) => del(`/agents/${id}`)
+export const activateVersion = (id: string, version: string) =>
+  post(`/agents/${id}/activate`, { version }) as Promise<Agent>
+export const revertVersion = (id: string, version: string) =>
+  post(`/agents/${id}/revert`, { version }) as Promise<Agent>
+export const forkVersion = (id: string) => post(`/agents/${id}/versions`) as Promise<Agent>
+export const exposeAgent = (id: string, a2a: boolean) =>
+  put(`/agents/${id}/expose`, { a2a }) as Promise<Agent>
+export const registerCodeAgent = (body: unknown) => post('/agents/register', body) as Promise<Agent>
+export const resyncAgent = (id: string) => post(`/agents/${id}/resync`) as Promise<Agent>
+
+/* ---------- 세션 / 승인 ---------- */
+export const listSessions = () => j<Session[]>('/sessions')
+export interface SessionMessage {
+  role: string
+  content: string
+  trace: Record<string, unknown> | null
+}
+export const getSessionMessages = (sessionId: string) =>
+  j<SessionMessage[]>(`/sessions/${sessionId}/messages`)
+export const listApprovals = () => j<Approval[]>('/approvals')
+export const resolveApproval = (id: string, decision: 'approve' | 'reject') =>
+  post(`/approvals/${id}/resolve`, { decision }) as Promise<Approval>
+
+/* ---------- 채팅 SSE ---------- */
+export interface ChatCallbacks {
+  onToken: (t: string) => void
+  onSession?: (sessionId: string) => void
+  onTrace?: (trace: Record<string, unknown>) => void
+}
+
+function handleFrame(frame: string, cb: ChatCallbacks): boolean {
+  const lines = frame.split('\n')
+  const event = lines.find((l) => l.startsWith('event: '))?.slice(7)
+  const dataLine = lines.find((l) => l.startsWith('data: '))
   if (!dataLine) return false
   const data = dataLine.slice(6)
   if (data === '[DONE]') return true
   try {
     const parsed = JSON.parse(data)
-    if (typeof parsed.text === 'string') onToken(parsed.text)
+    if (event === 'trace') cb.onTrace?.(parsed)
+    else if (typeof parsed.text === 'string') cb.onToken(parsed.text)
+    else if (typeof parsed.session === 'string') cb.onSession?.(parsed.session)
+    else if (typeof parsed.error === 'string') cb.onToken(`\n[오류] ${parsed.error}`)
   } catch {
     /* 비-JSON 프레임 무시 */
   }
   return false
 }
 
-/**
- * chat SSE 스트리밍. POST라 EventSource를 못 쓰므로 fetch + ReadableStream으로
- * `data: {"text": "..."}` 프레임을 파싱해 토큰마다 onToken을 호출한다.
- * signal로 도중 취소(에이전트 전환/언마운트) 가능.
- */
+/** chat SSE 스트리밍 (POST → fetch+ReadableStream). session/trace 이벤트도 콜백. */
 export async function streamChat(
   agentId: string,
   messages: ChatMessage[],
-  onToken: (token: string) => void,
+  cb: ChatCallbacks | ((t: string) => void),
   signal?: AbortSignal,
+  sessionId?: string,
 ): Promise<void> {
+  const callbacks: ChatCallbacks = typeof cb === 'function' ? { onToken: cb } : cb
   const res = await fetch(`${BASE}/agents/${agentId}/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ messages }),
+    body: JSON.stringify({ messages, sessionId }),
     signal,
   })
   if (!res.ok || !res.body) throw new Error(`채팅 실패: ${res.status}`)
@@ -63,9 +123,8 @@ export async function streamChat(
     const frames = buf.split('\n\n')
     buf = frames.pop() ?? ''
     for (const frame of frames) {
-      if (handleFrame(frame, onToken)) return
+      if (handleFrame(frame, callbacks)) return
     }
   }
-  // 마지막 프레임이 빈 줄로 안 끝났을 때 남은 버퍼 처리.
-  if (buf.trim()) handleFrame(buf, onToken)
+  if (buf.trim()) handleFrame(buf, callbacks)
 }

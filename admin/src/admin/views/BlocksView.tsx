@@ -1,10 +1,41 @@
 /* my-agents admin — Building blocks (재료) browser: personas, memory policies,
    permissions, MCP servers. Category tabs → list → detail drawer. */
 import { useState, useEffect } from 'react'
-import { Tag, Button, Tabs, Switch, Modal, Input, Select, Checkbox, Alert } from 'antd'
+import { Tag, Button, Tabs, Switch, Modal, Input, Select, Checkbox, Alert, message } from 'antd'
 import { Page, DataTable, Drawer, Desc, type Column } from '../shared'
 import { Icon } from '../icons'
-import { BLOCKS, MCP_STATUS, VECTOR_STATUS, APPROVER, type BlockItem, type BlockCategory } from '../mockData'
+import { MCP_STATUS, VECTOR_STATUS, APPROVER, type BlockItem, type BlockCategory } from '../mockData'
+import {
+  getBlocks,
+  createMcp,
+  updateMcp,
+  deleteMcp,
+  publishMcp,
+  createBlockItem,
+  deleteBlockItem,
+} from '../../api'
+
+/* 백엔드 McpServerIn payload — snake_case로 in. */
+interface McpServerIn {
+  name: string
+  source: string
+  transport: string
+  url?: string
+  endpoint?: string
+  tools: string[]
+  enabled_tools: string[]
+  status: string
+  published: boolean
+  auth?: string
+}
+
+/* 비-MCP 카테고리 → 백엔드 resource 경로 매핑. */
+const RESOURCE_BY_CAT: Record<string, string> = {
+  persona: 'personas',
+  memory: 'memory-types',
+  embedding: 'vector-tables',
+  permission: 'permissions',
+}
 
 type McpFormState = {
   mode: 'register' | 'edit'
@@ -192,27 +223,100 @@ function McpForm({
 }
 
 export default function BlocksView() {
-  const [data, setData] = useState<Record<string, BlockCategory>>(BLOCKS)
+  const [data, setData] = useState<Record<string, BlockCategory>>({})
   const [cat, setCat] = useState('persona')
   const [detail, setDetail] = useState<BlockItem | null>(null)
   const [mcpForm, setMcpForm] = useState<McpFormState | null>(null) // { mode:'register'|'edit', item? }
+
+  /* 새 데이터로 열린 drawer의 detail을 id로 재조회(없으면 닫음). */
+  const syncDetail = (next: Record<string, BlockCategory>) => {
+    setDetail((dt) => {
+      if (!dt) return dt
+      for (const c of Object.keys(next)) {
+        const found = next[c].items.find((it) => it.id === dt.id)
+        if (found) return found
+      }
+      return null
+    })
+  }
+
+  const loadBlocks = async () => {
+    try {
+      const next = await getBlocks()
+      setData(next)
+      syncDetail(next)
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '블록을 불러오지 못했습니다')
+    }
+  }
+
+  useEffect(() => {
+    void loadBlocks()
+    /* eslint-disable-next-line */
+  }, [])
+
   const def = data[cat]
 
-  const togglePublish = (id: string) => {
-    setData((d) => ({
-      ...d,
-      mcp: { ...d.mcp, items: d.mcp.items.map((m) => (m.id === id ? { ...m, published: !m.published } : m)) },
-    }))
-    setDetail((dt) => (dt && dt.id === id ? { ...dt, published: !dt.published } : dt))
+  const togglePublish = async (id: string) => {
+    const current = data.mcp?.items.find((m) => m.id === id)
+    if (!current) return
+    try {
+      await publishMcp(id, !current.published)
+      await loadBlocks()
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '공개 상태 변경에 실패했습니다')
+    }
   }
-  const upsertMcp = (item: BlockItem) => {
-    setData((d) => {
-      const exists = d.mcp.items.find((m) => m.id === item.id)
-      const items = exists ? d.mcp.items.map((m) => (m.id === item.id ? item : m)) : [item, ...d.mcp.items]
-      return { ...d, mcp: { ...d.mcp, items } }
-    })
-    setDetail((dt) => (dt && dt.id === item.id ? item : dt))
-    setMcpForm(null)
+
+  const upsertMcp = async (item: BlockItem) => {
+    const isEdit = !!data.mcp?.items.some((m) => m.id === item.id)
+    const payload: McpServerIn = {
+      name: item.name,
+      source: item.source ?? 'local',
+      transport: item.transport ?? 'stdio',
+      url: item.url,
+      endpoint: item.endpoint,
+      tools: item.tools ?? [],
+      enabled_tools: item.enabledTools ?? [],
+      status: item.status ?? 'connected',
+      published: !!item.published,
+      auth: item.auth,
+    }
+    try {
+      if (isEdit) await updateMcp(item.id, payload)
+      else await createMcp(payload)
+      await loadBlocks()
+      setMcpForm(null)
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : 'MCP 저장에 실패했습니다')
+    }
+  }
+
+  const deleteCurrent = async () => {
+    if (!detail) return
+    try {
+      if (cat === 'mcp') await deleteMcp(detail.id)
+      else {
+        const resource = RESOURCE_BY_CAT[cat]
+        if (!resource) return
+        await deleteBlockItem(resource, detail.id)
+      }
+      await loadBlocks()
+      setDetail(null)
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '삭제에 실패했습니다')
+    }
+  }
+
+  const createCurrent = async () => {
+    const resource = RESOURCE_BY_CAT[cat]
+    if (!resource) return
+    try {
+      await createBlockItem(resource, { name: '새 항목' })
+      await loadBlocks()
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '생성에 실패했습니다')
+    }
   }
 
   const colsFor = (key: string): Column<BlockItem>[] => {
@@ -360,7 +464,7 @@ export default function BlocksView() {
     return [
       {
         key: 'name',
-        title: def.label.replace(/s$/, ''),
+        title: (def?.label ?? '').replace(/s$/, ''),
         render: (r) => <span style={{ fontWeight: 500, color: 'var(--color-text-heading)' }}>{r.name}</span>,
       },
       {
@@ -411,7 +515,7 @@ export default function BlocksView() {
             </Button>
           </span>
         ) : (
-          <Button type="primary" icon={<Icon name="plus" />}>
+          <Button type="primary" icon={<Icon name="plus" />} onClick={() => void createCurrent()}>
             새 항목
           </Button>
         )
@@ -425,8 +529,8 @@ export default function BlocksView() {
         }}
         items={tabItems}
       />
-      <div style={{ marginTop: 4, marginBottom: 14, color: 'var(--color-text-tertiary)', fontSize: 14 }}>{def.desc}</div>
-      <DataTable columns={colsFor(cat)} rows={def.items} onRowClick={setDetail} />
+      <div style={{ marginTop: 4, marginBottom: 14, color: 'var(--color-text-tertiary)', fontSize: 14 }}>{def?.desc}</div>
+      <DataTable columns={colsFor(cat)} rows={def?.items ?? []} onRowClick={setDetail} />
 
       <Drawer
         open={!!detail}
@@ -435,7 +539,7 @@ export default function BlocksView() {
         onClose={() => setDetail(null)}
         footer={
           <>
-            <Button danger icon={<Icon name="delete" />}>
+            <Button danger icon={<Icon name="delete" />} onClick={() => void deleteCurrent()}>
               삭제
             </Button>
             {cat === 'mcp' ? (
@@ -458,14 +562,14 @@ export default function BlocksView() {
                   width: 36,
                   height: 36,
                   borderRadius: 9,
-                  background: def.color,
+                  background: def?.color,
                   color: '#fff',
                   display: 'inline-flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                 }}
               >
-                <Icon name={def.icon} size={18} />
+                <Icon name={def?.icon ?? ''} size={18} />
               </span>
               <div style={{ fontSize: 16, fontWeight: 600 }}>{detail.name}</div>
             </div>
@@ -576,7 +680,7 @@ export default function BlocksView() {
                       이 서버의 도구를 LangGraph MCP 프로토콜로 노출합니다
                     </div>
                   </div>
-                  <Switch checked={detail.published} onChange={() => togglePublish(detail.id)} />
+                  <Switch checked={detail.published} onChange={() => void togglePublish(detail.id)} />
                 </div>
                 {detail.published ? (
                   <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 8 }}>

@@ -1,13 +1,11 @@
 /* my-agents admin — Agents view: list created agents, view detail, and
    create / edit / delete (composing building blocks). */
 import { useState, useEffect, useRef } from 'react'
-import { Tag, Button, Avatar, Select, Input, Checkbox, Switch, Modal, Alert } from 'antd'
+import { Tag, Button, Avatar, Select, Input, Checkbox, Switch, Modal, Alert, message } from 'antd'
 import { Page, StatusPill, DataTable, Drawer, Desc, VersionHistory, ExposeSwitch, type Column } from '../shared'
 import { Icon } from '../icons'
 import {
   BLOCKS,
-  ADMIN_AGENTS,
-  ADMIN_SESSIONS,
   AGENT_STATUS,
   AGENT_SOURCE,
   APPROVER,
@@ -15,6 +13,18 @@ import {
   type AgentConfig,
   type VersionMeta,
 } from '../mockData'
+import {
+  listAgents,
+  createAgent,
+  updateAgent,
+  deleteAgent,
+  activateVersion as apiActivateVersion,
+  revertVersion as apiRevertVersion,
+  forkVersion as apiForkVersion,
+  exposeAgent,
+  registerCodeAgent as apiRegisterCodeAgent,
+  resyncAgent,
+} from '../../api'
 
 /* 코드 에이전트의 Agent Card(엔드포인트가 보고하는 매니페스트) shape. */
 interface CodeManifest {
@@ -744,6 +754,7 @@ function AgentDetail({
   onTest,
   onRevert,
   onResync,
+  onNewDraft,
 }: {
   agent: Agent | null
   onClose: () => void
@@ -754,6 +765,7 @@ function AgentDetail({
   onTest: (a: Agent, v: VersionMeta) => void
   onRevert: (a: Agent, v: VersionMeta) => void
   onResync: (a: Agent) => void
+  onNewDraft: (a: Agent) => void
 }) {
   if (!agent) return null
   if (agent.source === 'code')
@@ -969,7 +981,7 @@ function AgentDetail({
           onActivate={(v) => onActivate(agent, v)}
           onTest={(v) => onTest(agent, v)}
           onRevert={(v) => onRevert(agent, v)}
-          onNewDraft={draft ? null : () => onEdit(agent)}
+          onNewDraft={draft ? null : () => onNewDraft(agent)}
         />
       </div>
 
@@ -986,7 +998,7 @@ function AgentDetail({
 
 /* ---- Main view ---- */
 export default function AgentsView() {
-  const [agents, setAgents] = useState<Agent[]>(ADMIN_AGENTS)
+  const [agents, setAgents] = useState<Agent[]>([])
   const [detailId, setDetailId] = useState<string | null>(null)
   const detail = agents.find((a) => a.id === detailId) || null
   const [formOpen, setFormOpen] = useState(false)
@@ -1001,6 +1013,17 @@ export default function AgentsView() {
     const t = setTimeout(() => setToast(null), 2400)
     return () => clearTimeout(t)
   }, [toast])
+
+  // 마운트 시 백엔드에서 에이전트 목록을 로드.
+  useEffect(() => {
+    listAgents()
+      .then(setAgents)
+      .catch((e) => message.error(String(e)))
+  }, [])
+
+  // 단일 에이전트를 반환값(전체 AgentOut)으로 교체.
+  const replaceAgent = (updated: Agent) =>
+    setAgents((as) => as.map((a) => (a.id === updated.id ? updated : a)))
 
   const configOf = (a: Agent): AgentConfig => ({
     model: a.model,
@@ -1032,139 +1055,68 @@ export default function AgentsView() {
     )
     return 'v' + (max + 1)
   }
-  const setExpose = (id: string, val: boolean) =>
-    setAgents((as) => as.map((a) => (a.id === id ? { ...a, exposed: { ...a.exposed, a2a: val } } : a)))
-  const liveSessions = (id: string) =>
-    (ADMIN_SESSIONS || []).filter((s) => s.agentId === id && ['active', 'running', 'awaiting'].includes(s.status))
-  const toggleExpose = (agent: Agent) => {
+  // 라이브 세션 카운트는 더 이상 추적하지 않는다(ADMIN_SESSIONS 제거). UX용 모달만 유지.
+  const toggleExpose = async (agent: Agent) => {
     if (!agent.exposed.a2a) {
-      setExpose(agent.id, true)
-      setToast(`${agent.name} — A2A 공개됨`)
+      try {
+        const updated = await exposeAgent(agent.id, true)
+        replaceAgent(updated)
+        setToast(`${agent.name} — A2A 공개됨`)
+      } catch (e) {
+        message.error(String(e))
+      }
       return
     }
-    // turning OFF
-    const live = liveSessions(agent.id)
-    if (live.length === 0) {
-      setExpose(agent.id, false)
-      setToast(`${agent.name} — A2A 비공개됨`)
-      return
+    // turning OFF — 확인 모달을 띄운다(액션은 모두 exposeAgent(false)).
+    setExposeOff({ agent, count: 0 })
+  }
+  const exposeOffApply = async (mode: 'drain' | 'revoke') => {
+    if (!exposeOff) return
+    const { agent } = exposeOff
+    try {
+      const updated = await exposeAgent(agent.id, false)
+      replaceAgent(updated)
+      setToast(mode === 'drain' ? `${agent.name} 사용 중단 — A2A 비공개로 전환` : `${agent.name} — A2A 철회됨`)
+    } catch (e) {
+      message.error(String(e))
     }
-    setExposeOff({ agent, count: live.length })
-  }
-  const deprecate = () => {
-    if (!exposeOff) return
-    const { agent } = exposeOff
-    setExpose(agent.id, false)
-    liveSessions(agent.id).forEach((s) => {
-      s.status = 'draining'
-      s.lastActivity = '드레이닝…'
-    })
-    setToast(`${agent.name} 사용 중단 — 세션 ${exposeOff.count}개 드레이닝 중, 신규 세션 차단`)
     setExposeOff(null)
   }
-  const revokeNow = () => {
-    if (!exposeOff) return
-    const { agent } = exposeOff
-    setExpose(agent.id, false)
-    liveSessions(agent.id).forEach((s) => {
-      s.status = 'completed'
-      s.lastActivity = '종료됨'
-    })
-    setAgents((as) => as.map((a) => (a.id === agent.id ? { ...a, sessions: 0 } : a)))
-    setToast(`${agent.name} — A2A 철회, 세션 ${exposeOff.count}개 종료`)
-    setExposeOff(null)
+  const deprecate = () => exposeOffApply('drain')
+  const revokeNow = () => exposeOffApply('revoke')
+  const activateVersion = async (agent: Agent, v: VersionMeta) => {
+    try {
+      const updated = await apiActivateVersion(agent.id, v.version)
+      replaceAgent(updated)
+      setToast(`${agent.name} ${v.version} 활성화됨 — 서빙 시작`)
+    } catch (e) {
+      message.error(String(e))
+    }
   }
-  const activateVersion = (agent: Agent, v: VersionMeta) => {
-    setAgents((as) =>
-      as.map((a) => {
-        if (a.id !== agent.id) return a
-        const target = a.versions.find((x) => x.version === v.version)
-        const cfg: AgentConfig = (target && target.config) || {}
-        const versions = a.versions.map((x) =>
-          x.version === v.version
-            ? { ...x, status: 'active' as const }
-            : x.status === 'active'
-              ? { ...x, status: 'archived' as const }
-              : x
-        )
-        // promote the version's config to the agent's serving (top-level) config.
-        return {
-          ...a,
-          activeVersion: v.version,
-          versions,
-          model: cfg.model || a.model,
-          persona: cfg.persona || a.persona,
-          memories: cfg.memories ? [...cfg.memories] : a.memories,
-          historyDepth: cfg.historyDepth != null ? cfg.historyDepth : a.historyDepth,
-          vectorTables: cfg.vectorTables ? [...cfg.vectorTables] : a.vectorTables,
-          permissions: cfg.permissions ? [...cfg.permissions] : a.permissions,
-          mcps: cfg.mcps ? [...cfg.mcps] : a.mcps,
-        }
-      })
-    )
-    setToast(`${agent.name} ${v.version} 활성화됨 — 서빙 시작`)
-  }
-  const newDraft = (agent: Agent) => {
-    setAgents((as) =>
-      as.map((a) => {
-        if (a.id !== agent.id) return a
-        const ver = nextVersion(a.versions)
-        return {
-          ...a,
-          versions: [
-            { version: ver, status: 'draft' as const, createdAt: '2026-06-21', note: '' + a.activeVersion + '에서 포크한 초안' },
-            ...a.versions,
-          ],
-        }
-      })
-    )
-    setToast(`${agent.name} 새 초안 생성됨`)
+  const newDraft = async (agent: Agent) => {
+    try {
+      const updated = await apiForkVersion(agent.id)
+      replaceAgent(updated)
+      setToast(`${agent.name} 새 초안 생성됨`)
+    } catch {
+      // 400: 이미 초안이 있음 등 — 서버 가드.
+      message.warning('새 초안을 만들 수 없습니다 — 이미 초안이 있는지 확인하세요')
+    }
   }
   const testVersion = (agent: Agent, v: VersionMeta) =>
     setToast(`${agent.name} ${v.version}(초안 구성) 테스트 — 디버그 콘솔을 열세요`)
-  const revertToDraft = (agent: Agent, v: VersionMeta) => {
-    const existing = agent.versions.find((x) => x.status === 'draft')
-    if (existing && existing.version !== v.version) {
-      setToast(`이미 초안(${existing.version})이 있습니다 — 먼저 활성화하거나 제거하세요`)
-      return
+  const revertToDraft = async (agent: Agent, v: VersionMeta) => {
+    try {
+      const updated = await apiRevertVersion(agent.id, v.version)
+      replaceAgent(updated)
+      setToast(`${v.version} 초안으로 되돌림${v.status === 'active' ? ' — 이전 버전으로 롤백' : ''}`)
+    } catch {
+      // 서버가 가드를 강제(400 + 한국어 detail). api.ts 에러는 status만 담으므로 일반 메시지로 안내.
+      message.warning('되돌릴 수 없습니다 — 조건을 확인하세요')
     }
-    // 활성 버전을 되돌리려면 승격할 보관(archived) 버전이 있어야 한다.
-    // 없으면 활성 버전이 사라져 서빙 대상이 없어지므로 중단한다.
-    if (v.status === 'active' && !agent.versions.some((x) => x.status === 'archived')) {
-      setToast(`되돌릴 수 없습니다 — 활성 버전이 유일합니다(승격할 이전 버전 없음)`)
-      return
-    }
-    setAgents((as) =>
-      as.map((a) => {
-        if (a.id !== agent.id) return a
-        const wasActive = v.status === 'active'
-        let versions = a.versions.map((x) => (x.version === v.version ? { ...x, status: 'draft' as const } : x))
-        let activeVersion = a.activeVersion
-        let top: Partial<Agent> = {}
-        if (wasActive) {
-          const cand = versions.find((x) => x.status === 'archived')
-          if (cand) {
-            versions = versions.map((x) => (x.version === cand.version ? { ...x, status: 'active' as const } : x))
-            activeVersion = cand.version
-            const cfg: AgentConfig = cand.config || {}
-            top = {
-              model: cfg.model || a.model,
-              persona: cfg.persona || a.persona,
-              memories: cfg.memories ? [...cfg.memories] : a.memories,
-              historyDepth: cfg.historyDepth != null ? cfg.historyDepth : a.historyDepth,
-              vectorTables: cfg.vectorTables ? [...cfg.vectorTables] : a.vectorTables,
-              permissions: cfg.permissions ? [...cfg.permissions] : a.permissions,
-              mcps: cfg.mcps ? [...cfg.mcps] : a.mcps,
-            }
-          }
-        }
-        return { ...a, versions, activeVersion, ...top }
-      })
-    )
-    setToast(`${v.version} 초안으로 되돌림${v.status === 'active' ? ' — 이전 버전으로 롤백' : ''}`)
   }
 
-  const save = (data: AgentFormData) => {
+  const save = async (data: AgentFormData) => {
     const config: AgentConfig = {
       model: data.model,
       persona: data.persona,
@@ -1174,112 +1126,71 @@ export default function AgentsView() {
       permissions: data.permissions,
       mcps: data.mcps,
     }
-    if (editing) {
-      // Save into a DRAFT version (create one if none exists). Active keeps serving.
-      setAgents((as) =>
-        as.map((a) => {
-          if (a.id !== editing.agent.id) return a
-          let versions: VersionMeta[]
-          const existing = a.versions.find((v) => v.status === 'draft')
-          if (existing) {
-            versions = a.versions.map((v) =>
-              v.status === 'draft' ? { ...v, config, note: 'Edited ' + new Date().toISOString().slice(0, 10) } : v
-            )
-          } else {
-            const ver = nextVersion(a.versions)
-            versions = [
-              { version: ver, status: 'draft', createdAt: '2026-06-21', note: 'Draft from ' + a.activeVersion, config },
-              ...a.versions,
-            ]
-          }
-          return { ...a, name: data.name, versions }
-        })
-      )
-      setToast(`초안에 저장됨 — 활성화하면 게시됩니다`)
-    } else {
-      const id = 'ag-' + Date.now()
-      const agentId = 'agt_' + Math.random().toString(36).slice(2, 8)
-      const created: Agent = {
-        id,
-        name: data.name,
-        source: 'ui',
-        agentId,
-        environments: ['sandbox'],
-        status: 'idle',
-        sessions: 0,
-        created: '2026-06-21',
-        exposed: { a2a: false },
-        model: data.model,
-        persona: data.persona,
-        memories: data.memories,
-        historyDepth: data.historyDepth,
-        vectorTables: data.vectorTables,
-        permissions: data.permissions,
-        mcps: data.mcps,
-        activeVersion: 'v1',
-        versions: [{ version: 'v1', status: 'draft', createdAt: '2026-06-21', note: '초기 초안', config }],
+    try {
+      if (editing) {
+        const updated = await updateAgent(editing.agent.id, data.name, config)
+        replaceAgent(updated)
+        setToast(`초안에 저장됨 — 활성화하면 게시됩니다`)
+      } else {
+        const created = await createAgent(data.name, config)
+        setAgents((as) => [created, ...as])
+        setToast(`"${data.name}" 생성됨 — v1 초안, 테스트 후 활성화`)
       }
-      setAgents((as) => [created, ...as])
-      setToast(`"${data.name}" 생성됨 — v1 초안, 테스트 후 활성화`)
+      setFormOpen(false)
+      setEditing(null)
+    } catch (e) {
+      message.error(String(e))
     }
-    setFormOpen(false)
-    setEditing(null)
   }
 
-  const doDelete = () => {
+  const doDelete = async () => {
     if (!confirmDel) return
     const target = confirmDel
-    setAgents((as) => as.filter((a) => a.id !== target.id))
-    setToast(`"${target.name}" ${target.source === 'code' ? '등록 해제됨' : '삭제됨'}`)
-    setConfirmDel(null)
-    setDetailId(null)
+    try {
+      await deleteAgent(target.id)
+      setAgents((as) => as.filter((a) => a.id !== target.id))
+      setToast(`"${target.name}" ${target.source === 'code' ? '등록 해제됨' : '삭제됨'}`)
+      setConfirmDel(null)
+      setDetailId(null)
+    } catch (e) {
+      message.error(String(e))
+    }
   }
 
   // ---- code-defined agents: register by endpoint + token, resync from deploy ----
-  const registerCodeAgent = (data: { endpoint: string; token: string; manifest: CodeManifest }) => {
+  // 토큰 마스킹은 서버에서 처리 — raw 토큰을 그대로 보낸다.
+  const registerCodeAgent = async (data: { endpoint: string; token: string; manifest: CodeManifest }) => {
     const m = data.manifest
-    const tok = data.token || ''
-    const masked =
-      tok.length > 11
-        ? tok.slice(0, 7) + '••••••••' + tok.slice(-4)
-        : tok.slice(0, 3) + '••••••••'
-    const id = 'ag-' + Date.now()
-    const created: Agent = {
-      id,
-      source: 'code',
-      name: m.name || '코드 에이전트',
-      agentId: m.agentId || 'agt_' + Math.random().toString(36).slice(2, 8),
-      environments: ['production'],
-      status: 'online',
-      model: m.model || 'claude-sonnet-4',
-      persona: m.persona || '코드 정의 (SDK)',
-      memories: m.memories || [],
-      historyDepth: m.historyDepth || 0,
-      vectorTables: [],
-      permissions: m.permissions || [],
-      mcps: m.mcps || [],
-      exposed: { a2a: false },
-      sessions: 0,
-      created: '2026-06-21',
-      endpoint: data.endpoint,
-      token: masked,
-      runtime: m.runtime || 'my-agents-sdk',
-      repo: m.repo || '',
-      commit: m.commit || '',
-      registeredAt: '2026-06-21',
-      lastSync: '방금',
-      activeVersion: m.commit || '—',
-      versions: m.commit
-        ? [{ version: m.commit, status: 'active', createdAt: '2026-06-21', note: 'Deploy · 등록 시 동기화' }]
-        : [],
+    try {
+      const created = await apiRegisterCodeAgent({
+        endpoint: data.endpoint,
+        token: data.token,
+        name: m.name,
+        commit: m.commit,
+        repo: m.repo,
+        runtime: m.runtime,
+        persona: m.persona,
+        model: m.model,
+        memories: m.memories,
+        historyDepth: m.historyDepth,
+        permissions: m.permissions,
+        mcps: m.mcps,
+      })
+      setAgents((as) => [created, ...as])
+      setToast(`"${m.name || '코드 에이전트'}" 등록됨 — 코드 정의, 읽기 전용`)
+      setRegisterOpen(false)
+    } catch (e) {
+      message.error(String(e))
     }
-    setAgents((as) => [created, ...as])
-    setToast(`"${m.name || '코드 에이전트'}" 등록됨 — 코드 정의, 읽기 전용`)
-    setRegisterOpen(false)
   }
-  const resync = (agent: Agent) => {
-    setAgents((as) => as.map((a) => (a.id === agent.id ? { ...a, lastSync: '방금' } : a)))
-    setToast(`${agent.name} 재동기화됨 — 최신 배포(commit) 반영`)
+  const resync = async (agent: Agent) => {
+    try {
+      const updated = await resyncAgent(agent.id)
+      replaceAgent(updated)
+      setToast(`${agent.name} 재동기화됨 — 최신 배포(commit) 반영`)
+    } catch (e) {
+      message.error(String(e))
+    }
   }
 
   const columns: Column<Agent>[] = [
@@ -1438,6 +1349,7 @@ export default function AgentsView() {
         onTest={testVersion}
         onRevert={revertToDraft}
         onResync={resync}
+        onNewDraft={newDraft}
       />
       <RegisterAgentModal open={registerOpen} onCancel={() => setRegisterOpen(false)} onRegister={registerCodeAgent} />
       <AgentForm
@@ -1521,22 +1433,20 @@ export default function AgentsView() {
         {exposeOff ? (
           <div>
             <div style={{ marginBottom: 12 }}>
-              <b>{exposeOff.agent.name}</b>에 라이브 A2A 세션이 <b>{exposeOff.count}</b>개 있습니다. 오프라인 방식을
-              선택하세요:
+              <b>{exposeOff.agent.name}</b>의 A2A 공개를 끕니다. 오프라인 방식을 선택하세요:
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 13 }}>
               <div style={{ display: 'flex', gap: 8 }}>
                 <Icon name="pause-circle" size={15} style={{ color: 'var(--volcano-6)', marginTop: 2, flex: 'none' }} />
                 <span>
-                  <b>사용 중단(드레인)</b> — 신규 세션을 막고, 진행 중인 {exposeOff.count}개를 끝난 뒤 비공개로 전환.
-                  소비자에게 가장 안전.
+                  <b>사용 중단(드레인)</b> — 신규 세션을 막고 진행 중인 세션을 끝낸 뒤 비공개로 전환. 소비자에게 가장
+                  안전.
                 </span>
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
                 <Icon name="close-circle" size={15} style={{ color: 'var(--color-error)', marginTop: 2, flex: 'none' }} />
                 <span>
-                  <b>즉시 철회</b> — 엔드포인트를 즉시 차단; {exposeOff.count}개 세션이 종료되고 외부 호출자는 오류를
-                  받습니다.
+                  <b>즉시 철회</b> — 엔드포인트를 즉시 차단; 진행 중인 세션이 종료되고 외부 호출자는 오류를 받습니다.
                 </span>
               </div>
             </div>

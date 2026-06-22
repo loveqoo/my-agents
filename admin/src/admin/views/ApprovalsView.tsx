@@ -2,22 +2,28 @@
    LangGraph run is paused at a checkpoint (interrupt) awaiting an admin decision.
    Approve → resume from checkpoint; Reject → abort the run. */
 import { useState, useEffect } from 'react'
-import { Tag, Button, Avatar, Alert } from 'antd'
+import { Tag, Button, Avatar, Alert, message } from 'antd'
 import { Page, Panel } from '../shared'
 import { Icon } from '../icons'
-import { ADMIN_APPROVALS, type Approval } from '../mockData'
+import { type Approval } from '../mockData'
+import { listApprovals, resolveApproval } from '../../api'
 
 function ApprovalCard({
   item,
   onResolve,
 }: {
   item: Approval
-  onResolve: (item: Approval, decision: 'approve' | 'reject') => void
+  onResolve: (item: Approval, decision: 'approve' | 'reject') => Promise<void>
 }) {
   const [busy, setBusy] = useState<'approve' | 'reject' | null>(null)
-  const act = (decision: 'approve' | 'reject') => {
+  const act = async (decision: 'approve' | 'reject') => {
     setBusy(decision)
-    setTimeout(() => onResolve(item, decision), 360)
+    const delay = new Promise<void>((r) => setTimeout(r, 360))
+    try {
+      await Promise.all([onResolve(item, decision), delay])
+    } finally {
+      setBusy(null)
+    }
   }
   return (
     <Panel style={{ padding: 0 }}>
@@ -82,7 +88,7 @@ function ApprovalCard({
 }
 
 export default function ApprovalsView() {
-  const [queue, setQueue] = useState<Approval[]>([...ADMIN_APPROVALS])
+  const [queue, setQueue] = useState<Approval[]>([])
   const [toast, setToast] = useState<{ type: 'success' | 'warning'; msg: string } | null>(null)
   useEffect(() => {
     if (!toast) return
@@ -90,13 +96,32 @@ export default function ApprovalsView() {
     return () => clearTimeout(t)
   }, [toast])
 
-  const resolve = (item: Approval, decision: 'approve' | 'reject') => {
-    setQueue((q) => q.filter((x) => x.id !== item.id))
-    setToast(
-      decision === 'approve'
-        ? { type: 'success', msg: `승인됨 — ${item.checkpoint}에서 ${item.agent} 재개 중` }
-        : { type: 'warning', msg: `거부됨 — ${item.agent} 실행 중단` },
-    )
+  useEffect(() => {
+    let alive = true
+    listApprovals()
+      .then((items) => {
+        if (alive) setQueue(items)
+      })
+      .catch((e: unknown) => {
+        if (alive) message.error(e instanceof Error ? e.message : '승인 목록을 불러오지 못했습니다.')
+      })
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  const resolve = async (item: Approval, decision: 'approve' | 'reject') => {
+    try {
+      await resolveApproval(item.id, decision)
+      setQueue((q) => q.filter((x) => x.id !== item.id))
+      setToast(
+        decision === 'approve'
+          ? { type: 'success', msg: `승인됨 — ${item.checkpoint}에서 ${item.agent} 재개 중` }
+          : { type: 'warning', msg: `거부됨 — ${item.agent} 실행 중단` },
+      )
+    } catch (e: unknown) {
+      message.error(e instanceof Error ? e.message : '결정을 처리하지 못했습니다.')
+    }
   }
 
   return (

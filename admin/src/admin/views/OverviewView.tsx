@@ -1,10 +1,11 @@
 /* my-agents admin — Overview: at-a-glance counts + quick links. */
-import { type CSSProperties } from 'react'
-import { Tag, Button, Avatar } from 'antd'
+import { type CSSProperties, useEffect, useState } from 'react'
+import { Tag, Button, Avatar, message } from 'antd'
 import { Page, StatusPill, Panel } from '../shared'
 import { Icon } from '../icons'
-import { ADMIN_AGENTS, ADMIN_SESSIONS, BLOCKS, AGENT_STATUS, SESSION_STATUS } from '../mockData'
-import { type Agent, type Session } from '../mockData'
+import { AGENT_STATUS, SESSION_STATUS } from '../mockData'
+import { type Agent, type Session, type BlockCategory } from '../mockData'
+import { listAgents, listSessions, getBlocks } from '../../api'
 
 function StatTile({
   icon,
@@ -65,9 +66,20 @@ function StatTile({
 }
 
 export default function OverviewView({ onGo }: { onGo: (v: string) => void }) {
-  const agents = ADMIN_AGENTS
-  const sessions = ADMIN_SESSIONS
-  const blocks = BLOCKS
+  const [agents, setAgents] = useState<Agent[]>([])
+  const [sessions, setSessions] = useState<Session[]>([])
+  const [blocks, setBlocks] = useState<Record<string, BlockCategory>>({})
+
+  useEffect(() => {
+    Promise.all([listAgents(), listSessions(), getBlocks()])
+      .then(([a, s, b]) => {
+        setAgents(a)
+        setSessions(s)
+        setBlocks(b)
+      })
+      .catch(() => message.error('개요 데이터를 불러오지 못했습니다'))
+  }, [])
+
   const live = sessions.filter((s) => s.status === 'active' || s.status === 'running').length
   const blockCount = Object.values(blocks).reduce((a, b) => a + b.items.length, 0)
   const exposed = agents.filter((a) => a.exposed.a2a).length
@@ -98,6 +110,8 @@ export default function OverviewView({ onGo }: { onGo: (v: string) => void }) {
           </div>
           {agents.slice(0, 4).map((a: Agent) => {
             const st = AGENT_STATUS[a.status]
+            const stColor = st?.color ?? 'var(--gray-6)'
+            const stLabel = st?.label ?? a.status
             return (
               <div
                 key={a.id}
@@ -110,7 +124,7 @@ export default function OverviewView({ onGo }: { onGo: (v: string) => void }) {
                   <div style={{ fontWeight: 500, fontSize: 14 }}>{a.name}</div>
                   <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>{a.persona}</div>
                 </div>
-                <StatusPill color={st.color ?? 'var(--gray-6)'} label={st.label} />
+                <StatusPill color={stColor} label={stLabel} />
               </div>
             )
           })}
@@ -128,19 +142,22 @@ export default function OverviewView({ onGo }: { onGo: (v: string) => void }) {
             .slice(0, 4)
             .map((s: Session) => {
               const st = SESSION_STATUS[s.status]
+              const stColor = st?.color ?? 'var(--gray-6)'
+              const stLabel = st?.label ?? s.status
+              const stTag = st?.tag ?? 'default'
               return (
                 <div
                   key={s.id}
                   style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 18px', borderTop: '1px solid var(--color-border-secondary)' }}
                 >
-                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: st.color, flex: 'none' }} />
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: stColor, flex: 'none' }} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <code style={{ fontFamily: 'var(--font-family-code)', fontSize: 13 }}>{s.id}</code>
                     <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
                       {s.agent} · {s.channel}
                     </div>
                   </div>
-                  {st.tag === 'default' ? <Tag>{st.label}</Tag> : <Tag color={st.tag}>{st.label}</Tag>}
+                  {stTag === 'default' ? <Tag>{stLabel}</Tag> : <Tag color={stTag}>{stLabel}</Tag>}
                 </div>
               )
             })}
