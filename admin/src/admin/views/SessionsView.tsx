@@ -1,0 +1,170 @@
+/* my-agents admin — Sessions view: live & past conversation sessions, each with
+   status; click a session to see its state detail. */
+import { useState } from 'react'
+import { Tag, Button, Avatar, Alert, Radio } from 'antd'
+import { Page, StatusPill, DataTable, Drawer, Desc, type Column } from '../shared'
+import { Icon } from '../icons'
+import { ADMIN_SESSIONS, SESSION_STATUS, type Session } from '../mockData'
+
+export default function SessionsView() {
+  const all = ADMIN_SESSIONS
+  const [filter, setFilter] = useState<string>('all')
+  const [detail, setDetail] = useState<Session | null>(null)
+
+  const rows =
+    filter === 'all'
+      ? all
+      : filter === 'live'
+        ? all.filter((s) => s.status === 'active' || s.status === 'running' || s.status === 'draining')
+        : all.filter((s) => s.status === filter)
+
+  const columns: Column<Session>[] = [
+    {
+      key: 'id',
+      title: '세션',
+      render: (s) => (
+        <div>
+          <code style={{ fontFamily: 'var(--font-family-code)', fontSize: 13, color: 'var(--color-text-heading)' }}>{s.id}</code>
+          <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>{s.channel}</div>
+        </div>
+      ),
+    },
+    {
+      key: 'agent',
+      title: '에이전트',
+      render: (s) => (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Avatar size="small" style={{ background: 'var(--gray-12)' }}>
+            <Icon name="robot" size={13} />
+          </Avatar>
+          <span>{s.agent}</span>
+        </div>
+      ),
+    },
+    {
+      key: 'status',
+      title: '상태',
+      width: 130,
+      render: (s) => {
+        const st = SESSION_STATUS[s.status]
+        return s.status === 'running' ? (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 14 }}>
+            <Icon name="loading" spin size={13} style={{ color: st.color }} />
+            {st.label}
+          </span>
+        ) : (
+          <StatusPill color={st.color ?? ''} label={st.label} />
+        )
+      },
+    },
+    {
+      key: 'turns',
+      title: '턴',
+      width: 80,
+      align: 'right',
+      render: (s) => <span style={{ fontFamily: 'var(--font-family-code)' }}>{s.turns}</span>,
+    },
+    {
+      key: 'tokens',
+      title: '토큰',
+      width: 100,
+      align: 'right',
+      render: (s) => (
+        <span style={{ fontFamily: 'var(--font-family-code)', color: 'var(--color-text-secondary)' }}>{(s.tokens / 1000).toFixed(1)}k</span>
+      ),
+    },
+    {
+      key: 'lastActivity',
+      title: '마지막 활동',
+      width: 140,
+      align: 'right',
+      render: (s) => <span style={{ color: 'var(--color-text-tertiary)' }}>{s.lastActivity}</span>,
+    },
+  ]
+
+  const counts = {
+    all: all.length,
+    live: all.filter((s) => s.status === 'active' || s.status === 'running').length,
+    awaiting: all.filter((s) => s.status === 'awaiting').length,
+    error: all.filter((s) => s.status === 'error').length,
+  }
+
+  return (
+    <Page title="세션" subtitle="모든 채널에서 에이전트와 진행 중인 대화">
+      <div style={{ marginBottom: 16 }}>
+        <Radio.Group
+          optionType="button"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          options={[
+            { label: `전체 (${counts.all})`, value: 'all' },
+            { label: `라이브 (${counts.live})`, value: 'live' },
+            { label: `승인 대기 (${counts.awaiting})`, value: 'awaiting' },
+            { label: `오류 (${counts.error})`, value: 'error' },
+          ]}
+        />
+      </div>
+      <DataTable<Session> columns={columns} rows={rows} onRowClick={setDetail} empty="조건에 맞는 세션이 없습니다" />
+
+      <Drawer
+        open={!!detail}
+        title={detail ? detail.id : ''}
+        width={440}
+        onClose={() => setDetail(null)}
+        footer={
+          detail && (detail.status === 'active' || detail.status === 'running' || detail.status === 'idle') ? (
+            <>
+              <Button onClick={() => setDetail(null)}>닫기</Button>
+              <Button danger icon={<Icon name="pause-circle" />}>
+                세션 종료
+              </Button>
+            </>
+          ) : (
+            <Button onClick={() => setDetail(null)}>닫기</Button>
+          )
+        }
+      >
+        {detail ? (
+          <div>
+            {(() => {
+              const st = SESSION_STATUS[detail.status]
+              return (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+                  <span style={{ width: 10, height: 10, borderRadius: '50%', background: st.color }} />
+                  <span style={{ fontSize: 16, fontWeight: 600 }}>{st.label}</span>
+                  <Tag color={st.tag} style={{ marginInlineStart: 'auto' }}>
+                    {detail.channel}
+                  </Tag>
+                </div>
+              )
+            })()}
+            {detail.error ? (
+              <div style={{ marginBottom: 16 }}>
+                <Alert type="error" showIcon message="세션 오류" description={detail.error} />
+              </div>
+            ) : null}
+            {detail.awaiting ? (
+              <div style={{ marginBottom: 16 }}>
+                <Alert
+                  type="warning"
+                  showIcon
+                  message="일시정지 — 관리자 승인 대기 중"
+                  description={`${detail.awaiting.summary} · ${detail.awaiting.permission} · 체크포인트 ${detail.awaiting.checkpoint}`}
+                />
+              </div>
+            ) : null}
+            <Desc label="에이전트">{detail.agent}</Desc>
+            <Desc label="채널">{detail.channel}</Desc>
+            <Desc label="턴">{detail.turns}</Desc>
+            <Desc label="토큰">{detail.tokens.toLocaleString()}</Desc>
+            <Desc label="시작">{detail.started}</Desc>
+            <Desc label="마지막 활동">{detail.lastActivity}</Desc>
+            <div style={{ marginTop: 16 }}>
+              <Alert type="info" showIcon message="디버그 콘솔에서 이 세션을 열면 턴별 프롬프트·메모리·MCP 호출을 확인할 수 있습니다." />
+            </div>
+          </div>
+        ) : null}
+      </Drawer>
+    </Page>
+  )
+}

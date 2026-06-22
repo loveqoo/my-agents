@@ -1,0 +1,104 @@
+/* 아이콘 레지스트리 — 번들이 쓰던 <Icon name="..."/> 문자열 API를 그대로 유지하기 위해
+   @ant-design/icons 컴포넌트로 매핑한다. 뷰를 번들 JSX에 가깝게 옮기기 위함.
+   새 아이콘이 필요하면 MAP에 한 줄 추가하면 된다. */
+import { type CSSProperties, type ComponentType } from 'react'
+import {
+  RobotOutlined,
+  SmileOutlined,
+  BulbOutlined,
+  AppstoreOutlined,
+  GlobalOutlined,
+  ThunderboltOutlined,
+  CommentOutlined,
+  DashboardOutlined,
+  CheckCircleOutlined,
+  MenuOutlined,
+  SearchOutlined,
+  CloseOutlined,
+  PlusOutlined,
+  EditOutlined,
+  DeleteOutlined,
+  CopyOutlined,
+  RedoOutlined,
+  CheckOutlined,
+  UserOutlined,
+  TeamOutlined,
+  LoadingOutlined,
+  ClockCircleOutlined,
+  PauseCircleOutlined,
+  CloseCircleOutlined,
+  ApiOutlined,
+  DatabaseOutlined,
+  NodeIndexOutlined,
+  SendOutlined,
+  ReloadOutlined,
+  WarningOutlined,
+  InfoCircleOutlined,
+  ExperimentOutlined,
+  BranchesOutlined,
+  DownOutlined,
+  RightOutlined,
+  FileOutlined,
+  PaperClipOutlined,
+  ExclamationCircleOutlined,
+  ShareAltOutlined,
+  CalendarOutlined,
+} from '@ant-design/icons'
+
+const MAP: Record<string, ComponentType<{ style?: CSSProperties; spin?: boolean }>> = {
+  robot: RobotOutlined,
+  smile: SmileOutlined,
+  bulb: BulbOutlined,
+  appstore: AppstoreOutlined,
+  global: GlobalOutlined,
+  thunderbolt: ThunderboltOutlined,
+  comment: CommentOutlined,
+  dashboard: DashboardOutlined,
+  'check-circle': CheckCircleOutlined,
+  menu: MenuOutlined,
+  search: SearchOutlined,
+  close: CloseOutlined,
+  plus: PlusOutlined,
+  edit: EditOutlined,
+  delete: DeleteOutlined,
+  copy: CopyOutlined,
+  redo: RedoOutlined,
+  check: CheckOutlined,
+  user: UserOutlined,
+  team: TeamOutlined,
+  loading: LoadingOutlined,
+  'clock-circle': ClockCircleOutlined,
+  'pause-circle': PauseCircleOutlined,
+  'close-circle': CloseCircleOutlined,
+  api: ApiOutlined,
+  database: DatabaseOutlined,
+  'node-index': NodeIndexOutlined,
+  send: SendOutlined,
+  reload: ReloadOutlined,
+  warning: WarningOutlined,
+  info: InfoCircleOutlined,
+  experiment: ExperimentOutlined,
+  branches: BranchesOutlined,
+  down: DownOutlined,
+  right: RightOutlined,
+  file: FileOutlined,
+  'paper-clip': PaperClipOutlined,
+  'exclamation-circle': ExclamationCircleOutlined,
+  'share-alt': ShareAltOutlined,
+  calendar: CalendarOutlined,
+}
+
+export function Icon({
+  name,
+  size,
+  spin,
+  style,
+}: {
+  name: string
+  size?: number
+  spin?: boolean
+  style?: CSSProperties
+}) {
+  const C = MAP[name] || AppstoreOutlined
+  return <C spin={spin} style={{ fontSize: size, ...style }} />
+}

@@ -17,3 +17,6 @@ dist/
 
 # Secrets
 .env
+
+# Design refs: keep the zip (canonical), ignore the reproducible extraction
+.dev/design-refs/ant-design-system/
