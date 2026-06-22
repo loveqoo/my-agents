@@ -17,8 +17,11 @@ PERSONA = (
 )
 
 
-def build_agent(persona: str = PERSONA, params: dict | None = None):
-    """persona/params로 단일 ReAct 에이전트(툴 없음)를 만든다. 모델은 env의 MLX."""
+def build_agent(persona: str = PERSONA, params: dict | None = None, tools: list | None = None):
+    """persona/params/tools로 단일 ReAct 에이전트를 만든다. 모델은 env의 MLX.
+
+    tools가 비어있으면 순수 대화. 페르소나는 시스템 프롬프트로 주입.
+    """
     load_dotenv()
     base_url = os.environ.get("MLX_BASE_URL", "http://localhost:8045/v1")
     api_key = os.environ.get("MLX_API_KEY")
@@ -36,8 +39,7 @@ def build_agent(persona: str = PERSONA, params: dict | None = None):
         # Qwen thinking 비활성: 추론 토큰 폭증/콘텐츠 누락 방지 (plan 001 리스크 대응)
         extra_body={"chat_template_kwargs": {"enable_thinking": False}},
     )
-    # 툴 없음 = 순수 대화. 페르소나는 시스템 프롬프트로 주입.
-    return create_react_agent(model, tools=[], prompt=persona)
+    return create_react_agent(model, tools=tools or [], prompt=persona)
 
 
 def main():
