@@ -20,3 +20,12 @@ dist/
 
 # Design refs: keep the zip (canonical), ignore the reproducible extraction
 .dev/design-refs/ant-design-system/
+
+# E2E (Playwright) — keep specs/config, ignore artifacts
+tests/e2e/node_modules/
+tests/e2e/test-results/
+tests/e2e/playwright-report/
+tests/e2e/.last-run.json
+
+# Mem0 embedded qdrant (local vector store)
+.dev/mem0_qdrant/

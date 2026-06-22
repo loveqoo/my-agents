@@ -110,12 +110,17 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest):
 
     calls_sink: list[dict] = []
     tools = runtime.build_tools(ctx["mcp_pairs"], calls_sink)
-    graph = build_agent(ctx["persona"], {"temperature": ctx["temperature"]}, tools)
 
-    messages = [{"role": m.role, "content": m.content} for m in body.messages]
+    # 회상된 기억은 persona(시스템 프롬프트)에 합친다. 별도 system 메시지로 주입하면
+    # create_react_agent의 persona system과 충돌해 모델 채팅 템플릿이 거부한다
+    # ("System message must be at the beginning"). 단일 system 프롬프트 유지.
+    persona_prompt = ctx["persona"]
     if mem_hits:
         recalled = "\n".join(f"- {h['text']}" for h in mem_hits)
-        messages = [{"role": "system", "content": f"관련 기억(회상됨):\n{recalled}"}] + messages
+        persona_prompt = f"{persona_prompt}\n\n# 관련 기억(회상됨)\n{recalled}"
+    graph = build_agent(persona_prompt, {"temperature": ctx["temperature"]}, tools)
+
+    messages = [{"role": m.role, "content": m.content} for m in body.messages]
 
     async def event_stream():
         t0 = time.perf_counter()
