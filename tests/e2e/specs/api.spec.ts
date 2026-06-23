@@ -89,14 +89,41 @@ test.describe('블록', () => {
     }
   })
 
-  test('persona 생성 → 목록 포함 → 삭제', async ({ request }) => {
+  test('persona 생성 → 수정 → 목록/본문 반영 → 삭제', async ({ request }) => {
     const name = uniq('persona')
     const created = await (await request.post('/personas', { data: { name, tone: 't', body: 'b' } })).json()
     expect(created.id).toBeTruthy()
     const list = await (await request.get('/personas')).json()
     expect(list.some((p: { name: string }) => p.name === name)).toBeTruthy()
+    // 수정(PUT): 본문·톤 변경이 반영되어야 한다 (014 작성 UI가 쓰는 경로)
+    const edited = await (
+      await request.put(`/personas/${created.id}`, { data: { name, tone: 't2', body: 'b2' } })
+    ).json()
+    expect(edited.tone).toBe('t2')
+    expect(edited.body).toBe('b2')
+    const got = await (await request.get(`/personas/${created.id}`)).json()
+    expect(got.body).toBe('b2')
     const del = await request.delete(`/personas/${created.id}`)
     expect(del.status()).toBe(204)
+  })
+
+  test('작성한 페르소나 → 단순 에이전트 systemPrompt로 해석', async ({ request }) => {
+    const name = uniq('persona')
+    const body = '너는 고양이다. 문장 끝에 냐옹을 붙여라.'
+    const p = await (await request.post('/personas', { data: { name, tone: '장난', body } })).json()
+    // 그 페르소나를 이름으로 선택한 단순 에이전트
+    const agent = await (
+      await request.post('/agents', {
+        data: {
+          name: uniq('냐옹'),
+          config: { model: 'qwen3.6-35b', persona: name, memories: [], vectorTables: [], permissions: [], mcps: [], historyDepth: 6, persistHistory: true },
+        },
+      })
+    ).json()
+    // 서빙용 해석 본문이 페르소나 body여야 한다 (resolve_persona)
+    expect(agent.systemPrompt).toBe(body)
+    await request.delete(`/agents/${agent.id}`)
+    await request.delete(`/personas/${p.id}`)
   })
 
   test('MCP 생성 → publish 토글 → 삭제', async ({ request }) => {

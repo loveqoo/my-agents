@@ -12,6 +12,12 @@ async function deleteAgentByName(request: APIRequestContext, name: string) {
   if (a) await request.delete(`${API}/agents/${a.id}`)
 }
 
+async function deletePersonaByName(request: APIRequestContext, name: string) {
+  const list = await (await request.get(`${API}/personas`)).json()
+  const p = list.find((x: { name: string; id: string }) => x.name === name)
+  if (p) await request.delete(`${API}/personas/${p.id}`)
+}
+
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
   await expect(page.getByText('my-agents')).toBeVisible()
@@ -92,6 +98,38 @@ test('빌딩 블록 — MCP 탭에 서버 표시', async ({ page }) => {
   await page.getByRole('menuitem', { name: '빌딩 블록' }).click()
   await page.getByRole('tab', { name: new RegExp('MCP') }).click()
   await expect(page.getByText('tavily').first()).toBeVisible()
+})
+
+test('빌딩 블록 — 페르소나 등록 → 편집 (014, 생성 후 API 정리)', async ({ page, request }) => {
+  const name = uniq('e2e-persona')
+  await page.getByRole('menuitem', { name: '빌딩 블록' }).click()
+  // persona 탭이 기본 — "새 항목"으로 작성 폼 오픈
+  await page.getByRole('button', { name: '새 항목' }).click()
+  const create = page.getByRole('dialog')
+  await expect(create.getByText('새 페르소나')).toBeVisible()
+  await create.getByPlaceholder('예: 친절한 고양이').fill(name)
+  await create.getByPlaceholder(/너는 고양이다/).fill('너는 테스트 페르소나다.')
+  await create.getByRole('button', { name: '등록' }).click()
+
+  // 목록에 등장
+  await expect(page.getByText(name).first()).toBeVisible({ timeout: 15_000 })
+
+  // 행 클릭 → 상세 → 편집 → 본문 변경 → 저장
+  await page.getByText(name).first().click()
+  await page.getByRole('button', { name: '편집' }).click()
+  const edit = page.getByRole('dialog').filter({ hasText: '페르소나 편집' })
+  await expect(edit).toBeVisible()
+  await edit.getByPlaceholder(/너는 고양이다/).fill('수정된 본문이다.')
+  await edit.getByRole('button', { name: '저장' }).click()
+
+  // 저장 후 본문 반영 확인(API)
+  await expect(async () => {
+    const list = await (await request.get(`${API}/personas`)).json()
+    const p = list.find((x: { name: string; body: string }) => x.name === name)
+    expect(p?.body).toBe('수정된 본문이다.')
+  }).toPass({ timeout: 10_000 })
+
+  await deletePersonaByName(request, name)
 })
 
 test('세션 — 목록 렌더 + 행 클릭 시 상세', async ({ page }) => {

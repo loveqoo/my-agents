@@ -44,8 +44,10 @@ export const deleteMcp = (id: string) => del(`/mcp-servers/${id}`)
 export const publishMcp = (id: string, published: boolean) =>
   put(`/mcp-servers/${id}/publish`, { published })
 
-/* 카테고리별 생성/삭제 (BlocksView "새 항목"·삭제). category: personas|memory-types|vector-tables|permissions */
+/* 카테고리별 생성/수정/삭제 (BlocksView). resource: personas|memory-types|vector-tables|permissions */
 export const createBlockItem = (resource: string, body: unknown) => post(`/${resource}`, body)
+export const updateBlockItem = (resource: string, id: string, body: unknown) =>
+  put(`/${resource}/${id}`, body)
 export const deleteBlockItem = (resource: string, id: string) => del(`/${resource}/${id}`)
 
 /* ---------- 에이전트 ---------- */

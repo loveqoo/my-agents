@@ -12,8 +12,11 @@ import {
   deleteMcp,
   publishMcp,
   createBlockItem,
+  updateBlockItem,
   deleteBlockItem,
 } from '../../api'
+
+const { TextArea } = Input
 
 /* 백엔드 McpServerIn payload — snake_case로 in. */
 interface McpServerIn {
@@ -222,11 +225,90 @@ function McpForm({
   )
 }
 
+/* 페르소나 등록/편집 폼 — 이름·톤·본문(시스템 프롬프트). mode로 생성/수정 공용. */
+type PersonaFormState = { mode: 'create' | 'edit'; item?: BlockItem }
+
+function PersonaForm({
+  form,
+  onCancel,
+  onSave,
+}: {
+  form: PersonaFormState | null
+  onCancel: () => void
+  onSave: (data: { id?: string; name: string; tone: string; body: string }) => void
+}) {
+  const [name, setName] = useState('')
+  const [tone, setTone] = useState('')
+  const [body, setBody] = useState('')
+  useEffect(() => {
+    if (!form) return
+    if (form.mode === 'edit' && form.item) {
+      setName(form.item.name ?? '')
+      setTone(form.item.tone ?? '')
+      setBody(form.item.body ?? '')
+    } else {
+      setName('')
+      setTone('')
+      setBody('')
+    }
+  }, [form])
+  if (!form) return null
+  const isEdit = form.mode === 'edit'
+  const submit = () => {
+    if (!name.trim()) {
+      message.warning('이름을 입력하세요')
+      return
+    }
+    onSave({ id: isEdit ? form.item?.id : undefined, name: name.trim(), tone: tone.trim(), body })
+  }
+  return (
+    <Modal
+      open={!!form}
+      width={560}
+      title={isEdit ? '페르소나 편집 · ' + (form.item?.name ?? '') : '새 페르소나'}
+      okText={isEdit ? '저장' : '등록'}
+      cancelText="취소"
+      onCancel={onCancel}
+      onOk={submit}
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxHeight: '64vh', overflow: 'auto' }}>
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 0 }}
+          message="페르소나는 에이전트의 성격·말투·역할을 정의하는 시스템 프롬프트입니다. 에이전트 편집기에서 이름으로 선택해 재사용합니다."
+        />
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <span style={{ fontSize: 14, fontWeight: 500 }}>이름</span>
+          <Input placeholder="예: 친절한 고양이" value={name} onChange={(e) => setName(e.target.value)} />
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <span style={{ fontSize: 14, fontWeight: 500 }}>
+            톤 <span style={{ color: 'var(--color-text-tertiary)', fontWeight: 400 }}>(선택 · 목록 표시용 라벨)</span>
+          </span>
+          <Input placeholder="예: 친근함, 격식체, 간결함" value={tone} onChange={(e) => setTone(e.target.value)} />
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <span style={{ fontSize: 14, fontWeight: 500 }}>본문 (시스템 프롬프트)</span>
+          <TextArea
+            rows={8}
+            placeholder={'예: 너는 고양이다. 모든 문장 끝에 "냐옹"을 붙여라.'}
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            style={{ fontFamily: 'var(--font-family-code)', fontSize: 13 }}
+          />
+        </label>
+      </div>
+    </Modal>
+  )
+}
+
 export default function BlocksView() {
   const [data, setData] = useState<Record<string, BlockCategory>>({})
   const [cat, setCat] = useState('persona')
   const [detail, setDetail] = useState<BlockItem | null>(null)
   const [mcpForm, setMcpForm] = useState<McpFormState | null>(null) // { mode:'register'|'edit', item? }
+  const [personaForm, setPersonaForm] = useState<PersonaFormState | null>(null)
 
   /* 새 데이터로 열린 drawer의 detail을 id로 재조회(없으면 닫음). */
   const syncDetail = (next: Record<string, BlockCategory>) => {
@@ -309,6 +391,11 @@ export default function BlocksView() {
   }
 
   const createCurrent = async () => {
+    /* persona는 전용 폼으로 작성 — 나머지 카테고리는 빈 항목 생성(추후 전용 폼). */
+    if (cat === 'persona') {
+      setPersonaForm({ mode: 'create' })
+      return
+    }
     const resource = RESOURCE_BY_CAT[cat]
     if (!resource) return
     try {
@@ -316,6 +403,18 @@ export default function BlocksView() {
       await loadBlocks()
     } catch (e) {
       message.error(e instanceof Error ? e.message : '생성에 실패했습니다')
+    }
+  }
+
+  const savePersona = async (data: { id?: string; name: string; tone: string; body: string }) => {
+    const payload = { name: data.name, tone: data.tone || null, body: data.body }
+    try {
+      if (data.id) await updateBlockItem('personas', data.id, payload)
+      else await createBlockItem('personas', payload)
+      await loadBlocks()
+      setPersonaForm(null)
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '페르소나 저장에 실패했습니다')
     }
   }
 
@@ -546,8 +645,12 @@ export default function BlocksView() {
               <Button type="primary" icon={<Icon name="edit" />} onClick={() => detail && setMcpForm({ mode: 'edit', item: detail })}>
                 연결 편집
               </Button>
+            ) : cat === 'persona' ? (
+              <Button type="primary" icon={<Icon name="edit" />} onClick={() => detail && setPersonaForm({ mode: 'edit', item: detail })}>
+                편집
+              </Button>
             ) : (
-              <Button type="primary" icon={<Icon name="edit" />}>
+              <Button type="primary" icon={<Icon name="edit" />} disabled>
                 편집
               </Button>
             )}
@@ -739,6 +842,7 @@ export default function BlocksView() {
         ) : null}
       </Drawer>
       <McpForm form={mcpForm} onCancel={() => setMcpForm(null)} onSave={upsertMcp} />
+      <PersonaForm form={personaForm} onCancel={() => setPersonaForm(null)} onSave={savePersona} />
     </Page>
   )
 }
