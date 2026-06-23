@@ -123,10 +123,10 @@ export const BLOCKS: Record<string, BlockCategory> = {
     label: '페르소나', icon: 'smile', color: 'var(--magenta-6)',
     desc: '에이전트가 따르는 성격·말투 정의(재사용 가능).',
     items: [
-      { id: 'ps-research', name: 'Methodical Researcher', tone: 'Rigorous · neutral', usedBy: 1, updated: '2d ago', body: 'Rigorous, source-driven, neutral. Prefer primary sources. Always cite. Lead with a one-line answer.' },
-      { id: 'ps-senior', name: 'Strict Senior Engineer', tone: 'Direct · kind', usedBy: 1, updated: '5d ago', body: 'Direct, specific, kind. Flag correctness and security first, style last. Cite exact line numbers.' },
-      { id: 'ps-sre', name: 'Calm SRE', tone: 'Unflappable', usedBy: 1, updated: '1w ago', body: 'Unflappable. Quantify before acting. Smallest safe step first. Confirm blast radius.' },
-      { id: 'ps-secretary', name: 'Warm Secretary', tone: 'Friendly · proactive', usedBy: 1, updated: '3d ago', body: "Friendly, concise, proactive. Protect the user's time and focus. Confirm before sending." },
+      { id: 'ps-research', name: 'Methodical Researcher', tone: '전문적, 차분함', usedBy: 1, updated: '2d ago', body: 'Rigorous, source-driven, neutral. Prefer primary sources. Always cite. Lead with a one-line answer.' },
+      { id: 'ps-senior', name: 'Strict Senior Engineer', tone: '단호함, 공감적', usedBy: 1, updated: '5d ago', body: 'Direct, specific, kind. Flag correctness and security first, style last. Cite exact line numbers.' },
+      { id: 'ps-sre', name: 'Calm SRE', tone: '차분함', usedBy: 1, updated: '1w ago', body: 'Unflappable. Quantify before acting. Smallest safe step first. Confirm blast radius.' },
+      { id: 'ps-secretary', name: 'Warm Secretary', tone: '친근함, 열정적', usedBy: 1, updated: '3d ago', body: "Friendly, concise, proactive. Protect the user's time and focus. Confirm before sending." },
     ],
   },
   memory: {

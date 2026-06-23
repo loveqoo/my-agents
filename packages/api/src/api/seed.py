@@ -25,10 +25,10 @@ from .models import (
 )
 
 PERSONAS = [
-    ("Methodical Researcher", "Rigorous · neutral", "Rigorous, source-driven, neutral. Prefer primary sources. Always cite. Lead with a one-line answer."),
-    ("Strict Senior Engineer", "Direct · kind", "Direct, specific, kind. Flag correctness and security first, style last. Cite exact line numbers."),
-    ("Calm SRE", "Unflappable", "Unflappable. Quantify before acting. Smallest safe step first. Confirm blast radius."),
-    ("Warm Secretary", "Friendly · proactive", "Friendly, concise, proactive. Protect the user's time and focus. Confirm before sending."),
+    ("Methodical Researcher", "전문적, 차분함", "Rigorous, source-driven, neutral. Prefer primary sources. Always cite. Lead with a one-line answer."),
+    ("Strict Senior Engineer", "단호함, 공감적", "Direct, specific, kind. Flag correctness and security first, style last. Cite exact line numbers."),
+    ("Calm SRE", "차분함", "Unflappable. Quantify before acting. Smallest safe step first. Confirm blast radius."),
+    ("Warm Secretary", "친근함, 열정적", "Friendly, concise, proactive. Protect the user's time and focus. Confirm before sending."),
 ]
 
 MEMORY_TYPES = [
