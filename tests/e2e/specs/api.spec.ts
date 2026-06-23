@@ -5,6 +5,45 @@ import { test, expect, type APIRequestContext } from '@playwright/test'
 
 const uniq = (p: string) => `${p}-${Date.now()}-${Math.floor(Math.random() * 1e4)}`
 
+/* SSE 프레임 파서 (모듈 공용). */
+function sseText(sse: string): string {
+  let out = ''
+  for (const line of sse.split('\n')) {
+    if (!line.startsWith('data: ')) continue
+    const d = line.slice(6)
+    if (!d.trim().startsWith('{')) continue
+    try {
+      const o = JSON.parse(d)
+      if (typeof o.text === 'string') out += o.text
+    } catch {
+      /* skip */
+    }
+  }
+  return out
+}
+function sseTrace(sse: string): Record<string, unknown> | null {
+  const frames = sse.split('\n\n')
+  for (const f of frames) {
+    if (!f.includes('event: trace')) continue
+    const line = f.split('\n').find((l) => l.startsWith('data: '))
+    if (line) return JSON.parse(line.slice(6))
+  }
+  return null
+}
+function sseSession(sse: string): string | null {
+  for (const f of sse.split('\n\n')) {
+    const line = f.split('\n').find((l) => l.startsWith('data: '))
+    if (!line) continue
+    try {
+      const d = JSON.parse(line.slice(6))
+      if (typeof d.session === 'string') return d.session
+    } catch {
+      /* skip */
+    }
+  }
+  return null
+}
+
 async function createAgent(request: APIRequestContext, name: string, config: object = {}) {
   const res = await request.post('/agents', {
     data: {
@@ -126,14 +165,40 @@ test.describe('에이전트 CRUD + 버저닝', () => {
       vectorTables: [],
       permissions: [],
     })
+    // 턴1
     const res = await request.post(`/agents/${a.id}/chat`, {
-      data: { messages: [{ role: 'user', content: '한 단어로 인사해줘' }] },
+      data: { messages: [{ role: 'user', content: '한 문장으로 자기소개해줘.' }] },
       timeout: 120_000,
     })
     expect(res.ok(), `chat ${res.status()}`).toBeTruthy()
     const sse = await res.text()
-    expect(sse, '스트리밍 텍스트 프레임').toContain('"text"')
-    expect(sse, '트레이스 프레임').toContain('event: trace')
+
+    // 비어있지 않은 응답
+    expect(sseText(sse).trim().length, '응답 텍스트 비어있지 않음').toBeGreaterThan(0)
+
+    // 단순 에이전트 = 툴/메모리 미개입
+    const t = sseTrace(sse)
+    expect(t, '트레이스').toBeTruthy()
+    expect((t!.mcp as unknown[]).length, 'MCP 호출 없음').toBe(0)
+    expect((t!.memories as unknown[]).length, '메모리 회상 없음').toBe(0)
+    const nodes = (t!.graph as { node: string }[]).map((n) => n.node)
+    expect(nodes, 'tools 노드 없음').not.toContain('tools')
+    expect(nodes, 'retrieve_memory 노드 없음').not.toContain('retrieve_memory')
+
+    // 멀티턴 + 세션/메시지 영속
+    const sid = sseSession(sse)
+    expect(sid, 'session id').toBeTruthy()
+    const res2 = await request.post(`/agents/${a.id}/chat`, {
+      data: { messages: [{ role: 'user', content: '2 더하기 3은?' }], sessionId: sid },
+      timeout: 120_000,
+    })
+    expect(res2.ok()).toBeTruthy()
+    expect(sseText(await res2.text()).trim().length).toBeGreaterThan(0)
+
+    const msgs = await (await request.get(`/sessions/${sid}/messages`)).json()
+    expect(msgs.length, '두 턴(user+assistant ×2) 영속').toBeGreaterThanOrEqual(4)
+    expect(msgs.filter((m: { role: string }) => m.role === 'assistant').length).toBeGreaterThanOrEqual(2)
+
     await request.delete(`/agents/${a.id}`)
   })
 
