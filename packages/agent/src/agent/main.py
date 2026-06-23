@@ -25,30 +25,19 @@ def build_agent(
 ):
     """persona/params/tools로 단일 ReAct 에이전트를 만든다.
 
-    model_cfg가 주어지면 등록된 모델 설정(base_url/api_key/model_id/params)으로 LLM을 띄우고,
-    없으면 env의 로컬 MLX로 폴백한다. tools가 비어있으면 순수 대화.
+    **모델은 항상 등록된 설정(model_cfg)에서 온다 — env는 보지 않는다.**
+    model_cfg = {base_url, api_key, model_id, params}. 호출자(API)가 모델 레지스트리에서
+    해석해 넘긴다. tools가 비어있으면 순수 대화.
     """
-    load_dotenv()
     params = params or {}
-
-    # 모델 설정은 원자적으로 다룬다: 등록 모델이 해석되면 그 필드만 쓰고,
-    # 없을 때만 env MLX로 폴백한다. (등록 base_url에 env api_key가 섞여 다른
-    # 엔드포인트로 키가 새는 것을 방지 — codex P1)
-    if model_cfg:
-        base_url = model_cfg.get("base_url") or ""
-        model_name = model_cfg.get("model_id") or ""
-        if not base_url or not model_name:
-            raise RuntimeError("등록된 모델 설정이 불완전합니다 (base_url/model_id 필요).")
-        # 등록 모델에 키가 없으면 무인증 로컬 엔드포인트로 간주 — env 키를 빌려오지 않는다.
-        api_key = model_cfg.get("api_key") or "sk-noauth"
-        cfg_params = model_cfg.get("params") or {}
-    else:
-        base_url = os.environ.get("MLX_BASE_URL", "http://localhost:8045/v1")
-        api_key = os.environ.get("MLX_API_KEY")
-        model_name = os.environ.get("MLX_MODEL", "mlx-community/Qwen3.6-35B-A3B-mxfp8")
-        cfg_params = {}
-        if not api_key:
-            raise RuntimeError("API 키가 필요합니다 (모델 등록 또는 MLX_API_KEY).")
+    cfg = model_cfg or {}
+    base_url = cfg.get("base_url") or ""
+    model_name = cfg.get("model_id") or ""
+    if not base_url or not model_name:
+        raise RuntimeError("모델 설정이 필요합니다 (base_url/model_id) — 모델을 등록하세요.")
+    # 키가 없으면 무인증 로컬 엔드포인트로 간주(env 키를 빌려오지 않는다).
+    api_key = cfg.get("api_key") or "sk-noauth"
+    cfg_params = cfg.get("params") or {}
 
     # temperature: 호출자 params > 모델 등록 params > 기본
     temperature = params.get("temperature", cfg_params.get("temperature", 0.7))
@@ -66,7 +55,15 @@ def build_agent(
 
 
 def main():
-    agent = build_agent()
+    """CLI 단독 실행(개발용 테스터) — 레지스트리가 없으므로 env에서 모델 설정을 읽어 넘긴다."""
+    load_dotenv()
+    model_cfg = {
+        "base_url": os.environ.get("MLX_BASE_URL", "http://localhost:8045/v1"),
+        "api_key": os.environ.get("MLX_API_KEY"),
+        "model_id": os.environ.get("MLX_MODEL", "mlx-community/Qwen3.6-35B-A3B-mxfp8"),
+        "params": {},
+    }
+    agent = build_agent(model_cfg=model_cfg)
     print("하드코딩 에이전트 (종료: 'exit' 또는 Ctrl-D)")
     messages = []  # 대화 맥락 유지 (멀티턴)
     while True:

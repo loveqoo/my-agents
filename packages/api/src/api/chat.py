@@ -48,25 +48,68 @@ async def _load_context(agent_id: uuid.UUID, session_str_id: str | None):
             "temperature": cfg.get("temperature"),
         }
 
-        # 에이전트가 고른 모델을 레지스트리에서 조회 → 런타임 설정. 없으면 env MLX 폴백.
-        model_name = cfg.get("model")
-        model_cfg = None
-        if model_name:
-            m = (
+        # 모델은 레지스트리에서만 해석한다(env 안 봄). 에이전트가 고른 이름 → 없으면
+        # 기본(is_default) chat 모델. 그것도 없으면 명확히 400.
+        # 코드 에이전트는 원격 실행이라 로컬 모델이 필요 없다(여기선 건너뜀).
+        if agent.source != "code":
+            model_name = cfg.get("model")
+            m = None
+            if model_name:
+                m = (
+                    await db.execute(
+                        select(ModelConfig).where(
+                            ModelConfig.name == model_name, ModelConfig.kind == "chat"
+                        )
+                    )
+                ).scalar_one_or_none()
+            if m is None:
+                m = (
+                    await db.execute(
+                        select(ModelConfig).where(
+                            ModelConfig.kind == "chat", ModelConfig.is_default.is_(True)
+                        )
+                    )
+                ).scalars().first()
+            if m is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail="등록된 채팅 모델이 없습니다 — 모델을 먼저 등록하세요.",
+                )
+            if not m.base_url or not m.model_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"모델 '{m.name}' 설정이 불완전합니다 (base_url/model_id 필요).",
+                )
+            ctx["model_cfg"] = {
+                "base_url": m.base_url, "api_key": m.api_key,
+                "model_id": m.model_id, "params": dict(m.params or {}),
+            }
+        else:
+            ctx["model_cfg"] = None
+
+        # mem0용 모델 설정(레지스트리). llm=해석된 chat 모델, embedder=기본 embedding 모델.
+        # 임베딩 모델이 없으면 mem_cfg=None → 메모리 비활성(graceful).
+        mem_cfg = None
+        if ctx["model_cfg"]:
+            emb = (
                 await db.execute(
                     select(ModelConfig).where(
-                        ModelConfig.name == model_name, ModelConfig.kind == "chat"
+                        ModelConfig.kind == "embedding", ModelConfig.is_default.is_(True)
                     )
                 )
-            ).scalar_one_or_none()
-            if m is not None:
-                model_cfg = {
-                    "base_url": m.base_url,
-                    "api_key": m.api_key,
-                    "model_id": m.model_id,
-                    "params": dict(m.params or {}),
+            ).scalars().first()
+            if emb is not None:
+                mem_cfg = {
+                    "llm": {
+                        "base_url": ctx["model_cfg"]["base_url"],
+                        "api_key": ctx["model_cfg"]["api_key"],
+                        "model_id": ctx["model_cfg"]["model_id"],
+                    },
+                    "embedder": {
+                        "base_url": emb.base_url, "api_key": emb.api_key, "model_id": emb.model_id,
+                    },
                 }
-        ctx["model_cfg"] = model_cfg
+        ctx["mem_cfg"] = mem_cfg
 
         mcp_pairs: list[tuple[str, str]] = []
         mcps = cfg.get("mcps", [])
@@ -193,10 +236,10 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest):
             _remote_stream(ctx, body, user_text), media_type="text/event-stream"
         )
 
-    # 의미론적 메모리 회상 (켠 에이전트만). mem0는 동기 → 스레드로.
-    used_memory = memory.memory_enabled(ctx["memories"])
+    # 의미론적 메모리 회상 (켠 에이전트 + 등록 임베딩 모델 있을 때만). mem0는 동기 → 스레드로.
+    used_memory = memory.memory_enabled(ctx["memories"]) and ctx["mem_cfg"] is not None
     mem_hits = (
-        await asyncio.to_thread(memory.search, ctx["ext_agent_id"], user_text)
+        await asyncio.to_thread(memory.search, ctx["ext_agent_id"], user_text, ctx["mem_cfg"])
         if used_memory
         else []
     )
@@ -251,6 +294,7 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest):
                 memory.add,
                 ctx["ext_agent_id"],
                 [{"role": "user", "content": user_text}, {"role": "assistant", "content": full}],
+                ctx["mem_cfg"],
             )
         yield f"event: trace\ndata: {json.dumps(trace, ensure_ascii=False)}\n\n"
         yield "event: done\ndata: [DONE]\n\n"

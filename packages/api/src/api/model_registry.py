@@ -18,6 +18,20 @@ from .serializers import mask_secret, model_to_out
 router = APIRouter(prefix="/models", tags=["models"])
 
 
+async def _clear_other_defaults(
+    session: AsyncSession, kind: str, exclude_id: uuid.UUID | None = None
+) -> None:
+    """kind별 기본값은 하나만 — 나머지 is_default를 끈다(codex P2)."""
+    rows = (
+        await session.execute(
+            select(ModelConfig).where(ModelConfig.kind == kind, ModelConfig.is_default.is_(True))
+        )
+    ).scalars().all()
+    for r in rows:
+        if exclude_id is None or r.id != exclude_id:
+            r.is_default = False
+
+
 @router.get("", response_model=list[ModelOut])
 async def list_models(
     kind: str | None = None, session: AsyncSession = Depends(get_session)
@@ -31,6 +45,8 @@ async def list_models(
 
 @router.post("", response_model=ModelOut, status_code=201)
 async def create_model(body: ModelIn, session: AsyncSession = Depends(get_session)) -> ModelOut:
+    if body.is_default:
+        await _clear_other_defaults(session, body.kind)
     m = ModelConfig(
         name=body.name, provider=body.provider, base_url=body.base_url,
         api_key=body.api_key, model_id=body.model_id, kind=body.kind,
@@ -62,6 +78,8 @@ async def update_model(
     m.base_url = body.base_url
     m.model_id = body.model_id
     m.kind = body.kind
+    if body.is_default:
+        await _clear_other_defaults(session, body.kind, exclude_id=m.id)
     m.is_default = body.is_default
     m.params = body.params
     # 현재 키의 마스킹 값을 그대로 보내면 보존(편집 화면이 마스킹된 값을 되돌려준 경우).
