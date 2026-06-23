@@ -46,6 +46,8 @@ async def _load_context(agent_id: uuid.UUID, session_str_id: str | None):
             "memories": cfg.get("memories", []),
             # 에이전트가 명시한 temperature만 전달(없으면 None) → 모델 등록 params가 적용되게.
             "temperature": cfg.get("temperature"),
+            "history_depth": cfg.get("historyDepth", 20),
+            "persist_history": cfg.get("persistHistory", True),
         }
 
         # 모델은 레지스트리에서만 해석한다(env 안 봄). 에이전트가 고른 이름 → 없으면
@@ -150,14 +152,28 @@ async def _load_context(agent_id: uuid.UUID, session_str_id: str | None):
         return ctx
 
 
-async def _persist(session_pk: uuid.UUID, user_text: str, reply: str, trace: dict, tokens: dict):
+def _window(messages: list[dict], depth: int | None) -> list[dict]:
+    """실행 컨텍스트를 최근 N개로 절단. 0=현재 턴만, 음수/None=전체.
+    ([-0:]가 전체가 되는 파이썬 함정 처리)."""
+    if depth is None or depth < 0:
+        return messages
+    if depth == 0:
+        return messages[-1:]
+    return messages[-depth:]
+
+
+async def _persist(
+    session_pk: uuid.UUID, user_text: str, reply: str, trace: dict, tokens: dict, store_messages: bool
+):
+    """세션 카운터는 항상 갱신. 메시지(user/assistant+트레이스)는 store_messages일 때만 저장."""
     async with SessionLocal() as db:
         sess = await db.get(Session, session_pk)
         if sess is None:
             log.error("persist skipped: session %s not found", session_pk)
             return
-        db.add(Message(session_pk=session_pk, role="user", content=user_text))
-        db.add(Message(session_pk=session_pk, role="assistant", content=reply, trace=trace))
+        if store_messages:
+            db.add(Message(session_pk=session_pk, role="user", content=user_text))
+            db.add(Message(session_pk=session_pk, role="assistant", content=reply, trace=trace))
         sess.turns = (sess.turns or 0) + 1
         sess.tokens = (sess.tokens or 0) + int(tokens.get("in", 0)) + int(tokens.get("out", 0))
         sess.status = "active"
@@ -167,7 +183,9 @@ async def _persist(session_pk: uuid.UUID, user_text: str, reply: str, trace: dic
 async def _remote_stream(ctx: dict, body: ChatRequest, user_text: str):
     """코드 에이전트: 등록된 원격 엔드포인트로 프록시하고 응답을 우리 SSE로 재전송."""
     yield f"data: {json.dumps({'session': ctx['session_id']}, ensure_ascii=False)}\n\n"
-    api_messages = [{"role": m.role, "content": m.content} for m in body.messages]
+    api_messages = _window(
+        [{"role": m.role, "content": m.content} for m in body.messages], ctx["history_depth"]
+    )
     # 저장된 토큰을 복호화해 실제 Bearer로 전송(이제 실 토큰 보안 저장 → 원격 인증 가능).
     # 레거시 마스킹 토큰은 복호화 폴백으로 •가 남으므로 그땐 헤더 생략. HTTP 헤더는 ascii만.
     tok = crypto.decrypt(ctx.get("token"))
@@ -222,9 +240,10 @@ async def _remote_stream(ctx: dict, body: ChatRequest, user_text: str):
             {"node": "__end__", "ms": 0},
         ],
         "remote": True,
+        "contextMessages": len(api_messages),
     }
     if not errored:
-        await _persist(ctx["session_pk"], user_text, full, trace, tokens)
+        await _persist(ctx["session_pk"], user_text, full, trace, tokens, ctx["persist_history"])
     yield f"event: trace\ndata: {json.dumps(trace, ensure_ascii=False)}\n\n"
     yield "event: done\ndata: [DONE]\n\n"
 
@@ -261,7 +280,10 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest):
     run_params = {} if ctx["temperature"] is None else {"temperature": ctx["temperature"]}
     graph = build_agent(persona_prompt, run_params, tools, ctx["model_cfg"])
 
-    messages = [{"role": m.role, "content": m.content} for m in body.messages]
+    # 실행 컨텍스트를 historyDepth로 절단(최근 N개만 모델에 전달).
+    messages = _window(
+        [{"role": m.role, "content": m.content} for m in body.messages], ctx["history_depth"]
+    )
 
     async def event_stream():
         t0 = time.perf_counter()
@@ -290,9 +312,10 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest):
             total_ms=total_ms,
             tokens=tokens,
         )
+        trace["contextMessages"] = len(messages)  # 모델에 넣은 메시지 수(historyDepth 적용 결과)
         # 오류 턴은 영속/메모리 저장하지 않는다 (부분/실패 응답 오염 방지).
         if not errored:
-            await _persist(ctx["session_pk"], user_text, full, trace, tokens)
+            await _persist(ctx["session_pk"], user_text, full, trace, tokens, ctx["persist_history"])
         if not errored and used_memory and full:
             await asyncio.to_thread(
                 memory.add,

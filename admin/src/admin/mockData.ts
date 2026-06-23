@@ -10,6 +10,7 @@ export interface AgentConfig {
   persona?: string
   memories?: string[]
   historyDepth?: number
+  persistHistory?: boolean
   vectorTables?: string[]
   permissions?: string[]
   mcps?: string[]
@@ -62,6 +63,7 @@ export interface Agent {
   persona: string
   memories: string[]
   historyDepth: number
+  persistHistory?: boolean
   vectorTables: string[]
   permissions: string[]
   mcps: string[]

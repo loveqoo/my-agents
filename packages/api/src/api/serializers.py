@@ -39,6 +39,7 @@ def agent_to_out(a: Agent) -> AgentOut:
         persona=cfg.get("persona", a.persona),
         systemPrompt=a.persona,  # 해석된 본문(서빙용)
         historyDepth=cfg.get("historyDepth", a.history_depth),
+        persistHistory=cfg.get("persistHistory", True),
         memories=cfg.get("memories", []),
         vectorTables=cfg.get("vectorTables", []),
         permissions=cfg.get("permissions", []),

@@ -117,6 +117,7 @@ class AgentConfig(BaseModel):
     permissions: list[str] = Field(default_factory=list)
     mcps: list[str] = Field(default_factory=list)
     historyDepth: int = 20
+    persistHistory: bool = True  # 대화를 DB에 저장할지(끄면 윈도우 모드)
 
 
 class AgentCreate(BaseModel):
@@ -148,6 +149,7 @@ class AgentOut(BaseModel):
     persona: str  # 페르소나 이름(블록 참조, UI 표시용)
     systemPrompt: str = ""  # 해석된 시스템 프롬프트 본문(런타임이 쓰는 것)
     historyDepth: int
+    persistHistory: bool = True
     memories: list[str] = Field(default_factory=list)
     vectorTables: list[str] = Field(default_factory=list)
     permissions: list[str] = Field(default_factory=list)

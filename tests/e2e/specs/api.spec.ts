@@ -283,6 +283,42 @@ test.describe('모델 레지스트리', () => {
   })
 })
 
+test.describe('히스토리 정책', () => {
+  test.setTimeout(90_000)
+
+  test('historyDepth로 실행 컨텍스트 절단(trace.contextMessages)', async ({ request }) => {
+    const a = await createAgent(request, uniq('hist'), { historyDepth: 2 })
+    const msgs = [
+      { role: 'user', content: 'a' },
+      { role: 'assistant', content: 'b' },
+      { role: 'user', content: 'c' },
+      { role: 'assistant', content: 'd' },
+      { role: 'user', content: '마지막 질문' },
+    ]
+    const res = await request.post(`/agents/${a.id}/chat`, { data: { messages: msgs }, timeout: 60_000 })
+    expect(res.ok()).toBeTruthy()
+    const t = sseTrace(await res.text())
+    expect(t?.contextMessages, 'historyDepth=2 → 마지막 2개만 모델에').toBe(2)
+    await request.delete(`/agents/${a.id}`)
+  })
+
+  test('persistHistory=false면 메시지 미저장(세션 카운터만 갱신)', async ({ request }) => {
+    const a = await createAgent(request, uniq('nopersist'), { persistHistory: false })
+    const res = await request.post(`/agents/${a.id}/chat`, {
+      data: { messages: [{ role: 'user', content: '안녕' }] },
+      timeout: 60_000,
+    })
+    expect(res.ok()).toBeTruthy()
+    const sid = sseSession(await res.text())
+    expect(sid).toBeTruthy()
+    const msgs = await (await request.get(`/sessions/${sid}/messages`)).json()
+    expect(msgs.length, '윈도우 모드 — 메시지 미저장').toBe(0)
+    const sess = await (await request.get(`/sessions/${sid}`)).json()
+    expect(sess.turns, '세션 카운터는 갱신').toBeGreaterThanOrEqual(1)
+    await request.delete(`/agents/${a.id}`)
+  })
+})
+
 test.describe('세션 / 승인', () => {
   test('GET /sessions 시드 존재', async ({ request }) => {
     const s = await (await request.get('/sessions')).json()

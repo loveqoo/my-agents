@@ -52,6 +52,7 @@ interface AgentFormData {
   persona: string
   memories: string[]
   historyDepth: number
+  persistHistory: boolean
   vectorTables: string[]
   permissions: string[]
   mcps: string[]
@@ -65,6 +66,7 @@ function blankForm(blocks: Record<string, BlockCategory>): AgentFormData {
     persona: blocks.persona?.items?.[0]?.name ?? '',
     memories: [],
     historyDepth: 20,
+    persistHistory: true,
     vectorTables: [],
     permissions: [],
     mcps: [],
@@ -225,6 +227,16 @@ function AgentForm({
               { label: '최근 100개 메시지', value: 100 },
             ]}
           />
+        </Field>
+        <Field label="대화 저장">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <Switch checked={form.persistHistory} onChange={(v) => set('persistHistory', v)} />
+            <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+              {form.persistHistory
+                ? '대화를 DB에 저장 (세션·인스펙터·재개)'
+                : '윈도우 모드 — 저장 안 함 (가벼움·프라이버시, 사후 기록 없음)'}
+            </span>
+          </div>
         </Field>
         <Field label="권한">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -1060,6 +1072,7 @@ export default function AgentsView() {
     persona: a.persona,
     memories: [...(a.memories || [])],
     historyDepth: a.historyDepth,
+    persistHistory: a.persistHistory ?? true,
     vectorTables: [...(a.vectorTables || [])],
     permissions: [...a.permissions],
     mcps: [...a.mcps],
@@ -1152,6 +1165,7 @@ export default function AgentsView() {
       persona: data.persona,
       memories: data.memories,
       historyDepth: data.historyDepth,
+      persistHistory: data.persistHistory,
       vectorTables: data.vectorTables,
       permissions: data.permissions,
       mcps: data.mcps,
@@ -1406,6 +1420,7 @@ export default function AgentsView() {
                   persona: c.persona || a.persona,
                   memories: [...(c.memories || [])],
                   historyDepth: c.historyDepth != null ? c.historyDepth : a.historyDepth,
+                  persistHistory: c.persistHistory ?? a.persistHistory ?? true,
                   vectorTables: [...(c.vectorTables || [])],
                   permissions: [...(c.permissions || [])],
                   mcps: [...(c.mcps || [])],
