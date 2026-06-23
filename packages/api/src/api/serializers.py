@@ -1,16 +1,13 @@
 """ORM 모델 → API 출력(dict) 직렬화. 여러 라우터가 공유."""
 
+from .crypto import SECRET_MASK
 from .models import Agent, Approval, ModelConfig, Session
 from .schemas import AgentOut, ApprovalOut, ModelOut, SessionOut, VersionOut
 
 
 def mask_secret(s: str | None) -> str | None:
-    """api_key 등 비밀값 마스킹 — 평문 노출 방지."""
-    if not s:
-        return None
-    if len(s) > 11:
-        return s[:7] + "••••••••" + s[-4:]
-    return (s[:3] if len(s) > 3 else "") + "••••••••"
+    """비밀값 출력 마스킹 — 존재 여부만 알리고 평문/암호문은 절대 노출하지 않는다."""
+    return SECRET_MASK if s else None
 
 
 def model_to_out(m: ModelConfig) -> ModelOut:
@@ -60,7 +57,7 @@ def agent_to_out(a: Agent) -> AgentOut:
             for v in sorted(a.versions, key=lambda x: x.created_at or x.version, reverse=True)
         ],
         endpoint=a.endpoint,
-        token=a.token,
+        token=mask_secret(a.token),
         runtime=a.runtime,
         repo=a.repo,
         commit=a.commit,

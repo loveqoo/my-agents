@@ -9,6 +9,8 @@ import os
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from . import crypto
+
 from .models import (
     Agent,
     AgentVersion,
@@ -137,15 +139,16 @@ async def seed_if_empty(session: AsyncSession) -> None:
         api_key = os.environ.get("MLX_API_KEY")
         chat_id = os.environ.get("MLX_MODEL", "mlx-community/Qwen3.6-35B-A3B-mxfp8")
         embed_id = os.environ.get("MLX_EMBED_MODEL", "mlx-community/multilingual-e5-large-mlx")
+        enc_key = crypto.encrypt(api_key)  # 비밀값 암호화 저장
         session.add_all([
             ModelConfig(
                 name="qwen3.6-35b", provider="openai-compatible", base_url=base_url,
-                api_key=api_key, model_id=chat_id, kind="chat", is_default=True,
+                api_key=enc_key, model_id=chat_id, kind="chat", is_default=True,
                 params={"temperature": 0.7, "enable_thinking": False},
             ),
             ModelConfig(
                 name="multilingual-e5-large", provider="openai-compatible", base_url=base_url,
-                api_key=api_key, model_id=embed_id, kind="embedding", is_default=True, params={},
+                api_key=enc_key, model_id=embed_id, kind="embedding", is_default=True, params={},
             ),
         ])
 
@@ -180,7 +183,7 @@ async def seed_if_empty(session: AsyncSession) -> None:
             # 개발용 mock 원격 에이전트로 연결 → 코드 에이전트 원격 실행이 바로 동작.
             # 실제 배포는 자기 URL을 쓴다(REMOTE_AGENT_BASE로 오버라이드 가능).
             endpoint=os.environ.get("REMOTE_AGENT_BASE", "http://127.0.0.1:8000/_remote/agent"),
-            token="sk_live_a3f••••••••91c2",
+            token=crypto.encrypt("sk_live_demo_doc_translator_a17c33"),
             runtime="my-agents-sdk · Python 2.4.1", repo="acme/doc-translator", commit="f3a91c2",
             registered_at="2026-06-18", last_sync="12분 전",
         )

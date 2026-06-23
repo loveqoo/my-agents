@@ -12,8 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .db import get_session
 from .models import ModelConfig
+from . import crypto
 from .schemas import ModelIn, ModelOut
-from .serializers import mask_secret, model_to_out
+from .serializers import model_to_out
 
 router = APIRouter(prefix="/models", tags=["models"])
 
@@ -49,7 +50,7 @@ async def create_model(body: ModelIn, session: AsyncSession = Depends(get_sessio
         await _clear_other_defaults(session, body.kind)
     m = ModelConfig(
         name=body.name, provider=body.provider, base_url=body.base_url,
-        api_key=body.api_key, model_id=body.model_id, kind=body.kind,
+        api_key=crypto.encrypt(body.api_key), model_id=body.model_id, kind=body.kind,
         is_default=body.is_default, params=body.params,
     )
     session.add(m)
@@ -82,10 +83,13 @@ async def update_model(
         await _clear_other_defaults(session, body.kind, exclude_id=m.id)
     m.is_default = body.is_default
     m.params = body.params
-    # 현재 키의 마스킹 값을 그대로 보내면 보존(편집 화면이 마스킹된 값을 되돌려준 경우).
-    # 그 외 값이면 교체 — 새 평문이면 갱신, 빈 값/null이면 키 제거.
-    if body.api_key != mask_secret(m.api_key):
-        m.api_key = body.api_key
+    # 키 의미 구분: None/마스킹표시 = 보존, 빈 문자열 = 명시적 제거, 그 외 = 새 평문 암호화.
+    if body.api_key is None or crypto.is_masked(body.api_key):
+        pass  # 기존 암호화 키 보존
+    elif body.api_key == "":
+        m.api_key = None  # 명시적 제거
+    else:
+        m.api_key = crypto.encrypt(body.api_key)
     await session.commit()
     await session.refresh(m)
     return model_to_out(m)

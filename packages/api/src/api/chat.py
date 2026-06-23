@@ -19,7 +19,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 
-from . import memory, runtime
+from . import crypto, memory, runtime
 from .db import SessionLocal
 from .models import Agent, McpServer, Message, ModelConfig, Session
 from .schemas import ChatRequest
@@ -81,7 +81,7 @@ async def _load_context(agent_id: uuid.UUID, session_str_id: str | None):
                     detail=f"모델 '{m.name}' 설정이 불완전합니다 (base_url/model_id 필요).",
                 )
             ctx["model_cfg"] = {
-                "base_url": m.base_url, "api_key": m.api_key,
+                "base_url": m.base_url, "api_key": crypto.decrypt(m.api_key),
                 "model_id": m.model_id, "params": dict(m.params or {}),
             }
         else:
@@ -106,7 +106,8 @@ async def _load_context(agent_id: uuid.UUID, session_str_id: str | None):
                         "model_id": ctx["model_cfg"]["model_id"],
                     },
                     "embedder": {
-                        "base_url": emb.base_url, "api_key": emb.api_key, "model_id": emb.model_id,
+                        "base_url": emb.base_url, "api_key": crypto.decrypt(emb.api_key),
+                        "model_id": emb.model_id,
                     },
                 }
         ctx["mem_cfg"] = mem_cfg
@@ -167,9 +168,9 @@ async def _remote_stream(ctx: dict, body: ChatRequest, user_text: str):
     """코드 에이전트: 등록된 원격 엔드포인트로 프록시하고 응답을 우리 SSE로 재전송."""
     yield f"data: {json.dumps({'session': ctx['session_id']}, ensure_ascii=False)}\n\n"
     api_messages = [{"role": m.role, "content": m.content} for m in body.messages]
-    # 토큰이 마스킹된 값(•)이면 실 토큰이 아니므로 인증 헤더를 보내지 않는다
-    # (실 토큰 보안 저장은 추후 — 그때 진짜 외부 인증). HTTP 헤더는 ascii만 허용.
-    tok = ctx.get("token")
+    # 저장된 토큰을 복호화해 실제 Bearer로 전송(이제 실 토큰 보안 저장 → 원격 인증 가능).
+    # 레거시 마스킹 토큰은 복호화 폴백으로 •가 남으므로 그땐 헤더 생략. HTTP 헤더는 ascii만.
+    tok = crypto.decrypt(ctx.get("token"))
     headers = {"Authorization": f"Bearer {tok}"} if tok and "•" not in tok else {}
     acc: list[str] = []
     errored = False
@@ -180,9 +181,12 @@ async def _remote_stream(ctx: dict, body: ChatRequest, user_text: str):
                 "POST", ctx["endpoint"], json={"messages": api_messages}, headers=headers
             ) as resp:
                 if resp.status_code >= 400:
-                    body = (await resp.aread()).decode("utf-8", "replace")[:200]
+                    # 원격 본문은 Authorization/토큰을 에코할 수 있어 클라엔 보내지 않는다.
+                    # 디버깅용 본문은 서버 로그로만(자격증명 누출 방지).
+                    body = (await resp.aread()).decode("utf-8", "replace")[:300]
+                    log.warning("remote agent %s error %s: %s", ctx["endpoint"], resp.status_code, body)
                     errored = True
-                    yield f"data: {json.dumps({'error': f'원격 {resp.status_code}: {body}'}, ensure_ascii=False)}\n\n"
+                    yield f"data: {json.dumps({'error': f'원격 응답 오류 {resp.status_code}'}, ensure_ascii=False)}\n\n"
                 else:
                     async for line in resp.aiter_lines():
                         # SSE: 'data:' 또는 'data: ' 모두 허용.

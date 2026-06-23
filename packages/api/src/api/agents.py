@@ -24,6 +24,7 @@ from .schemas import (
     ExposeIn,
     RegisterCodeAgentIn,
 )
+from . import crypto
 from .serializers import agent_to_out
 
 router = APIRouter(prefix="/agents", tags=["agents"])
@@ -72,10 +73,7 @@ async def _reload_out(session: AsyncSession, agent_pk: uuid.UUID) -> AgentOut:
     return agent_to_out(agent)
 
 
-def _mask_token(token: str) -> str:
-    if len(token) > 11:
-        return token[:7] + "••••••••" + token[-4:]
-    return token[:3] + "••••••••"
+# 코드 에이전트 토큰은 암호화 저장(출력은 serializer가 마스킹). 원격 인증 시 복호화 사용.
 
 
 def _find_version(agent: Agent, version: str) -> AgentVersion | None:
@@ -312,7 +310,7 @@ async def register_code_agent(
         exposed={"a2a": False},
         status="online",
         endpoint=body.endpoint,
-        token=_mask_token(body.token),
+        token=crypto.encrypt(body.token),
         runtime=body.runtime,
         repo=body.repo,
         commit=body.commit,
