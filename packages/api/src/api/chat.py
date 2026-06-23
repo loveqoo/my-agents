@@ -181,10 +181,10 @@ async def _remote_stream(ctx: dict, body: ChatRequest, user_text: str):
                 "POST", ctx["endpoint"], json={"messages": api_messages}, headers=headers
             ) as resp:
                 if resp.status_code >= 400:
-                    # 원격 본문은 Authorization/토큰을 에코할 수 있어 클라엔 보내지 않는다.
-                    # 디버깅용 본문은 서버 로그로만(자격증명 누출 방지).
-                    body = (await resp.aread()).decode("utf-8", "replace")[:300]
-                    log.warning("remote agent %s error %s: %s", ctx["endpoint"], resp.status_code, body)
+                    # 원격 본문은 보낸 Authorization/토큰을 에코할 수 있어 클라에도 로그에도
+                    # 남기지 않는다(자격증명 누출 방지). 상태코드만 기록.
+                    await resp.aread()
+                    log.warning("remote agent %s error %s", ctx["endpoint"], resp.status_code)
                     errored = True
                     yield f"data: {json.dumps({'error': f'원격 응답 오류 {resp.status_code}'}, ensure_ascii=False)}\n\n"
                 else:

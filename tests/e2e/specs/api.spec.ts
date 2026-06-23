@@ -64,6 +64,19 @@ async function createAgent(request: APIRequestContext, name: string, config: obj
   return res.json()
 }
 
+test.describe('인증', () => {
+  test('토큰 없거나 틀리면 401, mock_remote는 개방', async ({ request }) => {
+    expect((await request.get('/agents', { headers: { Authorization: '' } })).status()).toBe(401)
+    expect((await request.get('/agents', { headers: { Authorization: 'Bearer wrong' } })).status()).toBe(401)
+    // mock_remote(외부 에이전트 스탠드인)는 API 토큰 비요구
+    const r = await request.post('/_remote/agent', {
+      headers: { Authorization: '' },
+      data: { messages: [{ role: 'user', content: 'hi' }] },
+    })
+    expect(r.ok()).toBeTruthy()
+  })
+})
+
 test.describe('블록', () => {
   test('GET /blocks → 5 카테고리, 각 항목 존재', async ({ request }) => {
     const res = await request.get('/blocks')

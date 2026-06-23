@@ -30,5 +30,6 @@ tests/e2e/.last-run.json
 # Mem0 embedded qdrant (local vector store)
 .dev/mem0_qdrant/
 
-# Secret encryption key (dev fallback — never commit)
+# Secrets (dev fallbacks — never commit)
 .dev/.secret_key
+.dev/.api_token

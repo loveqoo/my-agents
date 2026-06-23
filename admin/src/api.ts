@@ -3,6 +3,7 @@
 import type { Agent, Approval, BlockCategory, Session } from './admin/mockData'
 
 const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000'
+const TOKEN = import.meta.env.VITE_API_TOKEN ?? ''
 
 export type { Agent, Approval, BlockCategory, Session }
 
@@ -11,10 +12,18 @@ export interface ChatMessage {
   content: string
 }
 
+/** 모든 요청 공통 헤더 (Bearer 인증 + 본문 시 JSON). */
+function authHeaders(hasBody: boolean): Record<string, string> {
+  const h: Record<string, string> = {}
+  if (TOKEN) h.Authorization = `Bearer ${TOKEN}`
+  if (hasBody) h['Content-Type'] = 'application/json'
+  return h
+}
+
 async function j<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
-    headers: init?.body ? { 'Content-Type': 'application/json' } : undefined,
     ...init,
+    headers: { ...authHeaders(!!init?.body), ...(init?.headers as Record<string, string>) },
   })
   if (!res.ok) throw new Error(`${init?.method ?? 'GET'} ${path} → ${res.status}`)
   if (res.status === 204) return undefined as T
@@ -125,7 +134,7 @@ export async function streamChat(
   const callbacks: ChatCallbacks = typeof cb === 'function' ? { onToken: cb } : cb
   const res = await fetch(`${BASE}/agents/${agentId}/chat`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders(true),
     body: JSON.stringify({ messages, sessionId }),
     signal,
   })

@@ -8,7 +8,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from fastapi import Depends
+
 from . import agents, approvals, blocks, chat, mock_remote, model_registry, sessions
+from .auth import require_auth
 from .db import init_db
 
 
@@ -25,12 +28,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-app.include_router(blocks.router)
-app.include_router(model_registry.router)
-app.include_router(agents.router)
-app.include_router(chat.router)
-app.include_router(sessions.router)
-app.include_router(approvals.router)
+# 도메인 라우터는 Bearer 토큰 인증 필요. mock_remote(외부 에이전트 스탠드인)는 제외 —
+# 자체 인증 영역이며 chat 프록시가 에이전트 토큰을 보낸다.
+_auth = [Depends(require_auth)]
+app.include_router(blocks.router, dependencies=_auth)
+app.include_router(model_registry.router, dependencies=_auth)
+app.include_router(agents.router, dependencies=_auth)
+app.include_router(chat.router, dependencies=_auth)
+app.include_router(sessions.router, dependencies=_auth)
+app.include_router(approvals.router, dependencies=_auth)
 app.include_router(mock_remote.router)
 
 

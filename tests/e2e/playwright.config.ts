@@ -5,6 +5,8 @@ import { defineConfig, devices } from '@playwright/test'
    전제: `uv run --package api api` (8000) + Postgres + 로컬 MLX(8045) 가동. */
 const API = process.env.API_BASE ?? 'http://127.0.0.1:8000'
 const UI = process.env.UI_BASE ?? 'http://localhost:5173'
+// 서버/UI의 개발용 토큰과 동일해야 함(.env API_AUTH_TOKEN / admin/.env VITE_API_TOKEN).
+const TOKEN = process.env.API_AUTH_TOKEN ?? 'mat_dev_local_2026'
 
 export default defineConfig({
   testDir: './specs',
@@ -15,6 +17,7 @@ export default defineConfig({
   reporter: [['list'], ['html', { open: 'never' }]],
   use: {
     baseURL: UI,
+    extraHTTPHeaders: { Authorization: `Bearer ${TOKEN}` },
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
   },
