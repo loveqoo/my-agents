@@ -29,6 +29,7 @@ export interface BlockItem {
   updated: string
   body?: string
   /* persona */ tone?: string
+  /* memory */ key?: string
   /* memory/permission */ scope?: string
   /* embedding */ model?: string
   source?: string

@@ -107,6 +107,48 @@ test.describe('블록', () => {
     expect(del.status()).toBe(204)
   })
 
+  test('memory-types 작성(key 포함) → /blocks에 key 노출 → 수정 → 삭제 (015)', async ({ request }) => {
+    const key = uniq('mem').replace(/-/g, '_')
+    const created = await (
+      await request.post('/memory-types', { data: { key, name: '작업기억', scope: 'agent', body: 'b' } })
+    ).json()
+    expect(created.id).toBeTruthy()
+    // /blocks 집계 memory 항목에 key가 노출되어야(편집 폼 prefill 경로)
+    const blocks = await (await request.get('/blocks')).json()
+    const item = blocks.memory.items.find((m: { key?: string }) => m.key === key)
+    expect(item, 'memory 항목에 key 노출').toBeTruthy()
+    // 수정(PUT)
+    const edited = await (
+      await request.put(`/memory-types/${created.id}`, { data: { key, name: '수정됨', scope: 'user', body: 'b2' } })
+    ).json()
+    expect(edited.name).toBe('수정됨')
+    expect(edited.scope).toBe('user')
+    expect((await request.delete(`/memory-types/${created.id}`)).status()).toBe(204)
+  })
+
+  test('vector-tables / permissions 작성 → 수정 → 삭제 (015)', async ({ request }) => {
+    // 벡터 테이블 — dims 숫자, 선택 필드
+    const vt = await (
+      await request.post('/vector-tables', { data: { name: uniq('vt'), model: 'e5', source: 'kb://x', dims: 1024, body: 'd' } })
+    ).json()
+    expect(vt.dims).toBe(1024)
+    const vtEdited = await (
+      await request.put(`/vector-tables/${vt.id}`, { data: { name: vt.name, model: 'e5', source: 'kb://y', dims: 768, body: 'd2' } })
+    ).json()
+    expect(vtEdited.dims).toBe(768)
+    expect((await request.delete(`/vector-tables/${vt.id}`)).status()).toBe(204)
+    // 권한 — approver 셀렉트
+    const pm = await (
+      await request.post('/permissions', { data: { name: uniq('perm'), scope: 'fs:write', approver: 'admin', body: 'p' } })
+    ).json()
+    expect(pm.approver).toBe('admin')
+    const pmEdited = await (
+      await request.put(`/permissions/${pm.id}`, { data: { name: pm.name, scope: 'fs:write', approver: 'user', body: 'p2' } })
+    ).json()
+    expect(pmEdited.approver).toBe('user')
+    expect((await request.delete(`/permissions/${pm.id}`)).status()).toBe(204)
+  })
+
   test('작성한 페르소나 → 단순 에이전트 systemPrompt로 해석', async ({ request }) => {
     const name = uniq('persona')
     const body = '너는 고양이다. 문장 끝에 냐옹을 붙여라.'

@@ -376,6 +376,7 @@ async def get_blocks(session: AsyncSession = Depends(get_session)) -> dict[str, 
         {
             "id": str(row.id),
             "name": row.name,
+            "key": row.key,
             "scope": row.scope,
             "body": row.body,
             "usedBy": _count_by(agents, "memories", row.name),

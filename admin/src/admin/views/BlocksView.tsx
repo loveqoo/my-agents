@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { Tag, Button, Tabs, Switch, Modal, Input, Select, Checkbox, Alert, message } from 'antd'
 import { Page, DataTable, Drawer, Desc, type Column } from '../shared'
 import { Icon } from '../icons'
-import { MCP_STATUS, VECTOR_STATUS, APPROVER, type BlockItem, type BlockCategory } from '../mockData'
+import { MCP_STATUS, VECTOR_STATUS, APPROVER, type BlockItem, type BlockCategory, type StatusMeta } from '../mockData'
 import {
   getBlocks,
   createMcp,
@@ -17,6 +17,14 @@ import {
 } from '../../api'
 
 const { TextArea } = Input
+
+/* status는 백엔드에서 자유 문자열(enum 아님)이라 맵에 없는 값이 올 수 있다.
+   매핑이 없으면 크래시 대신 원본 문자열을 default Tag로 폴백 렌더. */
+function statusTag(map: Record<string, StatusMeta>, status?: string | null) {
+  const s = status ? map[status] : undefined
+  if (s) return <Tag color={s.tag}>{s.label}</Tag>
+  return <Tag color="default">{status ?? '—'}</Tag>
+}
 
 /* 백엔드 McpServerIn payload — snake_case로 in. */
 interface McpServerIn {
@@ -333,12 +341,174 @@ function PersonaForm({
   )
 }
 
+/* ---- memory / embedding / permission 공용 작성·편집 폼 (필드 스펙 기반) ---- */
+type BlockField =
+  | { kind: 'text'; key: string; label: string; required?: boolean; placeholder?: string; hint?: string }
+  | { kind: 'number'; key: string; label: string; placeholder?: string; hint?: string }
+  | { kind: 'select'; key: string; label: string; options: { label: string; value: string }[]; hint?: string }
+  | { kind: 'textarea'; key: string; label: string; rows?: number; placeholder?: string; hint?: string }
+
+/* preserve: 폼에 노출하지 않지만 PUT(전체 교체) 시 기존 값을 유지해야 하는 필드.
+   누락하면 백엔드 *In 스키마 기본값으로 덮어써져 데이터가 날아간다. */
+type BlockFormConfig = { resource: string; title: string; intro: string; fields: BlockField[]; preserve?: string[] }
+
+const BLOCK_FORMS: Record<string, BlockFormConfig> = {
+  memory: {
+    resource: 'memory-types',
+    title: '메모리 타입',
+    intro: '에이전트가 컨텍스트를 저장·검색하는 메모리 타입입니다. 에이전트 편집기에서 여러 타입을 동시에 켤 수 있습니다.',
+    fields: [
+      { kind: 'text', key: 'key', label: '키', required: true, placeholder: '예: working_memory', hint: '고유 식별자(영문/숫자/밑줄)' },
+      { kind: 'text', key: 'name', label: '이름', required: true, placeholder: '예: 작업 기억' },
+      { kind: 'text', key: 'scope', label: '범위', placeholder: '예: agent / user' },
+      { kind: 'textarea', key: 'body', label: '설명', rows: 4, placeholder: '이 메모리 타입의 용도' },
+    ],
+  },
+  embedding: {
+    resource: 'vector-tables',
+    title: '벡터 테이블',
+    intro: '임베딩 모델로 데이터를 벡터화한 지식 소스입니다. 에이전트가 의미 검색으로 참조합니다. (행 수·상태는 동기화로 채워집니다)',
+    preserve: ['rows', 'status'],
+    fields: [
+      { kind: 'text', key: 'name', label: '이름', required: true, placeholder: '예: 사내 위키' },
+      { kind: 'text', key: 'model', label: '임베딩 모델', placeholder: '예: multilingual-e5-large' },
+      { kind: 'text', key: 'source', label: '출처', placeholder: '예: confluence://space/KB' },
+      { kind: 'number', key: 'dims', label: '차원', placeholder: '예: 1024' },
+      { kind: 'textarea', key: 'body', label: '설명', rows: 4, placeholder: '이 데이터셋의 내용' },
+    ],
+  },
+  permission: {
+    resource: 'permissions',
+    title: '권한',
+    intro: '에이전트에 부여되는 범위 한정 권한입니다. 승인자를 지정하지 않으면 기본값은 사용자 승인입니다.',
+    fields: [
+      { kind: 'text', key: 'name', label: '이름', required: true, placeholder: '예: 파일 쓰기' },
+      { kind: 'text', key: 'scope', label: '범위', placeholder: '예: fs:write' },
+      {
+        kind: 'select',
+        key: 'approver',
+        label: '승인자',
+        options: [
+          { label: '사용자 (인라인 확인)', value: 'user' },
+          { label: '관리자 (승인 큐)', value: 'admin' },
+        ],
+      },
+      { kind: 'textarea', key: 'body', label: '설명', rows: 4, placeholder: '이 권한의 용도·범위' },
+    ],
+  },
+}
+
+type BlockFormState = { cat: string; mode: 'create' | 'edit'; item?: BlockItem }
+
+function BlockForm({
+  form,
+  onCancel,
+  onSave,
+}: {
+  form: BlockFormState | null
+  onCancel: () => void
+  onSave: (resource: string, id: string | undefined, payload: Record<string, unknown>) => void
+}) {
+  const cfg = form ? BLOCK_FORMS[form.cat] : null
+  const [values, setValues] = useState<Record<string, string>>({})
+  useEffect(() => {
+    if (!form || !cfg) return
+    const next: Record<string, string> = {}
+    for (const fld of cfg.fields) {
+      const raw =
+        form.mode === 'edit' && form.item
+          ? (form.item as unknown as Record<string, unknown>)[fld.key]
+          : undefined
+      next[fld.key] =
+        raw == null ? (fld.kind === 'select' ? (fld.options[0]?.value ?? '') : '') : String(raw)
+    }
+    setValues(next)
+  }, [form])
+  if (!form || !cfg) return null
+  const isEdit = form.mode === 'edit'
+  const set = (k: string, v: string) => setValues((prev) => ({ ...prev, [k]: v }))
+  const submit = () => {
+    for (const fld of cfg.fields) {
+      if (fld.kind === 'text' && fld.required && !values[fld.key]?.trim()) {
+        message.warning(`${fld.label}을(를) 입력하세요`)
+        return
+      }
+    }
+    const payload: Record<string, unknown> = {}
+    for (const fld of cfg.fields) {
+      const v = values[fld.key] ?? ''
+      if (fld.kind === 'number') payload[fld.key] = v.trim() === '' ? null : Number(v)
+      else if (fld.kind === 'text' && !fld.required) payload[fld.key] = v.trim() === '' ? null : v.trim()
+      else payload[fld.key] = fld.kind === 'textarea' ? v : v.trim()
+    }
+    /* 편집 시: 폼에 없는 동기화 관리 필드(rows·status 등)를 기존 값으로 보존.
+       PUT은 전체 교체라 누락하면 스키마 기본값으로 덮어써진다. */
+    if (isEdit && form.item) {
+      const item = form.item as unknown as Record<string, unknown>
+      for (const k of cfg.preserve ?? []) {
+        if (item[k] != null) payload[k] = item[k]
+      }
+    }
+    onSave(cfg.resource, isEdit ? form.item?.id : undefined, payload)
+  }
+  return (
+    <Modal
+      open={!!form}
+      width={560}
+      title={isEdit ? `${cfg.title} 편집 · ${form.item?.name ?? ''}` : `새 ${cfg.title}`}
+      okText={isEdit ? '저장' : '등록'}
+      cancelText="취소"
+      onCancel={onCancel}
+      onOk={submit}
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxHeight: '64vh', overflow: 'auto' }}>
+        <Alert type="info" showIcon style={{ marginBottom: 0 }} message={cfg.intro} />
+        {cfg.fields.map((fld) => (
+          <label key={fld.key} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <span style={{ fontSize: 14, fontWeight: 500 }}>
+              {fld.label}
+              {!('required' in fld && fld.required) ? (
+                <span style={{ color: 'var(--color-text-tertiary)', fontWeight: 400 }}> (선택)</span>
+              ) : null}
+              {fld.hint ? (
+                <span style={{ color: 'var(--color-text-tertiary)', fontWeight: 400 }}> · {fld.hint}</span>
+              ) : null}
+            </span>
+            {fld.kind === 'textarea' ? (
+              <TextArea
+                rows={fld.rows ?? 4}
+                placeholder={fld.placeholder}
+                value={values[fld.key] ?? ''}
+                onChange={(e) => set(fld.key, e.target.value)}
+              />
+            ) : fld.kind === 'select' ? (
+              <Select
+                value={values[fld.key] ?? fld.options[0]?.value}
+                onChange={(v: string) => set(fld.key, v)}
+                options={fld.options}
+              />
+            ) : (
+              <Input
+                type={fld.kind === 'number' ? 'number' : 'text'}
+                placeholder={fld.placeholder}
+                value={values[fld.key] ?? ''}
+                onChange={(e) => set(fld.key, e.target.value)}
+              />
+            )}
+          </label>
+        ))}
+      </div>
+    </Modal>
+  )
+}
+
 export default function BlocksView() {
   const [data, setData] = useState<Record<string, BlockCategory>>({})
   const [cat, setCat] = useState('persona')
   const [detail, setDetail] = useState<BlockItem | null>(null)
   const [mcpForm, setMcpForm] = useState<McpFormState | null>(null) // { mode:'register'|'edit', item? }
   const [personaForm, setPersonaForm] = useState<PersonaFormState | null>(null)
+  const [blockForm, setBlockForm] = useState<BlockFormState | null>(null)
 
   /* 새 데이터로 열린 drawer의 detail을 id로 재조회(없으면 닫음). */
   const syncDetail = (next: Record<string, BlockCategory>) => {
@@ -420,19 +590,15 @@ export default function BlocksView() {
     }
   }
 
-  const createCurrent = async () => {
-    /* persona는 전용 폼으로 작성 — 나머지 카테고리는 빈 항목 생성(추후 전용 폼). */
+  const createCurrent = () => {
+    /* 카테고리별 전용 폼 오픈. persona·mcp는 자체 폼, 나머지는 BLOCK_FORMS 공용 폼. */
     if (cat === 'persona') {
       setPersonaForm({ mode: 'create' })
       return
     }
-    const resource = RESOURCE_BY_CAT[cat]
-    if (!resource) return
-    try {
-      await createBlockItem(resource, { name: '새 항목' })
-      await loadBlocks()
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : '생성에 실패했습니다')
+    if (BLOCK_FORMS[cat]) {
+      setBlockForm({ cat, mode: 'create' })
+      return
     }
   }
 
@@ -445,6 +611,17 @@ export default function BlocksView() {
       setPersonaForm(null)
     } catch (e) {
       message.error(e instanceof Error ? e.message : '페르소나 저장에 실패했습니다')
+    }
+  }
+
+  const saveBlock = async (resource: string, id: string | undefined, payload: Record<string, unknown>) => {
+    try {
+      if (id) await updateBlockItem(resource, id, payload)
+      else await createBlockItem(resource, payload)
+      await loadBlocks()
+      setBlockForm(null)
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '저장에 실패했습니다')
     }
   }
 
@@ -481,10 +658,7 @@ export default function BlocksView() {
           key: 'status',
           title: '상태',
           width: 110,
-          render: (r) => {
-            const s = MCP_STATUS[r.status!]
-            return <Tag color={s.tag}>{s.label}</Tag>
-          },
+          render: (r) => statusTag(MCP_STATUS, r.status),
         },
         {
           key: 'published',
@@ -541,10 +715,7 @@ export default function BlocksView() {
           key: 'status',
           title: '상태',
           width: 110,
-          render: (r) => {
-            const s = VECTOR_STATUS[r.status!]
-            return <Tag color={s.tag}>{s.label}</Tag>
-          },
+          render: (r) => statusTag(VECTOR_STATUS, r.status),
         },
         {
           key: 'usedBy',
@@ -659,7 +830,7 @@ export default function BlocksView() {
             </Button>
           </span>
         ) : (
-          <Button type="primary" icon={<Icon name="plus" />} onClick={() => void createCurrent()}>
+          <Button type="primary" icon={<Icon name="plus" />} onClick={createCurrent}>
             새 항목
           </Button>
         )
@@ -692,6 +863,14 @@ export default function BlocksView() {
               </Button>
             ) : cat === 'persona' ? (
               <Button type="primary" icon={<Icon name="edit" />} onClick={() => detail && setPersonaForm({ mode: 'edit', item: detail })}>
+                편집
+              </Button>
+            ) : BLOCK_FORMS[cat] ? (
+              <Button
+                type="primary"
+                icon={<Icon name="edit" />}
+                onClick={() => detail && setBlockForm({ cat, mode: 'edit', item: detail })}
+              >
                 편집
               </Button>
             ) : (
@@ -733,10 +912,8 @@ export default function BlocksView() {
             ) : null}
             {detail.dims ? <Desc label="차원">{detail.dims.toLocaleString()}차원</Desc> : null}
             {detail.rows != null ? <Desc label="행 수">{detail.rows.toLocaleString()}개 벡터</Desc> : null}
-            {detail.status && VECTOR_STATUS[detail.status] ? (
-              <Desc label="상태">
-                <Tag color={VECTOR_STATUS[detail.status].tag}>{VECTOR_STATUS[detail.status].label}</Tag>
-              </Desc>
+            {cat === 'embedding' && detail.status ? (
+              <Desc label="상태">{statusTag(VECTOR_STATUS, detail.status)}</Desc>
             ) : null}
             {splitTones(detail.tone).length ? (
               <Desc label="톤">
@@ -807,11 +984,7 @@ export default function BlocksView() {
                 </span>
               </Desc>
             ) : null}
-            {cat === 'mcp' && detail.status ? (
-              <Desc label="상태">
-                <Tag color={MCP_STATUS[detail.status].tag}>{MCP_STATUS[detail.status].label}</Tag>
-              </Desc>
-            ) : null}
+            {cat === 'mcp' && detail.status ? <Desc label="상태">{statusTag(MCP_STATUS, detail.status)}</Desc> : null}
             <Desc label="사용">{detail.usedBy}개 에이전트</Desc>
             <Desc label="수정">{detail.updated}</Desc>
             {cat === 'mcp' && detail.source !== 'external' ? (
@@ -892,6 +1065,7 @@ export default function BlocksView() {
       </Drawer>
       <McpForm form={mcpForm} onCancel={() => setMcpForm(null)} onSave={upsertMcp} />
       <PersonaForm form={personaForm} onCancel={() => setPersonaForm(null)} onSave={savePersona} />
+      <BlockForm form={blockForm} onCancel={() => setBlockForm(null)} onSave={saveBlock} />
     </Page>
   )
 }
