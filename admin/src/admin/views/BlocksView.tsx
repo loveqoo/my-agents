@@ -228,6 +228,28 @@ function McpForm({
 /* 페르소나 등록/편집 폼 — 이름·톤·본문(시스템 프롬프트). mode로 생성/수정 공용. */
 type PersonaFormState = { mode: 'create' | 'edit'; item?: BlockItem }
 
+/* 미리 정의된 톤 프리셋(기본 10종). tags 모드라 자유 입력도 가능. */
+const TONE_PRESETS = [
+  '친근함',
+  '격식체',
+  '간결함',
+  '정중함',
+  '유머러스',
+  '전문적',
+  '공감적',
+  '단호함',
+  '열정적',
+  '차분함',
+]
+
+/* "친근함, 격식체" ↔ ['친근함','격식체'] 변환. tone 컬럼은 쉼표 조인 문자열로 저장. */
+const splitTones = (tone: string | null | undefined): string[] =>
+  (tone ?? '')
+    .split(',')
+    .map((t) => t.trim())
+    .filter(Boolean)
+const joinTones = (tones: string[]): string => tones.map((t) => t.trim()).filter(Boolean).join(', ')
+
 function PersonaForm({
   form,
   onCancel,
@@ -238,17 +260,17 @@ function PersonaForm({
   onSave: (data: { id?: string; name: string; tone: string; body: string }) => void
 }) {
   const [name, setName] = useState('')
-  const [tone, setTone] = useState('')
+  const [tones, setTones] = useState<string[]>([])
   const [body, setBody] = useState('')
   useEffect(() => {
     if (!form) return
     if (form.mode === 'edit' && form.item) {
       setName(form.item.name ?? '')
-      setTone(form.item.tone ?? '')
+      setTones(splitTones(form.item.tone))
       setBody(form.item.body ?? '')
     } else {
       setName('')
-      setTone('')
+      setTones([])
       setBody('')
     }
   }, [form])
@@ -259,7 +281,7 @@ function PersonaForm({
       message.warning('이름을 입력하세요')
       return
     }
-    onSave({ id: isEdit ? form.item?.id : undefined, name: name.trim(), tone: tone.trim(), body })
+    onSave({ id: isEdit ? form.item?.id : undefined, name: name.trim(), tone: joinTones(tones), body })
   }
   return (
     <Modal
@@ -284,9 +306,17 @@ function PersonaForm({
         </label>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <span style={{ fontSize: 14, fontWeight: 500 }}>
-            톤 <span style={{ color: 'var(--color-text-tertiary)', fontWeight: 400 }}>(선택 · 목록 표시용 라벨)</span>
+            톤 <span style={{ color: 'var(--color-text-tertiary)', fontWeight: 400 }}>(선택 · 미리 정의된 톤 선택 또는 직접 입력 후 Enter)</span>
           </span>
-          <Input placeholder="예: 친근함, 격식체, 간결함" value={tone} onChange={(e) => setTone(e.target.value)} />
+          <Select
+            mode="tags"
+            allowClear
+            placeholder="예: 친근함, 격식체 — 목록에서 고르거나 직접 입력"
+            value={tones}
+            onChange={(v: string[]) => setTones(v)}
+            options={TONE_PRESETS.map((t) => ({ label: t, value: t }))}
+            tokenSeparators={[',']}
+          />
         </label>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <span style={{ fontSize: 14, fontWeight: 500 }}>본문 (시스템 프롬프트)</span>
@@ -570,7 +600,22 @@ export default function BlocksView() {
         key: 'meta',
         title: key === 'persona' ? '톤' : '범위',
         width: 200,
-        render: (r) => <Tag color={key === 'persona' ? 'magenta' : 'purple'}>{r.tone || r.scope}</Tag>,
+        render: (r) =>
+          key === 'persona' ? (
+            splitTones(r.tone).length ? (
+              <span>
+                {splitTones(r.tone).map((t) => (
+                  <Tag key={t} color="magenta">
+                    {t}
+                  </Tag>
+                ))}
+              </span>
+            ) : (
+              <span style={{ color: 'var(--color-text-tertiary)' }}>—</span>
+            )
+          ) : (
+            <Tag color="purple">{r.scope}</Tag>
+          ),
       },
       {
         key: 'usedBy',
@@ -693,9 +738,13 @@ export default function BlocksView() {
                 <Tag color={VECTOR_STATUS[detail.status].tag}>{VECTOR_STATUS[detail.status].label}</Tag>
               </Desc>
             ) : null}
-            {detail.tone ? (
+            {splitTones(detail.tone).length ? (
               <Desc label="톤">
-                <Tag color="magenta">{detail.tone}</Tag>
+                {splitTones(detail.tone).map((t) => (
+                  <Tag key={t} color="magenta">
+                    {t}
+                  </Tag>
+                ))}
               </Desc>
             ) : null}
             {detail.scope ? (
