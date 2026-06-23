@@ -57,6 +57,24 @@ export const exposeAgent = (id: string, a2a: boolean) =>
 export const registerCodeAgent = (body: unknown) => post('/agents/register', body) as Promise<Agent>
 export const resyncAgent = (id: string) => post(`/agents/${id}/resync`) as Promise<Agent>
 
+/* ---------- 모델 (LLM·임베딩 레지스트리) ---------- */
+export interface Model {
+  id: string
+  name: string
+  provider: string
+  base_url: string
+  api_key: string | null
+  model_id: string
+  kind: 'chat' | 'embedding'
+  is_default: boolean
+  params: Record<string, unknown>
+}
+export const listModels = (kind?: 'chat' | 'embedding') =>
+  j<Model[]>(`/models${kind ? `?kind=${kind}` : ''}`)
+export const createModel = (body: unknown) => post('/models', body) as Promise<Model>
+export const updateModel = (id: string, body: unknown) => put(`/models/${id}`, body) as Promise<Model>
+export const deleteModel = (id: string) => del(`/models/${id}`)
+
 /* ---------- 세션 / 승인 ---------- */
 export const listSessions = () => j<Session[]>('/sessions')
 export interface SessionMessage {

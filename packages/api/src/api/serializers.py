@@ -1,7 +1,30 @@
 """ORM 모델 → API 출력(dict) 직렬화. 여러 라우터가 공유."""
 
-from .models import Agent, Approval, Session
-from .schemas import AgentOut, ApprovalOut, SessionOut, VersionOut
+from .models import Agent, Approval, ModelConfig, Session
+from .schemas import AgentOut, ApprovalOut, ModelOut, SessionOut, VersionOut
+
+
+def mask_secret(s: str | None) -> str | None:
+    """api_key 등 비밀값 마스킹 — 평문 노출 방지."""
+    if not s:
+        return None
+    if len(s) > 11:
+        return s[:7] + "••••••••" + s[-4:]
+    return (s[:3] if len(s) > 3 else "") + "••••••••"
+
+
+def model_to_out(m: ModelConfig) -> ModelOut:
+    return ModelOut(
+        id=m.id,
+        name=m.name,
+        provider=m.provider,
+        base_url=m.base_url,
+        api_key=mask_secret(m.api_key),
+        model_id=m.model_id,
+        kind=m.kind,
+        is_default=m.is_default,
+        params=dict(m.params or {}),
+    )
 
 
 def _iso(dt) -> str | None:

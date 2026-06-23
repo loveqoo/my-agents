@@ -1,0 +1,82 @@
+"""모델 레지스트리 라우터 (008). LLM/임베딩 설정 CRUD.
+
+api_key는 출력 시 마스킹되며, 수정 시 마스킹된 값을 그대로 보내면 기존 키를 보존한다.
+지배 스펙: docs/spec/008-model-registry.md
+"""
+
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from .db import get_session
+from .models import ModelConfig
+from .schemas import ModelIn, ModelOut
+from .serializers import mask_secret, model_to_out
+
+router = APIRouter(prefix="/models", tags=["models"])
+
+
+@router.get("", response_model=list[ModelOut])
+async def list_models(
+    kind: str | None = None, session: AsyncSession = Depends(get_session)
+) -> list[ModelOut]:
+    stmt = select(ModelConfig).order_by(ModelConfig.kind, ModelConfig.name)
+    if kind:
+        stmt = stmt.where(ModelConfig.kind == kind)
+    rows = (await session.execute(stmt)).scalars().all()
+    return [model_to_out(m) for m in rows]
+
+
+@router.post("", response_model=ModelOut, status_code=201)
+async def create_model(body: ModelIn, session: AsyncSession = Depends(get_session)) -> ModelOut:
+    m = ModelConfig(
+        name=body.name, provider=body.provider, base_url=body.base_url,
+        api_key=body.api_key, model_id=body.model_id, kind=body.kind,
+        is_default=body.is_default, params=body.params,
+    )
+    session.add(m)
+    await session.commit()
+    await session.refresh(m)
+    return model_to_out(m)
+
+
+@router.get("/{model_id}", response_model=ModelOut)
+async def get_model(model_id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> ModelOut:
+    m = await session.get(ModelConfig, model_id)
+    if m is None:
+        raise HTTPException(status_code=404, detail="not found")
+    return model_to_out(m)
+
+
+@router.put("/{model_id}", response_model=ModelOut)
+async def update_model(
+    model_id: uuid.UUID, body: ModelIn, session: AsyncSession = Depends(get_session)
+) -> ModelOut:
+    m = await session.get(ModelConfig, model_id)
+    if m is None:
+        raise HTTPException(status_code=404, detail="not found")
+    m.name = body.name
+    m.provider = body.provider
+    m.base_url = body.base_url
+    m.model_id = body.model_id
+    m.kind = body.kind
+    m.is_default = body.is_default
+    m.params = body.params
+    # 현재 키의 마스킹 값을 그대로 보내면 보존(편집 화면이 마스킹된 값을 되돌려준 경우).
+    # 그 외 값이면 교체 — 새 평문이면 갱신, 빈 값/null이면 키 제거.
+    if body.api_key != mask_secret(m.api_key):
+        m.api_key = body.api_key
+    await session.commit()
+    await session.refresh(m)
+    return model_to_out(m)
+
+
+@router.delete("/{model_id}", status_code=204)
+async def delete_model(model_id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> None:
+    m = await session.get(ModelConfig, model_id)
+    if m is None:
+        raise HTTPException(status_code=404, detail="not found")
+    await session.delete(m)
+    await session.commit()

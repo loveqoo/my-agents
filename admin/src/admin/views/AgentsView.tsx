@@ -26,6 +26,8 @@ import {
   exposeAgent,
   registerCodeAgent as apiRegisterCodeAgent,
   resyncAgent,
+  listModels,
+  type Model,
 } from '../../api'
 
 /* 코드 에이전트의 Agent Card(엔드포인트가 보고하는 매니페스트) shape. */
@@ -76,6 +78,7 @@ function AgentForm({
   mode,
   draftVersion,
   blocks,
+  models,
   onCancel,
   onSave,
 }: {
@@ -84,6 +87,7 @@ function AgentForm({
   mode: 'create' | 'edit'
   draftVersion: string | null
   blocks: Record<string, BlockCategory>
+  models: Model[]
   onCancel: () => void
   onSave: (data: AgentFormData) => void
 }) {
@@ -111,6 +115,13 @@ function AgentForm({
       [k]: f[k].includes(v) ? f[k].filter((x) => x !== v) : [...f[k], v],
     }))
   const isEdit = mode === 'edit'
+
+  // 등록된 chat 모델로 옵션 구성. 목록이 비었거나 현재 model이 목록에 없으면
+  // 현재 값을 옵션에 보존해 편집 시 선택이 사라지지 않게 한다.
+  const modelOptions = models.map((m) => ({ label: m.name, value: m.name }))
+  if (form.model && !modelOptions.some((o) => o.value === form.model)) {
+    modelOptions.push({ label: form.model, value: form.model })
+  }
 
   return (
     <Modal
@@ -142,12 +153,7 @@ function AgentForm({
               value={form.model}
               onChange={(v) => set('model', v)}
               style={{ width: '100%' }}
-              options={[
-                { label: 'claude-sonnet-4', value: 'claude-sonnet-4' },
-                { label: 'claude-haiku-4', value: 'claude-haiku-4' },
-                { label: 'gpt-4o', value: 'gpt-4o' },
-                { label: 'gpt-4o-mini', value: 'gpt-4o-mini' },
-              ]}
+              options={modelOptions}
             />
           </Field>
           <Field label="페르소나">
@@ -1016,6 +1022,7 @@ function AgentDetail({
 export default function AgentsView() {
   const [agents, setAgents] = useState<Agent[]>([])
   const [blocks, setBlocks] = useState<Record<string, BlockCategory>>({})
+  const [models, setModels] = useState<Model[]>([])
   const [detailId, setDetailId] = useState<string | null>(null)
   const detail = agents.find((a) => a.id === detailId) || null
   const [formOpen, setFormOpen] = useState(false)
@@ -1038,6 +1045,9 @@ export default function AgentsView() {
       .catch((e) => message.error(String(e)))
     getBlocks()
       .then(setBlocks)
+      .catch((e) => message.error(String(e)))
+    listModels('chat')
+      .then(setModels)
       .catch((e) => message.error(String(e)))
   }, [])
 
@@ -1376,6 +1386,7 @@ export default function AgentsView() {
         open={formOpen}
         mode={editing ? 'edit' : 'create'}
         blocks={blocks}
+        models={models}
         draftVersion={
           editing
             ? draftOf(editing.agent)

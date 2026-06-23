@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from . import agents, approvals, blocks, chat, sessions
+from . import agents, approvals, blocks, chat, model_registry, sessions
 from .db import init_db
 
 
@@ -26,6 +26,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(blocks.router)
+app.include_router(model_registry.router)
 app.include_router(agents.router)
 app.include_router(chat.router)
 app.include_router(sessions.router)

@@ -165,6 +165,46 @@ test.describe('에이전트 CRUD + 버저닝', () => {
   })
 })
 
+test.describe('모델 레지스트리', () => {
+  test('시드된 모델 + kind 필터 + 마스킹', async ({ request }) => {
+    const all = await (await request.get('/models')).json()
+    const names = all.map((m: { name: string }) => m.name)
+    expect(names).toContain('qwen3.6-35b')
+    expect(names).toContain('multilingual-e5-large')
+    const chat = await (await request.get('/models?kind=chat')).json()
+    expect(chat.every((m: { kind: string }) => m.kind === 'chat')).toBeTruthy()
+    // api_key 마스킹 확인
+    const withKey = all.find((m: { api_key: string | null }) => m.api_key)
+    if (withKey) expect(withKey.api_key).toContain('•')
+  })
+
+  test('CRUD', async ({ request }) => {
+    const name = uniq('model')
+    const m = await (
+      await request.post('/models', {
+        data: { name, provider: 'openai-compatible', base_url: 'http://x/v1', api_key: 'sk_secret_value', model_id: 'foo/bar', kind: 'chat', is_default: false, params: {} },
+      })
+    ).json()
+    expect(m.id).toBeTruthy()
+    expect(m.api_key).toContain('•') // 마스킹되어 반환
+    const got = await (await request.get(`/models/${m.id}`)).json()
+    expect(got.model_id).toBe('foo/bar')
+    expect((await request.delete(`/models/${m.id}`)).status()).toBe(204)
+  })
+
+  test('등록된 모델로 에이전트 실행', async ({ request }) => {
+    test.setTimeout(150_000)
+    const a = await createAgent(request, uniq('agent'), { model: 'qwen3.6-35b' })
+    const res = await request.post(`/agents/${a.id}/chat`, {
+      data: { messages: [{ role: 'user', content: '한 단어로 인사' }] },
+      timeout: 120_000,
+    })
+    expect(res.ok()).toBeTruthy()
+    expect(await res.text()).toContain('"text"')
+    await request.delete(`/agents/${a.id}`)
+  })
+})
+
 test.describe('세션 / 승인', () => {
   test('GET /sessions 시드 존재', async ({ request }) => {
     const s = await (await request.get('/sessions')).json()

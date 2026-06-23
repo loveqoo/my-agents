@@ -84,6 +84,30 @@ class McpPublishIn(BaseModel):
     published: bool
 
 
+# ----------------------------- 모델 레지스트리 -----------------------------
+class ModelIn(BaseModel):
+    name: str
+    provider: str = "openai-compatible"
+    base_url: str = ""
+    api_key: str | None = None
+    model_id: str = ""
+    kind: Literal["chat", "embedding"] = "chat"
+    is_default: bool = False
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
+class ModelOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    provider: str
+    base_url: str
+    api_key: str | None = None  # 마스킹되어 내려옴
+    model_id: str
+    kind: str
+    is_default: bool
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
 # ----------------------------- 에이전트 -----------------------------
 class AgentConfig(BaseModel):
     model: str = "local-mlx"

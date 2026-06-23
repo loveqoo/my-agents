@@ -4,6 +4,8 @@ admin/src/admin/mockData.ts 와 동일한 도메인 데이터. 실서비스 첫 
 빈 상태가 아니라 의미있는 데이터로 채워지도록 한다.
 """
 
+import os
+
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,6 +15,7 @@ from .models import (
     Approval,
     McpServer,
     MemoryType,
+    ModelConfig,
     Permission,
     Persona,
     Session,
@@ -127,6 +130,23 @@ async def seed_if_empty(session: AsyncSession) -> None:
             McpServer(name=n, source=src, transport=tr, url=url, endpoint=ep,
                       tools=list(tools), enabled_tools=list(tools), status=st, published=pub, auth=auth)
             for n, src, tr, url, ep, tools, st, pub, auth in MCP_SERVERS
+        ])
+
+    if await _empty(session, ModelConfig):
+        base_url = os.environ.get("MLX_BASE_URL", "http://localhost:8045/v1")
+        api_key = os.environ.get("MLX_API_KEY")
+        chat_id = os.environ.get("MLX_MODEL", "mlx-community/Qwen3.6-35B-A3B-mxfp8")
+        embed_id = os.environ.get("MLX_EMBED_MODEL", "mlx-community/multilingual-e5-large-mlx")
+        session.add_all([
+            ModelConfig(
+                name="qwen3.6-35b", provider="openai-compatible", base_url=base_url,
+                api_key=api_key, model_id=chat_id, kind="chat", is_default=True,
+                params={"temperature": 0.7, "enable_thinking": False},
+            ),
+            ModelConfig(
+                name="multilingual-e5-large", provider="openai-compatible", base_url=base_url,
+                api_key=api_key, model_id=embed_id, kind="embedding", is_default=True, params={},
+            ),
         ])
 
     if await _empty(session, Agent):

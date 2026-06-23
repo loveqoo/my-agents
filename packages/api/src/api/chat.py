@@ -20,7 +20,7 @@ from sqlalchemy import select
 
 from . import memory, runtime
 from .db import SessionLocal
-from .models import Agent, McpServer, Message, Session
+from .models import Agent, McpServer, Message, ModelConfig, Session
 from .schemas import ChatRequest
 
 router = APIRouter(prefix="/agents", tags=["chat"])
@@ -40,8 +40,29 @@ async def _load_context(agent_id: uuid.UUID, session_str_id: str | None):
             "agent_name": agent.name,
             "agent_pk": agent.id,
             "memories": cfg.get("memories", []),
-            "temperature": cfg.get("temperature", 0.7),
+            # 에이전트가 명시한 temperature만 전달(없으면 None) → 모델 등록 params가 적용되게.
+            "temperature": cfg.get("temperature"),
         }
+
+        # 에이전트가 고른 모델을 레지스트리에서 조회 → 런타임 설정. 없으면 env MLX 폴백.
+        model_name = cfg.get("model")
+        model_cfg = None
+        if model_name:
+            m = (
+                await db.execute(
+                    select(ModelConfig).where(
+                        ModelConfig.name == model_name, ModelConfig.kind == "chat"
+                    )
+                )
+            ).scalar_one_or_none()
+            if m is not None:
+                model_cfg = {
+                    "base_url": m.base_url,
+                    "api_key": m.api_key,
+                    "model_id": m.model_id,
+                    "params": dict(m.params or {}),
+                }
+        ctx["model_cfg"] = model_cfg
 
         mcp_pairs: list[tuple[str, str]] = []
         mcps = cfg.get("mcps", [])
@@ -118,7 +139,8 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest):
     if mem_hits:
         recalled = "\n".join(f"- {h['text']}" for h in mem_hits)
         persona_prompt = f"{persona_prompt}\n\n# 관련 기억(회상됨)\n{recalled}"
-    graph = build_agent(persona_prompt, {"temperature": ctx["temperature"]}, tools)
+    run_params = {} if ctx["temperature"] is None else {"temperature": ctx["temperature"]}
+    graph = build_agent(persona_prompt, run_params, tools, ctx["model_cfg"])
 
     messages = [{"role": m.role, "content": m.content} for m in body.messages]
 

@@ -11,6 +11,7 @@ import {
   CommentOutlined,
   CheckCircleOutlined,
   ThunderboltOutlined,
+  DatabaseOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   SearchOutlined,
@@ -19,18 +20,20 @@ import { PENDING_APPROVALS } from './mockData'
 import OverviewView from './views/OverviewView'
 import AgentsView from './views/AgentsView'
 import BlocksView from './views/BlocksView'
+import ModelsView from './views/ModelsView'
 import SessionsView from './views/SessionsView'
 import ApprovalsView from './views/ApprovalsView'
 import { Playground } from '../playground/Playground'
 
 const { Sider, Header, Content } = Layout
 
-type ViewKey = 'overview' | 'agents' | 'blocks' | 'sessions' | 'approvals' | 'debug'
+type ViewKey = 'overview' | 'agents' | 'blocks' | 'models' | 'sessions' | 'approvals' | 'debug'
 
 const TITLES: Record<ViewKey, string> = {
   overview: '개요',
   agents: '에이전트',
   blocks: '빌딩 블록',
+  models: '모델',
   sessions: '세션',
   approvals: '승인',
   debug: 'Playground',
@@ -45,6 +48,7 @@ export default function AdminShell() {
     { key: 'overview', icon: <DashboardOutlined />, label: '개요' },
     { key: 'agents', icon: <RobotOutlined />, label: '에이전트' },
     { key: 'blocks', icon: <AppstoreOutlined />, label: '빌딩 블록' },
+    { key: 'models', icon: <DatabaseOutlined />, label: '모델' },
     { key: 'sessions', icon: <CommentOutlined />, label: '세션' },
     {
       key: 'approvals',
@@ -69,6 +73,7 @@ export default function AdminShell() {
     overview: <OverviewView onGo={(v) => setView(v as ViewKey)} />,
     agents: <AgentsView />,
     blocks: <BlocksView />,
+    models: <ModelsView />,
     sessions: <SessionsView />,
     approvals: <ApprovalsView />,
     debug: <Playground />,

@@ -68,6 +68,22 @@ class Permission(Base):
     body: Mapped[str] = mapped_column(Text, default="")
 
 
+class ModelConfig(Base):
+    """LLM/임베딩 모델 설정 레지스트리. 에이전트가 이름으로 골라 실행에 사용."""
+
+    __tablename__ = "models"
+    id: Mapped[uuid.UUID] = _pk()
+    name: Mapped[str] = mapped_column(String(120), unique=True)  # 표시·참조용 이름
+    provider: Mapped[str] = mapped_column(String(40), default="openai-compatible")
+    base_url: Mapped[str] = mapped_column(String(400), default="")
+    api_key: Mapped[str | None] = mapped_column(String(400), default=None)
+    model_id: Mapped[str] = mapped_column(String(200), default="")  # API에 보내는 모델 id
+    kind: Mapped[str] = mapped_column(String(20), default="chat")  # chat | embedding
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False)
+    params: Mapped[dict] = mapped_column(JSONB, default=dict)  # temperature 등
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class McpServer(Base):
     __tablename__ = "mcp_servers"
     id: Mapped[uuid.UUID] = _pk()
