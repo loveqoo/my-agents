@@ -21,18 +21,56 @@ from .serializers import model_to_out
 router = APIRouter(prefix="/models", tags=["models"])
 
 
-async def _probe(base_url: str, api_key: str | None, model_id: str) -> ModelProbeResult:
-    """{base_url}/models 호출로 도달성·인증·모델 가용성 확인. 비밀은 결과에 미포함."""
+async def _probe(
+    base_url: str, api_key: str | None, model_id: str, kind: str = "chat"
+) -> ModelProbeResult:
+    """kind별 연결 테스트. 비밀은 결과에 미포함.
+
+    - chat:      `{base_url}/models` 목록에 model_id가 있는지(가용성) 확인.
+    - embedding: `{base_url}/embeddings`를 샘플 입력으로 호출해 벡터가 돌아오는지(기능) 확인.
+    """
     if not base_url:
         return ModelProbeResult(
             ok=False, reachable=False, modelAvailable=False, latencyMs=0, detail="base_url 없음"
         )
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
-    url = base_url.rstrip("/") + "/models"
+    base = base_url.rstrip("/")
     t0 = time.perf_counter()
+    if kind == "embedding":
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                r = await client.post(
+                    base + "/embeddings",
+                    headers=headers,
+                    json={"model": model_id, "input": "ping"},
+                )
+        except Exception:  # noqa: BLE001 — 네트워크 오류(상세 미노출)
+            ms = int((time.perf_counter() - t0) * 1000)
+            return ModelProbeResult(
+                ok=False, reachable=False, modelAvailable=False, latencyMs=ms, detail="연결 실패"
+            )
+        ms = int((time.perf_counter() - t0) * 1000)
+        if r.status_code != 200:
+            return ModelProbeResult(
+                ok=False, reachable=True, modelAvailable=False, latencyMs=ms, detail=f"HTTP {r.status_code}"
+            )
+        try:
+            vec = ((r.json().get("data") or [{}])[0]).get("embedding") or []
+        except Exception:  # noqa: BLE001
+            vec = []
+        if vec:
+            return ModelProbeResult(
+                ok=True, reachable=True, modelAvailable=True, latencyMs=ms,
+                detail=f"임베딩 OK · {len(vec)}차원", dims=len(vec),
+            )
+        return ModelProbeResult(
+            ok=True, reachable=True, modelAvailable=False, latencyMs=ms, detail="연결됨 · 임베딩 응답 없음"
+        )
+
+    # kind == "chat" (기본)
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            r = await client.get(url, headers=headers)
+            r = await client.get(base + "/models", headers=headers)
     except Exception:  # noqa: BLE001 — 네트워크 오류(상세는 노출 안 함)
         ms = int((time.perf_counter() - t0) * 1000)
         return ModelProbeResult(
@@ -82,7 +120,7 @@ async def list_models(
 async def test_model_config(body: ModelProbeIn) -> ModelProbeResult:
     """입력값(새 모델/편집)으로 연결 테스트. 마스킹 키면 무인증으로 시도."""
     api_key = None if (body.api_key and crypto.is_masked(body.api_key)) else body.api_key
-    return await _probe(body.base_url, api_key, body.model_id)
+    return await _probe(body.base_url, api_key, body.model_id, body.kind)
 
 
 @router.post("/{model_id}/test", response_model=ModelProbeResult)
@@ -93,7 +131,7 @@ async def test_saved_model(
     m = await session.get(ModelConfig, model_id)
     if m is None:
         raise HTTPException(status_code=404, detail="not found")
-    return await _probe(m.base_url, crypto.decrypt(m.api_key), m.model_id)
+    return await _probe(m.base_url, crypto.decrypt(m.api_key), m.model_id, m.kind)
 
 
 @router.post("", response_model=ModelOut, status_code=201)

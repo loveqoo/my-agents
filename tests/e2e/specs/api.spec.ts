@@ -356,6 +356,25 @@ test.describe('모델 레지스트리', () => {
     expect(fail.detail, '비밀 미노출').not.toContain('SECRETKEY123')
   })
 
+  test('연결 테스트 — kind별 기능 검증: embedding은 임베딩 호출, chat은 목록 (016)', async ({ request }) => {
+    // mock_remote가 OpenAI 호환 /models·/embeddings를 제공 — 결정적 검증.
+    const base = 'http://127.0.0.1:8000/_remote'
+    // embedding: POST /embeddings로 벡터 수신 → ok + dims(8)
+    const emb = await (
+      await request.post('/models/test', { data: { base_url: base, model_id: 'any', kind: 'embedding' } })
+    ).json()
+    expect(emb.ok, '임베딩 연결').toBe(true)
+    expect(emb.modelAvailable, '임베딩 기능 통과').toBe(true)
+    expect(emb.dims, '임베딩 벡터 차원').toBe(8)
+    expect(emb.detail, '차원 표기').toContain('차원')
+    // chat: /models 목록에서 model_id 확인 (기능 경로가 kind로 분기되는지)
+    const chat = await (
+      await request.post('/models/test', { data: { base_url: base, model_id: 'mock-chat', kind: 'chat' } })
+    ).json()
+    expect(chat.ok && chat.modelAvailable, 'chat 가용').toBe(true)
+    expect(chat.dims ?? null, 'chat은 dims 없음').toBeNull()
+  })
+
   test('등록된 모델로 에이전트 실행', async ({ request }) => {
     test.setTimeout(150_000)
     const a = await createAgent(request, uniq('agent'), { model: 'qwen3.6-35b' })

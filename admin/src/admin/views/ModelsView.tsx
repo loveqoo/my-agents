@@ -69,6 +69,7 @@ function RegisterModal({
         base_url: f.base_url,
         api_key: f.api_key,
         model_id: f.model_id,
+        kind: f.kind,
       })
       setProbe(result)
     } catch (e) {

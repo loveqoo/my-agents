@@ -93,9 +93,14 @@ export interface ModelProbeResult {
   modelAvailable: boolean
   latencyMs: number
   detail: string
+  dims?: number | null
 }
-export const testModelConfig = (body: { base_url: string; api_key?: string | null; model_id: string }) =>
-  post('/models/test', body) as Promise<ModelProbeResult>
+export const testModelConfig = (body: {
+  base_url: string
+  api_key?: string | null
+  model_id: string
+  kind?: 'chat' | 'embedding'
+}) => post('/models/test', body) as Promise<ModelProbeResult>
 export const testSavedModel = (id: string) => post(`/models/${id}/test`) as Promise<ModelProbeResult>
 
 /* ---------- 세션 / 승인 ---------- */

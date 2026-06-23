@@ -17,6 +17,23 @@ from .schemas import ChatRequest
 router = APIRouter(prefix="/_remote", tags=["mock-remote"])
 
 
+@router.get("/models")
+async def remote_models():
+    """OpenAI 호환 모델 목록(mock). chat 모델 연결 테스트의 결정적 대상."""
+    return {"data": [{"id": "mock-chat", "object": "model"}]}
+
+
+@router.post("/embeddings")
+async def remote_embeddings(body: dict):
+    """OpenAI 호환 임베딩(mock). embedding 모델 연결 테스트의 결정적 대상.
+    입력과 무관하게 8차원 더미 벡터를 반환한다."""
+    return {
+        "object": "list",
+        "data": [{"object": "embedding", "index": 0, "embedding": [0.1] * 8}],
+        "model": body.get("model", "mock-embed"),
+    }
+
+
 @router.post("/agent")
 async def remote_agent(body: ChatRequest):
     """원격 에이전트 채팅(mock). 마지막 사용자 메시지를 받아 간단히 스트리밍 응답."""

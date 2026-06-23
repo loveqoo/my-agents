@@ -352,18 +352,9 @@ type BlockField =
    누락하면 백엔드 *In 스키마 기본값으로 덮어써져 데이터가 날아간다. */
 type BlockFormConfig = { resource: string; title: string; intro: string; fields: BlockField[]; preserve?: string[] }
 
+/* memory는 의도적으로 제외 — 시스템 정의 enum(런타임이 이름 문자열에 의존)이라
+   빌딩 블록에서 읽기 전용으로 다룬다. (spec 016) */
 const BLOCK_FORMS: Record<string, BlockFormConfig> = {
-  memory: {
-    resource: 'memory-types',
-    title: '메모리 타입',
-    intro: '에이전트가 컨텍스트를 저장·검색하는 메모리 타입입니다. 에이전트 편집기에서 여러 타입을 동시에 켤 수 있습니다.',
-    fields: [
-      { kind: 'text', key: 'key', label: '키', required: true, placeholder: '예: working_memory', hint: '고유 식별자(영문/숫자/밑줄)' },
-      { kind: 'text', key: 'name', label: '이름', required: true, placeholder: '예: 작업 기억' },
-      { kind: 'text', key: 'scope', label: '범위', placeholder: '예: agent / user' },
-      { kind: 'textarea', key: 'body', label: '설명', rows: 4, placeholder: '이 메모리 타입의 용도' },
-    ],
-  },
   embedding: {
     resource: 'vector-tables',
     title: '벡터 테이블',
@@ -829,7 +820,7 @@ export default function BlocksView() {
               새 서버
             </Button>
           </span>
-        ) : (
+        ) : cat === 'memory' ? null : (
           <Button type="primary" icon={<Icon name="plus" />} onClick={createCurrent}>
             새 항목
           </Button>
@@ -853,6 +844,11 @@ export default function BlocksView() {
         width={440}
         onClose={() => setDetail(null)}
         footer={
+          cat === 'memory' ? (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--color-text-tertiary)', fontSize: 13 }}>
+              <Icon name="lock" /> 시스템 정의 메모리 타입 — 읽기 전용
+            </span>
+          ) : (
           <>
             <Button danger icon={<Icon name="delete" />} onClick={() => void deleteCurrent()}>
               삭제
@@ -879,6 +875,7 @@ export default function BlocksView() {
               </Button>
             )}
           </>
+          )
         }
       >
         {detail ? (

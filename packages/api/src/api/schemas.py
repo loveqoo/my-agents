@@ -88,14 +88,16 @@ class ModelProbeIn(BaseModel):
     base_url: str = ""
     api_key: str | None = None
     model_id: str = ""
+    kind: Literal["chat", "embedding"] = "chat"
 
 
 class ModelProbeResult(BaseModel):
     ok: bool  # 도달 + 인증 성공
     reachable: bool
-    modelAvailable: bool  # model_id가 서버 모델 목록에 있나
+    modelAvailable: bool  # 기능 검증 통과 (chat: 목록 존재 / embedding: 임베딩 호출 성공)
     latencyMs: int
     detail: str = ""  # 상태/일반 메시지 (비밀 미포함)
+    dims: int | None = None  # 임베딩 벡터 차원 (kind=embedding 성공 시)
 
 
 # ----------------------------- 모델 레지스트리 -----------------------------
