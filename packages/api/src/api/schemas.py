@@ -84,6 +84,20 @@ class McpPublishIn(BaseModel):
     published: bool
 
 
+class ModelProbeIn(BaseModel):
+    base_url: str = ""
+    api_key: str | None = None
+    model_id: str = ""
+
+
+class ModelProbeResult(BaseModel):
+    ok: bool  # 도달 + 인증 성공
+    reachable: bool
+    modelAvailable: bool  # model_id가 서버 모델 목록에 있나
+    latencyMs: int
+    detail: str = ""  # 상태/일반 메시지 (비밀 미포함)
+
+
 # ----------------------------- 모델 레지스트리 -----------------------------
 class ModelIn(BaseModel):
     name: str

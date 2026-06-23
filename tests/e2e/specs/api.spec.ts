@@ -270,6 +270,23 @@ test.describe('모델 레지스트리', () => {
     expect((await request.delete(`/models/${m.id}`)).status()).toBe(204)
   })
 
+  test('연결 테스트 — 저장 모델 ok / 도달 불가 fail / 비밀 미노출', async ({ request }) => {
+    const models = await (await request.get('/models')).json()
+    const qwen = models.find((m: { name: string }) => m.name === 'qwen3.6-35b')
+    expect(qwen).toBeTruthy()
+    const ok = await (await request.post(`/models/${qwen.id}/test`)).json()
+    expect(ok.ok, '저장 모델 연결').toBe(true)
+    expect(ok.modelAvailable, '모델 가용').toBe(true)
+
+    const fail = await (
+      await request.post('/models/test', {
+        data: { base_url: 'http://127.0.0.1:1/v1', api_key: 'SECRETKEY123', model_id: 'foo' },
+      })
+    ).json()
+    expect(fail.ok, '도달 불가').toBe(false)
+    expect(fail.detail, '비밀 미노출').not.toContain('SECRETKEY123')
+  })
+
   test('등록된 모델로 에이전트 실행', async ({ request }) => {
     test.setTimeout(150_000)
     const a = await createAgent(request, uniq('agent'), { model: 'qwen3.6-35b' })

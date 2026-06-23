@@ -4,19 +4,53 @@ api_key는 출력 시 마스킹되며, 수정 시 마스킹된 값을 그대로 
 지배 스펙: docs/spec/008-model-registry.md
 """
 
+import time
 import uuid
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from . import crypto
 from .db import get_session
 from .models import ModelConfig
-from . import crypto
-from .schemas import ModelIn, ModelOut
+from .schemas import ModelIn, ModelOut, ModelProbeIn, ModelProbeResult
 from .serializers import model_to_out
 
 router = APIRouter(prefix="/models", tags=["models"])
+
+
+async def _probe(base_url: str, api_key: str | None, model_id: str) -> ModelProbeResult:
+    """{base_url}/models 호출로 도달성·인증·모델 가용성 확인. 비밀은 결과에 미포함."""
+    if not base_url:
+        return ModelProbeResult(
+            ok=False, reachable=False, modelAvailable=False, latencyMs=0, detail="base_url 없음"
+        )
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    url = base_url.rstrip("/") + "/models"
+    t0 = time.perf_counter()
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(url, headers=headers)
+    except Exception:  # noqa: BLE001 — 네트워크 오류(상세는 노출 안 함)
+        ms = int((time.perf_counter() - t0) * 1000)
+        return ModelProbeResult(
+            ok=False, reachable=False, modelAvailable=False, latencyMs=ms, detail="연결 실패"
+        )
+    ms = int((time.perf_counter() - t0) * 1000)
+    if r.status_code != 200:
+        # 본문은 키를 에코할 수 있어 노출 안 함 — 상태코드만.
+        return ModelProbeResult(
+            ok=False, reachable=True, modelAvailable=False, latencyMs=ms, detail=f"HTTP {r.status_code}"
+        )
+    try:
+        ids = [m.get("id") for m in (r.json().get("data") or [])]
+    except Exception:  # noqa: BLE001
+        ids = []
+    available = model_id in ids if model_id else False
+    detail = "연결됨" + (" · 모델 사용 가능" if available else " · 모델 미발견")
+    return ModelProbeResult(ok=True, reachable=True, modelAvailable=available, latencyMs=ms, detail=detail)
 
 
 async def _clear_other_defaults(
@@ -42,6 +76,24 @@ async def list_models(
         stmt = stmt.where(ModelConfig.kind == kind)
     rows = (await session.execute(stmt)).scalars().all()
     return [model_to_out(m) for m in rows]
+
+
+@router.post("/test", response_model=ModelProbeResult)
+async def test_model_config(body: ModelProbeIn) -> ModelProbeResult:
+    """입력값(새 모델/편집)으로 연결 테스트. 마스킹 키면 무인증으로 시도."""
+    api_key = None if (body.api_key and crypto.is_masked(body.api_key)) else body.api_key
+    return await _probe(body.base_url, api_key, body.model_id)
+
+
+@router.post("/{model_id}/test", response_model=ModelProbeResult)
+async def test_saved_model(
+    model_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+) -> ModelProbeResult:
+    """저장된 모델로 연결 테스트(키 복호화)."""
+    m = await session.get(ModelConfig, model_id)
+    if m is None:
+        raise HTTPException(status_code=404, detail="not found")
+    return await _probe(m.base_url, crypto.decrypt(m.api_key), m.model_id)
 
 
 @router.post("", response_model=ModelOut, status_code=201)

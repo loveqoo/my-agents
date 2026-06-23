@@ -4,7 +4,15 @@ import { useState, useEffect } from 'react'
 import { Tag, Button, Modal, Input, Select, Switch, message } from 'antd'
 import { Page, DataTable, type Column } from '../shared'
 import { Icon } from '../icons'
-import { listModels, createModel, deleteModel, type Model } from '../../api'
+import {
+  listModels,
+  createModel,
+  deleteModel,
+  testModelConfig,
+  testSavedModel,
+  type Model,
+  type ModelProbeResult,
+} from '../../api'
 
 /* 등록 폼 데이터 shape. */
 interface ModelFormData {
@@ -38,13 +46,45 @@ function RegisterModal({
   onCreate: (data: ModelFormData) => void
 }) {
   const [f, setF] = useState<ModelFormData>(blankForm)
+  const [testing, setTesting] = useState(false)
+  const [probe, setProbe] = useState<ModelProbeResult | null>(null)
 
   useEffect(() => {
-    if (open) setF(blankForm)
+    if (open) {
+      setF(blankForm)
+      setProbe(null)
+    }
   }, [open])
 
-  const set = <K extends keyof ModelFormData>(k: K, v: ModelFormData[K]) =>
+  const set = <K extends keyof ModelFormData>(k: K, v: ModelFormData[K]) => {
+    setProbe(null)
     setF((s) => ({ ...s, [k]: v }))
+  }
+
+  const runTest = async () => {
+    setTesting(true)
+    setProbe(null)
+    try {
+      const result = await testModelConfig({
+        base_url: f.base_url,
+        api_key: f.api_key,
+        model_id: f.model_id,
+      })
+      setProbe(result)
+    } catch (e) {
+      setProbe({
+        ok: false,
+        reachable: false,
+        modelAvailable: false,
+        latencyMs: 0,
+        detail: e instanceof Error ? e.message : '연결 테스트에 실패했습니다',
+      })
+    } finally {
+      setTesting(false)
+    }
+  }
+
+  const testDisabled = testing || !f.base_url.trim() || !f.model_id.trim()
 
   return (
     <Modal
@@ -94,6 +134,31 @@ function RegisterModal({
           <Switch checked={f.is_default} onChange={(v) => set('is_default', v)} />
           <span style={{ fontSize: 14, fontWeight: 500 }}>기본 모델</span>
         </label>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <Button
+            icon={<Icon name="thunderbolt" />}
+            loading={testing}
+            disabled={testDisabled}
+            onClick={runTest}
+            style={{ alignSelf: 'flex-start' }}
+          >
+            연결 테스트
+          </Button>
+          {probe ? (
+            <div
+              style={{
+                padding: '8px 12px',
+                borderRadius: 6,
+                fontSize: 13,
+                border: `1px solid ${probe.ok ? 'var(--color-success-border)' : 'var(--color-error-border)'}`,
+                background: probe.ok ? 'var(--color-success-bg)' : 'var(--color-error-bg)',
+                color: probe.ok ? 'var(--color-success)' : 'var(--color-error)',
+              }}
+            >
+              {probe.ok ? `✓ ${probe.detail} (${probe.latencyMs}ms)` : `✗ ${probe.detail}`}
+            </div>
+          ) : null}
+        </div>
       </div>
     </Modal>
   )
@@ -103,6 +168,7 @@ export default function ModelsView() {
   const [models, setModels] = useState<Model[]>([])
   const [formOpen, setFormOpen] = useState(false)
   const [confirmDel, setConfirmDel] = useState<Model | null>(null)
+  const [testingId, setTestingId] = useState<string | null>(null)
 
   const load = async () => {
     try {
@@ -137,6 +203,21 @@ export default function ModelsView() {
       setFormOpen(false)
     } catch (e) {
       message.error(e instanceof Error ? e.message : '모델 등록에 실패했습니다')
+    }
+  }
+
+  const runRowTest = async (m: Model) => {
+    if (testingId) return
+    setTestingId(m.id)
+    try {
+      const result = await testSavedModel(m.id)
+      // 연결됐어도 모델이 목록에 없으면(미발견) 경고로 — '이 모델 쓸 수 있나' 관점.
+      if (result.ok && result.modelAvailable) message.success(result.detail)
+      else message.warning(result.detail)
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '연결 테스트에 실패했습니다')
+    } finally {
+      setTestingId(null)
     }
   }
 
@@ -196,10 +277,20 @@ export default function ModelsView() {
     {
       key: 'actions',
       title: '',
-      width: 60,
+      width: 110,
       align: 'right',
       render: (m) => (
         <span onClick={(e) => e.stopPropagation()}>
+          <Button
+            type="text"
+            size="small"
+            icon={<Icon name="thunderbolt" />}
+            loading={testingId === m.id}
+            disabled={testingId !== null && testingId !== m.id}
+            onClick={() => runRowTest(m)}
+          >
+            테스트
+          </Button>
           <Button type="text" size="small" danger icon={<Icon name="delete" />} onClick={() => setConfirmDel(m)} />
         </span>
       ),

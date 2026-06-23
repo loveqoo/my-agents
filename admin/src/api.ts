@@ -84,6 +84,18 @@ export const createModel = (body: unknown) => post('/models', body) as Promise<M
 export const updateModel = (id: string, body: unknown) => put(`/models/${id}`, body) as Promise<Model>
 export const deleteModel = (id: string) => del(`/models/${id}`)
 
+/** 모델 연결 테스트 결과 (detail은 비밀 없는 안전 메시지). */
+export interface ModelProbeResult {
+  ok: boolean
+  reachable: boolean
+  modelAvailable: boolean
+  latencyMs: number
+  detail: string
+}
+export const testModelConfig = (body: { base_url: string; api_key?: string | null; model_id: string }) =>
+  post('/models/test', body) as Promise<ModelProbeResult>
+export const testSavedModel = (id: string) => post(`/models/${id}/test`) as Promise<ModelProbeResult>
+
 /* ---------- 세션 / 승인 ---------- */
 export const listSessions = () => j<Session[]>('/sessions')
 export interface SessionMessage {
