@@ -12,6 +12,7 @@ dependencies = [
     "agent",
     "alembic>=1.18.4",
     "psycopg[binary]>=3.3.4",
+    "httpx>=0.28.1",
 ]
 
 [project.scripts]

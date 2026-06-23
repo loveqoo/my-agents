@@ -13,6 +13,7 @@ import secrets
 import time
 import uuid
 
+import httpx
 from agent.main import build_agent
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
@@ -39,6 +40,9 @@ async def _load_context(agent_id: uuid.UUID, session_str_id: str | None):
             "ext_agent_id": agent.agent_id,
             "agent_name": agent.name,
             "agent_pk": agent.id,
+            "source": agent.source,
+            "endpoint": agent.endpoint,
+            "token": agent.token,
             "memories": cfg.get("memories", []),
             # 에이전트가 명시한 temperature만 전달(없으면 None) → 모델 등록 params가 적용되게.
             "temperature": cfg.get("temperature"),
@@ -116,10 +120,78 @@ async def _persist(session_pk: uuid.UUID, user_text: str, reply: str, trace: dic
         await db.commit()
 
 
+async def _remote_stream(ctx: dict, body: ChatRequest, user_text: str):
+    """코드 에이전트: 등록된 원격 엔드포인트로 프록시하고 응답을 우리 SSE로 재전송."""
+    yield f"data: {json.dumps({'session': ctx['session_id']}, ensure_ascii=False)}\n\n"
+    api_messages = [{"role": m.role, "content": m.content} for m in body.messages]
+    # 토큰이 마스킹된 값(•)이면 실 토큰이 아니므로 인증 헤더를 보내지 않는다
+    # (실 토큰 보안 저장은 추후 — 그때 진짜 외부 인증). HTTP 헤더는 ascii만 허용.
+    tok = ctx.get("token")
+    headers = {"Authorization": f"Bearer {tok}"} if tok and "•" not in tok else {}
+    acc: list[str] = []
+    errored = False
+    t0 = time.perf_counter()
+    try:
+        async with httpx.AsyncClient(timeout=120) as client:
+            async with client.stream(
+                "POST", ctx["endpoint"], json={"messages": api_messages}, headers=headers
+            ) as resp:
+                if resp.status_code >= 400:
+                    body = (await resp.aread()).decode("utf-8", "replace")[:200]
+                    errored = True
+                    yield f"data: {json.dumps({'error': f'원격 {resp.status_code}: {body}'}, ensure_ascii=False)}\n\n"
+                else:
+                    async for line in resp.aiter_lines():
+                        # SSE: 'data:' 또는 'data: ' 모두 허용.
+                        if not line.startswith("data:"):
+                            continue
+                        data = line[5:].lstrip()
+                        if data == "[DONE]":
+                            break
+                        try:
+                            d = json.loads(data)
+                        except json.JSONDecodeError:
+                            continue
+                        text = d.get("text")
+                        if text:
+                            acc.append(text)
+                            yield f"data: {json.dumps({'text': text}, ensure_ascii=False)}\n\n"
+    except Exception as exc:  # noqa: BLE001 — 원격 오류도 프레임으로
+        errored = True
+        yield f"data: {json.dumps({'error': str(exc)}, ensure_ascii=False)}\n\n"
+
+    full = "".join(acc)
+    total_ms = int((time.perf_counter() - t0) * 1000)
+    tokens = runtime.estimate_tokens(len(user_text), len(full))
+    trace = {
+        "latencyMs": total_ms,
+        "tokens": tokens,
+        "promptRef": ctx["ext_agent_id"],
+        "memories": [],
+        "mcp": [],
+        "graph": [
+            {"node": "__start__", "ms": 0},
+            {"node": "remote_call", "ms": total_ms},
+            {"node": "__end__", "ms": 0},
+        ],
+        "remote": True,
+    }
+    if not errored:
+        await _persist(ctx["session_pk"], user_text, full, trace, tokens)
+    yield f"event: trace\ndata: {json.dumps(trace, ensure_ascii=False)}\n\n"
+    yield "event: done\ndata: [DONE]\n\n"
+
+
 @router.post("/{agent_id}/chat")
 async def chat(agent_id: uuid.UUID, body: ChatRequest):
     ctx = await _load_context(agent_id, body.sessionId)
     user_text = body.messages[-1].content if body.messages else ""
+
+    # 코드(SDK) 에이전트는 자기 원격 엔드포인트에서 실행 — 프록시.
+    if ctx["source"] == "code" and ctx["endpoint"]:
+        return StreamingResponse(
+            _remote_stream(ctx, body, user_text), media_type="text/event-stream"
+        )
 
     # 의미론적 메모리 회상 (켠 에이전트만). mem0는 동기 → 스레드로.
     used_memory = memory.memory_enabled(ctx["memories"])

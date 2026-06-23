@@ -177,7 +177,10 @@ async def seed_if_empty(session: AsyncSession) -> None:
             agent_id="agt_xlt_a17c33", name="Doc Translator", source="code", model="claude-sonnet-4",
             persona="코드 정의 (SDK)", history_depth=10, config=code_cfg, exposed={"a2a": True},
             status="online", active_version="f3a91c2",
-            endpoint="https://agents.acme.dev/doc-translator", token="sk_live_a3f••••••••91c2",
+            # 개발용 mock 원격 에이전트로 연결 → 코드 에이전트 원격 실행이 바로 동작.
+            # 실제 배포는 자기 URL을 쓴다(REMOTE_AGENT_BASE로 오버라이드 가능).
+            endpoint=os.environ.get("REMOTE_AGENT_BASE", "http://127.0.0.1:8000/_remote/agent"),
+            token="sk_live_a3f••••••••91c2",
             runtime="my-agents-sdk · Python 2.4.1", repo="acme/doc-translator", commit="f3a91c2",
             registered_at="2026-06-18", last_sync="12분 전",
         )

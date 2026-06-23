@@ -285,4 +285,21 @@ test.describe('채팅 런타임 + mem0', () => {
     const assistant = msgs.find((m: { role: string; trace: unknown }) => m.role === 'assistant')
     expect(assistant?.trace, 'assistant 메시지에 트레이스 저장').toBeTruthy()
   })
+
+  test('코드 에이전트 — 원격 엔드포인트로 프록시 실행', async ({ request }) => {
+    test.setTimeout(60_000)
+    const agents = await (await request.get('/agents')).json()
+    const code = agents.find((a: { source: string }) => a.source === 'code')
+    expect(code, '코드 에이전트(Doc Translator) 시드 필요').toBeTruthy()
+    const res = await request.post(`/agents/${code.id}/chat`, {
+      data: { messages: [{ role: 'user', content: '상태 알려줘' }] },
+      timeout: 50_000,
+    })
+    expect(res.ok()).toBeTruthy()
+    const sse = await res.text()
+    expect(sse, '원격(mock) 응답 시그니처').toContain('원격 에이전트')
+    const t = parseTrace(sse)
+    expect(t?.remote, '트레이스 remote 플래그').toBe(true)
+    expect((t!.graph as { node: string }[]).some((n) => n.node === 'remote_call')).toBeTruthy()
+  })
 })

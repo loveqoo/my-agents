@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from . import agents, approvals, blocks, chat, model_registry, sessions
+from . import agents, approvals, blocks, chat, mock_remote, model_registry, sessions
 from .db import init_db
 
 
@@ -31,6 +31,7 @@ app.include_router(agents.router)
 app.include_router(chat.router)
 app.include_router(sessions.router)
 app.include_router(approvals.router)
+app.include_router(mock_remote.router)
 
 
 def run():
