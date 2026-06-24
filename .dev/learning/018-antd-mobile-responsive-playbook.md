@@ -26,11 +26,31 @@ handoff 번들을 antd로 이식하면 인라인 스타일 + 고정 Sider라 모
 - `breakpoint`+`useEffect([isMobile])`로 교차 시 자동 토글. 단 effect는 isMobile 변할 때만 →
   데스크톱 수동 토글을 안 덮어씀.
 
-## 테이블 = 카드 변환 말고 가로 스크롤
-- 커스텀 컬럼(width/align/render) 테이블은 카드 변환이 회귀 위험·공수 큼.
-- `<table>`를 `<div style={{overflowX:'auto'}}>`로 감싸고 표에 `minWidth:'max-content'`.
-  데스크톱은 `width:100%`가 지배(회귀 0), 모바일만 가로 스크롤. Panel `overflow:hidden`
-  안쪽에 둬도 wrapper가 자체 스크롤 컨텍스트라 OK.
+## 테이블 = 모바일에선 카드 (가로 스크롤 금지)
+- **처음엔 가로 스크롤 래퍼로 갔다가 사용자 피드백으로 카드로 뒤집음.**
+  모바일 가로 스크롤은 "엄청 불편" — 목록 전체를 보려면 좌우로 밀어야 함. 실기기에서 강한 거부감.
+- 패턴: `DataTable`에서 `screens.md === false`면 표 대신 각 행을 `Panel` 카드로.
+  컬럼 분해 — `const [head, ...rest] = columns`. **1열=헤더**(fontSize 15),
+  `rest.filter(c=>c.title)`=라벨:값 행(라벨 minWidth 80, 값 `flexWrap:wrap minWidth:0`),
+  `rest.filter(c=>!c.title)`=액션(편집/삭제, 하단 우측 정렬).
+- 전제 2개(현 뷰에선 성립, 새 컬럼셋 추가 시 주의): **1열은 비대화형 표시 셀**,
+  **falsy title = 액션 컬럼**. 액션 셀은 이미 `e.stopPropagation()`을 호출하므로
+  카드 전체 onClick(onRowClick) 위에 얹혀도 버블링 안전.
+- `Desc`(드로워 key/value)도 모바일은 `flexDirection:column`으로 라벨을 윗줄에 쌓아 값 폭 확보.
+
+## 함정: 화면 밖 Drawer 패널이 가로 스크롤을 만든다 (★ 진짜 범인)
+- 증상: 모바일에서 좌우로 밀면 페이지 바디 전체가 움직이고 우측에 빈 공간. 여러 뷰에서 동시 발생.
+- **`document.documentElement.scrollWidth-clientWidth` 측정은 0으로 나와 못 잡는다** —
+  오버플로가 `overflow:auto`인 `.ant-layout-content` *안에서* 흡수되기 때문. 반드시
+  **Content 요소의 `scrollWidth-clientWidth`로 측정**하고, `getBoundingClientRect().right > vw`인
+  요소를 폭 내림차순으로 덤프해 범인을 찾을 것.
+- 원인: 커스텀 Drawer 패널이 닫힘 시 `transform:translateX(100%)`로 자기 폭만큼 화면 밖 오른쪽에
+  머무는데(`position:absolute; right:0`), 부모 래퍼(`position:absolute; inset:0`)에 클리핑이 없어
+  Content가 그 패널을 가로 스크롤 영역으로 노출. (열림 시 `translateX(0)`이라 평소엔 안 보임.)
+- **수정: 드로워 래퍼에 `overflow:hidden` 한 줄.** 닫힌 패널 클리핑, 열린 패널은 경계 안이라 무해.
+- 2차 효과: Content가 부풀면(예: 780px) **antd `Tabs`가 그 폭으로 nav를 측정해 모든 탭을 한 줄로
+  펼친다**(`···` 더보기 드롭다운이 안 뜸). Content를 정상 폭으로 되돌리면 Tabs가 자동으로
+  overflow 드롭다운을 표시 → Tabs는 따로 손댈 필요 없었음. **한 근본 원인이 두 증상을 만들었다.**
 
 ## 헤더/액션
 - 제목+액션 한 줄 → 모바일 `flexDirection:'column'`로 스택(제목 줄바꿈 깨짐 방지).

@@ -103,9 +103,59 @@ export function DataTable<T>({
   empty?: ReactNode
 }) {
   const cell = (r: T, k: string) => (r as Record<string, unknown>)[k]
+  const screens = Grid.useBreakpoint()
+
+  // 모바일: 가로 스크롤 표 대신 행을 카드로 — 1열은 헤더, 나머지는 라벨:값, 빈 title(액션)은 라벨 없이.
+  if (screens.md === false) {
+    const [head, ...rest] = columns
+    const labeled = rest.filter((c) => c.title)
+    const actions = rest.filter((c) => !c.title)
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {rows.length === 0 ? (
+          <Panel style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--color-text-tertiary)' }}>
+            {empty}
+          </Panel>
+        ) : (
+          rows.map((r) => (
+            <Panel key={String(cell(r, rowKey))} style={{ padding: 14 }}>
+              <div
+                onClick={onRowClick ? () => onRowClick(r) : undefined}
+                style={{ cursor: onRowClick ? 'pointer' : 'default' }}
+              >
+                {head && (
+                  <div style={{ fontSize: 15, marginBottom: labeled.length ? 12 : 0 }}>
+                    {head.render ? head.render(r) : (cell(r, head.key) as ReactNode)}
+                  </div>
+                )}
+                {labeled.map((c) => (
+                  <div
+                    key={c.key}
+                    style={{ display: 'flex', gap: 10, alignItems: 'baseline', padding: '4px 0', fontSize: 14 }}
+                  >
+                    <span style={{ minWidth: 80, flex: 'none', color: 'var(--color-text-tertiary)' }}>{c.title}</span>
+                    <span style={{ flex: 1, minWidth: 0, display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center', color: 'var(--color-text)' }}>
+                      {c.render ? c.render(r) : (cell(r, c.key) as ReactNode)}
+                    </span>
+                  </div>
+                ))}
+                {actions.length > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 10 }}>
+                    {actions.map((c) => (
+                      <span key={c.key}>{c.render ? c.render(r) : (cell(r, c.key) as ReactNode)}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </Panel>
+          ))
+        )}
+      </div>
+    )
+  }
+
   return (
     <Panel>
-      {/* 좁은 화면에서는 표를 가로 스크롤 — 셀이 잘리거나 짜부라지지 않게. */}
       <div style={{ overflowX: 'auto' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14, minWidth: 'max-content' }}>
         <thead>
@@ -177,8 +227,13 @@ export function Drawer({
   footer?: ReactNode
   children?: ReactNode
 }) {
+  const screens = Grid.useBreakpoint()
+  const isMobile = screens.md === false
+  const bodyPad = isMobile ? 16 : 24
+  // 래퍼 overflow:hidden — 닫힘 시 패널이 translateX(100%)로 화면 밖 오른쪽에 머물며
+  // Content(overflow:auto)의 가로 스크롤을 만들던 문제 차단. 열림 시 패널은 경계 안.
   return (
-    <div style={{ position: 'absolute', inset: 0, zIndex: 1000, pointerEvents: open ? 'auto' : 'none' }}>
+    <div style={{ position: 'absolute', inset: 0, zIndex: 1000, overflow: 'hidden', pointerEvents: open ? 'auto' : 'none' }}>
       <div
         onClick={onClose}
         style={{ position: 'absolute', inset: 0, background: 'var(--color-bg-mask)', opacity: open ? 1 : 0, transition: 'opacity .25s' }}
@@ -190,7 +245,7 @@ export function Drawer({
           right: 0,
           bottom: 0,
           width,
-          maxWidth: '92%',
+          maxWidth: isMobile ? '100%' : '92%',
           background: '#fff',
           boxShadow: 'var(--box-shadow)',
           display: 'flex',
@@ -206,7 +261,7 @@ export function Drawer({
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
-                padding: '16px 24px',
+                padding: isMobile ? '14px 16px' : '16px 24px',
                 borderBottom: '1px solid var(--color-border-secondary)',
                 flex: 'none',
               }}
@@ -216,7 +271,7 @@ export function Drawer({
                 <CloseOutlined />
               </span>
             </div>
-            <div style={{ flex: 1, overflow: 'auto', padding: 24 }}>{children}</div>
+            <div style={{ flex: 1, overflow: 'auto', padding: bodyPad }}>{children}</div>
             {footer && (
               <div
                 style={{
@@ -238,19 +293,23 @@ export function Drawer({
   )
 }
 
-/* key/value 디스크립터 행. */
+/* key/value 디스크립터 행. 모바일에선 라벨을 윗줄로 쌓아 값 영역을 넓힌다. */
 export function Desc({ label, width = 120, children }: { label: ReactNode; width?: number; children?: ReactNode }) {
+  const screens = Grid.useBreakpoint()
+  const stack = screens.md === false
   return (
     <div
       style={{
         display: 'flex',
+        flexDirection: stack ? 'column' : 'row',
         alignItems: 'flex-start',
+        gap: stack ? 4 : 0,
         padding: '10px 0',
         borderBottom: '1px solid var(--color-border-secondary)',
         fontSize: 14,
       }}
     >
-      <div style={{ width, color: 'var(--color-text-tertiary)', flex: 'none', paddingTop: 1 }}>{label}</div>
+      <div style={{ width: stack ? '100%' : width, color: 'var(--color-text-tertiary)', flex: 'none', paddingTop: 1 }}>{label}</div>
       <div
         style={{ color: 'var(--color-text)', flex: 1, minWidth: 0, display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}
       >
