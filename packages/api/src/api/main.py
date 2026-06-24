@@ -3,6 +3,7 @@
 지배 스펙: docs/spec/002-persona-registry-and-chat.md
 """
 
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -22,9 +23,20 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Agent Service", lifespan=lifespan)
+
+# CORS 허용 오리진 — 기본은 로컬 개발만. Tailscale 등 추가 오리진은
+# EXTRA_CORS_ORIGINS(쉼표 구분) 환경변수로만 연다(소스에 머신별 IP 비하드코딩).
+# "*" 지정 시 전체 허용 — 노출 경계는 `tailscale serve`/바인딩이 보장하므로,
+# tailnet 안에서 IP·MagicDNS 어느 호스트로 접속하든 Origin을 통과시킨다.
+_cors_origins = ["http://localhost:5173", "http://127.0.0.1:5173"]
+_extra = os.environ.get("EXTRA_CORS_ORIGINS", "").strip()
+if _extra == "*":
+    _cors_origins = ["*"]
+elif _extra:
+    _cors_origins += [o.strip() for o in _extra.split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=_cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -43,4 +55,8 @@ app.include_router(mock_remote.router)
 def run():
     import uvicorn
 
-    uvicorn.run("api.main:app", host="127.0.0.1", port=8000)
+    # 기본은 loopback(외부 비노출). Tailscale 노출은 API_HOST로만 켠다.
+    # 예: API_HOST=100.72.45.58 → 이 맥 + tailnet에서만 닿고 그 외 인터페이스는 안 열림.
+    host = os.environ.get("API_HOST", "127.0.0.1")
+    port = int(os.environ.get("API_PORT", "8000"))
+    uvicorn.run("api.main:app", host=host, port=port)
