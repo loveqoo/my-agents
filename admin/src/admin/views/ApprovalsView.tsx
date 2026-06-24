@@ -132,7 +132,7 @@ export default function ApprovalsView() {
           <div style={{ marginTop: 10, fontSize: 14 }}>대기 중인 승인이 없습니다. 모두 처리됐어요.</div>
         </Panel>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, alignItems: 'start' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: 16, alignItems: 'start' }}>
           {queue.map((item) => (
             <ApprovalCard key={item.id} item={item} onResolve={resolve} />
           ))}
