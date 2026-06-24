@@ -3,8 +3,8 @@
    turn is selectable (drives the Inspector) and shows trace chips. Data is real:
    agents come from the backend, turns/traces come from the streaming chat API. */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Bubble, Sender, Welcome, Prompts } from '@ant-design/x'
-import { Avatar, Button, Tag, Grid, Input, Tooltip } from 'antd'
+import { Bubble, Sender, Prompts } from '@ant-design/x'
+import { Avatar, Button, Tag, Grid, AutoComplete, Tooltip } from 'antd'
 import { Icon } from '../admin/icons'
 import type { ChatMsg, Trace } from './agentData'
 import type { Agent } from '../admin/mockData'
@@ -35,6 +35,9 @@ interface DebugChatProps {
   onStop: () => void
   userId: string
   onUserIdChange: (v: string) => void
+  userIds: string[]
+  userIdLocked: boolean
+  onResetConversation: () => void
   showPrompt: boolean
   onTogglePrompt: () => void
   inspectorOpen: boolean
@@ -81,6 +84,10 @@ function AgentCombo({
           font: 'inherit',
           transition: 'all .2s',
           maxWidth: 360,
+          // 슬롯이 좁아지면 버튼도 따라 줄고 안쪽 텍스트가 ellipsis 되도록 — 안 그러면
+          // 콘텐츠 폭(~347px)을 고수해 슬롯 밖으로 넘쳐 옆 요소(userId)를 덮는다.
+          width: '100%',
+          minWidth: 0,
         }}
       >
         <span style={{ position: 'relative', flex: 'none' }}>
@@ -117,13 +124,27 @@ function AgentCombo({
               display: 'block',
               fontSize: 12,
               color: 'var(--color-text-tertiary)',
-              fontFamily: 'var(--font-family-code)',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
             }}
           >
-            {agent.model} · {agent.persona}
+            {/* 연결된 모델을 한눈에 — 칩으로 강조(헤더에서 바로 확인, 사용자 피드백 #5). */}
+            <span
+              style={{
+                fontFamily: 'var(--font-family-code)',
+                fontWeight: 600,
+                color: 'var(--color-primary)',
+                background: 'var(--color-primary-bg)',
+                border: '1px solid var(--color-primary-border)',
+                borderRadius: 5,
+                padding: '0 5px',
+                marginInlineEnd: 6,
+              }}
+            >
+              {agent.model}
+            </span>
+            {agent.persona}
           </span>
         </span>
         <Icon
@@ -233,6 +254,9 @@ function ChatHeader({
   onSwitchAgent,
   userId,
   onUserIdChange,
+  userIds,
+  userIdLocked,
+  onResetConversation,
   showPrompt,
   onTogglePrompt,
   inspectorOpen,
@@ -243,6 +267,9 @@ function ChatHeader({
   onSwitchAgent: (id: string) => void
   userId: string
   onUserIdChange: (v: string) => void
+  userIds: string[]
+  userIdLocked: boolean
+  onResetConversation: () => void
   showPrompt: boolean
   onTogglePrompt: () => void
   inspectorOpen: boolean
@@ -250,25 +277,57 @@ function ChatHeader({
 }) {
   const screens = Grid.useBreakpoint()
   const isMobile = !screens.md
+  // 좁은 데스크톱(lg 미만): 사이드바(232px) 탓에 헤더 가로가 빠듯해 AgentCombo가 아바타만 남게
+  // 쭈그러든다. md만으로는 너무 늦으니 lg부터 컨트롤을 축소(A2A 숨김 + 버튼 아이콘만)해 공간 확보.
+  // 또한 인스펙터가 나란히(side-by-side) 열려 있으면 채팅 컬럼이 384px만큼 더 줄어 라벨이 인스펙터로
+  // 흘러넘친다(#9). 그래서 인스펙터가 열린 동안엔 폭과 무관하게 항상 compact로 둔다.
+  const compact = !screens.lg || inspectorOpen
   return (
     <div style={{ flex: 'none', borderBottom: '1px solid var(--color-border-secondary)', background: 'var(--color-bg-container)' }}>
-      {/* 모바일: 패딩 축소 + 버튼 아이콘만(라벨 제거) + A2A 배지 숨김 — 한 줄에 안 들어가 겹치던 문제. */}
+      {/* compact: 버튼 아이콘만(라벨 제거) + A2A 배지 숨김 — 한 줄에 안 들어가 겹치던 문제. */}
       <div style={{ height: 64, display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 12, padding: isMobile ? '0 12px' : '0 20px' }}>
         <AgentCombo agent={agent} agents={agents} onSwitch={onSwitchAgent} />
         <div style={{ flex: 1 }} />
-        {/* 유저 식별 입력 — 비우면 세션 단기 기억, 값이 있으면 그 유저로 세션 가로지르는 장기 기억. */}
-        <Tooltip title="유저로서 대화 — 비우면 세션 단기 기억, 값을 넣으면 그 유저로 세션을 넘는 장기 기억을 유지합니다.">
-          <Input
-            size="small"
-            allowClear
-            value={userId}
-            onChange={(e) => onUserIdChange(e.target.value)}
-            placeholder="userId (선택)"
-            prefix={<Icon name="user" size={12} style={{ color: 'var(--color-text-tertiary)' }} />}
-            style={{ width: isMobile ? 120 : 168 }}
-          />
+        {/* 유저 식별 입력 — 비우면 세션 단기 기억, 값이 있으면 그 유저로 세션 가로지르는 장기 기억.
+            AutoComplete: 자유 입력 유지 + 과거 userId를 드롭다운으로 제시(부분일치 필터, 최근순).
+            주의: `options`와 커스텀 child(<Input>)를 함께 쓰면 antd 박스 모델이 깨져 겹친다 —
+            내장 입력만 쓰고 placeholder/allowClear를 직접 둔다(그래서 prefix 아이콘은 포기).
+            진행 중인 대화에서는 disabled — 세션 중간에 userId가 바뀌면 메모리 스코프가 섞이기 때문.
+            (Tooltip은 disabled 엘리먼트에서 hover가 안 잡혀, span으로 감싸 트리거를 살린다.) */}
+        <Tooltip
+          title={
+            userIdLocked
+              ? '대화 중에는 userId를 바꿀 수 없습니다 — "새 대화"로 초기화하세요.'
+              : '유저로서 대화 — 비우면 세션 단기 기억, 값을 넣으면 그 유저로 세션을 넘는 장기 기억을 유지합니다.'
+          }
+        >
+          <span style={{ display: 'inline-flex', flexShrink: 0 }}>
+            <AutoComplete
+              size="small"
+              allowClear
+              disabled={userIdLocked}
+              value={userId}
+              onChange={(v) => onUserIdChange(v ?? '')}
+              placeholder="userId"
+              options={userIds.map((u) => ({ value: u }))}
+              filterOption={(input, option) =>
+                (option?.value ?? '').toLowerCase().includes(input.toLowerCase())
+              }
+              style={{ width: isMobile ? 110 : 150 }}
+            />
+          </span>
         </Tooltip>
-        {!isMobile && <ExposeBadges agent={agent} />}
+        {userIdLocked && (
+          <Button
+            size="small"
+            icon={<Icon name="plus" />}
+            onClick={onResetConversation}
+            title='새 대화 — 대화를 비우고 userId를 다시 바꿀 수 있게 합니다.'
+          >
+            {compact ? null : '새 대화'}
+          </Button>
+        )}
+        {!compact && <ExposeBadges agent={agent} />}
         <Button
           size="small"
           type={showPrompt ? 'primary' : 'default'}
@@ -276,7 +335,7 @@ function ChatHeader({
           onClick={onTogglePrompt}
           title="시스템 프롬프트"
         >
-          {isMobile ? null : '시스템 프롬프트'}
+          {compact ? null : '시스템 프롬프트'}
         </Button>
         <Button
           size="small"
@@ -285,7 +344,7 @@ function ChatHeader({
           onClick={onToggleInspector}
           title="인스펙터"
         >
-          {isMobile ? null : '인스펙터'}
+          {compact ? null : '인스펙터'}
         </Button>
       </div>
       {showPrompt ? (
@@ -379,12 +438,18 @@ export function DebugChat({
   onStop,
   userId,
   onUserIdChange,
+  userIds,
+  userIdLocked,
+  onResetConversation,
   showPrompt,
   onTogglePrompt,
   inspectorOpen,
   onToggleInspector,
 }: DebugChatProps) {
   const scroller = useRef<HTMLDivElement>(null)
+  // Sender는 submit 시 스스로 입력을 비우지 않는다(@ant-design/x 2.8 — triggerSend가
+  // onSubmit만 호출, clear는 클리어 버튼에서만). 그래서 controlled로 두고 직접 비운다.
+  const [draft, setDraft] = useState('')
   useEffect(() => {
     if (scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight
   }, [messages, streaming, showPrompt])
@@ -423,6 +488,9 @@ export function DebugChat({
         onSwitchAgent={onSwitchAgent}
         userId={userId}
         onUserIdChange={onUserIdChange}
+        userIds={userIds}
+        userIdLocked={userIdLocked}
+        onResetConversation={onResetConversation}
         showPrompt={showPrompt}
         onTogglePrompt={onTogglePrompt}
         inspectorOpen={inspectorOpen}
@@ -432,11 +500,6 @@ export function DebugChat({
       <div ref={scroller} style={{ flex: 1, overflowY: 'auto' }}>
         {empty ? (
           <div style={{ maxWidth: 680, margin: '0 auto', width: '100%', padding: '7vh 24px 0', display: 'flex', flexDirection: 'column', gap: 24 }}>
-            <Welcome
-              icon={agentAvatar}
-              title={`${agent.name} 디버깅`}
-              description="메시지를 보내 에이전트를 실행하세요. 모든 턴은 프롬프트, 메모리 히트, MCP 호출, LangGraph 경로를 기록합니다 — 오른쪽에서 인스펙트하세요."
-            />
             <Prompts
               title="디버그 프롬프트 체험"
               wrap
@@ -461,6 +524,9 @@ export function DebugChat({
                       avatar={agentAvatar}
                       header={agent.name}
                       content={m.text}
+                      // 첫 토큰 도착 전(빈 content)에는 typing이 보일 게 없어 말풍선이 멈춘 듯
+                      // 보인다 — 그 구간엔 loading 점 애니메이션을 띄운다(사용자 피드백).
+                      loading={streaming && isLast && !m.text}
                       typing={streaming && isLast}
                       footer={footer}
                     />
@@ -476,9 +542,14 @@ export function DebugChat({
       <div style={{ flex: 'none', padding: '8px 24px 18px' }}>
         <div style={{ maxWidth: 680, margin: '0 auto' }}>
           <Sender
+            value={draft}
+            onChange={(v) => setDraft(v)}
             placeholder={`${agent.name}에게 메시지…`}
             loading={streaming}
-            onSubmit={onSend}
+            onSubmit={(text) => {
+              setDraft('')
+              onSend(text)
+            }}
             onCancel={onStop}
             prefix={<Button type="text" icon={<Icon name="paper-clip" />} />}
             footer={() => (

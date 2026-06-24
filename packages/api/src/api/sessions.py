@@ -1,7 +1,7 @@
 """세션 라우터 (007 도메인). 세션 조회·메시지·종료."""
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .db import get_session
@@ -35,6 +35,23 @@ async def _get_session_or_404(session: AsyncSession, session_id: str) -> Session
     if s is None:
         raise HTTPException(status_code=404, detail="not found")
     return s
+
+
+@router.get("/users", response_model=list[str])
+async def list_user_ids(session: AsyncSession = Depends(get_session)) -> list[str]:
+    """대화에 쓰인 distinct userId, 최근 사용순(스펙 021 — Playground 헤더 선택지).
+
+    NOTE: 이 정적 경로는 아래 `/{session_id}`보다 **먼저** 선언돼야 가려지지 않는다.
+    """
+    rows = (
+        await session.execute(
+            select(Session.user_id, func.max(Session.last_activity).label("last"))
+            .where(Session.user_id.is_not(None))
+            .group_by(Session.user_id)
+            .order_by(func.max(Session.last_activity).desc())
+        )
+    ).all()
+    return [r.user_id for r in rows]
 
 
 @router.get("/{session_id}", response_model=SessionOut)

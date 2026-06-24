@@ -7,7 +7,7 @@ import { DebugChat } from './DebugChat'
 import { Inspector } from './Inspector'
 import type { ChatMsg, Trace } from './agentData'
 import type { Agent } from '../admin/mockData'
-import { listAgents, streamChat, type ChatMessage } from '../api'
+import { listAgents, listUserIds, streamChat, type ChatMessage } from '../api'
 
 export function Playground() {
   const [agents, setAgents] = useState<Agent[]>([])
@@ -20,10 +20,16 @@ export function Playground() {
   const [inspectorOpen, setInspectorOpen] = useState(false)
   // 메모리 스코프 테스트용: 비우면 세션 단기, 값이 있으면 그 유저로 세션 가로지르는 장기 기억.
   const [userId, setUserId] = useState('')
+  // 그동안 대화에 쓰인 userId 목록(최근순) — 헤더 AutoComplete 선택지(스펙 021).
+  const [userIds, setUserIds] = useState<string[]>([])
   const controllerRef = useRef<AbortController | null>(null)
 
   const screens = Grid.useBreakpoint()
-  const isMobile = !screens.md
+  // 인스펙터를 채팅과 나란히(side-by-side) 두려면 사이드바 + 채팅 + 인스펙터(384px)가
+  // 모두 들어갈 폭이 필요하다. lg(992) 미만에서는 채팅 컬럼이 184px 수준으로 짜부라져
+  // 헤더 컨트롤(아바타·userId·버튼)이 인스펙터 헤더로 흘러넘쳐 "턴 인스펙터" 타이틀·아이콘과
+  // 겹친다(어중간한 폭 버그, #9). 그래서 lg 미만에서는 모바일과 동일하게 전체화면 오버레이로 띄운다.
+  const overlayInspector = !screens.lg
 
   const activeAgent = agents.find((a) => a.id === activeId) ?? null
   const messages = convos[activeId] || []
@@ -49,6 +55,19 @@ export function Playground() {
   useEffect(() => {
     return () => {
       controllerRef.current?.abort()
+    }
+  }, [])
+
+  // 과거 userId 목록 로드(실패는 조용히 무시 — 자유 입력은 그대로 됨).
+  useEffect(() => {
+    let cancelled = false
+    listUserIds()
+      .then((ids) => {
+        if (!cancelled) setUserIds(ids)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
     }
   }, [])
 
@@ -102,16 +121,24 @@ export function Playground() {
               const lastIdx = arr.length - 1
               const last = arr[lastIdx]
               if (last && last.role === 'ai') arr[lastIdx] = { ...last, trace }
+              // selectedTurn은 갱신해 둔다(인스펙터를 직접 열면 최신 턴을 보이도록) —
+              // 단, 자동으로 열지는 않는다. 매 턴 끼어들어 불편(사용자 피드백).
               setSelectedTurn(lastIdx)
               return { ...c, [id]: arr }
             })
-            setInspectorOpen(true)
+            // trace는 양 백엔드 경로에서 '턴 완료' 직후에만 나온다(바로 뒤 [DONE]). 그러니 여기서
+            // 스피너를 멈춘다 — [DONE]/소켓 종료가 늦거나 안 와도(원격 업스트림이 연결을 안 닫는 등)
+            // 전송 버튼이 계속 도는 문제를 막는다(사용자 피드백 #7). finally가 다시 false 처리해도 무해.
+            setStreaming(false)
           },
         },
         controller.signal,
         sessions[id],
         userId.trim() || undefined,
       )
+      // 방금 쓴 userId를 목록 맨 앞으로(최근순) — 다음 로드 전에도 드롭다운에 보이게.
+      const uid = userId.trim()
+      if (uid) setUserIds((ids) => [uid, ...ids.filter((x) => x !== uid)])
     } catch (e) {
       if (e instanceof DOMException && e.name === 'AbortError') {
         /* 사용자가 취소 — 무시 */
@@ -129,6 +156,20 @@ export function Playground() {
     stop()
     setActiveId(id)
     setShowPrompt(false)
+  }
+
+  // "새 대화" — 활성 에이전트의 대화·세션을 비워 userId 입력을 다시 풀어준다(스펙 021).
+  // userId 자체는 유지 → 살짝 고쳐 다시 시작하기 쉽도록.
+  const resetConversation = () => {
+    stop()
+    setConvos((c) => ({ ...c, [activeId]: [] }))
+    setSessions((s) => {
+      const n = { ...s }
+      delete n[activeId]
+      return n
+    })
+    setSelectedTurn(null)
+    setInspectorOpen(false)
   }
 
   // Clicking a turn's "인스펙터" chip opens the panel on that turn.
@@ -153,14 +194,17 @@ export function Playground() {
         onStop={stop}
         userId={userId}
         onUserIdChange={setUserId}
+        userIds={userIds}
+        userIdLocked={messages.length > 0}
+        onResetConversation={resetConversation}
         showPrompt={showPrompt}
         onTogglePrompt={() => setShowPrompt((s) => !s)}
         inspectorOpen={inspectorOpen}
         onToggleInspector={() => setInspectorOpen((o) => !o)}
       />
       {inspectorOpen ? (
-        isMobile ? (
-          // 모바일: 인스펙터를 전체화면 오버레이로 — 채팅과 나란히 두면 양쪽이 짜부라진다.
+        overlayInspector ? (
+          // 좁은 폭(lg 미만): 인스펙터를 전체화면 오버레이로 — 채팅과 나란히 두면 양쪽이 짜부라진다.
           <div style={{ position: 'fixed', inset: 0, zIndex: 1200, background: 'var(--color-bg-container)' }}>
             <Inspector agent={activeAgent} turn={selectedMsg} turnIndex={selectedTurn || 0} onClose={() => setInspectorOpen(false)} fullWidth />
           </div>

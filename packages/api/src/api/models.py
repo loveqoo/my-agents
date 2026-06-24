@@ -154,6 +154,9 @@ class Session(Base):
     )
     agent_name: Mapped[str] = mapped_column(String(200), default="")
     channel: Mapped[str] = mapped_column(String(80), default="debug-console")
+    # 이 세션에서 마지막으로 쓰인 non-empty userId(mem0 user_id 축). distinct 목록 출처 — 스펙 021.
+    # 세션당 1값이라 도중 변경 시 마지막 값만 남는다(목록 생성엔 충분, 합의된 한계).
+    user_id: Mapped[str | None] = mapped_column(String(80), index=True, default=None)
     status: Mapped[str] = mapped_column(String(20), default="active")
     turns: Mapped[int] = mapped_column(Integer, default=0)
     tokens: Mapped[int] = mapped_column(Integer, default=0)

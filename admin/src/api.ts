@@ -105,6 +105,8 @@ export const testSavedModel = (id: string) => post(`/models/${id}/test`) as Prom
 
 /* ---------- 세션 / 승인 ---------- */
 export const listSessions = () => j<Session[]>('/sessions')
+// 대화에 쓰인 distinct userId, 최근 사용순 (Playground 헤더 선택지 — 스펙 021).
+export const listUserIds = () => j<string[]>('/sessions/users')
 export interface SessionMessage {
   role: string
   content: string

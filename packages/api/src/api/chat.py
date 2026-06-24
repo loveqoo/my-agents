@@ -163,9 +163,13 @@ def _window(messages: list[dict], depth: int | None) -> list[dict]:
 
 
 async def _persist(
-    session_pk: uuid.UUID, user_text: str, reply: str, trace: dict, tokens: dict, store_messages: bool
+    session_pk: uuid.UUID, user_text: str, reply: str, trace: dict, tokens: dict, store_messages: bool,
+    user_id: str | None = None,
 ):
-    """세션 카운터는 항상 갱신. 메시지(user/assistant+트레이스)는 store_messages일 때만 저장."""
+    """세션 카운터는 항상 갱신. 메시지(user/assistant+트레이스)는 store_messages일 때만 저장.
+
+    non-empty userId가 오면 세션에 기록(distinct 목록 출처 — 스펙 021). 빈 값이면 기존 값 보존.
+    """
     async with SessionLocal() as db:
         sess = await db.get(Session, session_pk)
         if sess is None:
@@ -174,6 +178,8 @@ async def _persist(
         if store_messages:
             db.add(Message(session_pk=session_pk, role="user", content=user_text))
             db.add(Message(session_pk=session_pk, role="assistant", content=reply, trace=trace))
+        if user_id:  # non-empty만 기록 — 빈칸으로 대화해도 기존 userId를 지우지 않음
+            sess.user_id = user_id
         sess.turns = (sess.turns or 0) + 1
         sess.tokens = (sess.tokens or 0) + int(tokens.get("in", 0)) + int(tokens.get("out", 0))
         sess.status = "active"
@@ -243,7 +249,10 @@ async def _remote_stream(ctx: dict, body: ChatRequest, user_text: str):
         "contextMessages": len(api_messages),
     }
     if not errored:
-        await _persist(ctx["session_pk"], user_text, full, trace, tokens, ctx["persist_history"])
+        await _persist(
+            ctx["session_pk"], user_text, full, trace, tokens, ctx["persist_history"],
+            user_id=body.userId or None,
+        )
     yield f"event: trace\ndata: {json.dumps(trace, ensure_ascii=False)}\n\n"
     yield "event: done\ndata: [DONE]\n\n"
 
@@ -324,7 +333,10 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest):
             trace["memoryScope"] = {k: v for k, v in mem_scope.items() if v}
         # 오류 턴은 영속/메모리 저장하지 않는다 (부분/실패 응답 오염 방지).
         if not errored:
-            await _persist(ctx["session_pk"], user_text, full, trace, tokens, ctx["persist_history"])
+            await _persist(
+                ctx["session_pk"], user_text, full, trace, tokens, ctx["persist_history"],
+                user_id=body.userId or None,
+            )
         if not errored and used_memory and full:
             await asyncio.to_thread(
                 memory.add,
