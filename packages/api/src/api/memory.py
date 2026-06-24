@@ -1,4 +1,7 @@
-"""Mem0 장기 메모리 래퍼 (에이전트별 의미론적 메모리).
+"""Mem0 장기 메모리 래퍼 (스코프별 의미론적 메모리).
+
+스코프 키(`scope_id`)는 호출자(chat.py)가 정한다 — userId(유저 장기) 또는 session_id(세션 단기).
+mem0의 `user_id` 축에 이 scope_id를 그대로 싣는다(누구의 기억인가 = 세션 가로지름 여부).
 
 LLM·임베딩 모델은 **등록된 모델 레지스트리**에서 해석해 호출자(chat.py)가 mem_cfg로 넘긴다.
 env(MLX_*)는 보지 않는다. 벡터 스토어는 임베디드 qdrant(on-disk).
@@ -88,13 +91,13 @@ def _get_memory(mem_cfg: dict | None):
         return None
 
 
-def search(agent_id: str, query: str, mem_cfg: dict | None, limit: int = 4) -> list[dict]:
+def search(scope_id: str, query: str, mem_cfg: dict | None, limit: int = 4) -> list[dict]:
     """관련 메모리 top-k. 트레이스용 [{type, text, score}]. 실패/무력화 시 []."""
     mem = _get_memory(mem_cfg)
     if mem is None or not query:
         return []
     try:
-        res = mem.search(query=query, filters={"user_id": agent_id}, limit=limit)
+        res = mem.search(query=query, filters={"user_id": scope_id}, limit=limit)
         rows = res.get("results", res) if isinstance(res, dict) else res
         hits: list[dict] = []
         for r in rows or []:
@@ -111,12 +114,12 @@ def search(agent_id: str, query: str, mem_cfg: dict | None, limit: int = 4) -> l
         return []
 
 
-def add(agent_id: str, messages: list[dict], mem_cfg: dict | None) -> None:
+def add(scope_id: str, messages: list[dict], mem_cfg: dict | None) -> None:
     """대화 턴을 메모리에 저장. 실패/무력화 시 무시."""
     mem = _get_memory(mem_cfg)
     if mem is None or not messages:
         return
     try:
-        mem.add(messages, user_id=agent_id)
+        mem.add(messages, user_id=scope_id)
     except Exception as exc:
         log.warning("mem0 add failed: %s", exc)

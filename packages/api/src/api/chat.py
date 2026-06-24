@@ -259,10 +259,15 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest):
             _remote_stream(ctx, body, user_text), media_type="text/event-stream"
         )
 
+    # 메모리 스코프: userId 있으면 유저 장기(세션 가로지름), 없으면 세션 단기(session_id 폴백).
+    # 접두사로 두 keyspace를 분리(userId='sess-..' 충돌 방지) + 라벨과 키를 한 값으로 묶어 일관성 유지.
+    # mem0의 user_id 축에 이 스코프를 싣는다(thread_id=session과 직교 — spec 018).
+    mem_scope = f"user:{body.userId}" if body.userId else f"session:{ctx['session_id']}"
+
     # 의미론적 메모리 회상 (켠 에이전트 + 등록 임베딩 모델 있을 때만). mem0는 동기 → 스레드로.
     used_memory = memory.memory_enabled(ctx["memories"]) and ctx["mem_cfg"] is not None
     mem_hits = (
-        await asyncio.to_thread(memory.search, ctx["ext_agent_id"], user_text, ctx["mem_cfg"])
+        await asyncio.to_thread(memory.search, mem_scope, user_text, ctx["mem_cfg"])
         if used_memory
         else []
     )
@@ -313,13 +318,15 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest):
             tokens=tokens,
         )
         trace["contextMessages"] = len(messages)  # 모델에 넣은 메시지 수(historyDepth 적용 결과)
+        if used_memory:
+            trace["memoryScope"] = mem_scope  # "user:<id>" | "session:<sid>" (키=라벨)
         # 오류 턴은 영속/메모리 저장하지 않는다 (부분/실패 응답 오염 방지).
         if not errored:
             await _persist(ctx["session_pk"], user_text, full, trace, tokens, ctx["persist_history"])
         if not errored and used_memory and full:
             await asyncio.to_thread(
                 memory.add,
-                ctx["ext_agent_id"],
+                mem_scope,
                 [{"role": "user", "content": user_text}, {"role": "assistant", "content": full}],
                 ctx["mem_cfg"],
             )

@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 ORM = {"from_attributes": True}
 
@@ -253,3 +253,19 @@ class ChatMessage(BaseModel):
 class ChatRequest(BaseModel):
     messages: list[ChatMessage]
     sessionId: str | None = None  # 이어서 대화할 세션(없으면 새로 생성)
+    # 메모리 스코프 결정: 값이 있으면 유저 장기(세션 가로지름), 없으면 세션 단기(session_id로 폴백).
+    userId: str | None = None
+
+    @field_validator("userId")
+    @classmethod
+    def _clean_user_id(cls, v: str | None) -> str | None:
+        # mem0 2.0.7은 user_id의 내부 공백·빈 문자열을 거부한다(ValueError). 경계에서 정규화:
+        # 빈/공백-only → None(세션 단기 폴백), 내부 공백 → 422로 명시 거부(조용한 무력화 방지).
+        if v is None:
+            return None
+        v = v.strip()
+        if not v:
+            return None
+        if any(c.isspace() for c in v):
+            raise ValueError("userId must not contain whitespace")
+        return v

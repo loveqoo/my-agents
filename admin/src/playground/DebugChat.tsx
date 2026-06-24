@@ -4,7 +4,7 @@
    agents come from the backend, turns/traces come from the streaming chat API. */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Bubble, Sender, Welcome, Prompts } from '@ant-design/x'
-import { Avatar, Button, Tag, Grid } from 'antd'
+import { Avatar, Button, Tag, Grid, Input, Tooltip } from 'antd'
 import { Icon } from '../admin/icons'
 import type { ChatMsg, Trace } from './agentData'
 import type { Agent } from '../admin/mockData'
@@ -33,6 +33,8 @@ interface DebugChatProps {
   onSelectTurn: (i: number) => void
   onSend: (text: string) => void
   onStop: () => void
+  userId: string
+  onUserIdChange: (v: string) => void
   showPrompt: boolean
   onTogglePrompt: () => void
   inspectorOpen: boolean
@@ -229,6 +231,8 @@ function ChatHeader({
   agent,
   agents,
   onSwitchAgent,
+  userId,
+  onUserIdChange,
   showPrompt,
   onTogglePrompt,
   inspectorOpen,
@@ -237,6 +241,8 @@ function ChatHeader({
   agent: Agent
   agents: Agent[]
   onSwitchAgent: (id: string) => void
+  userId: string
+  onUserIdChange: (v: string) => void
   showPrompt: boolean
   onTogglePrompt: () => void
   inspectorOpen: boolean
@@ -250,6 +256,18 @@ function ChatHeader({
       <div style={{ height: 64, display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 12, padding: isMobile ? '0 12px' : '0 20px' }}>
         <AgentCombo agent={agent} agents={agents} onSwitch={onSwitchAgent} />
         <div style={{ flex: 1 }} />
+        {/* 유저 식별 입력 — 비우면 세션 단기 기억, 값이 있으면 그 유저로 세션 가로지르는 장기 기억. */}
+        <Tooltip title="유저로서 대화 — 비우면 세션 단기 기억, 값을 넣으면 그 유저로 세션을 넘는 장기 기억을 유지합니다.">
+          <Input
+            size="small"
+            allowClear
+            value={userId}
+            onChange={(e) => onUserIdChange(e.target.value)}
+            placeholder="userId (선택)"
+            prefix={<Icon name="user" size={12} style={{ color: 'var(--color-text-tertiary)' }} />}
+            style={{ width: isMobile ? 120 : 168 }}
+          />
+        </Tooltip>
         {!isMobile && <ExposeBadges agent={agent} />}
         <Button
           size="small"
@@ -359,6 +377,8 @@ export function DebugChat({
   onSelectTurn,
   onSend,
   onStop,
+  userId,
+  onUserIdChange,
   showPrompt,
   onTogglePrompt,
   inspectorOpen,
@@ -401,6 +421,8 @@ export function DebugChat({
         agent={agent}
         agents={agents}
         onSwitchAgent={onSwitchAgent}
+        userId={userId}
+        onUserIdChange={onUserIdChange}
         showPrompt={showPrompt}
         onTogglePrompt={onTogglePrompt}
         inspectorOpen={inspectorOpen}

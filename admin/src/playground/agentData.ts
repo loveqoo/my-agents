@@ -32,6 +32,8 @@ export interface Trace {
   mcp: McpCallT[]
   graph: GraphNode[]
   resumedFrom?: string
+  // 적용된 메모리 스코프: "user:<id>"(세션 가로지르는 유저 장기) 또는 "session:<sid>"(세션 단기).
+  memoryScope?: string
 }
 
 export type ChatMsg = { role: 'me' | 'ai'; text: string; trace?: Trace }

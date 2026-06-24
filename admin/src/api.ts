@@ -149,12 +149,14 @@ export async function streamChat(
   cb: ChatCallbacks | ((t: string) => void),
   signal?: AbortSignal,
   sessionId?: string,
+  userId?: string,
 ): Promise<void> {
   const callbacks: ChatCallbacks = typeof cb === 'function' ? { onToken: cb } : cb
   const res = await fetch(`${BASE}/agents/${agentId}/chat`, {
     method: 'POST',
     headers: authHeaders(true),
-    body: JSON.stringify({ messages, sessionId }),
+    // userId 빈 값은 보내지 않음 → 서버에서 세션 단기로 폴백.
+    body: JSON.stringify({ messages, sessionId, userId: userId || undefined }),
     signal,
   })
   if (!res.ok || !res.body) throw new Error(`채팅 실패: ${res.status}`)

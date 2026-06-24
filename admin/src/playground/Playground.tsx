@@ -18,6 +18,8 @@ export function Playground() {
   const [showPrompt, setShowPrompt] = useState(false)
   const [selectedTurn, setSelectedTurn] = useState<number | null>(null)
   const [inspectorOpen, setInspectorOpen] = useState(false)
+  // 메모리 스코프 테스트용: 비우면 세션 단기, 값이 있으면 그 유저로 세션 가로지르는 장기 기억.
+  const [userId, setUserId] = useState('')
   const controllerRef = useRef<AbortController | null>(null)
 
   const screens = Grid.useBreakpoint()
@@ -108,6 +110,7 @@ export function Playground() {
         },
         controller.signal,
         sessions[id],
+        userId.trim() || undefined,
       )
     } catch (e) {
       if (e instanceof DOMException && e.name === 'AbortError') {
@@ -148,6 +151,8 @@ export function Playground() {
         onSelectTurn={openInspector}
         onSend={send}
         onStop={stop}
+        userId={userId}
+        onUserIdChange={setUserId}
         showPrompt={showPrompt}
         onTogglePrompt={() => setShowPrompt((s) => !s)}
         inspectorOpen={inspectorOpen}

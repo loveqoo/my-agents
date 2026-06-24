@@ -264,6 +264,14 @@ export function Inspector({
 
           <Section icon="bulb" iconColor="var(--purple-6)" title="메모리" count={t.memories.length}>
             <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>메모리 타입: {(agent.memories || []).join(', ')}</div>
+            {t.memoryScope ? (
+              <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginTop: 2 }}>
+                스코프:{' '}
+                <Tag color={t.memoryScope.startsWith('user:') ? 'green' : 'default'} style={{ marginInlineEnd: 0 }}>
+                  {t.memoryScope.startsWith('user:') ? `유저 장기 · ${t.memoryScope.slice(5)}` : `세션 단기 · ${t.memoryScope.slice(8)}`}
+                </Tag>
+              </div>
+            ) : null}
             {t.memories.map((m, i) => (
               <MemoryRow key={i} m={m} />
             ))}
