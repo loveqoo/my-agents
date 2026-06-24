@@ -1,6 +1,7 @@
 services:
   postgres:
-    image: postgres:16
+    # pgvector 번들 이미지(postgres:16 기반 — 기존 pgdata 볼륨과 호환). mem0 벡터 스토어가 사용.
+    image: pgvector/pgvector:pg16
     environment:
       POSTGRES_USER: agent
       POSTGRES_PASSWORD: agent
@@ -9,6 +10,8 @@ services:
       - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      # 신규 볼륨 초기화 시 vector 확장 자동 생성(기존 볼륨엔 미실행 — mem0가 superuser로 자체 생성).
+      - ./db/init:/docker-entrypoint-initdb.d:ro
 
 volumes:
   pgdata:

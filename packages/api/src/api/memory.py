@@ -4,7 +4,8 @@
 mem0의 `user_id` 축에 이 scope_id를 그대로 싣는다(누구의 기억인가 = 세션 가로지름 여부).
 
 LLM·임베딩 모델은 **등록된 모델 레지스트리**에서 해석해 호출자(chat.py)가 mem_cfg로 넘긴다.
-env(MLX_*)는 보지 않는다. 벡터 스토어는 임베디드 qdrant(on-disk).
+env(MLX_*)는 보지 않는다. 벡터 스토어는 **공유 Postgres(pgvector)** — DATABASE_URL에서
+파생(스펙 019). N-인스턴스에서 같은 기억을 회상하려면 벡터 스토어가 공유돼야 한다.
 설정/런타임 오류는 모두 흡수해 graceful 무력화 — 메모리가 없어도 채팅은 동작.
 
 mem_cfg = {
@@ -20,7 +21,44 @@ import os
 log = logging.getLogger("api.memory")
 
 SEMANTIC_MEMORY = "장기·의미론적"
-_EMBED_DIMS = 1024  # multilingual-e5-large
+# pgvector 테이블 차원은 생성 시 고정된다 — 기본 임베딩 모델(레지스트리)의 출력 차원과 반드시 일치해야 한다.
+# 불일치 시 insert가 깨지고 mem0 add는 except로 삼켜 메모리가 조용히 죽는다(스펙 019). 현재 기본
+# multilingual-e5-large=1024(라이브 probe로 검증). 기본 임베딩 모델을 바꾸면 이 값(또는 env)을 맞춰라.
+_EMBED_DIMS = int(os.environ.get("MEM0_EMBED_DIMS", "1024"))
+_MEM_TABLE = "mem0_memories"  # mem0 전용 테이블(앱 테이블과 공존, 관리 주체는 mem0)
+
+
+def _sync_dsn(url: str) -> str:
+    """DATABASE_URL의 드라이버 접미사만 제거해 psycopg용 DSN으로 — 그 외는 손대지 않는다.
+
+    'postgresql+asyncpg://...' → 'postgresql://...'. authority·쿼리스트링(sslmode 등)·
+    퍼센트 인코딩은 **그대로 보존**하여 psycopg(libpq)가 표준대로 파싱하게 위임한다.
+    (분해→재조립하면 자격정보 부재 시 'None' 인증, raw 특수문자 오파싱 등이 생긴다 — 타자 검증 P1.)
+    """
+    if "://" not in url:
+        return url
+    scheme, rest = url.split("://", 1)
+    return f"{scheme.split('+', 1)[0]}://{rest}"
+
+
+def _pg_vector_store() -> dict:
+    """mem0 벡터 스토어를 기존 Postgres(pgvector)로 — DATABASE_URL 단일 출처에서.
+
+    on-disk qdrant는 인스턴스 로컬이라 N-인스턴스에서 기억이 파편화된다(스펙 019).
+    pgvector는 공유 Postgres에 저장하므로 모든 인스턴스가 같은 기억을 회상한다.
+    mem0 PGVector는 connection_string을 개별 파라미터보다 우선한다(소스 확인) → raw DSN을
+    그대로 위임(search/add는 to_thread 호출이라 동기 psycopg 풀과 이벤트루프 충돌 없음).
+    """
+    url = os.environ.get("DATABASE_URL", "postgresql+asyncpg://agent:agent@localhost:5432/agents")
+    return {
+        "provider": "pgvector",
+        "config": {
+            "connection_string": _sync_dsn(url),
+            "collection_name": _MEM_TABLE,
+            "embedding_model_dims": _EMBED_DIMS,
+            "hnsw": True,
+        },
+    }
 
 # mem_cfg 키별로 Memory 인스턴스를 캐시 (모델이 바뀌면 재생성). 값 None = 초기화 실패.
 _cache: dict[tuple, object | None] = {}
@@ -45,7 +83,6 @@ def _cfg_key(mem_cfg: dict) -> tuple:
 def _build_config(mem_cfg: dict) -> dict:
     llm = mem_cfg["llm"]
     emb = mem_cfg["embedder"]
-    qdrant_path = os.environ.get("MEM0_QDRANT_PATH", os.path.abspath(".dev/mem0_qdrant"))
     return {
         "llm": {
             "provider": "openai",
@@ -64,10 +101,7 @@ def _build_config(mem_cfg: dict) -> dict:
                 "embedding_dims": _EMBED_DIMS,
             },
         },
-        "vector_store": {
-            "provider": "qdrant",
-            "config": {"path": qdrant_path, "embedding_model_dims": _EMBED_DIMS, "on_disk": True},
-        },
+        "vector_store": _pg_vector_store(),
     }
 
 
