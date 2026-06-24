@@ -1,7 +1,13 @@
-"""Mem0 장기 메모리 래퍼 (스코프별 의미론적 메모리).
+"""Mem0 장기 메모리 래퍼 (다층 스코프 — 유저/세션).
 
-스코프 키(`scope_id`)는 호출자(chat.py)가 정한다 — userId(유저 장기) 또는 session_id(세션 단기).
-mem0의 `user_id` 축에 이 scope_id를 그대로 싣는다(누구의 기억인가 = 세션 가로지름 여부).
+스코프는 호출자(chat.py)가 **dict로** 정한다: `{"user_id", "agent_id", "run_id"}`(None 허용).
+mem0의 세 스코프 축에 각각 싣는다 — `user_id`=유저 사실(세션 가로지름), `run_id`=세션 단기.
+`agent_id`(에이전트 전용 메모리)는 시그니처에 자리만 예약 — 이번 스펙(020)에서는 항상 None,
+안전한 쓰기 채널 확정 후 후속 스펙에서 채운다.
+
+mem0 필터는 **AND**다(여러 축을 한 질의에 넘기면 교집합). 따라서 "유저 사실 ∪ 세션 사실"의
+합집합 회상은 **축별로 따로 검색해 병합**한다(id dedup, score 정렬). 풍부 태깅된 기억은
+부분집합 필터로도 회상되므로, add 때 user_id+run_id를 함께 태깅하면 양쪽 검색에 잡힌다(스펙 020).
 
 LLM·임베딩 모델은 **등록된 모델 레지스트리**에서 해석해 호출자(chat.py)가 mem_cfg로 넘긴다.
 env(MLX_*)는 보지 않는다. 벡터 스토어는 **공유 Postgres(pgvector)** — DATABASE_URL에서
@@ -12,7 +18,7 @@ mem_cfg = {
   "llm":      {"base_url", "api_key", "model_id"},
   "embedder": {"base_url", "api_key", "model_id"},
 }
-지배 스펙: docs/spec/007(Phase 2), 008(모델 레지스트리)
+지배 스펙: docs/spec/007(Phase 2), 008(모델 레지스트리), 020(다층 스코프)
 """
 
 import logging
@@ -20,7 +26,10 @@ import os
 
 log = logging.getLogger("api.memory")
 
-SEMANTIC_MEMORY = "장기·의미론적"
+# 카탈로그에서 mem0 장기 메모리를 켜는 토글 이름(seed.py MEMORY_TYPES와 동일해야 함).
+LONG_TERM_MEMORY = "장기 기억 (mem0)"
+# 스코프 축 우선순위(검색 병합·태깅 순서). agent_id는 후속 스펙까지 항상 None.
+_SCOPE_AXES = ("user_id", "run_id", "agent_id")
 # pgvector 테이블 차원은 생성 시 고정된다 — 기본 임베딩 모델(레지스트리)의 출력 차원과 반드시 일치해야 한다.
 # 불일치 시 insert가 깨지고 mem0 add는 except로 삼켜 메모리가 조용히 죽는다(스펙 019). 현재 기본
 # multilingual-e5-large=1024(라이브 probe로 검증). 기본 임베딩 모델을 바꾸면 이 값(또는 env)을 맞춰라.
@@ -65,8 +74,8 @@ _cache: dict[tuple, object | None] = {}
 
 
 def memory_enabled(memories: list[str]) -> bool:
-    """에이전트가 '장기·의미론적' 메모리를 켰는지."""
-    return SEMANTIC_MEMORY in (memories or [])
+    """에이전트가 mem0 장기 메모리(`장기 기억 (mem0)`)를 켰는지."""
+    return LONG_TERM_MEMORY in (memories or [])
 
 
 def _cfg_key(mem_cfg: dict) -> tuple:
@@ -125,35 +134,53 @@ def _get_memory(mem_cfg: dict | None):
         return None
 
 
-def search(scope_id: str, query: str, mem_cfg: dict | None, limit: int = 4) -> list[dict]:
-    """관련 메모리 top-k. 트레이스용 [{type, text, score}]. 실패/무력화 시 []."""
+def _scope_axes(scope: dict) -> list[tuple[str, str]]:
+    """스코프 dict에서 None이 아닌 (축, 값) 쌍만 우선순위 순으로."""
+    return [(axis, scope.get(axis)) for axis in _SCOPE_AXES if scope.get(axis)]
+
+
+def search(scope: dict, query: str, mem_cfg: dict | None, limit: int = 4) -> list[dict]:
+    """관련 메모리 top-k. 트레이스용 [{type, text, score, scope}]. 실패/무력화 시 [].
+
+    스코프 축마다 **따로** 검색해 합집합으로 병합한다(mem0 필터는 AND이므로 — 모듈 docstring 참고).
+    같은 기억이 여러 축(예: user_id+run_id 태깅)에 잡히면 id로 dedup하고 더 높은 score를 남긴다.
+    """
     mem = _get_memory(mem_cfg)
-    if mem is None or not query:
+    axes = _scope_axes(scope)
+    if mem is None or not query or not axes:
         return []
-    try:
-        res = mem.search(query=query, filters={"user_id": scope_id}, limit=limit)
+    merged: dict[str, dict] = {}
+    for axis, val in axes:
+        try:
+            # mem0 2.0.7 search는 top_k= 를 받는다(limit=는 **kwargs로 삼켜져 무시됨, 기본 20 → 과다 fetch).
+            res = mem.search(query=query, filters={axis: val}, top_k=limit)
+        except Exception as exc:
+            log.warning("mem0 search failed (%s): %s", axis, exc)
+            continue
         rows = res.get("results", res) if isinstance(res, dict) else res
-        hits: list[dict] = []
         for r in rows or []:
-            hits.append(
-                {
-                    "type": "semantic",
-                    "text": r.get("memory") or r.get("text") or "",
-                    "score": round(float(r.get("score", 0.0)), 3),
-                }
-            )
-        return hits
-    except Exception as exc:
-        log.warning("mem0 search failed: %s", exc)
-        return []
+            text = r.get("memory") or r.get("text") or ""
+            score = round(float(r.get("score", 0.0)), 3)
+            # id가 없으면 본문으로 대체 키 — 같은 본문이 다른 축에서 중복 카운트되지 않게(축 접두사 없이).
+            key = r.get("id") or text
+            prev = merged.get(key)
+            if prev is None or score > prev["score"]:
+                merged[key] = {"type": "semantic", "text": text, "score": score, "scope": axis}
+    hits = sorted(merged.values(), key=lambda h: h["score"], reverse=True)
+    return hits[:limit]
 
 
-def add(scope_id: str, messages: list[dict], mem_cfg: dict | None) -> None:
-    """대화 턴을 메모리에 저장. 실패/무력화 시 무시."""
+def add(scope: dict, messages: list[dict], mem_cfg: dict | None) -> None:
+    """대화 턴을 메모리에 저장. 실패/무력화 시 무시.
+
+    제공된 모든 축(user_id/run_id/…)을 **한 번에** 태깅한다 — 풍부 태깅된 기억은 이후 부분집합
+    필터(축별 검색)로 양쪽에서 회상된다(스펙 020). 축이 하나도 없으면 저장하지 않는다.
+    """
     mem = _get_memory(mem_cfg)
-    if mem is None or not messages:
+    kwargs = {axis: val for axis, val in _scope_axes(scope)}
+    if mem is None or not messages or not kwargs:
         return
     try:
-        mem.add(messages, user_id=scope_id)
+        mem.add(messages, **kwargs)
     except Exception as exc:
         log.warning("mem0 add failed: %s", exc)

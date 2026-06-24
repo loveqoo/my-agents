@@ -8,6 +8,8 @@ export interface Memory {
   type: 'semantic' | 'episodic' | 'procedural' | string
   text: string
   score: number
+  // 이 기억이 회상된 스코프 축: 'user_id'(유저 장기) | 'run_id'(세션). 없으면 미상.
+  scope?: 'user_id' | 'run_id' | string
 }
 
 export interface McpCallT {
@@ -32,8 +34,9 @@ export interface Trace {
   mcp: McpCallT[]
   graph: GraphNode[]
   resumedFrom?: string
-  // 적용된 메모리 스코프: "user:<id>"(세션 가로지르는 유저 장기) 또는 "session:<sid>"(세션 단기).
-  memoryScope?: string
+  // 적용된 메모리 스코프(다층). None이 아닌 축만 담긴다: {user_id?, run_id?}.
+  // user_id 있으면 유저 장기(세션 가로지름)+세션, 없으면 세션 한정.
+  memoryScope?: { user_id?: string; run_id?: string }
 }
 
 export type ChatMsg = { role: 'me' | 'ai'; text: string; trace?: Trace }

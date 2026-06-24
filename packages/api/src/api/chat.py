@@ -259,10 +259,11 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest):
             _remote_stream(ctx, body, user_text), media_type="text/event-stream"
         )
 
-    # 메모리 스코프: userId 있으면 유저 장기(세션 가로지름), 없으면 세션 단기(session_id 폴백).
-    # 접두사로 두 keyspace를 분리(userId='sess-..' 충돌 방지) + 라벨과 키를 한 값으로 묶어 일관성 유지.
-    # mem0의 user_id 축에 이 스코프를 싣는다(thread_id=session과 직교 — spec 018).
-    mem_scope = f"user:{body.userId}" if body.userId else f"session:{ctx['session_id']}"
+    # 메모리 스코프(다층 — 스펙 020): userId 있으면 user_id(세션 가로지름)+run_id를 함께 태깅,
+    # 없으면 run_id(세션 단기)만. add는 제공 축 전부 태깅하고, search는 축별로 따로 검색해 합집합
+    # 병합한다(mem0 필터는 AND이므로 — memory.py 참고). user_id/run_id는 mem0 entity 검증을 거치며
+    # 실패해도 graceful 무력화. agent_id(에이전트 전용)는 후속 스펙까지 미노출. run_id=session_id.
+    mem_scope = {"user_id": body.userId or None, "run_id": ctx["session_id"]}
 
     # 의미론적 메모리 회상 (켠 에이전트 + 등록 임베딩 모델 있을 때만). mem0는 동기 → 스레드로.
     used_memory = memory.memory_enabled(ctx["memories"]) and ctx["mem_cfg"] is not None
@@ -319,7 +320,8 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest):
         )
         trace["contextMessages"] = len(messages)  # 모델에 넣은 메시지 수(historyDepth 적용 결과)
         if used_memory:
-            trace["memoryScope"] = mem_scope  # "user:<id>" | "session:<sid>" (키=라벨)
+            # None이 아닌 축만 — {"user_id","run_id"} 또는 {"run_id"} (Inspector가 축별 렌더).
+            trace["memoryScope"] = {k: v for k, v in mem_scope.items() if v}
         # 오류 턴은 영속/메모리 저장하지 않는다 (부분/실패 응답 오염 방지).
         if not errored:
             await _persist(ctx["session_pk"], user_text, full, trace, tokens, ctx["persist_history"])

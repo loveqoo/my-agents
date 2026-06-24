@@ -31,11 +31,17 @@ PERSONAS = [
     ("Warm Secretary", "친근함, 열정적", "Friendly, concise, proactive. Protect the user's time and focus. Confirm before sending."),
 ]
 
+# 카탈로그는 실제 동작과 1:1로 맞춘다(스펙 020). 인지과학 분류(의미/일화/절차)는 mem0 기능이 아니라
+# 데모 카탈로그였고, 백엔드는 단 두 메커니즘만 구현한다: 인-컨텍스트 윈도우(mem0 아님)와 mem0 장기 메모리.
+# mem0 장기 메모리의 스코프(유저/세션)는 요청 userId 유무로 자동 결정되므로 별도 토글로 두지 않는다.
 MEMORY_TYPES = [
-    ("단기(세션)", "단기(세션)", "Single session", "현재 세션의 인-컨텍스트 윈도우. 세션이 끝나면 비워집니다. 영속성 없음."),
-    ("장기·의미론적", "장기·의미론적", "Cross-session", "벡터 스토어. 매 턴 전에 의미적으로 유사한 메모리 top-k를 검색합니다. TTL 없음."),
-    ("장기·일화적", "장기·일화적", "Rolling window", "상호작용 이벤트 로그를 일 단위로 요약. 과거 대화·사건을 회상합니다."),
-    ("절차적", "절차적", "Cross-session", "학습된 절차·선호·규칙을 누적. 반복 작업의 방법을 기억합니다."),
+    ("단기(세션)", "단기(세션)", "In-context · mem0 아님",
+     "현재 세션의 인-컨텍스트 윈도우(historyDepth) — 최근 N턴만 모델에 전달하는 컨텍스트 절단입니다. "
+     "mem0 저장소가 아니며 세션이 끝나면 사라집니다."),
+    ("장기 기억 (mem0)", "장기 기억 (mem0)", "Auto · userId 유무로 결정",
+     "mem0 장기 메모리. 켜면 대화에서 사실을 추출·저장하고 매 턴 의미적으로 유사한 top-k를 회상합니다. "
+     "스코프는 요청 userId로 자동 결정 — userId가 있으면 유저 단위(세션 가로지름)와 세션에 함께 저장하고, "
+     "없으면 현재 세션에만 저장합니다."),
 ]
 
 VECTOR_TABLES = [
@@ -73,7 +79,7 @@ MCP_SERVERS = [
 # agent_id, name, source, model, persona, memories, historyDepth, vectorTables, permissions, mcps, a2a, status, activeVersion, versions[(version,status,createdAt,note)]
 AGENTS = [
     ("agt_rsch_7f3a91", "Research Assistant", "ui", "claude-sonnet-4", "Methodical Researcher",
-     ["단기(세션)", "장기·의미론적"], 20, ["docs_kb", "product_titles"], ["web.search", "files.read"], ["tavily", "filesystem"],
+     ["단기(세션)", "장기 기억 (mem0)"], 20, ["docs_kb", "product_titles"], ["web.search", "files.read"], ["tavily", "filesystem"],
      True, "online", "v3",
      [("v3", "active", "2026-06-12", "Tightened citation rules"), ("v2", "archived", "2026-06-04", "Added filesystem MCP"), ("v1", "archived", "2026-05-30", "Initial")]),
     ("agt_rvw_2b91c4", "Code Reviewer", "ui", "gpt-4o", "Strict Senior Engineer",
@@ -85,7 +91,7 @@ AGENTS = [
      False, "idle", "v1",
      [("v1", "active", "2026-06-10", "Initial")]),
     ("agt_sec_9d4417", "Personal Secretary", "ui", "claude-sonnet-4", "Warm Secretary",
-     ["단기(세션)", "장기·일화적", "절차적"], 40, ["team_notes"], ["calendar.rw", "mail.send"], ["gcal", "gmail", "notion"],
+     ["단기(세션)", "장기 기억 (mem0)"], 40, ["team_notes"], ["calendar.rw", "mail.send"], ["gcal", "gmail", "notion"],
      False, "online", "v2",
      [("v2", "active", "2026-06-16", "Warmer tone"), ("v1", "archived", "2026-06-15", "Initial")]),
 ]

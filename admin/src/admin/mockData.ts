@@ -133,10 +133,8 @@ export const BLOCKS: Record<string, BlockCategory> = {
     label: '메모리 타입', icon: 'bulb', color: 'var(--purple-6)',
     desc: '에이전트가 컨텍스트를 저장·검색하는 메모리 타입. 서로 배타적이지 않으며, 에이전트마다 여러 타입을 동시에 켤 수 있습니다.',
     items: [
-      { id: 'mem-short', name: '단기(세션)', scope: 'Single session', usedBy: 4, updated: '1w ago', body: '현재 세션의 인-컨텍스트 윈도우. 세션이 끝나면 비워집니다. 영속성 없음.' },
-      { id: 'mem-semantic', name: '장기·의미론적', scope: 'Cross-session', usedBy: 2, updated: '1w ago', body: '벡터 스토어. 매 턴 전에 의미적으로 유사한 메모리 top-k를 검색합니다. TTL 없음.' },
-      { id: 'mem-episodic', name: '장기·일화적', scope: 'Rolling window', usedBy: 1, updated: '4d ago', body: '상호작용 이벤트 로그를 일 단위로 요약. 과거 대화·사건을 회상합니다.' },
-      { id: 'mem-procedural', name: '절차적', scope: 'Cross-session', usedBy: 0, updated: '3d ago', body: '학습된 절차·선호·규칙을 누적. 반복 작업의 방법을 기억합니다.' },
+      { id: 'mem-short', name: '단기(세션)', scope: 'In-context · mem0 아님', usedBy: 4, updated: '1w ago', body: '현재 세션의 인-컨텍스트 윈도우(historyDepth) — 최근 N턴만 모델에 전달하는 컨텍스트 절단입니다. mem0 저장소가 아니며 세션이 끝나면 사라집니다.' },
+      { id: 'mem-long', name: '장기 기억 (mem0)', scope: 'Auto · userId 유무로 결정', usedBy: 2, updated: '1w ago', body: 'mem0 장기 메모리. 켜면 대화에서 사실을 추출·저장하고 매 턴 의미적으로 유사한 top-k를 회상합니다. 스코프는 요청 userId로 자동 결정 — userId가 있으면 유저 단위(세션 가로지름)와 세션에 함께 저장하고, 없으면 현재 세션에만 저장합니다.' },
     ],
   },
   embedding: {
@@ -182,7 +180,7 @@ export const BLOCKS: Record<string, BlockCategory> = {
 /* ---------- 에이전트 ---------- */
 export const ADMIN_AGENTS: Agent[] = [
   { id: 'research', name: 'Research Assistant', source: 'ui', agentId: 'agt_rsch_7f3a91', environments: ['sandbox', 'production'], model: 'claude-sonnet-4', status: 'online',
-    persona: 'Methodical Researcher', memories: ['단기(세션)', '장기·의미론적'], historyDepth: 20, vectorTables: ['docs_kb', 'product_titles'],
+    persona: 'Methodical Researcher', memories: ['단기(세션)', '장기 기억 (mem0)'], historyDepth: 20, vectorTables: ['docs_kb', 'product_titles'],
     permissions: ['web.search', 'files.read'], mcps: ['tavily', 'filesystem'],
     exposed: { a2a: true }, sessions: 2, created: '2026-05-30',
     activeVersion: 'v3', versions: [
@@ -207,7 +205,7 @@ export const ADMIN_AGENTS: Agent[] = [
       { version: 'v1', status: 'active', createdAt: '2026-06-10', note: 'Initial' },
     ] },
   { id: 'secretary', name: 'Personal Secretary', source: 'ui', agentId: 'agt_sec_9d4417', environments: ['sandbox', 'production'], model: 'claude-sonnet-4', status: 'online',
-    persona: 'Warm Secretary', memories: ['단기(세션)', '장기·일화적', '절차적'], historyDepth: 40, vectorTables: ['team_notes'],
+    persona: 'Warm Secretary', memories: ['단기(세션)', '장기 기억 (mem0)'], historyDepth: 40, vectorTables: ['team_notes'],
     permissions: ['calendar.rw', 'mail.send'], mcps: ['gcal', 'gmail', 'notion'],
     exposed: { a2a: false }, sessions: 1, created: '2026-06-15',
     activeVersion: 'v2', versions: [
@@ -309,7 +307,7 @@ ADMIN_AGENTS.forEach((a) => {
 ;(() => {
   const rev = ADMIN_AGENTS.find((a) => a.id === 'reviewer')
   const d = rev && rev.versions.find((v) => v.status === 'draft')
-  if (d) d.config = { ...d.config, memories: ['단기(세션)', '장기·의미론적'], permissions: ['repo.read', 'repo.merge'] }
+  if (d) d.config = { ...d.config, memories: ['단기(세션)', '장기 기억 (mem0)'], permissions: ['repo.read', 'repo.merge'] }
 })()
 
 /* MCP 서버는 draft/activate 아티팩트가 아니라 외부 연결 — enabledTools/source 기본값 부여. */

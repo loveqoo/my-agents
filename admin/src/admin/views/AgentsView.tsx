@@ -187,7 +187,7 @@ function AgentForm({
             ) : null}
           </div>
         </Field>
-        {form.memories.includes('장기·의미론적') ? (
+        {form.memories.includes('장기 기억 (mem0)') ? (
           <Field label="벡터 테이블 (지식 소스)">
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {(blocks.embedding?.items ?? []).map((t) => (
@@ -877,7 +877,7 @@ function AgentDetail({
         )}
       </Desc>
       <Desc label="채팅 히스토리">{agent.historyDepth ? `최근 ${agent.historyDepth}개 메시지` : '기억 안 함'}</Desc>
-      {(agent.memories || []).includes('장기·의미론적') ? (
+      {(agent.memories || []).includes('장기 기억 (mem0)') ? (
         <Desc label="벡터 테이블">
           {(agent.vectorTables || []).length ? (
             agent.vectorTables.map((t) => (

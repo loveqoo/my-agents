@@ -91,6 +91,11 @@ function MemoryRow({ m }: { m: Memory }) {
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <Tag color={m.type === 'semantic' ? 'geekblue' : 'purple'}>{m.type}</Tag>
+        {m.scope ? (
+          <Tag color={m.scope === 'user_id' ? 'green' : 'default'}>
+            {m.scope === 'user_id' ? '유저 장기' : m.scope === 'run_id' ? '세션' : m.scope}
+          </Tag>
+        ) : null}
         <div style={{ flex: 1 }} />
         <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-family-code)' }}>{pct}%</span>
       </div>
@@ -267,9 +272,12 @@ export function Inspector({
             {t.memoryScope ? (
               <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginTop: 2 }}>
                 스코프:{' '}
-                <Tag color={t.memoryScope.startsWith('user:') ? 'green' : 'default'} style={{ marginInlineEnd: 0 }}>
-                  {t.memoryScope.startsWith('user:') ? `유저 장기 · ${t.memoryScope.slice(5)}` : `세션 단기 · ${t.memoryScope.slice(8)}`}
-                </Tag>
+                {t.memoryScope.user_id ? (
+                  <Tag color="green" style={{ marginInlineEnd: 4 }}>유저 장기 · {t.memoryScope.user_id}</Tag>
+                ) : null}
+                {t.memoryScope.run_id ? (
+                  <Tag color="default" style={{ marginInlineEnd: 0 }}>세션 · {t.memoryScope.run_id}</Tag>
+                ) : null}
               </div>
             ) : null}
             {t.memories.map((m, i) => (

@@ -35,7 +35,7 @@ class Persona(Base):
 
 
 class MemoryType(Base):
-    """메모리 타입 카탈로그 (단기/의미론적/일화적/절차적). 시드 고정값."""
+    """메모리 타입 카탈로그 (단기(인-컨텍스트)/장기 기억(mem0)). 시드 고정값 — 스펙 020."""
 
     __tablename__ = "memory_types"
     id: Mapped[uuid.UUID] = _pk()
