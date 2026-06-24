@@ -2,8 +2,8 @@
    handoff 번들 ui_kits/admin/AdminShell.jsx를 진짜 antd 6 Layout/Menu/Sider로 재현.
    antd dark Sider 기본 배경(#001529)이 번들 navy와 동일하다. 라우터는 쓰지 않고
    내부 상태로 전환(딥링크 필요해지면 추후 react-router). */
-import { useState, type ReactNode } from 'react'
-import { Layout, Menu, Input, Avatar, Badge, Button, theme } from 'antd'
+import { useEffect, useState, type ReactNode } from 'react'
+import { Layout, Menu, Input, Avatar, Badge, Button, theme, Grid } from 'antd'
 import {
   DashboardOutlined,
   RobotOutlined,
@@ -43,6 +43,19 @@ export default function AdminShell() {
   const [view, setView] = useState<ViewKey>('agents')
   const [collapsed, setCollapsed] = useState(false)
   const { token } = theme.useToken()
+  // 모바일(<768px)에서는 Sider를 오버레이로 띄우고 기본은 닫는다 — 232px 사이더가
+  // 콘텐츠를 짜부라뜨리던 문제 해결. 브레이크포인트 교차 시 자동 토글.
+  // useBreakpoint()는 첫 페인트에 {}(전부 undefined)를 반환하므로, 마운트 전에는
+  // 데스크톱으로 간주해 데스크톱 첫 로드의 백드롭 플래시를 막는다.
+  const screens = Grid.useBreakpoint()
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+  const isMobile = mounted && !screens.md
+  useEffect(() => {
+    setCollapsed(isMobile)
+  }, [isMobile])
 
   const menuItems = [
     { key: 'overview', icon: <DashboardOutlined />, label: '개요' },
@@ -81,7 +94,25 @@ export default function AdminShell() {
 
   return (
     <Layout style={{ height: '100vh' }}>
-      <Sider theme="dark" width={232} collapsedWidth={72} collapsed={collapsed}>
+      {/* 모바일에서 사이더가 열리면 본문 위 백드롭 — 클릭하면 닫힌다. */}
+      {isMobile && !collapsed && (
+        <div
+          onClick={() => setCollapsed(true)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 1099 }}
+        />
+      )}
+      <Sider
+        theme="dark"
+        width={232}
+        collapsedWidth={isMobile ? 0 : 72}
+        collapsed={collapsed}
+        trigger={null}
+        style={
+          isMobile
+            ? { position: 'fixed', height: '100vh', left: 0, top: 0, zIndex: 1100 }
+            : undefined
+        }
+      >
         {/* antd는 children을 .ant-layout-sider-children(height:100%)로 감싼다.
             그 안에서 flex column 한 겹을 더 둬야 메뉴가 늘어나고 칩이 바닥에 붙는다. */}
         <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -123,7 +154,10 @@ export default function AdminShell() {
             theme="dark"
             mode="inline"
             selectedKeys={[view]}
-            onSelect={({ key }) => setView(key as ViewKey)}
+            onSelect={({ key }) => {
+              setView(key as ViewKey)
+              if (isMobile) setCollapsed(true)
+            }}
             items={menuItems}
             style={{ borderInlineEnd: 'none' }}
           />
@@ -162,7 +196,7 @@ export default function AdminShell() {
             display: 'flex',
             alignItems: 'center',
             gap: 16,
-            padding: '0 24px 0 0',
+            padding: isMobile ? '0 12px 0 0' : '0 24px 0 0',
           }}
         >
           <Button
@@ -173,9 +207,11 @@ export default function AdminShell() {
           />
           <h3 style={{ fontSize: 18, margin: 0 }}>{TITLES[view]}</h3>
           <div style={{ flex: 1 }} />
-          <div style={{ width: 220 }}>
-            <Input prefix={<SearchOutlined />} placeholder="검색" allowClear />
-          </div>
+          {!isMobile && (
+            <div style={{ width: 220 }}>
+              <Input prefix={<SearchOutlined />} placeholder="검색" allowClear />
+            </div>
+          )}
         </Header>
 
         {/* position:relative — shared.tsx의 Drawer가 이 영역을 덮는다. */}

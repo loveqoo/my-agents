@@ -149,7 +149,7 @@ function AgentForm({
         <Field label="이름">
           <Input placeholder="예: 리서치 어시스턴트" value={form.name} onChange={(e) => set('name', e.target.value)} />
         </Field>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))', gap: 16 }}>
           <Field label="모델">
             <Select
               value={form.model}
@@ -1371,7 +1371,7 @@ export default function AgentsView() {
       title="에이전트"
       subtitle={`빌딩 블록으로 구성하거나 코드로 배포한 에이전트 ${agents.length}개`}
       actions={
-        <span style={{ display: 'inline-flex', gap: 8 }}>
+        <span style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
           <Button icon={<Icon name="code" />} onClick={() => setRegisterOpen(true)}>
             코드 에이전트 등록
           </Button>

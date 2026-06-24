@@ -93,14 +93,14 @@ export default function OverviewView({ onGo }: { onGo: (v: string) => void }) {
 
   return (
     <Page title="개요" subtitle="에이전트 워크스페이스 한눈에 보기">
-      <div style={{ display: 'flex', gap: 16, marginBottom: 24 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 160px), 1fr))', gap: 16, marginBottom: 24 }}>
         <StatTile icon="robot" color="var(--color-primary)" label="에이전트" value={agents.length} onClick={() => onGo('agents')} />
         <StatTile icon="appstore" color="var(--magenta-6)" label="빌딩 블록" value={blockCount} onClick={() => onGo('blocks')} />
         <StatTile icon="comment" color="var(--green-6)" label="라이브 세션" value={live} onClick={() => onGo('sessions')} />
         <StatTile icon="global" color="var(--cyan-7)" label="A2A 에이전트" value={exposed} onClick={() => onGo('agents')} />
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))', gap: 16 }}>
         <Panel style={{ padding: 0 }}>
           <div style={headerRow}>
             <span style={{ fontWeight: 600, flex: 1 }}>최근 에이전트</span>

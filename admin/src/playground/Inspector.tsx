@@ -181,11 +181,13 @@ export function Inspector({
   turn,
   turnIndex,
   onClose,
+  fullWidth = false,
 }: {
   agent: Agent | null
   turn: ChatMsg | null
   turnIndex: number
   onClose?: () => void
+  fullWidth?: boolean
 }) {
   if (!agent) return null
   const t: Trace | undefined = turn && turn.role === 'ai' ? turn.trace : undefined
@@ -193,7 +195,7 @@ export function Inspector({
   return (
     <aside
       style={{
-        width: 384,
+        width: fullWidth ? '100%' : 384,
         flex: 'none',
         height: '100%',
         display: 'flex',

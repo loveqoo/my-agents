@@ -2,7 +2,7 @@
    streaming chat API, and links each assistant turn → the Inspector from the
    real execution trace. 3-pane: agent picker (in header) + debug chat + Inspector. */
 import { useEffect, useRef, useState } from 'react'
-import { message } from 'antd'
+import { message, Grid } from 'antd'
 import { DebugChat } from './DebugChat'
 import { Inspector } from './Inspector'
 import type { ChatMsg, Trace } from './agentData'
@@ -19,6 +19,9 @@ export function Playground() {
   const [selectedTurn, setSelectedTurn] = useState<number | null>(null)
   const [inspectorOpen, setInspectorOpen] = useState(false)
   const controllerRef = useRef<AbortController | null>(null)
+
+  const screens = Grid.useBreakpoint()
+  const isMobile = !screens.md
 
   const activeAgent = agents.find((a) => a.id === activeId) ?? null
   const messages = convos[activeId] || []
@@ -151,7 +154,14 @@ export function Playground() {
         onToggleInspector={() => setInspectorOpen((o) => !o)}
       />
       {inspectorOpen ? (
-        <Inspector agent={activeAgent} turn={selectedMsg} turnIndex={selectedTurn || 0} onClose={() => setInspectorOpen(false)} />
+        isMobile ? (
+          // 모바일: 인스펙터를 전체화면 오버레이로 — 채팅과 나란히 두면 양쪽이 짜부라진다.
+          <div style={{ position: 'fixed', inset: 0, zIndex: 1200, background: 'var(--color-bg-container)' }}>
+            <Inspector agent={activeAgent} turn={selectedMsg} turnIndex={selectedTurn || 0} onClose={() => setInspectorOpen(false)} fullWidth />
+          </div>
+        ) : (
+          <Inspector agent={activeAgent} turn={selectedMsg} turnIndex={selectedTurn || 0} onClose={() => setInspectorOpen(false)} />
+        )
       ) : null}
     </div>
   )

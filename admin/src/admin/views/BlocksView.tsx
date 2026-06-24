@@ -812,7 +812,7 @@ export default function BlocksView() {
       subtitle="에이전트를 구성하는 재사용 재료 — 둘러보고 에이전트 편집기에서 조립하세요"
       actions={
         cat === 'mcp' ? (
-          <span style={{ display: 'inline-flex', gap: 8 }}>
+          <span style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
             <Button icon={<Icon name="global" />} onClick={() => setMcpForm({ mode: 'register', source: 'external' })}>
               외부 등록
             </Button>

@@ -4,7 +4,7 @@
    agents come from the backend, turns/traces come from the streaming chat API. */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Bubble, Sender, Welcome, Prompts } from '@ant-design/x'
-import { Avatar, Button, Tag } from 'antd'
+import { Avatar, Button, Tag, Grid } from 'antd'
 import { Icon } from '../admin/icons'
 import type { ChatMsg, Trace } from './agentData'
 import type { Agent } from '../admin/mockData'
@@ -242,17 +242,32 @@ function ChatHeader({
   inspectorOpen: boolean
   onToggleInspector: () => void
 }) {
+  const screens = Grid.useBreakpoint()
+  const isMobile = !screens.md
   return (
     <div style={{ flex: 'none', borderBottom: '1px solid var(--color-border-secondary)', background: 'var(--color-bg-container)' }}>
-      <div style={{ height: 64, display: 'flex', alignItems: 'center', gap: 12, padding: '0 20px' }}>
+      {/* 모바일: 패딩 축소 + 버튼 아이콘만(라벨 제거) + A2A 배지 숨김 — 한 줄에 안 들어가 겹치던 문제. */}
+      <div style={{ height: 64, display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 12, padding: isMobile ? '0 12px' : '0 20px' }}>
         <AgentCombo agent={agent} agents={agents} onSwitch={onSwitchAgent} />
         <div style={{ flex: 1 }} />
-        <ExposeBadges agent={agent} />
-        <Button size="small" type={showPrompt ? 'primary' : 'default'} icon={<Icon name="file" />} onClick={onTogglePrompt}>
-          시스템 프롬프트
+        {!isMobile && <ExposeBadges agent={agent} />}
+        <Button
+          size="small"
+          type={showPrompt ? 'primary' : 'default'}
+          icon={<Icon name="file" />}
+          onClick={onTogglePrompt}
+          title="시스템 프롬프트"
+        >
+          {isMobile ? null : '시스템 프롬프트'}
         </Button>
-        <Button size="small" type={inspectorOpen ? 'primary' : 'default'} icon={<Icon name="dashboard" />} onClick={onToggleInspector}>
-          인스펙터
+        <Button
+          size="small"
+          type={inspectorOpen ? 'primary' : 'default'}
+          icon={<Icon name="dashboard" />}
+          onClick={onToggleInspector}
+          title="인스펙터"
+        >
+          {isMobile ? null : '인스펙터'}
         </Button>
       </div>
       {showPrompt ? (

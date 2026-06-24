@@ -2,7 +2,7 @@
    handoff 번들 ui_kits/admin/adminShared.jsx를 진짜 antd 6/React+TS로 재현.
    토큰은 theme.css의 CSS 변수를 그대로 참조한다. */
 import { type ReactNode, type CSSProperties } from 'react'
-import { Tag, Button, Switch } from 'antd'
+import { Tag, Button, Switch, Grid } from 'antd'
 import { CloseOutlined } from '@ant-design/icons'
 import { Icon } from './icons'
 import { VERSION_STATUS, type VersionMeta } from './mockData'
@@ -19,11 +19,22 @@ export function Page({
   actions?: ReactNode
   children?: ReactNode
 }) {
+  const screens = Grid.useBreakpoint()
+  const pad = screens.md ? 24 : 16
+  // 모바일에서는 제목과 액션을 세로로 쌓는다 — 한 줄에 두면 제목이 버튼에 밀려 깨진다.
   return (
-    <div style={{ padding: 24, maxWidth: 1200, margin: '0 auto', width: '100%' }}>
+    <div style={{ padding: pad, maxWidth: 1200, margin: '0 auto', width: '100%' }}>
       {(title || actions) && (
-        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 16, marginBottom: 20 }}>
-          <div style={{ flex: 1 }}>
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: screens.md ? 'row' : 'column',
+            alignItems: screens.md ? 'flex-end' : 'stretch',
+            gap: screens.md ? 16 : 12,
+            marginBottom: 20,
+          }}
+        >
+          <div style={{ flex: 1, minWidth: 0 }}>
             {title && <h3 style={{ fontSize: 20, margin: 0 }}>{title}</h3>}
             {subtitle && (
               <div style={{ color: 'var(--color-text-tertiary)', marginTop: 4, fontSize: 14 }}>
@@ -94,7 +105,9 @@ export function DataTable<T>({
   const cell = (r: T, k: string) => (r as Record<string, unknown>)[k]
   return (
     <Panel>
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+      {/* 좁은 화면에서는 표를 가로 스크롤 — 셀이 잘리거나 짜부라지지 않게. */}
+      <div style={{ overflowX: 'auto' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14, minWidth: 'max-content' }}>
         <thead>
           <tr style={{ color: 'var(--color-text-secondary)', textAlign: 'left', background: 'var(--gray-2)' }}>
             {columns.map((c) => (
@@ -143,6 +156,7 @@ export function DataTable<T>({
           )}
         </tbody>
       </table>
+      </div>
     </Panel>
   )
 }
