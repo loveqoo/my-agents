@@ -99,7 +99,7 @@ function MemoryRow({ m }: { m: Memory }) {
         <div style={{ flex: 1 }} />
         <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-family-code)' }}>{pct}%</span>
       </div>
-      <div style={{ fontSize: 13, color: 'var(--color-text)', lineHeight: 1.5 }}>{m.text}</div>
+      <div style={{ fontSize: 13, color: 'var(--color-text)', lineHeight: 1.5, overflowWrap: 'anywhere' }}>{m.text}</div>
       <div style={{ height: 4, background: 'var(--color-fill-secondary)', borderRadius: 100, overflow: 'hidden' }}>
         <div style={{ width: pct + '%', height: '100%', background: 'var(--geekblue-5)', borderRadius: 100 }} />
       </div>
@@ -110,22 +110,30 @@ function MemoryRow({ m }: { m: Memory }) {
 function McpCall({ c }: { c: McpCallT }) {
   return (
     <div style={{ border: '1px solid var(--color-border-secondary)', borderRadius: 8, padding: 12, marginTop: 10 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap', rowGap: 2 }}>
         <Icon
           name={c.status === 'ok' ? 'check-circle' : 'close-circle'}
           size={14}
-          style={{ color: c.status === 'ok' ? 'var(--color-success)' : 'var(--color-error)' }}
+          style={{ color: c.status === 'ok' ? 'var(--color-success)' : 'var(--color-error)', flex: 'none' }}
         />
-        <span style={{ fontSize: 13, fontFamily: 'var(--font-family-code)', color: 'var(--color-text-heading)' }}>
+        <span
+          style={{
+            fontSize: 13,
+            fontFamily: 'var(--font-family-code)',
+            color: 'var(--color-text-heading)',
+            minWidth: 0,
+            overflowWrap: 'anywhere',
+          }}
+        >
           <span style={{ color: 'var(--cyan-7)' }}>{c.server}</span>.{c.tool}
         </span>
         <div style={{ flex: 1 }} />
-        <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-family-code)' }}>{c.ms} ms</span>
+        <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-family-code)', flex: 'none' }}>{c.ms} ms</span>
       </div>
       <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginBottom: 3 }}>args</div>
       <pre style={{ ...codeBox, marginBottom: 8 }}>{JSON.stringify(c.args)}</pre>
       <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginBottom: 3 }}>result</div>
-      <div style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>{c.result}</div>
+      <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', overflowWrap: 'anywhere' }}>{c.result}</div>
     </div>
   )
 }
@@ -149,17 +157,28 @@ function GraphPath({ graph }: { graph: GraphNode[] }) {
               <span style={{ width: 9, height: 9, borderRadius: '50%', flex: 'none', background: dot }} />
               {i < graph.length - 1 ? <span style={{ width: 2, height: 22, background: 'var(--color-border)' }} /> : null}
             </div>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, paddingBottom: i < graph.length - 1 ? 14 : 0 }}>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'baseline',
+                gap: 8,
+                flexWrap: 'wrap',
+                minWidth: 0,
+                paddingBottom: i < graph.length - 1 ? 14 : 0,
+              }}
+            >
               <span
                 style={{
                   fontSize: 13,
                   fontFamily: 'var(--font-family-code)',
                   color: sp ? sp : term ? 'var(--color-text-tertiary)' : 'var(--color-text-heading)',
+                  overflowWrap: 'anywhere',
+                  minWidth: 0,
                 }}
               >
                 {n.node}
               </span>
-              <span style={{ fontSize: 11, color: 'var(--color-text-quaternary)', fontFamily: 'var(--font-family-code)' }}>
+              <span style={{ fontSize: 11, color: 'var(--color-text-quaternary)', fontFamily: 'var(--font-family-code)', flex: 'none' }}>
                 +{n.ms}ms
               </span>
             </div>
@@ -256,10 +275,12 @@ export function Inspector({
           </div>
 
           <Section icon="file" iconColor="var(--color-primary)" title="시스템 프롬프트">
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-              <Tag color="blue">{agent.name}</Tag>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap', rowGap: 6 }}>
+              <Tag color="blue" style={{ whiteSpace: 'normal', height: 'auto', maxWidth: '100%', overflowWrap: 'anywhere' }}>
+                {agent.name}
+              </Tag>
               {(agent.memories || []).map((m) => (
-                <Tag key={m} color="purple">
+                <Tag key={m} color="purple" style={{ whiteSpace: 'normal', height: 'auto', maxWidth: '100%', overflowWrap: 'anywhere' }}>
                   {m}
                 </Tag>
               ))}
@@ -273,10 +294,20 @@ export function Inspector({
               <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginTop: 2 }}>
                 스코프:{' '}
                 {t.memoryScope.user_id ? (
-                  <Tag color="green" style={{ marginInlineEnd: 4 }}>유저 장기 · {t.memoryScope.user_id}</Tag>
+                  <Tag
+                    color="green"
+                    style={{ marginInlineEnd: 4, whiteSpace: 'normal', height: 'auto', maxWidth: '100%', overflowWrap: 'anywhere' }}
+                  >
+                    유저 장기 · {t.memoryScope.user_id}
+                  </Tag>
                 ) : null}
                 {t.memoryScope.run_id ? (
-                  <Tag color="default" style={{ marginInlineEnd: 0 }}>세션 · {t.memoryScope.run_id}</Tag>
+                  <Tag
+                    color="default"
+                    style={{ marginInlineEnd: 0, whiteSpace: 'normal', height: 'auto', maxWidth: '100%', overflowWrap: 'anywhere' }}
+                  >
+                    세션 · {t.memoryScope.run_id}
+                  </Tag>
                 ) : null}
               </div>
             ) : null}

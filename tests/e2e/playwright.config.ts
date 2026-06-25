@@ -29,6 +29,15 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'], baseURL: UI },
       dependencies: ['api'],
     },
+    {
+      // 모바일 회귀: 아이폰 크기에서 전 페이지 가로 오버플로 가드. 디바이스 메트릭은
+      // 스펙 내 describe별 test.use로 지정하고, 브라우저는 chromium으로 고정한다
+      // (webkit 미설치 환경에서도 iPhone 뷰포트/isMobile 그대로 측정).
+      name: 'mobile',
+      testMatch: /mobile-overflow\.spec\.ts/,
+      use: { browserName: 'chromium', baseURL: UI },
+      dependencies: ['api'],
+    },
   ],
   webServer: {
     command: 'cd ../../admin && npm run dev',
