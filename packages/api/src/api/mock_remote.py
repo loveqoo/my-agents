@@ -4,10 +4,16 @@
 이 라우터가 같은 계약(POST {messages} → SSE text 프레임)을 구현해, 코드 에이전트
 원격 프록시를 동작·테스트할 수 있게 한다. 인증은 검증하지 않는다(개발용).
 
-지배 스펙: docs/spec/009-code-agent-remote-exec.md
+또한 OpenAI 호환 `/_remote/v1/*`(models·chat/completions)를 구현해 **레지스트리에
+등록된 mock chat 모델**(`mock-llm`, 스펙 024)이 일반 런타임 경로(`build_agent` →
+`ChatOpenAI`)로 결정적으로 돌게 한다 — 라이브 MLX 없이 동작·테스트.
+
+지배 스펙: docs/spec/009-code-agent-remote-exec.md, docs/spec/024-mock-llm-registry-model.md
 """
 
 import json
+import time
+import uuid
 
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
@@ -21,6 +27,86 @@ router = APIRouter(prefix="/_remote", tags=["mock-remote"])
 async def remote_models():
     """OpenAI 호환 모델 목록(mock). chat 모델 연결 테스트의 결정적 대상."""
     return {"data": [{"id": "mock-chat", "object": "model"}]}
+
+
+# ---------- OpenAI 호환 v1 (레지스트리 mock-llm 모델, 스펙 024) ----------
+
+def _last_user_text(messages: list) -> str:
+    """messages에서 마지막 user 메시지 텍스트를 뽑는다(멀티모달 content는 평탄화)."""
+    for m in reversed(messages or []):
+        if (m or {}).get("role") == "user":
+            content = m.get("content")
+            if isinstance(content, list):  # [{type,text}, ...] 멀티모달
+                return " ".join(
+                    str(p.get("text", "")) for p in content if isinstance(p, dict)
+                ).strip()
+            return str(content or "")
+    return ""
+
+
+def _mock_reply(messages: list) -> str:
+    """마지막 user 메시지 기반 결정적 응답(입력 같으면 출력도 같음)."""
+    last = _last_user_text(messages)
+    return (
+        f"[mock-llm] 요청 \"{last[:60]}\"에 대한 결정적 mock 응답입니다. "
+        "등록된 mock 모델이 라이브 LLM 없이 응답했습니다."
+    )
+
+
+@router.get("/v1/models")
+async def remote_v1_models():
+    """OpenAI 호환 모델 목록(mock-llm 연결 테스트 대상). probe가 `{base_url}/models`를 GET."""
+    return {"object": "list", "data": [{"id": "mock-chat", "object": "model"}]}
+
+
+@router.post("/v1/chat/completions")
+async def remote_v1_chat_completions(body: dict):
+    """OpenAI 호환 chat completions(mock). `ChatOpenAI`가 치는 계약.
+
+    툴 호출은 미지원(평문 응답만) → 툴 가진 에이전트도 create_react_agent가 1턴 종료.
+    `stream:true`면 OpenAI chunk SSE, 아니면 단건 JSON.
+    """
+    messages = body.get("messages") or []
+    model = body.get("model") or "mock-chat"
+    reply = _mock_reply(messages)
+    cid = "chatcmpl-mock-" + uuid.uuid4().hex[:24]
+    created = int(time.time())
+
+    if not body.get("stream"):
+        return {
+            "id": cid,
+            "object": "chat.completion",
+            "created": created,
+            "model": model,
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": reply},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+        }
+
+    def _chunk(delta: dict, finish: str | None) -> str:
+        payload = {
+            "id": cid,
+            "object": "chat.completion.chunk",
+            "created": created,
+            "model": model,
+            "choices": [{"index": 0, "delta": delta, "finish_reason": finish}],
+        }
+        return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+    async def event_stream():
+        yield _chunk({"role": "assistant"}, None)  # 첫 프레임에 role
+        step = 12
+        for i in range(0, len(reply), step):
+            yield _chunk({"content": reply[i : i + step]}, None)
+        yield _chunk({}, "stop")
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 @router.post("/embeddings")

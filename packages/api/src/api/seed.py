@@ -150,6 +150,11 @@ async def seed_if_empty(session: AsyncSession) -> None:
         chat_id = os.environ.get("MLX_MODEL", "mlx-community/Qwen3.6-35B-A3B-mxfp8")
         embed_id = os.environ.get("MLX_EMBED_MODEL", "mlx-community/multilingual-e5-large-mlx")
         enc_key = crypto.encrypt(api_key)  # 비밀값 암호화 저장
+        # mock chat 모델 — 라이브 MLX 없이 결정적 실행용(스펙 024). 기본 아님(opt-in).
+        # base_url은 **이 API 자신의** OpenAI 호환 mock 엔드포인트(self-call). API를 다른
+        # 호스트/포트로 옮기면 MOCK_LLM_BASE_URL로 그 자기주소를 맞춰준다. 코드 에이전트의
+        # (운영 시 외부) 배포를 가리키는 REMOTE_AGENT_BASE와는 의미가 다른 별개 env다.
+        mock_base = os.environ.get("MOCK_LLM_BASE_URL", "http://127.0.0.1:8000/_remote/v1")
         session.add_all([
             ModelConfig(
                 name=CHAT_MODEL_NAME, provider="openai-compatible", base_url=base_url,
@@ -159,6 +164,11 @@ async def seed_if_empty(session: AsyncSession) -> None:
             ModelConfig(
                 name="multilingual-e5-large", provider="openai-compatible", base_url=base_url,
                 api_key=enc_key, model_id=embed_id, kind="embedding", is_default=True, params={},
+            ),
+            ModelConfig(
+                name="mock-llm", provider="openai-compatible", base_url=mock_base,
+                api_key=crypto.encrypt("sk-noauth"), model_id="mock-chat", kind="chat",
+                is_default=False, params={},
             ),
         ])
 
