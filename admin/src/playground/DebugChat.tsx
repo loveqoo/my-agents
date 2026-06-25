@@ -40,8 +40,11 @@ interface DebugChatProps {
   onResetConversation: () => void
   showPrompt: boolean
   onTogglePrompt: () => void
+  effectiveSystemPrompt?: string
   inspectorOpen: boolean
   onToggleInspector: () => void
+  overrideActive: boolean
+  onToggleOverrides: () => void
 }
 
 function ExposeBadges({ agent }: { agent: Agent }) {
@@ -259,8 +262,11 @@ function ChatHeader({
   onResetConversation,
   showPrompt,
   onTogglePrompt,
+  effectiveSystemPrompt,
   inspectorOpen,
   onToggleInspector,
+  overrideActive,
+  onToggleOverrides,
 }: {
   agent: Agent
   agents: Agent[]
@@ -272,8 +278,11 @@ function ChatHeader({
   onResetConversation: () => void
   showPrompt: boolean
   onTogglePrompt: () => void
+  effectiveSystemPrompt?: string
   inspectorOpen: boolean
   onToggleInspector: () => void
+  overrideActive: boolean
+  onToggleOverrides: () => void
 }) {
   const screens = Grid.useBreakpoint()
   const isMobile = !screens.md
@@ -330,6 +339,15 @@ function ChatHeader({
         {!compact && <ExposeBadges agent={agent} />}
         <Button
           size="small"
+          type={overrideActive ? 'primary' : 'default'}
+          icon={<Icon name="experiment" />}
+          onClick={onToggleOverrides}
+          title={overrideActive ? '런타임 오버라이드 (적용 중)' : '런타임 오버라이드'}
+        >
+          {compact ? null : overrideActive ? '오버라이드 ✓' : '오버라이드'}
+        </Button>
+        <Button
+          size="small"
           type={showPrompt ? 'primary' : 'default'}
           icon={<Icon name="file" />}
           onClick={onTogglePrompt}
@@ -382,7 +400,7 @@ function ChatHeader({
               overflow: 'auto',
             }}
           >
-            {agent.systemPrompt ?? ''}
+            {effectiveSystemPrompt ?? agent.systemPrompt ?? ''}
           </pre>
         </div>
       ) : null}
@@ -443,8 +461,11 @@ export function DebugChat({
   onResetConversation,
   showPrompt,
   onTogglePrompt,
+  effectiveSystemPrompt,
   inspectorOpen,
   onToggleInspector,
+  overrideActive,
+  onToggleOverrides,
 }: DebugChatProps) {
   const scroller = useRef<HTMLDivElement>(null)
   // Sender는 submit 시 스스로 입력을 비우지 않는다(@ant-design/x 2.8 — triggerSend가
@@ -493,8 +514,11 @@ export function DebugChat({
         onResetConversation={onResetConversation}
         showPrompt={showPrompt}
         onTogglePrompt={onTogglePrompt}
+        effectiveSystemPrompt={effectiveSystemPrompt}
         inspectorOpen={inspectorOpen}
         onToggleInspector={onToggleInspector}
+        overrideActive={overrideActive}
+        onToggleOverrides={onToggleOverrides}
       />
 
       <div ref={scroller} style={{ flex: 1, overflowY: 'auto' }}>

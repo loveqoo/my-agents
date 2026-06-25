@@ -5,9 +5,10 @@ import { useEffect, useRef, useState } from 'react'
 import { message, Grid } from 'antd'
 import { DebugChat } from './DebugChat'
 import { Inspector } from './Inspector'
+import { OverridePanel, overrideDefaults, overridePayload, type Overrides } from './OverridePanel'
 import type { ChatMsg, Trace } from './agentData'
-import type { Agent } from '../admin/mockData'
-import { listAgents, listUserIds, streamChat, type ChatMessage } from '../api'
+import type { Agent, BlockCategory } from '../admin/mockData'
+import { listAgents, listUserIds, streamChat, getBlocks, listModels, type ChatMessage, type Model } from '../api'
 
 export function Playground() {
   const [agents, setAgents] = useState<Agent[]>([])
@@ -22,6 +23,11 @@ export function Playground() {
   const [userId, setUserId] = useState('')
   // 그동안 대화에 쓰인 userId 목록(최근순) — 헤더 AutoComplete 선택지(스펙 021).
   const [userIds, setUserIds] = useState<string[]>([])
+  // 오버라이드 패널(스펙 025) — 카탈로그(모델·블록) + 에이전트별 적용 오버라이드.
+  const [models, setModels] = useState<Model[]>([])
+  const [blocks, setBlocks] = useState<Record<string, BlockCategory>>({})
+  const [overridePanelOpen, setOverridePanelOpen] = useState(false)
+  const [appliedByAgent, setAppliedByAgent] = useState<Record<string, Overrides>>({})
   const controllerRef = useRef<AbortController | null>(null)
 
   const screens = Grid.useBreakpoint()
@@ -33,6 +39,16 @@ export function Playground() {
 
   const activeAgent = agents.find((a) => a.id === activeId) ?? null
   const messages = convos[activeId] || []
+
+  // 적용 중 오버라이드 → 변경된 키만 담은 페이로드(코드 에이전트는 무시). 비었으면 미적용.
+  const appliedOv = activeAgent ? appliedByAgent[activeAgent.id] ?? null : null
+  const ovPayload =
+    activeAgent && appliedOv && activeAgent.source !== 'code'
+      ? overridePayload(appliedOv, overrideDefaults(activeAgent))
+      : {}
+  const overrideActive = Object.keys(ovPayload).length > 0
+  // 시스템 프롬프트 뷰어는 적용된 오버라이드를 우선 반영(화면=실제 정합, 학습 025).
+  const effectiveSystemPrompt = (ovPayload.systemPrompt as string | undefined) ?? activeAgent?.systemPrompt
 
   // 마운트 시 실제 에이전트 목록 로드 — 첫 번째 에이전트를 활성으로.
   useEffect(() => {
@@ -65,6 +81,20 @@ export function Playground() {
       .then((ids) => {
         if (!cancelled) setUserIds(ids)
       })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // 오버라이드 패널용 카탈로그(등록 chat 모델 + 빌딩 블록). 실패는 조용히 무시 — 패널만 빈 옵션.
+  useEffect(() => {
+    let cancelled = false
+    listModels('chat')
+      .then((m) => !cancelled && setModels(m))
+      .catch(() => {})
+    getBlocks()
+      .then((b) => !cancelled && setBlocks(b))
       .catch(() => {})
     return () => {
       cancelled = true
@@ -135,6 +165,7 @@ export function Playground() {
         controller.signal,
         sessions[id],
         userId.trim() || undefined,
+        ovPayload, // 세션 한정 오버라이드(변경된 키만; 빈 객체면 streamChat이 보내지 않음)
       )
       // 방금 쓴 userId를 목록 맨 앞으로(최근순) — 다음 로드 전에도 드롭다운에 보이게.
       const uid = userId.trim()
@@ -172,6 +203,23 @@ export function Playground() {
     setInspectorOpen(false)
   }
 
+  // 오버라이드 적용 → 세션 리셋 후 새 설정으로 시작(변경 시 채팅 재시작, 스펙 025).
+  const applyOverrides = (ov: Overrides) => {
+    setAppliedByAgent((m) => ({ ...m, [activeId]: ov }))
+    setOverridePanelOpen(false)
+    resetConversation()
+  }
+  // 오버라이드 해제 → 저장 설정으로 복귀, 역시 세션 리셋.
+  const clearOverrides = () => {
+    setAppliedByAgent((m) => {
+      const n = { ...m }
+      delete n[activeId]
+      return n
+    })
+    setOverridePanelOpen(false)
+    resetConversation()
+  }
+
   // Clicking a turn's "인스펙터" chip opens the panel on that turn.
   const openInspector = (i: number) => {
     setSelectedTurn(i)
@@ -199,8 +247,21 @@ export function Playground() {
         onResetConversation={resetConversation}
         showPrompt={showPrompt}
         onTogglePrompt={() => setShowPrompt((s) => !s)}
+        effectiveSystemPrompt={effectiveSystemPrompt}
         inspectorOpen={inspectorOpen}
         onToggleInspector={() => setInspectorOpen((o) => !o)}
+        overrideActive={overrideActive}
+        onToggleOverrides={() => setOverridePanelOpen((o) => !o)}
+      />
+      <OverridePanel
+        open={overridePanelOpen}
+        agent={activeAgent}
+        models={models}
+        blocks={blocks}
+        applied={appliedOv}
+        onApply={applyOverrides}
+        onClear={clearOverrides}
+        onClose={() => setOverridePanelOpen(false)}
       />
       {inspectorOpen ? (
         overlayInspector ? (

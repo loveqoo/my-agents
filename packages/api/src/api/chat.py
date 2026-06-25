@@ -28,15 +28,32 @@ router = APIRouter(prefix="/agents", tags=["chat"])
 log = logging.getLogger("api.chat")
 
 
-async def _load_context(agent_id: uuid.UUID, session_str_id: str | None):
-    """에이전트 구성 + MCP 활성 툴 + 세션(생성/지속)을 한 번에 준비."""
+async def _load_context(
+    agent_id: uuid.UUID, session_str_id: str | None, overrides: dict | None = None
+):
+    """에이전트 구성 + MCP 활성 툴 + 세션(생성/지속)을 한 번에 준비.
+
+    overrides(스펙 025): Playground Proxy의 세션 한정 설정 덮어쓰기. **web 에이전트에만** 적용하고
+    화이트리스트 키만 받는다(저장된 에이전트는 불변). 코드 에이전트는 원격 실행이라 미적용(bypass).
+    """
     async with SessionLocal() as db:
         agent = await db.get(Agent, agent_id)
         if agent is None:
             raise HTTPException(status_code=404, detail="agent not found")
         cfg = dict(agent.config or {})
+        persona = agent.persona
+        # web 한정 세션 오버라이드(화이트리스트). 코드 에이전트는 분기 진입 안 함 = bypass 보존.
+        # 모델은 여전히 cfg["model"] 이름으로 레지스트리에서만 해석 → [012] 단일 소스 불변식 유지.
+        if overrides and agent.source != "code":
+            allowed = {"model", "temperature", "historyDepth", "mcps", "memories"}
+            cfg.update({k: v for k, v in overrides.items() if k in allowed})
+            # systemPrompt는 비어있지 않을 때만 persona를 덮어쓴다 — 빈/공백 문자열로
+            # 저장된 페르소나를 지우지 않도록(백엔드 자체 가드, 클라이언트 신뢰 안 함. codex P1).
+            sp = overrides.get("systemPrompt")
+            if isinstance(sp, str) and sp.strip():
+                persona = sp
         ctx = {
-            "persona": agent.persona,
+            "persona": persona,
             "ext_agent_id": agent.agent_id,
             "agent_name": agent.name,
             "agent_pk": agent.id,
@@ -259,7 +276,7 @@ async def _remote_stream(ctx: dict, body: ChatRequest, user_text: str):
 
 @router.post("/{agent_id}/chat")
 async def chat(agent_id: uuid.UUID, body: ChatRequest):
-    ctx = await _load_context(agent_id, body.sessionId)
+    ctx = await _load_context(agent_id, body.sessionId, body.overrides)
     user_text = body.messages[-1].content if body.messages else ""
 
     # 코드(SDK) 에이전트는 자기 원격 엔드포인트에서 실행 — 프록시.

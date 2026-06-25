@@ -255,6 +255,10 @@ class ChatRequest(BaseModel):
     sessionId: str | None = None  # 이어서 대화할 세션(없으면 새로 생성)
     # 메모리 스코프 결정: 값이 있으면 유저 장기(세션 가로지름), 없으면 세션 단기(session_id로 폴백).
     userId: str | None = None
+    # Playground "Proxy" 세션 한정 오버라이드(스펙 025). **web 에이전트에만** 적용, 화이트리스트
+    # 키만 의미(model/temperature/systemPrompt/mcps/memories/historyDepth). 저장된 에이전트는 불변.
+    # 코드 에이전트는 원격 실행이라 무시(bypass).
+    overrides: dict | None = None
 
     @field_validator("userId")
     @classmethod

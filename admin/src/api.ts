@@ -152,13 +152,22 @@ export async function streamChat(
   signal?: AbortSignal,
   sessionId?: string,
   userId?: string,
+  // Playground "Proxy" 세션 한정 오버라이드(스펙 025). 변경된 키만 담긴 부분 객체 →
+  // 비었으면 보내지 않아 서버는 저장된 에이전트 설정 그대로 실행(무회귀). 코드 에이전트는 서버가 무시.
+  overrides?: Record<string, unknown>,
 ): Promise<void> {
   const callbacks: ChatCallbacks = typeof cb === 'function' ? { onToken: cb } : cb
+  const hasOverrides = overrides != null && Object.keys(overrides).length > 0
   const res = await fetch(`${BASE}/agents/${agentId}/chat`, {
     method: 'POST',
     headers: authHeaders(true),
     // userId 빈 값은 보내지 않음 → 서버에서 세션 단기로 폴백.
-    body: JSON.stringify({ messages, sessionId, userId: userId || undefined }),
+    body: JSON.stringify({
+      messages,
+      sessionId,
+      userId: userId || undefined,
+      overrides: hasOverrides ? overrides : undefined,
+    }),
     signal,
   })
   if (!res.ok || !res.body) throw new Error(`채팅 실패: ${res.status}`)
