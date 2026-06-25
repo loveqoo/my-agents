@@ -24,6 +24,10 @@ from .models import (
     VectorTable,
 )
 
+# 등록되는 기본 chat 모델명 — ModelConfig와 에이전트 참조를 단일 소스로 묶어
+# 둘이 어긋나지 않게 한다(스펙 023). 가상 모델명(claude-*/gpt-*) 금지.
+CHAT_MODEL_NAME = "qwen3.6-35b"
+
 PERSONAS = [
     ("Methodical Researcher", "전문적, 차분함", "Rigorous, source-driven, neutral. Prefer primary sources. Always cite. Lead with a one-line answer."),
     ("Strict Senior Engineer", "단호함, 공감적", "Direct, specific, kind. Flag correctness and security first, style last. Cite exact line numbers."),
@@ -78,19 +82,19 @@ MCP_SERVERS = [
 
 # agent_id, name, source, model, persona, memories, historyDepth, vectorTables, permissions, mcps, a2a, status, activeVersion, versions[(version,status,createdAt,note)]
 AGENTS = [
-    ("agt_rsch_7f3a91", "Research Assistant", "ui", "claude-sonnet-4", "Methodical Researcher",
+    ("agt_rsch_7f3a91", "Research Assistant", "ui", CHAT_MODEL_NAME, "Methodical Researcher",
      ["단기(세션)", "장기 기억 (mem0)"], 20, ["docs_kb", "product_titles"], ["web.search", "files.read"], ["tavily", "filesystem"],
      True, "online", "v3",
      [("v3", "active", "2026-06-12", "Tightened citation rules"), ("v2", "archived", "2026-06-04", "Added filesystem MCP"), ("v1", "archived", "2026-05-30", "Initial")]),
-    ("agt_rvw_2b91c4", "Code Reviewer", "ui", "gpt-4o", "Strict Senior Engineer",
+    ("agt_rvw_2b91c4", "Code Reviewer", "ui", CHAT_MODEL_NAME, "Strict Senior Engineer",
      ["단기(세션)"], 10, [], ["repo.read", "repo.merge"], ["github", "filesystem"],
      True, "online", "v2",
      [("v3", "draft", "2026-06-19", "Trial: auto-merge on green CI"), ("v2", "active", "2026-06-09", "Added repo.merge (admin-gated)"), ("v1", "archived", "2026-06-02", "Initial")]),
-    ("agt_ops_5c0833", "Ops Copilot", "ui", "claude-haiku-4", "Calm SRE",
+    ("agt_ops_5c0833", "Ops Copilot", "ui", CHAT_MODEL_NAME, "Calm SRE",
      [], 6, [], ["k8s.read", "k8s.write"], ["prometheus", "kubernetes"],
      False, "idle", "v1",
      [("v1", "active", "2026-06-10", "Initial")]),
-    ("agt_sec_9d4417", "Personal Secretary", "ui", "claude-sonnet-4", "Warm Secretary",
+    ("agt_sec_9d4417", "Personal Secretary", "ui", CHAT_MODEL_NAME, "Warm Secretary",
      ["단기(세션)", "장기 기억 (mem0)"], 40, ["team_notes"], ["calendar.rw", "mail.send"], ["gcal", "gmail", "notion"],
      False, "online", "v2",
      [("v2", "active", "2026-06-16", "Warmer tone"), ("v1", "archived", "2026-06-15", "Initial")]),
@@ -148,7 +152,7 @@ async def seed_if_empty(session: AsyncSession) -> None:
         enc_key = crypto.encrypt(api_key)  # 비밀값 암호화 저장
         session.add_all([
             ModelConfig(
-                name="qwen3.6-35b", provider="openai-compatible", base_url=base_url,
+                name=CHAT_MODEL_NAME, provider="openai-compatible", base_url=base_url,
                 api_key=enc_key, model_id=chat_id, kind="chat", is_default=True,
                 params={"temperature": 0.7, "enable_thinking": False},
             ),
@@ -178,12 +182,12 @@ async def seed_if_empty(session: AsyncSession) -> None:
 
         # 코드 정의(SDK 배포) 에이전트 — UI mock과 동일하게 1개 시드.
         code_cfg = {
-            "model": "claude-sonnet-4", "persona": "코드 정의 (SDK)", "memories": ["단기(세션)"],
+            "model": CHAT_MODEL_NAME, "persona": "코드 정의 (SDK)", "memories": ["단기(세션)"],
             "vectorTables": [], "permissions": ["web.search", "files.read"], "mcps": ["tavily"],
             "historyDepth": 10,
         }
         translator = Agent(
-            agent_id="agt_xlt_a17c33", name="Doc Translator", source="code", model="claude-sonnet-4",
+            agent_id="agt_xlt_a17c33", name="Doc Translator", source="code", model=CHAT_MODEL_NAME,
             persona="코드 정의 (SDK)", history_depth=10, config=code_cfg, exposed={"a2a": True},
             status="online", active_version="f3a91c2",
             # 개발용 mock 원격 에이전트로 연결 → 코드 에이전트 원격 실행이 바로 동작.

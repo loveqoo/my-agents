@@ -58,11 +58,12 @@ interface AgentFormData {
   mcps: string[]
 }
 
-/* 빈 폼 기본값 — persona 기본값은 로드된 blocks에서 계산(없으면 빈 값). */
-function blankForm(blocks: Record<string, BlockCategory>): AgentFormData {
+/* 빈 폼 기본값 — persona는 로드된 blocks에서, model은 등록된 첫 chat 모델에서
+   계산한다(둘 다 없으면 빈 값). 가상 모델명 하드코딩 금지(스펙 023). */
+function blankForm(blocks: Record<string, BlockCategory>, models: Model[]): AgentFormData {
   return {
     name: '',
-    model: 'claude-sonnet-4',
+    model: models.find((m) => m.kind === 'chat')?.name ?? '',
     persona: blocks.persona?.items?.[0]?.name ?? '',
     memories: [],
     historyDepth: 20,
@@ -93,10 +94,10 @@ function AgentForm({
   onCancel: () => void
   onSave: (data: AgentFormData) => void
 }) {
-  const [form, setForm] = useState<AgentFormData>(() => initial ? { ...initial } : blankForm(blocks))
+  const [form, setForm] = useState<AgentFormData>(() => initial ? { ...initial } : blankForm(blocks, models))
 
   useEffect(() => {
-    setForm(initial ? { ...initial } : blankForm(blocks))
+    setForm(initial ? { ...initial } : blankForm(blocks, models))
     /* eslint-disable-next-line */
   }, [open])
 
@@ -108,6 +109,15 @@ function AgentForm({
       setForm((f) => (f.persona ? f : { ...f, persona: first }))
     }
   }, [open, mode, blocks])
+
+  // 등록 모델(/models)이 폼을 연 뒤 늦게 도착하면 생성 모드의 빈 model을 첫 등록
+  // chat 모델로 채운다(가상 모델명 폴백 방지 — persona와 동일 패턴).
+  useEffect(() => {
+    const first = models.find((m) => m.kind === 'chat')?.name
+    if (open && mode === 'create' && first) {
+      setForm((f) => (f.model ? f : { ...f, model: first }))
+    }
+  }, [open, mode, models])
 
   const set = <K extends keyof AgentFormData>(k: K, v: AgentFormData[K]) =>
     setForm((f) => ({ ...f, [k]: v }))
@@ -383,7 +393,7 @@ function RegisterAgentModal({
       setFetched({
         name,
         agentId: 'agt_' + Math.random().toString(36).slice(2, 8),
-        model: 'claude-sonnet-4',
+        model: 'qwen3.6-35b',
         runtime: 'my-agents-sdk · Python 2.4.1',
         repo: 'acme/' + slug,
         commit: Math.random().toString(16).slice(2, 9),

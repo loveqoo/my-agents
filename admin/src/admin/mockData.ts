@@ -179,7 +179,7 @@ export const BLOCKS: Record<string, BlockCategory> = {
 
 /* ---------- 에이전트 ---------- */
 export const ADMIN_AGENTS: Agent[] = [
-  { id: 'research', name: 'Research Assistant', source: 'ui', agentId: 'agt_rsch_7f3a91', environments: ['sandbox', 'production'], model: 'claude-sonnet-4', status: 'online',
+  { id: 'research', name: 'Research Assistant', source: 'ui', agentId: 'agt_rsch_7f3a91', environments: ['sandbox', 'production'], model: 'qwen3.6-35b', status: 'online',
     persona: 'Methodical Researcher', memories: ['단기(세션)', '장기 기억 (mem0)'], historyDepth: 20, vectorTables: ['docs_kb', 'product_titles'],
     permissions: ['web.search', 'files.read'], mcps: ['tavily', 'filesystem'],
     exposed: { a2a: true }, sessions: 2, created: '2026-05-30',
@@ -188,7 +188,7 @@ export const ADMIN_AGENTS: Agent[] = [
       { version: 'v2', status: 'archived', createdAt: '2026-06-04', note: 'Added filesystem MCP' },
       { version: 'v1', status: 'archived', createdAt: '2026-05-30', note: 'Initial' },
     ] },
-  { id: 'reviewer', name: 'Code Reviewer', source: 'ui', agentId: 'agt_rvw_2b91c4', environments: ['sandbox', 'production'], model: 'gpt-4o', status: 'online',
+  { id: 'reviewer', name: 'Code Reviewer', source: 'ui', agentId: 'agt_rvw_2b91c4', environments: ['sandbox', 'production'], model: 'qwen3.6-35b', status: 'online',
     persona: 'Strict Senior Engineer', memories: ['단기(세션)'], historyDepth: 10, vectorTables: [],
     permissions: ['repo.read', 'repo.merge'], mcps: ['github', 'filesystem'],
     exposed: { a2a: true }, sessions: 1, created: '2026-06-02',
@@ -197,14 +197,14 @@ export const ADMIN_AGENTS: Agent[] = [
       { version: 'v2', status: 'active', createdAt: '2026-06-09', note: 'Added repo.merge (admin-gated)' },
       { version: 'v1', status: 'archived', createdAt: '2026-06-02', note: 'Initial' },
     ] },
-  { id: 'ops', name: 'Ops Copilot', source: 'ui', agentId: 'agt_ops_5c0833', environments: ['sandbox'], model: 'claude-haiku-4', status: 'idle',
+  { id: 'ops', name: 'Ops Copilot', source: 'ui', agentId: 'agt_ops_5c0833', environments: ['sandbox'], model: 'qwen3.6-35b', status: 'idle',
     persona: 'Calm SRE', memories: [], historyDepth: 6, vectorTables: [],
     permissions: ['k8s.read', 'k8s.write'], mcps: ['prometheus', 'kubernetes'],
     exposed: { a2a: false }, sessions: 0, created: '2026-06-10',
     activeVersion: 'v1', versions: [
       { version: 'v1', status: 'active', createdAt: '2026-06-10', note: 'Initial' },
     ] },
-  { id: 'secretary', name: 'Personal Secretary', source: 'ui', agentId: 'agt_sec_9d4417', environments: ['sandbox', 'production'], model: 'claude-sonnet-4', status: 'online',
+  { id: 'secretary', name: 'Personal Secretary', source: 'ui', agentId: 'agt_sec_9d4417', environments: ['sandbox', 'production'], model: 'qwen3.6-35b', status: 'online',
     persona: 'Warm Secretary', memories: ['단기(세션)', '장기 기억 (mem0)'], historyDepth: 40, vectorTables: ['team_notes'],
     permissions: ['calendar.rw', 'mail.send'], mcps: ['gcal', 'gmail', 'notion'],
     exposed: { a2a: false }, sessions: 1, created: '2026-06-15',
@@ -215,7 +215,7 @@ export const ADMIN_AGENTS: Agent[] = [
   /* 코드 정의 에이전트 — SDK로 빌드해 코드베이스에서 배포한 뒤, 엔드포인트 URL + 토큰으로
      콘솔에 등록한다. 구성은 실행 중인 배포가 보고(REPORTED)하므로 여기서는 읽기 전용이며,
      버전은 git 배포(commit)다. */
-  { id: 'translator', name: 'Doc Translator', source: 'code', agentId: 'agt_xlt_a17c33', environments: ['production'], model: 'claude-sonnet-4', status: 'online',
+  { id: 'translator', name: 'Doc Translator', source: 'code', agentId: 'agt_xlt_a17c33', environments: ['production'], model: 'qwen3.6-35b', status: 'online',
     persona: '코드 정의 (SDK)', memories: ['단기(세션)'], historyDepth: 10, vectorTables: [],
     permissions: ['web.search', 'files.read'], mcps: ['tavily'],
     exposed: { a2a: true }, sessions: 1, created: '2026-06-18',
