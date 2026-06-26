@@ -1,24 +1,34 @@
 /* my-agents admin — Sessions view: live & past conversation sessions, each with
    status; click a session to see its state detail. */
 import { useEffect, useState } from 'react'
-import { Tag, Button, Avatar, Alert, Radio, message } from 'antd'
+import { Tag, Button, Avatar, Alert, Radio, Pagination, message } from 'antd'
 import { Page, StatusPill, DataTable, Drawer, Desc, type Column } from '../shared'
 import { Icon } from '../icons'
 import { SESSION_STATUS, type Session } from '../mockData'
 import { listSessions, getSessionMessages, type SessionMessage } from '../../api'
 
+const PAGE_SIZE = 20
+
 export default function SessionsView() {
-  const [all, setAll] = useState<Session[]>([])
+  const [rows, setRows] = useState<Session[]>([])
+  const [total, setTotal] = useState(0)
+  const [counts, setCounts] = useState<Record<string, number>>({})
   const [filter, setFilter] = useState<string>('all')
+  const [page, setPage] = useState(1) // 1-base
   const [detail, setDetail] = useState<Session | null>(null)
   const [messages, setMessages] = useState<SessionMessage[]>([])
 
+  // 필터·페이지 변경 → 서버 재조회. 필터 전환 시 page=1로 리셋(아래 onChange에서).
   useEffect(() => {
     let cancelled = false
     ;(async () => {
       try {
-        const sessions = await listSessions()
-        if (!cancelled) setAll(sessions)
+        const data = await listSessions({ status: filter, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE })
+        if (!cancelled) {
+          setRows(data.items)
+          setTotal(data.total)
+          setCounts(data.counts)
+        }
       } catch {
         message.error('세션을 불러오지 못했습니다')
       }
@@ -26,7 +36,7 @@ export default function SessionsView() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [filter, page])
 
   useEffect(() => {
     if (!detail) {
@@ -47,13 +57,6 @@ export default function SessionsView() {
       cancelled = true
     }
   }, [detail])
-
-  const rows =
-    filter === 'all'
-      ? all
-      : filter === 'live'
-        ? all.filter((s) => s.status === 'active' || s.status === 'running' || s.status === 'draining')
-        : all.filter((s) => s.status === filter)
 
   const columns: Column<Session>[] = [
     {
@@ -119,29 +122,37 @@ export default function SessionsView() {
     },
   ]
 
-  const counts = {
-    all: all.length,
-    live: all.filter((s) => s.status === 'active' || s.status === 'running').length,
-    awaiting: all.filter((s) => s.status === 'awaiting').length,
-    error: all.filter((s) => s.status === 'error').length,
-  }
-
   return (
     <Page title="세션" subtitle="모든 채널에서 에이전트와 진행 중인 대화">
       <div style={{ marginBottom: 16 }}>
         <Radio.Group
           optionType="button"
           value={filter}
-          onChange={(e) => setFilter(e.target.value)}
+          onChange={(e) => {
+            setFilter(e.target.value)
+            setPage(1) // 필터 전환 시 첫 페이지로
+          }}
           options={[
-            { label: `전체 (${counts.all})`, value: 'all' },
-            { label: `라이브 (${counts.live})`, value: 'live' },
-            { label: `승인 대기 (${counts.awaiting})`, value: 'awaiting' },
-            { label: `오류 (${counts.error})`, value: 'error' },
+            { label: `전체 (${counts.all ?? 0})`, value: 'all' },
+            { label: `라이브 (${counts.live ?? 0})`, value: 'live' },
+            { label: `승인 대기 (${counts.awaiting ?? 0})`, value: 'awaiting' },
+            { label: `오류 (${counts.error ?? 0})`, value: 'error' },
           ]}
         />
       </div>
       <DataTable<Session> columns={columns} rows={rows} onRowClick={setDetail} empty="조건에 맞는 세션이 없습니다" />
+      {total > PAGE_SIZE ? (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+          <Pagination
+            current={page}
+            pageSize={PAGE_SIZE}
+            total={total}
+            showSizeChanger={false}
+            onChange={setPage}
+            showTotal={(t) => `총 ${t}건`}
+          />
+        </div>
+      ) : null}
 
       <Drawer
         open={!!detail}

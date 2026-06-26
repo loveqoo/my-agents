@@ -68,19 +68,20 @@ function StatTile({
 export default function OverviewView({ onGo }: { onGo: (v: string) => void }) {
   const [agents, setAgents] = useState<Agent[]>([])
   const [sessions, setSessions] = useState<Session[]>([])
+  const [live, setLive] = useState(0)
   const [blocks, setBlocks] = useState<Record<string, BlockCategory>>({})
 
   useEffect(() => {
-    Promise.all([listAgents(), listSessions(), getBlocks()])
+    // 라이브 세션 패널/카운트만 필요 → 서버 페이징(스펙 034)으로 live 버킷 상위 4건 + 전체 집계.
+    Promise.all([listAgents(), listSessions({ status: 'live', limit: 4 }), getBlocks()])
       .then(([a, s, b]) => {
         setAgents(a)
-        setSessions(s)
+        setSessions(s.items)
+        setLive(s.counts.live ?? 0)
         setBlocks(b)
       })
       .catch(() => message.error('개요 데이터를 불러오지 못했습니다'))
   }, [])
-
-  const live = sessions.filter((s) => s.status === 'active' || s.status === 'running').length
   const blockCount = Object.values(blocks).reduce((a, b) => a + b.items.length, 0)
   const exposed = agents.filter((a) => a.exposed.a2a).length
 

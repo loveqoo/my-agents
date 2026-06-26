@@ -214,7 +214,20 @@ export const testModelConfig = (body: {
 export const testSavedModel = (id: string) => post(`/models/${id}/test`) as Promise<ModelProbeResult>
 
 /* ---------- 세션 / 승인 ---------- */
-export const listSessions = () => j<Session[]>('/sessions')
+export interface SessionPage {
+  items: Session[]
+  total: number
+  counts: Record<string, number> // 키 all|live|awaiting|error
+}
+// 서버 페이징·필터(스펙 034). status 버킷(all|live|awaiting|error) + limit/offset.
+export const listSessions = (params?: { status?: string; limit?: number; offset?: number }) => {
+  const q = new URLSearchParams()
+  if (params?.status) q.set('status', params.status)
+  if (params?.limit != null) q.set('limit', String(params.limit))
+  if (params?.offset != null) q.set('offset', String(params.offset))
+  const qs = q.toString()
+  return j<SessionPage>(`/sessions${qs ? `?${qs}` : ''}`)
+}
 // 대화에 쓰인 distinct user_id(이제 로그인 유저 UUID — 스펙 032), 최근 사용순.
 // Playground 헤더 입력은 제거됐지만(032), 어드민 "유저 메모리" 조회(MemoryView)가 소비한다.
 export const listUserIds = () => j<string[]>('/sessions/users')

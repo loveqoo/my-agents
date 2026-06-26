@@ -34,3 +34,6 @@ tests/e2e/.last-run.json
 .dev/.secret_key
 .dev/.api_token
 .dev/.auth_secret
+
+# dev 서버 로그(전송 금지, 로컬 흔적)
+.dev/.api_server.log

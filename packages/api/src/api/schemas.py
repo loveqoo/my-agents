@@ -229,6 +229,14 @@ class SessionOut(BaseModel):
     lastActivity: str | None = None
 
 
+class SessionPage(BaseModel):
+    """세션 목록 페이지 엔벌로프 (스펙 034)."""
+
+    items: list[SessionOut]
+    total: int  # 현재 필터 적용 총 건수 (페이지네이터용)
+    counts: dict[str, int]  # 배지용 전체 집계, 키 all|live|awaiting|error (필터 무관)
+
+
 class MessageOut(BaseModel):
     role: str
     content: str
