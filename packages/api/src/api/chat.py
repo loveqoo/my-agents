@@ -15,11 +15,12 @@ import uuid
 
 import httpx
 from agent.main import build_agent
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 
 from . import crypto, memory, runtime
+from .auth import current_principal
 from .db import SessionLocal
 from .models import Agent, McpServer, Message, ModelConfig, Session
 from .schemas import ChatRequest
@@ -268,7 +269,7 @@ async def _persist(
         await db.commit()
 
 
-async def _remote_stream(ctx: dict, body: ChatRequest, user_text: str):
+async def _remote_stream(ctx: dict, body: ChatRequest, user_text: str, user_id: str | None):
     """코드 에이전트: 등록된 원격 엔드포인트로 프록시하고 응답을 우리 SSE로 재전송."""
     yield f"data: {json.dumps({'session': ctx['session_id']}, ensure_ascii=False)}\n\n"
     api_messages = _window(
@@ -333,7 +334,7 @@ async def _remote_stream(ctx: dict, body: ChatRequest, user_text: str):
     if not errored:
         await _persist(
             ctx["session_pk"], user_text, full, trace, tokens, ctx["persist_history"],
-            user_id=body.userId or None,
+            user_id=user_id,
         )
     yield f"event: trace\ndata: {json.dumps(trace, ensure_ascii=False)}\n\n"
     yield "event: done\ndata: [DONE]\n\n"
@@ -351,14 +352,18 @@ async def _external_notice_stream(ctx: dict):
 
 
 @router.post("/{agent_id}/chat")
-async def chat(agent_id: uuid.UUID, body: ChatRequest):
+async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current_principal)):
     ctx = await _load_context(agent_id, body.sessionId, body.overrides)
     user_text = body.messages[-1].content if body.messages else ""
+
+    # mem0 user_id 축 = 인증 주체에서 도출(스펙 032). 쿠키 유저면 안정 UUID(str(user.id)),
+    # 머신 토큰("machine" 센티넬)이면 None → 세션 단기 폴백(기존 "빈 userId" 동작과 동일, 무회귀).
+    user_id = None if isinstance(principal, str) else str(principal.id)
 
     # 코드(SDK) 에이전트는 자기 원격 엔드포인트에서 실행 — 프록시.
     if ctx["source"] == "code" and ctx["endpoint"]:
         return StreamingResponse(
-            _remote_stream(ctx, body, user_text), media_type="text/event-stream"
+            _remote_stream(ctx, body, user_text, user_id), media_type="text/event-stream"
         )
 
     # 외부(A2A) 에이전트는 비로컬 — 1차는 안내만(실제 호출은 2차 스펙).
@@ -373,7 +378,7 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest):
     # - add_scope: user_id+run_id만. **agent_id는 자동 add에 절대 태깅하지 않는다** — 유저 턴
     #   자동추출이 agent_id로 새면 user A의 사적 사실이 다른 유저에게 회상된다(스펙 020 누출 차단).
     #   agent_id 쓰기는 의도적 채널(save_agent_knowledge 도구·관리자 저작)로만. run_id=session_id.
-    add_scope = {"user_id": body.userId or None, "run_id": ctx["session_id"]}
+    add_scope = {"user_id": user_id, "run_id": ctx["session_id"]}
     recall_scope = {**add_scope, "agent_id": ctx["ext_agent_id"]}
 
     # 의미론적 메모리 회상 (켠 에이전트 + 등록 임베딩 모델 있을 때만). mem0는 동기 → 스레드로.
@@ -442,7 +447,7 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest):
         if not errored:
             await _persist(
                 ctx["session_pk"], user_text, full, trace, tokens, ctx["persist_history"],
-                user_id=body.userId or None,
+                user_id=user_id,
             )
         if not errored and used_memory and full:
             # 자동 턴 add는 add_scope(user_id+run_id만) — agent_id 미포함(누출 차단, 스펙 029).

@@ -8,7 +8,7 @@ import { Inspector } from './Inspector'
 import { OverridePanel, overrideDefaults, overridePayload, type Overrides } from './OverridePanel'
 import type { ChatMsg, Trace } from './agentData'
 import type { Agent, BlockCategory } from '../admin/mockData'
-import { listAgents, listUserIds, streamChat, getBlocks, listModels, type ChatMessage, type Model } from '../api'
+import { listAgents, streamChat, getBlocks, listModels, type ChatMessage, type Model } from '../api'
 
 export function Playground() {
   const [agents, setAgents] = useState<Agent[]>([])
@@ -19,10 +19,7 @@ export function Playground() {
   const [showPrompt, setShowPrompt] = useState(false)
   const [selectedTurn, setSelectedTurn] = useState<number | null>(null)
   const [inspectorOpen, setInspectorOpen] = useState(false)
-  // 메모리 스코프 테스트용: 비우면 세션 단기, 값이 있으면 그 유저로 세션 가로지르는 장기 기억.
-  const [userId, setUserId] = useState('')
-  // 그동안 대화에 쓰인 userId 목록(최근순) — 헤더 AutoComplete 선택지(스펙 021).
-  const [userIds, setUserIds] = useState<string[]>([])
+  // mem0 user_id 축은 서버가 로그인 유저에서 도출한다(스펙 032) — Playground에 수동 입력 없음.
   // 오버라이드 패널(스펙 025) — 카탈로그(모델·블록) + 에이전트별 적용 오버라이드.
   const [models, setModels] = useState<Model[]>([])
   const [blocks, setBlocks] = useState<Record<string, BlockCategory>>({})
@@ -71,19 +68,6 @@ export function Playground() {
   useEffect(() => {
     return () => {
       controllerRef.current?.abort()
-    }
-  }, [])
-
-  // 과거 userId 목록 로드(실패는 조용히 무시 — 자유 입력은 그대로 됨).
-  useEffect(() => {
-    let cancelled = false
-    listUserIds()
-      .then((ids) => {
-        if (!cancelled) setUserIds(ids)
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
     }
   }, [])
 
@@ -164,12 +148,8 @@ export function Playground() {
         },
         controller.signal,
         sessions[id],
-        userId.trim() || undefined,
         ovPayload, // 세션 한정 오버라이드(변경된 키만; 빈 객체면 streamChat이 보내지 않음)
       )
-      // 방금 쓴 userId를 목록 맨 앞으로(최근순) — 다음 로드 전에도 드롭다운에 보이게.
-      const uid = userId.trim()
-      if (uid) setUserIds((ids) => [uid, ...ids.filter((x) => x !== uid)])
     } catch (e) {
       if (e instanceof DOMException && e.name === 'AbortError') {
         /* 사용자가 취소 — 무시 */
@@ -189,8 +169,7 @@ export function Playground() {
     setShowPrompt(false)
   }
 
-  // "새 대화" — 활성 에이전트의 대화·세션을 비워 userId 입력을 다시 풀어준다(스펙 021).
-  // userId 자체는 유지 → 살짝 고쳐 다시 시작하기 쉽도록.
+  // "새 대화" — 활성 에이전트의 대화·세션을 비워 처음부터 다시 시작한다(스펙 032: userId 잠금 분리).
   const resetConversation = () => {
     stop()
     setConvos((c) => ({ ...c, [activeId]: [] }))
@@ -240,10 +219,7 @@ export function Playground() {
         onSelectTurn={openInspector}
         onSend={send}
         onStop={stop}
-        userId={userId}
-        onUserIdChange={setUserId}
-        userIds={userIds}
-        userIdLocked={messages.length > 0}
+        canResetConversation={messages.length > 0}
         onResetConversation={resetConversation}
         showPrompt={showPrompt}
         onTogglePrompt={() => setShowPrompt((s) => !s)}

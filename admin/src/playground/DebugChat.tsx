@@ -4,7 +4,7 @@
    agents come from the backend, turns/traces come from the streaming chat API. */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Bubble, Sender, Prompts } from '@ant-design/x'
-import { Avatar, Button, Tag, Grid, AutoComplete, Tooltip } from 'antd'
+import { Avatar, Button, Tag, Grid, Tooltip } from 'antd'
 import { Icon } from '../admin/icons'
 import type { ChatMsg, Trace } from './agentData'
 import type { Agent } from '../admin/mockData'
@@ -81,10 +81,7 @@ interface DebugChatProps {
   onSelectTurn: (i: number) => void
   onSend: (text: string) => void
   onStop: () => void
-  userId: string
-  onUserIdChange: (v: string) => void
-  userIds: string[]
-  userIdLocked: boolean
+  canResetConversation: boolean
   onResetConversation: () => void
   showPrompt: boolean
   onTogglePrompt: () => void
@@ -290,10 +287,7 @@ function ChatHeader({
   agent,
   agents,
   onSwitchAgent,
-  userId,
-  onUserIdChange,
-  userIds,
-  userIdLocked,
+  canResetConversation,
   onResetConversation,
   showPrompt,
   onTogglePrompt,
@@ -306,10 +300,7 @@ function ChatHeader({
   agent: Agent
   agents: Agent[]
   onSwitchAgent: (id: string) => void
-  userId: string
-  onUserIdChange: (v: string) => void
-  userIds: string[]
-  userIdLocked: boolean
+  canResetConversation: boolean
   onResetConversation: () => void
   showPrompt: boolean
   onTogglePrompt: () => void
@@ -332,41 +323,14 @@ function ChatHeader({
       <div style={{ height: 64, display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 12, padding: isMobile ? '0 12px' : '0 20px' }}>
         <AgentCombo agent={agent} agents={agents} onSwitch={onSwitchAgent} />
         <div style={{ flex: 1 }} />
-        {/* 유저 식별 입력 — 비우면 세션 단기 기억, 값이 있으면 그 유저로 세션 가로지르는 장기 기억.
-            AutoComplete: 자유 입력 유지 + 과거 userId를 드롭다운으로 제시(부분일치 필터, 최근순).
-            주의: `options`와 커스텀 child(<Input>)를 함께 쓰면 antd 박스 모델이 깨져 겹친다 —
-            내장 입력만 쓰고 placeholder/allowClear를 직접 둔다(그래서 prefix 아이콘은 포기).
-            진행 중인 대화에서는 disabled — 세션 중간에 userId가 바뀌면 메모리 스코프가 섞이기 때문.
-            (Tooltip은 disabled 엘리먼트에서 hover가 안 잡혀, span으로 감싸 트리거를 살린다.) */}
-        <Tooltip
-          title={
-            userIdLocked
-              ? '대화 중에는 userId를 바꿀 수 없습니다 — "새 대화"로 초기화하세요.'
-              : '유저로서 대화 — 비우면 세션 단기 기억, 값을 넣으면 그 유저로 세션을 넘는 장기 기억을 유지합니다.'
-          }
-        >
-          <span style={{ display: 'inline-flex', flexShrink: 0 }}>
-            <AutoComplete
-              size="small"
-              allowClear
-              disabled={userIdLocked}
-              value={userId}
-              onChange={(v) => onUserIdChange(v ?? '')}
-              placeholder="userId"
-              options={userIds.map((u) => ({ value: u }))}
-              filterOption={(input, option) =>
-                (option?.value ?? '').toLowerCase().includes(input.toLowerCase())
-              }
-              style={{ width: isMobile ? 110 : 150 }}
-            />
-          </span>
-        </Tooltip>
-        {userIdLocked && (
+        {/* mem0 user_id 축은 서버가 로그인 유저에서 도출한다(스펙 032) — 수동 userId 입력은 제거.
+            "새 대화"는 userId 잠금에서 분리된 일반 리셋: 진행 중인 대화가 있을 때만 노출. */}
+        {canResetConversation && (
           <Button
             size="small"
             icon={<Icon name="plus" />}
             onClick={onResetConversation}
-            title='새 대화 — 대화를 비우고 userId를 다시 바꿀 수 있게 합니다.'
+            title="새 대화 — 현재 대화를 비우고 처음부터 시작합니다."
           >
             {compact ? null : '새 대화'}
           </Button>
@@ -489,10 +453,7 @@ export function DebugChat({
   onSelectTurn,
   onSend,
   onStop,
-  userId,
-  onUserIdChange,
-  userIds,
-  userIdLocked,
+  canResetConversation,
   onResetConversation,
   showPrompt,
   onTogglePrompt,
@@ -542,10 +503,7 @@ export function DebugChat({
         agent={agent}
         agents={agents}
         onSwitchAgent={onSwitchAgent}
-        userId={userId}
-        onUserIdChange={onUserIdChange}
-        userIds={userIds}
-        userIdLocked={userIdLocked}
+        canResetConversation={canResetConversation}
         onResetConversation={onResetConversation}
         showPrompt={showPrompt}
         onTogglePrompt={onTogglePrompt}

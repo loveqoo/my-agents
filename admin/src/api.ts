@@ -215,7 +215,8 @@ export const testSavedModel = (id: string) => post(`/models/${id}/test`) as Prom
 
 /* ---------- 세션 / 승인 ---------- */
 export const listSessions = () => j<Session[]>('/sessions')
-// 대화에 쓰인 distinct userId, 최근 사용순 (Playground 헤더 선택지 — 스펙 021).
+// 대화에 쓰인 distinct user_id(이제 로그인 유저 UUID — 스펙 032), 최근 사용순.
+// Playground 헤더 입력은 제거됐지만(032), 어드민 "유저 메모리" 조회(MemoryView)가 소비한다.
 export const listUserIds = () => j<string[]>('/sessions/users')
 export interface SessionMessage {
   role: string
@@ -261,7 +262,6 @@ export async function streamChat(
   cb: ChatCallbacks | ((t: string) => void),
   signal?: AbortSignal,
   sessionId?: string,
-  userId?: string,
   // Playground "Proxy" 세션 한정 오버라이드(스펙 025). 변경된 키만 담긴 부분 객체 →
   // 비었으면 보내지 않아 서버는 저장된 에이전트 설정 그대로 실행(무회귀). 코드 에이전트는 서버가 무시.
   overrides?: Record<string, unknown>,
@@ -272,11 +272,10 @@ export async function streamChat(
     method: 'POST',
     credentials: 'include',
     headers: authHeaders(true),
-    // userId 빈 값은 보내지 않음 → 서버에서 세션 단기로 폴백.
+    // mem0 user_id 축은 서버가 인증 주체에서 도출한다(스펙 032) — 클라이언트는 보내지 않음.
     body: JSON.stringify({
       messages,
       sessionId,
-      userId: userId || undefined,
       overrides: hasOverrides ? overrides : undefined,
     }),
     signal,
