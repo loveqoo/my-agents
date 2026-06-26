@@ -23,6 +23,54 @@ const STATUS_DOT: Record<string, string> = {
 }
 const statusDot = (status: string) => STATUS_DOT[status] ?? 'var(--gray-6)'
 
+/* 모델 배지를 source별로 정직하게 (스펙 028). code 에이전트는 model 필드가 박혀 있어도
+   로컬 모델로 돌지 않고 자기 원격 엔드포인트(dev=mock)로 bypass하므로 모델명을 띄우면
+   거짓이다 → "코드 정의"(persona "코드 정의 (SDK)"·AgentsView 소스 표기와 일관).
+   external은 A2A 원격 → "외부 A2A"(AGENT_SOURCE.external.label과 동일). ui만 실행 모델 맞아 모델명. */
+function modelBadge(a: Agent): { text: string; remote: boolean; tip?: ReactNode } {
+  if (a.source === 'code')
+    return {
+      text: '코드 정의',
+      remote: true,
+      tip: (
+        <span style={{ whiteSpace: 'pre-line' }}>
+          {['원격 엔드포인트에서 실행 — 로컬 모델 미사용', a.runtime, a.endpoint].filter(Boolean).join('\n')}
+        </span>
+      ),
+    }
+  if (a.source === 'external')
+    return { text: '외부 A2A', remote: true, tip: a.card?.url ?? a.endpoint }
+  return { text: a.model, remote: false }
+}
+
+/* size='header': 헤더 칩(pill). size='row': 피커 행의 작은 텍스트. remote면 primary 대신 중립색. */
+function ModelBadge({ a, size }: { a: Agent; size: 'header' | 'row' }) {
+  const b = modelBadge(a)
+  const header = size === 'header'
+  const chip = (
+    <span
+      style={{
+        fontFamily: 'var(--font-family-code)',
+        fontWeight: header ? 600 : 400,
+        fontSize: header ? undefined : 11,
+        color: b.remote ? 'var(--color-text-tertiary)' : header ? 'var(--color-primary)' : 'var(--color-text-tertiary)',
+        ...(header
+          ? {
+              background: b.remote ? 'var(--color-fill-tertiary)' : 'var(--color-primary-bg)',
+              border: '1px solid ' + (b.remote ? 'var(--color-border)' : 'var(--color-primary-border)'),
+              borderRadius: 5,
+              padding: '0 5px',
+              marginInlineEnd: 6,
+            }
+          : {}),
+      }}
+    >
+      {b.text}
+    </span>
+  )
+  return b.tip ? <Tooltip title={b.tip}>{chip}</Tooltip> : chip
+}
+
 interface DebugChatProps {
   agent: Agent | null
   agents: Agent[]
@@ -132,21 +180,8 @@ function AgentCombo({
               whiteSpace: 'nowrap',
             }}
           >
-            {/* 연결된 모델을 한눈에 — 칩으로 강조(헤더에서 바로 확인, 사용자 피드백 #5). */}
-            <span
-              style={{
-                fontFamily: 'var(--font-family-code)',
-                fontWeight: 600,
-                color: 'var(--color-primary)',
-                background: 'var(--color-primary-bg)',
-                border: '1px solid var(--color-primary-border)',
-                borderRadius: 5,
-                padding: '0 5px',
-                marginInlineEnd: 6,
-              }}
-            >
-              {agent.model}
-            </span>
+            {/* 실행 주체를 한눈에 — ui=모델명, code=코드 정의, external=외부 A2A (스펙 028). */}
+            <ModelBadge a={agent} size="header" />
             {agent.persona}
           </span>
         </span>
@@ -230,7 +265,7 @@ function AgentCombo({
                     <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--color-text-heading)' }}>{a.name}</span>
                     {on ? <Icon name="check" size={12} style={{ color: 'var(--color-primary)' }} /> : null}
                     <span style={{ flex: 1 }} />
-                    <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-family-code)' }}>{a.model}</span>
+                    <ModelBadge a={a} size="row" />
                   </span>
                   <span style={{ display: 'block', fontSize: 12, color: 'var(--color-text-secondary)', marginTop: 1 }}>{a.persona}</span>
                   <span style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
