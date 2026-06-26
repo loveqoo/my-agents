@@ -170,6 +170,54 @@ async def _load_context(
         return ctx
 
 
+async def resolve_agent_mem_cfg(db, agent) -> dict | None:
+    """에이전트의 mem0 설정(레지스트리 chat llm + 기본 embedding)을 해석. 없으면 None.
+
+    관리자 메모리 CRUD(agents.py 스펙 029)가 _load_context와 같은 규칙으로 mem_cfg를 얻는 단일
+    경로. 코드·외부 에이전트는 비로컬(원격/A2A)이라 로컬 mem0가 없다 → None.
+    """
+    if agent.source in ("code", "external"):
+        return None
+    cfg = dict(agent.config or {})
+    model_name = cfg.get("model")
+    m = None
+    if model_name:
+        m = (
+            await db.execute(
+                select(ModelConfig).where(
+                    ModelConfig.name == model_name, ModelConfig.kind == "chat"
+                )
+            )
+        ).scalar_one_or_none()
+    if m is None:
+        m = (
+            await db.execute(
+                select(ModelConfig).where(
+                    ModelConfig.kind == "chat", ModelConfig.is_default.is_(True)
+                )
+            )
+        ).scalars().first()
+    if m is None or not m.base_url or not m.model_id:
+        return None
+    emb = (
+        await db.execute(
+            select(ModelConfig).where(
+                ModelConfig.kind == "embedding", ModelConfig.is_default.is_(True)
+            )
+        )
+    ).scalars().first()
+    if emb is None:
+        return None
+    return {
+        "llm": {
+            "base_url": m.base_url, "api_key": crypto.decrypt(m.api_key), "model_id": m.model_id,
+        },
+        "embedder": {
+            "base_url": emb.base_url, "api_key": crypto.decrypt(emb.api_key), "model_id": emb.model_id,
+        },
+    }
+
+
 def _window(messages: list[dict], depth: int | None) -> list[dict]:
     """실행 컨텍스트를 최근 N개로 절단. 0=현재 턴만, 음수/None=전체.
     ([-0:]가 전체가 되는 파이썬 함정 처리)."""
@@ -303,22 +351,30 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest):
             _external_notice_stream(ctx), media_type="text/event-stream"
         )
 
-    # 메모리 스코프(다층 — 스펙 020): userId 있으면 user_id(세션 가로지름)+run_id를 함께 태깅,
-    # 없으면 run_id(세션 단기)만. add는 제공 축 전부 태깅하고, search는 축별로 따로 검색해 합집합
-    # 병합한다(mem0 필터는 AND이므로 — memory.py 참고). user_id/run_id는 mem0 entity 검증을 거치며
-    # 실패해도 graceful 무력화. agent_id(에이전트 전용)는 후속 스펙까지 미노출. run_id=session_id.
-    mem_scope = {"user_id": body.userId or None, "run_id": ctx["session_id"]}
+    # 메모리 스코프(다층 — 스펙 020/029). 회상(search)과 자동 쓰기(add)는 **축이 다르다**:
+    # - recall_scope: user_id(세션 가로지름)+run_id(세션 단기)+agent_id(에이전트 전용 — 스펙 029).
+    #   search는 축별로 따로 검색해 합집합 병합(mem0 필터는 AND이므로 — memory.py 참고).
+    # - add_scope: user_id+run_id만. **agent_id는 자동 add에 절대 태깅하지 않는다** — 유저 턴
+    #   자동추출이 agent_id로 새면 user A의 사적 사실이 다른 유저에게 회상된다(스펙 020 누출 차단).
+    #   agent_id 쓰기는 의도적 채널(save_agent_knowledge 도구·관리자 저작)로만. run_id=session_id.
+    add_scope = {"user_id": body.userId or None, "run_id": ctx["session_id"]}
+    recall_scope = {**add_scope, "agent_id": ctx["ext_agent_id"]}
 
     # 의미론적 메모리 회상 (켠 에이전트 + 등록 임베딩 모델 있을 때만). mem0는 동기 → 스레드로.
     used_memory = memory.memory_enabled(ctx["memories"]) and ctx["mem_cfg"] is not None
     mem_hits = (
-        await asyncio.to_thread(memory.search, mem_scope, user_text, ctx["mem_cfg"])
+        await asyncio.to_thread(memory.search, recall_scope, user_text, ctx["mem_cfg"])
         if used_memory
         else []
     )
 
     calls_sink: list[dict] = []
     tools = runtime.build_tools(ctx["mcp_pairs"], calls_sink)
+    # 에이전트 자가기록 도구 — mem0 켜진 에이전트에만 주입(스펙 029). agent_id-only·infer=False.
+    if used_memory:
+        tools.append(
+            runtime.build_agent_memory_tool(ctx["ext_agent_id"], ctx["mem_cfg"], calls_sink)
+        )
 
     # 회상된 기억은 persona(시스템 프롬프트)에 합친다. 별도 system 메시지로 주입하면
     # create_react_agent의 persona system과 충돌해 모델 채팅 템플릿이 거부한다
@@ -364,8 +420,8 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest):
         )
         trace["contextMessages"] = len(messages)  # 모델에 넣은 메시지 수(historyDepth 적용 결과)
         if used_memory:
-            # None이 아닌 축만 — {"user_id","run_id"} 또는 {"run_id"} (Inspector가 축별 렌더).
-            trace["memoryScope"] = {k: v for k, v in mem_scope.items() if v}
+            # None이 아닌 회상 축만 — {"user_id","run_id","agent_id"} 부분집합 (Inspector가 축별 렌더).
+            trace["memoryScope"] = {k: v for k, v in recall_scope.items() if v}
         # 오류 턴은 영속/메모리 저장하지 않는다 (부분/실패 응답 오염 방지).
         if not errored:
             await _persist(
@@ -373,9 +429,10 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest):
                 user_id=body.userId or None,
             )
         if not errored and used_memory and full:
+            # 자동 턴 add는 add_scope(user_id+run_id만) — agent_id 미포함(누출 차단, 스펙 029).
             await asyncio.to_thread(
                 memory.add,
-                mem_scope,
+                add_scope,
                 [{"role": "user", "content": user_text}, {"role": "assistant", "content": full}],
                 ctx["mem_cfg"],
             )

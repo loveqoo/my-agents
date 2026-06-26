@@ -36,6 +36,7 @@ async function j<T>(path: string, init?: RequestInit): Promise<T> {
 const post = (p: string, body?: unknown) =>
   j(p, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) })
 const put = (p: string, body: unknown) => j(p, { method: 'PUT', body: JSON.stringify(body) })
+const patch = (p: string, body: unknown) => j(p, { method: 'PATCH', body: JSON.stringify(body) })
 const del = (p: string) => j<void>(p, { method: 'DELETE' })
 
 /* ---------- 빌딩 블록 ---------- */
@@ -73,6 +74,19 @@ export const registerCodeAgent = (body: unknown) => post('/agents/register', bod
 export const registerExternalAgent = (cardUrl: string, token?: string) =>
   post('/agents/external', { cardUrl, token: token || undefined }) as Promise<Agent>
 export const resyncAgent = (id: string) => post(`/agents/${id}/resync`) as Promise<Agent>
+
+/* ---------- 에이전트 전용 메모리 큐레이션 (스펙 029) ---------- */
+export interface AgentMemory {
+  id: string
+  text: string
+}
+export const listAgentMemory = (id: string) => j<AgentMemory[]>(`/agents/${id}/memory`)
+export const addAgentMemory = (id: string, text: string) =>
+  post(`/agents/${id}/memory`, { text })
+export const updateAgentMemory = (id: string, memId: string, text: string) =>
+  patch(`/agents/${id}/memory/${memId}`, { text })
+export const deleteAgentMemory = (id: string, memId: string) =>
+  del(`/agents/${id}/memory/${memId}`)
 
 /* ---------- 모델 (LLM·임베딩 레지스트리) ---------- */
 export interface Model {

@@ -68,6 +68,51 @@ def build_tools(
     return tools
 
 
+def build_agent_memory_tool(
+    ext_agent_id: str, mem_cfg: dict | None, calls_sink: list[dict]
+) -> StructuredTool:
+    """에이전트 자가기록 도구(스펙 029). 호출 시 agent_id-only·infer=False로 mem0에 저장.
+
+    누출 안전: **agent_id만** 태깅(user_id·run_id 안 붙임) → 특정 유저 메모리 오염 0. 도구 설명으로
+    '재사용 가능한 일반 지식만, 지금 대화 중인 유저 개인정보는 금지'를 규율한다. 자동추출이 아니라
+    에이전트가 의도적으로 호출할 때만 발생하는 게 핵심(스펙 020 누출 차단의 '의도적 쓰기 채널').
+    """
+    from . import memory  # 지연 임포트(순환 회피)
+
+    def _save(fact: str = "") -> str:
+        t0 = time.perf_counter()
+        fact = (fact or "").strip()
+        if not fact:
+            return "저장할 사실이 비어 있습니다."
+        memory.add(
+            {"agent_id": ext_agent_id},
+            [{"role": "user", "content": fact}],
+            mem_cfg,
+            infer=False,
+        )
+        calls_sink.append(
+            {
+                "server": "memory",
+                "tool": "save_agent_knowledge",
+                "status": "ok",
+                "ms": int((time.perf_counter() - t0) * 1000) + 1,
+                "args": {"fact": fact},
+                "result": "saved (agent 전용)",
+            }
+        )
+        return "에이전트 전용 기억으로 저장했습니다."
+
+    return StructuredTool.from_function(
+        func=_save,
+        name="save_agent_knowledge",
+        description=(
+            "이 에이전트가 앞으로 재사용할 **일반 지식**(역할·도메인·절차·선호 등)을 자신의 전용 "
+            "기억에 저장한다. 지금 대화 중인 특정 사용자에 대한 개인정보·사실은 절대 저장하지 말 것"
+            "(그건 사용자 메모리에 자동 저장된다). 입력: fact(저장할 한 줄 사실)."
+        ),
+    )
+
+
 def build_graph_path(used_memory: bool, used_tools: bool, total_ms: int) -> list[dict]:
     """관측된 실행으로 LangGraph 경로 트레이스를 합성. 인스펙터 표시용."""
     nodes = ["__start__"]

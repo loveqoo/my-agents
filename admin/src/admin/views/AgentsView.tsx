@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Tag, Button, Avatar, Select, Input, Checkbox, Switch, Modal, Alert, message } from 'antd'
 import { Page, StatusPill, DataTable, Drawer, Desc, VersionHistory, ExposeSwitch, type Column } from '../shared'
 import { Icon } from '../icons'
+import { AgentMemoryPanel } from './AgentMemoryPanel'
 import {
   BLOCKS,
   AGENT_STATUS,
@@ -1139,6 +1140,11 @@ function AgentDetail({
           ) : (
             <span style={{ color: 'var(--color-text-tertiary)' }}>연결 안 함 (외부 지식 없음)</span>
           )}
+        </Desc>
+      ) : null}
+      {(agent.memories || []).includes('장기 기억 (mem0)') && agent.source === 'ui' ? (
+        <Desc label="에이전트 지식 (mem0)">
+          <AgentMemoryPanel agentId={agent.id} />
         </Desc>
       ) : null}
       <Desc label="권한">

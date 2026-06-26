@@ -2,8 +2,9 @@
 
 스코프는 호출자(chat.py)가 **dict로** 정한다: `{"user_id", "agent_id", "run_id"}`(None 허용).
 mem0의 세 스코프 축에 각각 싣는다 — `user_id`=유저 사실(세션 가로지름), `run_id`=세션 단기.
-`agent_id`(에이전트 전용 메모리)는 시그니처에 자리만 예약 — 이번 스펙(020)에서는 항상 None,
-안전한 쓰기 채널 확정 후 후속 스펙에서 채운다.
+`agent_id`(에이전트 전용 메모리)는 스펙 029에서 채워졌다 — 회상(search)은 agent_id 축을 포함하고,
+쓰기는 **의도적 채널로만**(에이전트 자가기록 도구·관리자 저작, 둘 다 agent_id-only + infer=False).
+턴 자동 add는 누출 방지를 위해 agent_id를 **태깅하지 않는다**(user_id+run_id만).
 
 mem0 필터는 **AND**다(여러 축을 한 질의에 넘기면 교집합). 따라서 "유저 사실 ∪ 세션 사실"의
 합집합 회상은 **축별로 따로 검색해 병합**한다(id dedup, score 정렬). 풍부 태깅된 기억은
@@ -28,7 +29,7 @@ log = logging.getLogger("api.memory")
 
 # 카탈로그에서 mem0 장기 메모리를 켜는 토글 이름(seed.py MEMORY_TYPES와 동일해야 함).
 LONG_TERM_MEMORY = "장기 기억 (mem0)"
-# 스코프 축 우선순위(검색 병합·태깅 순서). agent_id는 후속 스펙까지 항상 None.
+# 스코프 축 우선순위(검색 병합·태깅 순서). agent_id는 029에서 의도적 채널(자가기록·관리자 저작)로만 채운다.
 _SCOPE_AXES = ("user_id", "run_id", "agent_id")
 # pgvector 테이블 차원은 생성 시 고정된다 — 기본 임베딩 모델(레지스트리)의 출력 차원과 반드시 일치해야 한다.
 # 불일치 시 insert가 깨지고 mem0 add는 except로 삼켜 메모리가 조용히 죽는다(스펙 019). 현재 기본
@@ -170,17 +171,72 @@ def search(scope: dict, query: str, mem_cfg: dict | None, limit: int = 4) -> lis
     return hits[:limit]
 
 
-def add(scope: dict, messages: list[dict], mem_cfg: dict | None) -> None:
+def add(scope: dict, messages: list[dict], mem_cfg: dict | None, infer: bool = True) -> None:
     """대화 턴을 메모리에 저장. 실패/무력화 시 무시.
 
-    제공된 모든 축(user_id/run_id/…)을 **한 번에** 태깅한다 — 풍부 태깅된 기억은 이후 부분집합
+    제공된 모든 축(user_id/run_id/agent_id)을 **한 번에** 태깅한다 — 풍부 태깅된 기억은 이후 부분집합
     필터(축별 검색)로 양쪽에서 회상된다(스펙 020). 축이 하나도 없으면 저장하지 않는다.
+
+    infer: True(기본)면 LLM이 대화에서 사실을 추출·통합(mem0 기본 동작). False면 messages 본문을
+    **원문 그대로** 저장한다(스펙 029 — 에이전트 자가기록·관리자 저작처럼 이미 정제된 한 줄 사실용:
+    재추출로 모양이 바뀌지 않게).
     """
     mem = _get_memory(mem_cfg)
     kwargs = {axis: val for axis, val in _scope_axes(scope)}
     if mem is None or not messages or not kwargs:
         return
     try:
-        mem.add(messages, **kwargs)
+        mem.add(messages, infer=infer, **kwargs)
     except Exception as exc:
         log.warning("mem0 add failed: %s", exc)
+
+
+def list_memories(scope: dict, mem_cfg: dict | None) -> list[dict]:
+    """스코프 축의 모든 기억을 [{id, text}]로. 실패/무력화 시 []. (관리자 큐레이션·스펙 029)
+
+    축별로 따로 get_all 후 id로 병합(mem0 필터는 AND이므로 — search와 동형).
+    """
+    mem = _get_memory(mem_cfg)
+    axes = _scope_axes(scope)
+    if mem is None or not axes:
+        return []
+    merged: dict[str, dict] = {}
+    for axis, val in axes:
+        try:
+            res = mem.get_all(filters={axis: val})
+        except Exception as exc:
+            log.warning("mem0 get_all failed (%s): %s", axis, exc)
+            continue
+        rows = res.get("results", res) if isinstance(res, dict) else res
+        for r in rows or []:
+            mem_id = r.get("id")
+            if not mem_id:
+                continue
+            merged[mem_id] = {"id": mem_id, "text": r.get("memory") or r.get("text") or ""}
+    return list(merged.values())
+
+
+def update_memory(mem_id: str, text: str, mem_cfg: dict | None) -> bool:
+    """기억 본문 수정. 성공 True / 실패·무력화 False. (스펙 029)"""
+    mem = _get_memory(mem_cfg)
+    if mem is None or not mem_id:
+        return False
+    try:
+        mem.update(memory_id=mem_id, data=text)
+        return True
+    except Exception as exc:
+        log.warning("mem0 update failed: %s", exc)
+        return False
+
+
+def delete_memory(mem_id: str, mem_cfg: dict | None) -> bool:
+    """기억 삭제. 성공 True / 실패·무력화 False. (스펙 029)"""
+    mem = _get_memory(mem_cfg)
+    if mem is None or not mem_id:
+        return False
+    try:
+        mem.delete(memory_id=mem_id)
+        return True
+    except Exception as exc:
+        log.warning("mem0 delete failed: %s", exc)
+        return False
