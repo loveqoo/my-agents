@@ -3,7 +3,7 @@
    antd dark Sider 기본 배경(#001529)이 번들 navy와 동일하다. 라우터는 쓰지 않고
    내부 상태로 전환(딥링크 필요해지면 추후 react-router). */
 import { useEffect, useState, type ReactNode } from 'react'
-import { Layout, Menu, Input, Avatar, Badge, Button, theme, Grid } from 'antd'
+import { Layout, Menu, Input, Avatar, Badge, Button, Dropdown, theme, Grid, message } from 'antd'
 import {
   DashboardOutlined,
   RobotOutlined,
@@ -13,6 +13,8 @@ import {
   ThunderboltOutlined,
   DatabaseOutlined,
   ReadOutlined,
+  TeamOutlined,
+  LogoutOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   SearchOutlined,
@@ -25,7 +27,9 @@ import ModelsView from './views/ModelsView'
 import SessionsView from './views/SessionsView'
 import MemoryView from './views/MemoryView'
 import ApprovalsView from './views/ApprovalsView'
+import UsersView from './views/UsersView'
 import { Playground } from '../playground/Playground'
+import { logout as apiLogout, type Me } from '../api'
 
 const { Sider, Header, Content } = Layout
 
@@ -37,6 +41,7 @@ type ViewKey =
   | 'sessions'
   | 'memory'
   | 'approvals'
+  | 'users'
   | 'debug'
 
 const TITLES: Record<ViewKey, string> = {
@@ -47,10 +52,11 @@ const TITLES: Record<ViewKey, string> = {
   sessions: '세션',
   memory: '메모리',
   approvals: '승인',
+  users: '유저',
   debug: 'Playground',
 }
 
-export default function AdminShell() {
+export default function AdminShell({ user, onLogout }: { user: Me; onLogout: () => void }) {
   const [view, setView] = useState<ViewKey>('agents')
   const [collapsed, setCollapsed] = useState(false)
   const { token } = theme.useToken()
@@ -87,6 +93,10 @@ export default function AdminShell() {
         </span>
       ),
     },
+    // 유저 관리는 admin 보호 라우트 — 슈퍼유저에게만 메뉴 노출(1차; role 기반 노출은 추후).
+    ...(user.is_superuser
+      ? [{ key: 'users' as const, icon: <TeamOutlined />, label: '유저' }]
+      : []),
     {
       type: 'group' as const,
       label: collapsed ? '' : '도구',
@@ -102,7 +112,18 @@ export default function AdminShell() {
     sessions: <SessionsView />,
     memory: <MemoryView />,
     approvals: <ApprovalsView />,
+    users: <UsersView />,
     debug: <Playground />,
+  }
+
+  const doLogout = async () => {
+    try {
+      await apiLogout()
+    } catch {
+      message.error('로그아웃 요청 실패 — 세션을 정리합니다')
+    } finally {
+      onLogout()
+    }
   }
 
   return (
@@ -176,7 +197,7 @@ export default function AdminShell() {
           />
         </div>
 
-        {/* 워크스페이스 사용자 */}
+        {/* 로그인 사용자 + 로그아웃 */}
         <div
           style={{
             flex: 'none',
@@ -184,17 +205,35 @@ export default function AdminShell() {
             borderTop: '1px solid rgba(255,255,255,.08)',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 8px' }}>
-            <Avatar size="small" style={{ background: 'var(--volcano-6)', flex: 'none' }}>
-              U
-            </Avatar>
-            {!collapsed && (
-              <div style={{ color: 'rgba(255,255,255,.85)', fontSize: 13, lineHeight: 1.2 }}>
-                <div style={{ fontWeight: 500 }}>나</div>
-                <div style={{ color: 'rgba(255,255,255,.45)', fontSize: 11 }}>개인 워크스페이스</div>
-              </div>
-            )}
-          </div>
+          <Dropdown
+            trigger={['click']}
+            placement="topLeft"
+            menu={{
+              items: [
+                { key: 'who', label: user.email, disabled: true },
+                { type: 'divider' as const },
+                { key: 'logout', icon: <LogoutOutlined />, label: '로그아웃', onClick: () => void doLogout() },
+              ],
+            }}
+          >
+            <div
+              style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 8px', cursor: 'pointer', borderRadius: 6 }}
+            >
+              <Avatar size="small" style={{ background: 'var(--volcano-6)', flex: 'none' }}>
+                {(user.display_name || user.email).charAt(0).toUpperCase()}
+              </Avatar>
+              {!collapsed && (
+                <div style={{ color: 'rgba(255,255,255,.85)', fontSize: 13, lineHeight: 1.2, minWidth: 0 }}>
+                  <div style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {user.display_name || user.email}
+                  </div>
+                  <div style={{ color: 'rgba(255,255,255,.45)', fontSize: 11 }}>
+                    {user.is_superuser ? '슈퍼유저' : '사용자'}
+                  </div>
+                </div>
+              )}
+            </div>
+          </Dropdown>
         </div>
         </div>
       </Sider>

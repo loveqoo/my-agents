@@ -6,6 +6,8 @@ import type { Agent, Approval, BlockCategory, Session } from './admin/mockData'
 // 브라우저는 API 호스트를 모르므로 tailscale 도메인/IP/scheme가 바뀌어도 무설정 동작(CORS·mixed-content·cert 회피).
 // 별도 호스트로 직접 붙고 싶을 때만 VITE_API_BASE로 절대 URL을 준다.
 const BASE = import.meta.env.VITE_API_BASE ?? '/api'
+// 인증은 세션 쿠키(fastapi-users, 스펙 031)가 기본 — same-origin이라 쿠키가 자동 동행한다.
+// VITE_API_TOKEN은 머신 Bearer 토큰 하위호환용(헤드리스/E2E). 있으면 함께 보낸다.
 const TOKEN = import.meta.env.VITE_API_TOKEN ?? ''
 
 export type { Agent, Approval, BlockCategory, Session }
@@ -15,7 +17,13 @@ export interface ChatMessage {
   content: string
 }
 
-/** 모든 요청 공통 헤더 (Bearer 인증 + 본문 시 JSON). */
+// 401(세션 만료·미인증) 전역 핸들러 — AuthGate가 등록해 로그인 화면으로 되돌린다.
+let unauthorizedHandler: (() => void) | null = null
+export function setUnauthorizedHandler(fn: (() => void) | null): void {
+  unauthorizedHandler = fn
+}
+
+/** 모든 요청 공통 헤더 (머신 Bearer 토큰 하위호환 + 본문 시 JSON). */
 function authHeaders(hasBody: boolean): Record<string, string> {
   const h: Record<string, string> = {}
   if (TOKEN) h.Authorization = `Bearer ${TOKEN}`
@@ -26,8 +34,13 @@ function authHeaders(hasBody: boolean): Record<string, string> {
 async function j<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     ...init,
+    credentials: 'include', // 세션 쿠키 동행(절대 URL/크로스오리진에서도)
     headers: { ...authHeaders(!!init?.body), ...(init?.headers as Record<string, string>) },
   })
+  if (res.status === 401) {
+    unauthorizedHandler?.()
+    throw new Error(`${init?.method ?? 'GET'} ${path} → 401`)
+  }
   if (!res.ok) throw new Error(`${init?.method ?? 'GET'} ${path} → ${res.status}`)
   if (res.status === 204) return undefined as T
   return res.json() as Promise<T>
@@ -38,6 +51,75 @@ const post = (p: string, body?: unknown) =>
 const put = (p: string, body: unknown) => j(p, { method: 'PUT', body: JSON.stringify(body) })
 const patch = (p: string, body: unknown) => j(p, { method: 'PATCH', body: JSON.stringify(body) })
 const del = (p: string) => j<void>(p, { method: 'DELETE' })
+
+/* ---------- 인증 (세션 쿠키, 스펙 031) ---------- */
+export interface Me {
+  id: string
+  email: string
+  is_active: boolean
+  is_superuser: boolean
+  is_verified: boolean
+  source: string
+  display_name: string | null
+}
+
+/** 로그인 — fastapi-users 인증 라우터는 OAuth2 폼(username=email). 성공 시 204 + Set-Cookie. */
+export async function login(email: string, password: string): Promise<void> {
+  const body = new URLSearchParams({ username: email, password })
+  const res = await fetch(`${BASE}/auth/login`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body,
+  })
+  // 400 = 자격증명 불일치/비활성(LOGIN_BAD_CREDENTIALS). 그 외 비정상도 메시지로 던진다.
+  if (!res.ok) throw new Error(res.status === 400 ? '이메일 또는 비밀번호가 올바르지 않습니다' : `로그인 실패: ${res.status}`)
+}
+
+/** 로그아웃 — DatabaseStrategy 토큰 행 삭제 = 진짜 무효화. */
+export const logout = () => post('/auth/logout')
+
+/** 현재 로그인 사용자. 미인증이면 null(전역 401 핸들러는 건너뛴다 — 초기 탐색용). */
+export async function getMe(): Promise<Me | null> {
+  const res = await fetch(`${BASE}/users/me`, {
+    credentials: 'include',
+    headers: authHeaders(false),
+  })
+  if (res.status === 401) return null
+  if (!res.ok) throw new Error(`GET /users/me → ${res.status}`)
+  return res.json() as Promise<Me>
+}
+
+/* ---------- 관리자: 유저·역할 (admin 보호, 스펙 031) ---------- */
+export interface AdminUser {
+  id: string
+  email: string
+  is_active: boolean
+  is_superuser: boolean
+  is_verified: boolean
+  source: string
+  display_name: string | null
+  roles: string[]
+}
+export interface RoleInfo {
+  id: string
+  name: string
+  description: string
+}
+export const listUsers = () => j<AdminUser[]>('/admin/users')
+export const createUser = (body: {
+  email: string
+  password: string
+  display_name?: string
+  is_superuser?: boolean
+}) => post('/admin/users', body) as Promise<AdminUser>
+export const setUserActive = (id: string, active: boolean) =>
+  j<AdminUser>(`/admin/users/${id}/active?active=${active}`, { method: 'PATCH' })
+export const listRoles = () => j<RoleInfo[]>('/admin/roles')
+export const grantRole = (id: string, role: string) =>
+  j<AdminUser>(`/admin/users/${id}/roles`, { method: 'POST', body: JSON.stringify({ role }) })
+export const revokeRole = (id: string, role: string) =>
+  j<AdminUser>(`/admin/users/${id}/roles/${encodeURIComponent(role)}`, { method: 'DELETE' })
 
 /* ---------- 빌딩 블록 ---------- */
 export const getBlocks = () => j<Record<string, BlockCategory>>('/blocks')
@@ -188,6 +270,7 @@ export async function streamChat(
   const hasOverrides = overrides != null && Object.keys(overrides).length > 0
   const res = await fetch(`${BASE}/agents/${agentId}/chat`, {
     method: 'POST',
+    credentials: 'include',
     headers: authHeaders(true),
     // userId 빈 값은 보내지 않음 → 서버에서 세션 단기로 폴백.
     body: JSON.stringify({

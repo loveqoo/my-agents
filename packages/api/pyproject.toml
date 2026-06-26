@@ -14,6 +14,9 @@ dependencies = [
     "psycopg[binary,pool]>=3.3.4",  # pool: mem0 pgvector 벡터 스토어(ConnectionPool) 요구
     "httpx>=0.28.1",
     "cryptography>=49.0.0",
+    "fastapi-users[sqlalchemy]>=15.0.2",
+    "casbin>=1.40",
+    "casbin-async-sqlalchemy-adapter>=1.4",
 ]
 
 [project.scripts]

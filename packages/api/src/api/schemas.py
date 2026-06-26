@@ -282,3 +282,43 @@ class ChatRequest(BaseModel):
         if any(c.isspace() for c in v):
             raise ValueError("userId must not contain whitespace")
         return v
+
+
+# ----------------------------- 인증·권한 (스펙 031) -----------------------------
+# fastapi-users Pydantic 스키마. BaseUser는 id/email/is_active/is_superuser/is_verified 포함.
+from fastapi_users import schemas as _fu_schemas  # noqa: E402
+
+
+class UserRead(_fu_schemas.BaseUser[uuid.UUID]):
+    source: str
+    display_name: str | None = None
+
+
+class UserCreate(_fu_schemas.BaseUserCreate):
+    display_name: str | None = None
+
+
+class UserUpdate(_fu_schemas.BaseUserUpdate):
+    display_name: str | None = None
+
+
+class RoleAssignIn(BaseModel):
+    role: str
+
+
+class RoleOut(BaseModel):
+    name: str
+    description: str = ""
+    model_config = ORM
+
+
+class AdminUserOut(BaseModel):
+    id: uuid.UUID
+    email: str
+    is_active: bool
+    is_superuser: bool
+    is_verified: bool
+    source: str
+    display_name: str | None = None
+    roles: list[str] = Field(default_factory=list)
+    model_config = ORM

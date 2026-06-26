@@ -20,14 +20,20 @@ from . import (
     mock_remote,
     model_registry,
     sessions,
+    user_admin,
+    users,
 )
-from .auth import require_auth
+from .auth import current_principal
+from .authz import init_authz
 from .db import init_db
+from .schemas import UserRead, UserUpdate
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    await init_authz()  # casbin_rule + enforcer + 기본 정책(멱등)
+    await users.seed_admin()  # superuser 시드(env, fail-closed)
     yield
 
 
@@ -48,10 +54,15 @@ app.add_middleware(
     allow_origins=_cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
+    # 세션 쿠키 인증(스펙 031)은 크로스오리진에서 자격증명 동행이 필요하다. allow_credentials가
+    # 없으면 브라우저가 Set-Cookie/쿠키 동행을 거부해 별도 호스트(VITE_API_BASE)·tailnet 직접
+    # 오리진 로그인이 조용히 실패한다. same-origin /api 프록시 경로에는 무영향. "*"는 starlette가
+    # 자격증명 요청에 한해 Origin을 반사(reflect)하므로 함께 동작한다.
+    allow_credentials=True,
 )
-# 도메인 라우터는 Bearer 토큰 인증 필요. mock_remote(외부 에이전트 스탠드인)는 제외 —
-# 자체 인증 영역이며 chat 프록시가 에이전트 토큰을 보낸다.
-_auth = [Depends(require_auth)]
+# 도메인 라우터는 인증 필요 — 세션 쿠키 유저 OR 머신 Bearer 토큰(하위호환). mock_remote(외부
+# 에이전트 스탠드인)는 제외 — 자체 인증 영역이며 chat 프록시가 에이전트 토큰을 보낸다.
+_auth = [Depends(current_principal)]
 app.include_router(blocks.router, dependencies=_auth)
 app.include_router(model_registry.router, dependencies=_auth)
 app.include_router(agents.router, dependencies=_auth)
@@ -60,6 +71,16 @@ app.include_router(sessions.router, dependencies=_auth)
 app.include_router(memory_routes.router, dependencies=_auth)
 app.include_router(approvals.router, dependencies=_auth)
 app.include_router(mock_remote.router)
+
+# 인증·권한 라우터 (스펙 031). register_router는 마운트하지 않는다(공개 등록 금지) — 유저 생성은
+# user_admin(/admin/users, admin 보호)으로만.
+app.include_router(
+    users.fastapi_users.get_auth_router(users.auth_backend), prefix="/auth", tags=["auth"]
+)
+app.include_router(
+    users.fastapi_users.get_users_router(UserRead, UserUpdate), prefix="/users", tags=["users"]
+)
+app.include_router(user_admin.router)
 
 
 def run():
