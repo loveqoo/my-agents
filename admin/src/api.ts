@@ -178,13 +178,32 @@ export const updateUserMemory = (userId: string, memId: string, text: string) =>
 export const deleteUserMemory = (userId: string, memId: string) =>
   del(`/memory/user/${encodeURIComponent(userId)}/${encodeURIComponent(memId)}`)
 
+/* ---------- 프로바이더 (연결처 — base_url + 자격증명, 스펙 035) ---------- */
+export interface Provider {
+  id: string
+  name: string
+  protocol: string
+  base_url: string
+  api_key: string | null // 마스킹(•) 또는 null — 평문 비노출
+  modelCount: number
+}
+export const listProviders = () => j<Provider[]>('/providers')
+export const createProvider = (body: unknown) => post('/providers', body) as Promise<Provider>
+export const updateProvider = (id: string, body: unknown) =>
+  put(`/providers/${id}`, body) as Promise<Provider>
+export const deleteProvider = (id: string) => del(`/providers/${id}`)
+export const testProviderConfig = (body: { base_url: string; api_key?: string | null }) =>
+  post('/providers/test', body) as Promise<ModelProbeResult>
+export const testSavedProvider = (id: string) =>
+  post(`/providers/${id}/test`) as Promise<ModelProbeResult>
+
 /* ---------- 모델 (LLM·임베딩 레지스트리) ---------- */
 export interface Model {
   id: string
   name: string
-  provider: string
-  base_url: string
-  api_key: string | null
+  provider_id: string
+  provider_name: string
+  base_url: string // provider에서 상속(읽기 전용 표시)
   model_id: string
   kind: 'chat' | 'embedding'
   is_default: boolean
@@ -196,7 +215,7 @@ export const createModel = (body: unknown) => post('/models', body) as Promise<M
 export const updateModel = (id: string, body: unknown) => put(`/models/${id}`, body) as Promise<Model>
 export const deleteModel = (id: string) => del(`/models/${id}`)
 
-/** 모델 연결 테스트 결과 (detail은 비밀 없는 안전 메시지). */
+/** 모델/프로바이더 연결 테스트 결과 (detail은 비밀 없는 안전 메시지). */
 export interface ModelProbeResult {
   ok: boolean
   reachable: boolean
@@ -206,8 +225,7 @@ export interface ModelProbeResult {
   dims?: number | null
 }
 export const testModelConfig = (body: {
-  base_url: string
-  api_key?: string | null
+  provider_id: string
   model_id: string
   kind?: 'chat' | 'embedding'
 }) => post('/models/test', body) as Promise<ModelProbeResult>

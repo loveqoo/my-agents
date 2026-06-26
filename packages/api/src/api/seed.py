@@ -20,6 +20,7 @@ from .models import (
     ModelConfig,
     Permission,
     Persona,
+    Provider,
     Session,
     VectorTable,
 )
@@ -144,31 +145,39 @@ async def seed_if_empty(session: AsyncSession) -> None:
             for n, src, tr, url, ep, tools, st, pub, auth in MCP_SERVERS
         ])
 
-    if await _empty(session, ModelConfig):
+    if await _empty(session, Provider):
         base_url = os.environ.get("MLX_BASE_URL", "http://localhost:8045/v1")
         api_key = os.environ.get("MLX_API_KEY")
         chat_id = os.environ.get("MLX_MODEL", "mlx-community/Qwen3.6-35B-A3B-mxfp8")
         embed_id = os.environ.get("MLX_EMBED_MODEL", "mlx-community/multilingual-e5-large-mlx")
-        enc_key = crypto.encrypt(api_key)  # 비밀값 암호화 저장
-        # mock chat 모델 — 라이브 MLX 없이 결정적 실행용(스펙 024). 기본 아님(opt-in).
-        # base_url은 **이 API 자신의** OpenAI 호환 mock 엔드포인트(self-call). API를 다른
-        # 호스트/포트로 옮기면 MOCK_LLM_BASE_URL로 그 자기주소를 맞춰준다. 코드 에이전트의
-        # (운영 시 외부) 배포를 가리키는 REMOTE_AGENT_BASE와는 의미가 다른 별개 env다.
+        # mock chat provider — 라이브 MLX 없이 결정적 실행용(스펙 024). base_url은 **이 API 자신의**
+        # OpenAI 호환 mock 엔드포인트(self-call). API를 다른 호스트/포트로 옮기면 MOCK_LLM_BASE_URL로
+        # 그 자기주소를 맞춰준다. REMOTE_AGENT_BASE(코드 에이전트 배포)와는 의미가 다른 별개 env다.
         mock_base = os.environ.get("MOCK_LLM_BASE_URL", "http://127.0.0.1:8000/_remote/v1")
+        # provider 1회 등록 → 하위 모델이 base_url/api_key 상속(스펙 035).
+        mlx_provider = Provider(
+            name="MLX (local)", protocol="openai-compatible", base_url=base_url,
+            api_key=crypto.encrypt(api_key),
+        )
+        mock_provider = Provider(
+            name="Mock LLM", protocol="openai-compatible", base_url=mock_base,
+            api_key=crypto.encrypt("sk-noauth"),
+        )
+        session.add_all([mlx_provider, mock_provider])
+        await session.flush()  # provider id 확보(모델 FK용)
         session.add_all([
             ModelConfig(
-                name=CHAT_MODEL_NAME, provider="openai-compatible", base_url=base_url,
-                api_key=enc_key, model_id=chat_id, kind="chat", is_default=True,
+                name=CHAT_MODEL_NAME, provider_id=mlx_provider.id, model_id=chat_id,
+                kind="chat", is_default=True,
                 params={"temperature": 0.7, "enable_thinking": False},
             ),
             ModelConfig(
-                name="multilingual-e5-large", provider="openai-compatible", base_url=base_url,
-                api_key=enc_key, model_id=embed_id, kind="embedding", is_default=True, params={},
+                name="multilingual-e5-large", provider_id=mlx_provider.id, model_id=embed_id,
+                kind="embedding", is_default=True, params={},
             ),
             ModelConfig(
-                name="mock-llm", provider="openai-compatible", base_url=mock_base,
-                api_key=crypto.encrypt("sk-noauth"), model_id="mock-chat", kind="chat",
-                is_default=False, params={},
+                name="mock-llm", provider_id=mock_provider.id, model_id="mock-chat",
+                kind="chat", is_default=False, params={},
             ),
         ])
 

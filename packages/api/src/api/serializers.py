@@ -1,8 +1,8 @@
 """ORM 모델 → API 출력(dict) 직렬화. 여러 라우터가 공유."""
 
 from .crypto import SECRET_MASK
-from .models import Agent, Approval, ModelConfig, Session
-from .schemas import AgentOut, ApprovalOut, ModelOut, SessionOut, VersionOut
+from .models import Agent, Approval, ModelConfig, Provider, Session
+from .schemas import AgentOut, ApprovalOut, ModelOut, ProviderOut, SessionOut, VersionOut
 
 
 def mask_secret(s: str | None) -> str | None:
@@ -10,13 +10,25 @@ def mask_secret(s: str | None) -> str | None:
     return SECRET_MASK if s else None
 
 
+def provider_to_out(p: Provider, model_count: int = 0) -> ProviderOut:
+    return ProviderOut(
+        id=p.id,
+        name=p.name,
+        protocol=p.protocol,
+        base_url=p.base_url,
+        api_key=mask_secret(p.api_key),
+        modelCount=model_count,
+    )
+
+
 def model_to_out(m: ModelConfig) -> ModelOut:
+    """provider 관계가 로드되어 있어야 한다(연결처는 provider 상속)."""
     return ModelOut(
         id=m.id,
         name=m.name,
-        provider=m.provider,
-        base_url=m.base_url,
-        api_key=mask_secret(m.api_key),
+        provider_id=m.provider_id,
+        provider_name=m.provider.name if m.provider else "",
+        base_url=m.provider.base_url if m.provider else "",
         model_id=m.model_id,
         kind=m.kind,
         is_default=m.is_default,

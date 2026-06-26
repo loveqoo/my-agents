@@ -18,6 +18,7 @@ from agent.main import build_agent
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 from . import crypto, memory, runtime
 from .auth import current_principal
@@ -78,17 +79,17 @@ async def _load_context(
             if model_name:
                 m = (
                     await db.execute(
-                        select(ModelConfig).where(
-                            ModelConfig.name == model_name, ModelConfig.kind == "chat"
-                        )
+                        select(ModelConfig)
+                        .where(ModelConfig.name == model_name, ModelConfig.kind == "chat")
+                        .options(selectinload(ModelConfig.provider))
                     )
                 ).scalar_one_or_none()
             if m is None:
                 m = (
                     await db.execute(
-                        select(ModelConfig).where(
-                            ModelConfig.kind == "chat", ModelConfig.is_default.is_(True)
-                        )
+                        select(ModelConfig)
+                        .where(ModelConfig.kind == "chat", ModelConfig.is_default.is_(True))
+                        .options(selectinload(ModelConfig.provider))
                     )
                 ).scalars().first()
             if m is None:
@@ -96,13 +97,15 @@ async def _load_context(
                     status_code=400,
                     detail="등록된 채팅 모델이 없습니다 — 모델을 먼저 등록하세요.",
                 )
-            if not m.base_url or not m.model_id:
+            # 연결처는 provider에서 상속(스펙 035).
+            base_url = m.provider.base_url if m.provider else ""
+            if not base_url or not m.model_id:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"모델 '{m.name}' 설정이 불완전합니다 (base_url/model_id 필요).",
+                    detail=f"모델 '{m.name}' 설정이 불완전합니다 (provider base_url/model_id 필요).",
                 )
             ctx["model_cfg"] = {
-                "base_url": m.base_url, "api_key": crypto.decrypt(m.api_key),
+                "base_url": base_url, "api_key": crypto.decrypt(m.provider.api_key),
                 "model_id": m.model_id, "params": dict(m.params or {}),
             }
         else:
@@ -114,12 +117,12 @@ async def _load_context(
         if ctx["model_cfg"]:
             emb = (
                 await db.execute(
-                    select(ModelConfig).where(
-                        ModelConfig.kind == "embedding", ModelConfig.is_default.is_(True)
-                    )
+                    select(ModelConfig)
+                    .where(ModelConfig.kind == "embedding", ModelConfig.is_default.is_(True))
+                    .options(selectinload(ModelConfig.provider))
                 )
             ).scalars().first()
-            if emb is not None:
+            if emb is not None and emb.provider is not None:
                 mem_cfg = {
                     "llm": {
                         "base_url": ctx["model_cfg"]["base_url"],
@@ -127,7 +130,8 @@ async def _load_context(
                         "model_id": ctx["model_cfg"]["model_id"],
                     },
                     "embedder": {
-                        "base_url": emb.base_url, "api_key": crypto.decrypt(emb.api_key),
+                        "base_url": emb.provider.base_url,
+                        "api_key": crypto.decrypt(emb.provider.api_key),
                         "model_id": emb.model_id,
                     },
                 }
@@ -173,18 +177,21 @@ async def _load_context(
 
 def _build_mem_cfg(chat_m, emb_m) -> dict | None:
     """레지스트리 chat+embedding 모델 → mem0 mem_cfg(llm+embedder dict, 복호화 포함).
-    어느 쪽이라도 base_url/model_id가 없으면 None. get_all/update/delete는 embedder만
-    쓰지만 mem0 인스턴스화에 llm 자리가 필요하다(스펙 030 공유 빌더)."""
-    if chat_m is None or not chat_m.base_url or not chat_m.model_id:
+    연결처는 각 모델의 provider에서 상속(스펙 035). 어느 쪽이라도 provider base_url/model_id가
+    없으면 None. get_all/update/delete는 embedder만 쓰지만 mem0 인스턴스화에 llm 자리가 필요하다
+    (스펙 030 공유 빌더). 호출 측은 provider 관계를 eager-load해야 한다."""
+    cp = chat_m.provider if chat_m else None
+    ep = emb_m.provider if emb_m else None
+    if chat_m is None or cp is None or not cp.base_url or not chat_m.model_id:
         return None
-    if emb_m is None or not emb_m.base_url or not emb_m.model_id:
+    if emb_m is None or ep is None or not ep.base_url or not emb_m.model_id:
         return None
     return {
         "llm": {
-            "base_url": chat_m.base_url, "api_key": crypto.decrypt(chat_m.api_key), "model_id": chat_m.model_id,
+            "base_url": cp.base_url, "api_key": crypto.decrypt(cp.api_key), "model_id": chat_m.model_id,
         },
         "embedder": {
-            "base_url": emb_m.base_url, "api_key": crypto.decrypt(emb_m.api_key), "model_id": emb_m.model_id,
+            "base_url": ep.base_url, "api_key": crypto.decrypt(ep.api_key), "model_id": emb_m.model_id,
         },
     }
 
@@ -192,7 +199,9 @@ def _build_mem_cfg(chat_m, emb_m) -> dict | None:
 async def _default_chat_model(db):
     return (
         await db.execute(
-            select(ModelConfig).where(ModelConfig.kind == "chat", ModelConfig.is_default.is_(True))
+            select(ModelConfig)
+            .where(ModelConfig.kind == "chat", ModelConfig.is_default.is_(True))
+            .options(selectinload(ModelConfig.provider))
         )
     ).scalars().first()
 
@@ -200,7 +209,9 @@ async def _default_chat_model(db):
 async def _default_embed_model(db):
     return (
         await db.execute(
-            select(ModelConfig).where(ModelConfig.kind == "embedding", ModelConfig.is_default.is_(True))
+            select(ModelConfig)
+            .where(ModelConfig.kind == "embedding", ModelConfig.is_default.is_(True))
+            .options(selectinload(ModelConfig.provider))
         )
     ).scalars().first()
 
@@ -219,9 +230,9 @@ async def resolve_agent_mem_cfg(db, agent) -> dict | None:
     if model_name:
         m = (
             await db.execute(
-                select(ModelConfig).where(
-                    ModelConfig.name == model_name, ModelConfig.kind == "chat"
-                )
+                select(ModelConfig)
+                .where(ModelConfig.name == model_name, ModelConfig.kind == "chat")
+                .options(selectinload(ModelConfig.provider))
             )
         ).scalar_one_or_none()
     if m is None:

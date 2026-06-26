@@ -84,9 +84,15 @@ class McpPublishIn(BaseModel):
     published: bool
 
 
-class ModelProbeIn(BaseModel):
+class ProviderProbeIn(BaseModel):
+    """provider 연결 테스트(저장 전 폼). base_url 도달성 + 자격증명 확인."""
     base_url: str = ""
     api_key: str | None = None
+
+
+class ModelProbeIn(BaseModel):
+    """모델 연결 테스트(저장 전 폼). 연결처는 선택한 provider에서 취득."""
+    provider_id: uuid.UUID
     model_id: str = ""
     kind: Literal["chat", "embedding"] = "chat"
 
@@ -100,12 +106,27 @@ class ModelProbeResult(BaseModel):
     dims: int | None = None  # 임베딩 벡터 차원 (kind=embedding 성공 시)
 
 
+# ----------------------------- Provider 레지스트리 (035) -----------------------------
+class ProviderIn(BaseModel):
+    name: str
+    protocol: str = "openai-compatible"
+    base_url: str = ""
+    api_key: str | None = None
+
+
+class ProviderOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    protocol: str
+    base_url: str
+    api_key: str | None = None  # 마스킹되어 내려옴
+    modelCount: int = 0  # 매달린 모델 수(삭제 차단 안내·표시용)
+
+
 # ----------------------------- 모델 레지스트리 -----------------------------
 class ModelIn(BaseModel):
     name: str
-    provider: str = "openai-compatible"
-    base_url: str = ""
-    api_key: str | None = None
+    provider_id: uuid.UUID  # 연결처는 provider에서 상속
     model_id: str = ""
     kind: Literal["chat", "embedding"] = "chat"
     is_default: bool = False
@@ -115,9 +136,9 @@ class ModelIn(BaseModel):
 class ModelOut(BaseModel):
     id: uuid.UUID
     name: str
-    provider: str
-    base_url: str
-    api_key: str | None = None  # 마스킹되어 내려옴
+    provider_id: uuid.UUID
+    provider_name: str  # 표시용(denormalized)
+    base_url: str  # provider에서 상속(표시용)
     model_id: str
     kind: str
     is_default: bool

@@ -19,6 +19,7 @@ from . import (
     memory_routes,
     mock_remote,
     model_registry,
+    providers,
     sessions,
     user_admin,
     users,
@@ -64,6 +65,7 @@ app.add_middleware(
 # 에이전트 스탠드인)는 제외 — 자체 인증 영역이며 chat 프록시가 에이전트 토큰을 보낸다.
 _auth = [Depends(current_principal)]
 app.include_router(blocks.router, dependencies=_auth)
+app.include_router(providers.router, dependencies=_auth)
 app.include_router(model_registry.router, dependencies=_auth)
 app.include_router(agents.router, dependencies=_auth)
 app.include_router(chat.router, dependencies=_auth)

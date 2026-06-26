@@ -6,30 +6,30 @@ import { Page, DataTable, type Column } from '../shared'
 import { Icon } from '../icons'
 import {
   listModels,
+  listProviders,
   createModel,
   deleteModel,
   testModelConfig,
   testSavedModel,
   type Model,
+  type Provider,
   type ModelProbeResult,
 } from '../../api'
 
-/* 등록 폼 데이터 shape. */
+/* 등록 폼 데이터 shape. 연결처(base_url/api_key)는 provider에서 상속 → provider_id만 고른다. */
 interface ModelFormData {
   name: string
   kind: 'chat' | 'embedding'
-  base_url: string
+  provider_id: string
   model_id: string
-  api_key: string
   is_default: boolean
 }
 
 const blankForm: ModelFormData = {
   name: '',
   kind: 'chat',
-  base_url: '',
+  provider_id: '',
   model_id: '',
-  api_key: '',
   is_default: false,
 }
 
@@ -38,10 +38,12 @@ const codeStyle = { fontFamily: 'var(--font-family-code)', fontSize: 13 }
 /* ---- 모델 등록 모달 ---- */
 function RegisterModal({
   open,
+  providers,
   onCancel,
   onCreate,
 }: {
   open: boolean
+  providers: Provider[]
   onCancel: () => void
   onCreate: (data: ModelFormData) => void
 }) {
@@ -51,10 +53,11 @@ function RegisterModal({
 
   useEffect(() => {
     if (open) {
-      setF(blankForm)
+      // provider가 하나면 기본 선택 — 입력 한 번 덜기.
+      setF({ ...blankForm, provider_id: providers.length === 1 ? providers[0].id : '' })
       setProbe(null)
     }
-  }, [open])
+  }, [open, providers])
 
   const set = <K extends keyof ModelFormData>(k: K, v: ModelFormData[K]) => {
     setProbe(null)
@@ -66,8 +69,7 @@ function RegisterModal({
     setProbe(null)
     try {
       const result = await testModelConfig({
-        base_url: f.base_url,
-        api_key: f.api_key,
+        provider_id: f.provider_id,
         model_id: f.model_id,
         kind: f.kind,
       })
@@ -85,7 +87,7 @@ function RegisterModal({
     }
   }
 
-  const testDisabled = testing || !f.base_url.trim() || !f.model_id.trim()
+  const testDisabled = testing || !f.provider_id || !f.model_id.trim()
 
   return (
     <Modal
@@ -115,21 +117,21 @@ function RegisterModal({
           />
         </label>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <span style={{ fontSize: 14, fontWeight: 500 }}>Base URL</span>
-          <Input
-            prefix={<Icon name="global" />}
-            placeholder="http://localhost:8045/v1"
-            value={f.base_url}
-            onChange={(e) => set('base_url', e.target.value)}
+          <span style={{ fontSize: 14, fontWeight: 500 }}>프로바이더</span>
+          <Select
+            value={f.provider_id || undefined}
+            onChange={(v) => set('provider_id', v)}
+            style={{ width: '100%' }}
+            placeholder={providers.length ? '연결처 선택' : '먼저 프로바이더를 등록하세요'}
+            options={providers.map((p) => ({
+              label: `${p.name} — ${p.base_url}`,
+              value: p.id,
+            }))}
           />
         </label>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <span style={{ fontSize: 14, fontWeight: 500 }}>모델 ID</span>
           <Input placeholder="mlx-community/..." value={f.model_id} onChange={(e) => set('model_id', e.target.value)} />
-        </label>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <span style={{ fontSize: 14, fontWeight: 500 }}>API 키</span>
-          <Input.Password prefix={<Icon name="key" />} value={f.api_key} onChange={(e) => set('api_key', e.target.value)} />
         </label>
         <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <Switch checked={f.is_default} onChange={(v) => set('is_default', v)} />
@@ -167,13 +169,16 @@ function RegisterModal({
 
 export default function ModelsView() {
   const [models, setModels] = useState<Model[]>([])
+  const [providers, setProviders] = useState<Provider[]>([])
   const [formOpen, setFormOpen] = useState(false)
   const [confirmDel, setConfirmDel] = useState<Model | null>(null)
   const [testingId, setTestingId] = useState<string | null>(null)
 
   const load = async () => {
     try {
-      setModels(await listModels())
+      const [ms, ps] = await Promise.all([listModels(), listProviders()])
+      setModels(ms)
+      setProviders(ps)
     } catch (e) {
       message.error(e instanceof Error ? e.message : '모델을 불러오지 못했습니다')
     }
@@ -184,17 +189,23 @@ export default function ModelsView() {
     /* eslint-disable-next-line */
   }, [])
 
+  const openCreate = () => {
+    if (!providers.length) {
+      message.warning('먼저 프로바이더를 등록하세요')
+      return
+    }
+    setFormOpen(true)
+  }
+
   const create = async (data: ModelFormData) => {
-    if (!data.name.trim() || !data.model_id.trim()) {
-      message.warning('이름과 모델 ID를 입력하세요')
+    if (!data.name.trim() || !data.model_id.trim() || !data.provider_id) {
+      message.warning('이름·프로바이더·모델 ID를 입력하세요')
       return
     }
     try {
       await createModel({
         name: data.name.trim(),
-        provider: 'openai-compatible',
-        base_url: data.base_url.trim(),
-        api_key: data.api_key,
+        provider_id: data.provider_id,
         model_id: data.model_id.trim(),
         kind: data.kind,
         is_default: data.is_default,
@@ -252,10 +263,13 @@ export default function ModelsView() {
       render: (m) => <code style={codeStyle}>{m.model_id}</code>,
     },
     {
-      key: 'base_url',
-      title: 'Base URL',
+      key: 'provider',
+      title: '프로바이더',
       render: (m) => (
-        <code style={{ ...codeStyle, fontSize: 12, color: 'var(--color-text-tertiary)' }}>{m.base_url}</code>
+        <span>
+          <Tag color="geekblue">{m.provider_name}</Tag>
+          <code style={{ ...codeStyle, fontSize: 12, color: 'var(--color-text-tertiary)' }}>{m.base_url}</code>
+        </span>
       ),
     },
     {
@@ -264,16 +278,6 @@ export default function ModelsView() {
       width: 90,
       render: (m) =>
         m.is_default ? <Tag color="green">기본</Tag> : <span style={{ color: 'var(--color-text-quaternary)' }}>—</span>,
-    },
-    {
-      key: 'api_key',
-      title: '키',
-      render: (m) =>
-        m.api_key ? (
-          <code style={{ ...codeStyle, fontSize: 12, color: 'var(--color-text-secondary)' }}>{m.api_key}</code>
-        ) : (
-          <span style={{ color: 'var(--color-text-quaternary)' }}>—</span>
-        ),
     },
     {
       key: 'actions',
@@ -303,14 +307,14 @@ export default function ModelsView() {
       title="모델"
       subtitle="LLM·임베딩 모델 설정 — 에이전트 실행에 사용"
       actions={
-        <Button type="primary" icon={<Icon name="plus" />} onClick={() => setFormOpen(true)}>
+        <Button type="primary" icon={<Icon name="plus" />} onClick={openCreate}>
           모델 등록
         </Button>
       }
     >
       <DataTable columns={columns} rows={models} />
 
-      <RegisterModal open={formOpen} onCancel={() => setFormOpen(false)} onCreate={create} />
+      <RegisterModal open={formOpen} providers={providers} onCancel={() => setFormOpen(false)} onCreate={create} />
 
       <Modal
         open={!!confirmDel}

@@ -68,20 +68,44 @@ class Permission(Base):
     body: Mapped[str] = mapped_column(Text, default="")
 
 
+class Provider(Base):
+    """LLM provider = 엔드포인트 + 자격증명 (스펙 035). 모델 1:N로 매달림.
+
+    provider 1회 등록 → 하위 모델 다수가 base_url/api_key를 공유(중복 제거).
+    `protocol`은 와이어 포맷(openai-compatible 등)으로, 모델의 `kind`(chat/embedding)와 별개 축.
+    """
+
+    __tablename__ = "providers"
+    id: Mapped[uuid.UUID] = _pk()
+    name: Mapped[str] = mapped_column(String(120), unique=True)  # 표시·참조용 이름
+    protocol: Mapped[str] = mapped_column(String(40), default="openai-compatible")
+    base_url: Mapped[str] = mapped_column(String(400), default="")
+    api_key: Mapped[str | None] = mapped_column(String(400), default=None)  # 암호화 저장
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    models: Mapped[list["ModelConfig"]] = relationship(back_populates="provider")
+
+
 class ModelConfig(Base):
-    """LLM/임베딩 모델 설정 레지스트리. 에이전트가 이름으로 골라 실행에 사용."""
+    """LLM/임베딩 모델 설정 레지스트리. 에이전트가 이름으로 골라 실행에 사용.
+
+    연결처(base_url/api_key)는 자신이 매달린 `Provider`에서 상속한다(스펙 035).
+    """
 
     __tablename__ = "models"
     id: Mapped[uuid.UUID] = _pk()
     name: Mapped[str] = mapped_column(String(120), unique=True)  # 표시·참조용 이름
-    provider: Mapped[str] = mapped_column(String(40), default="openai-compatible")
-    base_url: Mapped[str] = mapped_column(String(400), default="")
-    api_key: Mapped[str | None] = mapped_column(String(400), default=None)
+    # provider 삭제 시 매달린 모델이 있으면 차단(RESTRICT) — 실수로 모델 고아화 방지.
+    provider_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("providers.id", ondelete="RESTRICT"), nullable=False
+    )
     model_id: Mapped[str] = mapped_column(String(200), default="")  # API에 보내는 모델 id
     kind: Mapped[str] = mapped_column(String(20), default="chat")  # chat | embedding
     is_default: Mapped[bool] = mapped_column(Boolean, default=False)
     params: Mapped[dict] = mapped_column(JSONB, default=dict)  # temperature 등
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    provider: Mapped["Provider"] = relationship(back_populates="models")
 
 
 class McpServer(Base):
