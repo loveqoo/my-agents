@@ -64,6 +64,7 @@ def agent_to_out(a: Agent) -> AgentOut:
         commit=a.commit,
         registeredAt=a.registered_at,
         lastSync=a.last_sync,
+        card=cfg.get("card"),  # 외부 에이전트 카드 스냅샷(읽기 전용 표시용)
     )
 
 

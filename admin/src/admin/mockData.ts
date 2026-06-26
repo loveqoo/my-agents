@@ -75,7 +75,7 @@ export interface Agent {
   activeVersion: string
   versions: VersionMeta[]
   /* ---- code-defined agent (source === 'code') ---- */
-  source?: 'ui' | 'code'
+  source?: 'ui' | 'code' | 'external'
   endpoint?: string
   token?: string
   runtime?: string
@@ -83,6 +83,21 @@ export interface Agent {
   commit?: string
   registeredAt?: string
   lastSync?: string
+  /* ---- external A2A agent (source === 'external') — 등록 시점 카드 스냅샷(읽기 전용) ---- */
+  card?: AgentCard
+}
+
+/* A2A Agent Card(외부 에이전트가 광고하는 메타). 표시용 — 필드는 카드 스펙의 부분집합. */
+export interface AgentCard {
+  name?: string
+  description?: string
+  url?: string
+  version?: string
+  provider?: { organization?: string; url?: string }
+  capabilities?: Record<string, unknown>
+  defaultInputModes?: string[]
+  defaultOutputModes?: string[]
+  skills?: Array<{ id?: string; name?: string; description?: string; tags?: string[] }>
 }
 export interface Session {
   id: string
@@ -268,6 +283,7 @@ export const AGENT_STATUS: Record<string, StatusMeta> = {
 export const AGENT_SOURCE: Record<string, StatusMeta> = {
   ui: { label: 'UI 구성', tag: 'default', icon: 'appstore', desc: '콘솔에서 빌딩 블록을 조합해 생성 · 편집 가능' },
   code: { label: 'Code', tag: 'geekblue', icon: 'code', desc: 'SDK로 정의해 코드베이스에서 배포 · 읽기 전용' },
+  external: { label: '외부 A2A', tag: 'purple', icon: 'robot', desc: 'A2A 카드로 등록한 외부 에이전트 · 읽기 전용' },
 }
 
 /* ---------- 세션 ---------- */

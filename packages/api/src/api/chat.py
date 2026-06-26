@@ -42,9 +42,10 @@ async def _load_context(
             raise HTTPException(status_code=404, detail="agent not found")
         cfg = dict(agent.config or {})
         persona = agent.persona
-        # web 한정 세션 오버라이드(화이트리스트). 코드 에이전트는 분기 진입 안 함 = bypass 보존.
+        # web 한정 세션 오버라이드(화이트리스트). 코드·외부 에이전트는 분기 진입 안 함 = bypass 보존.
+        # (외부=A2A는 비로컬이라 로컬 설정 오버라이드 의미 없음 — 026 read-only 취급.)
         # 모델은 여전히 cfg["model"] 이름으로 레지스트리에서만 해석 → [012] 단일 소스 불변식 유지.
-        if overrides and agent.source != "code":
+        if overrides and agent.source not in ("code", "external"):
             allowed = {"model", "temperature", "historyDepth", "mcps", "memories"}
             cfg.update({k: v for k, v in overrides.items() if k in allowed})
             # systemPrompt는 비어있지 않을 때만 persona를 덮어쓴다 — 빈/공백 문자열로
@@ -69,8 +70,8 @@ async def _load_context(
 
         # 모델은 레지스트리에서만 해석한다(env 안 봄). 에이전트가 고른 이름 → 없으면
         # 기본(is_default) chat 모델. 그것도 없으면 명확히 400.
-        # 코드 에이전트는 원격 실행이라 로컬 모델이 필요 없다(여기선 건너뜀).
-        if agent.source != "code":
+        # 코드·외부 에이전트는 비로컬(원격/A2A) 실행이라 로컬 모델이 필요 없다(여기선 건너뜀).
+        if agent.source not in ("code", "external"):
             model_name = cfg.get("model")
             m = None
             if model_name:
@@ -274,6 +275,17 @@ async def _remote_stream(ctx: dict, body: ChatRequest, user_text: str):
     yield "event: done\ndata: [DONE]\n\n"
 
 
+async def _external_notice_stream(ctx: dict):
+    """외부(A2A) 에이전트: 1차(026)는 등록·표시까지만. 실제 호출은 2차 스펙.
+
+    크래시·로컬 폴백 없이 안내 1프레임만 흘리고 종료한다(런타임 특수분기는 데이터로만 가름).
+    """
+    yield f"data: {json.dumps({'session': ctx['session_id']}, ensure_ascii=False)}\n\n"
+    msg = "외부(A2A) 에이전트 실행은 아직 준비 중입니다(런타임 호출은 2차 스펙). 지금은 등록·카드 확인까지 지원합니다."
+    yield f"data: {json.dumps({'text': msg}, ensure_ascii=False)}\n\n"
+    yield "event: done\ndata: [DONE]\n\n"
+
+
 @router.post("/{agent_id}/chat")
 async def chat(agent_id: uuid.UUID, body: ChatRequest):
     ctx = await _load_context(agent_id, body.sessionId, body.overrides)
@@ -283,6 +295,12 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest):
     if ctx["source"] == "code" and ctx["endpoint"]:
         return StreamingResponse(
             _remote_stream(ctx, body, user_text), media_type="text/event-stream"
+        )
+
+    # 외부(A2A) 에이전트는 비로컬 — 1차는 안내만(실제 호출은 2차 스펙).
+    if ctx["source"] == "external":
+        return StreamingResponse(
+            _external_notice_stream(ctx), media_type="text/event-stream"
         )
 
     # 메모리 스코프(다층 — 스펙 020): userId 있으면 user_id(세션 가로지름)+run_id를 함께 태깅,

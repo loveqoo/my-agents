@@ -25,6 +25,7 @@ import {
   forkVersion as apiForkVersion,
   exposeAgent,
   registerCodeAgent as apiRegisterCodeAgent,
+  registerExternalAgent as apiRegisterExternalAgent,
   resyncAgent,
   listModels,
   type Model,
@@ -517,6 +518,88 @@ function RegisterAgentModal({
   )
 }
 
+/* ---- 외부(A2A) 에이전트 등록 — 카드 URL을 받아 백엔드가 fetch·검증(026) ----
+   코드 에이전트와 달리 연결 테스트를 프론트에서 흉내내지 않는다. 백엔드 `POST /agents/external`이
+   well-known 관례로 카드를 가져와 검증하므로, 여기선 URL·토큰만 받아 위임한다. */
+function RegisterExternalModal({
+  open,
+  onCancel,
+  onRegister,
+}: {
+  open: boolean
+  onCancel: () => void
+  onRegister: (data: { cardUrl: string; token: string }) => Promise<void>
+}) {
+  const [cardUrl, setCardUrl] = useState('')
+  const [token, setToken] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  useEffect(() => {
+    if (open) {
+      setCardUrl('')
+      setToken('')
+      setSubmitting(false)
+    }
+  }, [open])
+
+  const canSubmit = /^https?:\/\/.+/.test(cardUrl.trim()) && !submitting
+  const submit = async () => {
+    setSubmitting(true)
+    try {
+      await onRegister({ cardUrl: cardUrl.trim(), token: token.trim() })
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <Modal
+      open={open}
+      width={560}
+      title="외부 A2A 에이전트 등록"
+      onCancel={onCancel}
+      footer={
+        <>
+          <Button onClick={onCancel}>취소</Button>
+          <Button type="primary" icon={<Icon name="check" />} loading={submitting} disabled={!canSubmit} onClick={submit}>
+            카드 확인 후 등록
+          </Button>
+        </>
+      }
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 0 }}
+          message="외부 A2A 에이전트의 Agent Card URL을 등록합니다. 서버가 카드를 가져와(well-known 관례 포함) 검증한 뒤, 카드 메타를 읽기 전용으로 등록합니다. 실제 호출은 준비 중(런타임은 2차 스펙)."
+        />
+        <Field label="Agent Card URL">
+          <Input
+            prefix={<Icon name="global" />}
+            placeholder="https://agents.acme.example/translate  (또는 /.well-known/agent-card.json)"
+            value={cardUrl}
+            onChange={(e) => setCardUrl(e.target.value)}
+            onPressEnter={() => canSubmit && submit()}
+          />
+        </Field>
+        <Field label="액세스 토큰 (선택)">
+          <Input
+            type="password"
+            prefix={<Icon name="key" />}
+            placeholder="호출 시 Bearer 인증이 필요하면 입력 (없으면 비워두세요)"
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+          />
+        </Field>
+        <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+          URL은 카드 문서 또는 서비스 베이스를 가리킬 수 있습니다. 베이스면 서버가 `/.well-known/agent-card.json`을 탐색합니다.
+        </span>
+      </div>
+    </Modal>
+  )
+}
+
 /* ---- 읽기 전용 구성 행(코드 에이전트 상세에서 사용) ---- */
 function ReadonlyConfig({ agent }: { agent: Agent }) {
   return (
@@ -788,6 +871,155 @@ function CodeAgentDetail({
   )
 }
 
+/* ---- External A2A agent detail (read-only; meta owned by the remote A2A card, 026) ---- */
+function ExternalAgentDetail({
+  agent,
+  onClose,
+  onDelete,
+  onToggleExpose,
+}: {
+  agent: Agent
+  onClose: () => void
+  onDelete: (a: Agent) => void
+  onToggleExpose: (a: Agent) => void
+}) {
+  const card = agent.card
+  const caps = Object.entries(card?.capabilities ?? {})
+    .filter(([, v]) => v === true)
+    .map(([k]) => k)
+  return (
+    <Drawer
+      open={!!agent}
+      title={agent.name}
+      width={480}
+      onClose={onClose}
+      footer={
+        <Button danger icon={<Icon name="delete" />} onClick={() => onDelete(agent)}>
+          등록 해제
+        </Button>
+      }
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+        <Avatar size="large" style={{ background: 'var(--purple-1)', color: 'var(--purple-7)' }}>
+          <Icon name="robot" />
+        </Avatar>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 16, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+            {agent.name}
+            <Tag color="purple">
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <Icon name="robot" size={11} />
+                외부 A2A
+              </span>
+            </Tag>
+            {card?.version ? <Tag>v{card.version}</Tag> : null}
+          </div>
+          <code style={{ fontSize: 11, color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-family-code)' }}>
+            {agent.agentId}
+          </code>
+        </div>
+      </div>
+
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginBottom: 14 }}
+        message="A2A 카드로 등록한 외부 에이전트입니다. 구성은 원격 서비스가 소유하므로 콘솔에서는 읽기 전용입니다. 실제 호출은 준비 중(런타임은 2차 스펙) — 지금은 카드 확인까지 지원합니다."
+      />
+
+      {card?.description ? (
+        <div style={{ fontSize: 13, color: 'var(--color-text-secondary)', marginBottom: 14 }}>{card.description}</div>
+      ) : null}
+
+      <div
+        style={{
+          padding: 14,
+          border: '1px solid var(--purple-3)',
+          background: 'var(--purple-1)',
+          borderRadius: 'var(--radius-lg)',
+        }}
+      >
+        <div
+          style={{
+            fontSize: 12,
+            color: 'var(--color-text-tertiary)',
+            marginBottom: 8,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+          }}
+        >
+          <Icon name="global" size={12} style={{ color: 'var(--purple-7)' }} />
+          A2A 카드
+        </div>
+        <IdRow label="Endpoint" value={card?.url || agent.endpoint || '—'} />
+        <Desc label="제공자" width={84}>
+          {card?.provider?.organization || '—'}
+        </Desc>
+        {caps.length ? (
+          <Desc label="기능" width={84}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {caps.map((c) => (
+                <Tag key={c} color="blue">{c}</Tag>
+              ))}
+            </div>
+          </Desc>
+        ) : null}
+        <Desc label="등록일" width={84}>
+          {agent.registeredAt || '—'}
+        </Desc>
+      </div>
+
+      {card?.skills?.length ? (
+        <div style={{ marginTop: 16 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-heading)', marginBottom: 10 }}>
+            스킬 (skills)
+          </div>
+          <div
+            style={{
+              border: '1px solid var(--color-border-secondary)',
+              borderRadius: 'var(--radius-lg)',
+              overflow: 'hidden',
+            }}
+          >
+            {card.skills.map((s, i) => (
+              <div
+                key={s.id ?? i}
+                style={{
+                  padding: '10px 14px',
+                  borderTop: i ? '1px solid var(--color-border-secondary)' : 'none',
+                }}
+              >
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text)' }}>{s.name ?? s.id}</div>
+                {s.description ? (
+                  <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>{s.description}</div>
+                ) : null}
+                {s.tags?.length ? (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
+                    {s.tags.map((t) => (
+                      <Tag key={t} color="cyan">{t}</Tag>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      <div style={{ marginTop: 18 }}>
+        <ExposeSwitch
+          on={!!agent.exposed.a2a}
+          onChange={() => onToggleExpose(agent)}
+          label="A2A로 공개"
+          onText="공개 · 다른 에이전트가 호출 가능"
+          offText="비공개 · 노출되지 않음"
+        />
+      </div>
+    </Drawer>
+  )
+}
+
 function AgentDetail({
   agent,
   onClose,
@@ -820,6 +1052,15 @@ function AgentDetail({
         onDelete={onDelete}
         onToggleExpose={onToggleExpose}
         onResync={onResync}
+      />
+    )
+  if (agent.source === 'external')
+    return (
+      <ExternalAgentDetail
+        agent={agent}
+        onClose={onClose}
+        onDelete={onDelete}
+        onToggleExpose={onToggleExpose}
       />
     )
   const draft = (agent.versions || []).find((v) => v.status === 'draft')
@@ -1052,6 +1293,7 @@ export default function AgentsView() {
   const [confirmDel, setConfirmDel] = useState<Agent | null>(null)
   const [exposeOff, setExposeOff] = useState<{ agent: Agent; count: number } | null>(null) // agent pending expose-off confirm
   const [registerOpen, setRegisterOpen] = useState(false)
+  const [externalOpen, setExternalOpen] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
 
   useEffect(() => {
@@ -1203,7 +1445,7 @@ export default function AgentsView() {
     try {
       await deleteAgent(target.id)
       setAgents((as) => as.filter((a) => a.id !== target.id))
-      setToast(`"${target.name}" ${target.source === 'code' ? '등록 해제됨' : '삭제됨'}`)
+      setToast(`"${target.name}" ${target.source !== 'ui' ? '등록 해제됨' : '삭제됨'}`)
       setConfirmDel(null)
       setDetailId(null)
     } catch (e) {
@@ -1235,6 +1477,17 @@ export default function AgentsView() {
       setRegisterOpen(false)
     } catch (e) {
       message.error(String(e))
+    }
+  }
+  // 외부 A2A 에이전트 등록 — 백엔드가 카드 fetch·검증 후 에이전트 생성(026).
+  const registerExternalAgent = async (data: { cardUrl: string; token: string }) => {
+    try {
+      const created = await apiRegisterExternalAgent(data.cardUrl, data.token || undefined)
+      setAgents((as) => [created, ...as])
+      setToast(`"${created.name || '외부 에이전트'}" 등록됨 — 외부 A2A, 읽기 전용`)
+      setExternalOpen(false)
+    } catch (e) {
+      message.error(`카드 등록 실패 — ${String(e)}`)
     }
   }
   const resync = async (agent: Agent) => {
@@ -1319,6 +1572,12 @@ export default function AgentsView() {
               {a.commit || a.activeVersion}
             </code>
           )
+        if (a.source === 'external')
+          return (
+            <code style={{ fontFamily: 'var(--font-family-code)', fontSize: 13, color: 'var(--color-text-heading)' }}>
+              {a.card?.version ? 'v' + a.card.version : '—'}
+            </code>
+          )
         const draft = (a.versions || []).find((v) => v.status === 'draft')
         return (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
@@ -1359,13 +1618,13 @@ export default function AgentsView() {
       align: 'right',
       render: (a) => (
         <span onClick={(e) => e.stopPropagation()} style={{ display: 'inline-flex', gap: 2 }}>
-          {a.source === 'code' ? (
+          {a.source === 'code' || a.source === 'external' ? (
             <Button
               type="text"
               size="small"
               icon={<Icon name="lock" />}
               disabled
-              title="코드에서 관리됨 — 편집 잠금"
+              title={a.source === 'external' ? '외부 A2A 카드로 관리됨 — 편집 잠금' : '코드에서 관리됨 — 편집 잠금'}
             />
           ) : (
             <Button type="text" size="small" icon={<Icon name="edit" />} onClick={() => openEdit(a)} />
@@ -1384,6 +1643,9 @@ export default function AgentsView() {
         <span style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
           <Button icon={<Icon name="code" />} onClick={() => setRegisterOpen(true)}>
             코드 에이전트 등록
+          </Button>
+          <Button icon={<Icon name="robot" />} onClick={() => setExternalOpen(true)}>
+            외부 A2A 등록
           </Button>
           <Button type="primary" icon={<Icon name="plus" />} onClick={openCreate}>
             새 에이전트
@@ -1406,6 +1668,7 @@ export default function AgentsView() {
         onNewDraft={newDraft}
       />
       <RegisterAgentModal open={registerOpen} onCancel={() => setRegisterOpen(false)} onRegister={registerCodeAgent} />
+      <RegisterExternalModal open={externalOpen} onCancel={() => setExternalOpen(false)} onRegister={registerExternalAgent} />
       <AgentForm
         open={formOpen}
         mode={editing ? 'edit' : 'create'}
@@ -1447,8 +1710,8 @@ export default function AgentsView() {
 
       <Modal
         open={!!confirmDel}
-        title={confirmDel && confirmDel.source === 'code' ? '코드 에이전트 등록을 해제할까요?' : '에이전트를 삭제할까요?'}
-        okText={confirmDel && confirmDel.source === 'code' ? '등록 해제' : '삭제'}
+        title={confirmDel && confirmDel.source !== 'ui' ? '에이전트 등록을 해제할까요?' : '에이전트를 삭제할까요?'}
+        okText={confirmDel && confirmDel.source !== 'ui' ? '등록 해제' : '삭제'}
         cancelText="취소"
         onCancel={() => setConfirmDel(null)}
         onOk={doDelete}
@@ -1458,6 +1721,11 @@ export default function AgentsView() {
             <div>
               <b>{confirmDel.name}</b>를 콘솔에서 등록 해제합니다. 배포된 코드는 그대로 실행되지만, 이 콘솔에서의
               연결·모니터링과 A2A 공개가 제거됩니다.
+            </div>
+          ) : confirmDel.source === 'external' ? (
+            <div>
+              <b>{confirmDel.name}</b>를 콘솔에서 등록 해제합니다. 외부 A2A 서비스는 그대로지만, 이 콘솔에서의
+              카드 등록·모니터링과 A2A 공개가 제거됩니다.
             </div>
           ) : (
             <div>

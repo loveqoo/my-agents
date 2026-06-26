@@ -182,6 +182,8 @@ class AgentOut(BaseModel):
     commit: str | None = None
     registeredAt: str | None = None
     lastSync: str | None = None
+    # external agent meta (source == "external") — 등록 시점 A2A Agent Card 스냅샷(읽기 전용)
+    card: dict[str, Any] | None = None
 
 
 class ExposeIn(BaseModel):
@@ -190,6 +192,13 @@ class ExposeIn(BaseModel):
 
 class ActivateIn(BaseModel):
     version: str
+
+
+class RegisterExternalAgentIn(BaseModel):
+    """외부 A2A 에이전트 등록 — 카드 URL만 받아 fetch·검증 후 등록(026, 1차)."""
+
+    cardUrl: str
+    token: str | None = None  # 외부 호출 크레덴셜(있으면 crypto.encrypt 저장). 카드가 인증 불요면 None.
 
 
 class RegisterCodeAgentIn(BaseModel):

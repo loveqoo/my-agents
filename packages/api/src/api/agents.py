@@ -23,8 +23,9 @@ from .schemas import (
     AgentUpdate,
     ExposeIn,
     RegisterCodeAgentIn,
+    RegisterExternalAgentIn,
 )
-from . import crypto
+from . import agent_card, crypto
 from .serializers import agent_to_out
 
 router = APIRouter(prefix="/agents", tags=["agents"])
@@ -327,6 +328,52 @@ async def register_code_agent(
                 config=cfg,
             )
         )
+    session.add(agent)
+    await session.commit()
+    return await _reload_out(session, agent.id)
+
+
+# ----------------------------- 외부 에이전트 등록 (A2A 카드) -----------------------------
+@router.post("/external", response_model=AgentOut, status_code=201)
+async def register_external_agent(
+    body: RegisterExternalAgentIn, session: AsyncSession = Depends(get_session)
+) -> AgentOut:
+    """A2A Agent Card URL을 fetch·검증해 외부 에이전트로 등록(026, 1차).
+
+    카드 스냅샷은 config["card"], 서비스 URL은 endpoint, 외부 호출 크레덴셜은 crypto.encrypt로
+    token에 저장(코드 에이전트의 마스킹과 달리 2차 런타임 호출에서 복호 사용). 로컬 모델/메모리/
+    MCP는 해석하지 않는다(비로컬). 실제 A2A 호출은 2차 스펙.
+    """
+    try:
+        card = await agent_card.fetch_card(body.cardUrl)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    cfg = {
+        "model": "",  # 외부는 로컬 모델 미해석
+        "persona": "",
+        "memories": [],
+        "vectorTables": [],
+        "permissions": [],
+        "mcps": [],
+        "historyDepth": 10,
+        "card": card,  # 등록 시점 카드 스냅샷(표시·검증 단일 소스)
+    }
+    agent = Agent(
+        agent_id=_new_agent_id(),
+        name=card.get("name") or "외부 에이전트",
+        source="external",
+        model="",
+        persona="",
+        history_depth=10,
+        config=cfg,
+        exposed={"a2a": False},  # 우리가 소비측(클라이언트) — 서버측 노출과 무관
+        status="online",
+        endpoint=card.get("url"),
+        token=crypto.encrypt(body.token) if body.token else None,
+        registered_at=_today(),
+        last_sync="방금",
+    )
     session.add(agent)
     await session.commit()
     return await _reload_out(session, agent.id)

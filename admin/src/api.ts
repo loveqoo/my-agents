@@ -66,6 +66,9 @@ export const forkVersion = (id: string) => post(`/agents/${id}/versions`) as Pro
 export const exposeAgent = (id: string, a2a: boolean) =>
   put(`/agents/${id}/expose`, { a2a }) as Promise<Agent>
 export const registerCodeAgent = (body: unknown) => post('/agents/register', body) as Promise<Agent>
+/* 외부(A2A) 에이전트 등록 — 카드 URL을 보내면 백엔드가 fetch·검증 후 등록(스펙 026). */
+export const registerExternalAgent = (cardUrl: string, token?: string) =>
+  post('/agents/external', { cardUrl, token: token || undefined }) as Promise<Agent>
 export const resyncAgent = (id: string) => post(`/agents/${id}/resync`) as Promise<Agent>
 
 /* ---------- 모델 (LLM·임베딩 레지스트리) ---------- */

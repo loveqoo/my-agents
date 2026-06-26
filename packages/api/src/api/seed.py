@@ -215,6 +215,33 @@ async def seed_if_empty(session: AsyncSession) -> None:
         )
         session.add(translator)
 
+        # 외부(A2A) 에이전트 시드 — 카드 스냅샷 하드코딩(네트워크 self-call 없이 어드민에서
+        # 3분기 source 배지/카드 패널을 바로 시연). 실제 등록은 POST /agents/external 경유(026).
+        ext_card = {
+            "name": "Acme Translate (A2A)",
+            "description": "외부 조직이 A2A로 공개한 번역 에이전트(시드 스냅샷).",
+            "url": "https://agents.acme.example/translate/a2a",
+            "version": "2.1.0",
+            "provider": {"organization": "Acme", "url": "https://acme.example"},
+            "capabilities": {"streaming": True, "pushNotifications": False},
+            "defaultInputModes": ["text/plain"],
+            "defaultOutputModes": ["text/plain"],
+            "skills": [
+                {"id": "translate", "name": "문서 번역", "description": "문서를 대상 언어로 번역",
+                 "tags": ["translation", "i18n"]},
+            ],
+        }
+        external = Agent(
+            agent_id="agt_ext_ac2e01", name=ext_card["name"], source="external", model="",
+            persona="", history_depth=10,
+            config={"model": "", "persona": "", "memories": [], "vectorTables": [],
+                    "permissions": [], "mcps": [], "historyDepth": 10, "card": ext_card},
+            exposed={"a2a": False}, status="online",
+            endpoint=ext_card["url"], token=None,
+            registered_at="2026-06-26", last_sync="방금",
+        )
+        session.add(external)
+
     if await _empty(session, Session):
         # agent_pk 연결을 위해 먼저 flush 필요 — 시드 에이전트가 같은 트랜잭션에 있을 수 있음
         await session.flush()

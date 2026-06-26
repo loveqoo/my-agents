@@ -120,6 +120,33 @@ async def remote_embeddings(body: dict):
     }
 
 
+# ---------- mock A2A Agent Card (외부 에이전트 등록 검증용, 스펙 026) ----------
+@router.get("/.well-known/agent-card.json")
+async def remote_agent_card():
+    """개발용 mock A2A Agent Card. 외부 에이전트 등록(`POST /agents/external`)의 결정적 대상.
+
+    베이스 `/_remote`로 등록하면 fetch_card가 well-known 관례로 이 카드를 찾는다. 실제 A2A
+    서비스 호출(url 엔드포인트)은 2차 스펙 — 1차는 이 카드 메타로 등록·표시만 검증한다."""
+    return {
+        "name": "Mock A2A Weather Agent",
+        "description": "개발용 mock 외부 에이전트 — 날씨 질의에 답하는 척하는 A2A 카드 스탠드인.",
+        "url": "http://127.0.0.1:8000/_remote/a2a",
+        "version": "1.0.0",
+        "provider": {"organization": "my-agents-dev", "url": "http://127.0.0.1:8000"},
+        "capabilities": {"streaming": True, "pushNotifications": False},
+        "defaultInputModes": ["text/plain"],
+        "defaultOutputModes": ["text/plain"],
+        "skills": [
+            {
+                "id": "weather-now",
+                "name": "현재 날씨",
+                "description": "도시 이름을 받아 현재 날씨를 알려준다(mock).",
+                "tags": ["weather"],
+            }
+        ],
+    }
+
+
 @router.post("/agent")
 async def remote_agent(body: ChatRequest):
     """원격 에이전트 채팅(mock). 마지막 사용자 메시지를 받아 간단히 스트리밍 응답."""

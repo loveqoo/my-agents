@@ -105,7 +105,7 @@ class Agent(Base):
     id: Mapped[uuid.UUID] = _pk()
     agent_id: Mapped[str] = mapped_column(String(80), unique=True)  # 외부 식별자 agt_...
     name: Mapped[str] = mapped_column(String(200))
-    source: Mapped[str] = mapped_column(String(20), default="ui")  # ui | code
+    source: Mapped[str] = mapped_column(String(20), default="ui")  # ui | code | external(A2A 카드)
     model: Mapped[str] = mapped_column(String(120), default="local-mlx")
     persona: Mapped[str] = mapped_column(Text, default="")  # 해석된 페르소나 본문(서빙용)
     history_depth: Mapped[int] = mapped_column(Integer, default=20)
