@@ -10,5 +10,17 @@ const allowedHosts =
 
 export default defineConfig({
   plugins: [react()],
-  server: { port: 5173, allowedHosts },
+  server: {
+    port: 5173,
+    allowedHosts,
+    // same-origin 프록시: admin은 `/api/*`로 부르고 여기서 API로 넘긴다. 유일한 하드코딩 = 루프백 타깃.
+    // 덕분에 브라우저는 API 호스트를 몰라도 되고, CORS·mixed-content·cert 문제가 통째로 사라진다.
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+        rewrite: (p) => p.replace(/^\/api/, ''),
+      },
+    },
+  },
 })

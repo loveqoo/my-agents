@@ -2,7 +2,10 @@
    타입은 admin/mockData.ts와 일원화 — 백엔드 출력이 동일 shape다. */
 import type { Agent, Approval, BlockCategory, Session } from './admin/mockData'
 
-const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000'
+// 기본은 same-origin 상대경로 `/api` — vite dev 프록시(vite.config.ts)가 127.0.0.1:8000으로 넘긴다.
+// 브라우저는 API 호스트를 모르므로 tailscale 도메인/IP/scheme가 바뀌어도 무설정 동작(CORS·mixed-content·cert 회피).
+// 별도 호스트로 직접 붙고 싶을 때만 VITE_API_BASE로 절대 URL을 준다.
+const BASE = import.meta.env.VITE_API_BASE ?? '/api'
 const TOKEN = import.meta.env.VITE_API_TOKEN ?? ''
 
 export type { Agent, Approval, BlockCategory, Session }
