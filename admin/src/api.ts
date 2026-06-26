@@ -88,6 +88,14 @@ export const updateAgentMemory = (id: string, memId: string, text: string) =>
 export const deleteAgentMemory = (id: string, memId: string) =>
   del(`/agents/${id}/memory/${memId}`)
 
+/* ---------- 유저 메모리 큐레이션 (스펙 030) — user_id 축, 교정 전용(add 없음) ---------- */
+export const listUserMemory = (userId: string) =>
+  j<AgentMemory[]>(`/memory/user/${encodeURIComponent(userId)}`)
+export const updateUserMemory = (userId: string, memId: string, text: string) =>
+  patch(`/memory/user/${encodeURIComponent(userId)}/${encodeURIComponent(memId)}`, { text })
+export const deleteUserMemory = (userId: string, memId: string) =>
+  del(`/memory/user/${encodeURIComponent(userId)}/${encodeURIComponent(memId)}`)
+
 /* ---------- 모델 (LLM·임베딩 레지스트리) ---------- */
 export interface Model {
   id: string

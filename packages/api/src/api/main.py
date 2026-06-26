@@ -11,7 +11,16 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from fastapi import Depends
 
-from . import agents, approvals, blocks, chat, mock_remote, model_registry, sessions
+from . import (
+    agents,
+    approvals,
+    blocks,
+    chat,
+    memory_routes,
+    mock_remote,
+    model_registry,
+    sessions,
+)
 from .auth import require_auth
 from .db import init_db
 
@@ -48,6 +57,7 @@ app.include_router(model_registry.router, dependencies=_auth)
 app.include_router(agents.router, dependencies=_auth)
 app.include_router(chat.router, dependencies=_auth)
 app.include_router(sessions.router, dependencies=_auth)
+app.include_router(memory_routes.router, dependencies=_auth)
 app.include_router(approvals.router, dependencies=_auth)
 app.include_router(mock_remote.router)
 

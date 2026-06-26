@@ -12,6 +12,7 @@ import {
   CheckCircleOutlined,
   ThunderboltOutlined,
   DatabaseOutlined,
+  ReadOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   SearchOutlined,
@@ -22,12 +23,21 @@ import AgentsView from './views/AgentsView'
 import BlocksView from './views/BlocksView'
 import ModelsView from './views/ModelsView'
 import SessionsView from './views/SessionsView'
+import MemoryView from './views/MemoryView'
 import ApprovalsView from './views/ApprovalsView'
 import { Playground } from '../playground/Playground'
 
 const { Sider, Header, Content } = Layout
 
-type ViewKey = 'overview' | 'agents' | 'blocks' | 'models' | 'sessions' | 'approvals' | 'debug'
+type ViewKey =
+  | 'overview'
+  | 'agents'
+  | 'blocks'
+  | 'models'
+  | 'sessions'
+  | 'memory'
+  | 'approvals'
+  | 'debug'
 
 const TITLES: Record<ViewKey, string> = {
   overview: '개요',
@@ -35,6 +45,7 @@ const TITLES: Record<ViewKey, string> = {
   blocks: '빌딩 블록',
   models: '모델',
   sessions: '세션',
+  memory: '메모리',
   approvals: '승인',
   debug: 'Playground',
 }
@@ -63,6 +74,7 @@ export default function AdminShell() {
     { key: 'blocks', icon: <AppstoreOutlined />, label: '빌딩 블록' },
     { key: 'models', icon: <DatabaseOutlined />, label: '모델' },
     { key: 'sessions', icon: <CommentOutlined />, label: '세션' },
+    { key: 'memory', icon: <ReadOutlined />, label: '메모리' },
     {
       key: 'approvals',
       icon: <CheckCircleOutlined />,
@@ -88,6 +100,7 @@ export default function AdminShell() {
     blocks: <BlocksView />,
     models: <ModelsView />,
     sessions: <SessionsView />,
+    memory: <MemoryView />,
     approvals: <ApprovalsView />,
     debug: <Playground />,
   }

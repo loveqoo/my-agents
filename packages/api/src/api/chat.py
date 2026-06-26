@@ -170,6 +170,40 @@ async def _load_context(
         return ctx
 
 
+def _build_mem_cfg(chat_m, emb_m) -> dict | None:
+    """레지스트리 chat+embedding 모델 → mem0 mem_cfg(llm+embedder dict, 복호화 포함).
+    어느 쪽이라도 base_url/model_id가 없으면 None. get_all/update/delete는 embedder만
+    쓰지만 mem0 인스턴스화에 llm 자리가 필요하다(스펙 030 공유 빌더)."""
+    if chat_m is None or not chat_m.base_url or not chat_m.model_id:
+        return None
+    if emb_m is None or not emb_m.base_url or not emb_m.model_id:
+        return None
+    return {
+        "llm": {
+            "base_url": chat_m.base_url, "api_key": crypto.decrypt(chat_m.api_key), "model_id": chat_m.model_id,
+        },
+        "embedder": {
+            "base_url": emb_m.base_url, "api_key": crypto.decrypt(emb_m.api_key), "model_id": emb_m.model_id,
+        },
+    }
+
+
+async def _default_chat_model(db):
+    return (
+        await db.execute(
+            select(ModelConfig).where(ModelConfig.kind == "chat", ModelConfig.is_default.is_(True))
+        )
+    ).scalars().first()
+
+
+async def _default_embed_model(db):
+    return (
+        await db.execute(
+            select(ModelConfig).where(ModelConfig.kind == "embedding", ModelConfig.is_default.is_(True))
+        )
+    ).scalars().first()
+
+
 async def resolve_agent_mem_cfg(db, agent) -> dict | None:
     """에이전트의 mem0 설정(레지스트리 chat llm + 기본 embedding)을 해석. 없으면 None.
 
@@ -190,32 +224,14 @@ async def resolve_agent_mem_cfg(db, agent) -> dict | None:
             )
         ).scalar_one_or_none()
     if m is None:
-        m = (
-            await db.execute(
-                select(ModelConfig).where(
-                    ModelConfig.kind == "chat", ModelConfig.is_default.is_(True)
-                )
-            )
-        ).scalars().first()
-    if m is None or not m.base_url or not m.model_id:
-        return None
-    emb = (
-        await db.execute(
-            select(ModelConfig).where(
-                ModelConfig.kind == "embedding", ModelConfig.is_default.is_(True)
-            )
-        )
-    ).scalars().first()
-    if emb is None:
-        return None
-    return {
-        "llm": {
-            "base_url": m.base_url, "api_key": crypto.decrypt(m.api_key), "model_id": m.model_id,
-        },
-        "embedder": {
-            "base_url": emb.base_url, "api_key": crypto.decrypt(emb.api_key), "model_id": emb.model_id,
-        },
-    }
+        m = await _default_chat_model(db)
+    return _build_mem_cfg(m, await _default_embed_model(db))
+
+
+async def default_mem_cfg(db) -> dict | None:
+    """특정 에이전트에 안 묶인 mem0 설정 — 기본 chat + 기본 embedding. 유저 메모리
+    관리(스펙 030)용. 공유 pgvector·user_id 키라 기본 설정으로 조회·교정이 가능하다."""
+    return _build_mem_cfg(await _default_chat_model(db), await _default_embed_model(db))
 
 
 def _window(messages: list[dict], depth: int | None) -> list[dict]:
