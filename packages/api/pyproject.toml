@@ -12,6 +12,7 @@ dependencies = [
     "agent",
     "alembic>=1.18.4",
     "psycopg[binary,pool]>=3.3.4",  # pool: mem0 pgvector 벡터 스토어(ConnectionPool) 요구
+    "langgraph-checkpoint-postgres>=2.0",  # durable HIL 체크포인터(AsyncPostgresSaver, 스펙 041)
     "httpx>=0.28.1",
     "cryptography>=49.0.0",
     "pgvector>=0.3",  # SQLAlchemy Vector 타입 — RAG 청크 저장(스펙 036)

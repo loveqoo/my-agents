@@ -75,9 +75,12 @@ PERMISSIONS = [
 MCP_SERVERS = [
     ("tavily", "local", "stdio", None, "mcp://my-agents.local/tavily", ["search"], "connected", True, None),
     ("filesystem", "local", "stdio", None, "mcp://my-agents.local/filesystem", ["read", "list"], "connected", False, None),
-    ("github", "local", "http", None, "mcp://my-agents.local/github", ["get_pr", "get_file"], "connected", True, None),
+    # merge_pr·scale은 approver=admin 권한(repo.merge·k8s.write)에 묶인 위험 도구 — 런타임 HIL
+    # 게이트(스펙 041 runtime._APPROVAL_ACTIONS)가 호출을 일시정지하고 승인을 받는다. 노출해야
+    # ReAct가 실제로 호출하고 게이트가 걸린다(이전엔 read 도구만 있어 게이트가 발화할 수 없었음).
+    ("github", "local", "http", None, "mcp://my-agents.local/github", ["get_pr", "get_file", "merge_pr"], "connected", True, None),
     ("prometheus", "local", "http", None, "mcp://my-agents.local/prometheus", ["query"], "connected", False, None),
-    ("kubernetes", "local", "http", None, "mcp://my-agents.local/kubernetes", ["get"], "degraded", False, None),
+    ("kubernetes", "local", "http", None, "mcp://my-agents.local/kubernetes", ["get", "scale"], "degraded", False, None),
     ("gcal", "local", "http", None, "mcp://my-agents.local/gcal", ["list", "create"], "connected", False, None),
     ("gmail", "local", "http", None, "mcp://my-agents.local/gmail", ["search"], "disconnected", False, None),
     ("notion", "local", "http", None, "mcp://my-agents.local/notion", ["append"], "connected", True, None),

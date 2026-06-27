@@ -26,6 +26,7 @@ from . import (
     user_admin,
     users,
 )
+from . import checkpointer
 from .auth import current_principal
 from .authz import init_authz
 from .db import init_db
@@ -37,7 +38,9 @@ async def lifespan(app: FastAPI):
     await init_db()
     await init_authz()  # casbin_rule + enforcer + 기본 정책(멱등)
     await users.seed_admin()  # superuser 시드(env, fail-closed)
+    await checkpointer.init_checkpointer()  # HIL durable 체크포인터(스펙 041, graceful)
     yield
+    await checkpointer.close_checkpointer()
 
 
 app = FastAPI(title="Agent Service", lifespan=lifespan)

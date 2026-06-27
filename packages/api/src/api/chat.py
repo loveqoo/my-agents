@@ -17,14 +17,15 @@ import httpx
 from agent.main import build_agent
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
+from langgraph.types import Command
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from . import crypto, memory, runtime
+from . import checkpointer, crypto, memory, runtime
 from .auth import current_principal
 from .db import SessionLocal
 from .mem_config import _build_mem_cfg, _default_chat_model, _default_embed_model
-from .models import Agent, Collection, McpServer, Message, ModelConfig, Session
+from .models import Agent, Approval, Collection, McpServer, Message, ModelConfig, Session
 from .schemas import ChatRequest
 
 router = APIRouter(prefix="/agents", tags=["chat"])
@@ -417,7 +418,15 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
         recalled = "\n".join(f"- {h['text']}" for h in mem_hits)
         persona_prompt = f"{persona_prompt}\n\n# 관련 기억(회상됨)\n{recalled}"
     run_params = {} if ctx["temperature"] is None else {"temperature": ctx["temperature"]}
-    graph = build_agent(persona_prompt, run_params, tools, ctx["model_cfg"])
+    # HIL 체크포인터(스펙 041). 있으면 위험 도구가 interrupt로 일시정지·재개될 수 있다. 없으면
+    # 기존 무상태 동작(무회귀) — 단 위험 도구가 호출되면 interrupt가 예외로 새 fail-closed(미실행).
+    ckpt = checkpointer.get_checkpointer()
+    graph = build_agent(persona_prompt, run_params, tools, ctx["model_cfg"], checkpointer=ckpt)
+    # thread_id는 **턴별 고유**(세션-안정 아님): 세션-안정으로 두고 매 턴 전체 히스토리를 넘기면
+    # 체크포인트의 add_messages 리듀서가 메시지를 중복 누적한다(무상태 윈도잉과 충돌). 턴마다 새
+    # thread를 만들어 그 턴의 일시정지/재개에만 쓰고, Approval.checkpoint에 박아 재개 키로 삼는다.
+    thread_id = f"{ctx['ext_agent_id']}:{ctx['session_id']}:{secrets.token_hex(4)}"
+    config = {"configurable": {"thread_id": thread_id}}
 
     # 실행 컨텍스트를 historyDepth로 절단(최근 N개만 모델에 전달).
     messages = _window(
@@ -429,15 +438,54 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
         yield f"data: {json.dumps({'session': ctx['session_id']}, ensure_ascii=False)}\n\n"
         acc: list[str] = []
         errored = False
+        interrupts: list[dict] = []
         try:
-            async for chunk, _meta in graph.astream({"messages": messages}, stream_mode="messages"):
-                text = getattr(chunk, "content", "")
-                if text:
-                    acc.append(text)
-                    yield f"data: {json.dumps({'text': text}, ensure_ascii=False)}\n\n"
+            # 멀티 stream_mode: "messages"=토큰 스트림(기존), "updates"=노드 업데이트에서 __interrupt__
+            # 감지(위험 도구가 그래프를 멈춘 신호). probe로 검증한 형태. 한 업데이트가 다중 interrupt를
+            # 담을 수 있어(한 턴에 위험 도구 여러 개) 모두 모은다 — [0]만 보면 나머지가 조용히 샌다.
+            async for stream_mode, chunk in graph.astream(
+                {"messages": messages}, config=config, stream_mode=["messages", "updates"]
+            ):
+                if stream_mode == "messages":
+                    msg_chunk, _meta = chunk
+                    text = getattr(msg_chunk, "content", "")
+                    if text:
+                        acc.append(text)
+                        yield f"data: {json.dumps({'text': text}, ensure_ascii=False)}\n\n"
+                elif stream_mode == "updates" and isinstance(chunk, dict) and "__interrupt__" in chunk:
+                    interrupts.extend(i.value for i in chunk["__interrupt__"])
         except Exception as exc:  # 모델/툴 오류도 프레임으로 전달
             errored = True
             yield f"data: {json.dumps({'error': str(exc)}, ensure_ascii=False)}\n\n"
+
+        # 한 턴에 위험 도구가 둘 이상 호출되면(다중 pending interrupt) 현재 재개 프로토콜은 **단일
+        # interrupt만** 지원한다 — Command(resume=)에 interrupt id를 안 주므로 langgraph가 "must
+        # specify interrupt id"로 실패하고, except가 삼켜 status=approved인데 도구는 영영 미실행으로
+        # 멈춘다(적대 검증 Finding 1). 다중을 무시하고 하나만 Approval로 만들면 오도하는 approved row가
+        # 남는다. 그래서 다중은 **승인 row를 만들지 않고** 명시적 에러로 닫는다(fail-closed·정직:
+        # 부수효과 미실행 유지). 사용자는 한 번에 하나씩 재시도. 다중 동시 게이트는 §7 빚.
+        if len(interrupts) > 1 and not errored:
+            yield f"data: {json.dumps({'error': '한 턴에 승인이 필요한 위험 도구가 둘 이상 호출되었습니다. 하나씩 다시 시도해 주세요.'}, ensure_ascii=False)}\n\n"
+            yield "event: done\ndata: [DONE]\n\n"
+            return
+
+        interrupted = interrupts[0] if interrupts else None
+        # 위험 도구가 그래프를 멈췄다 → 런타임 Approval 생성 + "대기" 프레임 후 종료(정상 턴 영속 안 함).
+        # 부수효과(canned·calls_sink)는 interrupt 이전이라 0 — 승인 전 무실행 불변식(스펙 041 §3.3).
+        if interrupted and not errored:
+            apid = await _create_approval(ctx, thread_id, interrupted)
+            action = interrupted.get("action", "(작업)")
+            wait_msg = f"⏸ 승인 대기: {action} — 관리자 승인이 필요합니다. (승인 큐 {apid})"
+            yield f"data: {json.dumps({'text': wait_msg, 'approval': apid}, ensure_ascii=False)}\n\n"
+            pending_trace = {
+                "latencyMs": int((time.perf_counter() - t0) * 1000),
+                "tokens": {"in": 0, "out": 0}, "promptRef": ctx["ext_agent_id"],
+                "memories": mem_hits, "mcp": calls_sink, "graph": [],
+                "approval": {"id": apid, "action": action, "status": "pending"},
+            }
+            yield f"event: trace\ndata: {json.dumps(pending_trace, ensure_ascii=False)}\n\n"
+            yield "event: done\ndata: [DONE]\n\n"
+            return
 
         full = "".join(acc)
         total_ms = int((time.perf_counter() - t0) * 1000)
@@ -479,3 +527,115 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
         yield "event: done\ndata: [DONE]\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+# ----------------------------- HIL 승인 게이트 (스펙 041) -----------------------------
+async def _create_approval(ctx: dict, thread_id: str, payload: dict) -> str:
+    """위험 도구가 그래프를 멈춘 순간 런타임 Approval(pending) 생성. checkpoint=thread_id가 재개 키.
+
+    DB 접근은 API 계층(여기)에서만 — 도구는 순수(interrupt payload만 만든다). 이 row가
+    ApprovalsView에 뜨고, admin이 resolve하면 resume_approval이 같은 thread_id로 그래프를 재개한다.
+    """
+    apid = "apr-" + secrets.token_hex(4)
+    async with SessionLocal() as db:
+        db.add(
+            Approval(
+                approval_id=apid,
+                session_id=ctx["session_id"],
+                agent_pk=ctx["agent_pk"],
+                agent_name=ctx["agent_name"],
+                permission=payload.get("permission", ""),
+                action=payload.get("action", ""),
+                args=payload.get("args", {}),
+                summary=payload.get("summary", ""),
+                checkpoint=thread_id,
+                status="pending",
+            )
+        )
+        await db.commit()
+    return apid
+
+
+async def resume_approval(approval: Approval, decision: str) -> None:
+    """admin 결정(approve/reject)으로 멈춘 그래프를 재개하고 최종 메시지를 원 세션에 영속.
+
+    approvals.resolve_approval이 status 설정 후 호출(상시). 체크포인트(Postgres 공유)에서 그래프를
+    재구축해 `Command(resume=...)`로 이어 달린다 — 멀티워커 안전. approve면 도구 실행 후 ReAct가
+    마무리 답변을, reject면 도구 미실행으로 마무리한다. 라이브 스트리밍은 빚(§7) — 여기선
+    서버사이드로 끝까지 돌려 결과만 세션에 남긴다.
+
+    가드: checkpoint(thread_id)·agent_pk 없으면 재개 불가(무시). code/external 소스는 로컬 그래프가
+    아니므로 애초에 approval을 만들지 않는다(여기 도달 시 graceful 무시).
+    """
+    thread_id = approval.checkpoint
+    if not thread_id or not approval.agent_pk:
+        log.warning("resume 건너뜀: checkpoint/agent_pk 없음 (approval %s)", approval.approval_id)
+        return
+    ckpt = checkpointer.get_checkpointer()
+    if ckpt is None:
+        log.warning("resume 불가: 체크포인터 비활성 (approval %s)", approval.approval_id)
+        return
+
+    # 원 턴과 동일하게 컨텍스트·도구·페르소나를 재구성(같은 세션 id → 기존 세션 로딩, 새로 안 만듦).
+    ctx = await _load_context(approval.agent_pk, approval.session_id)
+    if ctx["source"] in ("code", "external") or ctx["model_cfg"] is None:
+        log.warning("resume 불가: 비로컬/모델없음 소스 (approval %s)", approval.approval_id)
+        return
+
+    recall_scope = {"user_id": None, "run_id": ctx["session_id"], "agent_id": ctx["ext_agent_id"]}
+    used_memory = memory.memory_enabled(ctx["memories"]) and ctx["mem_cfg"] is not None
+    # user_id가 없으니(재개 주체=admin) user/run 축 회상은 의미가 약하나, 페르소나 톤 유지를 위해
+    # agent 축 회상만이라도 접목(없어도 무해). 자동 메모리 add는 user_id 부재로 생략(빚).
+    mem_hits = (
+        await asyncio.to_thread(memory.search, recall_scope, approval.summary or "", ctx["mem_cfg"])
+        if used_memory
+        else []
+    )
+
+    calls_sink: list[dict] = []
+    tools = runtime.build_tools(ctx["mcp_pairs"], calls_sink)
+    if used_memory:
+        tools.append(
+            runtime.build_agent_memory_tool(ctx["ext_agent_id"], ctx["mem_cfg"], calls_sink)
+        )
+    if ctx["rag_collections"]:
+        tools.append(runtime.build_rag_tool(ctx["rag_collections"], calls_sink))
+
+    persona_prompt = ctx["persona"]
+    if mem_hits:
+        recalled = "\n".join(f"- {h['text']}" for h in mem_hits)
+        persona_prompt = f"{persona_prompt}\n\n# 관련 기억(회상됨)\n{recalled}"
+    run_params = {} if ctx["temperature"] is None else {"temperature": ctx["temperature"]}
+    graph = build_agent(persona_prompt, run_params, tools, ctx["model_cfg"], checkpointer=ckpt)
+    config = {"configurable": {"thread_id": thread_id}}
+
+    t0 = time.perf_counter()
+    try:
+        result = await graph.ainvoke(Command(resume={"decision": decision}), config=config)
+    except Exception as exc:  # noqa: BLE001 — 재개 실패도 세션을 깨지 않는다(로그+graceful)
+        log.error("resume 실패 (approval %s): %s", approval.approval_id, exc)
+        return
+
+    # 최종 상태에서 사용자 질문·최종 답변 추출(체크포인트가 보유 — Approval에 user_text 미저장).
+    msgs = result.get("messages", []) if isinstance(result, dict) else []
+    user_text = next(
+        (getattr(m, "content", "") for m in msgs if getattr(m, "type", "") == "human"), ""
+    )
+    reply = next(
+        (
+            getattr(m, "content", "")
+            for m in reversed(msgs)
+            if getattr(m, "type", "") == "ai" and getattr(m, "content", "")
+        ),
+        "",
+    )
+    total_ms = int((time.perf_counter() - t0) * 1000)
+    tokens = runtime.estimate_tokens(len(user_text), len(reply))
+    trace = runtime.assemble_trace(
+        agent_id=ctx["ext_agent_id"], memories=mem_hits, mcp_calls=calls_sink,
+        used_memory=used_memory, total_ms=total_ms, tokens=tokens,
+    )
+    trace["resumedApproval"] = {"id": approval.approval_id, "decision": decision}
+    await _persist(
+        ctx["session_pk"], user_text, reply, trace, tokens, ctx["persist_history"], user_id=None
+    )

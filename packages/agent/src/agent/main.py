@@ -22,12 +22,16 @@ def build_agent(
     params: dict | None = None,
     tools: list | None = None,
     model_cfg: dict | None = None,
+    checkpointer=None,
 ):
     """persona/params/tools로 단일 ReAct 에이전트를 만든다.
 
     **모델은 항상 등록된 설정(model_cfg)에서 온다 — env는 보지 않는다.**
     model_cfg = {base_url, api_key, model_id, params}. 호출자(API)가 모델 레지스트리에서
     해석해 넘긴다. tools가 비어있으면 순수 대화.
+
+    checkpointer: HIL 승인 게이팅(스펙 041)용 durable 체크포인터. 주면 그래프가 상태를 박아
+    도구 내부 interrupt()로 일시정지·재개할 수 있다. None이면 기존 무상태 동작(무회귀).
     """
     params = params or {}
     cfg = model_cfg or {}
@@ -51,7 +55,9 @@ def build_agent(
         temperature=temperature,
         extra_body={"chat_template_kwargs": {"enable_thinking": enable_thinking}},
     )
-    return create_react_agent(model, tools=tools or [], prompt=persona)
+    return create_react_agent(
+        model, tools=tools or [], prompt=persona, checkpointer=checkpointer
+    )
 
 
 def main():

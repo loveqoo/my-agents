@@ -12,6 +12,7 @@ import time
 from typing import Any, Callable
 
 from langchain_core.tools import StructuredTool
+from langgraph.types import interrupt
 
 
 def _safe_name(server: str, tool_name: str) -> str:
@@ -19,6 +20,16 @@ def _safe_name(server: str, tool_name: str) -> str:
     raw = f"{server}__{tool_name}"
     safe = re.sub(r"[^A-Za-z0-9_-]", "_", raw)[:60]
     return safe or "tool"
+
+
+# HIL 승인 게이트 정책(스펙 041) — approver=admin 권한에 묶인 (server, tool) 도구만.
+# 이 도구를 ReAct가 호출하면 부수효과(canned+calls_sink) **이전에** langgraph interrupt로 그래프가
+# 일시정지되고, admin 승인 전에는 절대 실행되지 않는다(핵심 불변식). 정책은 코드 한 곳 — verify로 핀.
+# 키는 _load_context의 mcp_pairs 포맷(McpServer.name, enabled_tool) 그대로. seed가 이 도구들을 노출.
+_APPROVAL_ACTIONS: dict[tuple[str, str], str] = {
+    ("github", "merge_pr"): "repo.merge",
+    ("kubernetes", "scale"): "k8s.write",
+}
 
 # 합성 툴이 돌려주는 서버별 결과 문구 (모의).
 _CANNED = {
@@ -36,13 +47,20 @@ _CANNED = {
 def build_tools(
     mcp_pairs: list[tuple[str, str]], calls_sink: list[dict]
 ) -> list[StructuredTool]:
-    """(server, tool) 목록 → 합성 LangChain 툴. 호출 시 calls_sink에 트레이스 기록."""
+    """(server, tool) 목록 → 합성 LangChain 툴. 호출 시 calls_sink에 트레이스 기록.
+
+    `_APPROVAL_ACTIONS`에 걸리는 위험 도구는 **부수효과 이전에 interrupt()** 로 그래프를 멈춰
+    admin 승인을 받는다(스펙 041). interrupt는 checkpointer가 있어야 동작하므로, 무체크포인터
+    경로에서 위험 도구가 호출되면 그래프가 멈출 수 없어 GraphInterrupt가 예외로 샐 수 있다 —
+    chat.py는 위험 도구를 가진 에이전트엔 항상 checkpointer를 붙인다(없으면 게이트 미적용 폴백).
+    """
     tools: list[StructuredTool] = []
     for server, tool_name in mcp_pairs:
+        permission = _APPROVAL_ACTIONS.get((server, tool_name))
 
-        def _make(server: str, tool_name: str) -> Callable[[str], str]:
-            def _run(query: str = "") -> str:
-                t0 = time.perf_counter()
+        def _make(server: str, tool_name: str, permission: str | None) -> Callable[[str], str]:
+            def _execute(query: str, t0: float) -> str:
+                # 실 부수효과(합성: canned 반환 + calls_sink 트레이스). 승인된 뒤에만 도달.
                 result = _CANNED.get(server, "ok (모의)")
                 calls_sink.append(
                     {
@@ -56,13 +74,39 @@ def build_tools(
                 )
                 return result
 
+            def _run(query: str = "") -> str:
+                t0 = time.perf_counter()
+                if permission is None:
+                    return _execute(query, t0)
+                # 위험 도구: 부수효과 이전에 일시정지. interrupt()는 첫 호출 시 그래프를 멈추고,
+                # admin이 Command(resume={"decision":...})로 재개하면 그 값을 반환한다(도구는 처음부터
+                # 재실행되지만 interrupt 이전엔 부수효과가 없어 정확히 1회만 실행 — probe로 검증).
+                decision = interrupt(
+                    {
+                        "permission": permission,
+                        "server": server,
+                        "tool": tool_name,
+                        "action": f"{server}.{tool_name}",
+                        "args": {"query": query},
+                        "summary": f"{server}.{tool_name} 실행 — 관리자 승인 필요",
+                    }
+                )
+                approved = isinstance(decision, dict) and decision.get("decision") == "approve"
+                if not approved:
+                    # 거부: 부수효과 0(canned·calls_sink 미emit) — 에이전트는 이 사실로 마무리.
+                    return "거부됨 — 관리자가 실행을 승인하지 않았습니다."
+                return _execute(query, t0)
+
             return _run
 
+        desc = f"{server} 서버의 {tool_name} 도구 (모의). 입력: query 문자열."
+        if permission is not None:
+            desc += " ⚠ 위험 작업: 호출 시 관리자 승인 전까지 일시정지됩니다."
         tools.append(
             StructuredTool.from_function(
-                func=_make(server, tool_name),
+                func=_make(server, tool_name, permission),
                 name=_safe_name(server, tool_name),
-                description=f"{server} 서버의 {tool_name} 도구 (모의). 입력: query 문자열.",
+                description=desc,
             )
         )
     return tools
