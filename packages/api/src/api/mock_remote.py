@@ -188,6 +188,92 @@ async def remote_agent_card():
     }
 
 
+# ---------- mock A2A JSON-RPC 서비스 (외부 에이전트 실호출 검증용, 스펙 042) ----------
+
+def _a2a_user_text(params: dict) -> str:
+    """JSON-RPC params.message.parts[].text(kind=='text')를 모아 잇는다."""
+    msg = (params or {}).get("message") or {}
+    parts = msg.get("parts") or []
+    out = []
+    for p in parts:
+        if isinstance(p, dict) and p.get("kind") == "text" and p.get("text"):
+            out.append(str(p["text"]))
+    return "".join(out)
+
+
+def _a2a_reply(user_text: str) -> str:
+    """결정적 mock 날씨 응답(같은 입력 → 같은 출력)."""
+    return (
+        f"[mock-a2a] \"{user_text[:40]}\" 요청에 답합니다. 현재 날씨는 맑음, 22도입니다(mock). "
+        "이 응답은 외부 A2A 에이전트가 JSON-RPC로 보냈습니다."
+    )
+
+
+@router.post("/a2a")
+async def remote_a2a(body: dict):
+    """개발용 mock A2A JSON-RPC 엔드포인트(message/send·message/stream).
+
+    카드(`/_remote/.well-known/agent-card.json`)가 광고하는 `url`. 외부 에이전트 실호출
+    (`a2a_client.a2a_stream`)의 결정적 대상. 인증은 검증하지 않는다(개발용)."""
+    rpc_id = body.get("id")
+    method = body.get("method")
+    params = body.get("params") or {}
+    reply = _a2a_reply(_a2a_user_text(params))
+
+    def _response(result: dict) -> dict:
+        return {"jsonrpc": "2.0", "id": rpc_id, "result": result}
+
+    if method == "message/send":
+        # 단건: result = Message(role=agent, text part).
+        return _response({
+            "role": "agent",
+            "parts": [{"kind": "text", "text": reply}],
+            "messageId": uuid.uuid4().hex,
+            "kind": "message",
+        })
+
+    if method == "message/stream":
+        # 스트리밍: status-update 이벤트 여러 개(텍스트 청크) + final.
+        task_id = uuid.uuid4().hex
+
+        def _status_event(text: str, *, final: bool, state: str) -> str:
+            result = {
+                "kind": "status-update",
+                "taskId": task_id,
+                "status": {
+                    "state": state,
+                    "message": {
+                        "role": "agent",
+                        "parts": [{"kind": "text", "text": text}],
+                        "kind": "message",
+                    },
+                },
+                "final": final,
+            }
+            return f"data: {json.dumps(_response(result), ensure_ascii=False)}\n\n"
+
+        async def event_stream():
+            step = 16
+            chunks = [reply[i : i + step] for i in range(0, len(reply), step)] or [""]
+            for i, chunk in enumerate(chunks):
+                last = i == len(chunks) - 1
+                yield _status_event(
+                    chunk,
+                    final=last,
+                    state="completed" if last else "working",
+                )
+            yield "data: [DONE]\n\n"
+
+        return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+    # 미지원 메서드 → JSON-RPC error.
+    return {
+        "jsonrpc": "2.0",
+        "id": rpc_id,
+        "error": {"code": -32601, "message": f"메서드 미지원: {method}"},
+    }
+
+
 @router.post("/agent")
 async def remote_agent(body: ChatRequest):
     """원격 에이전트 채팅(mock). 마지막 사용자 메시지를 받아 간단히 스트리밍 응답."""

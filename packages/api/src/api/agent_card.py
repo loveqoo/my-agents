@@ -11,6 +11,8 @@ import json
 
 import httpx
 
+from .net_guard import guard_url
+
 # A2A 카드 관례 위치(신규 → 레거시 순). 베이스 URL만 준 경우 시도한다.
 WELL_KNOWN_PATHS = ("/.well-known/agent-card.json", "/.well-known/agent.json")
 
@@ -48,6 +50,8 @@ async def fetch_card(card_url: str) -> dict:
     url = card_url.strip().rstrip("/")
     if not url.startswith(("http://", "https://")):
         raise ValueError("cardUrl은 http(s) 절대 URL이어야 합니다")
+    # SSRF 가드(스펙 042 — 026에서 유예한 빚 청산). 후보는 path만 다르고 host는 같으니 한 번 검사.
+    guard_url(url)  # 차단 시 SsrfBlocked(ValueError) → 라우터 4xx
 
     candidates = [url] + [url + p for p in WELL_KNOWN_PATHS]
     last_err: str = ""

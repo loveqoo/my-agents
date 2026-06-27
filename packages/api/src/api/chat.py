@@ -21,7 +21,7 @@ from langgraph.types import Command
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from . import checkpointer, crypto, memory, runtime
+from . import a2a_client, checkpointer, crypto, memory, runtime
 from .auth import current_principal
 from .db import SessionLocal
 from .mem_config import _build_mem_cfg, _default_chat_model, _default_embed_model
@@ -65,6 +65,7 @@ async def _load_context(
             "source": agent.source,
             "endpoint": agent.endpoint,
             "token": agent.token,
+            "card": cfg.get("card"),  # A2A 카드 스냅샷(외부 에이전트, capabilities.streaming 등)
             "memories": cfg.get("memories", []),
             # 에이전트가 명시한 temperature만 전달(없으면 None) → 모델 등록 params가 적용되게.
             "temperature": cfg.get("temperature"),
@@ -350,14 +351,62 @@ async def _remote_stream(ctx: dict, body: ChatRequest, user_text: str, user_id: 
     yield "event: done\ndata: [DONE]\n\n"
 
 
-async def _external_notice_stream(ctx: dict):
-    """외부(A2A) 에이전트: 1차(026)는 등록·표시까지만. 실제 호출은 2차 스펙.
+def _card_streaming(card: object) -> bool:
+    """카드 capabilities.streaming. 없으면 True(message/stream 우선, 안 되면 에이전트가 단건 응답)."""
+    if isinstance(card, dict):
+        caps = card.get("capabilities")
+        if isinstance(caps, dict) and "streaming" in caps:
+            return bool(caps.get("streaming"))
+    return True
 
-    크래시·로컬 폴백 없이 안내 1프레임만 흘리고 종료한다(런타임 특수분기는 데이터로만 가름).
+
+async def _a2a_stream(ctx: dict, user_text: str, user_id: str | None):
+    """외부(A2A) 에이전트: 등록된 카드 url로 JSON-RPC message/stream 호출 → 응답을 우리 SSE로 재전송.
+
+    전송 포맷이 코드-에이전트와 달라 별도 계층(a2a_client)을 쓴다(스펙 042). 골격은 _remote_stream과 동일.
     """
     yield f"data: {json.dumps({'session': ctx['session_id']}, ensure_ascii=False)}\n\n"
-    msg = "외부(A2A) 에이전트 실행은 아직 준비 중입니다(런타임 호출은 2차 스펙). 지금은 등록·카드 확인까지 지원합니다."
-    yield f"data: {json.dumps({'text': msg}, ensure_ascii=False)}\n\n"
+    endpoint = ctx.get("endpoint")
+    if not endpoint:
+        yield f"data: {json.dumps({'error': '외부 에이전트에 A2A 엔드포인트(url)가 없습니다'}, ensure_ascii=False)}\n\n"
+        yield "event: done\ndata: [DONE]\n\n"
+        return
+
+    streaming = _card_streaming(ctx.get("card"))
+    acc: list[str] = []
+    errored = False
+    t0 = time.perf_counter()
+    async for frame in a2a_client.a2a_stream(endpoint, ctx.get("token"), user_text, streaming=streaming):
+        if "error" in frame:
+            errored = True
+            yield f"data: {json.dumps({'error': frame['error']}, ensure_ascii=False)}\n\n"
+        elif frame.get("text"):
+            acc.append(frame["text"])
+            yield f"data: {json.dumps({'text': frame['text']}, ensure_ascii=False)}\n\n"
+
+    full = "".join(acc)
+    total_ms = int((time.perf_counter() - t0) * 1000)
+    tokens = runtime.estimate_tokens(len(user_text), len(full))
+    trace = {
+        "latencyMs": total_ms,
+        "tokens": tokens,
+        "promptRef": ctx["ext_agent_id"],
+        "memories": [],
+        "mcp": [],
+        "graph": [
+            {"node": "__start__", "ms": 0},
+            {"node": "a2a_call", "ms": total_ms},
+            {"node": "__end__", "ms": 0},
+        ],
+        "remote": True,
+        "a2a": True,
+    }
+    if not errored and full.strip():  # 공백-only 응답은 영속하지 않음(적대리뷰 L1)
+        await _persist(
+            ctx["session_pk"], user_text, full, trace, tokens, ctx["persist_history"],
+            user_id=user_id,
+        )
+    yield f"event: trace\ndata: {json.dumps(trace, ensure_ascii=False)}\n\n"
     yield "event: done\ndata: [DONE]\n\n"
 
 
@@ -376,10 +425,10 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
             _remote_stream(ctx, body, user_text, user_id), media_type="text/event-stream"
         )
 
-    # 외부(A2A) 에이전트는 비로컬 — 1차는 안내만(실제 호출은 2차 스펙).
+    # 외부(A2A) 에이전트는 비로컬 — 등록된 카드 url로 A2A 런타임 호출(스펙 042).
     if ctx["source"] == "external":
         return StreamingResponse(
-            _external_notice_stream(ctx), media_type="text/event-stream"
+            _a2a_stream(ctx, user_text, user_id), media_type="text/event-stream"
         )
 
     # 메모리 스코프(다층 — 스펙 020/029). 회상(search)과 자동 쓰기(add)는 **축이 다르다**:
