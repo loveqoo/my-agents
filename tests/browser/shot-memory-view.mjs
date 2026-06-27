@@ -11,6 +11,8 @@ const chromium = _pw.chromium ?? _pw.default?.chromium
 const URL = process.env.ADMIN_URL ?? 'http://127.0.0.1:5173'
 const PREFIX = process.argv[2] ?? '/tmp/memory-view'
 const USER = process.env.USER_ID ?? 'alice'
+const EMAIL = process.env.ADMIN_EMAIL ?? 'verify032@example.com'
+const PASSWORD = process.env.ADMIN_PASSWORD ?? 'Verify032!pw'
 
 const browser = await chromium.launch({ channel: 'chrome', headless: true })
 const ctx = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 1100, height: 1200 } })
@@ -36,6 +38,12 @@ async function pick(optionText) {
 
 try {
   await page.goto(URL, { waitUntil: 'networkidle', timeout: 30000 })
+  // 로그인(스펙 031 이후 인증 게이트) — '메모리' 메뉴는 로그인 후에야 보인다.
+  await page.getByText('my-agents 로그인', { exact: true }).waitFor({ timeout: 10000 })
+  await page.getByPlaceholder('you@example.com').fill(EMAIL)
+  await page.getByPlaceholder('비밀번호').fill(PASSWORD)
+  await page.getByRole('button', { name: '로그인' }).click()
+  await page.getByText('에이전트', { exact: true }).first().waitFor({ timeout: 10000 })
   // 사이드 메뉴 '메모리' 클릭.
   await page.getByText('메모리', { exact: true }).first().click()
   await page.waitForTimeout(800)

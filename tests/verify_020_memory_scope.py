@@ -44,8 +44,11 @@ class FakeMem:
 
 
 def with_mem(mem):
-    """memory._get_memory 를 고정 mem 으로 패치."""
-    M._get_memory = lambda mem_cfg: mem  # type: ignore[assignment]
+    """resolve_backend를 FakeMem 주입 Mem0Backend로 패치(실제 백엔드 병합 경로를 탄다)."""
+    from api.memory.mem0_backend import Mem0Backend
+    backend = Mem0Backend.__new__(Mem0Backend)
+    backend._mem = mem
+    M.resolve_backend = lambda mem_cfg: backend  # type: ignore[assignment]
 
 
 # ---------------------------------------------------------------- search 병합/격리
@@ -107,12 +110,16 @@ def test_add() -> None:
     with_mem(m)
     msgs = [{"role": "user", "content": "hi"}]
 
+    # add는 infer=도 함께 넘긴다(스펙 029) → 스코프 축만 추려 비교.
+    def axes(kw):
+        return {k: v for k, v in kw.items() if k != "infer"}
+
     M.add({"user_id": "alice", "run_id": "s1"}, msgs, {"x": 1})
-    check(m.added and m.added[-1][1] == {"user_id": "alice", "run_id": "s1"},
+    check(m.added and axes(m.added[-1][1]) == {"user_id": "alice", "run_id": "s1"},
           "userId 있으면 user_id+run_id 동시 태깅")
 
     M.add({"user_id": None, "run_id": "s1"}, msgs, {"x": 1})
-    check(m.added[-1][1] == {"run_id": "s1"}, "userId 없으면 run_id 만 태깅")
+    check(axes(m.added[-1][1]) == {"run_id": "s1"}, "userId 없으면 run_id 만 태깅")
 
     before = len(m.added)
     M.add({"user_id": None, "run_id": None}, msgs, {"x": 1})

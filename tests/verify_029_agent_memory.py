@@ -60,7 +60,10 @@ class FakeMem:
 
 
 def with_mem(mem):
-    M._get_memory = lambda mem_cfg: mem  # type: ignore[assignment]
+    from api.memory.mem0_backend import Mem0Backend
+    backend = Mem0Backend.__new__(Mem0Backend)
+    backend._mem = mem
+    M.resolve_backend = lambda mem_cfg: backend  # type: ignore[assignment]
 
 
 # ---------------------------------------------------------------- add infer 전달
@@ -146,8 +149,8 @@ def test_crud_helpers() -> None:
     ok2 = M.delete_memory("ag2", {"x": 1})
     check(ok2 and not any(r.get("id") == "ag2" for r in m.store), "delete 반영")
 
-    # 무력화(mem None)면 graceful False/[]
-    M._get_memory = lambda mem_cfg: None  # type: ignore[assignment]
+    # 무력화(backend None)면 graceful False/[]
+    M.resolve_backend = lambda mem_cfg: None  # type: ignore[assignment]
     check(M.list_memories({"agent_id": "agtX"}, None) == [], "mem None → list []")
     check(M.update_memory("ag1", "x", None) is False, "mem None → update False")
     check(M.delete_memory("ag1", None) is False, "mem None → delete False")
