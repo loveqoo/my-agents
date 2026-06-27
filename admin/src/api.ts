@@ -136,6 +136,74 @@ export const updateBlockItem = (resource: string, id: string, body: unknown) =>
   put(`/${resource}/${id}`, body)
 export const deleteBlockItem = (resource: string, id: string) => del(`/${resource}/${id}`)
 
+/* ---------- RAG 컬렉션 + 문서 인제스트 (스펙 036) ---------- */
+export interface Collection {
+  id: string
+  name: string
+  description: string
+  embedding_model_id: string
+  embedding_model_name: string
+  dims: number
+  chunk_size: number
+  chunk_overlap: number
+  doc_count: number
+  chunk_count: number
+  status: string // empty|ingesting|ready|error
+}
+export interface RagDocument {
+  id: string
+  collection_id: string
+  filename: string
+  content_type: string | null
+  byte_size: number
+  chunk_count: number
+  status: string // parsing|embedding|ready|error
+  error: string | null
+}
+export interface CollectionHealth {
+  collection_id: string
+  db_dims: number
+  collection_dims: number
+  model_dims: number | null
+  consistent: boolean
+  detail: string
+}
+export const listCollections = () => j<Collection[]>('/collections')
+export const createCollection = (body: {
+  name: string
+  description?: string
+  embedding_model_id: string
+  chunk_size?: number
+  chunk_overlap?: number
+}) => post('/collections', body) as Promise<Collection>
+export const updateCollection = (
+  id: string,
+  body: { description?: string; chunk_size?: number; chunk_overlap?: number },
+) => put(`/collections/${id}`, body) as Promise<Collection>
+export const deleteCollection = (id: string) => del(`/collections/${id}`)
+export const collectionHealth = (id: string) =>
+  j<CollectionHealth>(`/collections/${id}/health`)
+export const listDocuments = (id: string) => j<RagDocument[]>(`/collections/${id}/documents`)
+export const deleteDocument = (id: string, docId: string) =>
+  del(`/collections/${id}/documents/${docId}`)
+/** 문서 업로드(멀티파트). FormData는 Content-Type을 브라우저가 boundary와 함께 자동 설정 — 직접 넣지 않는다. */
+export async function uploadDocument(id: string, file: File): Promise<RagDocument> {
+  const fd = new FormData()
+  fd.append('file', file)
+  const res = await fetch(`${BASE}/collections/${id}/documents`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {},
+    body: fd,
+  })
+  if (res.status === 401) {
+    unauthorizedHandler?.()
+    throw new Error(`POST /collections/${id}/documents → 401`)
+  }
+  if (!res.ok) throw new Error(`업로드 실패: ${res.status}`)
+  return res.json() as Promise<RagDocument>
+}
+
 /* ---------- 에이전트 ---------- */
 export const listAgents = () => j<Agent[]>('/agents')
 export const getAgent = (id: string) => j<Agent>(`/agents/${id}`)

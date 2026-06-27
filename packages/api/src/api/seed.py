@@ -12,9 +12,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from . import crypto
 
 from .models import (
+    RAG_EMBED_DIMS,
     Agent,
     AgentVersion,
     Approval,
+    Collection,
     McpServer,
     MemoryType,
     ModelConfig,
@@ -22,7 +24,6 @@ from .models import (
     Persona,
     Provider,
     Session,
-    VectorTable,
 )
 
 # 등록되는 기본 chat 모델명 — ModelConfig와 에이전트 참조를 단일 소스로 묶어
@@ -49,11 +50,13 @@ MEMORY_TYPES = [
      "없으면 현재 세션에만 저장합니다."),
 ]
 
-VECTOR_TABLES = [
-    ("product_titles", "text-embedding-3-large", "products.title", 3072, 12840, "synced", "상품 테이블의 title 컬럼을 임베딩. 상품 의미 검색·추천에 사용."),
-    ("docs_kb", "text-embedding-3-small", "help_articles.body", 1536, 3204, "synced", "헬프센터 문서 본문을 청크 단위로 임베딩한 지식베이스. RAG 답변에 사용."),
-    ("support_tickets", "voyage-3", "tickets.summary", 1024, 58210, "indexing", "과거 지원 티켓 요약을 임베딩. 유사 사례 검색용. 현재 재색인 중."),
-    ("team_notes", "nomic-embed-text", "notion.pages", 768, 941, "stale", "팀 노션 노트를 로컬 임베딩. 원본 변경분 미반영(stale) — 재동기화 필요."),
+# RAG 컬렉션 시드(스펙 036) — 이름은 AGENTS의 vectorTables 참조와 일치(usedBy 집계용).
+# 차원은 기본 임베딩 모델에 맞춰 RAG_EMBED_DIMS로 고정, 빈(empty) 상태로 생성 — 문서는 업로드로 채운다.
+COLLECTIONS = [
+    ("docs_kb", "헬프센터 문서 본문 지식베이스 — RAG 답변에 사용. 문서를 업로드해 채웁니다."),
+    ("product_titles", "상품 title 임베딩 — 상품 의미 검색·추천."),
+    ("support_tickets", "과거 지원 티켓 요약 — 유사 사례 검색."),
+    ("team_notes", "팀 노션 노트 — 내부 지식 의미 검색."),
 ]
 
 PERMISSIONS = [
@@ -131,11 +134,6 @@ async def seed_if_empty(session: AsyncSession) -> None:
         session.add_all([Persona(name=n, tone=t, body=b) for n, t, b in PERSONAS])
     if await _empty(session, MemoryType):
         session.add_all([MemoryType(key=k, name=n, scope=s, body=b) for k, n, s, b in MEMORY_TYPES])
-    if await _empty(session, VectorTable):
-        session.add_all([
-            VectorTable(name=n, model=m, source=src, dims=d, rows=r, status=st, body=b)
-            for n, m, src, d, r, st, b in VECTOR_TABLES
-        ])
     if await _empty(session, Permission):
         session.add_all([Permission(name=n, scope=sc, approver=ap, body=b) for n, sc, ap, b in PERMISSIONS])
     if await _empty(session, McpServer):
@@ -179,7 +177,32 @@ async def seed_if_empty(session: AsyncSession) -> None:
                 name="mock-llm", provider_id=mock_provider.id, model_id="mock-chat",
                 kind="chat", is_default=False, params={},
             ),
+            # mock 임베딩 모델(스펙 024 철학) — `/_remote/v1/embeddings`가 RAG_EMBED_DIMS 차원
+            # 벡터를 입력 1건당 1개 반환 → 라이브 MLX 없이 RAG 인제스트가 결정적으로 통과한다.
+            ModelConfig(
+                name="mock-embed", provider_id=mock_provider.id, model_id="mock-embed",
+                kind="embedding", is_default=False, params={},
+            ),
         ])
+
+    if await _empty(session, Collection):
+        # 기본 임베딩 모델에 맞춰 컬렉션 생성(차원 고정). 같은 트랜잭션의 시드 모델을 flush로 가시화.
+        await session.flush()
+        emb = (
+            await session.execute(
+                select(ModelConfig).where(
+                    ModelConfig.kind == "embedding", ModelConfig.is_default.is_(True)
+                )
+            )
+        ).scalars().first()
+        if emb is not None:
+            session.add_all([
+                Collection(
+                    name=n, description=d, embedding_model_id=emb.id,
+                    dims=RAG_EMBED_DIMS, status="empty",
+                )
+                for n, d in COLLECTIONS
+            ])
 
     if await _empty(session, Agent):
         for (aid, name, source, model, persona, mems, hist, vts, perms, mcps, a2a, status, active, versions) in AGENTS:

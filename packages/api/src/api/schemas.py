@@ -35,19 +35,59 @@ class MemoryTypeOut(MemoryTypeIn):
     model_config = ORM
 
 
-class VectorTableIn(BaseModel):
+class CollectionIn(BaseModel):
+    """컬렉션 생성 — 임베딩 모델 1개로 묶임. dims는 서버가 probe 실측으로 박제(클라이언트 미지정)."""
+
     name: str
-    model: str | None = None
-    source: str | None = None
-    dims: int | None = None
-    rows: int = 0
-    status: str = "synced"
-    body: str = ""
+    description: str = ""
+    embedding_model_id: uuid.UUID
+    chunk_size: int = Field(default=1000, gt=0)  # 0/음수면 1자 청크 폭주 — 422로 거부
+    chunk_overlap: int = Field(default=200, ge=0)
 
 
-class VectorTableOut(VectorTableIn):
+class CollectionUpdate(BaseModel):
+    """수정 — 임베딩 모델·dims는 생성 후 불변(차원 고정). 청킹 설정·설명만 수정 가능."""
+
+    description: str | None = None
+    chunk_size: int | None = Field(default=None, gt=0)
+    chunk_overlap: int | None = Field(default=None, ge=0)
+
+
+class CollectionOut(BaseModel):
     id: uuid.UUID
+    name: str
+    description: str
+    embedding_model_id: uuid.UUID
+    embedding_model_name: str  # denormalized 표시용
+    dims: int
+    chunk_size: int
+    chunk_overlap: int
+    doc_count: int
+    chunk_count: int
+    status: str
+
+
+class DocumentOut(BaseModel):
+    id: uuid.UUID
+    collection_id: uuid.UUID
+    filename: str
+    content_type: str | None = None
+    byte_size: int
+    chunk_count: int
+    status: str
+    error: str | None = None
     model_config = ORM
+
+
+class CollectionHealth(BaseModel):
+    """차원 정합 점검(읽기 전용) — DB 컬럼 / Collection 박제 / 현재 임베딩 모델 probe 3자 비교."""
+
+    collection_id: uuid.UUID
+    db_dims: int  # rag_chunks.embedding 컬럼 차원(RAG_EMBED_DIMS)
+    collection_dims: int  # Collection.dims (생성 시 박제)
+    model_dims: int | None = None  # 현재 임베딩 모델 probe 실측(None=probe 실패)
+    consistent: bool
+    detail: str = ""
 
 
 class PermissionIn(BaseModel):

@@ -18,6 +18,7 @@ import uuid
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
+from .models import RAG_EMBED_DIMS
 from .schemas import ChatRequest
 
 router = APIRouter(prefix="/_remote", tags=["mock-remote"])
@@ -109,14 +110,30 @@ async def remote_v1_chat_completions(body: dict):
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
+@router.post("/v1/embeddings")
 @router.post("/embeddings")
 async def remote_embeddings(body: dict):
-    """OpenAI 호환 임베딩(mock). embedding 모델 연결 테스트의 결정적 대상.
-    입력과 무관하게 8차원 더미 벡터를 반환한다."""
+    """OpenAI 호환 임베딩(mock) — embedding 모델 probe·RAG 인제스트의 결정적 대상.
+
+    실제 모델처럼 **입력 1건당 벡터 1개**를 반환한다(배치 보존). 차원은 RAG 저장소 차원
+    (`RAG_EMBED_DIMS`)에 맞춰 mock 임베딩 모델로 happy-path 인제스트가 결정적으로 통과하게
+    한다. OpenAI `dimensions` 파라미터를 주면 그 길이로 잘라 차원 불일치 케이스도 흉내낼 수 있다.
+
+    `/v1/embeddings`(mock provider base_url `/_remote/v1` 경유) + `/embeddings`(직접 probe) 둘 다 매핑.
+    """
+    inp = body.get("input")
+    items = inp if isinstance(inp, list) else [inp if inp is not None else ""]
+    if not items:
+        items = [""]
+    dims = int(body.get("dimensions") or RAG_EMBED_DIMS)
     return {
         "object": "list",
-        "data": [{"object": "embedding", "index": 0, "embedding": [0.1] * 8}],
+        "data": [
+            {"object": "embedding", "index": i, "embedding": [0.1] * dims}
+            for i, _ in enumerate(items)
+        ],
         "model": body.get("model", "mock-embed"),
+        "usage": {"prompt_tokens": 0, "total_tokens": 0},
     }
 
 

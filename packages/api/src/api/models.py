@@ -5,12 +5,19 @@
 지배 스펙: docs/spec/007-real-agent-service.md
 """
 
+import os
 import uuid
 from datetime import datetime
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+# RAG 청크 벡터 차원 — pgvector 컬럼은 생성 시 차원이 고정되므로(스펙 020 함정3) 이 값이 곧
+# `rag_chunks.embedding` 컬럼 차원이자 Collection 생성 시 허용 차원의 단일 출처다. 기본 임베딩
+# 모델(multilingual-e5-large=1024) 출력과 일치해야 한다. mem0(_EMBED_DIMS)와 같은 1024 기본.
+RAG_EMBED_DIMS = int(os.environ.get("RAG_EMBED_DIMS", os.environ.get("MEM0_EMBED_DIMS", "1024")))
 
 
 class Base(DeclarativeBase):
@@ -45,18 +52,82 @@ class MemoryType(Base):
     body: Mapped[str] = mapped_column(Text, default="")
 
 
-class VectorTable(Base):
-    """임베딩 데이터셋 메타데이터 (의미 검색 지식 소스)."""
+class Collection(Base):
+    """RAG 지식 컬렉션 — 문서를 임베딩해 의미 검색에 쓰는 단위(스펙 036, vector_tables 재생).
 
-    __tablename__ = "vector_tables"
+    임베딩 모델 1개로 묶이며 `dims`는 생성 시 probe 실측으로 고정(차원 트랩 대응, 스펙 020 함정3).
+    하위 Document·Chunk를 CASCADE로 소유한다. 에이전트 config의 `vectorTables`(이름 목록)가 이
+    컬렉션을 참조한다 — 런타임 retrieval 배선은 037.
+    """
+
+    __tablename__ = "collections"
     id: Mapped[uuid.UUID] = _pk()
     name: Mapped[str] = mapped_column(String(200), unique=True)
-    model: Mapped[str | None] = mapped_column(String(120), default=None)
-    source: Mapped[str | None] = mapped_column(String(200), default=None)
-    dims: Mapped[int | None] = mapped_column(Integer, default=None)
-    rows: Mapped[int] = mapped_column(Integer, default=0)
-    status: Mapped[str] = mapped_column(String(40), default="synced")
-    body: Mapped[str] = mapped_column(Text, default="")
+    description: Mapped[str] = mapped_column(Text, default="")
+    # 이 컬렉션을 만들 때 쓴 임베딩 모델 — 037 질의 시 같은 모델로 임베딩해야 정합. 모델 삭제 차단(RESTRICT).
+    embedding_model_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("models.id", ondelete="RESTRICT"), nullable=False
+    )
+    dims: Mapped[int] = mapped_column(Integer)  # 생성 시 probe 실측으로 박제(= rag_chunks 컬럼 차원)
+    # 청킹도 전략 — 컬렉션별로 사용자 수정 가능(기본 1000자/200 오버랩). 인제스트 시 이 값을 읽어 분할.
+    chunk_size: Mapped[int] = mapped_column(Integer, default=1000)
+    chunk_overlap: Mapped[int] = mapped_column(Integer, default=200)
+    doc_count: Mapped[int] = mapped_column(Integer, default=0)  # 비정규화 집계 캐시
+    chunk_count: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[str] = mapped_column(String(20), default="empty")  # empty|ingesting|ready|error
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    embedding_model: Mapped["ModelConfig"] = relationship()
+    documents: Mapped[list["Document"]] = relationship(
+        back_populates="collection", cascade="all, delete-orphan", passive_deletes=True
+    )
+
+
+class Document(Base):
+    """RAG 컬렉션에 인제스트된 업로드 파일(스펙 036). 청크를 CASCADE로 소유."""
+
+    __tablename__ = "documents"
+    id: Mapped[uuid.UUID] = _pk()
+    collection_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("collections.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    filename: Mapped[str] = mapped_column(String(400))
+    content_type: Mapped[str | None] = mapped_column(String(120), default=None)
+    byte_size: Mapped[int] = mapped_column(Integer, default=0)
+    chunk_count: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[str] = mapped_column(String(20), default="parsing")  # parsing|embedding|ready|error
+    error: Mapped[str | None] = mapped_column(Text, default=None)  # 실패 사유 보존(no silent death)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    collection: Mapped["Collection"] = relationship(back_populates="documents")
+    chunks: Mapped[list["Chunk"]] = relationship(
+        back_populates="document", cascade="all, delete-orphan", passive_deletes=True
+    )
+
+
+class Chunk(Base):
+    """문서 청크 + 임베딩 벡터(전용 pgvector 저장소, 스펙 036).
+
+    `embedding`은 `Vector(RAG_EMBED_DIMS)`로 차원 고정. insert 전 길이 검증으로 차원 불일치를
+    명시적으로 막는다(조용한 죽음 방지). HNSW cosine 인덱스는 037 retrieval에서 본격 사용.
+    """
+
+    __tablename__ = "rag_chunks"
+    id: Mapped[uuid.UUID] = _pk()
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # 질의 필터용 비정규화(037에서 컬렉션 단위 검색) — document 경유 join 없이 바로 필터.
+    collection_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("collections.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    ordinal: Mapped[int] = mapped_column(Integer, default=0)  # 문서 내 순번
+    text: Mapped[str] = mapped_column(Text, default="")
+    embedding: Mapped[list[float]] = mapped_column(Vector(RAG_EMBED_DIMS))
+    token_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    document: Mapped["Document"] = relationship(back_populates="chunks")
 
 
 class Permission(Base):

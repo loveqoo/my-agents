@@ -40,11 +40,12 @@ interface McpServerIn {
   auth?: string
 }
 
-/* 비-MCP 카테고리 → 백엔드 resource 경로 매핑. */
+/* 비-MCP 카테고리 → 백엔드 resource 경로 매핑.
+   embedding은 더 이상 여기 없다 — /vector-tables 엔드포인트가 제거되고
+   "RAG 컬렉션" 전용 뷰(스펙 036)로 이관됐다. CollectionsView 참고. */
 const RESOURCE_BY_CAT: Record<string, string> = {
   persona: 'personas',
   memory: 'memory-types',
-  embedding: 'vector-tables',
   permission: 'permissions',
 }
 
@@ -355,19 +356,6 @@ type BlockFormConfig = { resource: string; title: string; intro: string; fields:
 /* memory는 의도적으로 제외 — 시스템 정의 enum(런타임이 이름 문자열에 의존)이라
    빌딩 블록에서 읽기 전용으로 다룬다. (spec 016) */
 const BLOCK_FORMS: Record<string, BlockFormConfig> = {
-  embedding: {
-    resource: 'vector-tables',
-    title: '벡터 테이블',
-    intro: '임베딩 모델로 데이터를 벡터화한 지식 소스입니다. 에이전트가 의미 검색으로 참조합니다. (행 수·상태는 동기화로 채워집니다)',
-    preserve: ['rows', 'status'],
-    fields: [
-      { kind: 'text', key: 'name', label: '이름', required: true, placeholder: '예: 사내 위키' },
-      { kind: 'text', key: 'model', label: '임베딩 모델', placeholder: '예: multilingual-e5-large' },
-      { kind: 'text', key: 'source', label: '출처', placeholder: '예: confluence://space/KB' },
-      { kind: 'number', key: 'dims', label: '차원', placeholder: '예: 1024' },
-      { kind: 'textarea', key: 'body', label: '설명', rows: 4, placeholder: '이 데이터셋의 내용' },
-    ],
-  },
   permission: {
     resource: 'permissions',
     title: '권한',
@@ -515,7 +503,10 @@ export default function BlocksView() {
 
   const loadBlocks = async () => {
     try {
-      const next = await getBlocks()
+      const raw = await getBlocks()
+      // embedding 카테고리는 RAG 컬렉션 전용 뷰(스펙 036)로 이관 — /vector-tables CRUD가
+      // 제거됐으므로 빌딩 블록에서는 탭째 숨긴다. 남으면 깨진 엔드포인트를 호출하게 된다.
+      const { embedding: _embedding, ...next } = raw
       setData(next)
       syncDetail(next)
     } catch (e) {

@@ -13,6 +13,7 @@ import {
   ThunderboltOutlined,
   DatabaseOutlined,
   ApiOutlined,
+  FolderOpenOutlined,
   ReadOutlined,
   TeamOutlined,
   LogoutOutlined,
@@ -26,6 +27,7 @@ import AgentsView from './views/AgentsView'
 import BlocksView from './views/BlocksView'
 import ProvidersView from './views/ProvidersView'
 import ModelsView from './views/ModelsView'
+import CollectionsView from './views/CollectionsView'
 import SessionsView from './views/SessionsView'
 import MemoryView from './views/MemoryView'
 import ApprovalsView from './views/ApprovalsView'
@@ -41,6 +43,7 @@ type ViewKey =
   | 'blocks'
   | 'providers'
   | 'models'
+  | 'collections'
   | 'sessions'
   | 'memory'
   | 'approvals'
@@ -53,6 +56,7 @@ const TITLES: Record<ViewKey, string> = {
   blocks: '빌딩 블록',
   providers: '프로바이더',
   models: '모델',
+  collections: 'RAG 컬렉션',
   sessions: '세션',
   memory: '메모리',
   approvals: '승인',
@@ -84,6 +88,7 @@ export default function AdminShell({ user, onLogout }: { user: Me; onLogout: () 
     { key: 'blocks', icon: <AppstoreOutlined />, label: '빌딩 블록' },
     { key: 'providers', icon: <ApiOutlined />, label: '프로바이더' },
     { key: 'models', icon: <DatabaseOutlined />, label: '모델' },
+    { key: 'collections', icon: <FolderOpenOutlined />, label: 'RAG 컬렉션' },
     { key: 'sessions', icon: <CommentOutlined />, label: '세션' },
     { key: 'memory', icon: <ReadOutlined />, label: '메모리' },
     {
@@ -115,6 +120,7 @@ export default function AdminShell({ user, onLogout }: { user: Me; onLogout: () 
     blocks: <BlocksView />,
     providers: <ProvidersView />,
     models: <ModelsView />,
+    collections: <CollectionsView />,
     sessions: <SessionsView />,
     memory: <MemoryView />,
     approvals: <ApprovalsView />,

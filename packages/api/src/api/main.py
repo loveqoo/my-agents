@@ -20,6 +20,7 @@ from . import (
     mock_remote,
     model_registry,
     providers,
+    rag,
     sessions,
     user_admin,
     users,
@@ -71,6 +72,7 @@ app.include_router(agents.router, dependencies=_auth)
 app.include_router(chat.router, dependencies=_auth)
 app.include_router(sessions.router, dependencies=_auth)
 app.include_router(memory_routes.router, dependencies=_auth)
+app.include_router(rag.router, dependencies=_auth)
 app.include_router(approvals.router, dependencies=_auth)
 app.include_router(mock_remote.router)
 

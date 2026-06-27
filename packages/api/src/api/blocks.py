@@ -1,7 +1,8 @@
 """빌딩 블록 카탈로그 CRUD + 관리자 UI 집계 (REST).
 
-페르소나·메모리타입·벡터테이블·권한·MCP 서버의 전체 CRUD와,
-관리자 콘솔이 한 번에 읽는 5개 카테고리 집계(`GET /blocks`)를 제공한다.
+페르소나·메모리타입·권한·MCP 서버의 전체 CRUD와, 관리자 콘솔이 한 번에 읽는 5개
+카테고리 집계(`GET /blocks`)를 제공한다. embedding 카테고리는 RAG 컬렉션(스펙 036)을
+읽기 전용으로 비춘다 — 컬렉션 CRUD/인제스트는 `rag.py`(`/collections`)가 담당한다.
 """
 
 import uuid
@@ -10,9 +11,10 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from .db import get_session
-from .models import Agent, McpServer, MemoryType, Permission, Persona, VectorTable
+from .models import Agent, Collection, McpServer, MemoryType, Permission, Persona
 from .schemas import (
     McpPublishIn,
     McpServerIn,
@@ -23,8 +25,6 @@ from .schemas import (
     PermissionOut,
     PersonaIn,
     PersonaOut,
-    VectorTableIn,
-    VectorTableOut,
 )
 
 router = APIRouter(tags=["blocks"])
@@ -126,53 +126,8 @@ async def delete_memory_type(id: uuid.UUID, session: AsyncSession = Depends(get_
     await session.commit()
 
 
-# ----------------------------- 벡터 테이블 -----------------------------
-@router.get("/vector-tables", response_model=list[VectorTableOut])
-async def list_vector_tables(session: AsyncSession = Depends(get_session)) -> Any:
-    result = await session.execute(select(VectorTable))
-    return result.scalars().all()
-
-
-@router.post("/vector-tables", response_model=VectorTableOut, status_code=201)
-async def create_vector_table(
-    body: VectorTableIn, session: AsyncSession = Depends(get_session)
-) -> Any:
-    obj = VectorTable(**body.model_dump())
-    session.add(obj)
-    await session.commit()
-    await session.refresh(obj)
-    return obj
-
-
-@router.get("/vector-tables/{id}", response_model=VectorTableOut)
-async def get_vector_table(id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> Any:
-    obj = await session.get(VectorTable, id)
-    if obj is None:
-        raise HTTPException(status_code=404, detail="not found")
-    return obj
-
-
-@router.put("/vector-tables/{id}", response_model=VectorTableOut)
-async def update_vector_table(
-    id: uuid.UUID, body: VectorTableIn, session: AsyncSession = Depends(get_session)
-) -> Any:
-    obj = await session.get(VectorTable, id)
-    if obj is None:
-        raise HTTPException(status_code=404, detail="not found")
-    for key, value in body.model_dump().items():
-        setattr(obj, key, value)
-    await session.commit()
-    await session.refresh(obj)
-    return obj
-
-
-@router.delete("/vector-tables/{id}", status_code=204)
-async def delete_vector_table(id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> None:
-    obj = await session.get(VectorTable, id)
-    if obj is None:
-        raise HTTPException(status_code=404, detail="not found")
-    await session.delete(obj)
-    await session.commit()
+# 벡터 테이블 CRUD는 RAG 컬렉션(스펙 036)으로 대체 — rag.py(`/collections`)가 담당.
+# embedding 카테고리 집계는 get_blocks에서 Collection을 읽기 전용으로 비춘다.
 
 
 # ----------------------------- 권한 -----------------------------
@@ -306,13 +261,13 @@ _CATEGORY_META: dict[str, dict[str, str]] = {
         ),
     },
     "embedding": {
-        "label": "벡터 테이블",
+        "label": "RAG 컬렉션",
         "icon": "appstore",
         "color": "var(--cyan-7)",
         "desc": (
-            "임베딩 모델로 특정 데이터를 벡터화해 만든 테이블(임베딩 데이터셋). "
-            "에이전트가 의미 검색으로 참조하는 지식 소스입니다. "
-            "에이전트마다 0개 이상 연결할 수 있습니다."
+            "임베딩 모델 1개로 묶인 문서 컬렉션(RAG). 문서를 업로드하면 청킹·임베딩되어 "
+            "pgvector에 적재되고, 에이전트가 의미 검색으로 참조합니다. 차원은 임베딩 모델에 "
+            "맞춰 생성 시 고정됩니다. 에이전트마다 0개 이상 연결할 수 있습니다."
         ),
     },
     "permission": {
@@ -357,7 +312,13 @@ async def get_blocks(session: AsyncSession = Depends(get_session)) -> dict[str, 
 
     personas = list((await session.execute(select(Persona))).scalars().all())
     memory_types = list((await session.execute(select(MemoryType))).scalars().all())
-    vector_tables = list((await session.execute(select(VectorTable))).scalars().all())
+    collections = list(
+        (
+            await session.execute(
+                select(Collection).options(selectinload(Collection.embedding_model))
+            )
+        ).scalars().all()
+    )
     permissions = list((await session.execute(select(Permission))).scalars().all())
     mcp_servers = list((await session.execute(select(McpServer))).scalars().all())
 
@@ -388,16 +349,18 @@ async def get_blocks(session: AsyncSession = Depends(get_session)) -> dict[str, 
         {
             "id": str(row.id),
             "name": row.name,
-            "model": row.model,
-            "source": row.source,
+            "model": row.embedding_model.name if row.embedding_model else "",
             "dims": row.dims,
-            "rows": row.rows,
+            "docs": row.doc_count,
+            "chunks": row.chunk_count,
+            "chunkSize": row.chunk_size,
+            "chunkOverlap": row.chunk_overlap,
             "status": row.status,
-            "body": row.body,
+            "body": row.description,
             "usedBy": _count_by(agents, "vectorTables", row.name),
             "updated": "—",
         }
-        for row in vector_tables
+        for row in collections
     ]
     permission_items = [
         {

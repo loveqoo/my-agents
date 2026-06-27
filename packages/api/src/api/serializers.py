@@ -1,8 +1,16 @@
 """ORM 모델 → API 출력(dict) 직렬화. 여러 라우터가 공유."""
 
 from .crypto import SECRET_MASK
-from .models import Agent, Approval, ModelConfig, Provider, Session
-from .schemas import AgentOut, ApprovalOut, ModelOut, ProviderOut, SessionOut, VersionOut
+from .models import Agent, Approval, Collection, ModelConfig, Provider, Session
+from .schemas import (
+    AgentOut,
+    ApprovalOut,
+    CollectionOut,
+    ModelOut,
+    ProviderOut,
+    SessionOut,
+    VersionOut,
+)
 
 
 def mask_secret(s: str | None) -> str | None:
@@ -33,6 +41,23 @@ def model_to_out(m: ModelConfig) -> ModelOut:
         kind=m.kind,
         is_default=m.is_default,
         params=dict(m.params or {}),
+    )
+
+
+def collection_to_out(c: Collection) -> CollectionOut:
+    """embedding_model 관계가 로드되어 있어야 한다(이름 denormalize)."""
+    return CollectionOut(
+        id=c.id,
+        name=c.name,
+        description=c.description,
+        embedding_model_id=c.embedding_model_id,
+        embedding_model_name=c.embedding_model.name if c.embedding_model else "",
+        dims=c.dims,
+        chunk_size=c.chunk_size,
+        chunk_overlap=c.chunk_overlap,
+        doc_count=c.doc_count,
+        chunk_count=c.chunk_count,
+        status=c.status,
     )
 
 
