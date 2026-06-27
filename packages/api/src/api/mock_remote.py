@@ -11,7 +11,9 @@
 지배 스펙: docs/spec/009-code-agent-remote-exec.md, docs/spec/024-mock-llm-registry-model.md
 """
 
+import hashlib
 import json
+import struct
 import time
 import uuid
 
@@ -119,6 +121,10 @@ async def remote_embeddings(body: dict):
     (`RAG_EMBED_DIMS`)에 맞춰 mock 임베딩 모델로 happy-path 인제스트가 결정적으로 통과하게
     한다. OpenAI `dimensions` 파라미터를 주면 그 길이로 잘라 차원 불일치 케이스도 흉내낼 수 있다.
 
+    벡터는 **입력 텍스트에 결정적으로 의존**한다(sha256 시드). 같은 입력 → 같은 벡터(→ cosine 거리 0),
+    다른 입력 → 다른 벡터(→ cosine 으로 변별 가능). 037 retrieval 검증이 랭킹 변별을 실제로 행사하도록
+    상수 벡터(이전 `[0.1]*dims`, 모든 거리 0)를 대체했다. 프로세스 간 안정(파이썬 hash 무작위화 비의존).
+
     `/v1/embeddings`(mock provider base_url `/_remote/v1` 경유) + `/embeddings`(직접 probe) 둘 다 매핑.
     """
     inp = body.get("input")
@@ -129,12 +135,30 @@ async def remote_embeddings(body: dict):
     return {
         "object": "list",
         "data": [
-            {"object": "embedding", "index": i, "embedding": [0.1] * dims}
-            for i, _ in enumerate(items)
+            {"object": "embedding", "index": i, "embedding": _det_embedding(str(text), dims)}
+            for i, text in enumerate(items)
         ],
         "model": body.get("model", "mock-embed"),
         "usage": {"prompt_tokens": 0, "total_tokens": 0},
     }
+
+
+def _det_embedding(text: str, dims: int) -> list[float]:
+    """텍스트로 시드된 결정적 의사난수 벡터(길이 dims). [-0.5,0.5) 범위, 비영(non-zero) 보장.
+
+    sha256를 카운터와 함께 반복 해시해 dims개 float을 채운다. 같은 텍스트 → 동일 벡터.
+    """
+    out: list[float] = []
+    counter = 0
+    while len(out) < dims:
+        digest = hashlib.sha256(f"{text}#{counter}".encode("utf-8")).digest()  # 32 bytes
+        for k in range(0, len(digest), 4):
+            if len(out) >= dims:
+                break
+            (v,) = struct.unpack(">I", digest[k : k + 4])
+            out.append(v / 4294967296.0 - 0.5)  # [-0.5, 0.5)
+        counter += 1
+    return out
 
 
 # ---------- mock A2A Agent Card (외부 에이전트 등록 검증용, 스펙 026) ----------

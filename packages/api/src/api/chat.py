@@ -23,7 +23,7 @@ from sqlalchemy.orm import selectinload
 from . import crypto, memory, runtime
 from .auth import current_principal
 from .db import SessionLocal
-from .models import Agent, McpServer, Message, ModelConfig, Session
+from .models import Agent, Collection, McpServer, Message, ModelConfig, Session
 from .schemas import ChatRequest
 
 router = APIRouter(prefix="/agents", tags=["chat"])
@@ -147,6 +147,50 @@ async def _load_context(
                 for t in (r.enabled_tools or r.tools or []):
                     mcp_pairs.append((r.name, t))
         ctx["mcp_pairs"] = mcp_pairs
+
+        # RAG 컬렉션 해석(스펙 037) — vectorTables(이름 목록) → 검색 도구 배선용 dict.
+        # 질의는 **각 컬렉션이 인제스트에 쓴 임베딩 모델**로 임베딩해야 같은 벡터 공간이 된다
+        # (035 진실원). provider 불완전(base_url/model_id 없음) 컬렉션은 검색 불가라 skip(graceful).
+        # 코드·외부 에이전트는 비로컬이라 위에서 이미 분기되지 않고 도달할 수 있으나, 이 블록은
+        # 로컬 실행 경로에서만 의미가 있다 — code/external은 chat()에서 프록시/안내로 빠진다.
+        rag_collections: list[dict] = []
+        vt_names = cfg.get("vectorTables", [])
+        if vt_names and agent.source not in ("code", "external"):
+            cols = (
+                await db.execute(
+                    select(Collection)
+                    .where(Collection.name.in_(vt_names))
+                    .options(
+                        selectinload(Collection.embedding_model).selectinload(ModelConfig.provider)
+                    )
+                )
+            ).scalars().all()
+            for c in cols:
+                em = c.embedding_model
+                ep = em.provider if em else None
+                if em is None or ep is None or not ep.base_url or not em.model_id:
+                    log.warning("rag collection %s skipped: embedding model/provider 불완전", c.name)
+                    continue
+                rag_collections.append(
+                    {
+                        "id": c.id,
+                        "name": c.name,
+                        "embed_base_url": ep.base_url,
+                        "embed_api_key": crypto.decrypt(ep.api_key),
+                        "embed_model_id": em.model_id,
+                    }
+                )
+            # 관측성(타자검증 F): 요청된 vectorTables 중 실 컬렉션으로 해석되지 못한 이름을 남긴다.
+            # 삭제·개명·provider 불완전으로 도구가 조용히 0개 되는 footgun을 트레이스로 드러냄.
+            resolved = {rc["name"] for rc in rag_collections}
+            unresolved = [n for n in vt_names if n not in resolved]
+            if unresolved:
+                log.warning("rag vectorTables 미해석: %s (요청 %s → 해석 %s)",
+                            unresolved, vt_names, sorted(resolved))
+            ctx["rag_unresolved"] = unresolved
+        else:
+            ctx["rag_unresolved"] = []
+        ctx["rag_collections"] = rag_collections
 
         sess = None
         if session_str_id:
@@ -407,6 +451,9 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
         tools.append(
             runtime.build_agent_memory_tool(ctx["ext_agent_id"], ctx["mem_cfg"], calls_sink)
         )
+    # RAG 검색 도구 — vectorTables가 실 컬렉션으로 해석됐을 때만 주입(스펙 037). mem0 비종속.
+    if ctx["rag_collections"]:
+        tools.append(runtime.build_rag_tool(ctx["rag_collections"], calls_sink))
 
     # 회상된 기억은 persona(시스템 프롬프트)에 합친다. 별도 system 메시지로 주입하면
     # create_react_agent의 persona system과 충돌해 모델 채팅 템플릿이 거부한다
@@ -451,6 +498,12 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
             tokens=tokens,
         )
         trace["contextMessages"] = len(messages)  # 모델에 넣은 메시지 수(historyDepth 적용 결과)
+        if ctx["rag_collections"]:
+            # 구성된 RAG 컬렉션 — 호출 안 해도 인스펙터에 노출(실제 호출은 trace["mcp"]의 server="rag").
+            trace["ragCollections"] = [c["name"] for c in ctx["rag_collections"]]
+        if ctx.get("rag_unresolved"):
+            # 요청됐으나 해석 실패한 이름 — 도구가 조용히 비는 footgun을 인스펙터에 드러냄(타자검증 F).
+            trace["ragUnresolved"] = ctx["rag_unresolved"]
         if used_memory:
             # None이 아닌 회상 축만 — {"user_id","run_id","agent_id"} 부분집합 (Inspector가 축별 렌더).
             trace["memoryScope"] = {k: v for k, v in recall_scope.items() if v}

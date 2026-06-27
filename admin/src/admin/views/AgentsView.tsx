@@ -29,7 +29,9 @@ import {
   registerExternalAgent as apiRegisterExternalAgent,
   resyncAgent,
   listModels,
+  listCollections,
   type Model,
+  type Collection,
 } from '../../api'
 
 /* 코드 에이전트의 Agent Card(엔드포인트가 보고하는 매니페스트) shape. */
@@ -84,6 +86,7 @@ function AgentForm({
   draftVersion,
   blocks,
   models,
+  collections,
   onCancel,
   onSave,
 }: {
@@ -93,6 +96,7 @@ function AgentForm({
   draftVersion: string | null
   blocks: Record<string, BlockCategory>
   models: Model[]
+  collections: Collection[]
   onCancel: () => void
   onSave: (data: AgentFormData) => void
 }) {
@@ -199,32 +203,35 @@ function AgentForm({
             ) : null}
           </div>
         </Field>
-        {form.memories.includes('장기 기억 (mem0)') ? (
-          <Field label="벡터 테이블 (지식 소스)">
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {(blocks.embedding?.items ?? []).map((t) => (
-                <label
-                  key={t.id}
-                  style={{ display: 'flex', alignItems: 'baseline', gap: 8, fontSize: 14, cursor: 'pointer' }}
-                >
-                  <Checkbox checked={form.vectorTables.includes(t.name)} onChange={() => toggle('vectorTables', t.name)}>
-                    <code style={{ fontFamily: 'var(--font-family-code)', fontSize: 13, color: 'var(--cyan-7)' }}>
-                      {t.name}
-                    </code>
-                  </Checkbox>
-                  <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-                    {t.model} · {t.source}
-                  </span>
-                </label>
-              ))}
-              {form.vectorTables.length === 0 ? (
-                <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)', fontStyle: 'italic' }}>
-                  연결된 벡터 테이블 없음 — 외부 지식 소스를 검색하지 않습니다.
+        {/* RAG 지식 소스(스펙 037) — 실 컬렉션. mem0 장기기억과 독립(RAG ≠ mem0). */}
+        <Field label="지식 소스 (RAG 컬렉션)">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {collections.map((c) => (
+              <label
+                key={c.id}
+                style={{ display: 'flex', alignItems: 'baseline', gap: 8, fontSize: 14, cursor: 'pointer' }}
+              >
+                <Checkbox checked={form.vectorTables.includes(c.name)} onChange={() => toggle('vectorTables', c.name)}>
+                  <code style={{ fontFamily: 'var(--font-family-code)', fontSize: 13, color: 'var(--cyan-7)' }}>
+                    {c.name}
+                  </code>
+                </Checkbox>
+                <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+                  {c.embedding_model_name} · 청크 {c.chunk_count}개
                 </span>
-              ) : null}
-            </div>
-          </Field>
-        ) : null}
+              </label>
+            ))}
+            {collections.length === 0 ? (
+              <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)', fontStyle: 'italic' }}>
+                컬렉션 없음 — 'RAG 컬렉션' 메뉴에서 먼저 문서를 적재하세요.
+              </span>
+            ) : form.vectorTables.length === 0 ? (
+              <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)', fontStyle: 'italic' }}>
+                연결된 컬렉션 없음 — 에이전트가 문서를 검색하지 않습니다.
+              </span>
+            ) : null}
+          </div>
+        </Field>
         <Field label="채팅 히스토리">
           <Select
             value={form.historyDepth}
@@ -1292,6 +1299,7 @@ export default function AgentsView() {
   const [agents, setAgents] = useState<Agent[]>([])
   const [blocks, setBlocks] = useState<Record<string, BlockCategory>>({})
   const [models, setModels] = useState<Model[]>([])
+  const [collections, setCollections] = useState<Collection[]>([])
   const [detailId, setDetailId] = useState<string | null>(null)
   const detail = agents.find((a) => a.id === detailId) || null
   const [formOpen, setFormOpen] = useState(false)
@@ -1318,6 +1326,10 @@ export default function AgentsView() {
       .catch((e) => message.error(String(e)))
     listModels('chat')
       .then(setModels)
+      .catch((e) => message.error(String(e)))
+    // RAG 컬렉션(지식 소스 피커용, 스펙 037). 비어 있어도 폼은 안내 문구를 띄운다.
+    listCollections()
+      .then(setCollections)
       .catch((e) => message.error(String(e)))
   }, [])
 
@@ -1680,6 +1692,7 @@ export default function AgentsView() {
         mode={editing ? 'edit' : 'create'}
         blocks={blocks}
         models={models}
+        collections={collections}
         draftVersion={
           editing
             ? draftOf(editing.agent)

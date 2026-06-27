@@ -113,6 +113,124 @@ def build_agent_memory_tool(
     )
 
 
+def build_rag_tool(collections: list[dict], calls_sink: list[dict]) -> StructuredTool:
+    """RAG 문서 검색 도구(스펙 037). 모델이 호출하면 질의 임베딩 → pgvector cosine 검색 → 상위 청크.
+
+    핵심 불변식: 질의는 **각 컬렉션이 인제스트에 쓴 임베딩 모델로** 임베딩해야 같은 벡터 공간에서
+    cosine이 의미를 가진다(learning 035 — 진실원을 따른다). `RAG_EMBED_DIMS`로 컬럼 차원은 공유되지만
+    모델이 다르면 공간이 달라 검색이 무의미하므로, (base_url, model_id)별로 질의 임베딩을 1회만 호출·캐시.
+
+    `collections`: `_load_context`가 해석한 dict 리스트
+    `{id, name, embed_base_url, embed_api_key(복호화됨), embed_model_id}`.
+    실패(임베딩 서버 다운·DB 오류)는 잡아 graceful 문자열 + calls_sink status="error"로 — 에이전트 크래시 금지.
+    """
+    from sqlalchemy import select  # 지연 임포트(모듈 경량 유지)
+
+    from . import rag_ingest
+    from .db import SessionLocal
+    from .models import Chunk, Document
+
+    names = ", ".join(c["name"] for c in collections)
+
+    async def _search(query: str = "", top_k: int = 4) -> str:
+        t0 = time.perf_counter()
+        query = (query or "").strip()
+
+        def _record(status: str, result: str, n: int = 0) -> None:
+            calls_sink.append(
+                {
+                    "server": "rag",
+                    "tool": "search_documents",
+                    "status": status,
+                    "ms": int((time.perf_counter() - t0) * 1000) + 1,
+                    "args": {"query": query, "top_k": top_k},
+                    "result": result,
+                    "hits": n,
+                }
+            )
+
+        if not query:
+            _record("error", "빈 검색어")
+            return "검색어가 비어 있습니다."
+        # top_k 방어적 강제(타자검증): 타입힌트로 LLM 인자는 보통 int로 강제되지만, 비정상 값이
+        # 새어 들어와도 _record 이전에 크래시하지 않게 직접 흡수한다(기본 4로 폴백).
+        try:
+            k = max(1, min(int(top_k), 10))
+        except (TypeError, ValueError):
+            k = 4
+
+        # (base_url, model_id)별 질의 임베딩 캐시 — 같은 모델을 쓰는 컬렉션은 1회만 호출.
+        qvec_cache: dict[tuple[str, str], list[float]] = {}
+        try:
+            for c in collections:
+                key = (c["embed_base_url"], c["embed_model_id"])
+                if key not in qvec_cache:
+                    vecs = await rag_ingest.embed_texts(
+                        c["embed_base_url"], c["embed_api_key"], c["embed_model_id"], [query]
+                    )
+                    qvec_cache[key] = vecs[0]
+        except rag_ingest.IngestError as exc:
+            _record("error", "임베딩 실패")
+            return f"문서 검색 실패(질의 임베딩): {exc}"
+        except Exception:  # noqa: BLE001 — 어떤 실패도 에이전트를 죽이지 않는다
+            _record("error", "임베딩 예외")
+            return "문서 검색 실패(질의 임베딩 중 오류)."
+
+        # 컬렉션별 cosine 검색 → 통합. 각 행: (dist, filename, text). dist 오름차순 = 가까움.
+        hits: list[tuple[float, str, str]] = []
+        try:
+            async with SessionLocal() as db:
+                for c in collections:
+                    qvec = qvec_cache[(c["embed_base_url"], c["embed_model_id"])]
+                    dist = Chunk.embedding.cosine_distance(qvec).label("dist")
+                    rows = (
+                        await db.execute(
+                            select(Chunk.text, Document.filename, dist)
+                            .join(Document, Chunk.document_id == Document.id)
+                            .where(Chunk.collection_id == c["id"])
+                            .order_by(dist)
+                            .limit(k)
+                        )
+                    ).all()
+                    for text, filename, d in rows:
+                        hits.append((float(d), filename or "(파일 미상)", text))
+        except Exception:  # noqa: BLE001 — DB/검색 오류도 graceful
+            _record("error", "검색 예외")
+            return "문서 검색 실패(유사도 검색 중 오류)."
+
+        # 음수 유사도(cosine 거리>1 = 벡터가 반대 방향) 제거: 반-상관 청크는 '근거'가 될 수 없다.
+        # 임의 임계값이 아니라 수학적 경계(직교=0)라 정상 매치(양수)는 절대 탈락하지 않는다. 양수
+        # 구간의 관련도 임계 튜닝(예 0.3 미만 컷)은 recall 트레이드오프가 있어 빚으로 남긴다(타자검증).
+        relevant = [h for h in hits if h[0] <= 1.0 + 1e-9]
+        if not relevant:
+            _record("ok", "관련 결과 0건", 0)
+            return "관련 문서를 찾지 못했습니다."
+
+        # 컬렉션 간 통합 정렬 후 상위 k. (동일 임베딩 모델 가정 — 다른 모델 간 dist 스케일 차는 빚:
+        # 서로 다른 벡터 공간의 거리를 한 리스트로 정렬하면 순위가 의미를 잃는다. 멀티모델 컬렉션
+        # 동시 사용은 비권장이며, 강제 방지/스코어 정규화는 후속 스펙으로 남긴다.)
+        relevant.sort(key=lambda h: h[0])
+        top = relevant[:k]
+        lines = [f"[문서 검색 결과 {len(top)}건]"]
+        for i, (d, filename, text) in enumerate(top, 1):
+            snippet = text.strip().replace("\n", " ")
+            if len(snippet) > 500:
+                snippet = snippet[:500] + "…"
+            lines.append(f"{i}. ({filename}, 유사도 {1 - d:.3f}) {snippet}")
+        _record("ok", f"{len(top)}건 반환", len(top))
+        return "\n".join(lines)
+
+    return StructuredTool.from_function(
+        coroutine=_search,
+        name="search_documents",
+        description=(
+            f"등록된 문서 컬렉션({names})에서 관련 구절을 의미(semantic) 검색한다. 사용자의 질문이 "
+            "특정 문서·지식베이스의 내용을 요구하면 **답하기 전에 먼저** 이 도구로 근거 구절을 찾아라. "
+            "입력: query(검색할 질문/키워드), top_k(가져올 구절 수, 기본 4)."
+        ),
+    )
+
+
 def build_graph_path(used_memory: bool, used_tools: bool, total_ms: int) -> list[dict]:
     """관측된 실행으로 LangGraph 경로 트레이스를 합성. 인스펙터 표시용."""
     nodes = ["__start__"]
