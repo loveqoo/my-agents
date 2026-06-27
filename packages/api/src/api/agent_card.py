@@ -74,6 +74,35 @@ async def fetch_card(card_url: str) -> dict:
     raise ValueError(f"Agent Card를 가져오지 못했습니다: {last_err or '알 수 없는 오류'}")
 
 
+async def probe_endpoint(url: str | None) -> bool:
+    """A2A 서비스 엔드포인트 liveness probe(스펙 045, #2).
+
+    카드 published ≠ 실행 엔드포인트 live. 등록 시 endpoint 도달성을 한 번 확인해 status를
+    정직하게 정한다. SSRF 가드 후 짧은 타임아웃으로 요청 — **어떤 HTTP status여도 응답이 오면
+    live**(A2A는 표준 health 메서드가 없어 도달=충분), 연결오류/타임아웃이면 dead. 예외·비밀값은
+    삼키고 bool만 반환(등록을 막지 않는다).
+
+    follow_redirects=False: guard_url은 *최초* URL의 resolve IP만 검사하므로, 리다이렉트를
+    추종하면 공개 호스트가 302로 내부 IP(169.254.169.254·127.0.0.1 등)를 가리켜 SSRF 가드를
+    우회할 수 있다. 3xx 응답은 그 자체로 '도달=live'로 충분하니 추종하지 않는다(적대 리뷰 045)."""
+    if not url or not isinstance(url, str):
+        return False
+    target = url.strip().rstrip("/")
+    if not target.startswith(("http://", "https://")):
+        return False
+    try:
+        guard_url(target)  # SSRF 차단이면 dead로 취급(등록은 라우터가 별도 판단)
+    except ValueError:
+        return False
+    try:
+        async with httpx.AsyncClient(timeout=5, follow_redirects=False) as client:
+            resp = await client.get(target, headers={"Accept": "application/json"})
+            return resp.status_code < 600  # 응답 자체가 도달 신호(3xx 포함)
+    except Exception:
+        # probe는 절대 raise하지 않는다 — 등록을 막으면 안 되므로 어떤 예외도 dead로 흡수.
+        return False
+
+
 class _CardFetchError(Exception):
     """fetch_card 내부 후보 시도 실패 — 다음 후보로 넘어가게 하는 신호."""
 

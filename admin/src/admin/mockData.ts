@@ -123,6 +123,7 @@ export interface Approval {
   summary: string
   requestedAt: string
   checkpoint: string
+  status?: string
 }
 export interface StatusMeta {
   label: string
@@ -295,11 +296,8 @@ export const ADMIN_SESSIONS: Session[] = [
   { id: 'sess-4b10', agentId: 'research', agent: 'Research Assistant', channel: 'web-chat', status: 'completed', turns: 21, started: 'Yesterday', lastActivity: 'Yesterday', tokens: 74300 },
 ]
 
-/* ---------- 승인 큐 ---------- */
-export const ADMIN_APPROVALS: Approval[] = [
-  { id: 'apr-3391', sessionId: 'sess-6c93', agentId: 'reviewer', agent: 'Code Reviewer', permission: 'repo.merge', action: 'github.merge_pr', args: { pr: 482, repo: 'my-agents', strategy: 'squash' }, summary: 'Merge PR #482 “Fix token refresh race” into main', requestedAt: '2m ago', checkpoint: 'ckpt_6c93_07' },
-  { id: 'apr-3388', sessionId: 'sess-9d22', agentId: 'ops', agent: 'Ops Copilot', permission: 'k8s.write', action: 'kubernetes.scale', args: { deployment: 'api', replicas: 8, namespace: 'prod' }, summary: 'Scale prod/api from 5 → 8 replicas', requestedAt: '9m ago', checkpoint: 'ckpt_9d22_03' },
-]
+/* 승인 큐는 백엔드 GET /approvals(pending 필터)에서 받는다 — mock ADMIN_APPROVALS/
+   PENDING_APPROVALS는 045에서 제거(배지=2 가짜와 실제 큐 불일치였던 #12의 잔재). */
 
 /* ---------- 후처리 (adminData.js의 IIFE들) ---------- */
 
@@ -341,5 +339,3 @@ BLOCKS.permission.items.forEach((p) => {
   if (!p.approver) p.approver = DEFAULT_APPROVER
 })
 
-/* 사이더 "승인" 배지 카운트. */
-export const PENDING_APPROVALS = ADMIN_APPROVALS.length

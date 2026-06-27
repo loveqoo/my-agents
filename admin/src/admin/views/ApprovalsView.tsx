@@ -87,7 +87,7 @@ function ApprovalCard({
   )
 }
 
-export default function ApprovalsView() {
+export default function ApprovalsView({ onPendingChange }: { onPendingChange?: (n: number) => void } = {}) {
   const [queue, setQueue] = useState<Approval[]>([])
   const [toast, setToast] = useState<{ type: 'success' | 'warning'; msg: string } | null>(null)
   useEffect(() => {
@@ -98,9 +98,13 @@ export default function ApprovalsView() {
 
   useEffect(() => {
     let alive = true
-    listApprovals()
+    // 승인 큐는 pending만 — resolved 항목이 재로드 시 재등장하지 않도록 서버에서 필터(045).
+    listApprovals('pending')
       .then((items) => {
-        if (alive) setQueue(items)
+        if (alive) {
+          setQueue(items)
+          onPendingChange?.(items.length)
+        }
       })
       .catch((e: unknown) => {
         if (alive) message.error(e instanceof Error ? e.message : '승인 목록을 불러오지 못했습니다.')
@@ -113,7 +117,16 @@ export default function ApprovalsView() {
   const resolve = async (item: Approval, decision: 'approve' | 'reject') => {
     try {
       await resolveApproval(item.id, decision)
-      setQueue((q) => q.filter((x) => x.id !== item.id))
+      // 함수형 updater로 최신 큐에서 제거(연속 resolve 시 stale 클로저가 항목을 되살리지
+      // 않게) + 외부 콜백 onPendingChange는 리듀서 밖에서 1회 호출(StrictMode 이중 호출
+      // 노출 방지). 길이는 멱등한 로컬 캡처로 전달(적대 리뷰 045).
+      let nextLen = 0
+      setQueue((q) => {
+        const next = q.filter((x) => x.id !== item.id)
+        nextLen = next.length
+        return next
+      })
+      onPendingChange?.(nextLen)
       setToast(
         decision === 'approve'
           ? { type: 'success', msg: `승인됨 — ${item.checkpoint}에서 ${item.agent} 재개 중` }

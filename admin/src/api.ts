@@ -355,7 +355,8 @@ export interface SessionMessage {
 }
 export const getSessionMessages = (sessionId: string) =>
   j<SessionMessage[]>(`/sessions/${sessionId}/messages`)
-export const listApprovals = () => j<Approval[]>('/approvals')
+export const listApprovals = (status?: string) =>
+  j<Approval[]>(`/approvals${status ? `?status=${encodeURIComponent(status)}` : ''}`)
 export const resolveApproval = (id: string, decision: 'approve' | 'reject') =>
   post(`/approvals/${id}/resolve`, { decision }) as Promise<Approval>
 

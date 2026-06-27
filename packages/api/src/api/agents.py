@@ -353,6 +353,10 @@ async def register_external_agent(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
+    # 서비스 endpoint liveness probe(045 #2) — 카드 published ≠ 실행 엔드포인트 live.
+    # 도달 실패해도 등록은 허용(일시 다운 가능), status만 정직하게 박는다.
+    live = await agent_card.probe_endpoint(card.get("url"))
+
     cfg = {
         "model": "",  # 외부는 로컬 모델 미해석
         "persona": "",
@@ -372,7 +376,7 @@ async def register_external_agent(
         history_depth=10,
         config=cfg,
         exposed={"a2a": False},  # 우리가 소비측(클라이언트) — 서버측 노출과 무관
-        status="online",
+        status="online" if live else "offline",
         endpoint=card.get("url"),
         token=crypto.encrypt(body.token) if body.token else None,
         registered_at=_today(),

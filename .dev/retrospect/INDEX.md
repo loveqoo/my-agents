@@ -36,3 +36,4 @@
 - 031 HIL 승인 게이팅 회고 — 스펙 041(P5-a); 가짜 큐를 실 langgraph interrupt 게이트로, AsyncPostgresSaver durable, 검증을 사다리 3rung으로 쌓음 [hil,approval,interrupt,langgraph,checkpoint]
 - 032 A2A 실호출 회고 — 스펙 042(P5-b·로드맵 마지막); external 안내를 실 A2A JSON-RPC 호출로, 026 유예한 SSRF 빚을 net_guard로 청산(allowlist는 사람과 합의) [a2a,runtime,jsonrpc,ssrf,allowlist]
 - 033 컨텍스트 경량화 회고 — 스펙 043; 자산 INDEX.md 3종+Context 규칙을 통독→인덱스우선으로(읽기량 95%↓), 적대리뷰가 아카이브 이동의 나가는 참조 누락 적발 [context,index,archive,refs]
+- 034 어드민 표시 정직화 회고 — 스펙 045(마스터 044 배치1·#12/#2); 배지 mock상수→실 pending수·A2A무조건online→도달성probe, 적대리뷰가 리다이렉트SSRF 회귀 적발, Low지적 글자대로 고치다 동시성버그 낼 뻔 [admin,honesty,badge,a2a,liveness,ssrf]

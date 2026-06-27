@@ -22,7 +22,6 @@ import {
   MenuUnfoldOutlined,
   SearchOutlined,
 } from '@ant-design/icons'
-import { PENDING_APPROVALS } from './mockData'
 import OverviewView from './views/OverviewView'
 import AgentsView from './views/AgentsView'
 import BlocksView from './views/BlocksView'
@@ -35,7 +34,7 @@ import ApprovalsView from './views/ApprovalsView'
 import UsersView from './views/UsersView'
 import BatchView from './views/BatchView'
 import { Playground } from '../playground/Playground'
-import { logout as apiLogout, type Me } from '../api'
+import { logout as apiLogout, listApprovals, type Me } from '../api'
 
 const { Sider, Header, Content } = Layout
 
@@ -86,6 +85,25 @@ export default function AdminShell({ user, onLogout }: { user: Me; onLogout: () 
     setCollapsed(isMobile)
   }, [isMobile])
 
+  // 승인 배지는 실제 pending 수(045 정직화) — mock 상수 제거. 마운트 1회만 fetch해
+  // 첫 배지값을 채운다. 승인 뷰에 들어가면 ApprovalsView가 onPendingChange로 카운트를
+  // 단일 소스로 갱신(초기 로드+resolve)하므로, 여기서 [view]로 재fetch하면 두 fetch가
+  // 경합해 한쪽 실패 시 배지≠목록이 재발한다 → 마운트 의존성으로 고정(적대 리뷰 045).
+  const [pendingCount, setPendingCount] = useState(0)
+  useEffect(() => {
+    let alive = true
+    listApprovals('pending')
+      .then((items) => {
+        if (alive) setPendingCount(items.length)
+      })
+      .catch(() => {
+        /* 배지 카운트 실패는 조용히 무시(목록 화면에서 별도 에러 표기) */
+      })
+    return () => {
+      alive = false
+    }
+  }, [])
+
   const menuItems = [
     { key: 'overview', icon: <DashboardOutlined />, label: '개요' },
     { key: 'agents', icon: <RobotOutlined />, label: '에이전트' },
@@ -101,8 +119,8 @@ export default function AdminShell({ user, onLogout }: { user: Me; onLogout: () 
       label: (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
           승인
-          {PENDING_APPROVALS > 0 && (
-            <Badge count={PENDING_APPROVALS} color={token.colorPrimary} size="small" />
+          {pendingCount > 0 && (
+            <Badge count={pendingCount} color={token.colorPrimary} size="small" />
           )}
         </span>
       ),
@@ -130,7 +148,7 @@ export default function AdminShell({ user, onLogout }: { user: Me; onLogout: () 
     collections: <CollectionsView />,
     sessions: <SessionsView />,
     memory: <MemoryView />,
-    approvals: <ApprovalsView />,
+    approvals: <ApprovalsView onPendingChange={setPendingCount} />,
     users: <UsersView />,
     batch: <BatchView />,
     debug: <Playground />,

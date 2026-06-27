@@ -30,13 +30,23 @@ async def _agent_id_map(session: AsyncSession) -> dict:
 
 @router.get("", response_model=list[ApprovalOut])
 async def list_approvals(
+    status: str | None = None,
     session: AsyncSession = Depends(get_session),
 ) -> list[ApprovalOut]:
     # pending 먼저, 그 다음 requested_at 내림차순.
+    # status를 주면 그 상태만 — 사이드바 배지·승인 큐는 'pending'만 본다(045 정직화).
+    # 기본(None)은 전량 반환(기존 소비처 회귀 방지).
     pending_first = case((Approval.status == "pending", 0), else_=1)
-    result = await session.execute(
-        select(Approval).order_by(pending_first, Approval.requested_at.desc())
-    )
+    stmt = select(Approval).order_by(pending_first, Approval.requested_at.desc())
+    if status is not None:
+        # 필터 분기도 pending-first 정렬 유지(스펙 §A 충실성; status='pending'이면 무영향이나
+        # 다른 status 질의에도 문서화한 불변식이 깨지지 않게).
+        stmt = (
+            select(Approval)
+            .where(Approval.status == status)
+            .order_by(pending_first, Approval.requested_at.desc())
+        )
+    result = await session.execute(stmt)
     amap = await _agent_id_map(session)
     return [approval_to_out(p, amap.get(p.agent_pk)) for p in result.scalars().all()]
 

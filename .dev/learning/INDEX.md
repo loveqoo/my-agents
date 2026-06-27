@@ -45,3 +45,5 @@
 - 040 실인프라 통합 테스트는 *단위 게이트와 적대 리뷰가 둘 다 못 보는* 결함을 잡는다 — 게이트를 단위+적대로만 검증하고 실 DB·요청간 글루를 안 태울 때 [integration,gate,drift]
 - 041 "리밋"은 *원천 바이트*를 막아야 한다 — 선버퍼링·프레임 카운트는 캡이 아니다 — .content/.aiter_lines 위에서 사이즈 캡 걸어 OOM이 안 막힐 때 [limit,bytes,ssrf]
 - 042 이동·리네임은 *양방향*으로 참조를 깬다 — 한 방향만 고치면 green이지만 깨져 있다 — 파일 옮기고 들어오는 참조만 갱신할 때(나가는 상대링크·단방향 검증 함정) [move,refs,relative-path,verify]
+- 043 "표시가 거짓"인 결함은 코드층·데이터층으로 갈라 고친다 — 화면 수치/상태가 실제와 어긋날 때(코드가 잘못 읽음 vs 데이터가 가짜, 출하 리듬이 다름) [honesty,code-vs-data,batch-split]
+- 044 "안전장치를 깔았다"는 "안전하다"의 증거가 아니다 — 적용 범위 경계를 적대자가 짚는다 — 서버측 fetch/probe에 가드 깔고 follow_redirects·재해석을 안 끌 때(가드는 최초URL만, 부수효과는 체인끝) [ssrf,guard,boundary,toctou,redirect]
