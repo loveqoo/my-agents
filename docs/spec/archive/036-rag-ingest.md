@@ -3,7 +3,7 @@
 상태: **초안 — 인간 검토 대기** (AI 작성). 데이터 모델=신규 Collection+Document+Chunk(vectorTables 재생), 분할=인제스트 먼저(037 retrieval 분리).
 날짜: 2026-06-27
 브랜치: `feat/agent-service` — **main 머지·push 금지**(사용자가 직접 브랜치 테스트)
-지배 스펙: [033 로드맵](./033-feature-roadmap.md)(P2 = #9 인제스트 + #10 retrieval), [035 Provider 엔티티](./035-provider-entity.md)(임베딩 provider 상속 토대), [019 mem0 pgvector 공유 백엔드](./019-mem0-pgvector-shared-backend.md)
+지배 스펙: [033 로드맵](../033-feature-roadmap.md)(P2 = #9 인제스트 + #10 retrieval), [035 Provider 엔티티](./035-provider-entity.md)(임베딩 provider 상속 토대), [019 mem0 pgvector 공유 백엔드](../019-mem0-pgvector-shared-backend.md)
 참고 자산: `.dev/learning/020`(DSN 원본 위임 + **pgvector 차원은 생성 시 고정→모델 결합** + 차원 불일치 시 조용히 죽음), `.dev/retrospect/025`(인라인→관계 정규화 = N개 소비처 eager-load 의무, 셰이프 변경 직후 grep 전수)
 
 ## 배경 / 문제

@@ -1,6 +1,6 @@
 # 032 — A2A 실호출 회고 (스펙 042, P5-b · 로드맵 마지막)
 
-> 지배 스펙: `docs/spec/042-a2a-runtime-call.md`. 관련 learning: [[041-bounded-knob-must-cap-the-raw-source]],
+> 지배 스펙: `docs/spec/archive/042-a2a-runtime-call.md`. 관련 learning: [[041-bounded-knob-must-cap-the-raw-source]],
 > [[040-real-infra-integration-catches-glue-and-deployment-drift]], 028(서버측 URL fetch 보안),
 > 회고 [[031-hil-approval-gating]]. 026(1차 카드 등록)의 2차.
 

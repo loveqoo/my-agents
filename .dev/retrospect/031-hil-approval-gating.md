@@ -1,6 +1,6 @@
 # 031 — HIL 승인 게이팅 회고 (스펙 041, P5-a)
 
-> 지배 스펙: `docs/spec/041-hil-approval-gating.md`. 관련 learning: [[040-real-infra-integration-catches-glue-and-deployment-drift]],
+> 지배 스펙: `docs/spec/archive/041-hil-approval-gating.md`. 관련 learning: [[040-real-infra-integration-catches-glue-and-deployment-drift]],
 > [[038-adversarial-review-finds-what-invariants-miss]], [[037-floor-the-destructive-knob]],
 > 회고 [[030-memory-backend-abstraction]].
 

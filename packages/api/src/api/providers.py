@@ -4,7 +4,7 @@ provider 1회 등록 → 하위 모델이 base_url/api_key를 상속. api_key는
 암호화 저장·마스킹 출력하며, 수정 시 마스킹 값을 그대로 보내면 기존 키를 보존한다.
 삭제는 매달린 모델이 있으면 차단(RESTRICT) → 409.
 
-지배 스펙: docs/spec/035-provider-entity.md
+지배 스펙: docs/spec/archive/035-provider-entity.md
 """
 
 import uuid

@@ -1,6 +1,6 @@
 # 028 — 배치 토대 + 세션 보존정리 회고 (스펙 038, P3-a)
 
-> 지배 스펙: `docs/spec/038-batch-foundation-session-cleanup.md`. 관련 learning: [[037-floor-the-destructive-knob]],
+> 지배 스펙: `docs/spec/archive/038-batch-foundation-session-cleanup.md`. 관련 learning: [[037-floor-the-destructive-knob]],
 > 034-invariant-and-delta-tests, 033-alembic-autogenerate, 030-verify-ui-in-a-real-browser, 036-suspect-your-measurement.
 
 ## 무엇을 했나

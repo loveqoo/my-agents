@@ -1,6 +1,6 @@
 # 029 — 유저 메모리 통합·재적재 회고 (스펙 039, P3-b)
 
-> 지배 스펙: `docs/spec/039-user-memory-consolidation.md`. 관련 learning: [[038-adversarial-review-finds-what-invariants-miss]],
+> 지배 스펙: `docs/spec/archive/039-user-memory-consolidation.md`. 관련 learning: [[038-adversarial-review-finds-what-invariants-miss]],
 > [[037-floor-the-destructive-knob]], 034-invariant-and-delta-tests, 035-guard-the-source-not-the-copy, 030-verify-ui-in-a-real-browser.
 
 ## 무엇을 했나

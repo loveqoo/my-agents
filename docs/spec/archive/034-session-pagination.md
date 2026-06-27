@@ -3,7 +3,7 @@
 상태: **승인 — 기본 제안대로 진행(1=all 폴백, 2=pageSize 20, 3=매 요청 counts). 2026-06-27.**
 날짜: 2026-06-27
 브랜치: `feat/agent-service` (main 머지 금지)
-지배 로드맵: [033 P0](033-feature-roadmap.md) · 항목 #2
+지배 로드맵: [033 P0](../033-feature-roadmap.md) · 항목 #2
 
 ## 배경 / 문제
 

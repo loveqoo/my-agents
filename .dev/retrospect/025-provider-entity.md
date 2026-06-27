@@ -1,6 +1,6 @@
 # 025 — Provider 엔티티: 인라인 필드를 1급 관계로 정규화하며 배운 것
 
-스펙: `docs/spec/035-provider-entity.md` (P1, 로드맵 033 의존순 두 번째 단계)
+스펙: `docs/spec/archive/035-provider-entity.md` (P1, 로드맵 033 의존순 두 번째 단계)
 대상: `ModelConfig`의 인라인 연결처(`provider`/`base_url`/`api_key`)를 1급 `Provider`
 테이블로 분리. 모델은 `provider_id` FK(ondelete RESTRICT)로 참조 → "provider 1회 등록 →
 하위 모델이 base_url·키 상속". 어드민 프로바이더 탭 + 기존 모델행 마이그레이션.

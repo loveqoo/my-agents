@@ -1,6 +1,6 @@
 # 024 — 세션 페이징: 엔벌로프 전환의 세 가지 교훈
 
-스펙: `docs/spec/034-session-pagination.md` (P0, 로드맵 033의 의존순 첫 단계)
+스펙: `docs/spec/archive/034-session-pagination.md` (P0, 로드맵 033의 의존순 첫 단계)
 대상: `GET /sessions` 를 bare list → 엔벌로프 `{items, total, counts}` 로 전환,
 프론트 서버사이드 페이징 + 필터.
 

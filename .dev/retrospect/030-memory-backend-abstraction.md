@@ -1,6 +1,6 @@
 # 030 — 메모리 백엔드 추상화 회고 (스펙 040, P4)
 
-> 지배 스펙: `docs/spec/040-memory-backend-abstraction.md`. 관련 learning: [[039-second-implementation-measures-drop-in]],
+> 지배 스펙: `docs/spec/archive/040-memory-backend-abstraction.md`. 관련 learning: [[039-second-implementation-measures-drop-in]],
 > [[038-adversarial-review-finds-what-invariants-miss]], 020-pgvector-shared-backend, 021-mem0-value-is-scope-not-type.
 
 ## 무엇을 했나

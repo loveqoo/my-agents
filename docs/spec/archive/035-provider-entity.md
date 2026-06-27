@@ -3,8 +3,8 @@
 상태: **완료 — 구현·검증·회고. 1=base_url 그룹핑, 2=RESTRICT 삭제, 3=오버라이드 없음(provider 상속), 4=모델 단위 테스트 유지. 검증: 인프로세스 20단언+브라우저 4뷰+타자 2인(codex·서브에이전트) SHIP 수렴. 회고 `.dev/retrospect/025`. 2026-06-27.** (AI 작성·인간 승인)
 날짜: 2026-06-27
 브랜치: `feat/agent-service` — **main 머지·push 금지**
-지배 스펙: [008 모델 레지스트리](./008-model-registry.md), [010 비밀 at-rest](./010-secret-at-rest.md),
-[013 모델 연결 테스트](./013-model-connection-test.md), [033 로드맵](./033-feature-roadmap.md)(P1)
+지배 스펙: [008 모델 레지스트리](../008-model-registry.md), [010 비밀 at-rest](../010-secret-at-rest.md),
+[013 모델 연결 테스트](../013-model-connection-test.md), [033 로드맵](../033-feature-roadmap.md)(P1)
 참고: `.dev/retrospect/024`(엔벌로프 셰이프 변경=tsc 전수검사), `.dev/learning/034`(공유DB 불변식+델타 검증)
 
 ## 배경 / 문제

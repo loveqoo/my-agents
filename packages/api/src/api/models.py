@@ -339,7 +339,7 @@ class Role(Base):
 # ----------------------------- 배치 (스펙 038) -----------------------------
 # 시스템과 격리된 별도 배치 서비스(`api.batch`)가 쓰는 두 테이블. learning 012: 운영 설정(보존창·
 # 스케줄)은 env가 아니라 DB가 진실원. learning 033: Base.metadata에 매핑해 autogenerate가 외부
-# 테이블(mem0_memories)을 안 건드리게 한다. 지배 스펙: docs/spec/038-batch-foundation-session-cleanup.md
+# 테이블(mem0_memories)을 안 건드리게 한다. 지배 스펙: docs/spec/archive/038-batch-foundation-session-cleanup.md
 class BatchRun(Base):
     """배치 실행 감사 로그 — 매 run을 박제(시작→ok/error + 건수). 가시성·idempotency 추적."""
 
