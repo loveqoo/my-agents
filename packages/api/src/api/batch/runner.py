@@ -18,11 +18,22 @@ log = logging.getLogger("api.batch.runner")
 _AUDIT_OMIT_KEYS = ("sample",)
 
 
+def _scrub(obj):
+    """'sample' 키를 어느 깊이에서든 제거 — 미리보기 전용 데이터는 감사행에 영속하지 않는다.
+    재귀: 038의 세션정리 dry-run은 top-level sample(세션 식별자), 039의 통합 dry-run은
+    candidates[].sample(제안된 사실 본문)을 가진다. 둘 다 라이브 응답엔 남기되 감사엔 미적재."""
+    if isinstance(obj, dict):
+        return {k: _scrub(v) for k, v in obj.items() if k not in _AUDIT_OMIT_KEYS}
+    if isinstance(obj, list):
+        return [_scrub(v) for v in obj]
+    return obj
+
+
 def _audit_summary(summary: dict | None) -> dict | None:
-    """감사행에 박제할 summary — 미리보기 전용 키를 제거한 사본."""
+    """감사행에 박제할 summary — 미리보기 전용 키(sample)를 재귀 제거한 사본."""
     if not summary:
         return summary
-    return {k: v for k, v in summary.items() if k not in _AUDIT_OMIT_KEYS}
+    return _scrub(summary)
 
 
 async def run_job(name: str, *, dry_run: bool = False) -> dict:
@@ -38,7 +49,9 @@ async def run_job(name: str, *, dry_run: bool = False) -> dict:
         run_id = run.id
 
     try:
-        summary = await job(dry_run=dry_run)
+        # run_id 전달 — 작업이 자기 실행을 감사 데이터에 링크할 수 있게(예: MemorySnapshot.batch_run_id,
+        # 스펙 039). 쓰지 않는 작업(session-cleanup)은 run_id=None 기본으로 무시한다.
+        summary = await job(dry_run=dry_run, run_id=run_id)
         status, error = "ok", None
     except Exception as e:  # noqa: BLE001 — 실패도 박제하고 graceful 반환
         log.exception("배치 작업 실패: %s", name)

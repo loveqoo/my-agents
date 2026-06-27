@@ -20,22 +20,27 @@ from .runner import run_job
 log = logging.getLogger("api.batch.service")
 
 
-async def _load_schedules(scheduler: AsyncIOScheduler) -> None:
-    async with SessionLocal() as session:
-        cfg = (await session.execute(select(BatchConfig).limit(1))).scalars().first()
-    cron = cfg.session_cleanup_cron if cfg else None
+def _register(scheduler: AsyncIOScheduler, job: str, cron: str | None) -> None:
+    """cron이 있으면 작업을 등록, NULL이면 미등록(아무 것도 자동 발화 안 함)."""
     if cron:
         scheduler.add_job(
             run_job,
             CronTrigger.from_crontab(cron),
-            args=["session-cleanup"],
+            args=[job],
             kwargs={"dry_run": False},
-            id="session-cleanup",
+            id=job,
             replace_existing=True,
         )
-        log.info("session-cleanup 스케줄 등록: %s", cron)
+        log.info("%s 스케줄 등록: %s", job, cron)
     else:
-        log.info("session-cleanup cron 미설정(NULL) → 자동 스케줄 없음")
+        log.info("%s cron 미설정(NULL) → 자동 스케줄 없음", job)
+
+
+async def _load_schedules(scheduler: AsyncIOScheduler) -> None:
+    async with SessionLocal() as session:
+        cfg = (await session.execute(select(BatchConfig).limit(1))).scalars().first()
+    _register(scheduler, "session-cleanup", cfg.session_cleanup_cron if cfg else None)
+    _register(scheduler, "memory-consolidation", cfg.memory_consolidation_cron if cfg else None)
 
 
 async def serve() -> None:

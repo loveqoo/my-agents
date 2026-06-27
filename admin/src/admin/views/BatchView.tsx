@@ -1,7 +1,7 @@
-/* my-agents admin — Batch view (스펙 038): 격리 배치 토대 + 세션 보존정리.
-   보존정리 설정(보존일수 + cron) 편집 + dry-run/실행 트리거 + 실행 이력.
-   백엔드: GET/PATCH /admin/batch/config, POST /admin/batch/{job}/run, GET /admin/batch/runs.
-   자동화 주 경로는 격리 배치 서비스(api.batch)지만, 여기서 같은 작업 함수를 즉시 호출·검증한다. */
+/* my-agents admin — Batch view (스펙 038 + 039): 격리 배치 토대 + 두 작업.
+   세션 보존정리(session-cleanup, 038) + 유저 메모리 통합(memory-consolidation, 039).
+   각 패널: 설정(임계치/일수 + cron) 편집 + dry-run/실행 트리거. 하단에 공용 실행 이력.
+   백엔드: GET/PATCH /admin/batch/config, POST /admin/batch/{job}/run, GET /admin/batch/runs. */
 import { useState, useEffect, useCallback } from 'react'
 import { Button, InputNumber, Input, Tag, Tooltip, Popconfirm, Space, message } from 'antd'
 import { Page, Panel, DataTable, StatusPill, Desc, type Column } from '../shared'
@@ -14,19 +14,38 @@ import {
   type BatchRun,
 } from '../../api'
 
-const JOB = 'session-cleanup'
-
 const STATUS_PILL: Record<string, { color: string; label: string }> = {
   ok: { color: 'var(--green-6)', label: 'ok' },
   running: { color: 'var(--gold-6, #d48806)', label: 'running' },
   error: { color: 'var(--red-6, #cf1322)', label: 'error' },
 }
 
-/** summary(JSON) 요약을 사람이 읽을 칩으로. dry_run/disabled/ok 분기. */
+/** summary(JSON) 요약을 사람이 읽을 칩으로 — 작업(job_name)별 분기. */
 function summarize(r: BatchRun): React.ReactNode {
   const s = r.summary as Record<string, unknown> | null
   if (!s) return <span style={{ color: 'var(--color-text-tertiary)' }}>—</span>
   const st = s.status as string | undefined
+  if (r.job_name === 'memory-consolidation') {
+    if (st === 'disabled')
+      return <Tag>{s.reason === 'no_mem_cfg' ? '비활성(모델 미설정)' : '비활성(임계치 미설정)'}</Tag>
+    if (st === 'dry_run')
+      return (
+        <span>
+          <Tag color="geekblue">dry-run</Tag>
+          후보 {String((s.candidates as unknown[] | undefined)?.length ?? 0)}명 · 유저{' '}
+          {String(s.users_scanned ?? '?')}명 스캔
+        </span>
+      )
+    if (st === 'ok')
+      return (
+        <span>
+          {String((s.consolidated as unknown[] | undefined)?.length ?? 0)}명 통합 · 기억{' '}
+          {String(s.total_before ?? '?')}→{String(s.total_after ?? '?')}
+        </span>
+      )
+    return <code style={{ fontSize: 12 }}>{JSON.stringify(s)}</code>
+  }
+  // session-cleanup
   if (st === 'disabled') return <Tag>비활성(보존일수 미설정)</Tag>
   if (st === 'dry_run')
     return (
@@ -46,12 +65,17 @@ function summarize(r: BatchRun): React.ReactNode {
 
 export default function BatchView() {
   const [cfg, setCfg] = useState<BatchConfig | null>(null)
+  // session-cleanup
   const [days, setDays] = useState<number | null>(null)
   const [cron, setCron] = useState<string>('')
+  // memory-consolidation
+  const [threshold, setThreshold] = useState<number | null>(null)
+  const [memCron, setMemCron] = useState<string>('')
+
   const [runs, setRuns] = useState<BatchRun[]>([])
   const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [busy, setBusy] = useState<'dry' | 'run' | null>(null)
+  const [saving, setSaving] = useState<'session' | 'memory' | null>(null)
+  const [busy, setBusy] = useState<string | null>(null) // `${job}:${dry|run}`
 
   const loadRuns = useCallback(async () => {
     try {
@@ -61,59 +85,85 @@ export default function BatchView() {
     }
   }, [])
 
+  const applyCfg = useCallback((c: BatchConfig) => {
+    setCfg(c)
+    setDays(c.session_retention_days)
+    setCron(c.session_cleanup_cron ?? '')
+    setThreshold(c.memory_consolidation_threshold)
+    setMemCron(c.memory_consolidation_cron ?? '')
+  }, [])
+
   const load = useCallback(async () => {
     setLoading(true)
     try {
       const [c] = await Promise.all([getBatchConfig(), loadRuns()])
-      setCfg(c)
-      setDays(c.session_retention_days)
-      setCron(c.session_cleanup_cron ?? '')
+      applyCfg(c)
     } catch {
       message.error('배치 설정을 불러오지 못했습니다')
     } finally {
       setLoading(false)
     }
-  }, [loadRuns])
+  }, [loadRuns, applyCfg])
 
   useEffect(() => {
     void load()
   }, [load])
 
-  const dirty =
+  const sessionDirty =
     cfg !== null &&
     (days !== cfg.session_retention_days || (cron || null) !== (cfg.session_cleanup_cron || null))
+  const memoryDirty =
+    cfg !== null &&
+    (threshold !== cfg.memory_consolidation_threshold ||
+      (memCron || null) !== (cfg.memory_consolidation_cron || null))
 
-  const save = async () => {
-    setSaving(true)
+  const save = async (which: 'session' | 'memory') => {
+    setSaving(which)
     try {
-      const updated = await updateBatchConfig({
-        session_retention_days: days,
-        session_cleanup_cron: cron.trim() || null,
-      })
-      setCfg(updated)
-      setDays(updated.session_retention_days)
-      setCron(updated.session_cleanup_cron ?? '')
+      const body =
+        which === 'session'
+          ? { session_retention_days: days, session_cleanup_cron: cron.trim() || null }
+          : {
+              memory_consolidation_threshold: threshold,
+              memory_consolidation_cron: memCron.trim() || null,
+            }
+      applyCfg(await updateBatchConfig(body))
       message.success('배치 설정을 저장했습니다')
     } catch {
       message.error('저장 실패')
     } finally {
-      setSaving(false)
+      setSaving(null)
     }
   }
 
-  const trigger = async (dryRun: boolean) => {
-    setBusy(dryRun ? 'dry' : 'run')
+  const trigger = async (job: string, dryRun: boolean) => {
+    setBusy(`${job}:${dryRun ? 'dry' : 'run'}`)
     try {
-      const res = await triggerBatchJob(JOB, dryRun)
-      const summary = res.summary as Record<string, unknown> | undefined
+      const res = await triggerBatchJob(job, dryRun)
+      const s = res.summary as Record<string, unknown> | undefined
       if (res.status === 'error') {
         message.error(`실행 오류: ${res.error ?? '알 수 없음'}`)
-      } else if (summary?.status === 'disabled') {
-        message.warning('보존일수가 설정되지 않아 작업이 비활성 상태입니다')
+      } else if (s?.status === 'disabled') {
+        message.warning(
+          job === 'memory-consolidation'
+            ? s.reason === 'no_mem_cfg'
+              ? '기본 모델이 설정되지 않아 작업이 비활성 상태입니다'
+              : '통합 임계치가 설정되지 않아 작업이 비활성 상태입니다'
+            : '보존일수가 설정되지 않아 작업이 비활성 상태입니다',
+        )
+      } else if (job === 'memory-consolidation') {
+        if (dryRun)
+          message.success(
+            `dry-run 완료 — 후보 ${String((s?.candidates as unknown[] | undefined)?.length ?? 0)}명(실변경 없음)`,
+          )
+        else
+          message.success(
+            `통합 완료 — ${String((s?.consolidated as unknown[] | undefined)?.length ?? 0)}명 (기억 ${String(s?.total_before ?? 0)}→${String(s?.total_after ?? 0)})`,
+          )
       } else if (dryRun) {
-        message.success(`dry-run 완료 — 삭제 예정 ${String(summary?.would_delete ?? 0)}건(실삭제 없음)`)
+        message.success(`dry-run 완료 — 삭제 예정 ${String(s?.would_delete ?? 0)}건(실삭제 없음)`)
       } else {
-        message.success(`실행 완료 — 삭제 ${String(summary?.deleted ?? 0)}건`)
+        message.success(`실행 완료 — 삭제 ${String(s?.deleted ?? 0)}건`)
       }
       await loadRuns()
     } catch {
@@ -182,7 +232,7 @@ export default function BatchView() {
         </Button>
       }
     >
-      {/* 세션 보존정리 설정 */}
+      {/* 세션 보존정리 설정 (스펙 038) */}
       <Panel style={{ padding: 20, marginBottom: 20 }}>
         <h4 style={{ margin: '0 0 4px', fontSize: 16 }}>세션 보존정리 (session-cleanup)</h4>
         <div style={{ color: 'var(--color-text-tertiary)', fontSize: 13, marginBottom: 16 }}>
@@ -216,12 +266,17 @@ export default function BatchView() {
         </Desc>
         <div style={{ marginTop: 16 }}>
           <Space>
-            <Button type="primary" onClick={() => void save()} loading={saving} disabled={!dirty}>
+            <Button
+              type="primary"
+              onClick={() => void save('session')}
+              loading={saving === 'session'}
+              disabled={!sessionDirty}
+            >
               설정 저장
             </Button>
             <Button
-              onClick={() => void trigger(true)}
-              loading={busy === 'dry'}
+              onClick={() => void trigger('session-cleanup', true)}
+              loading={busy === 'session-cleanup:dry'}
               disabled={busy !== null}
             >
               Dry-run (미리보기)
@@ -232,14 +287,14 @@ export default function BatchView() {
               okText="실행"
               cancelText="취소"
               okButtonProps={{ danger: true }}
-              onConfirm={() => void trigger(false)}
+              onConfirm={() => void trigger('session-cleanup', false)}
             >
-              <Button danger loading={busy === 'run'} disabled={busy !== null}>
+              <Button danger loading={busy === 'session-cleanup:run'} disabled={busy !== null}>
                 지금 실행
               </Button>
             </Popconfirm>
           </Space>
-          {dirty && (
+          {sessionDirty && (
             <span style={{ marginInlineStart: 12, color: 'var(--gold-6, #d48806)', fontSize: 13 }}>
               저장하지 않은 변경이 있습니다.
             </span>
@@ -247,13 +302,81 @@ export default function BatchView() {
         </div>
       </Panel>
 
-      {/* 실행 이력 */}
+      {/* 유저 메모리 통합 설정 (스펙 039) */}
+      <Panel style={{ padding: 20, marginBottom: 20 }}>
+        <h4 style={{ margin: '0 0 4px', fontSize: 16 }}>유저 메모리 통합 (memory-consolidation)</h4>
+        <div style={{ color: 'var(--color-text-tertiary)', fontSize: 13, marginBottom: 16 }}>
+          장기기억(mem0 user_id 축)이 임계치를 넘은 유저의 기억을 LLM으로 더 적고 일관된 사실로 통합합니다.
+          원본은 삭제 전 스냅샷에 백업합니다(롤백 가능). 임계치를 비우면 비활성입니다.
+        </div>
+        <Desc label="통합 임계치">
+          <InputNumber
+            min={2}
+            max={10000}
+            value={threshold ?? undefined}
+            onChange={(v) => setThreshold(v ?? null)}
+            placeholder="비활성"
+            addonAfter="개"
+            style={{ width: 160 }}
+          />
+          <span style={{ marginInlineStart: 12, color: 'var(--color-text-tertiary)', fontSize: 13 }}>
+            {threshold == null
+              ? '비활성 — 통합하지 않음'
+              : `기억이 ${threshold}개를 넘은 유저만 통합 (최소 2)`}
+          </span>
+        </Desc>
+        <Desc label="스케줄(cron)">
+          <Input
+            value={memCron}
+            onChange={(e) => setMemCron(e.target.value)}
+            placeholder="예: 0 5 * * 0  (비우면 자동 실행 안 함)"
+            style={{ maxWidth: 280, fontFamily: 'var(--font-mono, monospace)' }}
+          />
+          <span style={{ marginInlineStart: 12, color: 'var(--color-text-tertiary)', fontSize: 13 }}>
+            격리 배치 서비스(batch serve)가 이 cron으로 자동 실행합니다.
+          </span>
+        </Desc>
+        <div style={{ marginTop: 16 }}>
+          <Space>
+            <Button
+              type="primary"
+              onClick={() => void save('memory')}
+              loading={saving === 'memory'}
+              disabled={!memoryDirty}
+            >
+              설정 저장
+            </Button>
+            <Button
+              onClick={() => void trigger('memory-consolidation', true)}
+              loading={busy === 'memory-consolidation:dry'}
+              disabled={busy !== null}
+            >
+              Dry-run (미리보기)
+            </Button>
+            <Popconfirm
+              title="지금 실행하시겠습니까?"
+              description="유저 기억을 통합하고 원본을 교체합니다. 원본은 스냅샷에 백업되지만 신중히 진행하세요."
+              okText="실행"
+              cancelText="취소"
+              okButtonProps={{ danger: true }}
+              onConfirm={() => void trigger('memory-consolidation', false)}
+            >
+              <Button danger loading={busy === 'memory-consolidation:run'} disabled={busy !== null}>
+                지금 실행
+              </Button>
+            </Popconfirm>
+          </Space>
+          {memoryDirty && (
+            <span style={{ marginInlineStart: 12, color: 'var(--gold-6, #d48806)', fontSize: 13 }}>
+              저장하지 않은 변경이 있습니다.
+            </span>
+          )}
+        </div>
+      </Panel>
+
+      {/* 실행 이력 (두 작업 공용) */}
       <h4 style={{ margin: '0 0 12px', fontSize: 16 }}>실행 이력</h4>
-      <DataTable
-        columns={columns}
-        rows={runs}
-        empty={loading ? '불러오는 중…' : '실행 이력 없음'}
-      />
+      <DataTable columns={columns} rows={runs} empty={loading ? '불러오는 중…' : '실행 이력 없음'} />
     </Page>
   )
 }

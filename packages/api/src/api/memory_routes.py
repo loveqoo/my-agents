@@ -15,8 +15,8 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from . import memory
-from .chat import default_mem_cfg
 from .db import get_session
+from .mem_config import default_mem_cfg
 
 router = APIRouter(prefix="/memory", tags=["memory"])
 

@@ -23,6 +23,8 @@ _run = Depends(authz.require("batch", "run"))
 class BatchConfigOut(BaseModel):
     session_retention_days: int | None
     session_cleanup_cron: str | None
+    memory_consolidation_threshold: int | None
+    memory_consolidation_cron: str | None
 
 
 class BatchConfigIn(BaseModel):
@@ -30,6 +32,10 @@ class BatchConfigIn(BaseModel):
     # NULL은 명시적 비활성으로 허용. jobs.cleanup_sessions에도 days<1 가드가 한 겹 더 있다(방어적).
     session_retention_days: int | None = Field(default=None, ge=1)
     session_cleanup_cron: str | None = None
+    # ge=2: 0/1은 거의 모든 유저를 매번 통합하는 파괴적 churn(learning 037). 2 미만은 거부(422).
+    # NULL=비활성. jobs.consolidate_user_memories에도 <2 가드가 한 겹 더 있다(방어적).
+    memory_consolidation_threshold: int | None = Field(default=None, ge=2)
+    memory_consolidation_cron: str | None = None
 
 
 async def _get_or_create_config(session: AsyncSession) -> BatchConfig:
@@ -79,13 +85,18 @@ async def list_runs(
     ]
 
 
-@router.get("/config", dependencies=[_run], response_model=BatchConfigOut)
-async def get_config(session: AsyncSession = Depends(get_session)):
-    cfg = await _get_or_create_config(session)
+def _config_out(cfg: BatchConfig) -> BatchConfigOut:
     return BatchConfigOut(
         session_retention_days=cfg.session_retention_days,
         session_cleanup_cron=cfg.session_cleanup_cron,
+        memory_consolidation_threshold=cfg.memory_consolidation_threshold,
+        memory_consolidation_cron=cfg.memory_consolidation_cron,
     )
+
+
+@router.get("/config", dependencies=[_run], response_model=BatchConfigOut)
+async def get_config(session: AsyncSession = Depends(get_session)):
+    return _config_out(await _get_or_create_config(session))
 
 
 @router.patch("/config", dependencies=[_run], response_model=BatchConfigOut)
@@ -93,13 +104,14 @@ async def update_config(body: BatchConfigIn, session: AsyncSession = Depends(get
     cfg = await _get_or_create_config(session)
     # PATCH 의미: 보내준 필드만 변경(None도 명시값=비활성). 미전송 필드는 보존.
     data = body.model_dump(exclude_unset=True)
-    if "session_retention_days" in data:
-        cfg.session_retention_days = data["session_retention_days"]
-    if "session_cleanup_cron" in data:
-        cfg.session_cleanup_cron = data["session_cleanup_cron"]
+    for field in (
+        "session_retention_days",
+        "session_cleanup_cron",
+        "memory_consolidation_threshold",
+        "memory_consolidation_cron",
+    ):
+        if field in data:
+            setattr(cfg, field, data[field])
     await session.commit()
     await session.refresh(cfg)
-    return BatchConfigOut(
-        session_retention_days=cfg.session_retention_days,
-        session_cleanup_cron=cfg.session_cleanup_cron,
-    )
+    return _config_out(cfg)

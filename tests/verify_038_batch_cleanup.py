@@ -25,7 +25,7 @@ sys.path.insert(0, os.path.join(ROOT, "packages", "api", "src"))
 from sqlalchemy import delete, func, select, text  # noqa: E402
 
 from api.batch import jobs as jobs_mod  # noqa: E402
-from api.batch.jobs import JOBS, cleanup_sessions  # noqa: E402
+from api.batch.jobs import JOBS  # noqa: E402
 from api.batch.runner import run_job  # noqa: E402
 from api.db import SessionLocal  # noqa: E402
 from api.main import app  # noqa: E402,F401  (모듈 캐시 워밍 — fastapi_users 등)
@@ -209,7 +209,7 @@ async def main() -> None:
             check(run_row is not None and run_row.dry_run is False, "[5] dry_run 플래그 박제")
 
         # error 경로: 일부러 실패하는 작업을 임시 등록 → run_job이 raise 없이 status=error 박제.
-        async def _boom(*, dry_run: bool):
+        async def _boom(*, dry_run: bool, run_id=None):
             raise RuntimeError("의도된 실패")
 
         JOBS["_v038_boom"] = _boom
@@ -232,11 +232,14 @@ async def main() -> None:
             raised = True
         check(raised, "[5] 미지 작업명 → ValueError")
 
-        # mem0 미참조(정적): jobs는 memory 모듈을 임포트하지 않는다.
+        # mem0 미호출(정적): 세션정리 작업은 memory 모듈을 호출하지 않는다(전사 axis만).
+        # 모듈 전체가 아니라 cleanup_sessions 함수 소스만, 그리고 docstring의 산문 언급이 아니라
+        # 실제 호출(`memory.` 속성 접근)만 본다 — 같은 모듈의 consolidate_user_memories(스펙 039)는
+        # 정당하게 memory를 쓰므로 모듈 단위·산문 단위 검사는 stale.
         import inspect
-        src = inspect.getsource(jobs_mod)
-        check("import" in src and "from ..memory" not in src and "import memory" not in src,
-              "[6] jobs 모듈이 memory를 임포트하지 않음(정적)")
+        clean_src = inspect.getsource(jobs_mod.cleanup_sessions)
+        check("memory." not in clean_src and "mem0_memories" not in clean_src,
+              "[6] cleanup_sessions가 memory 모듈을 호출하지 않음(정적)")
 
     finally:
         await _cleanup_db()

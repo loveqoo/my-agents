@@ -359,12 +359,40 @@ class BatchConfig(Base):
 
     `session_retention_days`: NULL=비활성. N이면 last_activity가 N일보다 오래된 세션을 정리 대상으로.
     `session_cleanup_cron`: 격리 배치 서비스의 내부 스케줄러가 읽는 cron식(예 "0 3 * * *"). NULL=미등록.
+    `memory_consolidation_threshold`: NULL=비활성. 의미상 ≥2 — user_id 기억이 이 수를 넘은 유저만
+      통합 대상(스펙 039). 0/1은 거의 모든 유저를 매번 통합하는 파괴적 churn이라 API에서 ge=2로 거르고
+      jobs에서도 <2 가드(learning 037 — 파괴적 노브 바닥).
+    `memory_consolidation_cron`: 메모리 통합 작업의 cron식. NULL=미등록.
     """
 
     __tablename__ = "batch_config"
     id: Mapped[uuid.UUID] = _pk()
     session_retention_days: Mapped[int | None] = mapped_column(Integer, default=None)
     session_cleanup_cron: Mapped[str | None] = mapped_column(String(120), default=None)
+    memory_consolidation_threshold: Mapped[int | None] = mapped_column(Integer, default=None)
+    memory_consolidation_cron: Mapped[str | None] = mapped_column(String(120), default=None)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class MemorySnapshot(Base):
+    """유저 메모리 통합(스펙 039) 전 원본 기억의 백업·롤백 앵커. 통합 작업이 원본을 삭제하기 전에
+    여기 박제(text 원문 보존)한다 → 잘못돼도 수동 복원 가능(스냅샷 text를 add(infer=False)로 재적재).
+
+    batch_run_id는 어느 실행이 만든 백업인지 추적용 FK. 실행 감사행(batch_runs)이 지워져도 스냅샷은
+    살아남아야 하므로 ondelete SET NULL(롤백 데이터는 감사행 수명과 독립). user_id=mem0 축(str),
+    mem_id=원본 mem0 기억 id. 이 테이블은 mem0가 아니라 우리가 소유·관리한다(learning 033).
+    """
+
+    __tablename__ = "memory_snapshots"
+    id: Mapped[uuid.UUID] = _pk()
+    batch_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("batch_runs.id", ondelete="SET NULL"), default=None, index=True
+    )
+    user_id: Mapped[str] = mapped_column(String(200), index=True)
+    mem_id: Mapped[str] = mapped_column(String(200))
+    text: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
     )
