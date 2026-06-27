@@ -46,3 +46,4 @@
 - 041 HIL 승인 게이팅 — 픽션이던 승인을 langgraph checkpoint/interrupt로 위험 도구를 진짜 멈추고 admin 승인/거부로 그래프를 재개/중단하는 게이트로 바꾼 작업을 볼 때 [hil,approval,langgraph,interrupt] [archived]
 - 042 A2A 실호출 — 등록된 외부 에이전트를 JSON-RPC 2.0(message/stream) SSE로 실제 호출해 응답을 받는 A2A 런타임 전송 계층(026 2차)을 볼 때 [a2a,external,runtime,jsonrpc,ssrf] [archived]
 - 043 컨텍스트 경량화 자산 인덱스 — Context 단계 읽기량이 compaction을 당기는 문제를 인덱스 층(L1~L3)+Context 규칙 교정+완료 스펙 아카이브로 줄인 워크플로 정비를 볼 때 [context,index,archive,workflow]
+- 044 UI 피드백 정리 마스터 — 2026-06-28 UI 테스트 14건을 메뉴별 6배치(045~050)로 트리아지·의존순 배열한 지도(질문 답·결정·순서근거)를 볼 때 [feedback,cleanup,master,triage]
