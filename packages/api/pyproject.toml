@@ -20,10 +20,12 @@ dependencies = [
     "fastapi-users[sqlalchemy]>=15.0.2",
     "casbin>=1.40",
     "casbin-async-sqlalchemy-adapter>=1.4",
+    "apscheduler>=3.10",  # 격리 배치 서비스 내부 스케줄러(스펙 038)
 ]
 
 [project.scripts]
 api = "api.main:run"
+batch = "api.batch.__main__:main"  # 격리 배치 서비스 진입점(스펙 038)
 
 [build-system]
 requires = ["hatchling"]

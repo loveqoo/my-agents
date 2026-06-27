@@ -16,6 +16,7 @@ import {
   FolderOpenOutlined,
   ReadOutlined,
   TeamOutlined,
+  ScheduleOutlined,
   LogoutOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
@@ -32,6 +33,7 @@ import SessionsView from './views/SessionsView'
 import MemoryView from './views/MemoryView'
 import ApprovalsView from './views/ApprovalsView'
 import UsersView from './views/UsersView'
+import BatchView from './views/BatchView'
 import { Playground } from '../playground/Playground'
 import { logout as apiLogout, type Me } from '../api'
 
@@ -48,6 +50,7 @@ type ViewKey =
   | 'memory'
   | 'approvals'
   | 'users'
+  | 'batch'
   | 'debug'
 
 const TITLES: Record<ViewKey, string> = {
@@ -61,6 +64,7 @@ const TITLES: Record<ViewKey, string> = {
   memory: '메모리',
   approvals: '승인',
   users: '유저',
+  batch: '배치',
   debug: 'Playground',
 }
 
@@ -103,9 +107,12 @@ export default function AdminShell({ user, onLogout }: { user: Me; onLogout: () 
         </span>
       ),
     },
-    // 유저 관리는 admin 보호 라우트 — 슈퍼유저에게만 메뉴 노출(1차; role 기반 노출은 추후).
+    // 유저 관리·배치는 admin 보호 라우트 — 슈퍼유저에게만 메뉴 노출(1차; role 기반 노출은 추후).
     ...(user.is_superuser
-      ? [{ key: 'users' as const, icon: <TeamOutlined />, label: '유저' }]
+      ? [
+          { key: 'users' as const, icon: <TeamOutlined />, label: '유저' },
+          { key: 'batch' as const, icon: <ScheduleOutlined />, label: '배치' },
+        ]
       : []),
     {
       type: 'group' as const,
@@ -125,6 +132,7 @@ export default function AdminShell({ user, onLogout }: { user: Me; onLogout: () 
     memory: <MemoryView />,
     approvals: <ApprovalsView />,
     users: <UsersView />,
+    batch: <BatchView />,
     debug: <Playground />,
   }
 

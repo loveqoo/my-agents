@@ -14,6 +14,7 @@ from fastapi import Depends
 from . import (
     agents,
     approvals,
+    batch_routes,
     blocks,
     chat,
     memory_routes,
@@ -74,6 +75,7 @@ app.include_router(sessions.router, dependencies=_auth)
 app.include_router(memory_routes.router, dependencies=_auth)
 app.include_router(rag.router, dependencies=_auth)
 app.include_router(approvals.router, dependencies=_auth)
+app.include_router(batch_routes.router)  # 자체 보호(admin) — user_admin과 동일 패턴
 app.include_router(mock_remote.router)
 
 # 인증·권한 라우터 (스펙 031). register_router는 마운트하지 않는다(공개 등록 금지) — 유저 생성은

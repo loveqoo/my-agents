@@ -121,6 +121,35 @@ export const grantRole = (id: string, role: string) =>
 export const revokeRole = (id: string, role: string) =>
   j<AdminUser>(`/admin/users/${id}/roles/${encodeURIComponent(role)}`, { method: 'DELETE' })
 
+/* ---------- 배치(격리 배치 서비스, 스펙 038) — admin 보호 ---------- */
+export interface BatchConfig {
+  session_retention_days: number | null
+  session_cleanup_cron: string | null
+}
+export interface BatchRun {
+  id: string
+  job_name: string
+  status: string // running|ok|error
+  dry_run: boolean
+  summary: Record<string, unknown> | null
+  error: string | null
+  started_at: string | null
+  finished_at: string | null
+}
+export const listBatchJobs = () => j<{ jobs: string[] }>('/admin/batch/jobs')
+export const getBatchConfig = () => j<BatchConfig>('/admin/batch/config')
+export const updateBatchConfig = (body: Partial<BatchConfig>) =>
+  patch('/admin/batch/config', body) as Promise<BatchConfig>
+export const listBatchRuns = (limit = 20) => j<BatchRun[]>(`/admin/batch/runs?limit=${limit}`)
+export const triggerBatchJob = (job: string, dryRun: boolean) =>
+  post(`/admin/batch/${encodeURIComponent(job)}/run?dry_run=${dryRun}`) as Promise<BatchRun & {
+    run_id: string
+    job: string
+    status: string
+    summary?: Record<string, unknown>
+    error?: string
+  }>
+
 /* ---------- 빌딩 블록 ---------- */
 export const getBlocks = () => j<Record<string, BlockCategory>>('/blocks')
 

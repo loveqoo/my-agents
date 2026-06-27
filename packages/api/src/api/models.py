@@ -334,3 +334,37 @@ class Role(Base):
     id: Mapped[uuid.UUID] = _pk()
     name: Mapped[str] = mapped_column(String(60), unique=True)
     description: Mapped[str] = mapped_column(Text, default="")
+
+
+# ----------------------------- 배치 (스펙 038) -----------------------------
+# 시스템과 격리된 별도 배치 서비스(`api.batch`)가 쓰는 두 테이블. learning 012: 운영 설정(보존창·
+# 스케줄)은 env가 아니라 DB가 진실원. learning 033: Base.metadata에 매핑해 autogenerate가 외부
+# 테이블(mem0_memories)을 안 건드리게 한다. 지배 스펙: docs/spec/038-batch-foundation-session-cleanup.md
+class BatchRun(Base):
+    """배치 실행 감사 로그 — 매 run을 박제(시작→ok/error + 건수). 가시성·idempotency 추적."""
+
+    __tablename__ = "batch_runs"
+    id: Mapped[uuid.UUID] = _pk()
+    job_name: Mapped[str] = mapped_column(String(80), index=True)
+    status: Mapped[str] = mapped_column(String(20), default="running")  # running|ok|error
+    dry_run: Mapped[bool] = mapped_column(Boolean, default=False)
+    summary: Mapped[dict | None] = mapped_column(JSONB, default=None)  # 건수 등 결과
+    error: Mapped[str | None] = mapped_column(Text, default=None)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+
+
+class BatchConfig(Base):
+    """배치 운영 설정(싱글톤 1행). 값은 기본 NULL → 아무 것도 자동 발화·삭제하지 않는다(보수적 기본).
+
+    `session_retention_days`: NULL=비활성. N이면 last_activity가 N일보다 오래된 세션을 정리 대상으로.
+    `session_cleanup_cron`: 격리 배치 서비스의 내부 스케줄러가 읽는 cron식(예 "0 3 * * *"). NULL=미등록.
+    """
+
+    __tablename__ = "batch_config"
+    id: Mapped[uuid.UUID] = _pk()
+    session_retention_days: Mapped[int | None] = mapped_column(Integer, default=None)
+    session_cleanup_cron: Mapped[str | None] = mapped_column(String(120), default=None)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )

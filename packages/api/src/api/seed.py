@@ -16,6 +16,7 @@ from .models import (
     Agent,
     AgentVersion,
     Approval,
+    BatchConfig,
     Collection,
     McpServer,
     MemoryType,
@@ -288,6 +289,11 @@ async def seed_if_empty(session: AsyncSession) -> None:
                 session_id=sid, agent_pk=a.id, agent_name=aname,
                 channel=channel, status=status, turns=turns, tokens=tokens,
             ))
+
+    if await _empty(session, BatchConfig):
+        # 배치 설정 싱글톤 1행(스펙 038) — 값은 NULL(보존창·cron 비활성). 운영자가 명시 설정 전엔
+        # 아무 것도 자동 삭제·발화하지 않는다(보수적 기본값).
+        session.add(BatchConfig())
 
     if await _empty(session, Approval):
         await session.flush()
