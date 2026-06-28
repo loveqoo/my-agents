@@ -23,21 +23,26 @@ MAX_RESPONSE_BYTES = 1024 * 1024
 A2A_TIMEOUT_S = 120
 
 
-def _jsonrpc_request(user_text: str, *, streaming: bool) -> dict:
-    """message/send|stream JSON-RPC 요청 본문. params.message는 A2A Message(role=user, text part)."""
+def _jsonrpc_request(user_text: str, *, streaming: bool, context_id: str | None = None) -> dict:
+    """message/send|stream JSON-RPC 요청 본문. params.message는 A2A Message(role=user, text part).
+
+    context_id가 있으면 message.contextId로 실어 멀티턴을 잇는다 — A2A는 호출당 단일 메시지를 보내고
+    대화 맥락은 contextId로 서버가 유지한다(스펙 표준). 057에서 _remote_stream(윈도우 히스토리 인라인
+    전송)을 폐기하며, 멀티턴 책임을 A2A 표준대로 contextId로 옮겼다(적대리뷰 057 Finding 2)."""
     method = "message/stream" if streaming else "message/send"
+    message: dict = {
+        "role": "user",
+        "parts": [{"kind": "text", "text": user_text}],
+        "messageId": uuid.uuid4().hex,
+        "kind": "message",
+    }
+    if context_id:
+        message["contextId"] = context_id
     return {
         "jsonrpc": "2.0",
         "id": uuid.uuid4().hex,
         "method": method,
-        "params": {
-            "message": {
-                "role": "user",
-                "parts": [{"kind": "text", "text": user_text}],
-                "messageId": uuid.uuid4().hex,
-                "kind": "message",
-            }
-        },
+        "params": {"message": message},
     }
 
 
@@ -123,9 +128,17 @@ def _auth_headers(token: str | None) -> dict:
     return {}
 
 
-async def a2a_stream(endpoint: str, token: str | None, user_text: str, *, streaming: bool = True):
+async def a2a_stream(
+    endpoint: str,
+    token: str | None,
+    user_text: str,
+    *,
+    streaming: bool = True,
+    context_id: str | None = None,
+):
     """외부 A2A 엔드포인트를 호출하고 {text}/{error} 프레임을 yield. SSRF 가드·캡·타임아웃 적용.
 
+    context_id(우리 세션 id)를 주면 message.contextId로 실어 서버가 멀티턴 맥락을 잇게 한다(스펙 057).
     이 제너레이터는 절대 raise하지 않는다 — 모든 실패를 {error} 프레임으로 변환(라우터가 done까지 보냄).
     """
     try:
@@ -134,7 +147,7 @@ async def a2a_stream(endpoint: str, token: str | None, user_text: str, *, stream
         yield {"error": str(exc)}
         return
 
-    body = _jsonrpc_request(user_text, streaming=streaming)
+    body = _jsonrpc_request(user_text, streaming=streaming, context_id=context_id)
     try:
         # 토큰 복호화(키 회전 시 RuntimeError 가능)도 try 안에서 — try 밖이면 미프레임 크래시(적대리뷰 H3).
         headers = {"Content-Type": "application/json", **_auth_headers(token)}

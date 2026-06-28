@@ -13,7 +13,6 @@ import secrets
 import time
 import uuid
 
-import httpx
 from agent.main import build_agent
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -338,77 +337,6 @@ async def _persist(
         await db.commit()
 
 
-async def _remote_stream(ctx: dict, body: ChatRequest, user_text: str, user_id: str | None):
-    """코드 에이전트: 등록된 원격 엔드포인트로 프록시하고 응답을 우리 SSE로 재전송."""
-    yield f"data: {json.dumps({'session': ctx['session_id']}, ensure_ascii=False)}\n\n"
-    api_messages = _window(
-        [{"role": m.role, "content": m.content} for m in body.messages], ctx["history_depth"]
-    )
-    # 저장된 토큰을 복호화해 실제 Bearer로 전송(이제 실 토큰 보안 저장 → 원격 인증 가능).
-    # 레거시 마스킹 토큰은 복호화 폴백으로 •가 남으므로 그땐 헤더 생략. HTTP 헤더는 ascii만.
-    tok = crypto.decrypt(ctx.get("token"))
-    headers = {"Authorization": f"Bearer {tok}"} if tok and "•" not in tok else {}
-    acc: list[str] = []
-    errored = False
-    t0 = time.perf_counter()
-    try:
-        async with httpx.AsyncClient(timeout=120) as client:
-            async with client.stream(
-                "POST", ctx["endpoint"], json={"messages": api_messages}, headers=headers
-            ) as resp:
-                if resp.status_code >= 400:
-                    # 원격 본문은 보낸 Authorization/토큰을 에코할 수 있어 클라에도 로그에도
-                    # 남기지 않는다(자격증명 누출 방지). 상태코드만 기록.
-                    await resp.aread()
-                    log.warning("remote agent %s error %s", ctx["endpoint"], resp.status_code)
-                    errored = True
-                    yield f"data: {json.dumps({'error': f'원격 응답 오류 {resp.status_code}'}, ensure_ascii=False)}\n\n"
-                else:
-                    async for line in resp.aiter_lines():
-                        # SSE: 'data:' 또는 'data: ' 모두 허용.
-                        if not line.startswith("data:"):
-                            continue
-                        data = line[5:].lstrip()
-                        if data == "[DONE]":
-                            break
-                        try:
-                            d = json.loads(data)
-                        except json.JSONDecodeError:
-                            continue
-                        text = d.get("text")
-                        if text:
-                            acc.append(text)
-                            yield f"data: {json.dumps({'text': text}, ensure_ascii=False)}\n\n"
-    except Exception as exc:  # noqa: BLE001 — 원격 오류도 프레임으로
-        errored = True
-        yield f"data: {json.dumps({'error': str(exc)}, ensure_ascii=False)}\n\n"
-
-    full = "".join(acc)
-    total_ms = int((time.perf_counter() - t0) * 1000)
-    tokens = runtime.estimate_tokens(len(user_text), len(full))
-    trace = {
-        "latencyMs": total_ms,
-        "tokens": tokens,
-        "promptRef": ctx["ext_agent_id"],
-        "memories": [],
-        "mcp": [],
-        "graph": [
-            {"node": "__start__", "ms": 0},
-            {"node": "remote_call", "ms": total_ms},
-            {"node": "__end__", "ms": 0},
-        ],
-        "remote": True,
-        "contextMessages": len(api_messages),
-    }
-    if not errored:
-        await _persist(
-            ctx, user_text, full, trace, tokens, ctx["persist_history"],
-            user_id=user_id,
-        )
-    yield f"event: trace\ndata: {json.dumps(trace, ensure_ascii=False)}\n\n"
-    yield "event: done\ndata: [DONE]\n\n"
-
-
 def _card_streaming(card: object) -> bool:
     """카드 capabilities.streaming. 없으면 True(message/stream 우선, 안 되면 에이전트가 단건 응답)."""
     if isinstance(card, dict):
@@ -419,9 +347,10 @@ def _card_streaming(card: object) -> bool:
 
 
 async def _a2a_stream(ctx: dict, user_text: str, user_id: str | None):
-    """외부(A2A) 에이전트: 등록된 카드 url로 JSON-RPC message/stream 호출 → 응답을 우리 SSE로 재전송.
+    """원격(A2A) 에이전트: 등록된 카드 url로 JSON-RPC message/stream 호출 → 응답을 우리 SSE로 재전송.
 
-    전송 포맷이 코드-에이전트와 달라 별도 계층(a2a_client)을 쓴다(스펙 042). 골격은 _remote_stream과 동일.
+    code(우리가 배포한 SDK)·external(제3자) 모두 이 경로를 탄다(스펙 057: A2A 단일화). 전송은
+    a2a_client 계층이 담당(JSON-RPC message/stream|send).
     """
     yield f"data: {json.dumps({'session': ctx['session_id']}, ensure_ascii=False)}\n\n"
     endpoint = ctx.get("endpoint")
@@ -434,7 +363,10 @@ async def _a2a_stream(ctx: dict, user_text: str, user_id: str | None):
     acc: list[str] = []
     errored = False
     t0 = time.perf_counter()
-    async for frame in a2a_client.a2a_stream(endpoint, ctx.get("token"), user_text, streaming=streaming):
+    # 세션 id를 A2A contextId로 — 호출당 단일 메시지지만 서버가 맥락을 잇게 한다(스펙 057, 멀티턴 보존).
+    async for frame in a2a_client.a2a_stream(
+        endpoint, ctx.get("token"), user_text, streaming=streaming, context_id=ctx.get("session_id")
+    ):
         if "error" in frame:
             errored = True
             yield f"data: {json.dumps({'error': frame['error']}, ensure_ascii=False)}\n\n"
@@ -477,14 +409,10 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
     # 머신 토큰("machine" 센티넬)이면 None → 세션 단기 폴백(기존 "빈 userId" 동작과 동일, 무회귀).
     user_id = None if isinstance(principal, str) else str(principal.id)
 
-    # 코드(SDK) 에이전트는 자기 원격 엔드포인트에서 실행 — 프록시.
-    if ctx["source"] == "code" and ctx["endpoint"]:
-        return StreamingResponse(
-            _remote_stream(ctx, body, user_text, user_id), media_type="text/event-stream"
-        )
-
-    # 외부(A2A) 에이전트는 비로컬 — 등록된 카드 url로 A2A 런타임 호출(스펙 042).
-    if ctx["source"] == "external":
+    # 코드(SDK)·외부(A2A) 에이전트 모두 비로컬 — 등록된 카드 url로 A2A 런타임 호출(스펙 057: A2A 단일화).
+    # code=우리가 SDK로 배포한 A2A(provenance 메타 보유), external=제3자 A2A. 전송은 _a2a_stream 하나.
+    # (구 _remote_stream 자체 SSE·code 분기는 057에서 폐기 — 플랫폼 전제대로 SDK도 A2A를 말한다.)
+    if ctx["source"] in ("code", "external"):
         return StreamingResponse(
             _a2a_stream(ctx, user_text, user_id), media_type="text/event-stream"
         )

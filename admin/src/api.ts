@@ -262,10 +262,11 @@ export const revertVersion = (id: string, version: string) =>
 export const forkVersion = (id: string) => post(`/agents/${id}/versions`) as Promise<Agent>
 export const exposeAgent = (id: string, a2a: boolean) =>
   put(`/agents/${id}/expose`, { a2a }) as Promise<Agent>
-export const registerCodeAgent = (body: unknown) => post('/agents/register', body) as Promise<Agent>
-/* 외부(A2A) 에이전트 등록 — 카드 URL을 보내면 백엔드가 fetch·검증 후 등록(스펙 026). */
-export const registerExternalAgent = (cardUrl: string, token?: string) =>
-  post('/agents/external', { cardUrl, token: token || undefined }) as Promise<Agent>
+/* 원격 에이전트 연결(스펙 057 — A2A 단일화) — URL 하나를 보내면 백엔드가 카드를 fetch·검증하고
+   my-agents 확장 유무로 source(code=배포한 SDK / external=제3자)를 자동분류한다. 등록 진입점 단일.
+   (구 registerCodeAgent `/agents/register`·registerExternalAgent `/agents/external`를 대체.) */
+export const connectAgent = (url: string, token?: string) =>
+  post('/agents/connect', { url, token: token || undefined }) as Promise<Agent>
 export const resyncAgent = (id: string) => post(`/agents/${id}/resync`) as Promise<Agent>
 
 /* ---------- 에이전트 전용 메모리 큐레이션 (스펙 029) ---------- */

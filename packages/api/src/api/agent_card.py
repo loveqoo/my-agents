@@ -55,7 +55,11 @@ async def fetch_card(card_url: str) -> dict:
 
     candidates = [url] + [url + p for p in WELL_KNOWN_PATHS]
     last_err: str = ""
-    async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+    # follow_redirects=False: guard_url은 *최초* URL의 resolve IP만 검사하므로, 리다이렉트를 추종하면
+    # 공개 카드 호스트가 302로 내부 IP(127.0.0.1·169.254.169.254 등)를 가리켜 SSRF 가드를 우회할 수
+    # 있다(probe_endpoint·a2a_client와 동일 규칙, 적대리뷰 057). 3xx는 카드 JSON이 아니므로 해당 후보를
+    # 건너뛰고 다음 well-known 후보로 넘어간다.
+    async with httpx.AsyncClient(timeout=15, follow_redirects=False) as client:
         for candidate in candidates:
             try:
                 body = await _fetch_capped(client, candidate)
@@ -101,6 +105,44 @@ async def probe_endpoint(url: str | None) -> bool:
     except Exception:
         # probe는 절대 raise하지 않는다 — 등록을 막으면 안 되므로 어떤 예외도 dead로 흡수.
         return False
+
+
+# my-agents 카드 확장 네임스페이스 — 우리가 SDK로 배포한 제1자 에이전트 신호(스펙 057).
+MY_AGENTS_EXT_KEYS = ("x-my-agents", "myAgents")
+
+
+def extract_my_agents(card: object) -> dict | None:
+    """A2A 카드의 my-agents 확장 블록을 안전 파싱 → provenance 분류 신호(스펙 057).
+
+    카드에 `x-my-agents`(또는 `myAgents`) 확장이 있고 그 안에 `manifest`(객체)가 있으면 **우리가
+    SDK로 배포한 제1자 에이전트**로 본다(source=code). 없거나 형식이 어긋나면 None → 제3자
+    (source=external). 제3자가 잡값/부분필드를 흘려도 터지지 않게 전 구간 타입 가드:
+    - card가 dict 아님 → None
+    - 확장이 dict 아님(문자열·배열 등) → None
+    - manifest가 dict 아님 → None (provenance로 인정 안 함 — 표시 메타가 없으면 code일 이유 없음)
+    deploy는 선택(없으면 빈 dict). manifest/deploy 두 하위 블록만 정규화해 반환한다.
+
+    주의(스펙 057 리스크): 카드 자기선언이라 제3자가 이 확장을 흉내내면 code로 보인다. 1차 범위는
+    수용 — code/external 모두 읽기전용·로컬 미해석이라 권한 상승이 아니라 표시·메타 차이일 뿐.
+    서명 검증은 별 스펙.
+    """
+    if not isinstance(card, dict):
+        return None
+    ext = None
+    for key in MY_AGENTS_EXT_KEYS:
+        candidate = card.get(key)
+        if isinstance(candidate, dict):
+            ext = candidate
+            break
+    if ext is None:
+        return None
+    manifest = ext.get("manifest")
+    if not isinstance(manifest, dict):
+        return None
+    deploy = ext.get("deploy")
+    if not isinstance(deploy, dict):
+        deploy = {}
+    return {"manifest": manifest, "deploy": deploy}
 
 
 class _CardFetchError(Exception):

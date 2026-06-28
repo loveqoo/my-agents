@@ -47,6 +47,7 @@ import {
   KeyOutlined,
   SyncOutlined,
   LockOutlined,
+  LinkOutlined,
 } from '@ant-design/icons'
 
 const MAP: Record<string, ComponentType<{ style?: CSSProperties; spin?: boolean }>> = {
@@ -94,6 +95,7 @@ const MAP: Record<string, ComponentType<{ style?: CSSProperties; spin?: boolean 
   key: KeyOutlined,
   sync: SyncOutlined,
   lock: LockOutlined,
+  link: LinkOutlined,
 }
 
 export function Icon({

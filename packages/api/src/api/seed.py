@@ -232,18 +232,48 @@ async def seed_if_empty(session: AsyncSession) -> None:
             session.add(agent)
 
         # 코드 정의(SDK 배포) 에이전트 — UI mock과 동일하게 1개 시드.
+        # 스펙 057(A2A 단일화): code도 A2A로 호출한다. endpoint는 mock A2A JSON-RPC 서비스,
+        # config["card"]는 connect가 빌드하는 것과 동형(x-my-agents 확장 포함)으로 스냅샷한다.
+        # 실 배포는 자기 A2A url을 쓴다(REMOTE_AGENT_BASE로 오버라이드 가능).
+        code_endpoint = os.environ.get("REMOTE_AGENT_BASE", "http://127.0.0.1:8000/_remote/a2a")
+        code_card = {
+            "name": "Doc Translator",
+            "description": "my-agents-sdk로 배포한 번역 에이전트(시드 스냅샷).",
+            "url": code_endpoint,
+            "version": "1.0.0",
+            "provider": {"organization": "acme", "url": "https://acme.example"},
+            "capabilities": {"streaming": True, "pushNotifications": False},
+            "defaultInputModes": ["text/plain"],
+            "defaultOutputModes": ["text/plain"],
+            "skills": [
+                {"id": "translate", "name": "문서 번역", "description": "문서를 대상 언어로 번역",
+                 "tags": ["translation", "i18n"]},
+            ],
+            "x-my-agents": {
+                "manifest": {
+                    "model": CHAT_MODEL_NAME, "persona": "코드 정의 (SDK)", "memories": ["단기(세션)"],
+                    "mcps": [MOCK_MCP_SERVER_NAME], "permissions": ["web.search"], "historyDepth": 10,
+                },
+                "deploy": {
+                    "repo": "acme/doc-translator", "commit": "f3a91c2",
+                    "runtime": "my-agents-sdk · Python 2.4.1",
+                    "versions": [
+                        {"version": "f3a91c2", "status": "active", "note": "Deploy · 용어집 조회 추가"},
+                        {"version": "9b22d01", "status": "archived", "note": "Deploy · 초기 배포"},
+                    ],
+                },
+            },
+        }
         code_cfg = {
             "model": CHAT_MODEL_NAME, "persona": "코드 정의 (SDK)", "memories": ["단기(세션)"],
             "vectorTables": [], "permissions": ["web.search"], "mcps": [MOCK_MCP_SERVER_NAME],
-            "historyDepth": 10,
+            "historyDepth": 10, "card": code_card,
         }
         translator = Agent(
             agent_id="agt_xlt_a17c33", name="Doc Translator", source="code", model=CHAT_MODEL_NAME,
             persona="코드 정의 (SDK)", history_depth=10, config=code_cfg, exposed={"a2a": True},
             status="online", active_version="f3a91c2",
-            # 개발용 mock 원격 에이전트로 연결 → 코드 에이전트 원격 실행이 바로 동작.
-            # 실제 배포는 자기 URL을 쓴다(REMOTE_AGENT_BASE로 오버라이드 가능).
-            endpoint=os.environ.get("REMOTE_AGENT_BASE", "http://127.0.0.1:8000/_remote/agent"),
+            endpoint=code_endpoint,
             token=crypto.encrypt("sk_live_demo_doc_translator_a17c33"),
             runtime="my-agents-sdk · Python 2.4.1", repo="acme/doc-translator", commit="f3a91c2",
             registered_at="2026-06-18", last_sync="12분 전",
@@ -257,7 +287,8 @@ async def seed_if_empty(session: AsyncSession) -> None:
         session.add(translator)
 
         # 외부(A2A) 에이전트 시드 — 카드 스냅샷 하드코딩(네트워크 self-call 없이 어드민에서
-        # 3분기 source 배지/카드 패널을 바로 시연). 실제 등록은 POST /agents/external 경유(026).
+        # source 배지/카드 패널을 바로 시연). 실제 등록은 POST /agents/connect 경유(057, x-my-agents
+        # 확장이 없으니 external로 분류된다).
         ext_card = {
             "name": "Acme Translate (A2A)",
             "description": "외부 조직이 A2A로 공개한 번역 에이전트(시드 스냅샷).",

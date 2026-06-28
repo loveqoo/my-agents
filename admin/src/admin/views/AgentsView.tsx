@@ -25,29 +25,13 @@ import {
   revertVersion as apiRevertVersion,
   forkVersion as apiForkVersion,
   exposeAgent,
-  registerCodeAgent as apiRegisterCodeAgent,
-  registerExternalAgent as apiRegisterExternalAgent,
+  connectAgent as apiConnectAgent,
   resyncAgent,
   listModels,
   listCollections,
   type Model,
   type Collection,
 } from '../../api'
-
-/* 코드 에이전트의 Agent Card(엔드포인트가 보고하는 매니페스트) shape. */
-interface CodeManifest {
-  name: string
-  agentId: string
-  model: string
-  runtime: string
-  repo: string
-  commit: string
-  persona: string
-  memories: string[]
-  historyDepth: number
-  permissions: string[]
-  mcps: string[]
-}
 
 /* 폼 데이터 shape — 생성/편집에서 공유. */
 interface AgentFormData {
@@ -351,210 +335,35 @@ function IdRow({ label, value }: { label: React.ReactNode; value: string }) {
   )
 }
 
-/* ---- Register a code-defined agent by endpoint URL + token ---- */
-function RegisterAgentModal({
+/* ---- 원격 에이전트 연결 — URL 하나로 백엔드가 A2A 카드 fetch·검증·provenance 자동분류(스펙 057) ----
+   등록 진입점 단일화. 프론트는 매니페스트를 날조하지 않는다 — URL·토큰만 받아 백엔드(`POST /agents/connect`)에
+   위임하면, 카드의 my-agents 확장 유무로 source가 정해진다(있으면 우리가 배포한 SDK=code, 없으면 제3자=external). */
+function ConnectAgentModal({
   open,
   onCancel,
-  onRegister,
+  onConnect,
 }: {
   open: boolean
   onCancel: () => void
-  onRegister: (data: { endpoint: string; token: string; manifest: CodeManifest }) => void
+  onConnect: (data: { url: string; token: string }) => Promise<void>
 }) {
-  const [endpoint, setEndpoint] = useState('')
-  const [token, setToken] = useState('')
-  const [testing, setTesting] = useState(false)
-  const [fetched, setFetched] = useState<CodeManifest | null>(null)
-  // 진행 중인 연결 테스트를 식별 — 입력을 바꾸거나 재테스트하면 id가 올라가
-  // 늦게 끝난 stale 테스트 결과(다른 엔드포인트의 Agent Card)가 적용되지 않는다.
-  const reqRef = useRef(0)
-
-  useEffect(() => {
-    if (open) {
-      setEndpoint('')
-      setToken('')
-      setTesting(false)
-      setFetched(null)
-      reqRef.current++
-    }
-  }, [open])
-
-  // 입력이 바뀌면 진행 중 테스트를 무효화하고 받은 카드를 폐기한다.
-  const invalidate = () => {
-    reqRef.current++
-    setFetched(null)
-    setTesting(false)
-  }
-
-  const canTest = /^https?:\/\/.+/.test(endpoint.trim()) && token.trim().length >= 6
-  const runTest = () => {
-    const myReq = ++reqRef.current
-    setTesting(true)
-    setFetched(null)
-    setTimeout(() => {
-      if (myReq !== reqRef.current) return // 입력 변경/재테스트로 무효화됨
-      setTesting(false)
-      const slug = endpoint.trim().replace(/\/+$/, '').split('/').pop() || 'agent'
-      const name = slug
-        .split(/[-_]/)
-        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-        .join(' ')
-      setFetched({
-        name,
-        agentId: 'agt_' + Math.random().toString(36).slice(2, 8),
-        model: 'qwen3.6-35b',
-        runtime: 'my-agents-sdk · Python 2.4.1',
-        repo: 'acme/' + slug,
-        commit: Math.random().toString(16).slice(2, 9),
-        persona: '코드 정의 (SDK)',
-        memories: ['단기(세션)'],
-        historyDepth: 10,
-        permissions: ['web.search'],
-        mcps: ['tavily'],
-      })
-    }, 850)
-  }
-
-  return (
-    <Modal
-      open={open}
-      width={560}
-      title="원격 에이전트 등록"
-      onCancel={onCancel}
-      footer={
-        <>
-          <Button onClick={onCancel}>취소</Button>
-          <Button
-            type="primary"
-            icon={<Icon name="check" />}
-            disabled={!fetched}
-            onClick={() =>
-              fetched && onRegister({ endpoint: endpoint.trim(), token: token.trim(), manifest: fetched })
-            }
-          >
-            등록
-          </Button>
-        </>
-      }
-    >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-        <Alert
-          type="info"
-          showIcon
-          style={{ marginBottom: 0 }}
-          message="SDK로 정의해 배포한 에이전트를 엔드포인트 URL과 토큰으로 연결합니다. 연결되면 에이전트가 보고한 Agent Card 구성을 읽기 전용으로 등록합니다."
-        />
-        <Field label="엔드포인트 URL">
-          <Input
-            prefix={<Icon name="global" />}
-            placeholder="https://agents.acme.dev/my-agent"
-            value={endpoint}
-            onChange={(e) => {
-              setEndpoint(e.target.value)
-              invalidate()
-            }}
-          />
-        </Field>
-        <Field label="액세스 토큰">
-          <Input
-            type="password"
-            prefix={<Icon name="key" />}
-            placeholder="sk_live_…"
-            value={token}
-            onChange={(e) => {
-              setToken(e.target.value)
-              invalidate()
-            }}
-          />
-        </Field>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <Button icon={<Icon name="thunderbolt" />} loading={testing} disabled={!canTest} onClick={runTest}>
-            연결 테스트
-          </Button>
-          <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>엔드포인트의 Agent Card를 가져옵니다</span>
-        </div>
-        {fetched ? (
-          <div
-            style={{
-              border: '1px solid var(--green-3)',
-              background: 'var(--green-1)',
-              borderRadius: 'var(--radius-lg)',
-              padding: 14,
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-              <Icon name="check-circle" style={{ color: 'var(--color-success)' }} />
-              <span style={{ fontWeight: 600 }}>연결됨 · Agent Card 수신</span>
-            </div>
-            <Desc label="이름" width={84}>
-              {fetched.name}
-            </Desc>
-            <Desc label="모델" width={84}>
-              <span style={{ fontFamily: 'var(--font-family-code)' }}>{fetched.model}</span>
-            </Desc>
-            <Desc label="런타임" width={84}>
-              <span style={{ fontFamily: 'var(--font-family-code)', fontSize: 13 }}>{fetched.runtime}</span>
-            </Desc>
-            <Desc label="소스" width={84}>
-              <code style={{ fontFamily: 'var(--font-family-code)', fontSize: 13 }}>
-                {fetched.repo}@{fetched.commit}
-              </code>
-            </Desc>
-            <Desc label="권한" width={84}>
-              <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6 }}>
-                {fetched.permissions.map((p) => (
-                  <PermTag key={p} name={p} />
-                ))}
-              </span>
-            </Desc>
-            <Desc label="MCP" width={84}>
-              <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6 }}>
-                {fetched.mcps.map((m) => (
-                  <Tag key={m} color="cyan">
-                    {m}
-                  </Tag>
-                ))}
-              </span>
-            </Desc>
-            <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginTop: 8 }}>
-              구성은 코드가 소유합니다 — 등록 후 콘솔에서는 읽기 전용으로 표시됩니다.
-            </div>
-          </div>
-        ) : null}
-      </div>
-    </Modal>
-  )
-}
-
-/* ---- 외부(A2A) 에이전트 등록 — 카드 URL을 받아 백엔드가 fetch·검증(026) ----
-   코드 에이전트와 달리 연결 테스트를 프론트에서 흉내내지 않는다. 백엔드 `POST /agents/external`이
-   well-known 관례로 카드를 가져와 검증하므로, 여기선 URL·토큰만 받아 위임한다. */
-function RegisterExternalModal({
-  open,
-  onCancel,
-  onRegister,
-}: {
-  open: boolean
-  onCancel: () => void
-  onRegister: (data: { cardUrl: string; token: string }) => Promise<void>
-}) {
-  const [cardUrl, setCardUrl] = useState('')
+  const [url, setUrl] = useState('')
   const [token, setToken] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
     if (open) {
-      setCardUrl('')
+      setUrl('')
       setToken('')
       setSubmitting(false)
     }
   }, [open])
 
-  const canSubmit = /^https?:\/\/.+/.test(cardUrl.trim()) && !submitting
+  const canSubmit = /^https?:\/\/.+/.test(url.trim()) && !submitting
   const submit = async () => {
     setSubmitting(true)
     try {
-      await onRegister({ cardUrl: cardUrl.trim(), token: token.trim() })
+      await onConnect({ url: url.trim(), token: token.trim() })
     } finally {
       setSubmitting(false)
     }
@@ -564,13 +373,13 @@ function RegisterExternalModal({
     <Modal
       open={open}
       width={560}
-      title="외부 A2A 에이전트 등록"
+      title="원격 에이전트 연결"
       onCancel={onCancel}
       footer={
         <>
           <Button onClick={onCancel}>취소</Button>
           <Button type="primary" icon={<Icon name="check" />} loading={submitting} disabled={!canSubmit} onClick={submit}>
-            카드 확인 후 등록
+            연결
           </Button>
         </>
       }
@@ -580,14 +389,14 @@ function RegisterExternalModal({
           type="info"
           showIcon
           style={{ marginBottom: 0 }}
-          message="외부 A2A 에이전트의 Agent Card URL을 등록합니다. 서버가 카드를 가져와(well-known 관례 포함) 검증한 뒤, 카드 메타를 읽기 전용으로 등록합니다. 실제 호출은 준비 중(런타임은 2차 스펙)."
+          message="A2A 에이전트의 URL 하나만 입력하세요. 서버가 카드를 가져와(well-known 관례 포함) 검증하고, 우리가 배포한 SDK 에이전트인지(코드) 제3자인지(외부) 자동으로 판별합니다."
         />
-        <Field label="Agent Card URL">
+        <Field label="에이전트 URL">
           <Input
             prefix={<Icon name="global" />}
             placeholder="https://agents.acme.example/translate  (또는 /.well-known/agent-card.json)"
-            value={cardUrl}
-            onChange={(e) => setCardUrl(e.target.value)}
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
             onPressEnter={() => canSubmit && submit()}
           />
         </Field>
@@ -1306,8 +1115,7 @@ export default function AgentsView() {
   const [editing, setEditing] = useState<{ agent: Agent; version: string | null } | null>(null)
   const [confirmDel, setConfirmDel] = useState<Agent | null>(null)
   const [exposeOff, setExposeOff] = useState<{ agent: Agent; count: number } | null>(null) // agent pending expose-off confirm
-  const [registerOpen, setRegisterOpen] = useState(false)
-  const [externalOpen, setExternalOpen] = useState(false)
+  const [connectOpen, setConnectOpen] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
 
   useEffect(() => {
@@ -1471,41 +1279,17 @@ export default function AgentsView() {
     }
   }
 
-  // ---- code-defined agents: register by endpoint + token, resync from deploy ----
-  // 토큰 마스킹은 서버에서 처리 — raw 토큰을 그대로 보낸다.
-  const registerCodeAgent = async (data: { endpoint: string; token: string; manifest: CodeManifest }) => {
-    const m = data.manifest
+  // ---- 원격 에이전트 연결(스펙 057): URL 하나로 백엔드가 카드 fetch·검증·provenance 자동분류 ----
+  // 프론트는 매니페스트를 날조하지 않는다 — 토큰 마스킹·분류는 모두 서버. 반환 source로 토스트를 도출.
+  const connectAgent = async (data: { url: string; token: string }) => {
     try {
-      const created = await apiRegisterCodeAgent({
-        endpoint: data.endpoint,
-        token: data.token,
-        name: m.name,
-        commit: m.commit,
-        repo: m.repo,
-        runtime: m.runtime,
-        persona: m.persona,
-        model: m.model,
-        memories: m.memories,
-        historyDepth: m.historyDepth,
-        permissions: m.permissions,
-        mcps: m.mcps,
-      })
+      const created = await apiConnectAgent(data.url, data.token || undefined)
       setAgents((as) => [created, ...as])
-      setToast(`"${m.name || '원격 에이전트'}" 등록됨 — 원격 (SDK), 읽기 전용`)
-      setRegisterOpen(false)
+      const kind = created.source === 'code' ? 'SDK 에이전트 (코드)' : '외부 A2A'
+      setToast(`"${created.name || '원격 에이전트'}" 연결됨 — ${kind}, 읽기 전용`)
+      setConnectOpen(false)
     } catch (e) {
-      message.error(String(e))
-    }
-  }
-  // 외부 A2A 에이전트 등록 — 백엔드가 카드 fetch·검증 후 에이전트 생성(026).
-  const registerExternalAgent = async (data: { cardUrl: string; token: string }) => {
-    try {
-      const created = await apiRegisterExternalAgent(data.cardUrl, data.token || undefined)
-      setAgents((as) => [created, ...as])
-      setToast(`"${created.name || '외부 에이전트'}" 등록됨 — 외부 A2A, 읽기 전용`)
-      setExternalOpen(false)
-    } catch (e) {
-      message.error(`카드 등록 실패 — ${String(e)}`)
+      message.error(`연결 실패 — ${String(e)}`)
     }
   }
   const resync = async (agent: Agent) => {
@@ -1659,11 +1443,8 @@ export default function AgentsView() {
       subtitle={`빌딩 블록으로 구성하거나 코드로 배포한 에이전트 ${agents.length}개`}
       actions={
         <span style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-          <Button icon={<Icon name="code" />} onClick={() => setRegisterOpen(true)}>
-            원격 에이전트 등록
-          </Button>
-          <Button icon={<Icon name="robot" />} onClick={() => setExternalOpen(true)}>
-            외부 A2A 등록
+          <Button icon={<Icon name="link" />} onClick={() => setConnectOpen(true)}>
+            원격 에이전트 연결
           </Button>
           <Button type="primary" icon={<Icon name="plus" />} onClick={openCreate}>
             새 에이전트
@@ -1685,8 +1466,7 @@ export default function AgentsView() {
         onResync={resync}
         onNewDraft={newDraft}
       />
-      <RegisterAgentModal open={registerOpen} onCancel={() => setRegisterOpen(false)} onRegister={registerCodeAgent} />
-      <RegisterExternalModal open={externalOpen} onCancel={() => setExternalOpen(false)} onRegister={registerExternalAgent} />
+      <ConnectAgentModal open={connectOpen} onCancel={() => setConnectOpen(false)} onConnect={connectAgent} />
       <AgentForm
         open={formOpen}
         mode={editing ? 'edit' : 'create'}

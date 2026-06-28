@@ -292,8 +292,18 @@ class ActivateIn(BaseModel):
     version: str
 
 
+class ConnectAgentIn(BaseModel):
+    """원격 에이전트 연결 — URL 하나로 A2A 카드를 fetch해 provenance 자동분류(스펙 057).
+
+    백엔드가 카드의 my-agents 확장 유무로 source(code=우리가 배포한 SDK / external=제3자)를
+    자동판별한다. 프론트는 매니페스트를 보내지 않는다(날조 제거). 등록 진입점 단일화."""
+
+    url: str
+    token: str | None = None  # 원격 호출 크레덴셜(있으면 crypto.encrypt 저장). 카드가 인증 불요면 None.
+
+
 class RegisterExternalAgentIn(BaseModel):
-    """외부 A2A 에이전트 등록 — 카드 URL만 받아 fetch·검증 후 등록(026, 1차)."""
+    """외부 A2A 에이전트 등록 — 카드 URL만 받아 fetch·검증 후 등록(026, 1차). 057 이후 deprecated(connect로 대체)."""
 
     cardUrl: str
     token: str | None = None  # 외부 호출 크레덴셜(있으면 crypto.encrypt 저장). 카드가 인증 불요면 None.

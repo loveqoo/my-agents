@@ -164,10 +164,11 @@ def _det_embedding(text: str, dims: int) -> list[float]:
 # ---------- mock A2A Agent Card (외부 에이전트 등록 검증용, 스펙 026) ----------
 @router.get("/.well-known/agent-card.json")
 async def remote_agent_card():
-    """개발용 mock A2A Agent Card. 외부 에이전트 등록(`POST /agents/external`)의 결정적 대상.
+    """개발용 mock A2A Agent Card(**확장 없음** → provenance=external). `POST /agents/connect`가
+    제3자로 분류하는 결정적 대상(SDK 카드 `/sdk/...`와 짝).
 
-    베이스 `/_remote`로 등록하면 fetch_card가 well-known 관례로 이 카드를 찾는다. 실제 A2A
-    서비스 호출(url 엔드포인트)은 2차 스펙 — 1차는 이 카드 메타로 등록·표시만 검증한다."""
+    베이스 `/_remote`로 등록하면 fetch_card가 well-known 관례로 이 카드를 찾는다. `x-my-agents`
+    확장이 없으므로 connect는 external로 분류한다. 실 호출은 `/_remote/a2a` JSON-RPC(스펙 042)."""
     return {
         "name": "Mock A2A Weather Agent",
         "description": "개발용 mock 외부 에이전트 — 날씨 질의에 답하는 척하는 A2A 카드 스탠드인.",
@@ -185,6 +186,55 @@ async def remote_agent_card():
                 "tags": ["weather"],
             }
         ],
+    }
+
+
+# ---------- mock 제1자(SDK) A2A Agent Card (connect provenance=code 검증용, 스펙 057) ----------
+@router.get("/sdk/.well-known/agent-card.json")
+async def remote_sdk_agent_card():
+    """개발용 mock **제1자(SDK 배포)** A2A Agent Card. `POST /agents/connect`가 source=code로
+    분류하는 결정적 대상.
+
+    weather 카드(확장 없음 → external)와 짝을 이뤄 connect 자동분류 양 분기를 결정적으로
+    검증한다(045 self-fixture). `x-my-agents` 확장에 manifest(표시 메타)·deploy(provenance)를
+    실어, 우리가 my-agents-sdk로 배포한 에이전트임을 자기선언한다. 실 서비스 호출은 기존
+    `/_remote/a2a` JSON-RPC 재사용(런타임은 external과 동일 _a2a_stream)."""
+    return {
+        "name": "Mock SDK Translator (A2A)",
+        "description": "개발용 mock 제1자 에이전트 — my-agents-sdk로 배포한 번역 에이전트 스탠드인.",
+        "url": "http://127.0.0.1:8000/_remote/a2a",
+        "version": "1.0.0",
+        "provider": {"organization": "my-agents-dev", "url": "http://127.0.0.1:8000"},
+        "capabilities": {"streaming": True, "pushNotifications": False},
+        "defaultInputModes": ["text/plain"],
+        "defaultOutputModes": ["text/plain"],
+        "skills": [
+            {
+                "id": "translate",
+                "name": "문서 번역",
+                "description": "문서를 받아 다른 언어로 번역한다(mock).",
+                "tags": ["translate"],
+            }
+        ],
+        "x-my-agents": {
+            "manifest": {
+                "model": "mock-chat",
+                "persona": "정확한 기술 번역가 (SDK)",
+                "memories": ["용어집 일관성 유지"],
+                "mcps": [],
+                "permissions": ["read"],
+                "historyDepth": 10,
+            },
+            "deploy": {
+                "repo": "acme/doc-translator",
+                "commit": "f3a91c2",
+                "runtime": "my-agents-sdk · Python 2.4.1",
+                "versions": [
+                    {"version": "f3a91c2", "status": "active", "note": "Deploy · A2A 카드 동기화"},
+                    {"version": "b1d77e0", "status": "archived", "note": "이전 배포"},
+                ],
+            },
+        },
     }
 
 

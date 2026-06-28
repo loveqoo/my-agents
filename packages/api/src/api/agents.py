@@ -25,6 +25,7 @@ from .schemas import (
     AgentCreate,
     AgentOut,
     AgentUpdate,
+    ConnectAgentIn,
     ExposeIn,
     RegisterCodeAgentIn,
     RegisterExternalAgentIn,
@@ -337,26 +338,25 @@ async def register_code_agent(
     return await _reload_out(session, agent.id)
 
 
-# ----------------------------- 외부 에이전트 등록 (A2A 카드) -----------------------------
-@router.post("/external", response_model=AgentOut, status_code=201)
-async def register_external_agent(
-    body: RegisterExternalAgentIn, session: AsyncSession = Depends(get_session)
-) -> AgentOut:
-    """A2A Agent Card URL을 fetch·검증해 외부 에이전트로 등록(026, 1차).
+# ----------------------------- A2A 카드 → Agent 빌더 (connect/external 공유) -----------------------------
+def _clip(value: object, maxlen: int) -> str | None:
+    """카드/매니페스트 문자열을 DB 컬럼 상한에 맞춰 안전화(적대리뷰 057 Finding 3).
 
-    카드 스냅샷은 config["card"], 서비스 URL은 endpoint, 외부 호출 크레덴셜은 crypto.encrypt로
-    token에 저장(코드 에이전트의 마스킹과 달리 2차 런타임 호출에서 복호 사용). 로컬 모델/메모리/
-    MCP는 해석하지 않는다(비로컬). 실제 A2A 호출은 2차 스펙.
-    """
-    try:
-        card = await agent_card.fetch_card(body.cardUrl)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+    제3자가 거대/잡 문자열을 흘려도 Postgres bounded 컬럼(String(N))에서 commit이 500나지 않게,
+    문자열이 아니면 None, 너무 길면 잘라 반환한다(표시·provenance 메타라 절단 허용)."""
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    if not value:
+        return None
+    return value[:maxlen]
 
-    # 서비스 endpoint liveness probe(045 #2) — 카드 published ≠ 실행 엔드포인트 live.
-    # 도달 실패해도 등록은 허용(일시 다운 가능), status만 정직하게 박는다.
-    live = await agent_card.probe_endpoint(card.get("url"))
 
+def _build_external_agent(card: dict, token: str | None, live: bool) -> Agent:
+    """제3자 A2A 카드 → external Agent. 불투명 카드 스냅샷, 로컬 모델/메모리/MCP 미해석(비로컬).
+
+    카드 스냅샷은 config["card"], 서비스 URL은 endpoint, 호출 크레덴셜은 crypto.encrypt로 token에
+    저장(2차 런타임 호출에서 복호 사용)."""
     cfg = {
         "model": "",  # 외부는 로컬 모델 미해석
         "persona": "",
@@ -367,9 +367,9 @@ async def register_external_agent(
         "historyDepth": 10,
         "card": card,  # 등록 시점 카드 스냅샷(표시·검증 단일 소스)
     }
-    agent = Agent(
+    return Agent(
         agent_id=_new_agent_id(),
-        name=card.get("name") or "외부 에이전트",
+        name=_clip(card.get("name"), 200) or "외부 에이전트",
         source="external",
         model="",
         persona="",
@@ -377,11 +377,135 @@ async def register_external_agent(
         config=cfg,
         exposed={"a2a": False},  # 우리가 소비측(클라이언트) — 서버측 노출과 무관
         status="online" if live else "offline",
-        endpoint=card.get("url"),
-        token=crypto.encrypt(body.token) if body.token else None,
+        endpoint=_clip(card.get("url"), 400),
+        token=crypto.encrypt(token) if token else None,
         registered_at=_today(),
         last_sync="방금",
     )
+
+
+def _build_code_agent_from_card(card: dict, ext: dict, token: str | None, live: bool) -> Agent:
+    """제1자(SDK 배포) A2A 카드 + my-agents 확장 → code Agent (스펙 057).
+
+    config는 ext["manifest"](model/persona/mcps/…)에서 채우고 카드 스냅샷을 함께 보존한다.
+    repo/commit/runtime·AgentVersion은 ext["deploy"]에서 만든다. **전부 카드에서 fetch — 프론트
+    날조 없음**. A2A 호출엔 카드 url+token만 쓰지만(현 external과 동일), 저장 config는 1급 표시·resync용.
+    """
+    manifest = ext["manifest"]
+    deploy = ext["deploy"]
+    history_depth = manifest.get("historyDepth")
+    if not isinstance(history_depth, int):
+        history_depth = 10
+    cfg = {
+        "model": manifest.get("model") or "",
+        "persona": manifest.get("persona") or "",
+        "memories": manifest.get("memories") if isinstance(manifest.get("memories"), list) else [],
+        "vectorTables": [],
+        "permissions": manifest.get("permissions") if isinstance(manifest.get("permissions"), list) else [],
+        "mcps": manifest.get("mcps") if isinstance(manifest.get("mcps"), list) else [],
+        "historyDepth": history_depth,
+        "card": card,  # 카드 스냅샷 — external과 동일하게 표시·검증 단일 소스
+    }
+    # 길이 하드닝(적대리뷰 057 Finding 3) — bounded 컬럼에 잡/거대 문자열이 들어가 commit이 500나지 않게.
+    commit = _clip(deploy.get("commit"), 80)
+    agent = Agent(
+        agent_id=_new_agent_id(),
+        name=_clip(card.get("name"), 200) or _clip(deploy.get("repo"), 200) or "SDK 에이전트",
+        source="code",
+        model=_clip(cfg["model"], 120) or "",
+        persona=cfg["persona"],  # Text 컬럼 — 무제한
+        history_depth=history_depth,
+        config=cfg,
+        exposed={"a2a": False},
+        status="online" if live else "offline",
+        endpoint=_clip(card.get("url"), 400),
+        token=crypto.encrypt(token) if token else None,
+        runtime=_clip(deploy.get("runtime"), 200),
+        repo=_clip(deploy.get("repo"), 200),
+        commit=commit,
+        registered_at=_today(),
+        last_sync="방금",
+    )
+    # 버전 빌드 + active_version 불변식(적대리뷰 057 Finding 4): active_version은 항상 실재하는 active
+    # AgentVersion을 가리키거나 None. deploy.versions 잡값(빈 리스트·archived만·잡 버전)이 와도 active
+    # row 없이 active_version만 세팅되는 불일치를 만들지 않는다.
+    active_version_id: str | None = None
+    raw_versions = deploy.get("versions")
+    if isinstance(raw_versions, list):
+        for v in raw_versions:
+            if not isinstance(v, dict):
+                continue
+            vid = _clip(v.get("version"), 40)
+            if vid is None:
+                continue
+            vstatus = _clip(v.get("status"), 20) or "archived"
+            if vstatus == "active" and active_version_id is None:
+                active_version_id = vid
+            agent.versions.append(
+                AgentVersion(
+                    version=vid,
+                    status=vstatus,
+                    note=v.get("note") if isinstance(v.get("note"), str) else "",
+                    config=cfg,
+                )
+            )
+    if active_version_id is None and commit:
+        # 카드에 active 버전이 없으면 commit으로 active 1개 합성(external register와 일관). 합성한 뒤에만
+        # active_version을 세팅 — 실재하는 row를 보장한다.
+        synth = _clip(commit, 40)
+        agent.versions.append(
+            AgentVersion(version=synth, status="active", note="Deploy · 카드 동기화", config=cfg)
+        )
+        active_version_id = synth
+    agent.active_version = active_version_id
+    return agent
+
+
+# ----------------------------- 통합 연결 (스펙 057 — A2A 단일화) -----------------------------
+@router.post("/connect", response_model=AgentOut, status_code=201)
+async def connect_agent(
+    body: ConnectAgentIn, session: AsyncSession = Depends(get_session)
+) -> AgentOut:
+    """원격 에이전트 연결 — URL 하나로 A2A 카드를 fetch해 provenance 자동분류(스펙 057).
+
+    카드에 my-agents 확장(x-my-agents.manifest)이 있으면 우리가 SDK로 배포한 제1자(source=code,
+    매니페스트·배포 메타 보유), 없으면 제3자 A2A(source=external, 불투명). 둘 다 런타임은 A2A 하나.
+    SSRF 가드는 fetch_card·probe_endpoint가 각각 guard_url 선행(044/055).
+    """
+    try:
+        card = await agent_card.fetch_card(body.url)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    # 카드 published ≠ 실행 엔드포인트 live(045 #2). 도달 실패해도 등록 허용, status만 정직하게.
+    live = await agent_card.probe_endpoint(card.get("url"))
+    ext = agent_card.extract_my_agents(card)
+    if ext is not None:
+        agent = _build_code_agent_from_card(card, ext, body.token, live)
+    else:
+        agent = _build_external_agent(card, body.token, live)
+    session.add(agent)
+    await session.commit()
+    return await _reload_out(session, agent.id)
+
+
+# ----------------------------- 외부 에이전트 등록 (A2A 카드) — deprecated, connect로 대체 -----------------------------
+@router.post("/external", response_model=AgentOut, status_code=201)
+async def register_external_agent(
+    body: RegisterExternalAgentIn, session: AsyncSession = Depends(get_session)
+) -> AgentOut:
+    """A2A Agent Card URL을 fetch·검증해 외부 에이전트로 등록(026, 1차).
+
+    057 이후 deprecated — 프론트는 connect를 호출한다. 라우트·로직은 무회귀 위해 잔존(connect의
+    external 분기와 동일 빌더 공유). 실제 A2A 호출은 _a2a_stream.
+    """
+    try:
+        card = await agent_card.fetch_card(body.cardUrl)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    live = await agent_card.probe_endpoint(card.get("url"))
+    agent = _build_external_agent(card, body.token, live)
     session.add(agent)
     await session.commit()
     return await _reload_out(session, agent.id)
