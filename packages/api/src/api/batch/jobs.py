@@ -68,6 +68,12 @@ async def cleanup_sessions(*, dry_run: bool, run_id=None) -> dict:
         if age_active:
             clauses.append(Session.last_activity < age_cutoff)
         if turn_active:
+            # 턴 절은 카운터 Session.turns로 판정한다 — turns는 메시지 행의 캐시가 아니라 **더
+            # 완전한 진실**이다(스펙 056). _persist가 턴마다 +1 하는데, persistHistory=false(윈도우
+            # 모드, schemas.py)면 메시지 행을 일부러 안 남기므로 turns ≥ 메시지행수가 항상 성립한다.
+            # 즉 메시지 행 수로 세면 100턴 윈도우 세션(메시지 0행)을 저턴으로 오인해 지운다(codex
+            # 적대리뷰 결함). turns를 부풀린 유일한 거짓말은 seed였고 그건 seed에서 0으로 고쳤다
+            # (learning 058·059) — 카운터를 신호로 두고 거짓말의 출처를 고치는 게 옳다.
             # 활성 보호: 최근 활동 세션은 turns<N이어도 제외(idle_cutoff보다 오래된 것만).
             clauses.append((Session.turns < min_turns) & (Session.last_activity < idle_cutoff))
 

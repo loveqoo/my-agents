@@ -117,11 +117,14 @@ AGENTS = [
 
 # sessions: session_id, agent_id(agt_), agent_name, channel, status, turns, tokens
 # sess-6c93(Code Reviewer)은 에이전트 제거(스펙 046)와 함께 삭제 — 유지 에이전트 세션만 남긴다.
+# turns/tokens는 0으로 진실화(스펙 056, learning 058): 이 데모 세션들은 Message 행을 심지 않으므로
+# 실제 턴=0이다. 부풀린 카운터(turns=14 등)는 정리 배치가 빈 세션을 고턴으로 오인해 보존하게 만들었다.
+# status·channel로 데모 다양성은 유지하되 카운터는 실제 행과 일치시킨다(빈 세션은 정직하게 0턴·정리대상).
 SESSIONS = [
-    ("sess-8f21", "agt_rsch_7f3a91", "Research Assistant", "debug-console", "active", 6, 18420),
-    ("sess-7a05", "agt_rsch_7f3a91", "Research Assistant", "A2A · partner-x", "idle", 14, 52110),
-    ("sess-5d77", "agt_sec_9d4417", "Personal Secretary", "web-chat", "error", 2, 3110),
-    ("sess-4b10", "agt_rsch_7f3a91", "Research Assistant", "web-chat", "completed", 21, 74300),
+    ("sess-8f21", "agt_rsch_7f3a91", "Research Assistant", "debug-console", "active", 0, 0),
+    ("sess-7a05", "agt_rsch_7f3a91", "Research Assistant", "A2A · partner-x", "idle", 0, 0),
+    ("sess-5d77", "agt_sec_9d4417", "Personal Secretary", "web-chat", "error", 0, 0),
+    ("sess-4b10", "agt_rsch_7f3a91", "Research Assistant", "web-chat", "completed", 0, 0),
 ]
 
 # 시드 승인 데모는 repo.merge·k8s.write(제거 권한) + Code Reviewer·Ops Copilot(제거 에이전트)에
