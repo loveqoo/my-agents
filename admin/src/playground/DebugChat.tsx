@@ -676,6 +676,10 @@ export function DebugChat({
   }
 
   const empty = messages.length === 0
+  // 세션을 골랐는데(currentSessionId 있음) 메시지가 0개면 = 불러올 히스토리가 없는 세션
+  // (메시지 영속 전이거나 시드/레거시 세션). 새 대화의 프롬프트 카드와 똑같이 보이면 "선택해도
+  // 아무것도 안 나온다"고 오해되므로(사용자 보고) 명시적 빈 상태를 띄운다.
+  const pickedButEmpty = empty && !!currentSessionId && !streaming
 
   const promptItems = [
     { key: '1', icon: <Icon name="bulb" style={{ color: 'var(--purple-6)' }} />, label: '메모리 회상 테스트', description: '지난번에 무슨 얘기를 나눴지?' },
@@ -706,7 +710,24 @@ export function DebugChat({
       />
 
       <div ref={scroller} style={{ flex: 1, overflowY: 'auto' }}>
-        {empty ? (
+        {pickedButEmpty ? (
+          <div
+            style={{
+              maxWidth: 520, margin: '0 auto', width: '100%', padding: '12vh 24px 0',
+              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, textAlign: 'center',
+            }}
+          >
+            <Icon name="comment" size={28} style={{ color: 'var(--color-text-quaternary)' }} />
+            <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--color-text-secondary)' }}>
+              이 세션에는 불러올 메시지가 없습니다.
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', lineHeight: 1.7 }}>
+              메시지가 영속되기 전이거나 이전 버전에서 생성된 세션입니다.
+              <br />
+              아래에 입력하면 이 세션({shortSid(currentSessionId!)})에 이어서 대화가 쌓입니다.
+            </div>
+          </div>
+        ) : empty ? (
           <div style={{ maxWidth: 680, margin: '0 auto', width: '100%', padding: '7vh 24px 0', display: 'flex', flexDirection: 'column', gap: 24 }}>
             <Prompts
               title="디버그 프롬프트 체험"
