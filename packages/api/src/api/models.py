@@ -196,7 +196,7 @@ class McpServer(Base):
     enabled_tools: Mapped[list] = mapped_column(JSONB, default=list)
     status: Mapped[str] = mapped_column(String(40), default="connected")
     published: Mapped[bool] = mapped_column(Boolean, default=False)
-    auth: Mapped[str | None] = mapped_column(String(120), default=None)
+    auth: Mapped[str | None] = mapped_column(String(400), default=None)  # 암호화 저장(Fernet, 스펙 054 F) — 응답은 마스킹
 
 
 # ----------------------------- 에이전트 -----------------------------

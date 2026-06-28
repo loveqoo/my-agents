@@ -159,6 +159,16 @@ export const getBlocks = () => j<Record<string, BlockCategory>>('/blocks')
 
 export const createMcp = (body: unknown) => post('/mcp-servers', body)
 export const updateMcp = (id: string, body: unknown) => put(`/mcp-servers/${id}`, body)
+/* 저장 전 라이브 도구 탐색(스펙 054 E) — url에 실제로 붙어 도구목록만 읽음(부작용 0). */
+export type McpDiscoverResult = {
+  ok: boolean
+  reachable: boolean
+  tools: string[]
+  latencyMs: number
+  detail: string
+}
+export const discoverMcpTools = (body: { url: string; transport: string; auth?: string | null }) =>
+  post('/mcp-servers/discover', body) as Promise<McpDiscoverResult>
 export const deleteMcp = (id: string) => del(`/mcp-servers/${id}`)
 export const publishMcp = (id: string, published: boolean) =>
   put(`/mcp-servers/${id}/publish`, { published })

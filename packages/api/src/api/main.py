@@ -18,6 +18,7 @@ from . import (
     blocks,
     chat,
     memory_routes,
+    mock_mcp,
     mock_remote,
     model_registry,
     providers,
@@ -39,7 +40,10 @@ async def lifespan(app: FastAPI):
     await init_authz()  # casbin_rule + enforcer + 기본 정책(멱등)
     await users.seed_admin()  # superuser 시드(env, fail-closed)
     await checkpointer.init_checkpointer()  # HIL durable 체크포인터(스펙 041, graceful)
-    yield
+    # self-host mock MCP(스펙 054)의 세션 매니저 lifespan을 직접 연다 — 마운트된 서브앱 lifespan은
+    # Starlette가 자동 호출하지 않으므로 부모가 진입해야 streamable-HTTP 핸들러가 동작한다.
+    async with mock_mcp.mcp.session_manager.run():
+        yield
     await checkpointer.close_checkpointer()
 
 
@@ -80,6 +84,8 @@ app.include_router(rag.router, dependencies=_auth)
 app.include_router(approvals.router, dependencies=_auth)
 app.include_router(batch_routes.router)  # 자체 보호(admin) — user_admin과 동일 패턴
 app.include_router(mock_remote.router)
+# self-host 실 mock MCP 서버(스펙 054) — streamable-HTTP. mock_remote와 같이 인증 비적용(dev 스탠드인).
+app.mount("/_remote/mcp", mock_mcp.mcp_app)
 
 # 인증·권한 라우터 (스펙 031). register_router는 마운트하지 않는다(공개 등록 금지) — 유저 생성은
 # user_admin(/admin/users, admin 보호)으로만.

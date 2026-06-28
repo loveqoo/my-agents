@@ -11,6 +11,7 @@ import {
   updateMcp,
   deleteMcp,
   publishMcp,
+  discoverMcpTools,
   createBlockItem,
   updateBlockItem,
   deleteBlockItem,
@@ -60,7 +61,8 @@ type McpFormData = {
   name: string
   transport: string
   url: string
-  auth: string
+  authMode: 'none' | 'bearer'
+  auth: string // Bearer 토큰(평문 입력) 또는 편집 시 마스킹 sentinel(보존)
   tools: string[]
   enabledTools: string[]
   usedBy?: number
@@ -80,10 +82,13 @@ function McpForm({
   onSave: (item: BlockItem) => void
 }) {
   const external = !!(form && (form.source === 'external' || (form.item && form.item.source === 'external')))
-  const blank: McpFormData = { name: '', transport: external ? 'http' : 'stdio', url: '', auth: 'None', tools: [], enabledTools: [] }
+  const blank: McpFormData = { name: '', transport: external ? 'http' : 'stdio', url: '', authMode: 'none', auth: '', tools: [], enabledTools: [] }
   const [f, setF] = useState<McpFormData>(blank)
+  const [discovering, setDiscovering] = useState(false)
+  const [discoverMsg, setDiscoverMsg] = useState<{ ok: boolean; text: string } | null>(null)
   useEffect(() => {
     if (!form) return
+    setDiscoverMsg(null)
     if (form.mode === 'edit' && form.item) {
       const m = form.item
       setF({
@@ -91,7 +96,9 @@ function McpForm({
         name: m.name,
         transport: m.transport || 'stdio',
         url: m.url || '',
-        auth: m.auth || 'None',
+        // GET는 토큰을 마스킹(••••)으로 반환 → 존재 시 bearer, sentinel 유지(미수정 저장=보존).
+        authMode: m.auth && m.auth.includes('•') ? 'bearer' : 'none',
+        auth: m.auth && m.auth.includes('•') ? m.auth : '',
         tools: [...(m.tools || [])],
         enabledTools: [...(m.enabledTools || m.tools || [])],
         usedBy: m.usedBy,
@@ -112,11 +119,40 @@ function McpForm({
     }))
   const isExternal = external
   const isEdit = form.mode === 'edit'
+  // 라이브 탐색은 http URL이 있는 외부 MCP에서만(로컬은 자체 운영 — 도구를 운영자가 안다, stdio는 유예).
+  const canDiscover = isExternal
+
+  // 저장 전 서버에 실제로 붙어 도구목록을 가져와 자동채움(스펙 054 E). 부작용 0(list만).
+  const runDiscover = async () => {
+    const url = (f.url || '').trim()
+    if (!url) {
+      message.warning('탐색할 MCP URL을 입력하세요')
+      return
+    }
+    setDiscovering(true)
+    setDiscoverMsg(null)
+    try {
+      const r = await discoverMcpTools({ url, transport: 'http', auth: f.authMode === 'bearer' ? f.auth : undefined })
+      if (r.ok) {
+        setF((s) => ({ ...s, tools: r.tools, enabledTools: r.tools }))
+        setDiscoverMsg({ ok: true, text: `${r.detail} · ${r.latencyMs}ms` })
+      } else {
+        setDiscoverMsg({ ok: false, text: r.detail || '연결 실패' })
+      }
+    } catch {
+      // 4xx(SSRF 차단) 또는 네트워크 오류 — 상세는 노출 안 함.
+      setDiscoverMsg({ ok: false, text: '연결 실패 — 차단되었거나 도달할 수 없는 주소입니다.' })
+    } finally {
+      setDiscovering(false)
+    }
+  }
 
   const submit = () => {
     const id = isEdit ? f.id! : 'mcp-' + Date.now()
-    const tools = isEdit ? f.tools : (f.toolsText || '').split(',').map((x) => x.trim()).filter(Boolean)
-    const enabledTools = isEdit ? f.enabledTools : tools
+    const discovered = f.tools.length > 0
+    const tools =
+      isEdit || discovered ? f.tools : (f.toolsText || '').split(',').map((x) => x.trim()).filter(Boolean)
+    const enabledTools = isEdit || discovered ? f.enabledTools : tools
     const item: BlockItem = {
       id,
       name: f.name.trim() || (isExternal ? 'external-mcp' : 'new-server'),
@@ -129,7 +165,8 @@ function McpForm({
       updated: 'just now',
       published: isEdit ? !!f.published : false,
       url: isExternal ? (f.url || 'mcp://remote/endpoint') : undefined,
-      auth: isExternal ? f.auth : undefined,
+      // bearer면 토큰(평문 또는 마스킹 sentinel=보존), 없음이면 빈 문자열=제거. 로컬은 미전송.
+      auth: isExternal ? (f.authMode === 'bearer' ? f.auth : '') : undefined,
       endpoint: isExternal ? undefined : (f.endpoint || ('mcp://my-agents.local/' + (f.name.trim() || 'new-server'))),
     }
     onSave(item)
@@ -178,16 +215,29 @@ function McpForm({
             <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               <span style={{ fontSize: 14, fontWeight: 500 }}>인증</span>
               <Select
-                value={f.auth}
-                onChange={(v) => set('auth', v)}
+                value={f.authMode}
+                onChange={(v) => setF((s) => ({ ...s, authMode: v, auth: v === 'none' ? '' : s.auth }))}
                 style={{ width: '100%' }}
                 options={[
-                  { label: '없음', value: 'None' },
-                  { label: 'Bearer 토큰', value: 'Bearer ****' },
-                  { label: 'OAuth', value: 'OAuth' },
+                  { label: '없음', value: 'none' },
+                  { label: 'Bearer 토큰', value: 'bearer' },
                 ]}
               />
             </label>
+            {f.authMode === 'bearer' && (
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <span style={{ fontSize: 14, fontWeight: 500 }}>Bearer 토큰</span>
+                <Input.Password
+                  placeholder={f.auth.includes('•') ? '저장된 토큰 유지 — 변경하려면 새로 입력' : 'sk-... (저장 시 암호화)'}
+                  value={f.auth}
+                  onChange={(e) => set('auth', e.target.value)}
+                  autoComplete="new-password"
+                />
+                <span style={{ fontSize: 12, color: 'var(--gray-7)' }}>
+                  토큰은 Fernet로 암호화 저장되며 응답에 평문으로 노출되지 않습니다.
+                </span>
+              </label>
+            )}
           </>
         ) : (
           <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -203,24 +253,47 @@ function McpForm({
             />
           </label>
         )}
-        {isEdit ? (
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <span style={{ fontSize: 14, fontWeight: 500 }}>활성 도구</span>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 16px' }}>
-              {f.tools.map((t) => (
-                <Checkbox key={t} checked={f.enabledTools.includes(t)} onChange={() => toggleTool(t)}>
-                  {t}
-                </Checkbox>
-              ))}
+        {isEdit || canDiscover ? (
+          /* 활성 도구 — 외부 MCP는 "연결 테스트"로 서버에서 라이브 자동채움(스펙 054 E). */
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: 14, fontWeight: 500 }}>활성 도구</span>
+              {canDiscover && (
+                <Button size="small" loading={discovering} onClick={runDiscover}>
+                  연결 테스트
+                </Button>
+              )}
             </div>
-          </label>
+            {discoverMsg && (
+              <Alert
+                type={discoverMsg.ok ? 'success' : 'error'}
+                showIcon
+                style={{ padding: '4px 12px', marginBottom: 0 }}
+                message={discoverMsg.text}
+              />
+            )}
+            {f.tools.length > 0 ? (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 16px' }}>
+                {f.tools.map((t) => (
+                  <Checkbox key={t} checked={f.enabledTools.includes(t)} onChange={() => toggleTool(t)}>
+                    {t}
+                  </Checkbox>
+                ))}
+              </div>
+            ) : (
+              <span style={{ color: 'var(--color-text-tertiary)', fontSize: 13 }}>
+                {canDiscover
+                  ? '“연결 테스트”를 눌러 서버의 도구를 자동으로 가져옵니다.'
+                  : '등록된 도구가 없습니다.'}
+              </span>
+            )}
+          </div>
         ) : (
+          /* stdio 등 라이브 탐색 불가 transport(로컬 자체 운영): 수기 입력. */
           <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <span style={{ fontSize: 14, fontWeight: 500 }}>
               도구{' '}
-              <span style={{ color: 'var(--color-text-tertiary)', fontWeight: 400 }}>
-                (쉼표로 구분{isExternal ? '; 서버에서 자동 발견' : ''})
-              </span>
+              <span style={{ color: 'var(--color-text-tertiary)', fontWeight: 400 }}>(쉼표로 구분)</span>
             </span>
             <Input
               placeholder="search, read, list"

@@ -10,6 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from . import crypto
+from .mock_mcp import MOCK_MCP_SERVER_NAME, MOCK_MCP_TOOLS, MOCK_MCP_URL
 
 from .models import (
     RAG_EMBED_DIMS,
@@ -90,28 +91,26 @@ PERMISSIONS = [
 ]
 
 # name, source, transport, url, endpoint, tools, status, published, auth
-# 코드/인프라 MCP(filesystem·github·prometheus·kubernetes)는 아직 미구현이고 웹 에이전트에
-# 불필요하므로 카탈로그에서 제외(스펙 046, UI 피드백 #5). HIL 게이트 메커니즘(스펙 041
-# runtime._APPROVAL_ACTIONS)은 정책으로 보존 — 카탈로그에 트리거 도구가 없을 뿐.
+# 이전엔 mcp:// 가짜 6행(tavily/gcal/gmail/notion/acme-weather/partner-crm)을 시드했는데, 그 URL은
+# 연결 대상이 없어 런타임이 실제로 붙지 못했다(스펙 054 — 하드코딩/가짜 제거). 지금은 self-host
+# 실 mock MCP 서버(mock_mcp.py, /_remote/mcp) 1행으로 대체 — 라이브 연결로 실제 도구를 노출한다.
+# delete_record는 HIL 게이트(스펙 041 runtime._APPROVAL_ACTIONS, 키 (local-tools, delete_record))로
+# 보호되어 카탈로그에 둬도 안전하다. 이름/URL은 mock_mcp 상수가 단일 출처(드리프트 방지, learning 025).
 MCP_SERVERS = [
-    ("tavily", "local", "stdio", None, "mcp://my-agents.local/tavily", ["search"], "connected", True, None),
-    ("gcal", "local", "http", None, "mcp://my-agents.local/gcal", ["list", "create"], "connected", False, None),
-    ("gmail", "local", "http", None, "mcp://my-agents.local/gmail", ["search"], "disconnected", False, None),
-    ("notion", "local", "http", None, "mcp://my-agents.local/notion", ["append"], "connected", True, None),
-    ("acme-weather", "external", "http", "mcp://acme.io/weather", None, ["forecast", "current"], "connected", False, "Bearer ****"),
-    ("partner-crm", "external", "http", "mcp://partner.example.com/crm", None, ["lookup", "create_lead"], "degraded", False, "OAuth"),
+    (MOCK_MCP_SERVER_NAME, "local", "http", MOCK_MCP_URL, None,
+     list(MOCK_MCP_TOOLS), "connected", True, None),
 ]
 
 # agent_id, name, source, model, persona, memories, historyDepth, vectorTables, permissions, mcps, a2a, status, activeVersion, versions[(version,status,createdAt,note)]
 AGENTS = [
     # 코드/인프라 권한·MCP 제거(스펙 046)에 맞춰 web.search/tavily만 유지.
     ("agt_rsch_7f3a91", "Research Assistant", "ui", CHAT_MODEL_NAME, "Methodical Researcher",
-     ["단기(세션)", "장기 기억 (mem0)"], 20, ["docs_kb", "product_titles"], ["web.search"], ["tavily"],
+     ["단기(세션)", "장기 기억 (mem0)"], 20, ["docs_kb", "product_titles"], ["web.search"], [MOCK_MCP_SERVER_NAME],
      True, "online", "v3",
      [("v3", "active", "2026-06-12", "Tightened citation rules"), ("v2", "archived", "2026-06-04", "Web search tuning"), ("v1", "archived", "2026-05-30", "Initial")]),
     # Code Reviewer·Ops Copilot(코드/인프라 권한 전용 데모)는 에이전트째 제거(스펙 046, UI 피드백 #4).
     ("agt_sec_9d4417", "Personal Secretary", "ui", CHAT_MODEL_NAME, "Warm Secretary",
-     ["단기(세션)", "장기 기억 (mem0)"], 40, ["team_notes"], ["calendar.rw", "mail.send"], ["gcal", "gmail", "notion"],
+     ["단기(세션)", "장기 기억 (mem0)"], 40, ["team_notes"], ["calendar.rw", "mail.send"], [MOCK_MCP_SERVER_NAME],
      False, "online", "v2",
      [("v2", "active", "2026-06-16", "Warmer tone"), ("v1", "archived", "2026-06-15", "Initial")]),
 ]
@@ -232,7 +231,7 @@ async def seed_if_empty(session: AsyncSession) -> None:
         # 코드 정의(SDK 배포) 에이전트 — UI mock과 동일하게 1개 시드.
         code_cfg = {
             "model": CHAT_MODEL_NAME, "persona": "코드 정의 (SDK)", "memories": ["단기(세션)"],
-            "vectorTables": [], "permissions": ["web.search"], "mcps": ["tavily"],
+            "vectorTables": [], "permissions": ["web.search"], "mcps": [MOCK_MCP_SERVER_NAME],
             "historyDepth": 10,
         }
         translator = Agent(

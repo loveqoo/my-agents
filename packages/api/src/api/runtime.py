@@ -1,17 +1,19 @@
-"""에이전트 실행 런타임 — 합성 MCP 툴 + 트레이스 조립.
+"""에이전트 실행 런타임 — 실 MCP 도구 연결 + 트레이스 조립.
 
-v1: 실제 MCP 연결(langchain-mcp-adapters) 대신, 에이전트가 선택한 MCP 서버의
-활성 툴마다 '합성 툴'을 만들어 ReAct 루프가 호출·기록할 수 있게 한다(트레이스 확인용).
-실제 MCP 연결은 이후 루프.
+MCP 서버에 **실제로 연결**(langchain-mcp-adapters `MultiServerMCPClient`, streamable-HTTP)해
+활성 도구를 LangChain 툴로 가져오고, 트레이스·HIL 승인 게이트(스펙 041)·graceful 실패 래퍼로
+감싸 ReAct 루프에 넣는다. 반환값은 하드코딩한 합성 문자열이 아니라 서버가 실제로
+계산한 값이다(이전 합성 캔드 응답 테이블은 폐기). stdio transport는 유예(스펙 054 §7).
 
-지배 스펙: docs/spec/007-real-agent-service.md (Phase 2)
+지배 스펙: docs/spec/054-mcp-real-runtime-http.md (구: 007 Phase 2)
 """
 
+import asyncio
 import re
 import time
-from typing import Any, Callable
+from typing import Any
 
-from langchain_core.tools import StructuredTool
+from langchain_core.tools import BaseTool, StructuredTool
 from langgraph.types import interrupt
 
 
@@ -23,92 +25,161 @@ def _safe_name(server: str, tool_name: str) -> str:
 
 
 # HIL 승인 게이트 정책(스펙 041) — approver=admin 권한에 묶인 (server, tool) 도구만.
-# 이 도구를 ReAct가 호출하면 부수효과(canned+calls_sink) **이전에** langgraph interrupt로 그래프가
+# 이 도구를 ReAct가 호출하면 **실 부수효과(rt.ainvoke) 이전에** langgraph interrupt로 그래프가
 # 일시정지되고, admin 승인 전에는 절대 실행되지 않는다(핵심 불변식). 정책은 코드 한 곳 — verify로 핀.
-# 키는 _load_context의 mcp_pairs 포맷(McpServer.name, enabled_tool) 그대로. seed가 이 도구들을 노출.
+# 키는 (McpServer.name, 도구이름). seed가 이 서버/도구를 노출한다.
+# "local-tools"는 mock_mcp.MOCK_MCP_SERVER_NAME — verify 테스트가 두 상수의 일치를 단언한다(drift 방지).
 _APPROVAL_ACTIONS: dict[tuple[str, str], str] = {
-    ("github", "merge_pr"): "repo.merge",
-    ("kubernetes", "scale"): "k8s.write",
+    ("local-tools", "delete_record"): "data.delete",
 }
 
-# 합성 툴이 돌려주는 서버별 결과 문구 (모의).
-_CANNED = {
-    "tavily": "검색 결과 5건 (모의)",
-    "filesystem": "파일 내용 (모의, 2.1KB)",
-    "github": "PR/파일 메타 (모의)",
-    "prometheus": "12 series (모의)",
-    "kubernetes": "리소스 상태 (모의)",
-    "gcal": "이벤트 목록 (모의)",
-    "gmail": "메일 검색 결과 (모의)",
-    "notion": "append ok (모의)",
-}
+# 실 도구 호출 전체 deadline(초). per-read 타임아웃은 전체 데드라인이 아니므로(learning 046)
+# asyncio.timeout으로 호출 전체를 감싼다 — 느린/멈춘 서버가 에이전트를 무한 대기시키지 않게.
+_TOOL_TIMEOUT_S = 30
 
 
-def build_tools(
-    mcp_pairs: list[tuple[str, str]], calls_sink: list[dict]
-) -> list[StructuredTool]:
-    """(server, tool) 목록 → 합성 LangChain 툴. 호출 시 calls_sink에 트레이스 기록.
+def _content_text(result: Any) -> str:
+    """MCP 도구 반환을 표시·트레이스용 문자열로 정규화.
 
-    `_APPROVAL_ACTIONS`에 걸리는 위험 도구는 **부수효과 이전에 interrupt()** 로 그래프를 멈춰
-    admin 승인을 받는다(스펙 041). interrupt는 checkpointer가 있어야 동작하므로, 무체크포인터
-    경로에서 위험 도구가 호출되면 그래프가 멈출 수 없어 GraphInterrupt가 예외로 샐 수 있다 —
-    chat.py는 위험 도구를 가진 에이전트엔 항상 checkpointer를 붙인다(없으면 게이트 미적용 폴백).
+    실 MCP 도구는 문자열이 아니라 content-block 리스트(`[{'type':'text','text':...}]`)를
+    돌려줄 수 있다(probe로 확인). 텍스트 블록을 추출·결합하고, 그 외 타입은 str()로 폴백한다.
     """
-    tools: list[StructuredTool] = []
-    for server, tool_name in mcp_pairs:
-        permission = _APPROVAL_ACTIONS.get((server, tool_name))
+    if isinstance(result, str):
+        return result
+    if isinstance(result, (list, tuple)):
+        parts: list[str] = []
+        for b in result:
+            if isinstance(b, dict) and b.get("type") == "text":
+                parts.append(str(b.get("text", "")))
+            elif b is not None:
+                parts.append(str(b))
+        return "\n".join(p for p in parts if p)
+    if result is None:
+        return ""
+    return str(result)
 
-        def _make(server: str, tool_name: str, permission: str | None) -> Callable[[str], str]:
-            def _execute(query: str, t0: float) -> str:
-                # 실 부수효과(합성: canned 반환 + calls_sink 트레이스). 승인된 뒤에만 도달.
-                result = _CANNED.get(server, "ok (모의)")
-                calls_sink.append(
-                    {
-                        "server": server,
-                        "tool": tool_name,
-                        "status": "ok",
-                        "ms": int((time.perf_counter() - t0) * 1000) + 1,
-                        "args": {"query": query},
-                        "result": result,
-                    }
-                )
-                return result
 
-            def _run(query: str = "") -> str:
-                t0 = time.perf_counter()
-                if permission is None:
-                    return _execute(query, t0)
-                # 위험 도구: 부수효과 이전에 일시정지. interrupt()는 첫 호출 시 그래프를 멈추고,
-                # admin이 Command(resume={"decision":...})로 재개하면 그 값을 반환한다(도구는 처음부터
-                # 재실행되지만 interrupt 이전엔 부수효과가 없어 정확히 1회만 실행 — probe로 검증).
-                decision = interrupt(
-                    {
-                        "permission": permission,
-                        "server": server,
-                        "tool": tool_name,
-                        "action": f"{server}.{tool_name}",
-                        "args": {"query": query},
-                        "summary": f"{server}.{tool_name} 실행 — 관리자 승인 필요",
-                    }
-                )
-                approved = isinstance(decision, dict) and decision.get("decision") == "approve"
-                if not approved:
-                    # 거부: 부수효과 0(canned·calls_sink 미emit) — 에이전트는 이 사실로 마무리.
-                    return "거부됨 — 관리자가 실행을 승인하지 않았습니다."
-                return _execute(query, t0)
+def _wrap_mcp_tool(server: str, rt: BaseTool, calls_sink: list[dict]) -> StructuredTool:
+    """실 MCP 도구(rt)를 트레이스·HIL 게이트·graceful 래퍼로 감싼다.
 
-            return _run
+    rt.args_schema(JSON 스키마 dict)를 그대로 보존해 LLM이 원 도구 시그니처대로 호출하게 한다.
+    `_APPROVAL_ACTIONS`에 걸리는 위험 도구는 **rt.ainvoke(부수효과) 이전에 interrupt()** 로 그래프를
+    멈춰 admin 승인을 받는다(스펙 041 불변식, 실 도구 위에서 재성립). 도구 실행 실패(서버 다운·
+    프로토콜 오류·타임아웃)는 잡아 graceful 문자열 + calls_sink status="error"로 — 에이전트 크래시 금지.
+    """
+    permission = _APPROVAL_ACTIONS.get((server, rt.name))
 
-        desc = f"{server} 서버의 {tool_name} 도구 (모의). 입력: query 문자열."
-        if permission is not None:
-            desc += " ⚠ 위험 작업: 호출 시 관리자 승인 전까지 일시정지됩니다."
-        tools.append(
-            StructuredTool.from_function(
-                func=_make(server, tool_name, permission),
-                name=_safe_name(server, tool_name),
-                description=desc,
-            )
+    async def _execute(kwargs: dict, t0: float) -> str:
+        # 실 부수효과: 실제 MCP 서버 도구를 호출한다. 승인됐거나 비위험 도구일 때만 도달.
+        try:
+            async with asyncio.timeout(_TOOL_TIMEOUT_S):
+                raw = await rt.ainvoke(kwargs)
+            text = _content_text(raw)
+            status = "ok"
+        except Exception as exc:  # noqa: BLE001 — 도구 오류가 에이전트를 죽이지 않는다(graceful)
+            text = f"도구 실행 실패({server}.{rt.name}): {type(exc).__name__}"
+            status = "error"
+        calls_sink.append(
+            {
+                "server": server,
+                "tool": rt.name,
+                "status": status,
+                "ms": int((time.perf_counter() - t0) * 1000) + 1,
+                "args": kwargs,
+                "result": text,
+            }
         )
+        return text
+
+    async def _run(**kwargs: Any) -> str:
+        t0 = time.perf_counter()
+        if permission is None:
+            return await _execute(kwargs, t0)
+        # 위험 도구: 실 부수효과 이전에 일시정지. interrupt()는 첫 호출 시 그래프를 멈추고,
+        # admin이 Command(resume={"decision":...})로 재개하면 그 값을 반환한다(도구는 처음부터
+        # 재실행되지만 interrupt 이전엔 부수효과가 없어 정확히 1회만 ainvoke — 스펙 041 probe로 검증).
+        decision = interrupt(
+            {
+                "permission": permission,
+                "server": server,
+                "tool": rt.name,
+                "action": f"{server}.{rt.name}",
+                "args": kwargs,
+                "summary": f"{server}.{rt.name} 실행 — 관리자 승인 필요",
+            }
+        )
+        approved = isinstance(decision, dict) and decision.get("decision") == "approve"
+        if not approved:
+            # 거부: 부수효과 0(ainvoke·calls_sink 미emit) — 에이전트는 이 사실로 마무리.
+            return "거부됨 — 관리자가 실행을 승인하지 않았습니다."
+        return await _execute(kwargs, t0)
+
+    desc = rt.description or f"{server} 서버의 {rt.name} 도구."
+    if permission is not None:
+        desc += " ⚠ 위험 작업: 호출 시 관리자 승인 전까지 일시정지됩니다."
+    return StructuredTool.from_function(
+        coroutine=_run,
+        name=_safe_name(server, rt.name),
+        description=desc,
+        args_schema=rt.args_schema,
+    )
+
+
+async def build_mcp_tools(
+    servers: list[dict], calls_sink: list[dict]
+) -> list[StructuredTool]:
+    """등록 MCP 서버에 **실제로 연결**(MultiServerMCPClient)해 활성 도구를 LangChain 툴로 만든다.
+
+    `servers`: `_load_context`가 해석한 dict 리스트
+      `{name, url, transport, enabled_tools, auth_token(복호화|None)}`.
+    HTTP/streamable만 연결한다(stdio는 스펙 054 §7에서 유예). 각 URL은 연결 이전에 net_guard(스펙
+    042)로 SSRF 검사 — 사설/루프백 IP는 차단하되 A2A_ALLOWED_HOSTS allowlist로 dev mock(127.0.0.1)을
+    통과시킨다. 서버 하나가 다운/차단/프로토콜 오류여도 그 서버만 건너뛰고 나머지는 살린다(부분 실패
+    격리 — 에이전트는 계속 실행). 각 도구는 `_wrap_mcp_tool`로 트레이스·HIL·graceful 래핑된다.
+    """
+    from langchain_mcp_adapters.client import MultiServerMCPClient  # 지연 임포트(모듈 경량 유지)
+
+    from . import net_guard
+
+    connections: dict[str, dict] = {}
+    meta: dict[str, dict] = {}
+    for s in servers:
+        if (s.get("transport") or "").lower() not in ("http", "streamable_http"):
+            continue  # stdio 등 미지원 transport는 조용히 제외(유예)
+        url = s.get("url") or ""
+        try:
+            net_guard.guard_url(url)
+        except net_guard.SsrfBlocked:
+            continue  # SSRF 차단 서버는 연결 자체를 안 함(부수효과 0)
+        headers: dict[str, str] = {}
+        token = s.get("auth_token")
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        connections[s["name"]] = {
+            "transport": "streamable_http",
+            "url": url,
+            "headers": headers or None,
+            # 리다이렉트-SSRF 차단(적대 리뷰 H1): 기본 클라이언트는 3xx를 따라가 가드를 우회하고
+            # 토큰을 재전송한다 → follow_redirects=False 팩토리로 fail-closed(a2a_client와 동일 정책).
+            "httpx_client_factory": net_guard.mcp_http_client_factory,
+        }
+        meta[s["name"]] = s
+
+    if not connections:
+        return []
+
+    client = MultiServerMCPClient(connections)
+    tools: list[StructuredTool] = []
+    for name, s in meta.items():
+        try:
+            raw_tools = await client.get_tools(server_name=name)
+        except Exception:  # noqa: BLE001 — 서버 다운/프로토콜 오류는 그 서버만 스킵
+            continue
+        enabled = set(s.get("enabled_tools") or [])
+        for rt in raw_tools:
+            if enabled and rt.name not in enabled:
+                continue  # enabled_tools 밖 도구는 노출 안 함(서버측 강제)
+            tools.append(_wrap_mcp_tool(name, rt, calls_sink))
     return tools
 
 

@@ -13,9 +13,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from . import crypto
 from .db import get_session
 from .models import Agent, Collection, McpServer, MemoryType, Permission, Persona
 from .schemas import (
+    McpDiscoverIn,
+    McpDiscoverResult,
     McpPublishIn,
     McpServerIn,
     McpServerOut,
@@ -180,10 +183,32 @@ async def delete_permission(id: uuid.UUID, session: AsyncSession = Depends(get_s
 
 
 # ----------------------------- MCP 서버 -----------------------------
+def _mcp_auth_masked(obj: McpServer) -> str | None:
+    """저장된 auth(암호문)를 응답용 마스킹값으로 — 평문/암호문 절대 미노출(스펙 054 F, 누출-안전)."""
+    return crypto.SECRET_MASK if obj.auth else None
+
+
+def mcp_to_out(obj: McpServer) -> McpServerOut:
+    """ORM → 응답 DTO. auth는 마스킹해 평문 토큰을 절대 흘리지 않는다."""
+    return McpServerOut(
+        id=obj.id,
+        name=obj.name,
+        source=obj.source,
+        transport=obj.transport,
+        url=obj.url,
+        endpoint=obj.endpoint,
+        tools=list(obj.tools or []),
+        enabled_tools=list(obj.enabled_tools or []),
+        status=obj.status,
+        published=obj.published,
+        auth=_mcp_auth_masked(obj),
+    )
+
+
 @router.get("/mcp-servers", response_model=list[McpServerOut])
 async def list_mcp_servers(session: AsyncSession = Depends(get_session)) -> Any:
     result = await session.execute(select(McpServer))
-    return result.scalars().all()
+    return [mcp_to_out(o) for o in result.scalars().all()]
 
 
 @router.post("/mcp-servers", response_model=McpServerOut, status_code=201)
@@ -192,11 +217,64 @@ async def create_mcp_server(
 ) -> Any:
     data = body.model_dump()
     data["enabled_tools"] = body.enabled_tools or body.tools
+    # auth는 평문 입력 → Fernet 암호화 저장. 마스킹값이 들어오면(신규엔 없어야 함) 비워둔다.
+    data["auth"] = None if (body.auth and crypto.is_masked(body.auth)) else crypto.encrypt(body.auth)
     obj = McpServer(**data)
     session.add(obj)
     await session.commit()
     await session.refresh(obj)
-    return obj
+    return mcp_to_out(obj)
+
+
+@router.post("/mcp-servers/discover", response_model=McpDiscoverResult)
+async def discover_mcp_tools(body: McpDiscoverIn) -> Any:
+    """저장 전 폼에서 MCP 서버에 **실제로 붙어** 도구목록을 읽는다(부작용 0 — list만). 등록 자동채움용(스펙 054 E).
+
+    SSRF: 연결 이전 `guard_url` — 사설/비-allowlist 대역은 **4xx로 거절**(보안 경계, 정상 연결실패와 구분).
+    stdio는 유예 — http만 라이브 탐색. 비밀은 결과에 미포함(latency·도구이름만). 마스킹(•) auth는 헤더 생략.
+    """
+    import asyncio
+    import time
+
+    from langchain_mcp_adapters.client import MultiServerMCPClient
+
+    from . import net_guard
+
+    url = (body.url or "").strip()
+    if body.transport != "http":
+        return McpDiscoverResult(
+            ok=False, reachable=False, detail="stdio transport는 라이브 탐색 미지원(유예)"
+        )
+    try:
+        net_guard.guard_url(url)
+    except net_guard.SsrfBlocked as exc:
+        # 보안 경계 위반은 4xx(정상 연결실패의 ok=False와 구분) — 스펙 054 완료조건 ④.
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+
+    headers: dict[str, str] = {}
+    token = (body.auth or "").strip()
+    if token and "•" not in token:  # 마스킹값(•)이면 헤더 생략(a2a_client 규칙)
+        headers["Authorization"] = f"Bearer {token}"
+
+    t0 = time.perf_counter()
+    try:
+        client = MultiServerMCPClient(
+            {"probe": {
+                "transport": "streamable_http", "url": url, "headers": headers or None,
+                # 리다이렉트-SSRF 차단(적대 리뷰 H1) — runtime.build_mcp_tools와 동일 정책.
+                "httpx_client_factory": net_guard.mcp_http_client_factory,
+            }}
+        )
+        async with asyncio.timeout(15):
+            tools = await client.get_tools(server_name="probe")
+    except Exception:  # noqa: BLE001 — 연결/프로토콜 오류(상세 미노출, 비밀 에코 방지)
+        ms = int((time.perf_counter() - t0) * 1000)
+        return McpDiscoverResult(ok=False, reachable=False, latencyMs=ms, detail="연결 실패")
+    ms = int((time.perf_counter() - t0) * 1000)
+    names = [t.name for t in tools]
+    return McpDiscoverResult(
+        ok=True, reachable=True, tools=names, latencyMs=ms, detail=f"{len(names)}개 도구 발견"
+    )
 
 
 @router.get("/mcp-servers/{id}", response_model=McpServerOut)
@@ -204,7 +282,7 @@ async def get_mcp_server(id: uuid.UUID, session: AsyncSession = Depends(get_sess
     obj = await session.get(McpServer, id)
     if obj is None:
         raise HTTPException(status_code=404, detail="not found")
-    return obj
+    return mcp_to_out(obj)
 
 
 @router.put("/mcp-servers/{id}", response_model=McpServerOut)
@@ -214,11 +292,21 @@ async def update_mcp_server(
     obj = await session.get(McpServer, id)
     if obj is None:
         raise HTTPException(status_code=404, detail="not found")
-    for key, value in body.model_dump().items():
+    data = body.model_dump()
+    # auth 의미 구분(provider.api_key와 동형): None/마스킹 = 기존 암호화 토큰 보존,
+    # 빈 문자열 = 명시적 제거, 그 외 = 새 평문 암호화. 마스킹값이 그대로 저장되는 버그 방지.
+    auth_in = data.pop("auth", None)
+    for key, value in data.items():
         setattr(obj, key, value)
+    if auth_in is None or crypto.is_masked(auth_in):
+        pass  # 보존
+    elif auth_in == "":
+        obj.auth = None
+    else:
+        obj.auth = crypto.encrypt(auth_in)
     await session.commit()
     await session.refresh(obj)
-    return obj
+    return mcp_to_out(obj)
 
 
 @router.delete("/mcp-servers/{id}", status_code=204)
@@ -240,7 +328,7 @@ async def publish_mcp_server(
     obj.published = body.published
     await session.commit()
     await session.refresh(obj)
-    return obj
+    return mcp_to_out(obj)
 
 
 # ----------------------------- 집계 (관리자 UI) -----------------------------
@@ -386,7 +474,7 @@ async def get_blocks(session: AsyncSession = Depends(get_session)) -> dict[str, 
             "enabledTools": row.enabled_tools,
             "status": row.status,
             "published": row.published,
-            "auth": row.auth,
+            "auth": _mcp_auth_masked(row),
             "usedBy": _count_by(agents, "mcps", row.name),
             "updated": "—",
         }

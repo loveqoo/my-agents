@@ -124,6 +124,22 @@ class McpPublishIn(BaseModel):
     published: bool
 
 
+class McpDiscoverIn(BaseModel):
+    """MCP 서버 라이브 도구 탐색(저장 전 폼). url에 실제로 붙어 도구목록만 읽는다(부작용 0, 스펙 054 E)."""
+    url: str = ""
+    transport: Literal["stdio", "http"] = "http"
+    auth: str | None = None  # 평문 토큰(폼 입력) 또는 마스킹값(• 포함이면 헤더 생략)
+
+
+class McpDiscoverResult(BaseModel):
+    """탐색 결과. ok=연결+도구취득 성공. tools=발견된 도구이름. 비밀은 결과에 미포함."""
+    ok: bool
+    reachable: bool
+    tools: list[str] = Field(default_factory=list)
+    latencyMs: int = 0
+    detail: str = ""
+
+
 class ProviderProbeIn(BaseModel):
     """provider 연결 테스트(저장 전 폼). base_url 도달성 + 자격증명 확인."""
     base_url: str = ""

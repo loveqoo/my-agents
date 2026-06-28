@@ -141,16 +141,28 @@ async def _load_context(
                 }
         ctx["mem_cfg"] = mem_cfg
 
-        mcp_pairs: list[tuple[str, str]] = []
+        # 등록된 MCP 서버를 runtime.build_mcp_tools가 실제로 붙을 수 있는 dict로 해석한다(스펙 054).
+        # name/url/transport/enabled_tools + auth_token. auth_token은 저장된 Fernet 암호문을
+        # 복호화한 평문(provider.api_key 동형) — 마스킹/빈값이면 None이라 헤더 생략(a2a_client 규칙).
+        # enabled_tools가 비면 서버 전체 도구를 노출(get_tools가 결정).
+        mcp_servers: list[dict] = []
         mcps = cfg.get("mcps", [])
         if mcps:
             rows = (
                 await db.execute(select(McpServer).where(McpServer.name.in_(mcps)))
             ).scalars().all()
             for r in rows:
-                for t in (r.enabled_tools or r.tools or []):
-                    mcp_pairs.append((r.name, t))
-        ctx["mcp_pairs"] = mcp_pairs
+                token = None if crypto.is_masked(r.auth) else crypto.decrypt(r.auth)
+                mcp_servers.append(
+                    {
+                        "name": r.name,
+                        "url": r.url or r.endpoint or "",
+                        "transport": r.transport or "http",
+                        "enabled_tools": list(r.enabled_tools or []),
+                        "auth_token": token,
+                    }
+                )
+        ctx["mcp_servers"] = mcp_servers
 
         # RAG 컬렉션 해석(스펙 037) — vectorTables(이름 목록) → 검색 도구 배선용 dict.
         # 질의는 **각 컬렉션이 인제스트에 쓴 임베딩 모델**로 임베딩해야 같은 벡터 공간이 된다
@@ -495,7 +507,7 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
     )
 
     calls_sink: list[dict] = []
-    tools = runtime.build_tools(ctx["mcp_pairs"], calls_sink)
+    tools = await runtime.build_mcp_tools(ctx["mcp_servers"], calls_sink)
     # 채팅 자가기록 도구는 제거됨(스펙 051) — agent_id 메모리는 어드민 저작 전용. 회상은 아래 유지.
     # RAG 검색 도구 — vectorTables가 실 컬렉션으로 해석됐을 때만 주입(스펙 037). mem0 비종속.
     if ctx["rag_collections"]:
@@ -691,7 +703,7 @@ async def resume_approval(approval: Approval, decision: str) -> None:
     )
 
     calls_sink: list[dict] = []
-    tools = runtime.build_tools(ctx["mcp_pairs"], calls_sink)
+    tools = await runtime.build_mcp_tools(ctx["mcp_servers"], calls_sink)
     # 채팅 자가기록 도구 제거됨(스펙 051) — agent_id 메모리는 어드민 저작 전용. 회상(recall_scope)은 유지.
     if ctx["rag_collections"]:
         tools.append(runtime.build_rag_tool(ctx["rag_collections"], calls_sink))

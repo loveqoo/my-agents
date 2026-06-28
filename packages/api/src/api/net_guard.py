@@ -68,3 +68,20 @@ def guard_url(url: str) -> None:
             )
     if not seen:
         raise SsrfBlocked("호스트에서 유효한 IP를 얻지 못했습니다")
+
+
+def mcp_http_client_factory(headers=None, timeout=None, auth=None):
+    """MCP outbound HTTP 클라이언트 팩토리 — guard_url을 우회하는 **리다이렉트 추종을 끈다**.
+
+    `guard_url`은 *최초* URL의 resolve IP만 검사한다. 기본 MCP 클라이언트는 follow_redirects=True
+    (create_mcp_http_client "always enabled")라, 공인 호스트가 3xx로 사설/메타데이터(169.254.169.254)
+    대역을 가리키면 가드를 우회할 뿐 아니라 **복호화된 Bearer 토큰까지 리다이렉트 타깃에 재전송**된다
+    (적대 리뷰 H1 — a2a_client/agent_card가 이미 막아둔 것과 동일한 빈틈). 같은 정책
+    (`follow_redirects=False`, agent_card.py:85 근거)으로 막는다 — 리다이렉트는 따르지 않고 프로토콜
+    오류로 떨어뜨려 fail-closed. MCP 기본값(timeout 등)은 그대로 두고 추종 플래그만 끈다.
+    """
+    from mcp.shared._httpx_utils import create_mcp_http_client
+
+    client = create_mcp_http_client(headers=headers, timeout=timeout, auth=auth)
+    client.follow_redirects = False
+    return client
