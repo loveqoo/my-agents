@@ -87,5 +87,7 @@
 - **mem0 user_id 축 미정리**: 삭제 유저의 mem0 메모리는 별 저장소라 이번 범위 밖(별도 정리 필요).
 - **`sessions.user_id` 고아 문자열**: FK 아님(plain String)이라 삭제 유저의 세션 user_id는 잔류 — 무해하며
   049 정책으로 곧 청소.
-- **실행 중 서버 상태**: verify032 삭제를 영구화하려면 실행 중 api 서버를 `export ADMIN_EMAIL=verify032`
-  없는 셸에서 **재기동**해야 함(config는 고쳤으나 살아있는 프로세스 env는 못 바꿈). 사용자 액션 아이템.
+- **실행 중 서버 상태**: ~~verify032 삭제를 영구화하려면 실행 중 api 서버를 재기동해야 함~~ →
+  **해결(2026-06-28)**: 사용자가 원격이라 직접 못 함이 드러나(메모리 user-is-remote-do-host-actions-yourself)
+  내가 직접 api 서버를 `ADMIN_EMAIL=verify032` 없는 셸에서 재기동(pkill→nohup uv run uvicorn …)하고
+  verify032 삭제 후 reload 유발로 재시드 0건 실증. 이제 admin@만 시드되어 영구 청결.
