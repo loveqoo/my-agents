@@ -386,6 +386,14 @@ export const listSessions = (params?: { status?: string; limit?: number; offset?
 // 대화에 쓰인 distinct user_id(이제 로그인 유저 UUID — 스펙 032), 최근 사용순.
 // Playground 헤더 입력은 제거됐지만(032), 어드민 "유저 메모리" 조회(MemoryView)가 소비한다.
 export const listUserIds = () => j<string[]>('/sessions/users')
+// 유저 메모리 큐레이션용 — distinct user_id에 등록 유저 신원(email·display_name)을 보강(스펙 052).
+// raw UUID만으론 누구인지 식별 불가라 별도 엔드포인트(users:manage 불요 — 메모리 화면 전용).
+export interface MemoryUser {
+  user_id: string
+  email: string | null
+  display_name: string | null
+}
+export const listMemoryUsers = () => j<MemoryUser[]>('/memory/users')
 export interface SessionMessage {
   role: string
   content: string

@@ -12,17 +12,63 @@ import asyncio
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from . import memory
 from .db import get_session
 from .mem_config import default_mem_cfg
+from .models import Session as SessionModel, User
 
 router = APIRouter(prefix="/memory", tags=["memory"])
 
 
 class UserMemoryIn(BaseModel):
     text: str
+
+
+class MemoryUserOut(BaseModel):
+    # 누출-안전을 *구조적*으로 — response_model이 이 세 필드만 통과시킨다(hashed_password·
+    # is_superuser 등은 손수 만든 dict가 실수로 늘어나도 경계에서 잘린다). 스펙 052 비판리뷰.
+    user_id: str
+    email: str | None
+    display_name: str | None
+
+
+@router.get("/users", response_model=list[MemoryUserOut])
+async def list_memory_users(session: AsyncSession = Depends(get_session)) -> list[dict]:
+    """유저 메모리 큐레이션용 — 대화에 쓰인 distinct user_id를 등록 유저 신원과 함께(최근순).
+
+    `/sessions/users`(list[str], Playground·스펙 021)와 **분리**한다: 여기선 email·display_name을
+    붙여 관리자가 "누구의 메모리인지" 식별하게 한다(raw UUID로는 불가 — 스펙 052). 신원 보강은
+    **JOIN으로만** — `/admin/users`의 `users:manage` 권한을 요구하지 않아(메모리 화면은 비-슈퍼유저
+    관리자에게도 열림) 메모리 큐레이션이 유저-관리 권한에 결합되지 않는다.
+    """
+    rows = (
+        await session.execute(
+            select(SessionModel.user_id, func.max(SessionModel.last_activity).label("last"))
+            .where(SessionModel.user_id.is_not(None))
+            .group_by(SessionModel.user_id)
+            .order_by(func.max(SessionModel.last_activity).desc())
+        )
+    ).all()
+    uids = [r.user_id for r in rows]
+    if not uids:
+        return []
+    # user_id(str) ↔ User.id(UUID) 캐스팅 회피 — distinct 수가 적어 파이썬 측 매핑이 안전·단순.
+    users = (await session.execute(select(User))).scalars().all()
+    by_id = {str(u.id): u for u in users}
+    out = []
+    for uid in uids:
+        u = by_id.get(uid)
+        out.append(
+            {
+                "user_id": uid,
+                "email": u.email if u else None,  # 미등록 user_id면 None(graceful)
+                "display_name": u.display_name if u else None,
+            }
+        )
+    return out
 
 
 async def _user_mem_cfg(session: AsyncSession):

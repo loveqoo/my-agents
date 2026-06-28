@@ -4,9 +4,16 @@
 import { useEffect, useState } from 'react'
 import { Tabs, Select, message } from 'antd'
 import { Page } from '../shared'
-import { listAgents, listUserIds, type Agent } from '../../api'
+import { listAgents, listMemoryUsers, type Agent, type MemoryUser } from '../../api'
 import { AgentMemoryPanel } from './AgentMemoryPanel'
 import { UserMemoryPanel } from './UserMemoryPanel'
+
+// 드롭다운/패널 식별 라벨 — 이메일(있으면 display_name 병기), 미등록이면 raw UUID.
+function userLabel(u: MemoryUser): string {
+  if (!u.email) return `(미등록) ${u.user_id}`
+  const name = u.display_name?.trim()
+  return name ? `${name} · ${u.email}` : u.email
+}
 
 const LONG_TERM = '장기 기억 (mem0)'
 
@@ -40,28 +47,36 @@ function AgentMemoryTab() {
 }
 
 function UserMemoryTab() {
-  const [users, setUsers] = useState<string[]>([])
+  const [users, setUsers] = useState<MemoryUser[]>([])
   const [sel, setSel] = useState<string | undefined>()
 
   useEffect(() => {
-    listUserIds()
+    listMemoryUsers()
       .then(setUsers)
       .catch(() => message.error('유저 목록을 불러오지 못했습니다'))
   }, [])
 
+  const selUser = users.find((u) => u.user_id === sel)
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxWidth: 720 }}>
       <Select
-        placeholder="유저 선택 (대화에 쓰인 userId)"
+        placeholder="유저 선택 (이메일·이름으로 검색)"
         style={{ width: '100%' }}
         value={sel}
         onChange={setSel}
         showSearch
-        optionFilterProp="label"
-        options={users.map((u) => ({ value: u, label: u }))}
-        notFoundContent="대화에 쓰인 userId가 없습니다"
+        // 라벨(이메일·이름)과 user_id 둘 다로 검색되게 — UUID 일부로도 찾을 수 있다.
+        // filterOption 함수를 주면 antd가 optionFilterProp을 무시하므로 후자는 두지 않는다.
+        filterOption={(input, opt) =>
+          `${opt?.label ?? ''} ${opt?.value ?? ''}`.toLowerCase().includes(input.toLowerCase())
+        }
+        options={users.map((u) => ({ value: u.user_id, label: userLabel(u) }))}
+        notFoundContent="대화에 쓰인 유저가 없습니다"
       />
-      {sel ? <UserMemoryPanel userId={sel} /> : null}
+      {sel ? (
+        <UserMemoryPanel userId={sel} label={selUser ? userLabel(selUser) : undefined} />
+      ) : null}
     </div>
   )
 }

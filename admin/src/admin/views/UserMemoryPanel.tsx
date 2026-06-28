@@ -11,7 +11,7 @@ import {
   type AgentMemory,
 } from '../../api'
 
-export function UserMemoryPanel({ userId }: { userId: string }) {
+export function UserMemoryPanel({ userId, label }: { userId: string; label?: string }) {
   const [items, setItems] = useState<AgentMemory[]>([])
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<string | null>(null)
@@ -70,8 +70,11 @@ export function UserMemoryPanel({ userId }: { userId: string }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-        이 유저가 대화 중 남긴 장기 기억. <b>{userId}</b> 에게만 회상됩니다 — 잘못되거나
-        민감한 정보는 여기서 교정·삭제하세요.
+        이 유저가 대화 중 남긴 장기 기억. <b>{label ?? userId}</b>
+        {label ? (
+          <span style={{ opacity: 0.6, fontFamily: 'monospace' }}> ({userId})</span>
+        ) : null}{' '}
+        에게만 회상됩니다 — 잘못되거나 민감한 정보는 여기서 교정·삭제하세요.
       </span>
       {items.length > 0 ? (
         <Input
