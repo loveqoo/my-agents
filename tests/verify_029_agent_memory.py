@@ -1,11 +1,12 @@
-"""스펙 029 검증 — 에이전트 전용 메모리(agent_id) 자가기록 + 관리자 큐레이션 (인프라 불요).
+"""스펙 029/051 검증 — 에이전트 전용 메모리(agent_id) 관리자 큐레이션 + 채팅 자가기록 차단 (인프라 불요).
 
-라이브 mem0/Postgres/모델 없이 새 로직의 핵심 불변식을 격리 검증한다:
-  1. add(infer=) 플래그가 mem0로 전달 (자가기록·관리자 저작은 infer=False)
+라이브 mem0/Postgres/모델 없이 핵심 불변식을 격리 검증한다:
+  1. add(infer=) 플래그가 mem0로 전달 (관리자 저작은 infer=False)
   2. **누출 차단**: agent_id 검색에 user_id-only 기억이 잡히지 않음 / agent_id 기억은 타 유저에도 회상
-  3. 자가기록 도구(save_agent_knowledge)가 **agent_id-only + infer=False**로만 기록 + calls_sink 트레이스
-  4. list/update/delete 헬퍼 라운드트립
-  5. chat.py 스코프 분리: recall_scope=agent_id 포함 / add_scope=agent_id 미포함(소스 정적 점검)
+  3. **자가기록 도구 제거됨(스펙 051)**: runtime에 build_agent_memory_tool 부재 + chat.py가 어디서도
+     주입하지 않음(소스 정적 점검). 유저가 채팅에서 agent_id 메모리를 넣는 경로가 구조적으로 차단됨.
+  4. list/update/delete 헬퍼 라운드트립 (관리자 큐레이션 유지)
+  5. chat.py 스코프 분리: recall_scope=agent_id 포함(어드민 저작 회상) / add_scope=agent_id 미포함(소스 정적 점검)
 
 라이브 라운드트립(에이전트가 실제로 도구 호출→타세션 회상)은 사용자 브랜치 통합 테스트에서 확인.
 실행: .venv/bin/python tests/verify_029_agent_memory.py
@@ -104,27 +105,22 @@ def test_leak_isolation() -> None:
     check(not any("비건" in h["text"] for h in hits2), "타 유저 검색에 alice 사실 없음")
 
 
-# ---------------------------------------------------------------- 자가기록 도구
-def test_self_write_tool() -> None:
-    print("[tool] save_agent_knowledge agent_id-only·infer=False")
-    m = FakeMem()
-    with_mem(m)
-    calls: list[dict] = []
-    tool = R.build_agent_memory_tool("agtX", {"x": 1}, calls)
-    check(tool.name == "save_agent_knowledge", "도구 이름")
-
-    out = tool.func("보고서는 한 줄 요약으로 시작한다")
-    check(bool(m.added), "도구가 기억을 저장")
-    kw = m.added[-1][1]
-    check(kw.get("agent_id") == "agtX", "agent_id로 태깅")
-    check("user_id" not in kw and "run_id" not in kw, "user/run 절대 미태깅(누출 차단)")
-    check(kw.get("infer") is False, "infer=False 원문 저장")
-    check(calls and calls[-1]["tool"] == "save_agent_knowledge", "calls_sink 트레이스 기록")
-    check("저장" in out, "확인 메시지 반환")
-
-    before = len(m.added)
-    tool.func("   ")  # 공백만 → 저장 안 함
-    check(len(m.added) == before, "빈 fact는 저장 안 함")
+# ------------------------------------------------ 자가기록 도구 제거(스펙 051 회귀 가드)
+def test_no_self_write_tool() -> None:
+    print("[no-tool] 채팅 자가기록 도구 부재(스펙 051)")
+    # runtime에 도구 빌더가 없어야 한다 — 있으면 누군가 되살린 것(누출 재유발).
+    check(not hasattr(R, "build_agent_memory_tool"),
+          "runtime.build_agent_memory_tool 부재")
+    # chat.py 어디에서도 그 도구를 빌드/주입하지 않는다(주석의 '제거됨' 표기는 무해).
+    src = open(os.path.join(ROOT, "packages", "api", "src", "api", "chat.py"), encoding="utf-8").read()
+    # 주석 줄(#로 시작)을 제거한 실코드에 호출이 없어야 한다.
+    code = "\n".join(ln for ln in src.splitlines() if not ln.lstrip().startswith("#"))
+    check("build_agent_memory_tool" not in code, "chat.py 실코드가 도구를 주입하지 않음")
+    check("save_agent_knowledge" not in code, "chat.py 실코드에 save_agent_knowledge 부재")
+    # runtime.py 실코드에도 그 도구 정의가 없어야 한다(주석 NOTE는 허용).
+    rsrc = open(os.path.join(ROOT, "packages", "api", "src", "api", "runtime.py"), encoding="utf-8").read()
+    rcode = "\n".join(ln for ln in rsrc.splitlines() if not ln.lstrip().startswith("#"))
+    check("def build_agent_memory_tool" not in rcode, "runtime.py 실코드에 도구 정의 부재")
 
 
 # ---------------------------------------------------------------- CRUD 헬퍼
@@ -194,7 +190,7 @@ def test_owner_guard() -> None:
 if __name__ == "__main__":
     test_add_infer()
     test_leak_isolation()
-    test_self_write_tool()
+    test_no_self_write_tool()
     test_crud_helpers()
     test_chat_scope_split()
     test_owner_guard()

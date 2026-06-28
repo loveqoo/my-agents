@@ -482,7 +482,7 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
     #   search는 축별로 따로 검색해 합집합 병합(mem0 필터는 AND이므로 — memory.py 참고).
     # - add_scope: user_id+run_id만. **agent_id는 자동 add에 절대 태깅하지 않는다** — 유저 턴
     #   자동추출이 agent_id로 새면 user A의 사적 사실이 다른 유저에게 회상된다(스펙 020 누출 차단).
-    #   agent_id 쓰기는 의도적 채널(save_agent_knowledge 도구·관리자 저작)로만. run_id=session_id.
+    #   agent_id 쓰기는 **관리자 저작(agents.py CRUD)으로만** — 채팅 자가기록은 제거됨(스펙 051).
     add_scope = {"user_id": user_id, "run_id": ctx["session_id"]}
     recall_scope = {**add_scope, "agent_id": ctx["ext_agent_id"]}
 
@@ -496,11 +496,7 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
 
     calls_sink: list[dict] = []
     tools = runtime.build_tools(ctx["mcp_pairs"], calls_sink)
-    # 에이전트 자가기록 도구 — mem0 켜진 에이전트에만 주입(스펙 029). agent_id-only·infer=False.
-    if used_memory:
-        tools.append(
-            runtime.build_agent_memory_tool(ctx["ext_agent_id"], ctx["mem_cfg"], calls_sink)
-        )
+    # 채팅 자가기록 도구는 제거됨(스펙 051) — agent_id 메모리는 어드민 저작 전용. 회상은 아래 유지.
     # RAG 검색 도구 — vectorTables가 실 컬렉션으로 해석됐을 때만 주입(스펙 037). mem0 비종속.
     if ctx["rag_collections"]:
         tools.append(runtime.build_rag_tool(ctx["rag_collections"], calls_sink))
@@ -696,10 +692,7 @@ async def resume_approval(approval: Approval, decision: str) -> None:
 
     calls_sink: list[dict] = []
     tools = runtime.build_tools(ctx["mcp_pairs"], calls_sink)
-    if used_memory:
-        tools.append(
-            runtime.build_agent_memory_tool(ctx["ext_agent_id"], ctx["mem_cfg"], calls_sink)
-        )
+    # 채팅 자가기록 도구 제거됨(스펙 051) — agent_id 메모리는 어드민 저작 전용. 회상(recall_scope)은 유지.
     if ctx["rag_collections"]:
         tools.append(runtime.build_rag_tool(ctx["rag_collections"], calls_sink))
 

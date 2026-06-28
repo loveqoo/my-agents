@@ -1,6 +1,6 @@
-/* my-agents admin — 에이전트 전용 메모리(agent_id) 큐레이션 패널 (스펙 029).
-   에이전트가 자가기록한 사실 + 관리자 저작 사실을 조회·수정·삭제·추가한다.
-   쓰기(에이전트)와 교정(관리자)을 분리: 에이전트 쓰기는 즉시 활성, 여기서 사후 교정. */
+/* my-agents admin — 에이전트 전용 메모리(agent_id) 큐레이션 패널 (스펙 029, 051).
+   관리자가 저작한 에이전트 전용 지식을 조회·수정·삭제·추가한다. 채팅 자가기록 경로는 제거됨
+   (스펙 051) — 유저가 채팅에서 agent_id 메모리를 못 넣게 막아 페르소나를 보호한다. */
 import { useState, useEffect, useCallback } from 'react'
 import { Button, Input, message, Popconfirm } from 'antd'
 import { Icon } from '../icons'
@@ -88,8 +88,8 @@ export function AgentMemoryPanel({ agentId }: { agentId: string }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-        에이전트가 스스로 기록한(또는 관리자가 저작한) 전용 지식. 모든 세션·사용자를 가로질러
-        회상됩니다 — 특정 사용자 정보는 여기 두지 마세요.
+        관리자가 저작한 에이전트 전용 지식. 모든 세션·사용자를 가로질러 회상됩니다 —
+        특정 사용자 정보는 여기 두지 마세요(채팅 자가기록은 차단됨).
       </span>
       {items.length > 0 ? (
         <Input
