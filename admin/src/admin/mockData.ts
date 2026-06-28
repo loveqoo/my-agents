@@ -259,7 +259,7 @@ export const AGENT_STATUS: Record<string, StatusMeta> = {
    코드베이스에서 배포, 엔드포인트로 등록). Code 에이전트는 여기서 읽기 전용 — 구성은 코드가 소유. */
 export const AGENT_SOURCE: Record<string, StatusMeta> = {
   ui: { label: 'UI 구성', tag: 'default', icon: 'appstore', desc: '콘솔에서 빌딩 블록을 조합해 생성 · 편집 가능' },
-  code: { label: 'Code', tag: 'geekblue', icon: 'code', desc: 'SDK로 정의해 코드베이스에서 배포 · 읽기 전용' },
+  code: { label: '원격', tag: 'geekblue', icon: 'code', desc: 'SDK로 코드 정의 · 원격 엔드포인트 실행 · 읽기 전용' },
   external: { label: '외부 A2A', tag: 'purple', icon: 'robot', desc: 'A2A 카드로 등록한 외부 에이전트 · 읽기 전용' },
 }
 

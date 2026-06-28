@@ -25,12 +25,12 @@ const statusDot = (status: string) => STATUS_DOT[status] ?? 'var(--gray-6)'
 
 /* 모델 배지를 source별로 정직하게 (스펙 028). code 에이전트는 model 필드가 박혀 있어도
    로컬 모델로 돌지 않고 자기 원격 엔드포인트(dev=mock)로 bypass하므로 모델명을 띄우면
-   거짓이다 → "코드 정의"(persona "코드 정의 (SDK)"·AgentsView 소스 표기와 일관).
+   거짓이다 → "원격 (SDK)"(AGENT_SOURCE.code.label '원격'·"원격 MCP" 어휘와 일관).
    external은 A2A 원격 → "외부 A2A"(AGENT_SOURCE.external.label과 동일). ui만 실행 모델 맞아 모델명. */
 function modelBadge(a: Agent): { text: string; remote: boolean; tip?: ReactNode } {
   if (a.source === 'code')
     return {
-      text: '코드 정의',
+      text: '원격 (SDK)',
       remote: true,
       tip: (
         <span style={{ whiteSpace: 'pre-line' }}>

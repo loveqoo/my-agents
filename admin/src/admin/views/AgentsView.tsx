@@ -419,7 +419,7 @@ function RegisterAgentModal({
     <Modal
       open={open}
       width={560}
-      title="코드 에이전트 등록"
+      title="원격 에이전트 등록"
       onCancel={onCancel}
       footer={
         <>
@@ -706,7 +706,7 @@ function CodeAgentDetail({
         type="info"
         showIcon
         style={{ marginBottom: 14 }}
-        message="SDK로 정의해 코드베이스에서 배포한 에이전트입니다. 구성은 코드가 소유하므로 콘솔에서는 읽기 전용입니다 — 변경하려면 코드를 수정해 다시 배포한 뒤 동기화하세요."
+        message="SDK로 코드 정의해 원격 엔드포인트에서 실행되는 에이전트입니다. 구성은 코드가 소유하므로 콘솔에서는 읽기 전용입니다 — 변경하려면 코드를 수정해 다시 배포한 뒤 동기화하세요."
       />
 
       <ReadonlyConfig agent={agent} />
@@ -1491,7 +1491,7 @@ export default function AgentsView() {
         mcps: m.mcps,
       })
       setAgents((as) => [created, ...as])
-      setToast(`"${m.name || '코드 에이전트'}" 등록됨 — 코드 정의, 읽기 전용`)
+      setToast(`"${m.name || '원격 에이전트'}" 등록됨 — 원격 (SDK), 읽기 전용`)
       setRegisterOpen(false)
     } catch (e) {
       message.error(String(e))
@@ -1660,7 +1660,7 @@ export default function AgentsView() {
       actions={
         <span style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
           <Button icon={<Icon name="code" />} onClick={() => setRegisterOpen(true)}>
-            코드 에이전트 등록
+            원격 에이전트 등록
           </Button>
           <Button icon={<Icon name="robot" />} onClick={() => setExternalOpen(true)}>
             외부 A2A 등록
