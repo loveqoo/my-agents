@@ -108,7 +108,9 @@ def agent_to_out(a: Agent) -> AgentOut:
     )
 
 
-def session_to_out(s: Session, agent_external_id: str | None = None) -> SessionOut:
+def session_to_out(
+    s: Session, agent_external_id: str | None = None, preview: str | None = None
+) -> SessionOut:
     return SessionOut(
         id=s.session_id,
         agentId=agent_external_id or str(s.agent_pk),
@@ -116,6 +118,7 @@ def session_to_out(s: Session, agent_external_id: str | None = None) -> SessionO
         channel=s.channel,
         status=s.status,
         turns=s.turns,
+        preview=preview,
         tokens=s.tokens,
         started=_iso(s.started_at),
         lastActivity=_iso(s.last_activity),

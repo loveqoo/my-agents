@@ -109,6 +109,7 @@ export interface Session {
   started: string
   lastActivity: string
   tokens: number
+  preview?: string // 첫 사용자 메시지 일부 — 사람이 알아볼 세션 라벨(스펙 055)
   awaiting?: { permission: string; summary: string; checkpoint: string }
   error?: string
 }

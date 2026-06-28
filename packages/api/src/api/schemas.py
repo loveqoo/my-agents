@@ -325,6 +325,7 @@ class SessionOut(BaseModel):
     tokens: int
     started: str | None = None
     lastActivity: str | None = None
+    preview: str | None = None  # 첫 사용자 메시지 일부 — 사람이 알아볼 세션 라벨(스펙 055)
 
 
 class SessionPage(BaseModel):

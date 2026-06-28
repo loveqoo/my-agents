@@ -7,14 +7,20 @@ import { DebugChat } from './DebugChat'
 import { Inspector } from './Inspector'
 import { OverridePanel, overrideDefaults, overridePayload, type Overrides } from './OverridePanel'
 import type { ChatMsg, Trace } from './agentData'
-import type { Agent, BlockCategory } from '../admin/mockData'
-import { listAgents, streamChat, getBlocks, listModels, type ChatMessage, type Model } from '../api'
+import type { Agent, BlockCategory, Session } from '../admin/mockData'
+import {
+  listAgents, streamChat, getBlocks, listModels, listSessions, getSessionMessages,
+  type ChatMessage, type Model,
+} from '../api'
 
 export function Playground() {
   const [agents, setAgents] = useState<Agent[]>([])
   const [activeId, setActiveId] = useState('')
   const [convos, setConvos] = useState<Record<string, ChatMsg[]>>({})
   const [sessions, setSessions] = useState<Record<string, string>>({})
+  // 세션 이어가기(스펙 055): 활성 에이전트의 과거 세션 목록 + 로딩 상태.
+  const [sessionList, setSessionList] = useState<Session[]>([])
+  const [sessionsLoading, setSessionsLoading] = useState(false)
   const [streaming, setStreaming] = useState(false)
   const [showPrompt, setShowPrompt] = useState(false)
   const [selectedTurn, setSelectedTurn] = useState<number | null>(null)
@@ -26,6 +32,8 @@ export function Playground() {
   const [overridePanelOpen, setOverridePanelOpen] = useState(false)
   const [appliedByAgent, setAppliedByAgent] = useState<Record<string, Overrides>>({})
   const controllerRef = useRef<AbortController | null>(null)
+  // 세션 로드 레이스 가드(스펙 055): 늦게 도착한 응답이 최신 선택을 덮어쓰지 않게 하는 시퀀스.
+  const sessionLoadSeqRef = useRef(0)
 
   const screens = Grid.useBreakpoint()
   // 인스펙터를 채팅과 나란히(side-by-side) 두려면 사이드바 + 채팅 + 인스펙터(384px)가
@@ -36,6 +44,10 @@ export function Playground() {
 
   const activeAgent = agents.find((a) => a.id === activeId) ?? null
   const messages = convos[activeId] || []
+  // 항상 최신 활성 에이전트 외부 id를 가리키는 박스 — 비동기 세션 로드의 레이스 가드용
+  // (A 요청이 B로 전환 후 도착해 B 피커를 오염시키는 것 차단).
+  const activeExtRef = useRef<string | undefined>(undefined)
+  activeExtRef.current = activeAgent?.agentId
 
   // 적용 중 오버라이드 → 변경된 키만 담은 페이로드(코드 에이전트는 무시). 비었으면 미적용.
   const appliedOv = activeAgent ? appliedByAgent[activeAgent.id] ?? null : null
@@ -63,6 +75,49 @@ export function Playground() {
       cancelled = true
     }
   }, [])
+
+  // 세션 이어가기(스펙 055): 과거 세션 목록을 받아 피커에 채운다. 외부 agent_id로 스코프.
+  // 실패는 조용히 — 피커만 빈 목록(부수 기능이 본 흐름을 막지 않게).
+  const refreshSessions = () => {
+    const extId = activeAgent?.agentId
+    if (!extId) {
+      setSessionList([])
+      return
+    }
+    setSessionsLoading(true)
+    listSessions({ agent_id: extId, limit: 20 })
+      // 레이스 가드: 응답 도착 시점에도 같은 에이전트일 때만 반영(전환 후 도착분 폐기).
+      .then((page) => {
+        if (activeExtRef.current === extId) setSessionList(page.items)
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (activeExtRef.current === extId) setSessionsLoading(false)
+      })
+  }
+
+  // 활성 에이전트가 바뀌면 그 에이전트의 과거 세션을 로드(승인 후 복귀 시 마운트로도 트리거).
+  useEffect(() => {
+    const extId = activeAgent?.agentId
+    if (!extId) {
+      setSessionList([])
+      return
+    }
+    let cancelled = false
+    setSessionsLoading(true)
+    listSessions({ agent_id: extId, limit: 20 })
+      .then((page) => {
+        if (!cancelled) setSessionList(page.items)
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setSessionsLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeAgent?.agentId])
 
   // 언마운트 시 진행 중인 스트림 중단.
   useEffect(() => {
@@ -172,6 +227,8 @@ export function Playground() {
   // "새 대화" — 활성 에이전트의 대화·세션을 비워 처음부터 다시 시작한다(스펙 032: userId 잠금 분리).
   const resetConversation = () => {
     stop()
+    // 진행 중인 세션 로드가 리셋된 대화를 되살리지 않도록 시퀀스를 무효화(codex 지적).
+    sessionLoadSeqRef.current++
     setConvos((c) => ({ ...c, [activeId]: [] }))
     setSessions((s) => {
       const n = { ...s }
@@ -180,6 +237,47 @@ export function Playground() {
     })
     setSelectedTurn(null)
     setInspectorOpen(false)
+  }
+
+  // 과거 세션 선택 → DB 메시지를 불러와 대화 복원 + session_id를 활성 세션으로 고정(스펙 055).
+  // 이어 보내기는 기존 send()가 sessions[id]를 그대로 써 같은 세션에 쌓인다. 컨텍스트도 복원된
+  // convos에서 재구성되어 일관. 진행 중 스트림이 있으면 먼저 멈춘다(025 리셋 흐름과 동일 안전).
+  const loadSession = (sid: string) => {
+    if (!activeId || sid === sessions[activeId]) return
+    // 방어 가드(codex): 피커는 활성 에이전트 세션만 보여주지만, 늦게 도착한 다른 에이전트
+    // 목록이 섞였을 가능성을 차단 — 선택 세션이 활성 에이전트 소속이 아니면 무시.
+    const picked = sessionList.find((s) => s.id === sid)
+    if (picked && activeAgent && picked.agentId !== activeAgent.agentId) return
+    stop()
+    const seq = ++sessionLoadSeqRef.current
+    const targetId = activeId // 로드 중 에이전트가 바뀌어도 원 에이전트 대화에만 반영.
+    const prevSid = sessions[targetId] // 실패 시 롤백용(undefined면 새 세션 상태로 복귀).
+    // session_id를 먼저 고정 — 메시지 로드 완료 전에 전송해도 같은(올바른) 세션에 쌓이게.
+    setSessions((s) => ({ ...s, [targetId]: sid }))
+    getSessionMessages(sid)
+      .then((msgs) => {
+        if (seq !== sessionLoadSeqRef.current) return // 더 최신 선택이 있으면 폐기(레이스).
+        const mapped: ChatMsg[] = msgs.map((m) => ({
+          role: m.role === 'assistant' ? 'ai' : 'me',
+          text: m.content,
+          trace: (m.trace as unknown as Trace) ?? undefined,
+        }))
+        setConvos((c) => ({ ...c, [targetId]: mapped }))
+        setSelectedTurn(null)
+        setInspectorOpen(false)
+      })
+      .catch(() => {
+        // 로드 실패 → 낙관적으로 고정한 session_id를 원복(이전 세션에 묶인 채 남지 않게, codex).
+        if (seq === sessionLoadSeqRef.current) {
+          setSessions((s) => {
+            const n = { ...s }
+            if (prevSid === undefined) delete n[targetId]
+            else n[targetId] = prevSid
+            return n
+          })
+        }
+        message.error('세션을 불러오지 못했습니다.')
+      })
   }
 
   // 오버라이드 적용 → 세션 리셋 후 새 설정으로 시작(변경 시 채팅 재시작, 스펙 025).
@@ -213,6 +311,11 @@ export function Playground() {
         agent={activeAgent}
         agents={agents}
         onSwitchAgent={switchAgent}
+        sessions={sessionList}
+        currentSessionId={sessions[activeId]}
+        sessionsLoading={sessionsLoading}
+        onPickSession={loadSession}
+        onReloadSessions={refreshSessions}
         messages={messages}
         streaming={streaming}
         selectedTurn={inspectorOpen ? selectedTurn : null}

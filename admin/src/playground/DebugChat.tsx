@@ -7,7 +7,7 @@ import { Bubble, Sender, Prompts } from '@ant-design/x'
 import { Avatar, Button, Tag, Grid, Tooltip } from 'antd'
 import { Icon } from '../admin/icons'
 import type { ChatMsg, Trace } from './agentData'
-import type { Agent } from '../admin/mockData'
+import type { Agent, Session } from '../admin/mockData'
 
 const agentAvatar = (
   <Avatar style={{ background: 'var(--gray-12)', flex: 'none' }}>
@@ -75,6 +75,11 @@ interface DebugChatProps {
   agent: Agent | null
   agents: Agent[]
   onSwitchAgent: (id: string) => void
+  sessions: Session[]
+  currentSessionId?: string
+  sessionsLoading: boolean
+  onPickSession: (sid: string) => void
+  onReloadSessions: () => void
   messages: ChatMsg[]
   streaming: boolean
   selectedTurn: number | null
@@ -283,10 +288,160 @@ function AgentCombo({
   )
 }
 
+/* 세션 이어가기 피커(스펙 055) — 활성 에이전트의 과거 세션을 골라 대화를 복원한다.
+   왜 필요한가: 위험 도구(delete_record) 승인하러 다른 뷰로 갔다 오면 Playground 메모리
+   상태가 소실된다. 백엔드는 세션·메시지를 영속하므로(승인 시 resume_approval이 원 세션에
+   최종 답변까지 영속) 여기서 골라 다시 불러오면 이어서 대화할 수 있다.
+   드롭다운 열 때마다 onReload로 최신 목록을 받아 '방금 승인하고 돌아온' 세션도 즉시 보인다. */
+const SESSION_STATUS_LABEL: Record<string, string> = {
+  active: '활성', running: '실행중', awaiting: '승인대기', draining: '정리중',
+  idle: '유휴', error: '오류', completed: '완료',
+}
+function shortSid(id: string) {
+  // sess-ab12cd → sess-ab12cd 그대로 짧음. 더 길면 끝 6자만.
+  return id.length <= 14 ? id : '…' + id.slice(-12)
+}
+function SessionCombo({
+  sessions,
+  currentId,
+  loading,
+  onPick,
+  onNew,
+  onReload,
+}: {
+  sessions: Session[]
+  currentId?: string
+  loading: boolean
+  onPick: (sid: string) => void
+  onNew: () => void
+  onReload: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const onDoc = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [])
+  const toggle = () => {
+    setOpen((o) => {
+      if (!o) onReload() // 열 때마다 최신 목록(승인 후 복귀 세션 즉시 반영)
+      return !o
+    })
+  }
+  // 칩 라벨: 사람이 알아볼 수 있게 현재 세션의 preview(첫 메시지) 우선, 없으면 해시 단축형.
+  const current = currentId ? sessions.find((s) => s.id === currentId) : undefined
+  const label = current?.preview || (currentId ? shortSid(currentId) : '새 세션')
+  const labelIsPreview = !!current?.preview
+  return (
+    <div ref={ref} style={{ position: 'relative', minWidth: 0, flex: 'none' }}>
+      <button
+        onClick={toggle}
+        title="세션 — 과거 대화를 골라 이어서 대화합니다."
+        style={{
+          display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px',
+          borderRadius: 8, border: '1px solid ' + (open ? 'var(--color-primary-border)' : 'var(--color-border)'),
+          background: open ? 'var(--color-primary-bg)' : 'var(--color-bg-container)',
+          cursor: 'pointer', font: 'inherit', maxWidth: 240, minWidth: 0, transition: 'all .2s',
+        }}
+      >
+        <Icon name="comment" size={13} style={{ color: 'var(--color-text-tertiary)', flex: 'none' }} />
+        <span
+          style={{
+            fontSize: 13, fontFamily: labelIsPreview ? undefined : (currentId ? 'var(--font-family-code)' : undefined),
+            color: currentId ? 'var(--color-text)' : 'var(--color-text-tertiary)',
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }}
+        >
+          {label}
+        </span>
+        <Icon
+          name="down" size={11}
+          style={{ color: 'var(--color-text-tertiary)', flex: 'none', transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }}
+        />
+      </button>
+      {open ? (
+        <div
+          style={{
+            position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 1050, width: 300,
+            background: 'var(--color-bg-elevated)', borderRadius: 12, boxShadow: 'var(--box-shadow)',
+            padding: 6, maxHeight: 420, overflow: 'auto',
+          }}
+        >
+          <button
+            onClick={() => { onNew(); setOpen(false) }}
+            style={{
+              width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '9px 10px',
+              borderRadius: 8, border: 'none', cursor: 'pointer', font: 'inherit', textAlign: 'left',
+              background: currentId ? 'transparent' : 'var(--color-primary-bg)',
+            }}
+          >
+            <Icon name="plus" size={13} style={{ color: 'var(--color-primary)' }} />
+            <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--color-text-heading)' }}>새 세션</span>
+          </button>
+          <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', padding: '6px 10px 4px' }}>
+            최근 세션 {loading ? '불러오는 중…' : sessions.length}
+          </div>
+          {!loading && sessions.length === 0 ? (
+            <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', padding: '4px 10px 8px' }}>
+              아직 세션이 없습니다.
+            </div>
+          ) : null}
+          {sessions.map((s) => {
+            const on = s.id === currentId
+            return (
+              <button
+                key={s.id}
+                onClick={() => { onPick(s.id); setOpen(false) }}
+                style={{
+                  width: '100%', display: 'flex', flexDirection: 'column', gap: 3, padding: '9px 10px',
+                  borderRadius: 8, border: 'none', cursor: 'pointer', font: 'inherit', textAlign: 'left',
+                  background: on ? 'var(--color-primary-bg)' : 'transparent', transition: 'background .15s',
+                }}
+                onMouseEnter={(e) => { if (!on) e.currentTarget.style.background = 'var(--color-fill-tertiary)' }}
+                onMouseLeave={(e) => { if (!on) e.currentTarget.style.background = 'transparent' }}
+              >
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {/* 주 라벨: 첫 메시지 preview(사람이 알아봄), 없으면 '(빈 세션)'. */}
+                  <span
+                    style={{
+                      fontSize: 13, fontWeight: 500,
+                      color: s.preview ? 'var(--color-text-heading)' : 'var(--color-text-tertiary)',
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0,
+                    }}
+                  >
+                    {s.preview || '(빈 세션)'}
+                  </span>
+                  {on ? <Icon name="check" size={12} style={{ color: 'var(--color-primary)', flex: 'none' }} /> : null}
+                  <span style={{ flex: 1 }} />
+                  {s.status === 'awaiting' ? <Tag color="gold">{SESSION_STATUS_LABEL.awaiting}</Tag> : null}
+                </span>
+                {/* 부 메타: 해시 단축형 + 턴/상태/시각(보조 식별). */}
+                <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>
+                  <span style={{ fontFamily: 'var(--font-family-code)' }}>{shortSid(s.id)}</span>
+                  {' · '}{s.turns}턴 · {SESSION_STATUS_LABEL[s.status] ?? s.status}
+                  {s.lastActivity ? ' · ' + s.lastActivity : ''}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function ChatHeader({
   agent,
   agents,
   onSwitchAgent,
+  sessions,
+  currentSessionId,
+  sessionsLoading,
+  onPickSession,
+  onReloadSessions,
   canResetConversation,
   onResetConversation,
   showPrompt,
@@ -300,6 +455,11 @@ function ChatHeader({
   agent: Agent
   agents: Agent[]
   onSwitchAgent: (id: string) => void
+  sessions: Session[]
+  currentSessionId?: string
+  sessionsLoading: boolean
+  onPickSession: (sid: string) => void
+  onReloadSessions: () => void
   canResetConversation: boolean
   onResetConversation: () => void
   showPrompt: boolean
@@ -322,6 +482,15 @@ function ChatHeader({
       {/* compact: 버튼 아이콘만(라벨 제거) + A2A 배지 숨김 — 한 줄에 안 들어가 겹치던 문제. */}
       <div style={{ height: 64, display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 12, padding: isMobile ? '0 12px' : '0 20px' }}>
         <AgentCombo agent={agent} agents={agents} onSwitch={onSwitchAgent} />
+        {/* 세션 이어가기(스펙 055): 에이전트 피커 옆에서 과거 세션을 골라 복원. */}
+        <SessionCombo
+          sessions={sessions}
+          currentId={currentSessionId}
+          loading={sessionsLoading}
+          onPick={onPickSession}
+          onNew={onResetConversation}
+          onReload={onReloadSessions}
+        />
         <div style={{ flex: 1 }} />
         {/* mem0 user_id 축은 서버가 로그인 유저에서 도출한다(스펙 032) — 수동 userId 입력은 제거.
             "새 대화"는 userId 잠금에서 분리된 일반 리셋: 진행 중인 대화가 있을 때만 노출. */}
@@ -447,6 +616,11 @@ export function DebugChat({
   agent,
   agents,
   onSwitchAgent,
+  sessions,
+  currentSessionId,
+  sessionsLoading,
+  onPickSession,
+  onReloadSessions,
   messages,
   streaming,
   selectedTurn,
@@ -503,6 +677,11 @@ export function DebugChat({
         agent={agent}
         agents={agents}
         onSwitchAgent={onSwitchAgent}
+        sessions={sessions}
+        currentSessionId={currentSessionId}
+        sessionsLoading={sessionsLoading}
+        onPickSession={onPickSession}
+        onReloadSessions={onReloadSessions}
         canResetConversation={canResetConversation}
         onResetConversation={onResetConversation}
         showPrompt={showPrompt}

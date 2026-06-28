@@ -385,9 +385,16 @@ export interface SessionPage {
   counts: Record<string, number> // 키 all|live|awaiting|error
 }
 // 서버 페이징·필터(스펙 034). status 버킷(all|live|awaiting|error) + limit/offset.
-export const listSessions = (params?: { status?: string; limit?: number; offset?: number }) => {
+// agent_id(스펙 055): 외부 agent_id로 해당 에이전트 세션만 — Playground 세션 이어가기용.
+export const listSessions = (params?: {
+  status?: string
+  agent_id?: string
+  limit?: number
+  offset?: number
+}) => {
   const q = new URLSearchParams()
   if (params?.status) q.set('status', params.status)
+  if (params?.agent_id) q.set('agent_id', params.agent_id)
   if (params?.limit != null) q.set('limit', String(params.limit))
   if (params?.offset != null) q.set('offset', String(params.offset))
   const qs = q.toString()
