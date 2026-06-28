@@ -5,6 +5,17 @@ import { Card, Form, Input, Button, Typography, theme } from 'antd'
 import { RobotOutlined, LockOutlined, MailOutlined } from '@ant-design/icons'
 import { login } from '../api'
 
+// dev 편의: 로컬 개발(import.meta.env.DEV)에서만 시드 admin 계정으로 폼을 미리 채운다 — 매번 비번
+// 외우는 마찰 제거. 프로덕션 빌드에선 import.meta.env.DEV=false라 이 분기가 통째로 트리셰이킹돼
+// 빈 폼이 나가고 비번 리터럴도 번들에 안 실린다. 값은 .env의 ADMIN_EMAIL/ADMIN_PASSWORD 시드와 일치하며,
+// admin/.env의 VITE_DEV_LOGIN_EMAIL/VITE_DEV_LOGIN_PASSWORD로 오버라이드할 수 있다(시드를 바꿨을 때).
+const DEV_INITIAL = import.meta.env.DEV
+  ? {
+      email: import.meta.env.VITE_DEV_LOGIN_EMAIL ?? 'admin@example.com',
+      password: import.meta.env.VITE_DEV_LOGIN_PASSWORD ?? 'adminpass123',
+    }
+  : undefined
+
 export default function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
   const { token } = theme.useToken()
   const [loading, setLoading] = useState(false)
@@ -56,7 +67,13 @@ export default function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
             관리자에게 발급받은 계정으로 로그인하세요
           </Typography.Text>
         </div>
-        <Form layout="vertical" onFinish={onFinish} requiredMark={false} disabled={loading}>
+        <Form
+          layout="vertical"
+          onFinish={onFinish}
+          requiredMark={false}
+          disabled={loading}
+          initialValues={DEV_INITIAL}
+        >
           <Form.Item
             name="email"
             label="이메일"
