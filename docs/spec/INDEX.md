@@ -50,3 +50,4 @@
 - 045 어드민 표시 정직화 — 마스터 044 배치1(#12/#2); 승인 배지 mock상수→실 pending수·목록 pending-only, A2A 무조건online→도달성 probe(SSRF가드+리다이렉트차단), 적대리뷰 7검증 [admin,honesty,badge,a2a,liveness,ssrf,approvals]
 - 046 빌딩블록 재료 정리 — 마스터 044 배치2(#4/#5); 코드·인프라 권한5·MCP4 제거+데모 에이전트2 삭제(cascade), 유지 에이전트 dangling JSON참조 strip, seed+라이브DB 양층 dry-run, runtime정책 비범위(041 green) [blocks,cleanup,permission,mcp,seed,dry-run,cascade]
 - 047 프로바이더·모델 통합+models.dev — 마스터 044 배치3(#6/#7/#8); 두 메뉴→마스터-디테일 한 뷰, GET /models 실모델 나열·토글, models.dev 번들스냅샷으로 등록시 메타 자동채움(best-effort), Provider+kind/description·ModelConfig+meta(마이그레이션), SSRF는 base_url 관리자입력 신뢰경계 [provider,model,catalog,models.dev,merge,migration,ssrf]
+- 048 RAG 임베딩 게이팅+조건부 샘플 적재 — 마스터 044 배치4(#9); 임베딩 모델 존재를 RAG 전제조건으로 명시(메뉴 게이트 배너+생성 disabled), 대표 docs_kb를 mock-embed(1024 결정적)에 바인딩해 실 인제스트 파이프라인으로 샘플 멱등 적재, 빈 컬렉션 정의 2분기(모델있음 대기 vs 모델0 비활성) [rag,collection,embedding,gate,sample,ingest,mock-embed]

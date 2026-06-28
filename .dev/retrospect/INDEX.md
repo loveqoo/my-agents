@@ -39,3 +39,4 @@
 - 034 어드민 표시 정직화 회고 — 스펙 045(마스터 044 배치1·#12/#2); 배지 mock상수→실 pending수·A2A무조건online→도달성probe, 적대리뷰가 리다이렉트SSRF 회귀 적발, Low지적 글자대로 고치다 동시성버그 낼 뻔 [admin,honesty,badge,a2a,liveness,ssrf]
 - 035 빌딩블록 재료 정리 회고 — 스펙 046(마스터 044 배치2·#4/#5); 코드/인프라 권한5·MCP4·데모에이전트2 제거, dry-run이 라이브DB 스케일 드러냄, soft-ref strip(FK없음), 적대리뷰가 시드결합 통합rung 상실 적발(→learning045) [cleanup,catalog,seed,dangling,destructive]
 - 036 프로바이더·모델 통합+models.dev 카탈로그 회고 — 스펙 047(마스터 044 배치3·#6/#7/#8); 두 메뉴→마스터-디테일, 카탈로그 박제 lookup, 셀프 GREEN 뒤 적대리뷰가 BLOCKER0이면서 결함2(per-read타임아웃≠전체deadline/버전스냅샷 삭제가드 누락) 적발→둘 다 수정+S6·I5b 커버, 거짓주장 안 남김 [merge,catalog,models-dev,timeout,delete-guard,adversarial]
+- 037 RAG 임베딩 게이트+샘플 적재 회고 — 스펙 048(마스터 044 배치4·#9); 임베딩 모델 존재를 RAG 전제로 게이트(seed 헬퍼 분리+프론트 loaded가드+서버 400), docs_kb를 mock-embed 결정적 적재, 적대리뷰가 GREEN 뒤 멱등 결함(doc_count>0이 부분실패 오인) 반증→파일명 단위 멱등+라이브 자가치유 실증, learning045 self-fixture 두번째 적용 [rag,gate,seed,idempotency,self-fixture,adversarial]

@@ -4,6 +4,7 @@
    목록/페이지 셸은 shared의 Page/DataTable을 쓰되, 상호작용 컴포넌트는 antd 6를 사용. */
 import { useState, useEffect } from 'react'
 import {
+  Alert,
   Tag,
   Button,
   Modal,
@@ -424,6 +425,7 @@ function DocsDrawer({
 export default function CollectionsView() {
   const [collections, setCollections] = useState<Collection[]>([])
   const [models, setModels] = useState<Model[]>([])
+  const [loaded, setLoaded] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
   const [docsFor, setDocsFor] = useState<Collection | null>(null)
   const [confirmDel, setConfirmDel] = useState<Collection | null>(null)
@@ -439,6 +441,8 @@ export default function CollectionsView() {
       setDocsFor((cur) => (cur ? cs.find((c) => c.id === cur.id) ?? cur : cur))
     } catch (e) {
       message.error(e instanceof Error ? e.message : '컬렉션을 불러오지 못했습니다')
+    } finally {
+      setLoaded(true)
     }
   }
 
@@ -574,16 +578,40 @@ export default function CollectionsView() {
     },
   ]
 
+  // 게이트(스펙 048): 임베딩 모델이 하나도 없으면 RAG 메뉴의 모든 동작이 불가능하다 —
+  // 컬렉션은 임베딩 모델 FK(RESTRICT) 없이는 만들 수 없고, 문서 업로드는 컬렉션의 바인딩된
+  // 모델을 쓴다(모델이 없으면 컬렉션도 없으므로 업로드 경로는 도달 불가). 여기서는 진입점인
+  // 생성을 막고 그 이유를 배너로 설명한다. loaded 이전엔 models=[] 초깃값이라 게이트를 끈다
+  // (로딩 중 false-positive 배너 플래시 방지, 적대 리뷰 048).
+  const noEmbedModel = loaded && !models.length
+
   return (
     <Page
       title="RAG 컬렉션"
       subtitle="문서를 임베딩해 적재하는 지식 컬렉션 — 모델·청크 정책 고정 + 문서 인제스트"
       actions={
-        <Button type="primary" icon={<Icon name="plus" />} onClick={openCreate}>
-          컬렉션 생성
-        </Button>
+        <Tooltip title={noEmbedModel ? '먼저 임베딩 모델을 등록하세요' : ''}>
+          <Button
+            type="primary"
+            icon={<Icon name="plus" />}
+            onClick={openCreate}
+            disabled={noEmbedModel}
+          >
+            컬렉션 생성
+          </Button>
+        </Tooltip>
       }
     >
+      {noEmbedModel ? (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
+          title="임베딩 모델이 없어 RAG 기능을 사용할 수 없습니다"
+          description="컬렉션 생성·문서 적재·검색은 모두 임베딩 모델이 필요합니다. 프로바이더·모델 메뉴에서 임베딩 종류(kind=embedding) 모델을 먼저 등록하세요."
+        />
+      ) : null}
+
       <DataTable columns={columns} rows={collections} onRowClick={setDocsFor} />
 
       <CreateModal

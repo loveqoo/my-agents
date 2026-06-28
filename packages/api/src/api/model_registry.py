@@ -15,7 +15,7 @@ from sqlalchemy.orm import selectinload
 
 from . import crypto
 from .db import get_session
-from .models import Agent, AgentVersion, ModelConfig, Provider
+from .models import Agent, AgentVersion, Collection, ModelConfig, Provider
 from .schemas import ModelIn, ModelOut, ModelProbeIn, ModelProbeResult
 from .serializers import model_to_out
 
@@ -238,6 +238,18 @@ async def delete_model(model_id: uuid.UUID, session: AsyncSession = Depends(get_
                 f"이 모델을 참조하는 에이전트 버전 스냅샷 {ver_refs}개가 있습니다 — "
                 "롤백 시 사라진 모델을 가리키게 됩니다. 해당 버전을 정리하거나 모델명을 유지하세요."
             ),
+        )
+    # RAG 컬렉션은 embedding_model_id FK(RESTRICT)로 모델을 가리킨다(스펙 048). 참조 중이면
+    # DB가 IntegrityError를 던져 500이 된다(적대 리뷰 048) — 먼저 명시적으로 검사해 409로 안내.
+    col_refs = (
+        await session.execute(
+            select(func.count()).select_from(Collection).where(Collection.embedding_model_id == m.id)
+        )
+    ).scalar_one()
+    if col_refs:
+        raise HTTPException(
+            status_code=409,
+            detail=f"이 임베딩 모델을 사용하는 RAG 컬렉션 {col_refs}개가 있습니다 — 먼저 해당 컬렉션을 삭제하세요.",
         )
     await session.delete(m)
     await session.commit()

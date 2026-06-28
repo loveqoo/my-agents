@@ -52,13 +52,34 @@ MEMORY_TYPES = [
 ]
 
 # RAG 컬렉션 시드(스펙 036) — 이름은 AGENTS의 vectorTables 참조와 일치(usedBy 집계용).
-# 차원은 기본 임베딩 모델에 맞춰 RAG_EMBED_DIMS로 고정, 빈(empty) 상태로 생성 — 문서는 업로드로 채운다.
+# 차원은 임베딩 모델에 맞춰 RAG_EMBED_DIMS로 고정. 빈(empty) 상태로 생성 — 문서는 업로드로 채운다.
+# (name, description, embed_model_name) — embed_model_name이 있으면 그 모델에 바인딩,
+# None이면 기본 임베딩 모델(MLX). docs_kb만 mock-embed에 묶어 라이브 MLX 없이 결정적으로 샘플을
+# 적재·검색하는 *대표 데모* 컬렉션으로 쓴다(스펙 048 #9). 나머지 3개는 실데이터 대기 플레이스홀더.
 COLLECTIONS = [
-    ("docs_kb", "헬프센터 문서 본문 지식베이스 — RAG 답변에 사용. 문서를 업로드해 채웁니다."),
-    ("product_titles", "상품 title 임베딩 — 상품 의미 검색·추천."),
-    ("support_tickets", "과거 지원 티켓 요약 — 유사 사례 검색."),
-    ("team_notes", "팀 노션 노트 — 내부 지식 의미 검색."),
+    ("docs_kb", "헬프센터 문서 본문 지식베이스 — RAG 답변에 사용(샘플 적재됨, 스펙 048).", "mock-embed"),
+    ("product_titles", "상품 title 임베딩 — 상품 의미 검색·추천. 문서를 업로드해 채웁니다.", None),
+    ("support_tickets", "과거 지원 티켓 요약 — 유사 사례 검색. 문서를 업로드해 채웁니다.", None),
+    ("team_notes", "팀 노션 노트 — 내부 지식 의미 검색. 문서를 업로드해 채웁니다.", None),
 ]
+
+
+def _collection_seed_specs(embs, collections=COLLECTIONS):
+    """게이트(스펙 048): 컬렉션 시드 스펙 (name, description, embedding_model_id) 목록.
+
+    embedding 모델이 하나도 없으면 빈 리스트 → 컬렉션 시드 자체를 스킵한다("임베딩 모델 설정이
+    있는 경우만"). 있으면 각 컬렉션의 embed_model_name으로 매칭하고, 못 찾으면 기본 모델
+    (is_default 우선, 없으면 첫 번째)에 바인딩한다. embs 원소는 .name/.is_default/.id를 갖는
+    ModelConfig(또는 동형 객체) — 그래서 DB 없이도 게이트를 단위 검증할 수 있다.
+    """
+    # 방어(적대 리뷰 048): 호출자가 kind 필터를 빼먹어도 컬렉션이 chat 모델에 바인딩되지 않게
+    # 헬퍼 안에서도 embedding만 남긴다. .kind가 없는 동형 객체는 통과(단위 테스트 편의).
+    embs = [m for m in embs if getattr(m, "kind", "embedding") == "embedding"]
+    if not embs:
+        return []
+    by_name = {m.name: m for m in embs}
+    default_emb = next((m for m in embs if m.is_default), embs[0])
+    return [(n, d, (by_name.get(em) or default_emb).id) for n, d, em in collections]
 
 # 순수 웹 에이전트 플랫폼 — 파일/터미널/repo/k8s 권한은 쓰지 않으므로 카탈로그에서 제외(스펙 046).
 # 코드 에이전트가 아니라 웹에서 동작하는 에이전트이기 때문(UI 피드백 #4).
@@ -177,23 +198,18 @@ async def seed_if_empty(session: AsyncSession) -> None:
         ])
 
     if await _empty(session, Collection):
-        # 기본 임베딩 모델에 맞춰 컬렉션 생성(차원 고정). 같은 트랜잭션의 시드 모델을 flush로 가시화.
+        # 임베딩 모델에 맞춰 컬렉션 생성(차원 고정). 같은 트랜잭션의 시드 모델을 flush로 가시화.
         await session.flush()
-        emb = (
+        embs = (
             await session.execute(
-                select(ModelConfig).where(
-                    ModelConfig.kind == "embedding", ModelConfig.is_default.is_(True)
-                )
+                select(ModelConfig).where(ModelConfig.kind == "embedding")
             )
-        ).scalars().first()
-        if emb is not None:
-            session.add_all([
-                Collection(
-                    name=n, description=d, embedding_model_id=emb.id,
-                    dims=RAG_EMBED_DIMS, status="empty",
-                )
-                for n, d in COLLECTIONS
-            ])
+        ).scalars().all()
+        # 게이트(스펙 048)는 _collection_seed_specs로 분리 — DB 없이 단위 테스트 가능.
+        session.add_all([
+            Collection(name=n, description=d, embedding_model_id=mid, dims=RAG_EMBED_DIMS, status="empty")
+            for n, d, mid in _collection_seed_specs(embs)
+        ])
 
     if await _empty(session, Agent):
         for (aid, name, source, model, persona, mems, hist, vts, perms, mcps, a2a, status, active, versions) in AGENTS:

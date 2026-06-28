@@ -49,3 +49,4 @@
 - 044 "안전장치를 깔았다"는 "안전하다"의 증거가 아니다 — 적용 범위 경계를 적대자가 짚는다 — 서버측 fetch/probe에 가드 깔고 follow_redirects·재해석을 안 끌 때(가드는 최초URL만, 부수효과는 체인끝) [ssrf,guard,boundary,toctou,redirect]
 - 045 통합 픽스처가 데모 시드에 결합하면, 카탈로그를 비울 때 통합 rung이 함께 증발한다 — 시드 데모 데이터(에이전트/MCP/권한)를 지울 때 그걸 픽스처로 빌려쓰던 통합 테스트·프로브·브라우저샷도 같이 죽음(040의 반대편: rung을 잃지 않는 법, self-fixture로 격리) [integration,fixture,seed,self-fixture,rung]
 - 046 per-operation 타임아웃은 전체 작업의 deadline이 아니다 — 서버측 스트림 fetch에 httpx timeout(=per-read)만 걸고 "타임아웃 방어"라 주장할 때; slow-trickle이 코루틴 무한홀드 → asyncio.timeout(전체)로 감싸야 참. 041(WHERE 바이트)·044(WHICH URL)와 같은 메타패턴 "서브유닛 방어는 전체를 못 묶는다"의 WHICH-span 축 [timeout,stream,deadline,ssrf,slowloris]
+- 047 성공-카운터에 건 멱등성은 부분 실패를 "완료"로 오인한다 — doc_count>0 같은 성공분만 세는 캐시로 멱등 스킵 걸 때(부분 적재 후 재실행이 누락분 안 채움); 완료 단위 집합으로 판단해야. 041/044/046 메타패턴의 WHICH-set(완전성) 축 [idempotency,counter,self-heal,partial,adversarial]
