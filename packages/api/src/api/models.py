@@ -371,6 +371,10 @@ class BatchConfig(Base):
       통합 대상(스펙 039). 0/1은 거의 모든 유저를 매번 통합하는 파괴적 churn이라 API에서 ge=2로 거르고
       jobs에서도 <2 가드(learning 037 — 파괴적 노브 바닥).
     `memory_consolidation_cron`: 메모리 통합 작업의 cron식. NULL=미등록.
+    `test_user_email_pattern`: NULL=비활성. SQL LIKE 패턴(예 "verify%@example.com"). `user-cleanup`
+      잡이 이 패턴에 일치하는 유저를 정리 대상으로(스펙 050, #13). 가장 비가역이라 바닥 3겹 —
+      `%`/빈 패턴은 delete-all이라 API에서 거부, 하드코딩 keep-list(부트스트랩·데모) 제외, 마지막
+      슈퍼유저는 보존. NULL은 명시 비활성(learning 037 — 파괴적 노브 바닥).
     """
 
     __tablename__ = "batch_config"
@@ -380,6 +384,7 @@ class BatchConfig(Base):
     min_session_turns: Mapped[int | None] = mapped_column(Integer, default=None)
     memory_consolidation_threshold: Mapped[int | None] = mapped_column(Integer, default=None)
     memory_consolidation_cron: Mapped[str | None] = mapped_column(String(120), default=None)
+    test_user_email_pattern: Mapped[str | None] = mapped_column(String(200), default=None)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

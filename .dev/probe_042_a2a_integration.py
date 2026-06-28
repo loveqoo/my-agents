@@ -21,8 +21,12 @@ import threading
 import time
 import uuid
 
-os.environ["ADMIN_EMAIL"] = "admin042i@example.com"
-os.environ["ADMIN_PASSWORD"] = "Admin042i!pw"
+# 자가 fixture(스펙 050 Phase 3): 영속 admin042i에 의존하지 말고 던짐용 super를 즉석 시드 → 끝에 삭제.
+# 매 실행 고유 이메일이라 충돌·잔존 0(이전엔 admin042i가 영속 정크로 쌓였다).
+_PROBE_ADMIN_EMAIL = "probe042_" + uuid.uuid4().hex[:8] + "@example.com"
+_PROBE_ADMIN_PW = "Probe042x!pw"
+os.environ["ADMIN_EMAIL"] = _PROBE_ADMIN_EMAIL
+os.environ["ADMIN_PASSWORD"] = _PROBE_ADMIN_PW
 os.environ["AUTH_COOKIE_SECURE"] = "false"
 os.environ["A2A_ALLOWED_HOSTS"] = "127.0.0.1,localhost"  # dev allowlist — mock(127.0.0.1) 허용
 
@@ -47,6 +51,7 @@ SessionLocal = async_sessionmaker(_engine, expire_on_commit=False)
 PORT = 8142
 BASE = f"http://127.0.0.1:{PORT}"
 _fails: list[str] = []
+_created_agent_pks: list[uuid.UUID] = []  # 자가정리 추적 — finally에서 cascade 삭제(세션·버전 동반)
 
 
 def check(cond, msg):
@@ -80,6 +85,7 @@ async def _make_external_agent(streaming: bool) -> uuid.UUID:
         db.add(a)
         await db.commit()
         await db.refresh(a)
+        _created_agent_pks.append(a.id)
         return a.id
 
 
@@ -170,6 +176,7 @@ async def _run_ssrf_block(client):
         db.add(a)
         await db.commit()
         await db.refresh(a)
+        _created_agent_pks.append(a.id)
         pk = a.id
     sid = uuid.uuid4().hex
     status, frames = await _sse_post(
@@ -183,6 +190,30 @@ async def _run_ssrf_block(client):
     check(not any(role == "assistant" for role, _ in msgs), "차단 시 응답 미영속(부수효과 0)")
 
 
+async def _teardown():
+    """자가정리(스펙 050 Phase 3) — 이 실행이 만든 external 에이전트(+세션·버전 cascade)와
+    던짐용 super를 제거한다. 이전엔 매 실행 3 에이전트·세션·admin042i가 영속 정크로 쌓였다."""
+    from sqlalchemy import delete, select, text  # noqa: PLC0415
+
+    from api.models import User  # noqa: PLC0415
+
+    async with SessionLocal() as db:
+        if _created_agent_pks:
+            # Agent 삭제 → sessions(agent_pk FK CASCADE)·agent_versions 동반 정리.
+            await db.execute(delete(Agent).where(Agent.id.in_(_created_agent_pks)))
+        uid = (
+            await db.execute(select(User.id).where(User.email == _PROBE_ADMIN_EMAIL))
+        ).scalar_one_or_none()
+        if uid is not None:  # 던짐용 super 제거(casbin grant 방어적 동반).
+            await db.execute(
+                text("DELETE FROM casbin_rule WHERE ptype IN ('g','p') AND v0 = :u"),
+                {"u": str(uid)},
+            )
+            await db.execute(delete(User).where(User.id == uid))
+        await db.commit()
+    print(f"  자가정리: 에이전트 {len(_created_agent_pks)} + 던짐 super 1 제거")
+
+
 async def main():
     server = _start_server()
     try:
@@ -190,13 +221,14 @@ async def main():
         async with httpx.AsyncClient(base_url=BASE, timeout=30) as client:
             lc = await client.post(
                 "/auth/login",
-                data={"username": "admin042i@example.com", "password": "Admin042i!pw"},
+                data={"username": _PROBE_ADMIN_EMAIL, "password": _PROBE_ADMIN_PW},
             )
             check(lc.status_code == 204, f"admin 로그인 204 (got {lc.status_code})")
             await _run_case(client, streaming=True)
             await _run_case(client, streaming=False)
             await _run_ssrf_block(client)
     finally:
+        await _teardown()  # 자가정리 — 만든 에이전트·세션·던짐 super 제거(정크 무축적)
         server.should_exit = True
         time.sleep(0.5)
 

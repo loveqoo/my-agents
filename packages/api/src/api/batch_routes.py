@@ -5,12 +5,12 @@
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from . import authz
-from .batch.jobs import JOBS
+from .batch.jobs import JOBS, is_delete_all_pattern
 from .batch.runner import run_job
 from .db import get_session
 from .models import BatchConfig, BatchRun
@@ -26,6 +26,7 @@ class BatchConfigOut(BaseModel):
     min_session_turns: int | None
     memory_consolidation_threshold: int | None
     memory_consolidation_cron: str | None
+    test_user_email_pattern: str | None
 
 
 class BatchConfigIn(BaseModel):
@@ -40,6 +41,23 @@ class BatchConfigIn(BaseModel):
     # NULL=비활성. jobs.consolidate_user_memories에도 <2 가드가 한 겹 더 있다(방어적).
     memory_consolidation_threshold: int | None = Field(default=None, ge=2)
     memory_consolidation_cron: str | None = None
+    # user-cleanup 대상 이메일 SQL LIKE 패턴. NULL=비활성(명시 설정 전엔 절대 삭제 안 함).
+    # 가장 비가역한 노브라 delete-all 가드를 둔다(learning 037 — 파괴적 노브 바닥).
+    test_user_email_pattern: str | None = Field(default=None, max_length=200)
+
+    @field_validator("test_user_email_pattern")
+    @classmethod
+    def _reject_delete_all(cls, v: str | None) -> str | None:
+        # NULL은 비활성으로 허용. 그 외엔 광범위(전체) 삭제 패턴을 거부 — `%`/빈뿐 아니라 `%@%`·`%a%`처럼
+        # 리터럴이 약해 거의 전부를 매치하는 패턴도 막는다(적대리뷰 #1). jobs와 같은 함수를 공유해 드리프트 0.
+        if v is None:
+            return v
+        if not v.strip() or is_delete_all_pattern(v):
+            raise ValueError(
+                "패턴이 비었거나 너무 광범위합니다 — 도메인을 포함한 구체적 패턴이 필요합니다"
+                "(예: verify%@example.com)"
+            )
+        return v
 
 
 async def _get_or_create_config(session: AsyncSession) -> BatchConfig:
@@ -96,6 +114,7 @@ def _config_out(cfg: BatchConfig) -> BatchConfigOut:
         min_session_turns=cfg.min_session_turns,
         memory_consolidation_threshold=cfg.memory_consolidation_threshold,
         memory_consolidation_cron=cfg.memory_consolidation_cron,
+        test_user_email_pattern=cfg.test_user_email_pattern,
     )
 
 
@@ -115,6 +134,7 @@ async def update_config(body: BatchConfigIn, session: AsyncSession = Depends(get
         "min_session_turns",
         "memory_consolidation_threshold",
         "memory_consolidation_cron",
+        "test_user_email_pattern",
     ):
         if field in data:
             setattr(cfg, field, data[field])

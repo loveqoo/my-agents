@@ -128,6 +128,7 @@ export interface BatchConfig {
   min_session_turns: number | null
   memory_consolidation_threshold: number | null
   memory_consolidation_cron: string | null
+  test_user_email_pattern: string | null
 }
 export interface BatchRun {
   id: string

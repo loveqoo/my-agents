@@ -12,8 +12,10 @@ const chromium = _pw.chromium ?? _pw.default?.chromium
 
 const URL = process.env.ADMIN_URL ?? 'http://127.0.0.1:5173'
 const OUT = process.argv[2] ?? '/tmp/mem039'
-const EMAIL = process.env.ADMIN_EMAIL ?? 'verify032@example.com'
-const PASSWORD = process.env.ADMIN_PASSWORD ?? 'Verify032!pw'
+// self-fixture(스펙 050 Phase 3): ADMIN_EMAIL 미지정이면 던짐용 super 즉석 시드 → 종료 시 자동 삭제.
+const _fx = process.env.ADMIN_EMAIL ? null : (await import('./_fixture.mjs')).provisionSuper()
+const EMAIL = process.env.ADMIN_EMAIL ?? _fx.email
+const PASSWORD = process.env.ADMIN_PASSWORD ?? _fx.password
 
 const browser = await chromium.launch({ channel: 'chrome', headless: true })
 const ctx = await browser.newContext({ viewport: { width: 1100, height: 1100 } })
