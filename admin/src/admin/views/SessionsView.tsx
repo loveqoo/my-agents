@@ -5,6 +5,7 @@ import { Tag, Button, Avatar, Alert, Radio, Pagination, message } from 'antd'
 import { Page, StatusPill, DataTable, Drawer, Desc, type Column } from '../shared'
 import { Icon } from '../icons'
 import { SESSION_STATUS, type Session } from '../mockData'
+import { fmtTime } from '../format'
 import { listSessions, getSessionMessages, type SessionMessage } from '../../api'
 
 const PAGE_SIZE = 20
@@ -118,7 +119,7 @@ export default function SessionsView() {
       title: '마지막 활동',
       width: 140,
       align: 'right',
-      render: (s) => <span style={{ color: 'var(--color-text-tertiary)' }}>{s.lastActivity}</span>,
+      render: (s) => <span style={{ color: 'var(--color-text-tertiary)' }}>{fmtTime(s.lastActivity)}</span>,
     },
   ]
 
@@ -205,8 +206,8 @@ export default function SessionsView() {
             <Desc label="채널">{detail.channel}</Desc>
             <Desc label="턴">{detail.turns}</Desc>
             <Desc label="토큰">{detail.tokens.toLocaleString()}</Desc>
-            <Desc label="시작">{detail.started}</Desc>
-            <Desc label="마지막 활동">{detail.lastActivity}</Desc>
+            <Desc label="시작">{fmtTime(detail.started)}</Desc>
+            <Desc label="마지막 활동">{fmtTime(detail.lastActivity)}</Desc>
             <div style={{ marginTop: 16 }}>
               <Alert type="info" showIcon message="디버그 콘솔에서 이 세션을 열면 턴별 프롬프트·메모리·MCP 호출을 확인할 수 있습니다." />
             </div>

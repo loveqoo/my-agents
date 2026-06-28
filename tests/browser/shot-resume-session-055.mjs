@@ -90,7 +90,13 @@ try {
   // 리셋 후 채팅은 비어 있으므로(STEP2), 드롭다운에 마커 텍스트가 보이면 그건 세션 preview
   // 라벨(첫 사용자 메시지)이다 — '해시코드만 보여 불편' 피드백 해소 검증.
   const previewLabelOk = pickerText.includes(MARKER)
-  log('STEP3a: created_session_in_picker=' + createdInPicker + ' preview_label=' + previewLabelOk + ' sid=' + createdSid)
+  // 부정 단언(learning 057): 피커에 떠 있는 *모든* 행이 사람이 읽는 형식이어야 한다 —
+  // 대상(marker) 행만 보지 말 것. 시드/레거시 세션이 같은 드롭다운에서 raw ISO 타임스탬프
+  // (…+00:00)로 깨져 보이던 회귀를 막는다. preview 없는 세션도 '(빈 세션)' 오표기 금지.
+  const noRawIso = !/\dT\d{2}:\d{2}:\d{2}.*\+00:00/.test(pickerText)
+  const noEmptyMislabel = !pickerText.includes('(빈 세션)')
+  log('STEP3a: created_session_in_picker=' + createdInPicker + ' preview_label=' + previewLabelOk +
+      ' no_raw_iso=' + noRawIso + ' no_empty_mislabel=' + noEmptyMislabel + ' sid=' + createdSid)
   // 생성된 세션 항목을 정확히 클릭(없으면 명확히 실패하도록 그대로 진행).
   if (createdSid && createdInPicker) {
     await page.getByText(createdSid, { exact: true }).last().click({ timeout: 8000 })
@@ -112,7 +118,7 @@ try {
   const followupOk = finalText.includes(followup) && finalText.includes(MARKER)
   log('STEP4: followup_in_same_session=' + followupOk)
 
-  const ok = createdSid && resetOk && restoredOk && followupOk && previewLabelOk
+  const ok = createdSid && resetOk && restoredOk && followupOk && previewLabelOk && noRawIso && noEmptyMislabel
   log(ok ? 'RESUME055_OK' : 'RESUME055_SUSPECT')
   log('CONSOLE_ERRORS=' + JSON.stringify(errors.slice(0, 8)))
 } catch (e) {

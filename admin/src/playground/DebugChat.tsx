@@ -6,6 +6,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Bubble, Sender, Prompts } from '@ant-design/x'
 import { Avatar, Button, Tag, Grid, Tooltip } from 'antd'
 import { Icon } from '../admin/icons'
+import { fmtTime } from '../admin/format'
 import type { ChatMsg, Trace } from './agentData'
 import type { Agent, Session } from '../admin/mockData'
 
@@ -391,6 +392,11 @@ function SessionCombo({
           ) : null}
           {sessions.map((s) => {
             const on = s.id === currentId
+            // 주 라벨: 첫 메시지 preview(사람이 알아봄). preview가 없으면(메시지 없는/오래된
+            // 시드 세션) '(빈 세션)' 같은 오해 대신 해시를 정직하게 보여준다 — 14턴짜리가
+            // "빈 세션"으로 보이던 문제. preview 없을 때만 해시가 주 라벨이라 메타에서 중복 제거.
+            const hasPreview = !!s.preview
+            const time = fmtTime(s.lastActivity)
             return (
               <button
                 key={s.id}
@@ -404,25 +410,31 @@ function SessionCombo({
                 onMouseLeave={(e) => { if (!on) e.currentTarget.style.background = 'transparent' }}
               >
                 <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  {/* 주 라벨: 첫 메시지 preview(사람이 알아봄), 없으면 '(빈 세션)'. */}
                   <span
                     style={{
                       fontSize: 13, fontWeight: 500,
-                      color: s.preview ? 'var(--color-text-heading)' : 'var(--color-text-tertiary)',
+                      fontFamily: hasPreview ? undefined : 'var(--font-family-code)',
+                      color: 'var(--color-text-heading)',
                       overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0,
                     }}
                   >
-                    {s.preview || '(빈 세션)'}
+                    {hasPreview ? s.preview : shortSid(s.id)}
                   </span>
                   {on ? <Icon name="check" size={12} style={{ color: 'var(--color-primary)', flex: 'none' }} /> : null}
                   <span style={{ flex: 1 }} />
                   {s.status === 'awaiting' ? <Tag color="gold">{SESSION_STATUS_LABEL.awaiting}</Tag> : null}
                 </span>
-                {/* 부 메타: 해시 단축형 + 턴/상태/시각(보조 식별). */}
+                {/* 부 메타: (preview 있으면) 해시 단축형 + 턴/상태/시각. preview 없으면 해시는
+                    이미 주 라벨이라 생략. */}
                 <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>
-                  <span style={{ fontFamily: 'var(--font-family-code)' }}>{shortSid(s.id)}</span>
-                  {' · '}{s.turns}턴 · {SESSION_STATUS_LABEL[s.status] ?? s.status}
-                  {s.lastActivity ? ' · ' + s.lastActivity : ''}
+                  {hasPreview ? (
+                    <>
+                      <span style={{ fontFamily: 'var(--font-family-code)' }}>{shortSid(s.id)}</span>
+                      {' · '}
+                    </>
+                  ) : null}
+                  {s.turns}턴 · {SESSION_STATUS_LABEL[s.status] ?? s.status}
+                  {time ? ' · ' + time : ''}
                 </span>
               </button>
             )
