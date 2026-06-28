@@ -278,12 +278,15 @@ export const deleteUserMemory = (userId: string, memId: string) =>
   del(`/memory/user/${encodeURIComponent(userId)}/${encodeURIComponent(memId)}`)
 
 /* ---------- 프로바이더 (연결처 — base_url + 자격증명, 스펙 035) ---------- */
+export type ProviderKind = 'local' | 'mock' | 'remote'
 export interface Provider {
   id: string
   name: string
   protocol: string
   base_url: string
   api_key: string | null // 마스킹(•) 또는 null — 평문 비노출
+  kind: ProviderKind // 표시·배지 (스펙 047 #6): local=내 머신 / mock=결정적 목 / remote=외부 API
+  description: string // 한 줄 설명(스펙 047 #6)
   modelCount: number
 }
 export const listProviders = () => j<Provider[]>('/providers')
@@ -307,12 +310,45 @@ export interface Model {
   kind: 'chat' | 'embedding'
   is_default: boolean
   params: Record<string, unknown>
+  meta: Record<string, unknown> // models.dev 카탈로그 파생(context·modalities·cost·caps) — 스펙 047 #7
 }
 export const listModels = (kind?: 'chat' | 'embedding') =>
   j<Model[]>(`/models${kind ? `?kind=${kind}` : ''}`)
 export const createModel = (body: unknown) => post('/models', body) as Promise<Model>
 export const updateModel = (id: string, body: unknown) => put(`/models/${id}`, body) as Promise<Model>
 export const deleteModel = (id: string) => del(`/models/${id}`)
+
+/* ---------- 프로바이더 실모델 + 카탈로그 (통합 뷰 토글, 스펙 047 #7·#8) ---------- */
+/** models.dev 매칭 메타(없으면 null). 정규화 형태는 catalog._to_meta 참조. */
+export interface CatalogMeta {
+  catalog_id?: string | null
+  name?: string | null
+  context?: number | null
+  output_limit?: number | null
+  modalities?: { input?: string[]; output?: string[] }
+  cost?: { input?: number | null; output?: number | null }
+  capabilities?: {
+    reasoning?: boolean
+    tool_call?: boolean
+    structured_output?: boolean
+    attachment?: boolean
+  }
+  release_date?: string | null
+}
+export interface AvailableModel {
+  model_id: string // 프로바이더가 돌려준 raw id
+  registered: boolean // 이 프로바이더+model_id로 모델이 이미 등록됐나
+  registered_name: string | null // 등록돼 있으면 표시 이름
+  registered_id: string | null // 등록돼 있으면 모델 id(토글 OFF용)
+  catalog: CatalogMeta | null // models.dev 매칭(없으면 null — MLX 사설 모델 등 정상)
+}
+export interface AvailableModelsOut {
+  reachable: boolean // base_url GET /models 도달 여부
+  detail: string // 도달 실패 시 안내(비밀 미포함)
+  models: AvailableModel[]
+}
+export const listAvailableModels = (providerId: string) =>
+  j<AvailableModelsOut>(`/providers/${providerId}/available-models`)
 
 /** 모델/프로바이더 연결 테스트 결과 (detail은 비밀 없는 안전 메시지). */
 export interface ModelProbeResult {

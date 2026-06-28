@@ -11,7 +11,6 @@ import {
   CommentOutlined,
   CheckCircleOutlined,
   ThunderboltOutlined,
-  DatabaseOutlined,
   ApiOutlined,
   FolderOpenOutlined,
   ReadOutlined,
@@ -25,8 +24,7 @@ import {
 import OverviewView from './views/OverviewView'
 import AgentsView from './views/AgentsView'
 import BlocksView from './views/BlocksView'
-import ProvidersView from './views/ProvidersView'
-import ModelsView from './views/ModelsView'
+import ProviderModelView from './views/ProviderModelView'
 import CollectionsView from './views/CollectionsView'
 import SessionsView from './views/SessionsView'
 import MemoryView from './views/MemoryView'
@@ -42,7 +40,6 @@ type ViewKey =
   | 'overview'
   | 'agents'
   | 'blocks'
-  | 'providers'
   | 'models'
   | 'collections'
   | 'sessions'
@@ -56,8 +53,7 @@ const TITLES: Record<ViewKey, string> = {
   overview: '개요',
   agents: '에이전트',
   blocks: '빌딩 블록',
-  providers: '프로바이더',
-  models: '모델',
+  models: '프로바이더·모델',
   collections: 'RAG 컬렉션',
   sessions: '세션',
   memory: '메모리',
@@ -108,8 +104,7 @@ export default function AdminShell({ user, onLogout }: { user: Me; onLogout: () 
     { key: 'overview', icon: <DashboardOutlined />, label: '개요' },
     { key: 'agents', icon: <RobotOutlined />, label: '에이전트' },
     { key: 'blocks', icon: <AppstoreOutlined />, label: '빌딩 블록' },
-    { key: 'providers', icon: <ApiOutlined />, label: '프로바이더' },
-    { key: 'models', icon: <DatabaseOutlined />, label: '모델' },
+    { key: 'models', icon: <ApiOutlined />, label: '프로바이더·모델' },
     { key: 'collections', icon: <FolderOpenOutlined />, label: 'RAG 컬렉션' },
     { key: 'sessions', icon: <CommentOutlined />, label: '세션' },
     { key: 'memory', icon: <ReadOutlined />, label: '메모리' },
@@ -143,8 +138,7 @@ export default function AdminShell({ user, onLogout }: { user: Me; onLogout: () 
     overview: <OverviewView onGo={(v) => setView(v as ViewKey)} />,
     agents: <AgentsView />,
     blocks: <BlocksView />,
-    providers: <ProvidersView />,
-    models: <ModelsView />,
+    models: <ProviderModelView />,
     collections: <CollectionsView />,
     sessions: <SessionsView />,
     memory: <MemoryView />,

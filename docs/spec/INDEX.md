@@ -49,3 +49,4 @@
 - 044 UI 피드백 정리 마스터 — 2026-06-28 UI 테스트 14건을 메뉴별 6배치(045~050)로 트리아지·의존순 배열한 지도(질문 답·결정·순서근거)를 볼 때 [feedback,cleanup,master,triage]
 - 045 어드민 표시 정직화 — 마스터 044 배치1(#12/#2); 승인 배지 mock상수→실 pending수·목록 pending-only, A2A 무조건online→도달성 probe(SSRF가드+리다이렉트차단), 적대리뷰 7검증 [admin,honesty,badge,a2a,liveness,ssrf,approvals]
 - 046 빌딩블록 재료 정리 — 마스터 044 배치2(#4/#5); 코드·인프라 권한5·MCP4 제거+데모 에이전트2 삭제(cascade), 유지 에이전트 dangling JSON참조 strip, seed+라이브DB 양층 dry-run, runtime정책 비범위(041 green) [blocks,cleanup,permission,mcp,seed,dry-run,cascade]
+- 047 프로바이더·모델 통합+models.dev — 마스터 044 배치3(#6/#7/#8); 두 메뉴→마스터-디테일 한 뷰, GET /models 실모델 나열·토글, models.dev 번들스냅샷으로 등록시 메타 자동채움(best-effort), Provider+kind/description·ModelConfig+meta(마이그레이션), SSRF는 base_url 관리자입력 신뢰경계 [provider,model,catalog,models.dev,merge,migration,ssrf]

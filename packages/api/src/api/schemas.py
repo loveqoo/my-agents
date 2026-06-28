@@ -152,6 +152,8 @@ class ProviderIn(BaseModel):
     protocol: str = "openai-compatible"
     base_url: str = ""
     api_key: str | None = None
+    kind: Literal["local", "mock", "remote"] = "remote"  # 표시·배지(스펙 047 #6)
+    description: str = ""
 
 
 class ProviderOut(BaseModel):
@@ -160,6 +162,8 @@ class ProviderOut(BaseModel):
     protocol: str
     base_url: str
     api_key: str | None = None  # 마스킹되어 내려옴
+    kind: str = "remote"  # local|mock|remote
+    description: str = ""
     modelCount: int = 0  # 매달린 모델 수(삭제 차단 안내·표시용)
 
 
@@ -171,6 +175,7 @@ class ModelIn(BaseModel):
     kind: Literal["chat", "embedding"] = "chat"
     is_default: bool = False
     params: dict[str, Any] = Field(default_factory=dict)
+    meta: dict[str, Any] = Field(default_factory=dict)  # models.dev 카탈로그 메타(스펙 047 #7)
 
 
 class ModelOut(BaseModel):
@@ -183,6 +188,22 @@ class ModelOut(BaseModel):
     kind: str
     is_default: bool
     params: dict[str, Any] = Field(default_factory=dict)
+    meta: dict[str, Any] = Field(default_factory=dict)  # 카탈로그 파생(context·modalities·cost·caps)
+
+
+# 통합 뷰의 GET /models 실모델 나열·토글용(스펙 047 #8).
+class AvailableModel(BaseModel):
+    model_id: str  # 프로바이더가 돌려준 raw id
+    registered: bool  # 이 프로바이더+model_id로 ModelConfig가 이미 존재하나
+    registered_name: str | None = None  # 등록돼 있으면 그 표시 이름
+    registered_id: uuid.UUID | None = None  # 등록돼 있으면 ModelConfig.id(토글 OFF용)
+    catalog: dict[str, Any] | None = None  # models.dev 매칭 메타(없으면 None)
+
+
+class AvailableModelsOut(BaseModel):
+    reachable: bool  # base_url GET /models 도달 여부
+    detail: str = ""  # 도달 실패 시 안내(비밀 미포함)
+    models: list[AvailableModel] = Field(default_factory=list)
 
 
 # ----------------------------- 에이전트 -----------------------------

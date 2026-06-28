@@ -145,10 +145,12 @@ async def seed_if_empty(session: AsyncSession) -> None:
         mlx_provider = Provider(
             name="MLX (local)", protocol="openai-compatible", base_url=base_url,
             api_key=crypto.encrypt(api_key),
+            kind="local", description="실제 로컬 MLX 서버",
         )
         mock_provider = Provider(
             name="Mock LLM", protocol="openai-compatible", base_url=mock_base,
             api_key=crypto.encrypt("sk-noauth"),
+            kind="mock", description="라이브 없이 결정적 테스트용 내장 목(스펙 024)",
         )
         session.add_all([mlx_provider, mock_provider])
         await session.flush()  # provider id 확보(모델 FK용)

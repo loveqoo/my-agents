@@ -152,6 +152,9 @@ class Provider(Base):
     protocol: Mapped[str] = mapped_column(String(40), default="openai-compatible")
     base_url: Mapped[str] = mapped_column(String(400), default="")
     api_key: Mapped[str | None] = mapped_column(String(400), default=None)  # 암호화 저장
+    # 표시·배지용(스펙 047 #6) — local=실서버, mock=내장 테스트목, remote=외부. 라벨 혼란 해소.
+    kind: Mapped[str] = mapped_column(String(20), default="remote", server_default="remote")
+    description: Mapped[str] = mapped_column(String(400), default="", server_default="")  # 한 줄 설명
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     models: Mapped[list["ModelConfig"]] = relationship(back_populates="provider")
@@ -173,7 +176,9 @@ class ModelConfig(Base):
     model_id: Mapped[str] = mapped_column(String(200), default="")  # API에 보내는 모델 id
     kind: Mapped[str] = mapped_column(String(20), default="chat")  # chat | embedding
     is_default: Mapped[bool] = mapped_column(Boolean, default=False)
-    params: Mapped[dict] = mapped_column(JSONB, default=dict)  # temperature 등
+    params: Mapped[dict] = mapped_column(JSONB, default=dict)  # temperature 등(런타임 파라미터)
+    # models.dev 카탈로그 파생 메타(스펙 047 #7) — context·modalities·cost·capabilities. params와 분리.
+    meta: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     provider: Mapped["Provider"] = relationship(back_populates="models")

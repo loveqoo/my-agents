@@ -25,6 +25,8 @@ def provider_to_out(p: Provider, model_count: int = 0) -> ProviderOut:
         protocol=p.protocol,
         base_url=p.base_url,
         api_key=mask_secret(p.api_key),
+        kind=p.kind,
+        description=p.description,
         modelCount=model_count,
     )
 
@@ -41,6 +43,7 @@ def model_to_out(m: ModelConfig) -> ModelOut:
         kind=m.kind,
         is_default=m.is_default,
         params=dict(m.params or {}),
+        meta=dict(m.meta or {}),
     )
 
 

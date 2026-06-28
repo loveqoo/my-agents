@@ -9,13 +9,13 @@ import uuid
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from . import crypto
 from .db import get_session
-from .models import ModelConfig, Provider
+from .models import Agent, AgentVersion, ModelConfig, Provider
 from .schemas import ModelIn, ModelOut, ModelProbeIn, ModelProbeResult
 from .serializers import model_to_out
 
@@ -166,7 +166,7 @@ async def create_model(body: ModelIn, session: AsyncSession = Depends(get_sessio
         await _clear_other_defaults(session, body.kind)
     m = ModelConfig(
         name=body.name, provider_id=body.provider_id, model_id=body.model_id,
-        kind=body.kind, is_default=body.is_default, params=body.params,
+        kind=body.kind, is_default=body.is_default, params=body.params, meta=body.meta,
     )
     session.add(m)
     await session.commit()
@@ -197,6 +197,7 @@ async def update_model(
         await _clear_other_defaults(session, body.kind, exclude_id=m.id)
     m.is_default = body.is_default
     m.params = body.params
+    m.meta = body.meta
     await session.commit()
     return model_to_out(await _get_with_provider(session, m.id))
 
@@ -206,5 +207,37 @@ async def delete_model(model_id: uuid.UUID, session: AsyncSession = Depends(get_
     m = await session.get(ModelConfig, model_id)
     if m is None:
         raise HTTPException(status_code=404, detail="not found")
+    # 에이전트는 모델을 *이름*으로 참조(FK 없음 — learning 042). 참조 중이면 삭제 차단해
+    # 런타임이 사라진 모델을 가리키지 않게 한다. column(model)·config.model 둘 다 검사.
+    refs = (
+        await session.execute(
+            select(func.count()).select_from(Agent).where(
+                or_(Agent.model == m.name, Agent.config["model"].astext == m.name)
+            )
+        )
+    ).scalar_one()
+    if refs:
+        raise HTTPException(
+            status_code=409,
+            detail=f"이 모델을 참조하는 에이전트 {refs}개가 있습니다 — 먼저 에이전트의 모델을 바꾸세요.",
+        )
+    # 아카이브된 버전 스냅샷도 검사(적대 리뷰 047): live 참조가 없어도 옛 버전 config가
+    # 이 모델을 가리키면, 그 버전으로 롤백(agents.py: agent.model = cfg["model"]) 시
+    # 사라진 모델을 가리킨다. live보다 약한 결합이라 별도 메시지로 구분.
+    ver_refs = (
+        await session.execute(
+            select(func.count()).select_from(AgentVersion).where(
+                AgentVersion.config["model"].astext == m.name
+            )
+        )
+    ).scalar_one()
+    if ver_refs:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"이 모델을 참조하는 에이전트 버전 스냅샷 {ver_refs}개가 있습니다 — "
+                "롤백 시 사라진 모델을 가리키게 됩니다. 해당 버전을 정리하거나 모델명을 유지하세요."
+            ),
+        )
     await session.delete(m)
     await session.commit()
