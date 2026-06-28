@@ -168,13 +168,8 @@ export const BLOCKS: Record<string, BlockCategory> = {
     desc: "에이전트에 부여되는 범위 한정 권한. 각 권한엔 승인자가 반드시 있습니다 — 사용자는 대화 중 인라인 확인, 관리자는 승인 큐로 라우팅(체크포인트에서 일시정지). 승인자를 지정하지 않으면 기본값은 '사용자' 승인입니다.",
     items: [
       { id: 'pm-web', name: 'web.search', scope: 'Network', approver: 'user', usedBy: 1, updated: '2w ago', body: 'Outbound web search via the configured provider.' },
-      { id: 'pm-files-r', name: 'files.read', scope: 'Filesystem', approver: 'user', usedBy: 2, updated: '2w ago', body: 'Read-only access to whitelisted local paths.' },
-      { id: 'pm-repo-r', name: 'repo.read', scope: 'Code', approver: 'user', usedBy: 1, updated: '1w ago', body: 'Read pull requests, files and diffs from connected repos.' },
-      { id: 'pm-k8s-r', name: 'k8s.read', scope: 'Infra', approver: 'user', usedBy: 1, updated: '3d ago', body: 'Read-only cluster + workload inspection.' },
       { id: 'pm-cal-rw', name: 'calendar.rw', scope: 'Productivity', approver: 'user', usedBy: 1, updated: '3d ago', body: 'Read & write calendar events. Writes are confirmed inline by the user.' },
       { id: 'pm-mail-send', name: 'mail.send', scope: 'Productivity', approver: 'user', usedBy: 1, updated: '4d ago', body: "Send email on the user's behalf. Each send is confirmed inline by the user." },
-      { id: 'pm-repo-merge', name: 'repo.merge', scope: 'Code', approver: 'admin', usedBy: 1, updated: '5d ago', body: 'Merge pull requests. Routed to an admin for approval before execution.' },
-      { id: 'pm-k8s-write', name: 'k8s.write', scope: 'Infra', approver: 'admin', usedBy: 1, updated: '2d ago', body: 'Mutate cluster state (scale, restart, apply). Requires admin approval.' },
     ],
   },
   mcp: {
@@ -182,10 +177,6 @@ export const BLOCKS: Record<string, BlockCategory> = {
     desc: 'Model Context Protocol 서버. 직접 운영하는 로컬 서버는 프로토콜로 공개할 수 있고, 외부에서 공개된 MCP는 URL로 등록할 수 있습니다.',
     items: [
       { id: 'mcp-tavily', name: 'tavily', transport: 'stdio', tools: ['search'], usedBy: 1, status: 'connected', updated: '1d ago', published: true, endpoint: 'mcp://my-agents.local/tavily' },
-      { id: 'mcp-fs', name: 'filesystem', transport: 'stdio', tools: ['read', 'list'], usedBy: 2, status: 'connected', updated: '1d ago', published: false, endpoint: 'mcp://my-agents.local/filesystem' },
-      { id: 'mcp-github', name: 'github', transport: 'http', tools: ['get_pr', 'get_file'], usedBy: 1, status: 'connected', updated: '2d ago', published: true, endpoint: 'mcp://my-agents.local/github' },
-      { id: 'mcp-prom', name: 'prometheus', transport: 'http', tools: ['query'], usedBy: 1, status: 'connected', updated: '6h ago', published: false, endpoint: 'mcp://my-agents.local/prometheus' },
-      { id: 'mcp-k8s', name: 'kubernetes', transport: 'http', tools: ['get'], usedBy: 1, status: 'degraded', updated: '6h ago', published: false, endpoint: 'mcp://my-agents.local/kubernetes' },
       { id: 'mcp-gcal', name: 'gcal', transport: 'http', tools: ['list', 'create'], usedBy: 1, status: 'connected', updated: '3d ago', published: false, endpoint: 'mcp://my-agents.local/gcal' },
       { id: 'mcp-gmail', name: 'gmail', transport: 'http', tools: ['search'], usedBy: 1, status: 'disconnected', updated: '3d ago', published: false, endpoint: 'mcp://my-agents.local/gmail' },
       { id: 'mcp-notion', name: 'notion', transport: 'http', tools: ['append'], usedBy: 1, status: 'connected', updated: '3d ago', published: true, endpoint: 'mcp://my-agents.local/notion' },
@@ -197,29 +188,14 @@ export const BLOCKS: Record<string, BlockCategory> = {
 export const ADMIN_AGENTS: Agent[] = [
   { id: 'research', name: 'Research Assistant', source: 'ui', agentId: 'agt_rsch_7f3a91', environments: ['sandbox', 'production'], model: 'qwen3.6-35b', status: 'online',
     persona: 'Methodical Researcher', memories: ['단기(세션)', '장기 기억 (mem0)'], historyDepth: 20, vectorTables: ['docs_kb', 'product_titles'],
-    permissions: ['web.search', 'files.read'], mcps: ['tavily', 'filesystem'],
+    permissions: ['web.search'], mcps: ['tavily'],
     exposed: { a2a: true }, sessions: 2, created: '2026-05-30',
     activeVersion: 'v3', versions: [
       { version: 'v3', status: 'active', createdAt: '2026-06-12', note: 'Tightened citation rules' },
-      { version: 'v2', status: 'archived', createdAt: '2026-06-04', note: 'Added filesystem MCP' },
+      { version: 'v2', status: 'archived', createdAt: '2026-06-04', note: 'Web search tuning' },
       { version: 'v1', status: 'archived', createdAt: '2026-05-30', note: 'Initial' },
     ] },
-  { id: 'reviewer', name: 'Code Reviewer', source: 'ui', agentId: 'agt_rvw_2b91c4', environments: ['sandbox', 'production'], model: 'qwen3.6-35b', status: 'online',
-    persona: 'Strict Senior Engineer', memories: ['단기(세션)'], historyDepth: 10, vectorTables: [],
-    permissions: ['repo.read', 'repo.merge'], mcps: ['github', 'filesystem'],
-    exposed: { a2a: true }, sessions: 1, created: '2026-06-02',
-    activeVersion: 'v2', versions: [
-      { version: 'v3', status: 'draft', createdAt: '2026-06-19', note: 'Trial: auto-merge on green CI' },
-      { version: 'v2', status: 'active', createdAt: '2026-06-09', note: 'Added repo.merge (admin-gated)' },
-      { version: 'v1', status: 'archived', createdAt: '2026-06-02', note: 'Initial' },
-    ] },
-  { id: 'ops', name: 'Ops Copilot', source: 'ui', agentId: 'agt_ops_5c0833', environments: ['sandbox'], model: 'qwen3.6-35b', status: 'idle',
-    persona: 'Calm SRE', memories: [], historyDepth: 6, vectorTables: [],
-    permissions: ['k8s.read', 'k8s.write'], mcps: ['prometheus', 'kubernetes'],
-    exposed: { a2a: false }, sessions: 0, created: '2026-06-10',
-    activeVersion: 'v1', versions: [
-      { version: 'v1', status: 'active', createdAt: '2026-06-10', note: 'Initial' },
-    ] },
+  /* Code Reviewer·Ops Copilot은 코드/인프라 권한 전용 데모라 제거(스펙 046). */
   { id: 'secretary', name: 'Personal Secretary', source: 'ui', agentId: 'agt_sec_9d4417', environments: ['sandbox', 'production'], model: 'qwen3.6-35b', status: 'online',
     persona: 'Warm Secretary', memories: ['단기(세션)', '장기 기억 (mem0)'], historyDepth: 40, vectorTables: ['team_notes'],
     permissions: ['calendar.rw', 'mail.send'], mcps: ['gcal', 'gmail', 'notion'],
@@ -233,7 +209,7 @@ export const ADMIN_AGENTS: Agent[] = [
      버전은 git 배포(commit)다. */
   { id: 'translator', name: 'Doc Translator', source: 'code', agentId: 'agt_xlt_a17c33', environments: ['production'], model: 'qwen3.6-35b', status: 'online',
     persona: '코드 정의 (SDK)', memories: ['단기(세션)'], historyDepth: 10, vectorTables: [],
-    permissions: ['web.search', 'files.read'], mcps: ['tavily'],
+    permissions: ['web.search'], mcps: ['tavily'],
     exposed: { a2a: true }, sessions: 1, created: '2026-06-18',
     endpoint: 'https://agents.acme.dev/doc-translator', token: 'sk_live_a3f••••••••91c2',
     runtime: 'my-agents-sdk · Python 2.4.1', repo: 'acme/doc-translator', commit: 'f3a91c2',
@@ -291,7 +267,6 @@ export const AGENT_SOURCE: Record<string, StatusMeta> = {
 export const ADMIN_SESSIONS: Session[] = [
   { id: 'sess-8f21', agentId: 'research', agent: 'Research Assistant', channel: 'debug-console', status: 'active', turns: 6, started: '14:02', lastActivity: 'just now', tokens: 18420 },
   { id: 'sess-7a05', agentId: 'research', agent: 'Research Assistant', channel: 'A2A · partner-x', status: 'idle', turns: 14, started: '11:40', lastActivity: '32m ago', tokens: 52110 },
-  { id: 'sess-6c93', agentId: 'reviewer', agent: 'Code Reviewer', channel: 'github-webhook', status: 'awaiting', turns: 3, started: '13:55', lastActivity: 'paused 2m ago', tokens: 9240, awaiting: { permission: 'repo.merge', summary: 'Merge PR #482 into main', checkpoint: 'ckpt_6c93_07' } },
   { id: 'sess-5d77', agentId: 'secretary', agent: 'Personal Secretary', channel: 'web-chat', status: 'error', turns: 2, started: '09:18', lastActivity: '5h ago', tokens: 3110, error: 'gmail MCP disconnected' },
   { id: 'sess-4b10', agentId: 'research', agent: 'Research Assistant', channel: 'web-chat', status: 'completed', turns: 21, started: 'Yesterday', lastActivity: 'Yesterday', tokens: 74300 },
 ]
@@ -317,13 +292,6 @@ ADMIN_AGENTS.forEach((a) => {
     if (!v.config) v.config = { ...snap, permissions: [...(snap.permissions || [])], mcps: [...(snap.mcps || [])] }
   })
 })
-/* reviewer 초안에 실제 diff를 줘서 Test/Activate가 의미를 갖게. */
-;(() => {
-  const rev = ADMIN_AGENTS.find((a) => a.id === 'reviewer')
-  const d = rev && rev.versions.find((v) => v.status === 'draft')
-  if (d) d.config = { ...d.config, memories: ['단기(세션)', '장기 기억 (mem0)'], permissions: ['repo.read', 'repo.merge'] }
-})()
-
 /* MCP 서버는 draft/activate 아티팩트가 아니라 외부 연결 — enabledTools/source 기본값 부여. */
 BLOCKS.mcp.items.forEach((m) => {
   if (!m.enabledTools) m.enabledTools = [...(m.tools || [])]

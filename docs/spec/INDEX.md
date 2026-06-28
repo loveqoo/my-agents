@@ -48,3 +48,4 @@
 - 043 컨텍스트 경량화 자산 인덱스 — Context 단계 읽기량이 compaction을 당기는 문제를 인덱스 층(L1~L3)+Context 규칙 교정+완료 스펙 아카이브로 줄인 워크플로 정비를 볼 때 [context,index,archive,workflow]
 - 044 UI 피드백 정리 마스터 — 2026-06-28 UI 테스트 14건을 메뉴별 6배치(045~050)로 트리아지·의존순 배열한 지도(질문 답·결정·순서근거)를 볼 때 [feedback,cleanup,master,triage]
 - 045 어드민 표시 정직화 — 마스터 044 배치1(#12/#2); 승인 배지 mock상수→실 pending수·목록 pending-only, A2A 무조건online→도달성 probe(SSRF가드+리다이렉트차단), 적대리뷰 7검증 [admin,honesty,badge,a2a,liveness,ssrf,approvals]
+- 046 빌딩블록 재료 정리 — 마스터 044 배치2(#4/#5); 코드·인프라 권한5·MCP4 제거+데모 에이전트2 삭제(cascade), 유지 에이전트 dangling JSON참조 strip, seed+라이브DB 양층 dry-run, runtime정책 비범위(041 green) [blocks,cleanup,permission,mcp,seed,dry-run,cascade]

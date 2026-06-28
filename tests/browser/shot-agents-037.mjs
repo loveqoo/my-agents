@@ -41,7 +41,8 @@ try {
 
   // (2) UI 에이전트 행 클릭 → AgentDetail 드로어 → 라벨된 '편집' 버튼 → 폼.
   // (목록의 행 액션 편집은 아이콘 전용이라 접근명이 없어, 행을 열어 라벨 버튼을 쓴다.)
-  await page.getByText('Code Reviewer', { exact: true }).first().click()
+  // Research Assistant: RAG 컬렉션을 가진 UI 에이전트(Code Reviewer는 스펙 046에서 제거됨).
+  await page.getByText('Research Assistant', { exact: true }).first().click()
   await page.waitForTimeout(1000)
   await page.screenshot({ path: `${OUT}-1b-detail.png`, fullPage: true })
   // 드로어 하단 주 버튼 '초안 편집'(혹은 카드 '편집') → 폼. 둘 다 openEdit를 부른다.

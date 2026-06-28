@@ -60,27 +60,20 @@ COLLECTIONS = [
     ("team_notes", "팀 노션 노트 — 내부 지식 의미 검색."),
 ]
 
+# 순수 웹 에이전트 플랫폼 — 파일/터미널/repo/k8s 권한은 쓰지 않으므로 카탈로그에서 제외(스펙 046).
+# 코드 에이전트가 아니라 웹에서 동작하는 에이전트이기 때문(UI 피드백 #4).
 PERMISSIONS = [
     ("web.search", "Network", "user", "Outbound web search via the configured provider."),
-    ("files.read", "Filesystem", "user", "Read-only access to whitelisted local paths."),
-    ("repo.read", "Code", "user", "Read pull requests, files and diffs from connected repos."),
-    ("k8s.read", "Infra", "user", "Read-only cluster + workload inspection."),
     ("calendar.rw", "Productivity", "user", "Read & write calendar events. Writes are confirmed inline by the user."),
     ("mail.send", "Productivity", "user", "Send email on the user's behalf. Each send is confirmed inline by the user."),
-    ("repo.merge", "Code", "admin", "Merge pull requests. Routed to an admin for approval before execution."),
-    ("k8s.write", "Infra", "admin", "Mutate cluster state (scale, restart, apply). Requires admin approval."),
 ]
 
 # name, source, transport, url, endpoint, tools, status, published, auth
+# 코드/인프라 MCP(filesystem·github·prometheus·kubernetes)는 아직 미구현이고 웹 에이전트에
+# 불필요하므로 카탈로그에서 제외(스펙 046, UI 피드백 #5). HIL 게이트 메커니즘(스펙 041
+# runtime._APPROVAL_ACTIONS)은 정책으로 보존 — 카탈로그에 트리거 도구가 없을 뿐.
 MCP_SERVERS = [
     ("tavily", "local", "stdio", None, "mcp://my-agents.local/tavily", ["search"], "connected", True, None),
-    ("filesystem", "local", "stdio", None, "mcp://my-agents.local/filesystem", ["read", "list"], "connected", False, None),
-    # merge_pr·scale은 approver=admin 권한(repo.merge·k8s.write)에 묶인 위험 도구 — 런타임 HIL
-    # 게이트(스펙 041 runtime._APPROVAL_ACTIONS)가 호출을 일시정지하고 승인을 받는다. 노출해야
-    # ReAct가 실제로 호출하고 게이트가 걸린다(이전엔 read 도구만 있어 게이트가 발화할 수 없었음).
-    ("github", "local", "http", None, "mcp://my-agents.local/github", ["get_pr", "get_file", "merge_pr"], "connected", True, None),
-    ("prometheus", "local", "http", None, "mcp://my-agents.local/prometheus", ["query"], "connected", False, None),
-    ("kubernetes", "local", "http", None, "mcp://my-agents.local/kubernetes", ["get", "scale"], "degraded", False, None),
     ("gcal", "local", "http", None, "mcp://my-agents.local/gcal", ["list", "create"], "connected", False, None),
     ("gmail", "local", "http", None, "mcp://my-agents.local/gmail", ["search"], "disconnected", False, None),
     ("notion", "local", "http", None, "mcp://my-agents.local/notion", ["append"], "connected", True, None),
@@ -90,18 +83,12 @@ MCP_SERVERS = [
 
 # agent_id, name, source, model, persona, memories, historyDepth, vectorTables, permissions, mcps, a2a, status, activeVersion, versions[(version,status,createdAt,note)]
 AGENTS = [
+    # 코드/인프라 권한·MCP 제거(스펙 046)에 맞춰 web.search/tavily만 유지.
     ("agt_rsch_7f3a91", "Research Assistant", "ui", CHAT_MODEL_NAME, "Methodical Researcher",
-     ["단기(세션)", "장기 기억 (mem0)"], 20, ["docs_kb", "product_titles"], ["web.search", "files.read"], ["tavily", "filesystem"],
+     ["단기(세션)", "장기 기억 (mem0)"], 20, ["docs_kb", "product_titles"], ["web.search"], ["tavily"],
      True, "online", "v3",
-     [("v3", "active", "2026-06-12", "Tightened citation rules"), ("v2", "archived", "2026-06-04", "Added filesystem MCP"), ("v1", "archived", "2026-05-30", "Initial")]),
-    ("agt_rvw_2b91c4", "Code Reviewer", "ui", CHAT_MODEL_NAME, "Strict Senior Engineer",
-     ["단기(세션)"], 10, [], ["repo.read", "repo.merge"], ["github", "filesystem"],
-     True, "online", "v2",
-     [("v3", "draft", "2026-06-19", "Trial: auto-merge on green CI"), ("v2", "active", "2026-06-09", "Added repo.merge (admin-gated)"), ("v1", "archived", "2026-06-02", "Initial")]),
-    ("agt_ops_5c0833", "Ops Copilot", "ui", CHAT_MODEL_NAME, "Calm SRE",
-     [], 6, [], ["k8s.read", "k8s.write"], ["prometheus", "kubernetes"],
-     False, "idle", "v1",
-     [("v1", "active", "2026-06-10", "Initial")]),
+     [("v3", "active", "2026-06-12", "Tightened citation rules"), ("v2", "archived", "2026-06-04", "Web search tuning"), ("v1", "archived", "2026-05-30", "Initial")]),
+    # Code Reviewer·Ops Copilot(코드/인프라 권한 전용 데모)는 에이전트째 제거(스펙 046, UI 피드백 #4).
     ("agt_sec_9d4417", "Personal Secretary", "ui", CHAT_MODEL_NAME, "Warm Secretary",
      ["단기(세션)", "장기 기억 (mem0)"], 40, ["team_notes"], ["calendar.rw", "mail.send"], ["gcal", "gmail", "notion"],
      False, "online", "v2",
@@ -109,20 +96,18 @@ AGENTS = [
 ]
 
 # sessions: session_id, agent_id(agt_), agent_name, channel, status, turns, tokens
+# sess-6c93(Code Reviewer)은 에이전트 제거(스펙 046)와 함께 삭제 — 유지 에이전트 세션만 남긴다.
 SESSIONS = [
     ("sess-8f21", "agt_rsch_7f3a91", "Research Assistant", "debug-console", "active", 6, 18420),
     ("sess-7a05", "agt_rsch_7f3a91", "Research Assistant", "A2A · partner-x", "idle", 14, 52110),
-    ("sess-6c93", "agt_rvw_2b91c4", "Code Reviewer", "github-webhook", "awaiting", 3, 9240),
     ("sess-5d77", "agt_sec_9d4417", "Personal Secretary", "web-chat", "error", 2, 3110),
     ("sess-4b10", "agt_rsch_7f3a91", "Research Assistant", "web-chat", "completed", 21, 74300),
 ]
 
-APPROVALS = [
-    ("apr-3391", "sess-6c93", "agt_rvw_2b91c4", "Code Reviewer", "repo.merge", "github.merge_pr",
-     {"pr": 482, "repo": "my-agents", "strategy": "squash"}, "Merge PR #482 “Fix token refresh race” into main", "ckpt_6c93_07"),
-    ("apr-3388", "sess-9d22", "agt_ops_5c0833", "Ops Copilot", "k8s.write", "kubernetes.scale",
-     {"deployment": "api", "replicas": 8, "namespace": "prod"}, "Scale prod/api from 5 → 8 replicas", "ckpt_9d22_03"),
-]
+# 시드 승인 데모는 repo.merge·k8s.write(제거 권한) + Code Reviewer·Ops Copilot(제거 에이전트)에
+# 묶여 있었으므로 제거(스펙 046). HIL 게이트 메커니즘(041)은 runtime 정책으로 보존 — 카탈로그에
+# 트리거 도구가 없어 발화하지 않을 뿐. 미래 웹 액션이 추가되면 게이트가 그대로 재사용된다.
+APPROVALS: list = []
 
 
 async def _empty(session: AsyncSession, model) -> bool:
@@ -229,7 +214,7 @@ async def seed_if_empty(session: AsyncSession) -> None:
         # 코드 정의(SDK 배포) 에이전트 — UI mock과 동일하게 1개 시드.
         code_cfg = {
             "model": CHAT_MODEL_NAME, "persona": "코드 정의 (SDK)", "memories": ["단기(세션)"],
-            "vectorTables": [], "permissions": ["web.search", "files.read"], "mcps": ["tavily"],
+            "vectorTables": [], "permissions": ["web.search"], "mcps": ["tavily"],
             "historyDepth": 10,
         }
         translator = Agent(

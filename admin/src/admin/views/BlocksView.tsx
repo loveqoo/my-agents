@@ -159,7 +159,7 @@ function McpForm({
         <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <span style={{ fontSize: 14, fontWeight: 500 }}>이름</span>
           <Input
-            placeholder={isExternal ? '예: partner-crm' : '예: filesystem'}
+            placeholder={isExternal ? '예: partner-crm' : '예: tavily'}
             value={f.name}
             onChange={(e) => set('name', e.target.value)}
           />

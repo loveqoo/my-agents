@@ -409,7 +409,7 @@ function RegisterAgentModal({
         persona: '코드 정의 (SDK)',
         memories: ['단기(세션)'],
         historyDepth: 10,
-        permissions: ['web.search', 'files.read'],
+        permissions: ['web.search'],
         mcps: ['tavily'],
       })
     }, 850)

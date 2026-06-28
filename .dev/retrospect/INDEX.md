@@ -37,3 +37,4 @@
 - 032 A2A 실호출 회고 — 스펙 042(P5-b·로드맵 마지막); external 안내를 실 A2A JSON-RPC 호출로, 026 유예한 SSRF 빚을 net_guard로 청산(allowlist는 사람과 합의) [a2a,runtime,jsonrpc,ssrf,allowlist]
 - 033 컨텍스트 경량화 회고 — 스펙 043; 자산 INDEX.md 3종+Context 규칙을 통독→인덱스우선으로(읽기량 95%↓), 적대리뷰가 아카이브 이동의 나가는 참조 누락 적발 [context,index,archive,refs]
 - 034 어드민 표시 정직화 회고 — 스펙 045(마스터 044 배치1·#12/#2); 배지 mock상수→실 pending수·A2A무조건online→도달성probe, 적대리뷰가 리다이렉트SSRF 회귀 적발, Low지적 글자대로 고치다 동시성버그 낼 뻔 [admin,honesty,badge,a2a,liveness,ssrf]
+- 035 빌딩블록 재료 정리 회고 — 스펙 046(마스터 044 배치2·#4/#5); 코드/인프라 권한5·MCP4·데모에이전트2 제거, dry-run이 라이브DB 스케일 드러냄, soft-ref strip(FK없음), 적대리뷰가 시드결합 통합rung 상실 적발(→learning045) [cleanup,catalog,seed,dangling,destructive]

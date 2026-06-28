@@ -47,3 +47,4 @@
 - 042 이동·리네임은 *양방향*으로 참조를 깬다 — 한 방향만 고치면 green이지만 깨져 있다 — 파일 옮기고 들어오는 참조만 갱신할 때(나가는 상대링크·단방향 검증 함정) [move,refs,relative-path,verify]
 - 043 "표시가 거짓"인 결함은 코드층·데이터층으로 갈라 고친다 — 화면 수치/상태가 실제와 어긋날 때(코드가 잘못 읽음 vs 데이터가 가짜, 출하 리듬이 다름) [honesty,code-vs-data,batch-split]
 - 044 "안전장치를 깔았다"는 "안전하다"의 증거가 아니다 — 적용 범위 경계를 적대자가 짚는다 — 서버측 fetch/probe에 가드 깔고 follow_redirects·재해석을 안 끌 때(가드는 최초URL만, 부수효과는 체인끝) [ssrf,guard,boundary,toctou,redirect]
+- 045 통합 픽스처가 데모 시드에 결합하면, 카탈로그를 비울 때 통합 rung이 함께 증발한다 — 시드 데모 데이터(에이전트/MCP/권한)를 지울 때 그걸 픽스처로 빌려쓰던 통합 테스트·프로브·브라우저샷도 같이 죽음(040의 반대편: rung을 잃지 않는 법, self-fixture로 격리) [integration,fixture,seed,self-fixture,rung]
