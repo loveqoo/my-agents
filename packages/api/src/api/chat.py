@@ -19,6 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from langgraph.types import Command
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from . import a2a_client, checkpointer, crypto, memory, runtime
@@ -206,19 +207,23 @@ async def _load_context(
                     )
                 )
             ).scalar_one_or_none()
-        if sess is None:
-            sess = Session(
-                session_id="sess-" + secrets.token_hex(3),
-                agent_pk=agent.id,
-                agent_name=agent.name,
-                channel="playground",
-                status="active",
-            )
-            db.add(sess)
-            await db.commit()
-            await db.refresh(sess)
-        ctx["session_pk"] = sess.id
-        ctx["session_id"] = sess.session_id
+        if sess is not None:
+            ctx["session_pk"] = sess.id
+            ctx["session_id"] = sess.session_id
+            ctx["session_pending"] = None
+        else:
+            # 0턴 세션 미영속(스펙 049, #10): 행 생성을 첫 _persist(실 턴)까지 지연한다. 플레이그라운드를
+            # 열고 한 마디도 안 하면 DB에 빈 세션이 안 남는다(#11 정크 뿌리 차단). session_id는 클라가
+            # 후속 요청에 참조하므로 지금 *생성만* 해 둔다(commit X). 첫 실 턴에서 lazy-create.
+            new_id = "sess-" + secrets.token_hex(3)
+            ctx["session_pk"] = None
+            ctx["session_id"] = new_id
+            ctx["session_pending"] = {
+                "session_id": new_id,
+                "agent_pk": agent.id,
+                "agent_name": agent.name,
+                "channel": "playground",
+            }
         return ctx
 
 
@@ -256,19 +261,60 @@ def _window(messages: list[dict], depth: int | None) -> list[dict]:
     return messages[-depth:]
 
 
+async def _resolve_session_for_persist(db, ctx: dict) -> Session | None:
+    """영속할 세션 행을 확보. 이미 영속된 세션이면 그대로 get. session_pk가 None이면(0턴 미영속
+    보류 상태) **첫 실 턴**이므로 session_pending으로 행을 지금 만든다(스펙 049, #10).
+
+    session_id 단위 get-or-create로 동시 첫 턴 경합도 안전 — flush가 unique 제약에 걸리면
+    rollback 후 re-select로 상대가 만든 행을 집는다(플레이그라운드는 순차라 경합은 이론적).
+    """
+    pk = ctx.get("session_pk")
+    if pk is not None:
+        return await db.get(Session, pk)
+    pending = ctx.get("session_pending")
+    if not pending:
+        return None
+    # 에이전트 스코프로 조회 — 전역 unique session_id가 *다른* 에이전트 행과 잡히지 않게(누출 방지).
+    q = select(Session).where(
+        Session.session_id == pending["session_id"],
+        Session.agent_pk == pending["agent_pk"],
+    )
+    sess = (await db.execute(q)).scalar_one_or_none()
+    if sess is not None:
+        return sess
+    sess = Session(
+        session_id=pending["session_id"],
+        agent_pk=pending["agent_pk"],
+        agent_name=pending["agent_name"],
+        channel=pending["channel"],
+        status="active",
+    )
+    db.add(sess)
+    try:
+        await db.flush()
+    except IntegrityError:
+        # 동시 첫 턴(같은 에이전트)이면 상대가 만든 행을 집는다. 전역 unique가 다른 에이전트와
+        # 충돌(천문학적)하면 agent 스코프 재조회가 None → 그 id는 못 쓰므로 graceful None(누출 방지).
+        await db.rollback()
+        sess = (await db.execute(q)).scalar_one_or_none()
+    return sess
+
+
 async def _persist(
-    session_pk: uuid.UUID, user_text: str, reply: str, trace: dict, tokens: dict, store_messages: bool,
+    ctx: dict, user_text: str, reply: str, trace: dict, tokens: dict, store_messages: bool,
     user_id: str | None = None,
 ):
     """세션 카운터는 항상 갱신. 메시지(user/assistant+트레이스)는 store_messages일 때만 저장.
 
+    0턴 미영속(스펙 049): session_pk가 None이면 이 첫 실 턴에서 행을 lazy-create한다.
     non-empty userId가 오면 세션에 기록(distinct 목록 출처 — 스펙 021). 빈 값이면 기존 값 보존.
     """
     async with SessionLocal() as db:
-        sess = await db.get(Session, session_pk)
+        sess = await _resolve_session_for_persist(db, ctx)
         if sess is None:
-            log.error("persist skipped: session %s not found", session_pk)
+            log.error("persist skipped: session unresolved (pk=%s)", ctx.get("session_pk"))
             return
+        session_pk = sess.id
         if store_messages:
             db.add(Message(session_pk=session_pk, role="user", content=user_text))
             db.add(Message(session_pk=session_pk, role="assistant", content=reply, trace=trace))
@@ -344,7 +390,7 @@ async def _remote_stream(ctx: dict, body: ChatRequest, user_text: str, user_id: 
     }
     if not errored:
         await _persist(
-            ctx["session_pk"], user_text, full, trace, tokens, ctx["persist_history"],
+            ctx, user_text, full, trace, tokens, ctx["persist_history"],
             user_id=user_id,
         )
     yield f"event: trace\ndata: {json.dumps(trace, ensure_ascii=False)}\n\n"
@@ -403,7 +449,7 @@ async def _a2a_stream(ctx: dict, user_text: str, user_id: str | None):
     }
     if not errored and full.strip():  # 공백-only 응답은 영속하지 않음(적대리뷰 L1)
         await _persist(
-            ctx["session_pk"], user_text, full, trace, tokens, ctx["persist_history"],
+            ctx, user_text, full, trace, tokens, ctx["persist_history"],
             user_id=user_id,
         )
     yield f"event: trace\ndata: {json.dumps(trace, ensure_ascii=False)}\n\n"
@@ -561,7 +607,7 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
         # 오류 턴은 영속/메모리 저장하지 않는다 (부분/실패 응답 오염 방지).
         if not errored:
             await _persist(
-                ctx["session_pk"], user_text, full, trace, tokens, ctx["persist_history"],
+                ctx, user_text, full, trace, tokens, ctx["persist_history"],
                 user_id=user_id,
             )
         if not errored and used_memory and full:
@@ -587,6 +633,13 @@ async def _create_approval(ctx: dict, thread_id: str, payload: dict) -> str:
     """
     apid = "apr-" + secrets.token_hex(4)
     async with SessionLocal() as db:
+        # 0턴 미영속(스펙 049)이라도 *승인 게이트에 도달한 턴은 실 상호작용*이므로 여기서 세션 행을
+        # 보장한다. 그래야 resume_approval의 _load_context가 같은 session_id로 세션을 찾아(새 id를
+        # 안 만들고) 최종 답변을 원 세션에 영속한다(approval-resume 연속성 보존).
+        sess = await _resolve_session_for_persist(db, ctx)
+        if sess is not None:
+            ctx["session_pk"] = sess.id
+            ctx["session_pending"] = None
         db.add(
             Approval(
                 approval_id=apid,
@@ -686,5 +739,5 @@ async def resume_approval(approval: Approval, decision: str) -> None:
     )
     trace["resumedApproval"] = {"id": approval.approval_id, "decision": decision}
     await _persist(
-        ctx["session_pk"], user_text, reply, trace, tokens, ctx["persist_history"], user_id=None
+        ctx, user_text, reply, trace, tokens, ctx["persist_history"], user_id=None
     )

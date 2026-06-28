@@ -23,6 +23,7 @@ _run = Depends(authz.require("batch", "run"))
 class BatchConfigOut(BaseModel):
     session_retention_days: int | None
     session_cleanup_cron: str | None
+    min_session_turns: int | None
     memory_consolidation_threshold: int | None
     memory_consolidation_cron: str | None
 
@@ -32,6 +33,9 @@ class BatchConfigIn(BaseModel):
     # NULL은 명시적 비활성으로 허용. jobs.cleanup_sessions에도 days<1 가드가 한 겹 더 있다(방어적).
     session_retention_days: int | None = Field(default=None, ge=1)
     session_cleanup_cron: str | None = None
+    # ge=1: 0이면 turns<0 없음이지만 의미상 "모든 세션 미달"로 오인되는 footgun이라 1 미만 거부(422).
+    # NULL=비활성. jobs.cleanup_sessions에도 <1 가드가 한 겹 더(learning 037 — 파괴적 노브 바닥).
+    min_session_turns: int | None = Field(default=None, ge=1)
     # ge=2: 0/1은 거의 모든 유저를 매번 통합하는 파괴적 churn(learning 037). 2 미만은 거부(422).
     # NULL=비활성. jobs.consolidate_user_memories에도 <2 가드가 한 겹 더 있다(방어적).
     memory_consolidation_threshold: int | None = Field(default=None, ge=2)
@@ -89,6 +93,7 @@ def _config_out(cfg: BatchConfig) -> BatchConfigOut:
     return BatchConfigOut(
         session_retention_days=cfg.session_retention_days,
         session_cleanup_cron=cfg.session_cleanup_cron,
+        min_session_turns=cfg.min_session_turns,
         memory_consolidation_threshold=cfg.memory_consolidation_threshold,
         memory_consolidation_cron=cfg.memory_consolidation_cron,
     )
@@ -107,6 +112,7 @@ async def update_config(body: BatchConfigIn, session: AsyncSession = Depends(get
     for field in (
         "session_retention_days",
         "session_cleanup_cron",
+        "min_session_turns",
         "memory_consolidation_threshold",
         "memory_consolidation_cron",
     ):

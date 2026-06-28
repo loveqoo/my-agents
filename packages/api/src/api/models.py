@@ -364,6 +364,9 @@ class BatchConfig(Base):
 
     `session_retention_days`: NULL=비활성. N이면 last_activity가 N일보다 오래된 세션을 정리 대상으로.
     `session_cleanup_cron`: 격리 배치 서비스의 내부 스케줄러가 읽는 cron식(예 "0 3 * * *"). NULL=미등록.
+    `min_session_turns`: NULL=비활성. N이면 turns<N인 *이탈* 세션(활성 보호: last_activity가 내부
+      IDLE_GUARD=1h보다 오래된 것만)을 정리 대상으로(스펙 049, #10). 나이 기준과 합집합. 0은 모든
+      세션 대상이 되는 footgun이라 API에서 ge=1, jobs에서도 <1 가드(learning 037 — 파괴적 노브 바닥).
     `memory_consolidation_threshold`: NULL=비활성. 의미상 ≥2 — user_id 기억이 이 수를 넘은 유저만
       통합 대상(스펙 039). 0/1은 거의 모든 유저를 매번 통합하는 파괴적 churn이라 API에서 ge=2로 거르고
       jobs에서도 <2 가드(learning 037 — 파괴적 노브 바닥).
@@ -374,6 +377,7 @@ class BatchConfig(Base):
     id: Mapped[uuid.UUID] = _pk()
     session_retention_days: Mapped[int | None] = mapped_column(Integer, default=None)
     session_cleanup_cron: Mapped[str | None] = mapped_column(String(120), default=None)
+    min_session_turns: Mapped[int | None] = mapped_column(Integer, default=None)
     memory_consolidation_threshold: Mapped[int | None] = mapped_column(Integer, default=None)
     memory_consolidation_cron: Mapped[str | None] = mapped_column(String(120), default=None)
     updated_at: Mapped[datetime] = mapped_column(

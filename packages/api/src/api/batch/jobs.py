@@ -9,12 +9,12 @@ import logging
 import re
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, exists, or_, select
 
 from .. import memory
 from ..db import SessionLocal
 from ..mem_config import default_mem_cfg
-from ..models import BatchConfig, MemorySnapshot, Session, User
+from ..models import Approval, BatchConfig, MemorySnapshot, Session, User
 
 log = logging.getLogger("api.batch.jobs")
 
@@ -29,53 +29,86 @@ async def _get_config(session) -> BatchConfig:
     return cfg
 
 
-async def cleanup_sessions(*, dry_run: bool, run_id=None) -> dict:
-    """오래된 세션 정리 — `last_activity < now() - retention_days`. 메시지는 FK ondelete CASCADE로
-    DB가 자동 삭제한다(messages.session_pk).
+# 턴 기준 정리(스펙 049, #10)의 활성 세션 보호창. turns<N이어도 최근 IDLE_GUARD 안에 활동한
+# 세션은 "진행 중"으로 보고 절대 삭제하지 않는다. 어드민 노브가 아니라 내부 안전 상수(옵션3 선택
+# 반영) — cron은 보통 일 단위라 1시간이면 진행 중 대화를 안전하게 비껴간다.
+_TURN_CLEANUP_IDLE_GUARD = timedelta(hours=1)
 
-    - 보존창(session_retention_days)이 NULL이면 no-op(disabled) — 명시 설정 전엔 절대 삭제 안 함.
-    - 나이 기준 삭제라 자연히 idempotent(이미 지워진 행은 다시 못 찾음).
+
+async def cleanup_sessions(*, dry_run: bool, run_id=None) -> dict:
+    """세션 정리 — 두 기준의 **합집합**(스펙 038 나이 + 스펙 049 턴). 메시지는 FK ondelete CASCADE로
+    DB가 자동 삭제(messages.session_pk).
+
+    - 나이 절: `last_activity < now() - retention_days`. retention_days NULL/<1이면 이 절 비활성.
+    - 턴 절: `turns < min_session_turns AND last_activity < now() - IDLE_GUARD`(이탈 저턴 세션).
+      min_session_turns NULL/<1이면 이 절 비활성. IDLE_GUARD가 활성 세션을 보호.
+    - 둘 다 비활성이면 no-op(disabled) — 명시 설정 전엔 절대 삭제 안 함.
+    - 둘 다 last_activity 단조 기준이라 idempotent(이미 지워진 행은 다시 못 찾음).
     - mem0 장기기억(별 저장소, user_id/run_id 키)은 건드리지 않는다 — 전사 ≠ 장기기억(#6은 039).
     """
     async with SessionLocal() as session:
         cfg = await _get_config(session)
         days = cfg.session_retention_days
-        # 비활성: NULL은 명시 미설정. days<1(0/음수)도 비활성으로 막는다 — days=0이면 cutoff=now()라
-        # 모든 세션이 대상이 되는 delete-all 푸트건이 된다. API에서도 ge=1로 거르지만 삭제 지점에서
-        # 한 겹 더(방어적). 설정값이 잘못돼도 절대 전체 삭제로 번지지 않게 한다.
-        if days is None or days < 1:
-            log.info("session-cleanup: 보존창 비활성(days=%s) → no-op", days)
+        min_turns = cfg.min_session_turns
+        now = datetime.now(timezone.utc)
+
+        # 각 절 비활성 가드(API ge=1 외 한 겹 더, 방어적). days=0/min_turns=0이면 delete-all footgun.
+        age_active = days is not None and days >= 1
+        turn_active = min_turns is not None and min_turns >= 1
+        if not age_active and not turn_active:
+            log.info("session-cleanup: 나이·턴 기준 모두 비활성 → no-op")
             return {"status": "disabled", "deleted": 0}
 
-        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        age_cutoff = now - timedelta(days=days) if age_active else None
+        idle_cutoff = now - _TURN_CLEANUP_IDLE_GUARD if turn_active else None
+
+        clauses = []
+        if age_active:
+            clauses.append(Session.last_activity < age_cutoff)
+        if turn_active:
+            # 활성 보호: 최근 활동 세션은 turns<N이어도 제외(idle_cutoff보다 오래된 것만).
+            clauses.append((Session.turns < min_turns) & (Session.last_activity < idle_cutoff))
+
+        # 미해결 승인(HIL) 세션은 절대 삭제 안 함 — _create_approval이 turns=0으로 lazy-create한
+        # 세션이라 턴 절(<N)에 걸리고, 승인 대기는 흔히 IDLE_GUARD(1h)를 넘긴다. 그 사이 정리되면
+        # resume_approval의 _load_context가 행을 못 찾아 새 id를 만들어 대화를 고아로 만든다(적대리뷰
+        # 결함 #1, 스펙 049). 나이 절에도 동일 노출이므로 양 절에 걸쳐 AND로 제외한다.
+        pending_approval = (
+            exists()
+            .where(Approval.session_id == Session.session_id)
+            .where(Approval.status == "pending")
+        )
+
         rows = (
             await session.execute(
-                select(Session.id, Session.session_id).where(Session.last_activity < cutoff)
+                select(Session.id, Session.session_id).where(or_(*clauses), ~pending_approval)
             )
         ).all()
         ids = [r[0] for r in rows]
 
+        meta = {
+            "retention_days": days if age_active else None,
+            "cutoff": age_cutoff.isoformat() if age_cutoff else None,
+            "min_session_turns": min_turns if turn_active else None,
+            "idle_cutoff": idle_cutoff.isoformat() if idle_cutoff else None,
+        }
+
         if dry_run:
-            log.info("session-cleanup DRY-RUN: 대상 %d건 (cutoff=%s)", len(ids), cutoff.isoformat())
-            return {
-                "status": "dry_run",
-                "retention_days": days,
-                "cutoff": cutoff.isoformat(),
-                "would_delete": len(ids),
-                "sample": [r[1] for r in rows[:20]],
-            }
+            log.info(
+                "session-cleanup DRY-RUN: 대상 %d건 (나이=%s, 턴<%s)",
+                len(ids), age_cutoff.isoformat() if age_cutoff else "off",
+                min_turns if turn_active else "off",
+            )
+            return {"status": "dry_run", **meta, "would_delete": len(ids), "sample": [r[1] for r in rows[:20]]}
 
         if ids:
             # Core bulk DELETE — ORM cascade는 안 걸리지만 messages FK가 ondelete CASCADE라 DB가 정리.
             await session.execute(delete(Session).where(Session.id.in_(ids)))
             await session.commit()
-        log.info("session-cleanup: %d건 삭제 (cutoff=%s)", len(ids), cutoff.isoformat())
-        return {
-            "status": "ok",
-            "retention_days": days,
-            "cutoff": cutoff.isoformat(),
-            "deleted": len(ids),
-        }
+        log.info("session-cleanup: %d건 삭제 (나이=%s, 턴<%s)",
+                 len(ids), age_cutoff.isoformat() if age_cutoff else "off",
+                 min_turns if turn_active else "off")
+        return {"status": "ok", **meta, "deleted": len(ids)}
 
 
 _CONSOLIDATE_PROMPT = (

@@ -125,6 +125,7 @@ export const revokeRole = (id: string, role: string) =>
 export interface BatchConfig {
   session_retention_days: number | null
   session_cleanup_cron: string | null
+  min_session_turns: number | null
   memory_consolidation_threshold: number | null
   memory_consolidation_cron: string | null
 }

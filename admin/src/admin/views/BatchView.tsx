@@ -45,19 +45,25 @@ function summarize(r: BatchRun): React.ReactNode {
       )
     return <code style={{ fontSize: 12 }}>{JSON.stringify(s)}</code>
   }
-  // session-cleanup
-  if (st === 'disabled') return <Tag>비활성(보존일수 미설정)</Tag>
+  // session-cleanup — 나이·턴 기준의 합집합(스펙 049)이라 활성 기준만 골라 표기.
+  const crit = [
+    s.retention_days != null ? `보존 ${String(s.retention_days)}일` : null,
+    s.min_session_turns != null ? `${String(s.min_session_turns)}턴 미만` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ')
+  if (st === 'disabled') return <Tag>비활성(기준 미설정)</Tag>
   if (st === 'dry_run')
     return (
       <span>
         <Tag color="geekblue">dry-run</Tag>
-        삭제 예정 {String(s.would_delete ?? '?')}건 · 보존 {String(s.retention_days ?? '?')}일
+        삭제 예정 {String(s.would_delete ?? '?')}건{crit ? ` · ${crit}` : ''}
       </span>
     )
   if (st === 'ok')
     return (
       <span>
-        삭제 {String(s.deleted ?? '?')}건 · 보존 {String(s.retention_days ?? '?')}일
+        삭제 {String(s.deleted ?? '?')}건{crit ? ` · ${crit}` : ''}
       </span>
     )
   return <code style={{ fontSize: 12 }}>{JSON.stringify(s)}</code>
@@ -68,6 +74,7 @@ export default function BatchView() {
   // session-cleanup
   const [days, setDays] = useState<number | null>(null)
   const [cron, setCron] = useState<string>('')
+  const [minTurns, setMinTurns] = useState<number | null>(null)
   // memory-consolidation
   const [threshold, setThreshold] = useState<number | null>(null)
   const [memCron, setMemCron] = useState<string>('')
@@ -89,6 +96,7 @@ export default function BatchView() {
     setCfg(c)
     setDays(c.session_retention_days)
     setCron(c.session_cleanup_cron ?? '')
+    setMinTurns(c.min_session_turns)
     setThreshold(c.memory_consolidation_threshold)
     setMemCron(c.memory_consolidation_cron ?? '')
   }, [])
@@ -111,7 +119,9 @@ export default function BatchView() {
 
   const sessionDirty =
     cfg !== null &&
-    (days !== cfg.session_retention_days || (cron || null) !== (cfg.session_cleanup_cron || null))
+    (days !== cfg.session_retention_days ||
+      (cron || null) !== (cfg.session_cleanup_cron || null) ||
+      minTurns !== cfg.min_session_turns)
   const memoryDirty =
     cfg !== null &&
     (threshold !== cfg.memory_consolidation_threshold ||
@@ -122,7 +132,11 @@ export default function BatchView() {
     try {
       const body =
         which === 'session'
-          ? { session_retention_days: days, session_cleanup_cron: cron.trim() || null }
+          ? {
+              session_retention_days: days,
+              session_cleanup_cron: cron.trim() || null,
+              min_session_turns: minTurns,
+            }
           : {
               memory_consolidation_threshold: threshold,
               memory_consolidation_cron: memCron.trim() || null,
@@ -236,8 +250,9 @@ export default function BatchView() {
       <Panel style={{ padding: 20, marginBottom: 20 }}>
         <h4 style={{ margin: '0 0 4px', fontSize: 16 }}>세션 보존정리 (session-cleanup)</h4>
         <div style={{ color: 'var(--color-text-tertiary)', fontSize: 13, marginBottom: 16 }}>
-          마지막 활동이 보존일수보다 오래된 세션과 그 메시지를 삭제합니다. 장기기억(mem0)은 건드리지 않습니다.
-          보존일수를 비우면 비활성(삭제 안 함)입니다.
+          마지막 활동이 보존일수보다 오래된 세션, 또는 최소 턴 수에 못 미친 이탈 세션과 그 메시지를 삭제합니다.
+          장기기억(mem0)은 건드리지 않습니다. 두 기준 모두 비우면 비활성(삭제 안 함)입니다.
+          (진행 중인 대화는 보호됩니다 — 최근 1시간 내 활동 세션은 턴 수와 무관하게 정리하지 않습니다.)
         </div>
         <Desc label="보존일수">
           <InputNumber
@@ -251,6 +266,22 @@ export default function BatchView() {
           />
           <span style={{ marginInlineStart: 12, color: 'var(--color-text-tertiary)', fontSize: 13 }}>
             {days == null ? '비활성 — 삭제하지 않음' : `${days}일 이전 세션 정리`}
+          </span>
+        </Desc>
+        <Desc label="최소 턴 수">
+          <InputNumber
+            min={1}
+            max={10000}
+            value={minTurns ?? undefined}
+            onChange={(v) => setMinTurns(v ?? null)}
+            placeholder="비활성"
+            addonAfter="턴"
+            style={{ width: 160 }}
+          />
+          <span style={{ marginInlineStart: 12, color: 'var(--color-text-tertiary)', fontSize: 13 }}>
+            {minTurns == null
+              ? '비활성 — 턴 수로 삭제하지 않음'
+              : `${minTurns}턴 미만 이탈 세션 정리(활성 보호)`}
           </span>
         </Desc>
         <Desc label="스케줄(cron)">
