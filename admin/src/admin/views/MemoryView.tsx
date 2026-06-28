@@ -4,7 +4,7 @@
 import { useEffect, useState } from 'react'
 import { Tabs, Select, message } from 'antd'
 import { Page } from '../shared'
-import { listAgents, listMemoryUsers, type Agent, type MemoryUser } from '../../api'
+import { listAgents, listMemoryUsers, type Agent, type MemoryUser, type MemoryUserList } from '../../api'
 import { AgentMemoryPanel } from './AgentMemoryPanel'
 import { UserMemoryPanel } from './UserMemoryPanel'
 
@@ -47,17 +47,37 @@ function AgentMemoryTab() {
 }
 
 function UserMemoryTab() {
-  const [users, setUsers] = useState<MemoryUser[]>([])
+  const [data, setData] = useState<MemoryUserList | null>(null)
   const [sel, setSel] = useState<string | undefined>()
 
   useEffect(() => {
     listMemoryUsers()
-      .then(setUsers)
+      .then(setData)
       .catch(() => message.error('유저 목록을 불러오지 못했습니다'))
   }, [])
 
-  const selUser = users.find((u) => u.user_id === sel)
+  if (!data) {
+    return <span style={{ fontSize: 13, color: 'var(--color-text-tertiary)' }}>불러오는 중…</span>
+  }
 
+  // 비-어드민: 드롭다운 없이 본인 메모리만(스펙 053). me가 있으면 패널 직접 렌더.
+  if (!data.can_curate_others) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxWidth: 720 }}>
+        {data.me ? (
+          <UserMemoryPanel userId={data.me.user_id} label={userLabel(data.me)} />
+        ) : (
+          <span style={{ fontSize: 13, color: 'var(--color-text-tertiary)', fontStyle: 'italic' }}>
+            본인 메모리를 표시할 수 없습니다.
+          </span>
+        )}
+      </div>
+    )
+  }
+
+  // 어드민/머신: 임의 유저 선택 드롭다운(이메일·이름 검색, 스펙 052).
+  const users = data.users
+  const selUser = users.find((u) => u.user_id === sel)
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxWidth: 720 }}>
       <Select

@@ -43,7 +43,7 @@ def _disposable(email: str) -> bool:
     return any(local.startswith(p) for p in _DISPOSABLE_PREFIXES)
 
 
-async def _create(email: str, password: str) -> None:
+async def _create(email: str, password: str, superuser: bool = True) -> None:
     email = (email or "").strip().lower()  # delete와 동일 정규화 — 대소문자 비대칭 제거
     if not _disposable(email):  # 적대 리뷰 H1: 실계정 super 승격 금지(create도 던짐용만)
         print("PROVISION_REFUSED(비-던짐 이메일은 생성 거부 — 실계정 super 승격 방지):", email)
@@ -53,16 +53,20 @@ async def _create(email: str, password: str) -> None:
         manager = UserManager(user_db)
         existing = await user_db.get_by_email(email)
         if existing is not None:
-            if not existing.is_superuser:  # 멱등 — 이미 있으면 super만 보장
+            # 멱등 — super 모드면 super 보장. member 모드는 기존 플래그를 *낮추지 않는다*
+            # (실수로 super를 강등해 다른 테스트를 깨지 않게; 던짐용이라 보통 신규 생성됨).
+            if superuser and not existing.is_superuser:
                 existing.is_superuser = True
                 await session.commit()
             print("PROVISION_EXISTS", email)
             return
         await manager.create(
-            UserCreate(email=email, password=password, is_superuser=True, is_verified=True),
+            UserCreate(
+                email=email, password=password, is_superuser=superuser, is_verified=True
+            ),
             safe=False,
         )
-    print("PROVISION_OK", email)
+    print("PROVISION_OK", email, "member" if not superuser else "super")
 
 
 async def _delete(email: str) -> None:
@@ -95,7 +99,9 @@ def main() -> None:
         if len(sys.argv) < 4:
             print("create는 password가 필요합니다")
             sys.exit(1)
-        asyncio.run(_create(email, sys.argv[3]))
+        # 4번째 토큰 "member" → 비-super 계정(스펙 053 역할 스코핑 검증용). 기본은 super.
+        is_super = not (len(sys.argv) >= 5 and sys.argv[4] == "member")
+        asyncio.run(_create(email, sys.argv[3], superuser=is_super))
     elif cmd == "delete":
         asyncio.run(_delete(email))
     else:

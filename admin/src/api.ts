@@ -393,7 +393,14 @@ export interface MemoryUser {
   email: string | null
   display_name: string | null
 }
-export const listMemoryUsers = () => j<MemoryUser[]>('/memory/users')
+// 스펙 053 — 역할 기반 스코핑. 백엔드가 "타인 큐레이션 가능?"을 판정해 내린다(Casbin admin
+// 역할은 클라이언트가 모르므로). 비-어드민: can_curate_others=false·users=[me]. 어드민: 전체.
+export interface MemoryUserList {
+  can_curate_others: boolean
+  me: MemoryUser | null
+  users: MemoryUser[]
+}
+export const listMemoryUsers = () => j<MemoryUserList>('/memory/users')
 export interface SessionMessage {
   role: string
   content: string

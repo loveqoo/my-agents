@@ -16,6 +16,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from . import memory
+from .auth import current_principal
+from .authz import get_enforcer
 from .db import get_session
 from .mem_config import default_mem_cfg
 from .models import Session as SessionModel, User
@@ -35,15 +37,59 @@ class MemoryUserOut(BaseModel):
     display_name: str | None
 
 
-@router.get("/users", response_model=list[MemoryUserOut])
-async def list_memory_users(session: AsyncSession = Depends(get_session)) -> list[dict]:
-    """유저 메모리 큐레이션용 — 대화에 쓰인 distinct user_id를 등록 유저 신원과 함께(최근순).
+class MemoryUserList(BaseModel):
+    # 스펙 053 — 역할 기반 스코핑. 프론트가 드롭다운 노출 여부를 백엔드 판정으로 결정하게 한다
+    # (Casbin admin 역할은 클라이언트가 모르므로 capability를 실어 내린다).
+    can_curate_others: bool  # memory:manage 보유 — 타 유저 메모리 열람·교정 가능
+    me: MemoryUserOut | None  # 현재 주체 신원(머신 토큰=null — 유저 신원 없음)
+    users: list[MemoryUserOut]  # 어드민=전체 distinct, 비-어드민=[me]
 
-    `/sessions/users`(list[str], Playground·스펙 021)와 **분리**한다: 여기선 email·display_name을
-    붙여 관리자가 "누구의 메모리인지" 식별하게 한다(raw UUID로는 불가 — 스펙 052). 신원 보강은
-    **JOIN으로만** — `/admin/users`의 `users:manage` 권한을 요구하지 않아(메모리 화면은 비-슈퍼유저
-    관리자에게도 열림) 메모리 큐레이션이 유저-관리 권한에 결합되지 않는다.
+
+def _can_curate_others(principal) -> bool:
+    """타 유저 메모리 열람·교정 권한(memory:manage 등가). 머신 토큰=소유자=어드민 등가,
+    is_superuser=우회(authz.py 패턴), 그 외엔 Casbin enforce(기본정책 admin '*,*'가 통과).
+    기본정책이 memory:manage를 이미 커버 → 새 시드 불요. 스펙 053."""
+    if principal == "machine":
+        return True
+    if getattr(principal, "is_superuser", False):
+        return True
+    return get_enforcer().enforce(str(principal.id), "memory", "manage")
+
+
+def _assert_principal_may_access(principal, user_id: str) -> None:
+    """principal-레벨 게이트 — 비-어드민은 자기 user_id만. mem_id가 그 user_id 소유인지 보는
+    `_assert_user_owns`(row-레벨)와 **별개**, 둘 다 필요(전자=주체×대상, 후자=대상×행)."""
+    if _can_curate_others(principal):
+        return
+    own = None if principal == "machine" else str(principal.id)
+    if user_id != own:
+        raise HTTPException(status_code=403, detail="다른 유저의 메모리에 접근할 수 없습니다")
+
+
+def _principal_identity(principal) -> MemoryUserOut | None:
+    if principal == "machine":
+        return None
+    return MemoryUserOut(
+        user_id=str(principal.id), email=principal.email, display_name=principal.display_name
+    )
+
+
+@router.get("/users", response_model=MemoryUserList)
+async def list_memory_users(
+    principal=Depends(current_principal),
+    session: AsyncSession = Depends(get_session),
+) -> MemoryUserList:
+    """유저 메모리 큐레이션 대상 목록 — **현재 주체가 접근 허용된 범위만**(스펙 053).
+
+    비-어드민: `users=[me]`(본인만 — 메모리가 없어도 1건 둬 빈 패널이라도 보게). 어드민/머신:
+    대화에 쓰인 distinct user_id 전체에 신원(email·display_name) 보강(스펙 052, JOIN으로만).
+    `can_curate_others`로 프론트가 드롭다운 노출을 결정한다. `/sessions/users`(Playground·021)와
+    분리 — 그쪽은 신원·권한 스코핑 없는 list[str].
     """
+    me = _principal_identity(principal)
+    if not _can_curate_others(principal):
+        return MemoryUserList(can_curate_others=False, me=me, users=[me] if me else [])
+
     rows = (
         await session.execute(
             select(SessionModel.user_id, func.max(SessionModel.last_activity).label("last"))
@@ -53,22 +99,21 @@ async def list_memory_users(session: AsyncSession = Depends(get_session)) -> lis
         )
     ).all()
     uids = [r.user_id for r in rows]
-    if not uids:
-        return []
-    # user_id(str) ↔ User.id(UUID) 캐스팅 회피 — distinct 수가 적어 파이썬 측 매핑이 안전·단순.
-    users = (await session.execute(select(User))).scalars().all()
-    by_id = {str(u.id): u for u in users}
-    out = []
-    for uid in uids:
-        u = by_id.get(uid)
-        out.append(
-            {
-                "user_id": uid,
-                "email": u.email if u else None,  # 미등록 user_id면 None(graceful)
-                "display_name": u.display_name if u else None,
-            }
-        )
-    return out
+    users_out: list[MemoryUserOut] = []
+    if uids:
+        # user_id(str) ↔ User.id(UUID) 캐스팅 회피 — distinct 수가 적어 파이썬 측 매핑이 안전·단순.
+        users = (await session.execute(select(User))).scalars().all()
+        by_id = {str(u.id): u for u in users}
+        for uid in uids:
+            u = by_id.get(uid)
+            users_out.append(
+                MemoryUserOut(
+                    user_id=uid,
+                    email=u.email if u else None,  # 미등록 user_id면 None(graceful)
+                    display_name=u.display_name if u else None,
+                )
+            )
+    return MemoryUserList(can_curate_others=True, me=me, users=users_out)
 
 
 async def _user_mem_cfg(session: AsyncSession):
@@ -86,9 +131,12 @@ async def _assert_user_owns(user_id: str, mem_id: str, mem_cfg) -> None:
 
 @router.get("/user/{user_id}")
 async def list_user_memory(
-    user_id: str, session: AsyncSession = Depends(get_session)
+    user_id: str,
+    principal=Depends(current_principal),
+    session: AsyncSession = Depends(get_session),
 ) -> list[dict]:
     """유저(user_id) 장기 기억 목록. 메모리 미가용이면 빈 목록(graceful)."""
+    _assert_principal_may_access(principal, user_id)
     mem_cfg = await _user_mem_cfg(session)
     if mem_cfg is None:
         return []
@@ -100,9 +148,11 @@ async def update_user_memory(
     user_id: str,
     mem_id: str,
     body: UserMemoryIn,
+    principal=Depends(current_principal),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
-    """관리자 교정 — 유저 기억 본문 수정."""
+    """교정 — 유저 기억 본문 수정(본인 또는 어드민)."""
+    _assert_principal_may_access(principal, user_id)
     text = body.text.strip()
     if not text:
         # 빈 본문으로의 교정은 내용을 소리없이 파괴한다 — 삭제는 별도 경로로. (029 비판리뷰 LOW)
@@ -119,9 +169,13 @@ async def update_user_memory(
 
 @router.delete("/user/{user_id}/{mem_id}", status_code=204)
 async def delete_user_memory(
-    user_id: str, mem_id: str, session: AsyncSession = Depends(get_session)
+    user_id: str,
+    mem_id: str,
+    principal=Depends(current_principal),
+    session: AsyncSession = Depends(get_session),
 ) -> None:
-    """관리자 교정 — 유저 기억 삭제."""
+    """교정 — 유저 기억 삭제(본인 또는 어드민)."""
+    _assert_principal_may_access(principal, user_id)
     mem_cfg = await _user_mem_cfg(session)
     if mem_cfg is None:
         raise HTTPException(status_code=400, detail="장기 메모리가 활성화되지 않았습니다")
