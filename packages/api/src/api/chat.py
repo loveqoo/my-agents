@@ -337,6 +337,40 @@ async def _persist(
         await db.commit()
 
 
+# 연결-실패로 보이는 에러의 지문(httpx/openai/asyncpg 계층 공통). model_id 불일치(404 등)나
+# 인증 오류(401)는 *연결*이 아니므로 힌트를 붙이지 않는다 — 잘못된 안내가 더 혼란스럽다.
+_CONN_ERR_MARKERS = (
+    "connection error",
+    "connection refused",
+    "cannot connect",
+    "all connection attempts failed",
+    "connect call failed",
+    "errno 61",
+    "name or service not known",
+    "timed out",
+    "timeout",
+    "apiconnectionerror",
+    "connecterror",
+    "max retries exceeded",
+)
+
+
+def _model_error_hint(exc: Exception, model_cfg: dict | None) -> str | None:
+    """모델 연결 실패로 보이면 전환 힌트(없으면 None). 스펙 058 G4 — 기본 chat=MLX라
+    MLX 서버 부재 시 첫 채팅이 곧장 실패하는데, 운영자가 무외부 'Mock LLM' 전환법을 모른다."""
+    if not model_cfg:
+        return None
+    blob = f"{type(exc).__name__} {exc}".lower()
+    if not any(m in blob for m in _CONN_ERR_MARKERS):
+        return None
+    base_url = model_cfg.get("base_url", "")
+    return (
+        f"채팅 모델 연결 실패 (base_url={base_url}) — 모델 서버가 떠 있는지/주소가 맞는지 확인하세요"
+        "(기본은 MLX: MLX_BASE_URL). 외부 모델 없이 바로 시험하려면 admin에서 기본 채팅 모델을 "
+        "'Mock LLM'으로 전환하세요(무외부 동작)."
+    )
+
+
 def _card_streaming(card: object) -> bool:
     """카드 capabilities.streaming. 없으면 True(message/stream 우선, 안 되면 에이전트가 단건 응답)."""
     if isinstance(card, dict):
@@ -487,7 +521,10 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
                     interrupts.extend(i.value for i in chunk["__interrupt__"])
         except Exception as exc:  # 모델/툴 오류도 프레임으로 전달
             errored = True
-            yield f"data: {json.dumps({'error': str(exc)}, ensure_ascii=False)}\n\n"
+            # 연결 실패로 보이면 'Mock LLM' 전환 힌트를 덧붙인다(스펙 058 G4). 그 외 오류는 원문 유지.
+            hint = _model_error_hint(exc, ctx.get("model_cfg"))
+            msg = f"{exc}\n{hint}" if hint else str(exc)
+            yield f"data: {json.dumps({'error': msg}, ensure_ascii=False)}\n\n"
 
         # 한 턴에 위험 도구가 둘 이상 호출되면(다중 pending interrupt) 현재 재개 프로토콜은 **단일
         # interrupt만** 지원한다 — Command(resume=)에 interrupt id를 안 주므로 langgraph가 "must

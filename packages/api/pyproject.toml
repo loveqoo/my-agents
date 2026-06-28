@@ -29,6 +29,7 @@ dependencies = [
 [project.scripts]
 api = "api.main:run"
 batch = "api.batch.__main__:main"  # 격리 배치 서비스 진입점(스펙 038)
+bootstrap-admin = "api.bootstrap_admin:main"  # 첫 관리자/락아웃 복구(스펙 058 G2)
 
 [build-system]
 requires = ["hatchling"]

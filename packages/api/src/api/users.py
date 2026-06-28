@@ -146,7 +146,22 @@ async def seed_admin() -> None:
     email = (os.environ.get("ADMIN_EMAIL") or "").strip()
     password = os.environ.get("ADMIN_PASSWORD") or ""
     if not email or not password:
-        log.warning("ADMIN_EMAIL/ADMIN_PASSWORD 미설정 — 관리자 시드 생략(fail-closed).")
+        # 유저가 한 명도 없으면(=첫 실행 락아웃) 조치를 또렷이 안내한다. 관리자가 이미 있으면
+        # (정상 운영 중 env만 비워둔 경우) 매 부팅 시끄럽지 않게 한 줄만. (스펙 058 G2)
+        from sqlalchemy import func, select
+
+        from .db import SessionLocal
+
+        async with SessionLocal() as session:
+            user_count = await session.scalar(select(func.count()).select_from(User)) or 0
+        if user_count == 0:
+            log.warning(
+                "ADMIN_EMAIL/ADMIN_PASSWORD 미설정이고 유저가 0명입니다 — 로그인할 수 없습니다.\n"
+                "  회복: .env에 ADMIN_EMAIL/ADMIN_PASSWORD를 채우고 재기동하거나,\n"
+                "        python -m api.bootstrap_admin <email> <password> 를 실행하세요."
+            )
+        else:
+            log.warning("ADMIN_EMAIL/ADMIN_PASSWORD 미설정 — 관리자 시드 생략(fail-closed).")
         return
 
     from fastapi_users.exceptions import UserAlreadyExists
