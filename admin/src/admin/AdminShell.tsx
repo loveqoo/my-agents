@@ -124,15 +124,19 @@ export default function AdminShell({ user, onLogout }: { user: Me; onLogout: () 
         </span>
       ),
     },
-    // 유저 관리·배치는 admin 보호 라우트 — 슈퍼유저에게만 메뉴 노출(1차; role 기반 노출은 추후).
+    // 유저 관리·배치·허용 호스트는 admin 보호 라우트 — 슈퍼유저에게만 노출하고
+    // "관리자" 그룹 헤더로 일반 작업 메뉴와 시각 구분(spec 065; "도구" 그룹과 동일 패턴).
+    // 노출 게이트는 UX 편의일 뿐, 서버 라우터가 require(...,"manage")로 독립 강제(064 §D5).
     ...(user.is_superuser
       ? [
-          { key: 'users' as const, icon: <TeamOutlined />, label: '유저' },
-          { key: 'batch' as const, icon: <ScheduleOutlined />, label: '배치' },
           {
-            key: 'allowed-hosts' as const,
-            icon: <SafetyCertificateOutlined />,
-            label: '허용 호스트',
+            type: 'group' as const,
+            label: collapsed ? '' : '관리자',
+            children: [
+              { key: 'users', icon: <TeamOutlined />, label: '유저' },
+              { key: 'batch', icon: <ScheduleOutlined />, label: '배치' },
+              { key: 'allowed-hosts', icon: <SafetyCertificateOutlined />, label: '허용 호스트' },
+            ],
           },
         ]
       : []),
