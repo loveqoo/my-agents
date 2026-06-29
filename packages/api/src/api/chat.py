@@ -569,7 +569,7 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
         # 위험 도구가 그래프를 멈췄다 → 런타임 Approval 생성 + "대기" 프레임 후 종료(정상 턴 영속 안 함).
         # 부수효과(canned·calls_sink)는 interrupt 이전이라 0 — 승인 전 무실행 불변식(스펙 041 §3.3).
         if interrupted and not errored:
-            apid = await _create_approval(ctx, thread_id, interrupted)
+            apid = await _create_approval(ctx, thread_id, interrupted, user_id)
             action = interrupted.get("action", "(작업)")
             wait_msg = f"⏸ 승인 대기: {action} — 관리자 승인이 필요합니다. (승인 큐 {apid})"
             yield f"data: {json.dumps({'text': wait_msg, 'approval': apid}, ensure_ascii=False)}\n\n"
@@ -626,11 +626,16 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
 
 
 # ----------------------------- HIL 승인 게이트 (스펙 041) -----------------------------
-async def _create_approval(ctx: dict, thread_id: str, payload: dict) -> str:
+async def _create_approval(
+    ctx: dict, thread_id: str, payload: dict, user_id: str | None
+) -> str:
     """위험 도구가 그래프를 멈춘 순간 런타임 Approval(pending) 생성. checkpoint=thread_id가 재개 키.
 
     DB 접근은 API 계층(여기)에서만 — 도구는 순수(interrupt payload만 만든다). 이 row가
-    ApprovalsView에 뜨고, admin이 resolve하면 resume_approval이 같은 thread_id로 그래프를 재개한다.
+    ApprovalsView에 뜨고, resolve하면 resume_approval이 같은 thread_id로 그래프를 재개한다.
+
+    user_id = 요청 주체(쿠키 유저 UUID str, 머신이면 None). owner self-승인(스펙 066)의 대조 기준 —
+    여기서 박지 않으면 self-승인 자체가 불가능하고, NULL은 admin 전용으로 fail-closed.
     """
     apid = "apr-" + secrets.token_hex(4)
     async with SessionLocal() as db:
@@ -645,6 +650,7 @@ async def _create_approval(ctx: dict, thread_id: str, payload: dict) -> str:
             Approval(
                 approval_id=apid,
                 session_id=ctx["session_id"],
+                user_id=user_id,
                 agent_pk=ctx["agent_pk"],
                 agent_name=ctx["agent_name"],
                 permission=payload.get("permission", ""),

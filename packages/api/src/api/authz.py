@@ -99,6 +99,21 @@ async def get_roles(user_sub: str) -> list[str]:
     return await get_enforcer().get_roles_for_user(user_sub)
 
 
+# ----------------------------- self-승인 인가 (스펙 066) -----------------------------
+def can_self_approve(user_sub: str, permission: str) -> bool:
+    """owner가 *자기* 승인 행을 직접 결정할 수 있는가 — 그 permission이 self_approve로 열린 경우만.
+
+    승인 권한을 action의 민감도(=permission)로 가른다(스펙 066). 정책은 `(role, permission,
+    "self_approve")`로 *명시적으로 열어야* 한다 — 기본 시드엔 하나도 없어(_DEFAULT_POLICIES) 전부
+    fail-closed = admin 필수. permission이 빈값/미등록이면 enforce 매칭 불가 → False(알 수 없는
+    권한은 self-승인 불가, 위협 T6). superuser 우회는 여기 없음 — owner 분기는 비-admin 전용이고
+    admin은 resolve의 admin 분기에서 이미 처리된다.
+    """
+    if not permission:
+        return False
+    return get_enforcer().enforce(user_sub, permission, "self_approve")
+
+
 # ----------------------------- 의존성 팩토리 -----------------------------
 def require(obj: str, act: str = "*"):
     """라우트 보호용 의존성 — 현재 유저가 (obj, act)를 enforce 통과해야 한다.

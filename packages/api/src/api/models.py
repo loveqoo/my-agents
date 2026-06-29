@@ -290,6 +290,9 @@ class Approval(Base):
     id: Mapped[uuid.UUID] = _pk()
     approval_id: Mapped[str] = mapped_column(String(80), unique=True)  # apr_...
     session_id: Mapped[str | None] = mapped_column(String(80), default=None)
+    # 요청 주체(auth User UUID str). None = 머신/레거시 = owner-resolvable 아님(admin 전용).
+    # owner self-승인(스펙 066)의 진실 원천 — resolve는 이 값을 current_principal과 대조한다.
+    user_id: Mapped[str | None] = mapped_column(String(80), default=None)
     agent_pk: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("agents.id", ondelete="SET NULL"), default=None
     )
