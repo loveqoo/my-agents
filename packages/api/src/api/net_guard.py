@@ -64,7 +64,9 @@ def guard_url(url: str) -> None:
         seen = True
         if _ip_is_blocked(ip):
             raise SsrfBlocked(
-                "사설/내부 대역으로의 요청은 차단됩니다(A2A_ALLOWED_HOSTS로 허용 가능)"
+                f"사설/내부 대역으로의 요청은 차단됩니다(host={host}). 개발용 mock 등 의도된 "
+                f"대상이면 환경변수 A2A_ALLOWED_HOSTS에 이 호스트를 추가하세요"
+                f"(쉼표구분, 예: A2A_ALLOWED_HOSTS={host}). 변경 후 API 재기동 필요."
             )
     if not seen:
         raise SsrfBlocked("호스트에서 유효한 IP를 얻지 못했습니다")
