@@ -29,8 +29,9 @@ from .models import (
 )
 
 # 등록되는 기본 chat 모델명 — ModelConfig와 에이전트 참조를 단일 소스로 묶어
-# 둘이 어긋나지 않게 한다(스펙 023). 가상 모델명(claude-*/gpt-*) 금지.
-CHAT_MODEL_NAME = "qwen3.6-35b"
+# 둘이 어긋나지 않게 한다(스펙 023). 기본은 Mock LLM(무외부 동작, 스펙 059) — 실 모델은
+# admin Provider UI에서 추가하고 기본 전환한다. 가상 모델명(claude-*/gpt-*) 금지.
+CHAT_MODEL_NAME = "mock-llm"
 
 PERSONAS = [
     ("Methodical Researcher", "전문적, 차분함", "Rigorous, source-driven, neutral. Prefer primary sources. Always cite. Lead with a one-line answer."),
@@ -55,8 +56,8 @@ MEMORY_TYPES = [
 # RAG 컬렉션 시드(스펙 036) — 이름은 AGENTS의 vectorTables 참조와 일치(usedBy 집계용).
 # 차원은 임베딩 모델에 맞춰 RAG_EMBED_DIMS로 고정. 빈(empty) 상태로 생성 — 문서는 업로드로 채운다.
 # (name, description, embed_model_name) — embed_model_name이 있으면 그 모델에 바인딩,
-# None이면 기본 임베딩 모델(MLX). docs_kb만 mock-embed에 묶어 라이브 MLX 없이 결정적으로 샘플을
-# 적재·검색하는 *대표 데모* 컬렉션으로 쓴다(스펙 048 #9). 나머지 3개는 실데이터 대기 플레이스홀더.
+# None이면 기본 임베딩 모델(mock-embed, 스펙 059). docs_kb를 mock-embed에 묶어 라이브 모델 없이
+# 결정적으로 샘플을 적재·검색하는 *대표 데모* 컬렉션으로 쓴다(스펙 048 #9). 나머지 3개는 실데이터 대기.
 COLLECTIONS = [
     ("docs_kb", "헬프센터 문서 본문 지식베이스 — RAG 답변에 사용(샘플 적재됨, 스펙 048).", "mock-embed"),
     ("product_titles", "상품 title 임베딩 — 상품 의미 검색·추천. 문서를 업로드해 채웁니다.", None),
@@ -156,46 +157,31 @@ async def seed_if_empty(session: AsyncSession) -> None:
         ])
 
     if await _empty(session, Provider):
-        base_url = os.environ.get("MLX_BASE_URL", "http://localhost:8045/v1")
-        api_key = os.environ.get("MLX_API_KEY")
-        chat_id = os.environ.get("MLX_MODEL", "mlx-community/Qwen3.6-35B-A3B-mxfp8")
-        embed_id = os.environ.get("MLX_EMBED_MODEL", "mlx-community/multilingual-e5-large-mlx")
-        # mock chat provider — 라이브 MLX 없이 결정적 실행용(스펙 024). base_url은 **이 API 자신의**
-        # OpenAI 호환 mock 엔드포인트(self-call). API를 다른 호스트/포트로 옮기면 MOCK_LLM_BASE_URL로
-        # 그 자기주소를 맞춰준다. REMOTE_AGENT_BASE(코드 에이전트 배포)와는 의미가 다른 별개 env다.
+        # 기본 provider는 **Mock LLM 하나**(스펙 059). 외부 의존 0으로 첫 채팅/RAG가 바로 동작한다.
+        # 실 모델(MLX·OpenAI 호환 등)은 env가 아니라 admin Provider UI에서 추가하고 기본 전환한다
+        # (Provider는 1급 엔티티 — 스펙 035). base_url은 **이 API 자신의** OpenAI 호환 mock
+        # 엔드포인트(self-call). API를 다른 호스트/포트로 옮기면 MOCK_LLM_BASE_URL로 자기주소를 맞춘다.
+        # (이 블록은 create_all 폴백 경로에서만 도달 — 정상 alembic 경로는 f4a5+a1b2c3가 provider를
+        #  먼저 만들어 _empty가 False라 스킵되고, 그 경로의 기본값은 마이그레이션이 세운다. 스펙 059.)
         mock_base = os.environ.get("MOCK_LLM_BASE_URL", "http://127.0.0.1:8000/_remote/v1")
-        # provider 1회 등록 → 하위 모델이 base_url/api_key 상속(스펙 035).
-        mlx_provider = Provider(
-            name="MLX (local)", protocol="openai-compatible", base_url=base_url,
-            api_key=crypto.encrypt(api_key),
-            kind="local", description="실제 로컬 MLX 서버",
-        )
         mock_provider = Provider(
             name="Mock LLM", protocol="openai-compatible", base_url=mock_base,
             api_key=crypto.encrypt("sk-noauth"),
-            kind="mock", description="라이브 없이 결정적 테스트용 내장 목(스펙 024)",
+            kind="mock", description="라이브 없이 결정적 동작용 내장 목(스펙 024) — 기본 provider(059)",
         )
-        session.add_all([mlx_provider, mock_provider])
+        session.add(mock_provider)
         await session.flush()  # provider id 확보(모델 FK용)
         session.add_all([
+            # 기본 chat — Mock(무외부, canned). CHAT_MODEL_NAME으로 에이전트 참조와 단일 소스.
             ModelConfig(
-                name=CHAT_MODEL_NAME, provider_id=mlx_provider.id, model_id=chat_id,
-                kind="chat", is_default=True,
-                params={"temperature": 0.7, "enable_thinking": False},
+                name=CHAT_MODEL_NAME, provider_id=mock_provider.id, model_id="mock-chat",
+                kind="chat", is_default=True, params={},
             ),
-            ModelConfig(
-                name="multilingual-e5-large", provider_id=mlx_provider.id, model_id=embed_id,
-                kind="embedding", is_default=True, params={},
-            ),
-            ModelConfig(
-                name="mock-llm", provider_id=mock_provider.id, model_id="mock-chat",
-                kind="chat", is_default=False, params={},
-            ),
-            # mock 임베딩 모델(스펙 024 철학) — `/_remote/v1/embeddings`가 RAG_EMBED_DIMS 차원
-            # 벡터를 입력 1건당 1개 반환 → 라이브 MLX 없이 RAG 인제스트가 결정적으로 통과한다.
+            # 기본 embedding — mock-embed. `/_remote/v1/embeddings`가 RAG_EMBED_DIMS 차원 벡터를
+            # 입력 1건당 1개 반환 → 라이브 모델 없이 RAG 인제스트/검색이 결정적으로 통과한다(스펙 048).
             ModelConfig(
                 name="mock-embed", provider_id=mock_provider.id, model_id="mock-embed",
-                kind="embedding", is_default=False, params={},
+                kind="embedding", is_default=True, params={},
             ),
         ])
 

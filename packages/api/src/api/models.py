@@ -206,7 +206,7 @@ class Agent(Base):
     agent_id: Mapped[str] = mapped_column(String(80), unique=True)  # 외부 식별자 agt_...
     name: Mapped[str] = mapped_column(String(200))
     source: Mapped[str] = mapped_column(String(20), default="ui")  # ui | code | external(A2A 카드)
-    model: Mapped[str] = mapped_column(String(120), default="local-mlx")
+    model: Mapped[str] = mapped_column(String(120), default="mock-llm")  # 미지정 시 기본 모델(스펙 059)
     persona: Mapped[str] = mapped_column(Text, default="")  # 해석된 페르소나 본문(서빙용)
     history_depth: Mapped[int] = mapped_column(Integer, default=20)
     # config = {model, persona, memories[], vectorTables[], permissions[], mcps[], historyDepth}

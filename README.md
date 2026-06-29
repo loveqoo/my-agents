@@ -30,7 +30,8 @@ cp .env.example .env
 | `DATABASE_URL` | postgres 접속 | 아래 docker compose 기본값과 일치하면 그대로 둬도 됨 |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | 첫 관리자 시드 | **영속 keep-list 계정**(예: `admin@example.com`)으로 둔다. 비우면 관리자가 안 만들어져 로그인 불가(아래 4·복구 참고) |
 | `API_AUTH_TOKEN` | 머신(서버↔서버) 인증 토큰 | 강한 값으로 교체. admin의 `VITE_API_TOKEN`과 동일해야 함 |
-| `MLX_BASE_URL` / `MLX_API_KEY` / `MLX_MODEL` | 기본 채팅 모델(MLX) 연결 | MLX 서버가 없으면 5번 참고(무외부 Mock 전환) |
+
+> 모델 연결 env는 없다(스펙 059). 기본 채팅/임베딩 모델은 **Mock LLM**(무외부 동작)이고, 실 모델은 env가 아니라 admin **Provider UI**에서 추가한다(5번 참고).
 
 ### 2. PostgreSQL 기동 (pgvector 번들)
 
@@ -75,12 +76,15 @@ uv run python -m api.bootstrap_admin <email> <password>
 신규 superuser를 **생성만** 한다. 이미 존재하는 계정은 보안상 승격하지 않으니(권한 상승 방지),
 새 관리자는 *새 이메일*로 만든다.
 
-### 5. 모델 — MLX 없이 바로 시험하기
+### 5. 모델 — 기본은 무외부 Mock, 실 모델은 Provider UI에서 추가
 
-기본 채팅 모델은 **MLX**(로컬 OpenAI 호환 서버)다. MLX 서버가 없으면 첫 채팅이 연결 실패하고,
-에러 메시지에 전환 안내가 함께 표시된다. 외부 모델 없이 바로 시험하려면 admin에서 기본 채팅 모델을
-**Mock LLM**으로 바꾸면 무외부로 동작한다(응답은 canned). 시드에 Mock Provider/모델이 함께
-들어 있다.
+기본 채팅·임베딩 모델은 **Mock LLM**(스펙 059)이다 — 외부 모델 서버 없이 바로 동작한다(응답은
+canned). 별도 env 설정이 필요 없고, 시드에 Mock Provider/모델(`mock-llm` 채팅 + `mock-embed`
+임베딩)이 기본으로 들어 있어 클론 직후 채팅·RAG가 곧장 뜬다.
+
+실제 모델(MLX·OpenAI 호환·기타)을 쓰려면 **admin Provider UI**에서 Provider와 Model을 추가하고
+기본 채팅 모델을 그쪽으로 전환한다. 전환한 실 모델 서버가 안 떠 있으면 첫 채팅이 연결 실패하고,
+에러 메시지에 **Mock LLM으로 되돌리는 안내**가 함께 표시된다.
 
 ---
 

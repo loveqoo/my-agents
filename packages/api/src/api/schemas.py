@@ -224,7 +224,7 @@ class AvailableModelsOut(BaseModel):
 
 # ----------------------------- 에이전트 -----------------------------
 class AgentConfig(BaseModel):
-    model: str = "local-mlx"
+    model: str = "mock-llm"  # 미지정 시 기본 모델(스펙 059)
     persona: str = ""  # 페르소나 이름(블록 참조)
     memories: list[str] = Field(default_factory=list)
     vectorTables: list[str] = Field(default_factory=list)

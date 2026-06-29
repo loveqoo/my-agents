@@ -356,8 +356,9 @@ _CONN_ERR_MARKERS = (
 
 
 def _model_error_hint(exc: Exception, model_cfg: dict | None) -> str | None:
-    """모델 연결 실패로 보이면 전환 힌트(없으면 None). 스펙 058 G4 — 기본 chat=MLX라
-    MLX 서버 부재 시 첫 채팅이 곧장 실패하는데, 운영자가 무외부 'Mock LLM' 전환법을 모른다."""
+    """모델 연결 실패로 보이면 전환 힌트(없으면 None). 스펙 058 G4 — 기본 chat은 무외부 'Mock LLM'
+    (스펙 059)이라 곧장 실패하지 않는다. 이 힌트는 운영자가 Provider UI로 추가한 실 모델을 기본으로
+    전환했는데 그 서버가 안 떠 있을 때 첫 채팅이 연결 실패하는 경우를 위한 것이다."""
     if not model_cfg:
         return None
     blob = f"{type(exc).__name__} {exc}".lower()
@@ -365,9 +366,9 @@ def _model_error_hint(exc: Exception, model_cfg: dict | None) -> str | None:
         return None
     base_url = model_cfg.get("base_url", "")
     return (
-        f"채팅 모델 연결 실패 (base_url={base_url}) — 모델 서버가 떠 있는지/주소가 맞는지 확인하세요"
-        "(기본은 MLX: MLX_BASE_URL). 외부 모델 없이 바로 시험하려면 admin에서 기본 채팅 모델을 "
-        "'Mock LLM'으로 전환하세요(무외부 동작)."
+        f"채팅 모델 연결 실패 (base_url={base_url}) — 모델 서버가 떠 있는지/주소가 맞는지 확인하세요. "
+        "외부 모델 없이 바로 시험하려면 admin에서 기본 채팅 모델을 'Mock LLM'으로 되돌리세요"
+        "(무외부 동작, 기본값)."
     )
 
 

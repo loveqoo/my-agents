@@ -1,7 +1,9 @@
-"""미니멀 하드코딩 에이전트 — 로컬 MLX + LangGraph ReAct, CLI 순수 대화.
+"""미니멀 하드코딩 에이전트 — OpenAI 호환 모델 + LangGraph ReAct, CLI 순수 대화.
 
 지배 스펙: docs/spec/001-system-overview.md 의 첫 실행 증분.
 실행계획: .dev/plan/001-minimal-hardcoded-agent.md
+모델은 특정 벤더에 묶지 않는다 — CLI 단독 실행은 일반 `MODEL_*` env로 임의 OpenAI 호환
+엔드포인트를 가리킨다(스펙 059, MLX는 더 이상 특별 취급 안 함).
 """
 
 import os
@@ -61,12 +63,17 @@ def build_agent(
 
 
 def main():
-    """CLI 단독 실행(개발용 테스터) — 레지스트리가 없으므로 env에서 모델 설정을 읽어 넘긴다."""
+    """CLI 단독 실행(개발용 테스터) — 레지스트리가 없으므로 env에서 모델 설정을 읽어 넘긴다.
+
+    벤더 무관 `MODEL_*` env로 임의 OpenAI 호환 엔드포인트를 가리킨다(스펙 059). 기본 base_url은
+    이 API의 mock 엔드포인트라 무외부에서도 동작한다(API가 떠 있을 때). 실 모델을 쓰려면
+    MODEL_BASE_URL/MODEL_API_KEY/MODEL_ID로 가리킨다.
+    """
     load_dotenv()
     model_cfg = {
-        "base_url": os.environ.get("MLX_BASE_URL", "http://localhost:8045/v1"),
-        "api_key": os.environ.get("MLX_API_KEY"),
-        "model_id": os.environ.get("MLX_MODEL", "mlx-community/Qwen3.6-35B-A3B-mxfp8"),
+        "base_url": os.environ.get("MODEL_BASE_URL", "http://127.0.0.1:8000/_remote/v1"),
+        "api_key": os.environ.get("MODEL_API_KEY", "sk-noauth"),
+        "model_id": os.environ.get("MODEL_ID", "mock-chat"),
         "params": {},
     }
     agent = build_agent(model_cfg=model_cfg)
