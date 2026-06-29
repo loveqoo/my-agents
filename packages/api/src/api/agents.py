@@ -358,6 +358,22 @@ def _clip(value: object, maxlen: int) -> str | None:
     return value[:maxlen]
 
 
+def _norm_endpoint(raw: object) -> str | None:
+    """카드 서비스 url을 절대 http(s)로 정규화해 저장(스펙 063, 빌더 하드닝).
+
+    `fetch_card`가 이미 정규화하므로 정상 경로는 idempotent. fetch_card를 우회하는 미래 경로가
+    스킴 없는 url을 흘려도 저장 데이터가 청결하게 유지된다(표시·probe도 같은 endpoint를 읽는다).
+    정규화 불가(빈 값·비-http 스킴)면 clip한 raw를 그대로 보존 — 등록을 500내지 않고, 호출 경계
+    (a2a_client, 스펙 063 D1)가 2차로 다시 시도한다."""
+    clipped = _clip(raw, 400)
+    if not clipped:
+        return None
+    try:
+        return net_guard.normalize_http_url(clipped)
+    except ValueError:
+        return clipped
+
+
 def _build_external_agent(card: dict, token: str | None, live: bool) -> Agent:
     """제3자 A2A 카드 → external Agent. 불투명 카드 스냅샷, 로컬 모델/메모리/MCP 미해석(비로컬).
 
@@ -383,7 +399,7 @@ def _build_external_agent(card: dict, token: str | None, live: bool) -> Agent:
         config=cfg,
         exposed={"a2a": False},  # 우리가 소비측(클라이언트) — 서버측 노출과 무관
         status="online" if live else "offline",
-        endpoint=_clip(card.get("url"), 400),
+        endpoint=_norm_endpoint(card.get("url")),
         token=crypto.encrypt(token) if token else None,
         registered_at=_today(),
         last_sync="방금",
@@ -424,7 +440,7 @@ def _build_code_agent_from_card(card: dict, ext: dict, token: str | None, live: 
         config=cfg,
         exposed={"a2a": False},
         status="online" if live else "offline",
-        endpoint=_clip(card.get("url"), 400),
+        endpoint=_norm_endpoint(card.get("url")),
         token=crypto.encrypt(token) if token else None,
         runtime=_clip(deploy.get("runtime"), 200),
         repo=_clip(deploy.get("repo"), 200),

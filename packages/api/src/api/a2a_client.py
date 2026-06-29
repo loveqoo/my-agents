@@ -16,7 +16,7 @@ import uuid
 import httpx
 
 from . import crypto
-from .net_guard import guard_url
+from .net_guard import guard_url, normalize_http_url
 
 # A2A 응답 누적 상한 — 악의적/오작동 에이전트가 끝없이 흘려 메모리·시간을 소진하는 걸 막는다.
 MAX_RESPONSE_BYTES = 1024 * 1024
@@ -142,6 +142,11 @@ async def a2a_stream(
     이 제너레이터는 절대 raise하지 않는다 — 모든 실패를 {error} 프레임으로 변환(라우터가 done까지 보냄).
     """
     try:
+        # 호출 경계 자가치유(스펙 063): 등록 정규화(스펙 060) 이전에 만들어졌거나 정규화를 건너뛴
+        # 경로의 스킴 없는 endpoint를 호출 직전 절대화한다 — 안 하면 guard_url이 "URL은 http(s)
+        # 절대 URL이어야 합니다"로 모호하게 깨진다(learning 065: 계약은 경로 전체에서 유지). 보안 불변:
+        # 절대화만 하고 사설 판정은 guard_url이 정규화된 url에 그대로 돌아 수행한다(우회 아님).
+        endpoint = normalize_http_url(endpoint)
         guard_url(endpoint)
     except ValueError as exc:
         yield {"error": str(exc)}

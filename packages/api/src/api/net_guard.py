@@ -63,10 +63,29 @@ def normalize_http_url(raw: str, *, base: str | None = None) -> str:
     else:
         candidate = "http://" + s  # 스킴 없는 host[:port][/path] → http 전치
     parsed = urlparse(candidate)
-    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+    # 보안 하드닝(스펙 063, codex 적대 [P1]): userinfo('user:pass@') 금지.
+    # `"://"`만으로 비-http 스킴을 거르면 colon-form URI가 새어나간다 —
+    # `mailto:user@example.com/a2a` 는 위 else 분기로 `http://mailto:user@example.com/a2a`
+    # 가 되고, urlparse/httpx 모두 host를 공인 `example.com`(userinfo=`mailto:user`)로 본다.
+    # 그러면 예전에 guard_url이 비-http 스킴으로 거부하던 값이 가드를 통과해 Bearer 토큰 포함
+    # A2A 요청이 공인 호스트로 새어나간다(SSRF·자격증명 누출). A2A 엔드포인트는 임베디드
+    # 자격증명을 쓰지 않으므로(인증=별도 token 필드) '@'는 정상 입력에 없다 → 거부가 안전.
+    # 잘못된 포트(비숫자)도 여기서 fail-closed(접근 시 ValueError).
+    try:
+        parsed.port  # 비숫자 포트(예: 'mailto:example.com'→host=mailto)면 접근 시 ValueError
+        _bad_port = False
+    except ValueError:
+        _bad_port = True
+    if (
+        parsed.scheme not in ("http", "https")
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or _bad_port
+    ):
         raise ValueError(
             f"서비스 url을 절대 http(s) URL로 해석할 수 없습니다(받은 값: '{s[:80]}'). "
-            "카드의 url을 'http://host:port/path' 형태로 지정하세요."
+            "카드의 url을 'http://host:port/path' 형태로 지정하세요(자격증명 '@'·비숫자 포트 불가)."
         )
     return candidate
 
