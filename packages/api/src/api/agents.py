@@ -30,7 +30,7 @@ from .schemas import (
     RegisterCodeAgentIn,
     RegisterExternalAgentIn,
 )
-from . import agent_card, crypto
+from . import agent_card, crypto, net_guard
 from .serializers import agent_to_out
 
 router = APIRouter(prefix="/agents", tags=["agents"])
@@ -296,6 +296,12 @@ async def expose_agent(
 async def register_code_agent(
     body: RegisterCodeAgentIn, session: AsyncSession = Depends(get_session)
 ) -> AgentOut:
+    # endpoint를 절대 http(s)로 정규화(스펙 060, 일관성). SDK 직접 등록이라 base는 없다 — 스킴 없는
+    # host:port는 http:// 전치, 절대화 불가(빈 값·비-http 스킴)면 등록 시점에 400(채팅서 늦게 안 깸).
+    try:
+        endpoint = net_guard.normalize_http_url(body.endpoint)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     cfg = {
         "model": body.model,
         "persona": body.persona,
@@ -315,7 +321,7 @@ async def register_code_agent(
         config=cfg,
         exposed={"a2a": False},
         status="online",
-        endpoint=body.endpoint,
+        endpoint=endpoint,
         token=crypto.encrypt(body.token),
         runtime=body.runtime,
         repo=body.repo,

@@ -11,7 +11,7 @@ import json
 
 import httpx
 
-from .net_guard import guard_url
+from .net_guard import guard_url, normalize_http_url
 
 # A2A 카드 관례 위치(신규 → 레거시 순). 베이스 URL만 준 경우 시도한다.
 WELL_KNOWN_PATHS = ("/.well-known/agent-card.json", "/.well-known/agent.json")
@@ -73,6 +73,11 @@ async def fetch_card(card_url: str) -> dict:
                 continue
             if _looks_like_card(data):
                 validate_card(data)
+                # 서비스 url을 절대 http(s)로 정규화(스펙 060). 스킴 없는 host:port·`/`-상대 url이
+                # 등록은 통과하고 호출(guard_url) 때 늦게 깨지던 모드1을 등록 시점에 해소한다. base는
+                # 카드를 가져온 candidate URL — `/`-상대 url을 그 origin으로 resolve. 절대화 불가면
+                # ValueError가 fetch_card 밖으로(라우터 400). 보안 불변: 절대화만, 사설 판정은 guard_url.
+                data["url"] = normalize_http_url(data["url"], base=candidate)
                 return data
             last_err = "카드 형식이 아닙니다(name/url 없음)"
     raise ValueError(f"Agent Card를 가져오지 못했습니다: {last_err or '알 수 없는 오류'}")

@@ -14,11 +14,61 @@ IP 핀(커스텀 transport)이 필요하나, 관리자 등록 경계라 resolve-
 import ipaddress
 import os
 import socket
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 
 class SsrfBlocked(ValueError):
     """가드가 outbound URL을 차단했다(사설대역·잘못된 스킴 등). ValueError 하위 → 라우터 4xx."""
+
+
+def normalize_http_url(raw: str, *, base: str | None = None) -> str:
+    """A2A 서비스 url을 **절대 http(s) URL**로 관대 정규화(스펙 060). 못 하면 ValueError(조치 메시지).
+
+    A2A 카드의 서비스 `url`(또는 코드 에이전트 endpoint)이 스킴 없는 `host:port/path`처럼 와도 등록
+    시점에 절대화해, 호출 시점(`guard_url`)에 "URL은 http(s) 절대 URL이어야 합니다"로 늦게·모호하게
+    깨지지 않게 한다. **보안 불변**: 여기서 절대화만 하고 사설대역 판정은 안 한다 — 정규화된 url에
+    `guard_url`이 그대로 돌아 사설/루프백을 여전히 차단한다(정규화는 가드를 우회시키지 않는다).
+
+    규칙:
+    - 이미 `http(s)://` → 그대로.
+    - `//host/path`(스킴-상대) → `http:` 전치.
+    - `/path`(진짜 경로 상대) → base 있으면 urljoin, 없으면 ValueError(절대화 불가).
+    - 비-http 스킴(`ftp://`·`://x` 등) → ValueError(http 전치하면 이중스킴이 되므로 거부).
+    - 스킴 없는 `host[:port][/path]` → `http://` 전치(dev 관대, curl/브라우저 관례).
+    결과를 urlparse해 scheme∈{http,https} & hostname 존재를 단언, 아니면 ValueError.
+    """
+    s = (raw or "").strip()
+    if not s:
+        raise ValueError(
+            "서비스 url이 비어 있습니다 — 카드의 url을 'http://host:port/path' 형태로 지정하세요."
+        )
+    low = s.lower()
+    if low.startswith(("http://", "https://")):
+        candidate = s
+    elif s.startswith("//"):
+        candidate = "http:" + s  # 스킴-상대 → http 전치
+    elif s.startswith("/"):
+        if not base:
+            raise ValueError(
+                f"상대 경로 url('{s[:80]}')을 절대화할 base가 없습니다 — "
+                "카드의 url을 'http://host:port/path' 형태로 지정하세요."
+            )
+        candidate = urljoin(base, s)
+    elif "://" in s:
+        # 비-http 스킴(ftp://·잡 스킴) — http 전치하면 이중스킴이라 거부.
+        raise ValueError(
+            f"서비스 url 스킴이 http(s)가 아닙니다('{s[:80]}') — "
+            "카드의 url을 'http://host:port/path' 형태로 지정하세요."
+        )
+    else:
+        candidate = "http://" + s  # 스킴 없는 host[:port][/path] → http 전치
+    parsed = urlparse(candidate)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise ValueError(
+            f"서비스 url을 절대 http(s) URL로 해석할 수 없습니다(받은 값: '{s[:80]}'). "
+            "카드의 url을 'http://host:port/path' 형태로 지정하세요."
+        )
+    return candidate
 
 
 def _allowed_hosts() -> set[str]:

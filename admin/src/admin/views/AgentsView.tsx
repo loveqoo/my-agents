@@ -412,6 +412,11 @@ function ConnectAgentModal({
         <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
           URL은 카드 문서 또는 서비스 베이스를 가리킬 수 있습니다. 베이스면 서버가 `/.well-known/agent-card.json`을 탐색합니다.
         </span>
+        <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+          로컬/사설 endpoint(127.0.0.1 · 10.x · 192.168.x · ::1)는 SSRF 보호로 기본 차단됩니다 — 서버 환경변수{' '}
+          <code>A2A_ALLOWED_HOSTS</code>에 해당 호스트를 추가(쉼표구분)하고 API를 재기동해야 호출됩니다. 내 로컬 에이전트를
+          A2A로 노출해 테스트할 때 필요합니다(예: <code>A2A_ALLOWED_HOSTS=127.0.0.1</code>).
+        </span>
       </div>
     </Modal>
   )
