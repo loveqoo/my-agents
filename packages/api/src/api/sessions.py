@@ -4,12 +4,47 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from . import authz
+from .auth import current_principal
 from .db import get_session
 from .models import Agent, Message, Session
 from .schemas import MessageOut, SessionOut, SessionPage
 from .serializers import session_to_out
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
+
+
+# ----------------------------- 유저별 스코핑 (스펙 067) -----------------------------
+# 세션은 개인 대화 데이터다. approvals(066)·memory(052)와 동일하게 비-admin은 자기 user_id
+# 세션만 본다. Session.user_id는 *서버가 도출*한 값(chat.py: 쿠키 유저=str(user.id), 머신=NULL)
+# 이라 위조 불가(요청 본문 무관). admin/머신은 전체. 비교 축은 approvals.user_id와 동일.
+def _is_admin(principal) -> bool:
+    """전체 세션 열람 권한인가 — 머신 토큰 OR superuser OR `sessions:read` 유저.
+
+    obj/act가 approvals와 달라 approvals._is_admin과 공유하지 않고 로컬 미러(라우터 독립).
+    기본 정책엔 sessions:read가 없으므로 member는 매칭 안 됨(superuser만 전체) — 추후
+    `(role, sessions, read)` 한 줄로 "전체 세션 열람 운영자"를 열 수 있는 훅.
+    """
+    if isinstance(principal, str):  # "machine" 센티넬 = 전체 접근(스펙 011/031)
+        return True
+    if getattr(principal, "is_superuser", False):
+        return True
+    return authz.get_enforcer().enforce(str(principal.id), "sessions", "read")
+
+
+def _own_scope(principal) -> str | None:
+    """스코핑 키 — 비-admin이면 자기 user_id(본인 것만), admin/머신이면 None(전체)."""
+    if _is_admin(principal):
+        return None
+    return str(principal.id)
+
+
+def _visible_or_404(s: Session, own: str | None) -> None:
+    """item 가시성 게이트(스펙 067, learning 068) — 비-admin이 *볼 수 없는* 세션(자기 것
+    아님·NULL-owner)은 부재와 동일하게 404로 은폐한다. 403이면 404↔403이 갈려 목록이 숨긴
+    세션의 존재가 session_id 추측으로 샌다(열거 오라클). own is None(admin/머신)이면 무게이트."""
+    if own is not None and s.user_id != own:
+        raise HTTPException(status_code=404, detail="not found")
 
 # 버킷 → status 매핑 (단일출처 — 프론트는 버킷 문자열만 보낸다). 스펙 034.
 _STATUS_BUCKETS: dict[str, tuple[str, ...]] = {
@@ -36,14 +71,17 @@ async def _agent_id_map(session: AsyncSession) -> dict:
 _PREVIEW_LEN = 80
 
 
-async def _badge_counts(session: AsyncSession) -> dict:
-    """배지 카운트: 전체 GROUP BY 1회 → 버킷으로 접기 (필터 무관, 항상 전역)."""
+async def _badge_counts(session: AsyncSession, own: str | None = None) -> dict:
+    """배지 카운트: GROUP BY 1회 → 버킷으로 접기 (status 필터 무관).
+
+    `own`이 주어지면(비-admin) 본인 user_id 세션만 집계 — 전역 카운트 누설 차단(스펙 067 T6).
+    admin/머신(own=None)은 전역.
+    """
     counts = {"all": 0, "live": 0, "awaiting": 0, "error": 0}
-    grouped = (
-        await session.execute(
-            select(Session.status, func.count()).group_by(Session.status)
-        )
-    ).all()
+    q = select(Session.status, func.count()).group_by(Session.status)
+    if own is not None:
+        q = q.where(Session.user_id == own)
+    grouped = (await session.execute(q)).all()
     for st, n in grouped:
         counts["all"] += n
         bucket = _bucket_of(st)
@@ -81,17 +119,23 @@ async def list_sessions(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     session: AsyncSession = Depends(get_session),
+    principal=Depends(current_principal),
 ) -> SessionPage:
-    """세션 목록 (페이징·필터·배지 집계). 스펙 034 + agent 필터(스펙 055).
+    """세션 목록 (페이징·필터·배지 집계). 스펙 034 + agent 필터(스펙 055) + 유저 스코핑(스펙 067).
 
     - `status`: 버킷(all|live|awaiting|error). 미지정/미지의 값은 all로 폴백(관대).
     - `agent_id`: 외부 agent_id(agt_...). 주어지면 해당 에이전트 세션만(items/total). Playground
-      세션 이어가기용. 미지의 id는 빈 목록(404 아님 — 목록 API 관대). `counts`는 전역 유지.
-    - `total`: 현재 필터 적용 총 건수. `counts`: 전체 집계(필터 무관, 배지용).
+      세션 이어가기용. 미지의 id는 빈 목록(404 아님 — 목록 API 관대).
+    - 스코핑(067): 비-admin은 자기 user_id 세션만(NULL-owner 숨김). admin/머신은 전체.
+      `counts`도 동일 스코프(member 배지=본인 수).
+    - `total`: 현재 필터 적용 총 건수. `counts`: status 필터 무관 집계(배지용, 스코프 동일).
     """
+    own = _own_scope(principal)
     members = _STATUS_BUCKETS.get(status)
 
     base = select(Session)
+    if own is not None:  # 비-admin: 본인 세션만(NULL-owner 자동 제외)
+        base = base.where(Session.user_id == own)
     if members is not None:
         base = base.where(Session.status.in_(members))
     if agent_id is not None:
@@ -102,7 +146,7 @@ async def list_sessions(
         if agent_pk is None:
             # 미지의 agent_id → 빈 목록(관대, 404 아님). `== None`은 SQL상 IS NULL이라
             # NULL agent_pk 행을 잡을 수 있으므로(스키마상 비-NULL이지만 방어적) 명시 단락한다.
-            return SessionPage(items=[], total=0, counts=await _badge_counts(session))
+            return SessionPage(items=[], total=0, counts=await _badge_counts(session, own))
         base = base.where(Session.agent_pk == agent_pk)
 
     total = (
@@ -117,7 +161,7 @@ async def list_sessions(
         )
     ).scalars().all()
 
-    counts = await _badge_counts(session)
+    counts = await _badge_counts(session, own)
     amap = await _agent_id_map(session)
     previews = await _session_previews(session, [s.id for s in rows])
     items = [
@@ -137,19 +181,27 @@ async def _get_session_or_404(session: AsyncSession, session_id: str) -> Session
 
 
 @router.get("/users", response_model=list[str])
-async def list_user_ids(session: AsyncSession = Depends(get_session)) -> list[str]:
+async def list_user_ids(
+    session: AsyncSession = Depends(get_session),
+    principal=Depends(current_principal),
+) -> list[str]:
     """대화에 쓰인 distinct userId, 최근 사용순(스펙 021 — Playground 헤더 선택지).
+
+    스코핑(067): 비-admin은 자기 user_id만(본인 세션이 있으면 `[own]`, 없으면 `[]`). memory
+    `list_memory_users`가 비-curator에게 자기 신원만 주는 것과 동형. admin/머신은 전체 distinct.
 
     NOTE: 이 정적 경로는 아래 `/{session_id}`보다 **먼저** 선언돼야 가려지지 않는다.
     """
-    rows = (
-        await session.execute(
-            select(Session.user_id, func.max(Session.last_activity).label("last"))
-            .where(Session.user_id.is_not(None))
-            .group_by(Session.user_id)
-            .order_by(func.max(Session.last_activity).desc())
-        )
-    ).all()
+    own = _own_scope(principal)
+    q = (
+        select(Session.user_id, func.max(Session.last_activity).label("last"))
+        .where(Session.user_id.is_not(None))
+        .group_by(Session.user_id)
+        .order_by(func.max(Session.last_activity).desc())
+    )
+    if own is not None:  # 비-admin: 본인 user_id만(있을 때만 1건)
+        q = q.where(Session.user_id == own)
+    rows = (await session.execute(q)).all()
     return [r.user_id for r in rows]
 
 
@@ -157,8 +209,10 @@ async def list_user_ids(session: AsyncSession = Depends(get_session)) -> list[st
 async def get_session_detail(
     session_id: str,
     session: AsyncSession = Depends(get_session),
+    principal=Depends(current_principal),
 ) -> SessionOut:
     s = await _get_session_or_404(session, session_id)
+    _visible_or_404(s, _own_scope(principal))  # 타인/NULL → 404(존재 은폐, 067)
     a = await session.get(Agent, s.agent_pk)
     return session_to_out(s, a.agent_id if a else None)
 
@@ -167,8 +221,10 @@ async def get_session_detail(
 async def list_session_messages(
     session_id: str,
     session: AsyncSession = Depends(get_session),
+    principal=Depends(current_principal),
 ) -> list[MessageOut]:
     s = await _get_session_or_404(session, session_id)
+    _visible_or_404(s, _own_scope(principal))  # 타인 전사 열람 차단 → 404(067)
     result = await session.execute(
         select(Message)
         .where(Message.session_pk == s.id)
@@ -184,8 +240,10 @@ async def list_session_messages(
 async def end_session(
     session_id: str,
     session: AsyncSession = Depends(get_session),
+    principal=Depends(current_principal),
 ) -> SessionOut:
     s = await _get_session_or_404(session, session_id)
+    _visible_or_404(s, _own_scope(principal))  # 타인 세션 종료 변조 차단 → 404(067 T5)
     s.status = "completed"
     await session.commit()
     a = await session.get(Agent, s.agent_pk)
