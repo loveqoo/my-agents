@@ -27,18 +27,26 @@ from .db import SessionLocal
 from .mem_config import _build_mem_cfg, _default_chat_model, _default_embed_model
 from .models import Agent, Approval, Collection, McpServer, Message, ModelConfig, Session
 from .schemas import ChatRequest
+from .sessions import _own_scope
 
 router = APIRouter(prefix="/agents", tags=["chat"])
 log = logging.getLogger("api.chat")
 
 
 async def _load_context(
-    agent_id: uuid.UUID, session_str_id: str | None, overrides: dict | None = None
+    agent_id: uuid.UUID,
+    session_str_id: str | None,
+    overrides: dict | None = None,
+    own: str | None = None,
 ):
     """에이전트 구성 + MCP 활성 툴 + 세션(생성/지속)을 한 번에 준비.
 
     overrides(스펙 025): Playground Proxy의 세션 한정 설정 덮어쓰기. **web 에이전트에만** 적용하고
     화이트리스트 키만 받는다(저장된 에이전트는 불변). 코드 에이전트는 원격 실행이라 미적용(bypass).
+
+    own(스펙 068): resume 소유자 스코프. 비-admin이면 `str(principal.id)`, admin/머신·내부 호출은
+    None. `own is not None`이면 resume 바인딩이 `Session.user_id == own`을 요구해, *타인/NULL/추측*
+    session_id는 매칭 실패 → 새 세션 발급(067 읽기 게이트와 동일 판정 — 열거 오라클·소유권 탈취 봉인).
     """
     async with SessionLocal() as db:
         agent = await db.get(Agent, agent_id)
@@ -210,14 +218,15 @@ async def _load_context(
         sess = None
         if session_str_id:
             # 세션은 해당 에이전트로 스코프 — 다른 에이전트의 세션 id를 줘도 섞이지 않게.
-            sess = (
-                await db.execute(
-                    select(Session).where(
-                        Session.session_id == session_str_id,
-                        Session.agent_pk == agent.id,
-                    )
-                )
-            ).scalar_one_or_none()
+            # 스펙 068: 비-admin(own is not None)은 *자기 소유* 세션만 resume. 타인/NULL session_id는
+            # 매칭 실패 → 아래 else가 새 세션을 발급(부재와 구별 불가 = 열거 오라클 제거).
+            resume_q = select(Session).where(
+                Session.session_id == session_str_id,
+                Session.agent_pk == agent.id,
+            )
+            if own is not None:
+                resume_q = resume_q.where(Session.user_id == own)
+            sess = (await db.execute(resume_q)).scalar_one_or_none()
         if sess is not None:
             ctx["session_pk"] = sess.id
             ctx["session_id"] = sess.session_id
@@ -226,7 +235,7 @@ async def _load_context(
             # 0턴 세션 미영속(스펙 049, #10): 행 생성을 첫 _persist(실 턴)까지 지연한다. 플레이그라운드를
             # 열고 한 마디도 안 하면 DB에 빈 세션이 안 남는다(#11 정크 뿌리 차단). session_id는 클라가
             # 후속 요청에 참조하므로 지금 *생성만* 해 둔다(commit X). 첫 실 턴에서 lazy-create.
-            new_id = "sess-" + secrets.token_hex(3)
+            new_id = "sess-" + secrets.token_hex(16)
             ctx["session_pk"] = None
             ctx["session_id"] = new_id
             ctx["session_pending"] = {
@@ -311,6 +320,23 @@ async def _resolve_session_for_persist(db, ctx: dict) -> Session | None:
     return sess
 
 
+def _next_owner(current: str | None, incoming: str | None) -> str | None:
+    """세션 소유권 무덮어쓰기 불변식(스펙 068, learning 069).
+
+    소유권은 *생성 시 1회*만 부여한다 — 기존 non-null 소유자를 *다른* 유저로 덮어쓰지 않는다.
+    이게 없으면 chat resume 입구가 `if user_id: sess.user_id = user_id`로 소유자를 무조건 갈아끼워
+    067 읽기 게이트의 전제(소유권 진실성)를 깬다(소유권 탈취 → 탈취 후 전사 누출).
+    - incoming 빈 값(머신/빈 userId) → current 보존(기존 동작 — 빈칸 대화가 소유자를 지우지 않음).
+    - current 미소유(None) 또는 동일 유저 → incoming 부여(생성 시 1회).
+    - 그 외(다른 유저) → current 유지(**이전 거부** — D1로 애초 바인딩도 안 되지만 방어 다중화).
+    """
+    if not incoming:
+        return current
+    if current is None or current == incoming:
+        return incoming
+    return current
+
+
 async def _persist(
     ctx: dict, user_text: str, reply: str, trace: dict, tokens: dict, store_messages: bool,
     user_id: str | None = None,
@@ -318,7 +344,7 @@ async def _persist(
     """세션 카운터는 항상 갱신. 메시지(user/assistant+트레이스)는 store_messages일 때만 저장.
 
     0턴 미영속(스펙 049): session_pk가 None이면 이 첫 실 턴에서 행을 lazy-create한다.
-    non-empty userId가 오면 세션에 기록(distinct 목록 출처 — 스펙 021). 빈 값이면 기존 값 보존.
+    소유권(스펙 068): _next_owner 불변식으로 기존 non-null 소유자를 다른 유저로 덮어쓰지 않는다.
     """
     async with SessionLocal() as db:
         sess = await _resolve_session_for_persist(db, ctx)
@@ -329,8 +355,8 @@ async def _persist(
         if store_messages:
             db.add(Message(session_pk=session_pk, role="user", content=user_text))
             db.add(Message(session_pk=session_pk, role="assistant", content=reply, trace=trace))
-        if user_id:  # non-empty만 기록 — 빈칸으로 대화해도 기존 userId를 지우지 않음
-            sess.user_id = user_id
+        # 소유권 부여는 생성 시 1회(스펙 068) — 기존 다른 소유자는 보존(이전 거부), 빈 값도 보존.
+        sess.user_id = _next_owner(sess.user_id, user_id)
         sess.turns = (sess.turns or 0) + 1
         sess.tokens = (sess.tokens or 0) + int(tokens.get("in", 0)) + int(tokens.get("out", 0))
         sess.status = "active"
@@ -464,7 +490,10 @@ async def stream_local_reply(agent_id: uuid.UUID, user_text: str):
 
 @router.post("/{agent_id}/chat")
 async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current_principal)):
-    ctx = await _load_context(agent_id, body.sessionId, body.overrides)
+    # 스펙 068: resume 바인딩에 067과 *동일한* 소유자 스코프를 주입(단일 출처 _own_scope 재사용).
+    # 비-admin이 타인/추측 session_id를 줘도 매칭 실패 → 새 세션(열거 오라클·소유권 탈취 봉인).
+    own = _own_scope(principal)
+    ctx = await _load_context(agent_id, body.sessionId, body.overrides, own=own)
     user_text = body.messages[-1].content if body.messages else ""
 
     # mem0 user_id 축 = 인증 주체에서 도출(스펙 032). 쿠키 유저면 안정 UUID(str(user.id)),
@@ -646,6 +675,10 @@ async def _create_approval(
         if sess is not None:
             ctx["session_pk"] = sess.id
             ctx["session_pending"] = None
+            # 스펙 068 D6: 승인 게이트에 도달한 턴은 실 상호작용이므로 *생성 시점*에 소유자를 박는다.
+            # 이게 없으면 세션이 NULL-owned로 남아, D1(소유자 스코프 resume) 도입 후 그 턴을 시작한
+            # member가 *자기 세션을* 이어가지 못한다(무회귀 깨짐). _next_owner라 기존 소유자 보존·안전.
+            sess.user_id = _next_owner(sess.user_id, user_id)
         db.add(
             Approval(
                 approval_id=apid,
