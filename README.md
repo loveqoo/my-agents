@@ -92,13 +92,14 @@ canned). 별도 env 설정이 필요 없고, 시드에 Mock Provider/모델(`moc
 
 | 상황 | 동작 |
 |---|---|
+| **갓 클론 (기본 경로)** | `mock-llm`(채팅)·`mock-embed`(임베딩)이 기본 시드 → **외부 모델 없이 채팅·RAG가 즉시 동작**(스펙 059). 정상 `alembic upgrade head` 경로·`create_all` 폴백 경로 모두 같은 Mock 기본으로 수렴 |
 | DB 미기동/연결 불가 | 프리플라이트가 명확한 조치 메시지로 부팅 중단 (`docker compose up -d postgres`) |
 | 테이블 없음 | `alembic upgrade head` 자동, 실패 시 `create_all`(+pgvector 확장) 폴백 |
 | pgvector 확장 부재 + 설치 권한 없음 | 명확한 메시지로 부팅 중단(pgvector 번들 이미지 사용 또는 수퍼유저로 `CREATE EXTENSION vector`) |
-| 빈 DB | `seed_if_empty`가 Provider/모델/에이전트 등 카탈로그 자동 시드 |
+| 빈 DB | `seed_if_empty`가 Provider(Mock LLM)/모델/에이전트 등 카탈로그 자동 시드 |
 | 유저 0 + ADMIN env 누락 | 부팅 시 복구 안내 경고 → `python -m api.bootstrap_admin`로 생성 |
-| 파운데이션 모델 없음 | 채팅이 friendly 400 ("모델을 먼저 등록하세요") |
-| 임베딩 모델 없음 | 메모리(Mem0) graceful 비활성 — 채팅은 정상 |
+| 기본 채팅 모델을 실 모델로 바꿨는데 그 서버가 안 뜸 | 첫 채팅이 연결 실패 → 에러에 **Mock LLM으로 되돌리기** 안내 동반 |
+| 시드 모델을 전부 삭제한 경우 | 채팅이 friendly 400("모델을 먼저 등록하세요"), 임베딩 부재 시 메모리(Mem0) graceful 비활성 — 채팅 자체는 정상 |
 
 ---
 
