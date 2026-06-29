@@ -155,6 +155,19 @@ export const triggerBatchJob = (job: string, dryRun: boolean) =>
     error?: string
   }>
 
+/* ---------- SSRF allowlist (스펙 064) ---------- */
+export interface AllowedHost {
+  id: string
+  host: string
+  note: string | null
+  created_at: string | null
+}
+export const listAllowedHosts = () => j<AllowedHost[]>('/admin/allowed-hosts')
+export const addAllowedHost = (host: string, note?: string | null) =>
+  post('/admin/allowed-hosts', { host, note: note ?? null }) as Promise<AllowedHost>
+export const deleteAllowedHost = (id: string) =>
+  del(`/admin/allowed-hosts/${encodeURIComponent(id)}`)
+
 /* ---------- 빌딩 블록 ---------- */
 export const getBlocks = () => j<Record<string, BlockCategory>>('/blocks')
 

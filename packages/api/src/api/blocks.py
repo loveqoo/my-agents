@@ -246,6 +246,7 @@ async def discover_mcp_tools(body: McpDiscoverIn) -> Any:
             ok=False, reachable=False, detail="stdio transport는 라이브 탐색 미지원(유예)"
         )
     try:
+        await net_guard.refresh_allowed_hosts()  # DB allowlist 무재시작 반영(스펙 064)
         net_guard.guard_url(url)
     except net_guard.SsrfBlocked as exc:
         # 보안 경계 위반은 4xx(정상 연결실패의 ok=False와 구분) — 스펙 054 완료조건 ④.

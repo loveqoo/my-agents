@@ -5,15 +5,23 @@ SSRF 표면이다 — 사설/루프백/링크로컬/메타데이터(169.254.169.
 내부 서비스·클라우드 메타데이터를 노출시킬 수 있다.
 
 정책(스펙 042 합의): 호스트를 IP로 resolve해 사설대역이면 **차단**(기본). 단 호스트가
-`A2A_ALLOWED_HOSTS`(쉼표구분 allowlist)에 있으면 통과 → dev mock(127.0.0.1) 동작.
+allowlist에 있으면 통과 → dev mock(127.0.0.1) 동작.
+
+allowlist 소스(스펙 064): **DB `allowed_hosts` 테이블이 진실원**. `guard_url`은 sync 시그니처를
+유지하려고 모듈 캐시 스냅샷(`_ALLOWED_SNAPSHOT`)만 sync로 읽고, async 호출처가 `guard_url` 직전에
+`await refresh_allowed_hosts()`로 DB→스냅샷을 짧은 TTL(기본 10s)로 새로고친다 → **무재시작 반영**.
+env(`ALLOWED_HOSTS`, 구 `A2A_ALLOWED_HOSTS` 폴백)는 첫 부팅 1회 시드 소스일 뿐(alembic 마이그레이션이
+임포트), 런타임은 DB만 본다(learning 012 — env는 부트스트랩, DB가 단일 레지스트리).
 
 알려진 한계(스펙 042 §7 빚): resolve→connect 사이 DNS 재바인딩(TOCTOU). 진짜 차단은 resolved
 IP 핀(커스텀 transport)이 필요하나, 관리자 등록 경계라 resolve-and-check까지를 현실적 바로 둔다.
 """
 
 import ipaddress
+import math
 import os
 import socket
+import time
 from urllib.parse import urljoin, urlparse
 
 
@@ -90,9 +98,137 @@ def normalize_http_url(raw: str, *, base: str | None = None) -> str:
     return candidate
 
 
+def normalize_allowed_host(raw: str) -> str:
+    """allowlist 항목을 **정확 host**로 정규화(스펙 064 §3·learning 037 파괴적 노브 바닥). 위반은 ValueError.
+
+    허용: 호스트명 또는 IP 리터럴(IPv4/IPv6 — canonical로 반환). 거부: 빈값·공백 포함·스킴(`://`)·
+    `*`(와일드카드)·`/`(경로·CIDR)·`,`(다중 항목 우회)·`@`(userinfo 둔갑, learning 066)·포트(`host:port`).
+    guard_url은 `host.lower() in set`로 *정확* 매칭하므로 와일드카드/서브넷은 무력하거나 allow-all로
+    둔갑할 위험 → 도입 안 함. 반환값은 guard_url이 보는 `parsed.hostname.lower()`와 동형(IPv6는 무대괄호
+    bare form, IP는 ipaddress canonical)이라 저장↔매칭이 어긋나지 않는다.
+    """
+    s = (raw or "").strip().lower()
+    if not s:
+        raise ValueError("호스트가 비어 있습니다")
+    if any(c.isspace() for c in s):
+        raise ValueError(f"호스트에 공백을 포함할 수 없습니다: {s!r}")
+    # 길이 캡: DNS 호스트명 최대 253. DB 컬럼은 String(255)라, 캡 없으면 과길이 입력이
+    # add_host에서 DataError→500을 낸다(적대리뷰 P2). 정규화 단계에서 422로 막는다.
+    if len(s) > 253:
+        raise ValueError(f"호스트가 너무 깁니다(>253자): {raw!r}")
+    # IPv6 리터럴 입력 편의: '[::1]' → '::1'(guard_url의 parsed.hostname과 동형).
+    bare = s[1:-1] if s.startswith("[") and s.endswith("]") else s
+    try:  # IP 리터럴이면 canonical form으로 수용(127.0.0.1·::1 등 — 포트의 ':'와 혼동 방지).
+        ip = ipaddress.ip_address(bare)
+    except ValueError:
+        ip = None
+    if ip is not None:
+        # 미지정 주소(0.0.0.0·::)는 단일 아웃바운드 타깃이 아니라 와일드카드 바인드 주소다.
+        # allowlist에 들면 guard_url이 _ip_is_blocked 전에 host 정확매칭으로 통과시켜 로컬
+        # 리스너를 노출한다(적대리뷰 P1 — allow-local 둔갑). 정규화 단계에서 거부한다.
+        if ip.is_unspecified:
+            raise ValueError(f"미지정 주소(0.0.0.0/::)는 허용 호스트가 될 수 없습니다: {raw!r}")
+        return str(ip)
+    # 호스트명 경로 — 둔갑/우회 벡터를 fail-closed로 거부.
+    for bad, why in (
+        ("://", "스킴"),
+        ("*", "와일드카드"),
+        ("/", "경로·CIDR"),
+        (",", "다중 항목"),
+        ("@", "자격증명(userinfo)"),
+        (":", "포트"),
+    ):
+        if bad in bare:
+            raise ValueError(f"호스트에 {why}({bad!r})를 포함할 수 없습니다: {raw!r}")
+    if not all(c.isalnum() or c in ".-" for c in bare):
+        raise ValueError(f"호스트에 허용되지 않는 문자가 있습니다: {raw!r}")
+    return bare
+
+
+# ── allowlist 캐시 스냅샷(스펙 064 D3) ──────────────────────────────────────────
+# guard_url은 sync라 DB를 직접 못 친다. async 호출처가 guard_url 직전에 refresh_allowed_hosts()로
+# DB→스냅샷을 새로고치고, guard_url은 스냅샷만 sync로 읽는다. 콜드 스타트 스냅샷은 빈 집합 =
+# fail-closed(아무 사설 host도 안 열림 — 안전한 기본). monotonic TTL로 DB 부하를 디바운스.
+_ALLOWED_SNAPSHOT: set[str] = set()
+_SNAPSHOT_EXPIRES: float = 0.0
+
+
+def _parse_ttl(raw: str | None) -> float:
+    """`ALLOWED_HOSTS_TTL` 안전 파싱 — 잘못된 값이 부팅을 깨거나 수렴을 막지 못하게 [0,300] 클램프.
+
+    직파싱(`float(env)`)은 오타에 ValueError로 import 크래시, `inf`엔 제거(닫는 변경)가 *영원히*
+    반영 안 됨(적대리뷰 P2). 비유한/음수/과도값을 기본 10s 또는 상한 300s로 정규화한다.
+    """
+    try:
+        v = float(raw) if raw is not None else 10.0
+    except (TypeError, ValueError):
+        return 10.0
+    if not math.isfinite(v) or v < 0:
+        return 10.0
+    return min(v, 300.0)
+
+
+_TTL_SECONDS: float = _parse_ttl(os.environ.get("ALLOWED_HOSTS_TTL"))
+
+
 def _allowed_hosts() -> set[str]:
-    raw = os.environ.get("A2A_ALLOWED_HOSTS", "")
-    return {h.strip().lower() for h in raw.split(",") if h.strip()}
+    return _ALLOWED_SNAPSHOT
+
+
+async def refresh_allowed_hosts(force: bool = False) -> None:
+    """DB `allowed_hosts`를 읽어 모듈 스냅샷을 교체(무재시작 반영). 만료 전이면 no-op(디바운스).
+
+    `guard_url`을 호출하는 모든 async 아웃바운드 경로가 *직전*에 await한다(스펙 064 D3 배선). 동시
+    다중 호출은 멱등 교체라 무해. 순환 import를 피하려고 db/models를 함수 안에서 지연 import한다.
+    DB 일시 장애 시엔 **기존 스냅샷을 유지**(닫힌 변경만 늦게 반영 — host를 새로 열지 않으니 안전)하고
+    만료만 짧게 미뤄 다음 요청에서 재시도한다.
+    """
+    global _ALLOWED_SNAPSHOT, _SNAPSHOT_EXPIRES
+    now = time.monotonic()
+    if not force and now < _SNAPSHOT_EXPIRES:
+        return
+    from sqlalchemy import select
+
+    from . import db
+    from .models import AllowedHost
+
+    try:
+        async with db.SessionLocal() as session:
+            rows = (await session.execute(select(AllowedHost.host))).scalars().all()
+    except Exception:  # noqa: BLE001 — DB 블립: 기존 스냅샷 유지(fail-safe), 짧게 재시도.
+        _SNAPSHOT_EXPIRES = now + 1.0
+        return
+    _ALLOWED_SNAPSHOT = {h for h in rows if h}
+    _SNAPSHOT_EXPIRES = now + _TTL_SECONDS
+
+
+def invalidate_allowed_hosts_cache() -> None:
+    """관리자 변경(추가/삭제) 후 그 워커 캐시를 즉시 만료 — 다음 refresh가 DB를 재조회한다(스펙 064 D5).
+
+    다른 워커는 TTL(≤10s) 내 수렴. host **제거**가 TTL 동안 아직 허용될 수 있는 창은 스펙 064 §3에
+    명시된 허용 staleness(닫는 변경의 지연 반영)다.
+    """
+    global _SNAPSHOT_EXPIRES
+    _SNAPSHOT_EXPIRES = 0.0
+
+
+def _set_allowed_hosts_for_test(hosts) -> None:
+    """**테스트 전용** — DB 없이 스냅샷을 직접 고정한다(런타임 코드는 절대 호출하지 않는다).
+
+    스펙 064에서 allowlist 소스가 env→DB로 바뀌어, DB 없는 단위 테스트는 더는 `os.environ`으로
+    allowlist를 주입할 수 없다(런타임이 env를 안 본다 = 우회 방지). 그 자리를 메우는 결정적 시seam.
+    `normalize_allowed_host`를 거쳐 guard_url 매칭과 동형으로 넣고, 만료를 무한대로 둬 refresh가
+    덮어쓰지 않게 한다.
+    """
+    global _ALLOWED_SNAPSHOT, _SNAPSHOT_EXPIRES
+    snap: set[str] = set()
+    for h in hosts:
+        try:
+            snap.add(normalize_allowed_host(h))
+        except ValueError:
+            continue
+    _ALLOWED_SNAPSHOT = snap
+    _SNAPSHOT_EXPIRES = float("inf")
 
 
 def _ip_is_blocked(ip: ipaddress._BaseAddress) -> bool:
@@ -136,7 +272,8 @@ def host_is_private(host: str) -> bool:
 def guard_url(url: str) -> None:
     """outbound URL을 검사. http(s)·공인 대역만 허용. 위반 시 SsrfBlocked(ValueError).
 
-    allowlist(`A2A_ALLOWED_HOSTS`)에 든 호스트는 사설대역이라도 통과(dev mock).
+    allowlist(DB `allowed_hosts`, net_guard 캐시 스냅샷)에 든 호스트는 사설대역이라도 통과(dev mock).
+    호출처는 *직전*에 `await refresh_allowed_hosts()`로 스냅샷을 최신화해야 무재시작 반영된다(스펙 064).
     """
     parsed = urlparse((url or "").strip())
     if parsed.scheme not in ("http", "https"):
@@ -165,8 +302,8 @@ def guard_url(url: str) -> None:
         if _ip_is_blocked(ip):
             raise SsrfBlocked(
                 f"사설/내부 대역으로의 요청은 차단됩니다(host={host}). 개발용 mock 등 의도된 "
-                f"대상이면 환경변수 A2A_ALLOWED_HOSTS에 이 호스트를 추가하세요"
-                f"(쉼표구분, 예: A2A_ALLOWED_HOSTS={host}). 변경 후 API 재기동 필요."
+                f"대상이면 관리 콘솔의 '허용 호스트'에서 이 호스트({host})를 추가하세요"
+                f"(무재시작, 최대 ~10초 내 반영)."
             )
     if not seen:
         raise SsrfBlocked("호스트에서 유효한 IP를 얻지 못했습니다")

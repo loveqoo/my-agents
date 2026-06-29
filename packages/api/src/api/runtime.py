@@ -133,14 +133,16 @@ async def build_mcp_tools(
     `servers`: `_load_context`가 해석한 dict 리스트
       `{name, url, transport, enabled_tools, auth_token(복호화|None)}`.
     HTTP/streamable만 연결한다(stdio는 스펙 054 §7에서 유예). 각 URL은 연결 이전에 net_guard(스펙
-    042)로 SSRF 검사 — 사설/루프백 IP는 차단하되 A2A_ALLOWED_HOSTS allowlist로 dev mock(127.0.0.1)을
-    통과시킨다. 서버 하나가 다운/차단/프로토콜 오류여도 그 서버만 건너뛰고 나머지는 살린다(부분 실패
+    042)로 SSRF 검사 — 사설/루프백 IP는 차단하되 DB allowlist(스펙 064 `allowed_hosts`)로 dev
+    mock(127.0.0.1)을 통과시킨다(루프 전 refresh로 무재시작 반영). 서버 하나가 다운/차단/프로토콜
+    오류여도 그 서버만 건너뛰고 나머지는 살린다(부분 실패
     격리 — 에이전트는 계속 실행). 각 도구는 `_wrap_mcp_tool`로 트레이스·HIL·graceful 래핑된다.
     """
     from langchain_mcp_adapters.client import MultiServerMCPClient  # 지연 임포트(모듈 경량 유지)
 
     from . import net_guard
 
+    await net_guard.refresh_allowed_hosts()  # DB allowlist 무재시작 반영(스펙 064) — 루프 전 1회
     connections: dict[str, dict] = {}
     meta: dict[str, dict] = {}
     for s in servers:

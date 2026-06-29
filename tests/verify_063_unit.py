@@ -18,14 +18,20 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "packages", "api", "src"))
 sys.path.insert(0, ROOT)
 
-# 결정성: 보안 불변(U2/U3)은 주변 셸의 A2A_ALLOWED_HOSTS에 의존하면 안 된다(로컬 API가
-# 127.0.0.1을 허용해 띄워져 있으면 가드가 통과해 거짓 실패). 빈 허용목록을 강제해 "127.0.0.1은
-# 정규화 후에도 차단"을 환경 무관하게 검증한다(_allowed_hosts()는 os.environ을 읽음).
-os.environ["A2A_ALLOWED_HOSTS"] = ""
-
+# 결정성: 보안 불변(U2/U3)은 주변 환경/DB 상태에 의존하면 안 된다(127.0.0.1이 어딘가서
+# 허용돼 있으면 가드가 통과해 거짓 실패). 빈 허용목록을 강제해 "127.0.0.1은 정규화 후에도
+# 차단"을 환경 무관하게 검증한다. 스펙 064: allowlist 소스가 env→DB 스냅샷으로 바뀌어,
+# 시seam(_set_allowed_hosts_for_test)으로 스냅샷을 비워 고정한다(만료=inf → refresh no-op).
 from api import a2a_client  # noqa: E402
 from api.agents import _norm_endpoint  # noqa: E402
-from api.net_guard import SsrfBlocked, guard_url, normalize_http_url  # noqa: E402
+from api.net_guard import (  # noqa: E402
+    SsrfBlocked,
+    _set_allowed_hosts_for_test,
+    guard_url,
+    normalize_http_url,
+)
+
+_set_allowed_hosts_for_test([])
 from tests.migrate_063_normalize_endpoints import _needs_norm  # noqa: E402
 
 _fails: list[str] = []

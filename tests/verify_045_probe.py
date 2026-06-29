@@ -26,6 +26,7 @@ sys.path.insert(0, os.path.join(ROOT, "packages", "api", "src"))
 
 from api import agent_card  # noqa: E402
 from api import approvals  # noqa: E402
+from api import net_guard  # noqa: E402
 
 _fails: list[str] = []
 
@@ -80,12 +81,13 @@ async def main() -> None:
         check(r is False, f"P1 적대입력 {bad!r} → False")
 
     # P2 — loopback은 SSRF 가드가 dead로(예외 누출 없이 False)
-    os.environ.pop("A2A_ALLOWED_HOSTS", None)
+    # 스펙 064: allowlist는 DB 스냅샷이 진실원 — DB 없는 테스트는 시seam으로 직접 고정(만료=inf → refresh no-op).
+    net_guard._set_allowed_hosts_for_test([])
     r = await agent_card.probe_endpoint("http://127.0.0.1:9")
     check(r is False, "P2 loopback(127.0.0.1) → False (SSRF, 예외 미누출)")
 
     # P3 — allowlist 호스트 + 응답 도달 → True (httpx 목)
-    os.environ["A2A_ALLOWED_HOSTS"] = "agent.internal.test"
+    net_guard._set_allowed_hosts_for_test(["agent.internal.test"])
     restore = _patch_httpx(lambda *a, **k: _FakeClient(resp=_FakeResp(405)))
     try:
         r = await agent_card.probe_endpoint("http://agent.internal.test/a2a")
@@ -127,7 +129,7 @@ async def main() -> None:
         check(r is False, "P7 비-httpx 예외(ValueError)도 → False (등록 차단 방지, 예외 미누출)")
     finally:
         restore()
-        os.environ.pop("A2A_ALLOWED_HOSTS", None)
+        net_guard._set_allowed_hosts_for_test([])
 
     # P5 — list_approvals 시그니처 회귀(status 기본 None=전량)
     sig = inspect.signature(approvals.list_approvals)

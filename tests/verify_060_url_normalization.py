@@ -21,10 +21,16 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "packages", "api", "src"))
 
-# C5는 allowlist가 비어야 사설 차단을 단언할 수 있다 — 명시적으로 비운다(상속 환경 무시).
-os.environ["A2A_ALLOWED_HOSTS"] = ""
+# C5는 allowlist가 비어야 사설 차단을 단언할 수 있다 — 명시적으로 비운다(상속 환경/DB 무시).
+# 스펙 064: allowlist 소스가 env→DB 스냅샷 — 시seam으로 스냅샷을 비워 고정(만료=inf → refresh no-op).
+from api.net_guard import (  # noqa: E402
+    SsrfBlocked,
+    _set_allowed_hosts_for_test,
+    guard_url,
+    normalize_http_url,
+)
 
-from api.net_guard import SsrfBlocked, guard_url, normalize_http_url  # noqa: E402
+_set_allowed_hosts_for_test([])
 
 _fails: list[str] = []
 

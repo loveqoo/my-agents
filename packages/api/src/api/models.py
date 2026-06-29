@@ -410,3 +410,26 @@ class MemorySnapshot(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+
+
+class AllowedHost(Base):
+    """SSRF 가드(스펙 042) allowlist의 **진실원**(스펙 064 — env→DB 이관).
+
+    `guard_url`은 사설/루프백 대역으로의 outbound를 기본 차단하되, 이 테이블의 host는 예외로 통과시킨다.
+    이 allowlist는 한 chokepoint(`guard_url`)를 거쳐 **A2A 클라이언트·Agent Card fetch/probe·MCP 런타임·
+    MCP blocks 전부**에 적용된다 — 그래서 이름에서 `A2A_` 접두어를 뗐다(공용 allowlist).
+
+    host는 정규화(`net_guard.normalize_allowed_host` — `strip().lower()`, 스킴/포트/와일드카드/CIDR/
+    userinfo 불가, IP는 canonical)되어 저장되며, guard_url의 `host.lower() in set` *정확* 매칭과 동형이다
+    (와일드카드/서브넷은 allow-all SSRF footgun이라 도입 안 함, 스펙 064 §3). 런타임은 net_guard의 캐시
+    스냅샷이 짧은 TTL로 이 테이블을 읽어 **무재시작** 반영. env(`ALLOWED_HOSTS`)는 첫 부팅 1회 시드
+    소스일 뿐(alembic 데이터 마이그레이션이 임포트) — 이후 이 테이블이 단일 소스다(learning 012).
+    """
+
+    __tablename__ = "allowed_hosts"
+    id: Mapped[uuid.UUID] = _pk()
+    host: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    note: Mapped[str | None] = mapped_column(String(200), default=None)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )

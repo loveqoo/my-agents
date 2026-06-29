@@ -113,7 +113,9 @@ check("마스킹(•) → 헤더 없음", a2a_client._auth_headers("abc•••
 
 print("\n[F] net_guard.guard_url — SSRF 사설대역 차단 / allowlist / 공인 통과")
 # allowlist 비활성 상태에서 사설/루프백/링크로컬 차단(리터럴 IP라 DNS 불필요)
-os.environ.pop("A2A_ALLOWED_HOSTS", None)
+# 스펙 064: allowlist 소스가 env→DB 스냅샷으로 바뀌어, 런타임은 env를 안 본다(우회 방지).
+# DB 없는 단위 테스트는 _set_allowed_hosts_for_test 시seam으로 스냅샷을 직접 고정(만료=inf → refresh no-op).
+net_guard._set_allowed_hosts_for_test([])
 expect_raises("loopback 차단", lambda: net_guard.guard_url("http://127.0.0.1:8000/_remote/a2a"))
 expect_raises("private 10.x 차단", lambda: net_guard.guard_url("http://10.0.0.5/x"))
 expect_raises("private 192.168 차단", lambda: net_guard.guard_url("http://192.168.1.1/x"))
@@ -131,12 +133,12 @@ check("공인 IP 통과", net_guard.guard_url("http://8.8.8.8/x") is None)
 check("공인 IP https 통과", net_guard.guard_url("https://1.1.1.1/x") is None)
 check("공인 IPv6 통과", net_guard.guard_url("http://[2606:4700:4700::1111]/x") is None)
 # allowlist 켜면 사설대역이라도 통과(dev mock)
-os.environ["A2A_ALLOWED_HOSTS"] = "127.0.0.1,localhost"
+net_guard._set_allowed_hosts_for_test(["127.0.0.1", "localhost"])
 check("allowlist 127.0.0.1 통과", net_guard.guard_url("http://127.0.0.1:8000/_remote/a2a") is None)
 check("allowlist localhost 통과", net_guard.guard_url("http://localhost:8000/x") is None)
 # allowlist에 없는 사설은 여전히 차단
 expect_raises("allowlist 밖 사설 차단", lambda: net_guard.guard_url("http://10.0.0.5/x"))
-os.environ.pop("A2A_ALLOWED_HOSTS", None)
+net_guard._set_allowed_hosts_for_test([])
 
 print("\n[G] a2a_stream — 절대 raise 안 함(모든 실패 → error 프레임)")
 import asyncio  # noqa: E402

@@ -16,6 +16,7 @@ import {
   ReadOutlined,
   TeamOutlined,
   ScheduleOutlined,
+  SafetyCertificateOutlined,
   LogoutOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
@@ -31,6 +32,7 @@ import MemoryView from './views/MemoryView'
 import ApprovalsView from './views/ApprovalsView'
 import UsersView from './views/UsersView'
 import BatchView from './views/BatchView'
+import AllowedHostsView from './views/AllowedHostsView'
 import { Playground } from '../playground/Playground'
 import { logout as apiLogout, listApprovals, type Me } from '../api'
 
@@ -47,6 +49,7 @@ type ViewKey =
   | 'approvals'
   | 'users'
   | 'batch'
+  | 'allowed-hosts'
   | 'debug'
 
 const TITLES: Record<ViewKey, string> = {
@@ -60,6 +63,7 @@ const TITLES: Record<ViewKey, string> = {
   approvals: '승인',
   users: '유저',
   batch: '배치',
+  'allowed-hosts': '허용 호스트',
   debug: 'Playground',
 }
 
@@ -125,6 +129,11 @@ export default function AdminShell({ user, onLogout }: { user: Me; onLogout: () 
       ? [
           { key: 'users' as const, icon: <TeamOutlined />, label: '유저' },
           { key: 'batch' as const, icon: <ScheduleOutlined />, label: '배치' },
+          {
+            key: 'allowed-hosts' as const,
+            icon: <SafetyCertificateOutlined />,
+            label: '허용 호스트',
+          },
         ]
       : []),
     {
@@ -145,6 +154,7 @@ export default function AdminShell({ user, onLogout }: { user: Me; onLogout: () 
     approvals: <ApprovalsView onPendingChange={setPendingCount} />,
     users: <UsersView />,
     batch: <BatchView />,
+    'allowed-hosts': <AllowedHostsView />,
     debug: <Playground />,
   }
 

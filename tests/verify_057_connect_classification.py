@@ -23,12 +23,9 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "packages", "api", "src"))
 
-# fetch_card/probe_endpoint가 127.0.0.1 mock에 닿도록 allowlist(테스트 프로세스 내 호출).
-os.environ.setdefault("A2A_ALLOWED_HOSTS", "127.0.0.1")
-
 from fastapi import HTTPException  # noqa: E402
 
-from api import a2a_client, agent_card, chat  # noqa: E402
+from api import a2a_client, agent_card, chat, net_guard  # noqa: E402
 from api.agents import (  # noqa: E402
     _build_code_agent_from_card,
     _build_external_agent,
@@ -37,6 +34,10 @@ from api.agents import (  # noqa: E402
 from api.db import SessionLocal  # noqa: E402
 from api.models import Agent  # noqa: E402
 from api.schemas import ConnectAgentIn  # noqa: E402
+
+# fetch_card/probe_endpoint가 127.0.0.1 mock에 닿도록 allowlist(테스트 프로세스 내 호출).
+# 스펙 064: allowlist 소스가 env→DB 스냅샷 — DB와 무관하게 시seam으로 고정(만료=inf → refresh no-op).
+net_guard._set_allowed_hosts_for_test(["127.0.0.1"])
 
 SDK_URL = "http://127.0.0.1:8000/_remote/sdk"
 WEATHER_URL = "http://127.0.0.1:8000/_remote"
@@ -110,9 +111,8 @@ async def main() -> None:
     check(not out.versions, "C3 external은 버전 없음")
 
     # ── C4. 적대 입력 → 400 ────────────────────────────────────────────────
-    # loopback 미허용(allowlist 비움) → SSRF 차단. 환경 일시 변경.
-    saved = os.environ.get("A2A_ALLOWED_HOSTS")
-    os.environ["A2A_ALLOWED_HOSTS"] = ""  # 127.0.0.1 비허용 → SSRF
+    # loopback 미허용(allowlist 비움) → SSRF 차단. 스냅샷 일시 비움(스펙 064).
+    net_guard._set_allowed_hosts_for_test([])  # 127.0.0.1 비허용 → SSRF
     try:
         raised = False
         try:
@@ -121,10 +121,7 @@ async def main() -> None:
             raised = exc.status_code == 400
         check(raised, "C4 loopback 미허용 → HTTPException 400 (SSRF)")
     finally:
-        if saved is None:
-            os.environ["A2A_ALLOWED_HOSTS"] = "127.0.0.1"
-        else:
-            os.environ["A2A_ALLOWED_HOSTS"] = saved
+        net_guard._set_allowed_hosts_for_test(["127.0.0.1"])  # 복원
 
     # 카드 아님(존재하지 않는 경로, allowlist 복원 상태) → fetch 실패 400.
     raised = False

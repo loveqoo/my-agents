@@ -14,6 +14,7 @@ from fastapi import Depends
 from . import (
     a2a_server,
     agents,
+    allowed_hosts,
     approvals,
     batch_routes,
     blocks,
@@ -22,6 +23,7 @@ from . import (
     mock_mcp,
     mock_remote,
     model_registry,
+    net_guard,
     providers,
     rag,
     sessions,
@@ -38,6 +40,7 @@ from .schemas import UserRead, UserUpdate
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    await net_guard.refresh_allowed_hosts(force=True)  # SSRF allowlist 스냅샷 warm(스펙 064)
     await init_authz()  # casbin_rule + enforcer + 기본 정책(멱등)
     await users.seed_admin()  # superuser 시드(env, fail-closed)
     await checkpointer.init_checkpointer()  # HIL durable 체크포인터(스펙 041, graceful)
@@ -84,6 +87,7 @@ app.include_router(memory_routes.router, dependencies=_auth)
 app.include_router(rag.router, dependencies=_auth)
 app.include_router(approvals.router, dependencies=_auth)
 app.include_router(batch_routes.router)  # 자체 보호(admin) — user_admin과 동일 패턴
+app.include_router(allowed_hosts.router)  # 자체 보호(admin) — SSRF allowlist 관리(스펙 064)
 app.include_router(mock_remote.router)
 # 로컬(ui) 에이전트 A2A 노출(스펙 061) — mock_remote처럼 전역 _auth 미적용(self-fetch 호환).
 # 카드는 공개, JSON-RPC 호출만 라우트 단위 current_principal 인증. 게이트=ui+exposed.a2a.
