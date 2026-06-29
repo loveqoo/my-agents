@@ -1,6 +1,7 @@
 /* 어드민 백엔드 API 클라이언트 (007 Phase 3).
    타입은 admin/mockData.ts와 일원화 — 백엔드 출력이 동일 shape다. */
 import type { Agent, Approval, BlockCategory, Session } from './admin/mockData'
+import { httpError } from './httpError'
 
 // 기본은 same-origin 상대경로 `/api` — vite dev 프록시(vite.config.ts)가 127.0.0.1:8000으로 넘긴다.
 // 브라우저는 API 호스트를 모르므로 tailscale 도메인/IP/scheme가 바뀌어도 무설정 동작(CORS·mixed-content·cert 회피).
@@ -41,7 +42,7 @@ async function j<T>(path: string, init?: RequestInit): Promise<T> {
     unauthorizedHandler?.()
     throw new Error(`${init?.method ?? 'GET'} ${path} → 401`)
   }
-  if (!res.ok) throw new Error(`${init?.method ?? 'GET'} ${path} → ${res.status}`)
+  if (!res.ok) throw await httpError(res, init?.method ?? 'GET', path)
   if (res.status === 204) return undefined as T
   return res.json() as Promise<T>
 }
@@ -243,7 +244,7 @@ export async function uploadDocument(id: string, file: File): Promise<RagDocumen
     unauthorizedHandler?.()
     throw new Error(`POST /collections/${id}/documents → 401`)
   }
-  if (!res.ok) throw new Error(`업로드 실패: ${res.status}`)
+  if (!res.ok) throw await httpError(res, 'POST', `/collections/${id}/documents`)
   return res.json() as Promise<RagDocument>
 }
 
@@ -482,7 +483,8 @@ export async function streamChat(
     }),
     signal,
   })
-  if (!res.ok || !res.body) throw new Error(`채팅 실패: ${res.status}`)
+  if (!res.ok) throw await httpError(res, 'POST', `/agents/${agentId}/chat`)
+  if (!res.body) throw new Error('채팅 실패: 응답 본문이 없습니다')
 
   const reader = res.body.getReader()
   const decoder = new TextDecoder()

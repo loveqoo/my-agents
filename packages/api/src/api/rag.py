@@ -48,7 +48,8 @@ def _dim_mismatch(probed: int | None, target: int) -> str | None:
     if probed is not None and probed != target:
         return (
             f"임베딩 모델의 출력 차원({probed})이 RAG 저장소 차원({target})과 다릅니다. "
-            f"저장소(rag_chunks)는 vector({target})로 고정돼 있어 적재할 수 없습니다."
+            f"저장소(rag_chunks)는 vector({target})로 고정돼 있어 적재할 수 없습니다. "
+            f"{target}차원 임베딩 모델을 선택하거나, 관리자에게 저장소 차원 정책 변경을 요청하세요."
         )
     return None
 
