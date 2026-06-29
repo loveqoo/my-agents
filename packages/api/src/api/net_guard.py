@@ -83,6 +83,37 @@ def _ip_is_blocked(ip: ipaddress._BaseAddress) -> bool:
     return (not ip.is_global) or ip.is_multicast or ip.is_unspecified
 
 
+def host_is_private(host: str) -> bool:
+    """host가 **로컬/사설**(루프백·사설·링크로컬·CGNAT 등 비-global)으로만 resolve되면 True.
+
+    `_self_base`가 `request.base_url`(=Host 헤더 파생) 폴백을 신뢰해도 되는지 판단하는 데 쓴다 —
+    공인 Host로 들어온 요청에 `A2A_SELF_BASE_URL`이 없으면 카드 `url`이 공격자 호스트를 가리켜
+    이후 A2A 호출이 프롬프트·Bearer 토큰을 유출할 수 있다(적대리뷰 H1, 스펙 061 §5). 그래서 폴백은
+    로컬/사설 Host에 한정한다. 보수적: resolve 실패하거나 공인 IP가 하나라도 섞이면 False(→ env 강제).
+    """
+    h = (host or "").strip().lower()
+    if not h:
+        return False
+    try:  # 리터럴 IP 빠른 경로([::1]·100.x Tailscale 등).
+        return _ip_is_blocked(ipaddress.ip_address(h.strip("[]")))
+    except ValueError:
+        pass
+    try:
+        infos = socket.getaddrinfo(h, None)
+    except socket.gaierror:
+        return False
+    saw = False
+    for info in infos:
+        try:
+            ip = ipaddress.ip_address(info[4][0])
+        except ValueError:
+            continue
+        saw = True
+        if not _ip_is_blocked(ip):
+            return False  # 공인 IP 하나라도 있으면 신뢰 불가
+    return saw
+
+
 def guard_url(url: str) -> None:
     """outbound URL을 검사. http(s)·공인 대역만 허용. 위반 시 SsrfBlocked(ValueError).
 

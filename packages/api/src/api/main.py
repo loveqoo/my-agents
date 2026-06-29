@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi import Depends
 
 from . import (
+    a2a_server,
     agents,
     approvals,
     batch_routes,
@@ -84,6 +85,9 @@ app.include_router(rag.router, dependencies=_auth)
 app.include_router(approvals.router, dependencies=_auth)
 app.include_router(batch_routes.router)  # 자체 보호(admin) — user_admin과 동일 패턴
 app.include_router(mock_remote.router)
+# 로컬(ui) 에이전트 A2A 노출(스펙 061) — mock_remote처럼 전역 _auth 미적용(self-fetch 호환).
+# 카드는 공개, JSON-RPC 호출만 라우트 단위 current_principal 인증. 게이트=ui+exposed.a2a.
+app.include_router(a2a_server.router)
 # self-host 실 mock MCP 서버(스펙 054) — streamable-HTTP. mock_remote와 같이 인증 비적용(dev 스탠드인).
 app.mount("/_remote/mcp", mock_mcp.mcp_app)
 

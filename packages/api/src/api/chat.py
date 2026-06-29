@@ -435,6 +435,33 @@ async def _a2a_stream(ctx: dict, user_text: str, user_id: str | None):
     yield "event: done\ndata: [DONE]\n\n"
 
 
+async def stream_local_reply(agent_id: uuid.UUID, user_text: str):
+    """로컬(ui) 에이전트를 **A2A 서빙용**으로 실행 — 텍스트 청크만 yield(스펙 061).
+
+    a2a_server가 노출된 로컬 에이전트의 JSON-RPC 호출을 받아 실 LangGraph 런타임을 돌릴 때 쓴다.
+    기존 chat() 경로는 건드리지 않는다(핵심 채팅 무회귀) — _load_context·build_agent·astream만 재사용.
+    v1 단순화(스펙 061 §6, 범위 밖): persist·HIL 승인 게이트·자동 memory-add·세션 영속 미적용
+    (노출 런타임=순수 컴퓨트; 영속은 호출측 _a2a_stream이 자기 external 세션에 한다). 위험 도구는
+    checkpointer=None이라 fail-closed(승인 게이트가 노출 경로엔 없음 — interrupt가 예외로 떨어짐).
+    code/external 소스·모델 미해석이면 ValueError(로컬 그래프 아님 → 라우터가 4xx).
+    """
+    ctx = await _load_context(agent_id, None)
+    if ctx["source"] in ("code", "external") or ctx["model_cfg"] is None:
+        raise ValueError("로컬(ui) 에이전트가 아니거나 채팅 모델이 없습니다(A2A 노출 불가)")
+    calls_sink: list[dict] = []
+    tools = await runtime.build_mcp_tools(ctx["mcp_servers"], calls_sink)
+    if ctx["rag_collections"]:
+        tools.append(runtime.build_rag_tool(ctx["rag_collections"], calls_sink))
+    run_params = {} if ctx["temperature"] is None else {"temperature": ctx["temperature"]}
+    graph = build_agent(ctx["persona"], run_params, tools, ctx["model_cfg"], checkpointer=None)
+    # 노출 호출은 호출당 단일 메시지(맥락은 A2A contextId가 호출측 책임 — v1 서빙은 무상태).
+    messages = _window([{"role": "user", "content": user_text}], ctx["history_depth"])
+    async for msg_chunk, _meta in graph.astream({"messages": messages}, stream_mode="messages"):
+        text = getattr(msg_chunk, "content", "")
+        if text:
+            yield text
+
+
 @router.post("/{agent_id}/chat")
 async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current_principal)):
     ctx = await _load_context(agent_id, body.sessionId, body.overrides)

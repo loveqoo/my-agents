@@ -335,6 +335,17 @@ function IdRow({ label, value }: { label: React.ReactNode; value: string }) {
   )
 }
 
+/* 노출된 로컬(ui) 에이전트의 A2A 카드 URL(스펙 061 D7). 사용자가 "원격 에이전트 연결"에 그대로 붙여
+   자기 에이전트를 A2A로 등록·테스트(dogfood)한다. connect는 백엔드가 이 URL을 **직접 self-fetch**하므로
+   (프록시 `/api`를 안 거침) 백엔드 자기 절대주소여야 한다. VITE_API_BASE가 절대 URL이면 그걸, 아니면
+   루프백 기본(vite 프록시 타깃 127.0.0.1:8000과 동일 · D5의 A2A_ALLOWED_HOSTS=127.0.0.1과 맞음).
+   agentPk는 DB pk(agent.id) — 백엔드 라우트 `/agents/{agent_id}`가 uuid pk로 키잉한다(agentId 표시용 아님). */
+function a2aCardUrl(agentPk: string): string {
+  const env = (import.meta.env.VITE_API_BASE ?? '') as string
+  const origin = /^https?:\/\//.test(env) ? env.replace(/\/+$/, '') : 'http://127.0.0.1:8000'
+  return `${origin}/agents/${agentPk}/.well-known/agent-card.json`
+}
+
 /* ---- 원격 에이전트 연결 — URL 하나로 백엔드가 A2A 카드 fetch·검증·provenance 자동분류(스펙 057) ----
    등록 진입점 단일화. 프론트는 매니페스트를 날조하지 않는다 — URL·토큰만 받아 백엔드(`POST /agents/connect`)에
    위임하면, 카드의 my-agents 확장 유무로 source가 정해진다(있으면 우리가 배포한 SDK=code, 없으면 제3자=external). */
@@ -1080,10 +1091,11 @@ function AgentDetail({
           <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', margin: '2px 0 8px 84px' }}>
             불변 · 모든 환경에서 동일한 ID
           </div>
-          {(agent.environments || ['production']).map((env) => (
-            <IdRow key={env} label={env} value={'a2a://my-agents.' + env + '.local/' + agent.agentId} />
-          ))}
-          <IdRow label="Agent Card" value={'https://my-agents.local/.well-known/agent.json?id=' + agent.agentId} />
+          <IdRow label="A2A 카드" value={a2aCardUrl(agent.id)} />
+          <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', margin: '2px 0 0 84px' }}>
+            이 URL을 <strong>“원격 에이전트 연결”</strong>에 그대로 붙여 등록·테스트하세요. 루프백/사설
+            주소면 백엔드에 <code style={{ fontFamily: 'var(--font-family-code)' }}>A2A_ALLOWED_HOSTS=127.0.0.1</code>가 필요합니다.
+          </div>
         </div>
       ) : null}
 
