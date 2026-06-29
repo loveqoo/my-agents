@@ -46,8 +46,20 @@
   확인하고, 잔여 엣지 1건 적발: mock-embed 멱등이 이름-only라 *손상된* 업그레이드 DB(이름은 같은데
   임베딩 모델이 아닌 행)는 복구 못함. **두 fresh-install 경로 밖**이고 우리 시드/마이그레이션이
   그 상태를 안 만들므로 **수용 가능한 한계로 문서화**(learning 046 — 신호 너머 과설계 금지).
-- **통합 rung(라이브 fresh-clone DB 부팅)은 사용자가 다른 곳에서 수행** — 정적/적대만으로는
-  실제 두 경로 수렴을 *실측*하진 못한다(검증사다리 rung2 부재 자인). 이게 이 작업의 검증 한계.
+- ~~통합 rung은 사용자가 다른 곳에서 수행~~ → **2026-06-29 직접 실측으로 채움**(사용자 "다시 한 번
+  first-run 준비 확인" 요청). 던짐용 pgvector 컨테이너(5433)에 빈 DB 둘을 만들어 **실제 `init_db()`로
+  경로 A**(정상 alembic)·**폴백 분기로 경로 B**(create_all)를 부팅, 관측 상태를 덤프·비교:
+  - 두 경로가 **완전히 동일**한 상태로 수렴 — providers([Mock LLM/mock]), models(mock-llm/mock-chat
+    chat default·mock-embed/mock-embed embedding default), 에이전트 3개 mock-llm 참조·**댕글링 0**,
+    컬렉션 4개 전부 mock-embed 바인딩(부팅이 컬렉션 시드에서 안 죽음). 15단언 ALL PASS.
+  - **end-to-end 스모크**: fr_patha로 API 기동 후 `/_remote/v1/chat/completions`(mock-chat)가
+    결정적 답변, `/_remote/v1/embeddings`(mock-embed)가 1024차원(=RAG_EMBED_DIMS) 반환 → 시드된
+    기본 모델이 *실제로* 동작.
+  - 자산화: `tests/verify_059_integration.py`(단일 DB pass/fail + 두 경로 하니스 문서화). 기존 dev
+    컨테이너는 OS glibc 변경 전 볼륨이라 template1 collation 불일치로 CREATE DATABASE가 막혀
+    던짐용 컨테이너를 썼다(이 환경 함정도 파일에 기록). dev 컨테이너는 무손상.
+  - **결론: first-run 준비됨** — 정적+적대(지난 턴)에 더해 통합 rung까지 셋 다 green. 검증사다리
+    완성(메모리 'verification-ladder: three rungs' — rung2가 seed drift·요청간 글루를 잡는 그 rung).
 
 ## 다음에 적용할 것
 - "기본값을 X로" 류 요청은 **그 기본값이 세워지는 모든 경로를 먼저 열거**하고 각 경로가
