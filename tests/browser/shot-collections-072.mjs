@@ -17,7 +17,7 @@ const EMAIL = process.env.ADMIN_EMAIL ?? _fx.email
 const PASSWORD = process.env.ADMIN_PASSWORD ?? _fx.password
 
 const browser = await chromium.launch({ channel: 'chrome', headless: true })
-const ctx = await browser.newContext({ viewport: { width: 1280, height: 960 } })
+const ctx = await browser.newContext({ viewport: { width: Number(process.env.VW ?? 1280), height: 960 } })
 const page = await ctx.newPage()
 const errors = []
 page.on('console', (m) => m.type() === 'error' && errors.push(m.text()))

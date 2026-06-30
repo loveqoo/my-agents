@@ -647,10 +647,23 @@ export default function CollectionsView() {
       key: 'name',
       title: '이름',
       render: (c) => (
-        <div>
+        // description을 줄임표로 제한 — 긴 설명이 테이블 max-content 폭을 키워 우측
+        // 액션 컬럼(점검·삭제)이 가로 스크롤 뒤로 잘리던 것을 억제한다.
+        <div style={{ maxWidth: 260 }}>
           <span style={{ fontWeight: 500, color: 'var(--color-text-heading)' }}>{c.name}</span>
           {c.description ? (
-            <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginTop: 2 }}>{c.description}</div>
+            <div
+              style={{
+                fontSize: 12,
+                color: 'var(--color-text-tertiary)',
+                marginTop: 2,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            >
+              {c.description}
+            </div>
           ) : null}
         </div>
       ),
@@ -690,16 +703,22 @@ export default function CollectionsView() {
     {
       key: 'actions',
       title: '',
-      width: 290,
+      width: 170,
       align: 'right',
       render: (c) => (
-        <span onClick={(e) => e.stopPropagation()}>
-          <Button type="text" size="small" icon={<Icon name="file" />} onClick={() => setDocsFor(c)}>
-            문서
-          </Button>
+        // 검색은 primary로 승격(발견성), 나머지는 아이콘+Tooltip으로 압축 — 액션 컬럼 폭을
+        // 줄여(290→170) 데스크탑 테이블이 max-content로 넘쳐 검색 버튼이 가로 스크롤 뒤로
+        // 잘리던 문제를 해소(스펙 072 후속). gap으로 아이콘 버튼 간격 확보.
+        <span
+          onClick={(e) => e.stopPropagation()}
+          style={{ display: 'inline-flex', gap: 4, justifyContent: 'flex-end', alignItems: 'center' }}
+        >
+          <Tooltip title="문서">
+            <Button type="text" size="small" icon={<Icon name="file" />} onClick={() => setDocsFor(c)} />
+          </Tooltip>
           <Tooltip title={c.status === 'ready' ? '' : '문서를 인제스트하면 검색할 수 있습니다'}>
             <Button
-              type="text"
+              type="primary"
               size="small"
               icon={<Icon name="search" />}
               disabled={c.status !== 'ready'}
@@ -708,17 +727,19 @@ export default function CollectionsView() {
               검색
             </Button>
           </Tooltip>
-          <Button
-            type="text"
-            size="small"
-            icon={<Icon name="experiment" />}
-            loading={checkingId === c.id}
-            disabled={checkingId !== null && checkingId !== c.id}
-            onClick={() => void runHealth(c)}
-          >
-            점검
-          </Button>
-          <Button type="text" size="small" danger icon={<Icon name="delete" />} onClick={() => setConfirmDel(c)} />
+          <Tooltip title="점검">
+            <Button
+              type="text"
+              size="small"
+              icon={<Icon name="experiment" />}
+              loading={checkingId === c.id}
+              disabled={checkingId !== null && checkingId !== c.id}
+              onClick={() => void runHealth(c)}
+            />
+          </Tooltip>
+          <Tooltip title="삭제">
+            <Button type="text" size="small" danger icon={<Icon name="delete" />} onClick={() => setConfirmDel(c)} />
+          </Tooltip>
         </span>
       ),
     },
