@@ -207,8 +207,24 @@ function GraphPath({ graph }: { graph: GraphNode[] }) {
                 {n.node}
               </span>
               <span style={{ fontSize: 11, color: 'var(--color-text-quaternary)', fontFamily: 'var(--font-family-code)', flex: 'none' }}>
-                +{n.ms}ms
+                {/* 병렬 superstep이면 ms는 청크 공유값 — '순차 +Xms'로 과장하지 않고 '병렬 ⏱Xms'로 정직 표기(F4). */}
+                {n.parallel ? `병렬 ⏱${n.ms}ms` : `+${n.ms}ms`}
               </span>
+              {/* 그 노드가 바꾼 상태 델타 요약(스펙 086) — 있을 때만. 이름이 아니라 *내용*으로 읽힌다. */}
+              {n.summary ? (
+                <div
+                  style={{
+                    flexBasis: '100%',
+                    fontSize: 12,
+                    color: 'var(--color-text-secondary)',
+                    fontFamily: 'var(--font-family-code)',
+                    overflowWrap: 'anywhere',
+                    marginTop: 2,
+                  }}
+                >
+                  {n.summary}
+                </div>
+              ) : null}
             </div>
           </div>
         )

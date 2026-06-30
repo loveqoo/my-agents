@@ -612,7 +612,9 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
         acc: list[str] = []
         errored = False
         interrupts: list[dict] = []
-        observed_nodes: list[str] = []  # updates 스트림서 실제 발화한 노드(스펙 085 추적 배선)
+        # updates 발화 레코드 [{node, ms(실측), summary}] — 스펙 085(노드열) + 086(실측·요약).
+        observed: list[dict] = []
+        t_prev = t0
         try:
             # 멀티 stream_mode: "messages"=토큰 스트림(기존), "updates"=노드 업데이트에서 __interrupt__
             # 감지(위험 도구가 그래프를 멈춘 신호). probe로 검증한 형태. 한 업데이트가 다중 interrupt를
@@ -629,9 +631,25 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
                 elif stream_mode == "updates" and isinstance(chunk, dict):
                     if "__interrupt__" in chunk:
                         interrupts.extend(i.value for i in chunk["__interrupt__"])
-                    # 실 노드 발화 누적 — 어떤 적합 그래프든 호출 스택 타임라인을 진짜로 채운다
-                    # (하드코딩 아님). __로 시작하는 내부 채널(__interrupt__ 등)은 제외.
-                    observed_nodes.extend(k for k in chunk if not k.startswith("__"))
+                    # 실 노드 발화 누적(하드코딩 아님). __로 시작하는 내부 채널(__interrupt__ 등) 제외.
+                    # ms=직전 update 이후 경과(직렬 그래프=노드별 실측, 스펙 086 ①), summary=안전 요약
+                    # (키기반 redaction + raw 캡, 086 ②). 같은 노드 재발화는 별도 레코드(재진입 보존).
+                    now = time.perf_counter()
+                    ms = int((now - t_prev) * 1000)
+                    fired = [(n, d) for n, d in chunk.items() if not n.startswith("__")]
+                    # 한 청크에 노드 2+ = 병렬 superstep → 공유 ms를 노드별 실측처럼 과장 말라(F4).
+                    is_parallel = len(fired) > 1
+                    for node, delta in fired:
+                        rec = {
+                            "node": node,
+                            "ms": ms,
+                            "summary": runtime._summarize_node_update(node, delta),
+                        }
+                        if is_parallel:
+                            rec["parallel"] = True
+                        observed.append(rec)
+                    if fired:
+                        t_prev = now
         except Exception as exc:  # 모델/툴 오류도 프레임으로 전달
             errored = True
             # 연결 실패로 보이면 'Mock LLM' 전환 힌트를 덧붙인다(스펙 058 G4). 그 외 오류는 원문 유지.
@@ -684,7 +702,7 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
             used_memory=used_memory,
             total_ms=total_ms,
             tokens=tokens,
-            graph_nodes=observed_nodes,
+            graph_observations=observed,
         )
         trace["contextMessages"] = len(messages)  # 모델에 넣은 메시지 수(historyDepth 적용 결과)
         if ctx["rag_collections"]:

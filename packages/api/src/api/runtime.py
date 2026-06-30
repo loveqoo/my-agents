@@ -365,6 +365,95 @@ def build_graph_path(used_memory: bool, used_tools: bool, total_ms: int) -> list
     return path
 
 
+# 노드 상태 델타에서 비밀값을 띄우지 않기 위한 민감 키 패턴(닫힌 집합, 스펙 086 §2).
+# 키 *이름*으로 마스킹한다 — 값 휴리스틱이 아니라(저장 크레덴셜용 crypto.is_masked와 별개).
+_SENSITIVE_KEY = re.compile(r"(api[_-]?key|secret|token|password|passwd|auth|credential|bearer)", re.I)
+_FIELD_CAP = 300  # 필드(값) 1개 표시 상한(자)
+_NODE_SUMMARY_CAP = 1200  # 노드 요약 전체 상한(자) — 필드 캡보다 커야 단일 필드가 이중 캡 안 됨
+                          # (codex F3 후속: per-field 캡 후 join이 또 잘려 생략 길이가 거짓이 되던 버그)
+_REDACTED = "«redacted»"
+
+
+# 값 원문을 *노출해도 되는* 알려진 안전 필드(최소 allowlist). 이 기능의 존재이유가 "그 값을 보여주는
+# 것"인 필드만 — 현재는 `plan`(노드가 세운 계획 텍스트)뿐. 그 외 임의 키의 문자열 값은 원문 미표시
+# (fail-closed): 키 이름이 평범/비영문이라 _SENSITIVE_KEY가 못 잡아도 *값 자체* 비밀이 안 샌다
+# (codex 적대 리뷰 F2: 값-비밀 차단). 새 안전 필드 추가는 "그 키는 절대 비밀이 아니다"를 보증할 때만.
+_VALUE_SAFE_KEYS = frozenset({"plan"})
+
+
+def _cap(s: str, limit: int = _NODE_SUMMARY_CAP) -> str:
+    """raw 문자열에서 캡 — 초과분은 정직 표기(no silent truncation). 원문 길이(`len(s)`=O(1))로 표기하되
+    복사는 `s[:limit]`만(budgeted) — 거대 문자열을 통째 다시 만들지 않는다(codex F3: post-build cap 금지)."""
+    if len(s) <= limit:
+        return s
+    return s[:limit] + f"…({len(s) - limit}자 생략)"
+
+
+def _summarize_node_update(node: str, delta: Any) -> str | None:
+    """노드가 발화하며 바꾼 상태 델타를 사람이 읽을 짧은 문자열로 요약(스펙 086).
+
+    불변식(codex 적대 리뷰 F2·F3·F5 반영):
+    (1) **비밀 누출 0(fail-closed)** — 민감 *키*(_SENSITIVE_KEY)는 값 마스킹하고, 그 외 임의 키의
+        문자열 값은 *원문 미표시*(길이만). 값 원문은 _VALUE_SAFE_KEYS(우리가 심은 안전 필드)만.
+        키 이름이 평범/비영문이라 키-패턴이 못 잡아도 값-비밀이 안 샌다.
+    (2) **budgeted 캡** — 각 값을 append 전에 _cap에 통과(거대 값을 join으로 통째 만들지 않음 —
+        learning: .content 위 카운트는 막은 척, raw에서 캡).
+    (3) **fail-closed 예외** — 비문자 키 등으로 요약이 실패해도 None 반환(chat loop 안 깸, F5).
+    빈/무의미 델타는 None(요약 행 미표시)."""
+    if not isinstance(delta, dict) or not delta:
+        return None
+    try:
+        parts: list[str] = []
+        for raw_key, val in delta.items():
+            key = str(raw_key)  # F5: 비문자 키도 안전하게(이후 정규식/표시 모두 str 기준).
+            if _SENSITIVE_KEY.search(key):
+                parts.append(f"{key}={_REDACTED}")
+                continue
+            # messages는 이미 토큰으로 스트림됐다 — 본문 중복 안 싣고 건수만.
+            if key == "messages" and isinstance(val, list):
+                parts.append(f"메시지 {len(val)}건")
+                continue
+            if isinstance(val, str):
+                # 안전 키(plan)만 값 원문(budgeted 캡); 그 외 임의 키는 길이만(F2 값-비밀 fail-closed).
+                if key in _VALUE_SAFE_KEYS:
+                    parts.append(_cap(val, _FIELD_CAP))  # 필드 캡(노드 전체 캡보다 작음 — 이중 캡 방지)
+                else:
+                    parts.append(f"{key}: <{len(val)}자>")
+            elif isinstance(val, (list, tuple)):
+                parts.append(f"{key}[{len(val)}]")
+            elif isinstance(val, dict):
+                # 중첩 dict도 키만(중첩 안의 비밀 누출 차단 — 값 펼치지 않음). 키 목록도 캡(거대 dict 방어).
+                inner = _cap(
+                    ", ".join(_REDACTED if _SENSITIVE_KEY.search(str(k)) else str(k) for k in val), 80
+                )
+                parts.append(f"{key}{{{inner}}}")
+            elif val is None or isinstance(val, (bool, int, float)):
+                parts.append(f"{key}={val}")  # 스칼라(유한 길이, 비밀 위험 낮음)
+            else:
+                parts.append(f"{key}=<{type(val).__name__}>")  # 미지 타입은 타입명만(fail-closed)
+        text = _cap(" · ".join(p for p in parts if p))
+        return text or None
+    except Exception:  # noqa: BLE001 — 요약 실패가 스트림을 깨면 안 됨(F5 fail-closed)
+        return None
+
+
+def _timeline_from_observations(observed: list[dict]) -> list[dict]:
+    """관측 레코드(`{node, ms, summary}`, 스펙 086)를 인스펙터 타임라인으로. ms는 실측(균등분할
+    아님), summary는 안전 요약. __start__/__end__ 센티넬로 감싸 표시 일관성 유지. 중복(재진입) 보존."""
+    path: list[dict] = [{"node": "__start__", "ms": 0}]
+    for rec in observed:
+        item = {"node": rec["node"], "ms": int(rec.get("ms", 0))}
+        if rec.get("summary"):
+            item["summary"] = rec["summary"]
+        # 병렬 superstep(한 update 청크에 노드 2+)이면 ms는 *공유 청크 경과*지 노드별 실측이 아니다 —
+        # 순차 누적으로 과장 표시되지 않게 플래그를 싣는다(codex F4: ms 정직성).
+        if rec.get("parallel"):
+            item["parallel"] = True
+        path.append(item)
+    path.append({"node": "__end__", "ms": 15})
+    return path
+
+
 def _timeline_from_nodes(nodes: list[str], total_ms: int) -> list[dict]:
     """`updates` 스트림서 **관측한 노드 발화 순서**로 타임라인을 구성(스펙 085).
 
@@ -402,16 +491,20 @@ def assemble_trace(
     total_ms: int,
     tokens: dict[str, int],
     graph_nodes: list[str] | None = None,
+    graph_observations: list[dict] | None = None,
 ) -> dict[str, Any]:
     """Playground 인스펙터가 기대하는 트레이스 형태로 조립.
 
-    graph_nodes가 주어지면(적합 in-process 그래프의 실 노드열, 스펙 085) 그걸로 실 호출 스택
-    타임라인을 만든다. 없으면(원격 재개 등 노드 관측 불가) 기존 합성 경로로 폴백 — 무회귀."""
-    graph = (
-        _timeline_from_nodes(graph_nodes, total_ms)
-        if graph_nodes
-        else build_graph_path(used_memory, bool(mcp_calls), total_ms)
-    )
+    타임라인 우선순위(무회귀 — 셋 다 보존):
+      1. graph_observations(`{node, ms, summary}` 실측·요약, 스펙 086) — 풀디테일.
+      2. graph_nodes(실 노드열 순서만, 스펙 085) — 요약/실측 없는 경로(현 폴백 호출부 호환).
+      3. build_graph_path(합성) — 원격 재개 등 노드 관측 불가 시."""
+    if graph_observations:
+        graph = _timeline_from_observations(graph_observations)
+    elif graph_nodes:
+        graph = _timeline_from_nodes(graph_nodes, total_ms)
+    else:
+        graph = build_graph_path(used_memory, bool(mcp_calls), total_ms)
     return {
         "latencyMs": total_ms,
         "tokens": tokens,

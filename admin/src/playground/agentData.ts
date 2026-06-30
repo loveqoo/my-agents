@@ -26,6 +26,12 @@ export interface McpCallT {
 export interface GraphNode {
   node: string
   ms: number
+  // 그 노드가 바꾼 상태 델타의 안전 요약(키기반 redaction + 캡). 스펙 086.
+  // 폴백 경로(원격 재개 등 노드 미관측)는 undefined — 요약 행 미표시.
+  summary?: string
+  // 병렬 superstep(한 update 청크에 노드 2+)이면 true — ms가 노드별 실측이 아니라 청크 공유값이라
+  // 순차 누적처럼 표시하지 않기 위함(스펙 086, codex F4). 직렬 그래프는 undefined.
+  parallel?: boolean
 }
 
 export interface Trace {
