@@ -76,9 +76,16 @@ def _resolve_card_endpoint(raw: str, candidate: str) -> str:
     mp = urlparse(mount)
     origin = f"{mp.scheme}://{mp.netloc}"
     prefix = mp.path.rstrip("/")  # 예: /ai-core/ccab-weekly-report (없으면 "")
-    # 루트상대(`/x`)·bare(`x`) 모두 mount prefix 디렉터리 기준 상대로 resolve. urljoin이 dot-segment를
-    # 정리하고 origin서 clamp한다(string concat과 달리 `..`가 literal로 안 남는다 — 적대 리뷰 071 F4).
-    resolved = urljoin(origin + prefix + "/", s.lstrip("/"))
+    rel = s.strip("/")  # "/a2a"·"a2a" → "a2a", "/v1/a2a" → "v1/a2a"
+    # 꼬리 중복 collapse(스펙 082): prefix가 이미 카드 상대경로로 끝나면(예: prefix=/a2a, 카드=/a2a)
+    # 071대로 prefix 하위에 또 붙이면 `…/a2a/a2a` 중복이 된다. 그땐 prefix 자체가 endpoint이므로 그대로
+    # 쓴다("url 마지막에 a2a 있으면 추가로 a2a 안 붙임"). 정확 꼬리 매치만 — 부분겹침은 모호해 071 유지.
+    if rel and (prefix == "/" + rel or prefix.endswith("/" + rel)):
+        resolved = origin + prefix
+    else:
+        # 루트상대(`/x`)·bare(`x`) 모두 mount prefix 디렉터리 기준 상대로 resolve. urljoin이 dot-segment를
+        # 정리하고 origin서 clamp한다(string concat과 달리 `..`가 literal로 안 남는다 — 적대 리뷰 071 F4).
+        resolved = urljoin(origin + prefix + "/", rel)
     return normalize_http_url(resolved)
 
 
