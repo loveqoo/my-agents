@@ -608,6 +608,11 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
                 "memories": mem_hits, "mcp": calls_sink, "graph": [],
                 "approval": {"id": apid, "action": action, "status": "pending"},
             }
+            # 승인대기 턴도 회상 조회 이력 일관 노출(스펙 079).
+            if used_memory:
+                pending_trace["memoryQuery"] = user_text[:300]
+            if ctx["rag_collections"]:
+                pending_trace["ragCollections"] = [c["name"] for c in ctx["rag_collections"]]
             yield f"event: trace\ndata: {json.dumps(pending_trace, ensure_ascii=False)}\n\n"
             yield "event: done\ndata: [DONE]\n\n"
             return
@@ -634,6 +639,9 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
         if used_memory:
             # None이 아닌 회상 축만 — {"user_id","run_id","agent_id"} 부분집합 (Inspector가 축별 렌더).
             trace["memoryScope"] = {k: v for k, v in recall_scope.items() if v}
+            # 회상에 쓴 쿼리(=user_text)를 에코 — 0건 회상이어도 "조회 행위"를 인스펙터에 남긴다(스펙 079).
+            # 표시 전용·길이상한(방금 그 유저가 보낸 텍스트라 경계 이동 없음).
+            trace["memoryQuery"] = user_text[:300]
         # 오류 턴은 영속/메모리 저장하지 않는다 (부분/실패 응답 오염 방지).
         if not errored:
             await _persist(

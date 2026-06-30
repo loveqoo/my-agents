@@ -19,6 +19,8 @@ export interface McpCallT {
   ms: number
   args: Record<string, unknown>
   result: string
+  // RAG 검색 도구가 반환한 히트 수(server='rag'일 때). 스펙 079.
+  hits?: number
 }
 
 export interface GraphNode {
@@ -37,6 +39,12 @@ export interface Trace {
   // 적용된 메모리 스코프(다층). None이 아닌 축만 담긴다: {user_id?, run_id?}.
   // user_id 있으면 유저 장기(세션 가로지름)+세션, 없으면 세션 한정.
   memoryScope?: { user_id?: string; run_id?: string }
+  // 회상에 쓴 쿼리(=user_text 에코) — 0건 회상이어도 "조회 이력"을 인스펙터에 남긴다. 스펙 079.
+  memoryQuery?: string
+  // 이 턴에 구성된 RAG 컬렉션명(도구 호출 여부와 무관하게 노출). 스펙 037/079.
+  ragCollections?: string[]
+  // 요청됐으나 해석 실패한 컬렉션명(조용히 비는 footgun을 드러냄). 스펙 079.
+  ragUnresolved?: string[]
 }
 
 export type ChatMsg = { role: 'me' | 'ai'; text: string; trace?: Trace }
