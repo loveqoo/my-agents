@@ -213,7 +213,7 @@ export const ADMIN_AGENTS: Agent[] = [
   { id: 'translator', name: 'Doc Translator', source: 'code', agentId: 'agt_xlt_a17c33', environments: ['production'], model: 'qwen3.6-35b', status: 'online',
     persona: '코드 정의 (SDK)', memories: ['단기(세션)'], historyDepth: 10, vectorTables: [],
     permissions: ['web.search'], mcps: ['tavily'],
-    exposed: { a2a: true }, sessions: 1, created: '2026-06-18',
+    exposed: { a2a: false }, sessions: 1, created: '2026-06-18', // 원격(code)은 A2A 재노출 불가 — 스펙 083
     endpoint: 'https://agents.acme.dev/doc-translator', token: 'sk_live_a3f••••••••91c2',
     runtime: 'my-agents-sdk · Python 2.4.1', repo: 'acme/doc-translator', commit: 'f3a91c2',
     registeredAt: '2026-06-18', lastSync: '12분 전',

@@ -257,7 +257,7 @@ async def seed_if_empty(session: AsyncSession) -> None:
         }
         translator = Agent(
             agent_id="agt_xlt_a17c33", name="Doc Translator", source="code", model=CHAT_MODEL_NAME,
-            persona="코드 정의 (SDK)", history_depth=10, config=code_cfg, exposed={"a2a": True},
+            persona="코드 정의 (SDK)", history_depth=10, config=code_cfg, exposed={"a2a": False},
             status="online", active_version="f3a91c2",
             endpoint=code_endpoint,
             token=crypto.encrypt("sk_live_demo_doc_translator_a17c33"),

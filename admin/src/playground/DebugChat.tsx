@@ -119,7 +119,9 @@ interface DebugChatProps {
 }
 
 function ExposeBadges({ agent }: { agent: Agent }) {
-  return <div style={{ display: 'flex', gap: 6 }}>{agent.exposed?.a2a ? <Tag color="green">A2A</Tag> : null}</div>
+  // A2A 배지는 로컬(ui) 노출 에이전트만 — 원격/외부는 재노출 불가(스펙 083 불변식: exposed.a2a ⟹ source=ui).
+  const exposed = agent.source === 'ui' && agent.exposed?.a2a
+  return <div style={{ display: 'flex', gap: 6 }}>{exposed ? <Tag color="green">A2A</Tag> : null}</div>
 }
 
 /* Rich agent picker — replaces the left rail. Shows avatar, persona, model and
@@ -300,7 +302,7 @@ function AgentCombo({
                   <span style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
                     {/* 미반영 초안(스펙 078): 어느 에이전트가 미활성 편집을 안고 있는지 피커에서 구분. */}
                     {hasDraft(a) ? <Tag color="gold">초안</Tag> : null}
-                    {a.exposed && a.exposed.a2a ? <Tag color="green">A2A</Tag> : null}
+                    {a.source === 'ui' && a.exposed && a.exposed.a2a ? <Tag color="green">A2A</Tag> : null}
                     {a.mcps.map((m) => (
                       <Tag key={m} color="cyan">
                         {m}

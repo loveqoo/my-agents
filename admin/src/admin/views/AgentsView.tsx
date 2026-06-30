@@ -518,13 +518,11 @@ function CodeAgentDetail({
   agent,
   onClose,
   onDelete,
-  onToggleExpose,
   onResync,
 }: {
   agent: Agent
   onClose: () => void
   onDelete: (a: Agent) => void
-  onToggleExpose: (a: Agent) => void
   onResync: (a: Agent) => void
 }) {
   return (
@@ -642,46 +640,6 @@ function CodeAgentDetail({
       </div>
 
       <div style={{ marginTop: 18 }}>
-        <ExposeSwitch
-          on={!!agent.exposed.a2a}
-          onChange={() => onToggleExpose(agent)}
-          label="A2A로 공개"
-          onText="공개 · 다른 에이전트가 호출 가능"
-          offText="비공개 · 노출되지 않음"
-        />
-      </div>
-
-      {agent.exposed.a2a ? (
-        <div
-          style={{
-            marginTop: 10,
-            padding: 14,
-            border: '1px solid var(--green-3)',
-            background: 'var(--green-1)',
-            borderRadius: 'var(--radius-lg)',
-          }}
-        >
-          <div
-            style={{
-              fontSize: 12,
-              color: 'var(--color-text-tertiary)',
-              marginBottom: 8,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-            }}
-          >
-            <Icon name="global" size={12} style={{ color: 'var(--green-7)' }} />
-            A2A 식별자(소비자와 공유)
-          </div>
-          <IdRow label="Agent ID" value={agent.agentId} />
-          {(agent.environments || ['production']).map((env) => (
-            <IdRow key={env} label={env} value={'a2a://my-agents.' + env + '.local/' + agent.agentId} />
-          ))}
-        </div>
-      ) : null}
-
-      <div style={{ marginTop: 18 }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-heading)', marginBottom: 10 }}>
           배포 히스토리
         </div>
@@ -746,12 +704,10 @@ function ExternalAgentDetail({
   agent,
   onClose,
   onDelete,
-  onToggleExpose,
 }: {
   agent: Agent
   onClose: () => void
   onDelete: (a: Agent) => void
-  onToggleExpose: (a: Agent) => void
 }) {
   const card = agent.card
   const caps = Object.entries(card?.capabilities ?? {})
@@ -876,16 +832,6 @@ function ExternalAgentDetail({
           </div>
         </div>
       ) : null}
-
-      <div style={{ marginTop: 18 }}>
-        <ExposeSwitch
-          on={!!agent.exposed.a2a}
-          onChange={() => onToggleExpose(agent)}
-          label="A2A로 공개"
-          onText="공개 · 다른 에이전트가 호출 가능"
-          offText="비공개 · 노출되지 않음"
-        />
-      </div>
     </Drawer>
   )
 }
@@ -920,7 +866,6 @@ function AgentDetail({
         agent={agent}
         onClose={onClose}
         onDelete={onDelete}
-        onToggleExpose={onToggleExpose}
         onResync={onResync}
       />
     )
@@ -930,7 +875,6 @@ function AgentDetail({
         agent={agent}
         onClose={onClose}
         onDelete={onDelete}
-        onToggleExpose={onToggleExpose}
       />
     )
   const draft = (agent.versions || []).find((v) => v.status === 'draft')
@@ -1237,6 +1181,12 @@ export default function AgentsView() {
   }
   // 라이브 세션 카운트는 더 이상 추적하지 않는다(ADMIN_SESSIONS 제거). UX용 모달만 유지.
   const toggleExpose = async (agent: Agent) => {
+    // A2A 노출은 로컬(ui) 에이전트만 — 스펙 083 불변식. 렌더 단계서 토글을 이미 숨기지만,
+    // 헬퍼가 재사용돼도 켜는 호출이 새지 않도록 중앙에서도 source 가드(끄기는 멱등 청소라 허용).
+    if (!agent.exposed.a2a && agent.source !== 'ui') {
+      message.warning('원격/외부 에이전트는 A2A로 노출할 수 없습니다')
+      return
+    }
     if (!agent.exposed.a2a) {
       try {
         const updated = await exposeAgent(agent.id, true)
@@ -1458,14 +1408,18 @@ export default function AgentsView() {
       key: 'exposed',
       title: '공개',
       width: 130,
-      render: (a) => (
-        <span onClick={(e) => e.stopPropagation()} style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-          <Switch size="small" checked={!!a.exposed.a2a} onChange={() => toggleExpose(a)} />
-          <span style={{ fontSize: 12, color: a.exposed.a2a ? 'var(--color-success)' : 'var(--color-text-tertiary)' }}>
-            {a.exposed.a2a ? 'A2A' : '꺼짐'}
+      render: (a) =>
+        // A2A 노출은 로컬(ui) 에이전트만 — 원격(code)·외부(external)는 이미 원격 A2A/프록시라 재노출 불가(스펙 083).
+        a.source !== 'ui' ? (
+          <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>—</span>
+        ) : (
+          <span onClick={(e) => e.stopPropagation()} style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <Switch size="small" checked={!!a.exposed.a2a} onChange={() => toggleExpose(a)} />
+            <span style={{ fontSize: 12, color: a.exposed.a2a ? 'var(--color-success)' : 'var(--color-text-tertiary)' }}>
+              {a.exposed.a2a ? 'A2A' : '꺼짐'}
+            </span>
           </span>
-        </span>
-      ),
+        ),
     },
     {
       key: 'status',

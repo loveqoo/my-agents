@@ -286,7 +286,16 @@ async def expose_agent(
     if agent is None:
         raise HTTPException(status_code=404, detail="agent not found")
 
-    agent.exposed = {"a2a": body.a2a}
+    if body.a2a and agent.source != "ui":
+        # 원격(code)·외부(external)는 이미 원격 A2A/프록시 — 우리 A2A로 재노출은 proxy-of-proxy(스펙 083).
+        # A2A 서버(a2a_server._load_exposed_ui_agent)도 non-ui면 404라 노출해도 dead state. 입구에서 거부.
+        # 단 a2a=False(끄기)는 source 무관 항상 허용 — stale 플래그를 멱등으로 청소하는 경로를 막지 않는다.
+        raise HTTPException(
+            status_code=400,
+            detail="원격/외부 에이전트는 A2A로 노출할 수 없습니다 (source=ui만 노출 가능)",
+        )
+    # exposed는 JSONB(MutableDict 미추적) — 통째 교체 대신 형제 키 보존하며 a2a만 갱신 후 재대입.
+    agent.exposed = {**(agent.exposed or {}), "a2a": body.a2a}
     await session.commit()
     return await _reload_out(session, agent.id)
 

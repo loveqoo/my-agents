@@ -83,7 +83,8 @@ export default function OverviewView({ onGo }: { onGo: (v: string) => void }) {
       .catch(() => message.error('개요 데이터를 불러오지 못했습니다'))
   }, [])
   const blockCount = Object.values(blocks).reduce((a, b) => a + b.items.length, 0)
-  const exposed = agents.filter((a) => a.exposed.a2a).length
+  // A2A 노출은 로컬(ui) 에이전트만 — source로 좁혀 정직(스펙 083 불변식: exposed.a2a ⟹ source=ui).
+  const exposed = agents.filter((a) => a.source === 'ui' && a.exposed.a2a).length
 
   const headerRow: CSSProperties = {
     display: 'flex',
