@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Tag, Button, Avatar, Select, Input, Checkbox, Switch, Slider, Tooltip, Modal, Alert, message } from 'antd'
 import { Page, StatusPill, DataTable, Drawer, Desc, VersionHistory, ExposeSwitch, type Column } from '../shared'
+import { notifyAgentsChanged } from '../../agentsBus'
 import { Icon } from '../icons'
 import { AgentMemoryPanel } from './AgentMemoryPanel'
 import {
@@ -1194,9 +1195,13 @@ export default function AgentsView() {
       .catch((e) => message.error(String(e)))
   }, [])
 
-  // 단일 에이전트를 반환값(전체 AgentOut)으로 교체.
-  const replaceAgent = (updated: Agent) =>
+  // 단일 에이전트를 반환값(전체 AgentOut)으로 교체. 활성화·편집·되돌리기·새초안·재동기 등
+  // 단일 변경의 공통 종점 — 여기서 탭 간 변경 신호를 쏜다(스펙 080). 초기 로드는 setAgents 직접
+  // 사용이라 신호가 안 나가 불필요한 재페치를 안 만든다.
+  const replaceAgent = (updated: Agent) => {
     setAgents((as) => as.map((a) => (a.id === updated.id ? updated : a)))
+    notifyAgentsChanged()
+  }
 
   const configOf = (a: Agent): AgentConfig => ({
     model: a.model,
@@ -1311,6 +1316,7 @@ export default function AgentsView() {
       } else {
         const created = await createAgent(data.name, config)
         setAgents((as) => [created, ...as])
+        notifyAgentsChanged()
         setToast(`"${data.name}" 생성됨 — v1 초안, 테스트 후 활성화`)
       }
       setFormOpen(false)
@@ -1326,6 +1332,7 @@ export default function AgentsView() {
     try {
       await deleteAgent(target.id)
       setAgents((as) => as.filter((a) => a.id !== target.id))
+      notifyAgentsChanged()
       setToast(`"${target.name}" ${target.source !== 'ui' ? '등록 해제됨' : '삭제됨'}`)
       setConfirmDel(null)
       setDetailId(null)
@@ -1340,6 +1347,7 @@ export default function AgentsView() {
     try {
       const created = await apiConnectAgent(data.url, data.token || undefined)
       setAgents((as) => [created, ...as])
+      notifyAgentsChanged()
       const kind = created.source === 'code' ? 'SDK 에이전트 (코드)' : '외부 A2A'
       setToast(`"${created.name || '원격 에이전트'}" 연결됨 — ${kind}, 읽기 전용`)
       setConnectOpen(false)

@@ -12,6 +12,7 @@ import {
   listAgents, streamChat, getBlocks, listModels, listSessions, getSessionMessages,
   type ChatMessage, type Model,
 } from '../api'
+import { onAgentsChanged } from '../agentsBus'
 
 export function Playground() {
   const [agents, setAgents] = useState<Agent[]>([])
@@ -73,6 +74,28 @@ export function Playground() {
       })
     return () => {
       cancelled = true
+    }
+  }, [])
+
+  // 소비 표면 자가정합(스펙 080): 다른 탭/뷰에서 일어난 편집·활성화를 Playground가 모른 채
+  // 마운트 스냅샷을 들고 있으면 '미반영 초안' 배지(스펙 078)가 stale하게 남는다. 목록 메타만
+  // 재페치해 서버 진실원과 정합한다 — 선택(activeId)·대화(convos)·스트리밍은 보존(목록만 setAgents).
+  // (1) BroadcastChannel: Agents 탭의 변경을 즉시 받는다. (2) 포커스/가시성 백스톱: 미지원 환경·
+  // 놓친 메시지를 탭 복귀 시 메운다.
+  useEffect(() => {
+    const refetch = () => {
+      listAgents().then(setAgents).catch(() => {})
+    }
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') refetch()
+    }
+    const unsub = onAgentsChanged(refetch)
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', refetch)
+    return () => {
+      unsub()
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('focus', refetch)
     }
   }, [])
 
