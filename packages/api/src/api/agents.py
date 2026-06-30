@@ -374,11 +374,14 @@ def _norm_endpoint(raw: object) -> str | None:
         return clipped
 
 
-def _build_external_agent(card: dict, token: str | None, live: bool) -> Agent:
+def _build_external_agent(card: dict, token: str | None, live: bool, card_url: str | None = None) -> Agent:
     """제3자 A2A 카드 → external Agent. 불투명 카드 스냅샷, 로컬 모델/메모리/MCP 미해석(비로컬).
 
     카드 스냅샷은 config["card"], 서비스 URL은 endpoint, 호출 크레덴셜은 crypto.encrypt로 token에
-    저장(2차 런타임 호출에서 복호 사용)."""
+    저장(2차 런타임 호출에서 복호 사용).
+
+    card_url = 카드를 가져온 출처(.well-known 위치). resync 자가치유(스펙 081)가 이 URL로 카드를
+    재fetch해 endpoint·status를 갱신한다 — 저장 안 하면 stale endpoint를 재연결 없이 못 고친다."""
     cfg = {
         "model": "",  # 외부는 로컬 모델 미해석
         "persona": "",
@@ -388,6 +391,7 @@ def _build_external_agent(card: dict, token: str | None, live: bool) -> Agent:
         "mcps": [],
         "historyDepth": 10,
         "card": card,  # 등록 시점 카드 스냅샷(표시·검증 단일 소스)
+        "cardUrl": card_url,  # 카드 출처 — resync 재해석용(스펙 081)
     }
     return Agent(
         agent_id=_new_agent_id(),
@@ -406,7 +410,7 @@ def _build_external_agent(card: dict, token: str | None, live: bool) -> Agent:
     )
 
 
-def _build_code_agent_from_card(card: dict, ext: dict, token: str | None, live: bool) -> Agent:
+def _build_code_agent_from_card(card: dict, ext: dict, token: str | None, live: bool, card_url: str | None = None) -> Agent:
     """제1자(SDK 배포) A2A 카드 + my-agents 확장 → code Agent (스펙 057).
 
     config는 ext["manifest"](model/persona/mcps/…)에서 채우고 카드 스냅샷을 함께 보존한다.
@@ -427,6 +431,7 @@ def _build_code_agent_from_card(card: dict, ext: dict, token: str | None, live: 
         "mcps": manifest.get("mcps") if isinstance(manifest.get("mcps"), list) else [],
         "historyDepth": history_depth,
         "card": card,  # 카드 스냅샷 — external과 동일하게 표시·검증 단일 소스
+        "cardUrl": card_url,  # 카드 출처 — resync 재해석용(스펙 081)
     }
     # 길이 하드닝(적대리뷰 057 Finding 3) — bounded 컬럼에 잡/거대 문자열이 들어가 commit이 500나지 않게.
     commit = _clip(deploy.get("commit"), 80)
@@ -503,9 +508,9 @@ async def connect_agent(
     live = await agent_card.probe_endpoint(card.get("url"))
     ext = agent_card.extract_my_agents(card)
     if ext is not None:
-        agent = _build_code_agent_from_card(card, ext, body.token, live)
+        agent = _build_code_agent_from_card(card, ext, body.token, live, body.url)
     else:
-        agent = _build_external_agent(card, body.token, live)
+        agent = _build_external_agent(card, body.token, live, body.url)
     session.add(agent)
     await session.commit()
     return await _reload_out(session, agent.id)
@@ -527,7 +532,7 @@ async def register_external_agent(
         raise HTTPException(status_code=400, detail=str(exc))
 
     live = await agent_card.probe_endpoint(card.get("url"))
-    agent = _build_external_agent(card, body.token, live)
+    agent = _build_external_agent(card, body.token, live, body.cardUrl)
     session.add(agent)
     await session.commit()
     return await _reload_out(session, agent.id)
@@ -629,10 +634,45 @@ async def delete_agent_memory(
 async def resync_agent(
     agent_id: uuid.UUID, session: AsyncSession = Depends(get_session)
 ) -> AgentOut:
+    """stale endpoint 자가치유(스펙 081 P1).
+
+    저장해둔 카드 출처(config["cardUrl"])에서 카드를 재fetch → `fetch_card`가 071의 prefix-상대
+    endpoint resolution을 재실행 → endpoint·카드 스냅샷·status(probe liveness)를 in-place 갱신한다.
+    071 보정은 fetch_card 시점에만 걸리므로, 071 이전 등록분·원격 변경분의 stale endpoint는 이 경로로만
+    재연결 없이 고쳐진다. 기존 행 갱신이라 id/소유/버전은 보존(connect의 새 Agent 생성과 다름).
+
+    cardUrl이 없는 레거시 행은 재해석 출처가 없어 last_sync만 갱신(재연결 1회 필요).
+    SSRF 경계: fetch_card·probe_endpoint가 각각 저장된 cardUrl(connect 때 guard 통과한 사용자 입력)에서만
+    guard_url 선행 — request Host 등 외부 파생 입력을 쓰지 않으므로 host-poisoning 무관(learning 064).
+    """
     agent = await _load_agent(session, agent_id)
     if agent is None:
         raise HTTPException(status_code=404, detail="agent not found")
 
+    cfg = dict(agent.config or {})
+    card_url = cfg.get("cardUrl")
+    if not isinstance(card_url, str) or not card_url:
+        # 레거시(cardUrl 미저장): 재해석 출처 없음 → 기존 동작 유지(표시만 갱신). 한 번 재연결하면
+        # 이후 connect가 cardUrl을 채워 자가치유 경로로 들어온다.
+        agent.last_sync = "방금"
+        await session.commit()
+        return await _reload_out(session, agent.id)
+
+    try:
+        card = await agent_card.fetch_card(card_url)
+    except ValueError:
+        # 카드 출처 도달 실패 — 등록은 유지하되 status는 정직하게 offline(045 #2). endpoint는 보존
+        # (다음 resync에서 재시도). 표시 갱신만.
+        agent.status = "offline"
+        agent.last_sync = "방금"
+        await session.commit()
+        return await _reload_out(session, agent.id)
+
+    live = await agent_card.probe_endpoint(card.get("url"))
+    cfg["card"] = card  # 카드 스냅샷 갱신(표시·검증 단일 소스)
+    agent.config = cfg  # JSONB는 in-place 변이 미추적 — 재할당으로 더티 표기
+    agent.endpoint = _norm_endpoint(card.get("url"))
+    agent.status = "online" if live else "offline"
     agent.last_sync = "방금"
     await session.commit()
     return await _reload_out(session, agent.id)

@@ -430,7 +430,12 @@ async def _a2a_stream(ctx: dict, user_text: str, user_id: str | None):
     ):
         if "error" in frame:
             errored = True
-            yield f"data: {json.dumps({'error': frame['error']}, ensure_ascii=False)}\n\n"
+            msg = frame["error"]
+            # 텍스트가 한 줄도 안 온 채 에러로 끝나면(엔드포인트 미도달 류) raw 코드만 보여주지 않고
+            # 행동가능 안내를 덧붙인다(스펙 081 P2). 부분 스트림 뒤 에러엔 미부가 — 그땐 도달은 됐다.
+            if not acc:
+                msg = f"{msg} — 엔드포인트에 도달하지 못했습니다. 재동기화(자가치유) 또는 재연결을 시도하세요."
+            yield f"data: {json.dumps({'error': msg}, ensure_ascii=False)}\n\n"
         elif frame.get("text"):
             acc.append(frame["text"])
             yield f"data: {json.dumps({'text': frame['text']}, ensure_ascii=False)}\n\n"

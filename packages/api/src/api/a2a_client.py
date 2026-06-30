@@ -160,8 +160,18 @@ async def a2a_stream(
         # redirects 비활성(명시) — 리다이렉트로 SSRF 가드/Authorization 경계를 우회 못 하게.
         async with httpx.AsyncClient(timeout=A2A_TIMEOUT_S, follow_redirects=False) as client:
             if streaming:
+                fell_back = False
                 async for frame in _stream_sse(client, endpoint, body, headers):
+                    if "_fallback" in frame:  # stream 404/405 — send로 1회 폴백(스펙 081 P3)
+                        fell_back = True
+                        break
                     yield frame
+                if fell_back:
+                    # 같은 endpoint·headers로 message/send 1회. _fallback은 본문 전에만 나오므로(상태
+                    # 코드 검사 시점) 텍스트 이중방출 없음. send도 실패하면 그 에러 프레임을 그대로 전달.
+                    send_body = _jsonrpc_request(user_text, streaming=False, context_id=context_id)
+                    async for frame in _send_single(client, endpoint, send_body, headers):
+                        yield frame
             else:
                 async for frame in _send_single(client, endpoint, body, headers):
                     yield frame
@@ -196,6 +206,15 @@ async def _stream_sse(client, endpoint, body, headers):
     async with client.stream(
         "POST", endpoint, json=body, headers={**headers, "Accept": "text/event-stream"}
     ) as resp:
+        # stream 라우트/메서드 부재(404/405)는 본문 전이라 message/send 폴백이 안전하다(스펙 081 P3).
+        # 신호만 내고 종료 — a2a_stream이 같은 endpoint로 1회 send 폴백. 표준 단일-endpoint 서버에선
+        # send도 같은 404라 동일 실패지만, stream만 별도 라우트로 둔 비표준 서버를 구제한다.
+        if resp.status_code in (404, 405):
+            # 본문을 읽지 않고 신호만 낸다 — 폴백은 같은 endpoint로 _send_single을 새로 열어 본문이
+            # 불필요하고, 적대 응답의 거대 에러 바디를 aread로 무경계 버퍼링하지 않는다(적대리뷰 081 F1,
+            # memory: cap-the-raw-source). `async with client.stream`이 미소비 응답을 닫는다.
+            yield {"_fallback": resp.status_code}
+            return
         if resp.status_code >= 400:
             await resp.aread()  # 본문 소비하되 에코 금지(자격증명 누출 방지)
             yield {"error": f"외부 에이전트 응답 오류 {resp.status_code}"}
