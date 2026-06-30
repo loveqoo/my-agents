@@ -1,7 +1,7 @@
 /* my-agents admin — Agents view: list created agents, view detail, and
    create / edit / delete (composing building blocks). */
 import { useState, useEffect, useRef } from 'react'
-import { Tag, Button, Avatar, Select, Input, Checkbox, Switch, Modal, Alert, message } from 'antd'
+import { Tag, Button, Avatar, Select, Input, Checkbox, Switch, Slider, Tooltip, Modal, Alert, message } from 'antd'
 import { Page, StatusPill, DataTable, Drawer, Desc, VersionHistory, ExposeSwitch, type Column } from '../shared'
 import { Icon } from '../icons'
 import { AgentMemoryPanel } from './AgentMemoryPanel'
@@ -38,6 +38,7 @@ interface AgentFormData {
   name: string
   model: string
   persona: string
+  temperature: number | null // null=자동(모델 등록값), 수동이면 0–2(스펙 077)
   memories: string[]
   historyDepth: number
   persistHistory: boolean
@@ -53,6 +54,7 @@ function blankForm(blocks: Record<string, BlockCategory>, models: Model[]): Agen
     name: '',
     model: models.find((m) => m.kind === 'chat')?.name ?? '',
     persona: blocks.persona?.items?.[0]?.name ?? '',
+    temperature: null,
     memories: [],
     historyDepth: 20,
     persistHistory: true,
@@ -167,6 +169,34 @@ function AgentForm({
             />
           </Field>
         </div>
+        {/* 온도 — 에이전트 영속 필드(스펙 077). 자동(끔)=모델 등록 기본값, 수동=0–2 저장.
+            플그 오버라이드의 Temperature와 동일 UX로 대칭. */}
+        <Field label="Temperature">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <Tooltip title="끄면 모델 등록 기본값(자동)">
+              <Switch
+                size="small"
+                checked={form.temperature != null}
+                onChange={(on) => set('temperature', on ? 0.7 : null)}
+              />
+            </Tooltip>
+            <Slider
+              min={0}
+              max={2}
+              step={0.1}
+              disabled={form.temperature == null}
+              value={form.temperature ?? 0.7}
+              onChange={(v) => set('temperature', v)}
+              style={{ flex: 1 }}
+            />
+            <span style={{ width: 32, textAlign: 'right', fontFamily: 'var(--font-family-code)', fontSize: 13 }}>
+              {form.temperature == null ? '—' : form.temperature.toFixed(1)}
+            </span>
+          </div>
+          <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+            {form.temperature == null ? '자동 — 모델 등록 기본값을 사용합니다.' : '에이전트에 저장됩니다(세션마다 동일).'}
+          </span>
+        </Field>
         <Field label="메모리 타입">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {(blocks.memory?.items ?? []).map((m) => (
@@ -1171,6 +1201,7 @@ export default function AgentsView() {
   const configOf = (a: Agent): AgentConfig => ({
     model: a.model,
     persona: a.persona,
+    temperature: a.temperature ?? null,
     memories: [...(a.memories || [])],
     historyDepth: a.historyDepth,
     persistHistory: a.persistHistory ?? true,
@@ -1264,6 +1295,7 @@ export default function AgentsView() {
     const config: AgentConfig = {
       model: data.model,
       persona: data.persona,
+      temperature: data.temperature,
       memories: data.memories,
       historyDepth: data.historyDepth,
       persistHistory: data.persistHistory,
@@ -1513,6 +1545,7 @@ export default function AgentsView() {
                   name: a.name,
                   model: c.model || a.model,
                   persona: c.persona || a.persona,
+                  temperature: c.temperature ?? a.temperature ?? null,
                   memories: [...(c.memories || [])],
                   historyDepth: c.historyDepth != null ? c.historyDepth : a.historyDepth,
                   persistHistory: c.persistHistory ?? a.persistHistory ?? true,

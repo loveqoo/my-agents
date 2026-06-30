@@ -8,6 +8,7 @@
 export interface AgentConfig {
   model?: string
   persona?: string
+  temperature?: number | null // 에이전트 영속 온도(스펙 077). null=자동(모델 등록값)
   memories?: string[]
   historyDepth?: number
   persistHistory?: boolean
@@ -62,6 +63,7 @@ export interface Agent {
   model: string
   status: 'online' | 'idle' | 'offline'
   persona: string
+  temperature?: number | null // 에이전트 영속 온도(스펙 077). null/미지정=자동(모델 등록값)
   memories: string[]
   historyDepth: number
   persistHistory?: boolean

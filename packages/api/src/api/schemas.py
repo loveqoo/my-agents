@@ -259,6 +259,7 @@ class AvailableModelsOut(BaseModel):
 class AgentConfig(BaseModel):
     model: str = "mock-llm"  # 미지정 시 기본 모델(스펙 059)
     persona: str = ""  # 페르소나 이름(블록 참조)
+    temperature: float | None = None  # 에이전트 영속 온도(스펙 077). None=자동(모델 등록 params 적용)
     memories: list[str] = Field(default_factory=list)
     vectorTables: list[str] = Field(default_factory=list)
     permissions: list[str] = Field(default_factory=list)
@@ -294,6 +295,7 @@ class AgentOut(BaseModel):
     source: str
     model: str
     persona: str  # 페르소나 이름(블록 참조, UI 표시용)
+    temperature: float | None = None  # 에이전트 영속 온도(스펙 077). None=자동(모델 등록값)
     systemPrompt: str = ""  # 해석된 시스템 프롬프트 본문(런타임이 쓰는 것)
     historyDepth: int
     persistHistory: bool = True

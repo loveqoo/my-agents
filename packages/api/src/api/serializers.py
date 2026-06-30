@@ -77,6 +77,7 @@ def agent_to_out(a: Agent) -> AgentOut:
         source=a.source,
         model=cfg.get("model", a.model),
         persona=cfg.get("persona", a.persona),
+        temperature=cfg.get("temperature"),  # 에이전트 영속 온도(스펙 077, 폼 재로드용)
         systemPrompt=a.persona,  # 해석된 본문(서빙용)
         historyDepth=cfg.get("historyDepth", a.history_depth),
         persistHistory=cfg.get("persistHistory", True),
