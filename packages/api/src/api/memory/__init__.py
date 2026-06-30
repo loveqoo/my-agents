@@ -30,6 +30,20 @@ def search(scope: dict, query: str, mem_cfg: dict | None, limit: int = 4) -> lis
     return backend.search(scope, query, limit) if backend else []
 
 
+def recall_probe(scope: dict, query: str, mem_cfg: dict | None, limit: int = 4) -> list[dict] | None:
+    """회상 *시험*용(스펙 084) — `search`와 같되 백엔드 **가용성**을 결과와 구분해 돌린다.
+
+    백엔드 미가용(mem_cfg None·llm/embedder 누락·초기화 실패로 resolve_backend가 None 흡수) → None.
+    가용 → top-k 리스트(limit로 방어적 슬라이스). `search`가 두 경우를 모두 []로 뭉개는 것과 다르다:
+    시험 도구가 *구성됐으나 깨진* 백엔드를 "기억 없음(빈 results)"으로 오인하면 진단이 거짓이 된다
+    (적대 리뷰 084 P2a). 호출자는 `hits is None`으로 enabled=False를, `[]`로 "가용·회상 0건"을
+    구분한다. chat 경로(`search`)는 무변경 — drift 0."""
+    backend = resolve_backend(mem_cfg)
+    if backend is None:
+        return None
+    return backend.search(scope, query, limit)[:limit]
+
+
 def add(scope: dict, messages: list[dict], mem_cfg: dict | None, infer: bool = True) -> None:
     """대화 턴/사실을 메모리에 저장. 무력화/실패 시 무시.
 

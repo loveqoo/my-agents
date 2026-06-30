@@ -9,8 +9,10 @@ import {
   addAgentMemory,
   updateAgentMemory,
   deleteAgentMemory,
+  searchAgentMemory,
   type AgentMemory,
 } from '../../api'
+import { RecallDrawer } from './RecallDrawer'
 
 export function AgentMemoryPanel({ agentId }: { agentId: string }) {
   const [items, setItems] = useState<AgentMemory[]>([])
@@ -20,6 +22,7 @@ export function AgentMemoryPanel({ agentId }: { agentId: string }) {
   const [editText, setEditText] = useState('')
   const [busy, setBusy] = useState(false)
   const [filter, setFilter] = useState('')
+  const [recall, setRecall] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -87,10 +90,22 @@ export function AgentMemoryPanel({ agentId }: { agentId: string }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-        관리자가 저작한 에이전트 전용 지식. 모든 세션·사용자를 가로질러 회상됩니다 —
-        특정 사용자 정보는 여기 두지 마세요(채팅 자가기록은 차단됨).
-      </span>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+        <span style={{ flex: 1, fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+          관리자가 저작한 에이전트 전용 지식. 모든 세션·사용자를 가로질러 회상됩니다 —
+          특정 사용자 정보는 여기 두지 마세요(채팅 자가기록은 차단됨).
+        </span>
+        <Button size="small" icon={<Icon name="search" />} onClick={() => setRecall(true)}>
+          조회 시험
+        </Button>
+      </div>
+      <RecallDrawer
+        open={recall}
+        title="회상 시험 · 에이전트 전용 기억"
+        scopeKey={agentId}
+        onClose={() => setRecall(false)}
+        onSearch={(q, l) => searchAgentMemory(agentId, q, l)}
+      />
       {items.length > 0 ? (
         <Input
           placeholder="필터 (텍스트 부분일치)"

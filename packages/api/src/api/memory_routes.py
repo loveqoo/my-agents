@@ -21,6 +21,7 @@ from .authz import get_enforcer
 from .db import get_session
 from .mem_config import default_mem_cfg
 from .models import Session as SessionModel, User
+from .schemas import MemoryHit, MemorySearchIn, MemorySearchOut
 
 router = APIRouter(prefix="/memory", tags=["memory"])
 
@@ -141,6 +142,32 @@ async def list_user_memory(
     if mem_cfg is None:
         return []
     return await asyncio.to_thread(memory.list_memories, {"user_id": user_id}, mem_cfg)
+
+
+@router.post("/user/{user_id}/search", response_model=MemorySearchOut)
+async def search_user_memory(
+    user_id: str,
+    body: MemorySearchIn,
+    principal=Depends(current_principal),
+    session: AsyncSession = Depends(get_session),
+) -> MemorySearchOut:
+    """회상 시험(스펙 084) — 챗과 동일한 공유 코어 `memory.search`로 user_id 스코프 회상.
+
+    비-어드민은 자기 user_id만(`_assert_principal_may_access` 403). 스코프 dict가 mem0 filter로
+    들어가 이 유저 기억만 로드. 미구성이면 enabled=False·빈결과(graceful, 502 아님)."""
+    _assert_principal_may_access(principal, user_id)
+    mem_cfg = await _user_mem_cfg(session)
+    # recall_probe: 백엔드 미가용(mem_cfg None·구성 실패)이면 None → enabled=False. enabled를
+    # 백엔드 *가용성*에 묶어 깨진 백엔드를 "회상 0건"으로 위장하지 않는다(적대 리뷰 084 P2a·P2b).
+    hits = await asyncio.to_thread(
+        memory.recall_probe, {"user_id": user_id}, body.query, mem_cfg, body.limit
+    )
+    return MemorySearchOut(
+        query=body.query,
+        limit=body.limit,
+        enabled=hits is not None,
+        results=[MemoryHit(**h) for h in (hits or [])],
+    )
 
 
 @router.patch("/user/{user_id}/{mem_id}")

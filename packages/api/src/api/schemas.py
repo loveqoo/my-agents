@@ -123,6 +123,44 @@ class CollectionSearchOut(BaseModel):
     results: list[SearchHit]  # 관련 0건이면 빈 리스트
 
 
+class MemorySearchIn(BaseModel):
+    """메모리 회상 시험 입력(스펙 084) — 스코프(agent_id/user_id)에 질의를 던져 상위 기억을 받는다.
+
+    `memory.search`는 챗에서 요청-바운드 `user_text`를 받지만, 직접 엔드포인트는 임의 입력이라
+    입력 신뢰경계가 리셋된다(적대 리뷰 072 P2와 동형) — 거대 query가 mem0 임베딩을 점유하지 않게
+    raw 길이서 캡하고, 공백 query는 422로 막는다."""
+
+    query: str = Field(min_length=1, max_length=4000)
+    limit: int = Field(default=4, ge=1, le=10)
+
+    @field_validator("query")
+    @classmethod
+    def _non_blank(cls, v: str) -> str:
+        s = v.strip()
+        if not s:
+            raise ValueError("질의는 공백일 수 없습니다.")
+        return s
+
+
+class MemoryHit(BaseModel):
+    type: str  # "semantic" 등 — 백엔드가 분류
+    text: str
+    score: float  # 내림차순(1.0=가장 관련)
+    scope: str  # 매치된 스코프 축 이름(agent_id/user_id/run_id)
+
+
+class MemorySearchOut(BaseModel):
+    """메모리 회상 시험 결과 — production 회상 코어(`memory.search`)와 동일 경로 산출.
+
+    `enabled=False`는 메모리 미구성/비활성(mem_cfg None) — "결과 없음(빈 results)"과 구분해
+    UI가 정직하게 표시(스펙 079 '0건도 일어난 일'). 미구성은 502가 아니라 빈 결과로 graceful."""
+
+    query: str
+    limit: int
+    enabled: bool
+    results: list[MemoryHit]  # 회상 0건이면 빈 리스트
+
+
 class PermissionIn(BaseModel):
     name: str
     scope: str | None = None

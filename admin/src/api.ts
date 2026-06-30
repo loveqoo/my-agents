@@ -317,6 +317,24 @@ export const updateUserMemory = (userId: string, memId: string, text: string) =>
 export const deleteUserMemory = (userId: string, memId: string) =>
   del(`/memory/user/${encodeURIComponent(userId)}/${encodeURIComponent(memId)}`)
 
+/* ---------- 메모리 회상 시험 (스펙 084) — 챗과 같은 코어 memory.search 직접 호출 ---------- */
+export interface MemoryHit {
+  type: string
+  text: string
+  score: number // 내림차순(1.0=가장 관련)
+  scope: string // 매치된 축(agent_id/user_id/run_id)
+}
+export interface MemorySearchOut {
+  query: string
+  limit: number
+  enabled: boolean // false=메모리 미구성/비활성(빈 results와 구분)
+  results: MemoryHit[]
+}
+export const searchAgentMemory = (id: string, query: string, limit: number) =>
+  post(`/agents/${id}/memory/search`, { query, limit }) as Promise<MemorySearchOut>
+export const searchUserMemory = (userId: string, query: string, limit: number) =>
+  post(`/memory/user/${encodeURIComponent(userId)}/search`, { query, limit }) as Promise<MemorySearchOut>
+
 /* ---------- 프로바이더 (연결처 — base_url + 자격증명, 스펙 035) ---------- */
 export type ProviderKind = 'local' | 'mock' | 'remote'
 export interface Provider {
