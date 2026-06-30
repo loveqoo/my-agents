@@ -7,6 +7,7 @@ import { Bubble, Sender, Prompts } from '@ant-design/x'
 import { Avatar, Button, Tag, Grid, Tooltip } from 'antd'
 import { Icon } from '../admin/icons'
 import { fmtTime } from '../admin/format'
+import { MessageContent } from './MessageContent'
 import type { ChatMsg, Trace } from './agentData'
 import type { Agent, Session } from '../admin/mockData'
 
@@ -775,8 +776,9 @@ export function DebugChat({
               {messages.map((m, i) => {
                 if (m.role === 'ai') {
                   const isLast = i === messages.length - 1
+                  const isStreaming = streaming && isLast
                   const footer: ReactNode =
-                    m.trace && !(streaming && isLast) ? (
+                    m.trace && !isStreaming ? (
                       <TraceChips trace={m.trace} active={selectedTurn === i} onClick={() => onSelectTurn(i)} />
                     ) : null
                   return (
@@ -786,10 +788,15 @@ export function DebugChat({
                       avatar={agentAvatar}
                       header={agent.name}
                       content={m.text}
+                      // 평문 대신 markdown/JSON 렌더(스펙 088). contentRender는 full content를
+                      // 받고(부분 아님) 노드 반환 시 typing 애니메이션은 비적용 — 토큰마다 m.text가
+                      // 커지며 재렌더돼 점진 markdown이 일어난다. 형식 추론은 스트림 완료에서만 도므로
+                      // 스트리밍 여부를 넘긴다(부분 버퍼로 JSON 트리 깜빡임 방지).
+                      contentRender={(t) => <MessageContent text={t} streaming={isStreaming} />}
                       // 첫 토큰 도착 전(빈 content)에는 typing이 보일 게 없어 말풍선이 멈춘 듯
                       // 보인다 — 그 구간엔 loading 점 애니메이션을 띄운다(사용자 피드백).
-                      loading={streaming && isLast && !m.text}
-                      typing={streaming && isLast}
+                      loading={isStreaming && !m.text}
+                      typing={isStreaming}
                       footer={footer}
                     />
                   )

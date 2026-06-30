@@ -1,0 +1,103 @@
+/* 스펙 088 — assistant 응답 markdown 본문 스타일. Bubble 안에 들어가므로
+   첫/끝 자식 마진 제거, 헤딩 축소, 표·코드 가독성 보강. react-markdown은
+   raw HTML을 안 그리므로(안전 기본값) 신뢰 가능한 요소 집합만 스타일링. */
+.md-body {
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--color-text);
+  word-break: break-word;
+}
+.md-body > :first-child {
+  margin-top: 0;
+}
+.md-body > :last-child {
+  margin-bottom: 0;
+}
+.md-body p {
+  margin: 0.5em 0;
+}
+.md-body h1,
+.md-body h2,
+.md-body h3,
+.md-body h4 {
+  margin: 0.8em 0 0.4em;
+  line-height: 1.3;
+  font-weight: 600;
+}
+.md-body h1 {
+  font-size: 1.4em;
+}
+.md-body h2 {
+  font-size: 1.25em;
+}
+.md-body h3 {
+  font-size: 1.1em;
+}
+.md-body h4 {
+  font-size: 1em;
+}
+.md-body ul,
+.md-body ol {
+  margin: 0.5em 0;
+  padding-left: 1.5em;
+}
+.md-body li {
+  margin: 0.2em 0;
+}
+.md-body a {
+  color: var(--blue-6);
+  text-decoration: none;
+}
+.md-body a:hover {
+  text-decoration: underline;
+}
+.md-body blockquote {
+  margin: 0.6em 0;
+  padding: 0.1em 0.9em;
+  border-left: 3px solid var(--gray-5);
+  color: var(--color-text-secondary);
+}
+.md-body code {
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 0.88em;
+  background: var(--gray-3);
+  padding: 0.12em 0.36em;
+  border-radius: 4px;
+}
+.md-body pre {
+  margin: 0.6em 0;
+  padding: 10px 12px;
+  background: var(--gray-2);
+  border: 1px solid var(--gray-4);
+  border-radius: 8px;
+  overflow-x: auto;
+}
+.md-body pre code {
+  background: none;
+  padding: 0;
+  font-size: 0.86em;
+}
+.md-body table {
+  margin: 0.6em 0;
+  border-collapse: collapse;
+  display: block;
+  overflow-x: auto;
+}
+.md-body th,
+.md-body td {
+  border: 1px solid var(--gray-4);
+  padding: 6px 10px;
+  text-align: left;
+}
+.md-body th {
+  background: var(--gray-3);
+  font-weight: 600;
+}
+.md-body img {
+  max-width: 100%;
+}
+.md-body hr {
+  border: none;
+  border-top: 1px solid var(--gray-4);
+  margin: 0.8em 0;
+}
