@@ -5,6 +5,7 @@ description = "Minimal hardcoded agent — local MLX + LangGraph ReAct (CLI)"
 requires-python = ">=3.12"
 dependencies = [
     "langgraph>=1.2.5",
+    "langchain>=1.0",  # create_agent(=구 create_react_agent 후속, 스펙 076)
     "langchain-openai>=1.3.2",
     "langchain-core>=1.4.7",
     "python-dotenv>=1.0",

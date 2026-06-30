@@ -66,7 +66,7 @@ async def remote_v1_models():
 async def remote_v1_chat_completions(body: dict):
     """OpenAI 호환 chat completions(mock). `ChatOpenAI`가 치는 계약.
 
-    툴 호출은 미지원(평문 응답만) → 툴 가진 에이전트도 create_react_agent가 1턴 종료.
+    툴 호출은 미지원(평문 응답만) → 툴 가진 에이전트도 create_agent가 1턴 종료.
     `stream:true`면 OpenAI chunk SSE, 아니면 단건 JSON.
     """
     messages = body.get("messages") or []

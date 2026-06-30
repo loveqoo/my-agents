@@ -37,7 +37,7 @@ from langchain_core.language_models.chat_models import BaseChatModel  # noqa: E4
 from langchain_core.messages import AIMessage  # noqa: E402
 from langchain_core.outputs import ChatGeneration, ChatResult  # noqa: E402
 from langgraph.checkpoint.memory import MemorySaver  # noqa: E402
-from langgraph.prebuilt import create_react_agent  # noqa: E402
+from langchain.agents import create_agent  # noqa: E402  (스펙 076: 구 create_react_agent 후속)
 from langgraph.types import Command  # noqa: E402
 
 from api import mock_mcp, runtime  # noqa: E402
@@ -52,7 +52,7 @@ def check(cond: bool, msg: str) -> None:
 
 
 class ScriptedModel(BaseChatModel):
-    """미리 정한 AIMessage 시퀀스를 순서대로 반환(bind_tools=self). create_react_agent 호환 스텁."""
+    """미리 정한 AIMessage 시퀀스를 순서대로 반환(bind_tools=self). create_agent 호환 스텁."""
 
     responses: list = []
     _idx: dict = {}
@@ -97,7 +97,7 @@ async def _graph_calling(tool_local_name, args, calls_sink):
     ai_call = AIMessage(content="", tool_calls=[{"name": safe, "args": args, "id": "c1"}])
     ai_final = AIMessage(content="처리했습니다.")
     model = ScriptedModel([ai_call, ai_final])
-    return create_react_agent(model, tools=tools, checkpointer=MemorySaver())
+    return create_agent(model=model, tools=tools, checkpointer=MemorySaver())
 
 
 async def _stream(graph, payload, cfg):
@@ -185,7 +185,7 @@ async def g5_no_tool():
     sink: list[dict] = []
     tools = await _real_tools(sink)  # 위험 도구 wiring돼 있어도
     model = ScriptedModel([AIMessage(content="도구 없이 바로 답합니다.")])  # 모델이 호출 안 하면
-    graph = create_react_agent(model, tools=tools, checkpointer=MemorySaver())
+    graph = create_agent(model=model, tools=tools, checkpointer=MemorySaver())
     cfg = {"configurable": {"thread_id": "g5"}}
     interrupted, text = await _stream(graph, {"messages": [{"role": "user", "content": "hi"}]}, cfg)
     check(interrupted is None, "G5: 무도구 턴 → interrupt 0")

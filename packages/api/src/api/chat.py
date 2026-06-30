@@ -533,7 +533,7 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
         tools.append(runtime.build_rag_tool(ctx["rag_collections"], calls_sink))
 
     # 회상된 기억은 persona(시스템 프롬프트)에 합친다. 별도 system 메시지로 주입하면
-    # create_react_agent의 persona system과 충돌해 모델 채팅 템플릿이 거부한다
+    # create_agent의 system_prompt와 충돌해 모델 채팅 템플릿이 거부한다
     # ("System message must be at the beginning"). 단일 system 프롬프트 유지.
     persona_prompt = ctx["persona"]
     if mem_hits:

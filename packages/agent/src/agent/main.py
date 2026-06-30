@@ -9,8 +9,8 @@
 import os
 
 from dotenv import load_dotenv
+from langchain.agents import create_agent
 from langchain_openai import ChatOpenAI
-from langgraph.prebuilt import create_react_agent
 
 # 기본 페르소나 (CLI 등 호출자가 지정하지 않을 때)
 PERSONA = (
@@ -57,8 +57,11 @@ def build_agent(
         temperature=temperature,
         extra_body={"chat_template_kwargs": {"enable_thinking": enable_thinking}},
     )
-    return create_react_agent(
-        model, tools=tools or [], prompt=persona, checkpointer=checkpointer
+    # create_agent = 구 create_react_agent 후속(스펙 076). persona 파라미터는 prompt→system_prompt.
+    # 정적 문자열 persona만 쓰므로 1:1 대응(콜러블 prompt 제거 영향 없음). 반환물은 동일한 컴파일
+    # LangGraph 그래프 → invoke/astream/ainvoke(Command)/__interrupt__ 계약 보존(verify_041로 증명).
+    return create_agent(
+        model=model, tools=tools or [], system_prompt=persona, checkpointer=checkpointer
     )
 
 
