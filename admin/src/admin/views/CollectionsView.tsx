@@ -1,7 +1,7 @@
-/* my-agents admin — RAG 컬렉션 + 문서 인제스트 뷰 (스펙 036).
+/* my-agents admin — RAG 컬렉션 + 문서 인제스트 + retrieval 시험 뷰 (스펙 036 + 072).
    컬렉션(임베딩 모델 고정 + 청크 정책) 생성 → 문서 업로드(인제스트 write path) →
-   상태/건강 점검. 검색·질의(retrieval) UI는 후속 스펙 — 여기서는 다루지 않는다.
-   목록/페이지 셸은 shared의 Page/DataTable을 쓰되, 상호작용 컴포넌트는 antd 6를 사용. */
+   상태/건강 점검 → **검색 시험**(스펙 072: 인-챗 도구와 같은 코어를 타는 retrieval을
+   에이전트 채팅 없이 즉석 확인). 목록/페이지 셸은 shared의 Page/DataTable, 상호작용은 antd 6. */
 import { useState, useEffect } from 'react'
 import {
   Alert,
@@ -30,9 +30,11 @@ import {
   uploadDocument,
   deleteDocument,
   listModels,
+  searchCollection,
   type Collection,
   type RagDocument,
   type CollectionHealth,
+  type SearchHit,
   type Model,
 } from '../../api'
 
@@ -422,12 +424,145 @@ function DocsDrawer({
   )
 }
 
+/* ---- 검색 시험 드로어 (스펙 072) ---- */
+function SearchDrawer({
+  collection,
+  onClose,
+}: {
+  collection: Collection | null
+  onClose: () => void
+}) {
+  const [query, setQuery] = useState('')
+  const [topK, setTopK] = useState(4)
+  const [hits, setHits] = useState<SearchHit[] | null>(null)
+  const [searching, setSearching] = useState(false)
+  const id = collection?.id ?? null
+
+  // 컬렉션 전환 시 이전 결과/질의 초기화.
+  useEffect(() => {
+    setQuery('')
+    setHits(null)
+  }, [collection?.id])
+
+  const run = async () => {
+    if (!id) return
+    if (!query.trim()) {
+      message.warning('검색어를 입력하세요')
+      return
+    }
+    setSearching(true)
+    try {
+      const out = await searchCollection(id, query.trim(), topK)
+      setHits(out.results)
+      if (!out.results.length) message.info('관련 청크를 찾지 못했습니다')
+    } catch (e) {
+      // 400=임베딩 provider 불완전, 502=임베딩/검색 실패 — 서버 메시지를 그대로 노출.
+      message.error(e instanceof Error ? e.message : '검색에 실패했습니다')
+    } finally {
+      setSearching(false)
+    }
+  }
+
+  const ready = collection?.status === 'ready'
+
+  return (
+    <Drawer
+      open={!!collection}
+      width={640}
+      title={collection ? `검색 시험 · ${collection.name}` : ''}
+      onClose={onClose}
+      destroyOnHidden
+    >
+      {collection ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+            에이전트가 채팅에서 쓰는 것과 <b>같은 검색 코어</b>로 이 컬렉션에 질의합니다. 유사도(1.0=동일)
+            내림차순으로 상위 청크를 보여줍니다 — 등록한 문서가 의도대로 검색되는지 즉석 확인하세요.
+          </span>
+          {!ready ? (
+            <Alert
+              type="info"
+              showIcon
+              title="아직 검색할 청크가 없습니다"
+              description="이 컬렉션은 ready 상태가 아닙니다. 먼저 문서를 업로드해 인제스트를 완료하세요."
+            />
+          ) : null}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+            <TextArea
+              rows={2}
+              placeholder="예: 환불 정책이 어떻게 되나요?"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onPressEnter={(e) => {
+                e.preventDefault()
+                void run()
+              }}
+              style={{ flex: 1 }}
+            />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, width: 120 }}>
+              <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>top_k (1–10)</span>
+              <InputNumber
+                min={1}
+                max={10}
+                style={{ width: '100%' }}
+                value={topK}
+                onChange={(v) => setTopK(v ?? 4)}
+              />
+              <Button type="primary" icon={<Icon name="search" />} loading={searching} onClick={() => void run()}>
+                검색
+              </Button>
+            </div>
+          </div>
+
+          {hits !== null ? (
+            hits.length ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-heading)' }}>
+                  결과 {hits.length}건
+                </div>
+                {hits.map((h, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      padding: 12,
+                      border: '1px solid var(--color-border-secondary)',
+                      borderRadius: 'var(--radius-lg)',
+                      background: 'var(--gray-2)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 6,
+                    }}
+                  >
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <Tag color="blue">#{i + 1}</Tag>
+                      <Tag color={h.score >= 0.5 ? 'green' : 'default'}>유사도 {h.score.toFixed(3)}</Tag>
+                      <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)', wordBreak: 'break-all' }}>
+                        {h.filename}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 13, color: 'var(--color-text-secondary)', whiteSpace: 'pre-wrap' }}>
+                      {h.text}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ fontSize: 13, color: 'var(--color-text-tertiary)' }}>관련 청크를 찾지 못했습니다.</div>
+            )
+          ) : null}
+        </div>
+      ) : null}
+    </Drawer>
+  )
+}
+
 export default function CollectionsView() {
   const [collections, setCollections] = useState<Collection[]>([])
   const [models, setModels] = useState<Model[]>([])
   const [loaded, setLoaded] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
   const [docsFor, setDocsFor] = useState<Collection | null>(null)
+  const [searchFor, setSearchFor] = useState<Collection | null>(null)
   const [confirmDel, setConfirmDel] = useState<Collection | null>(null)
   const [healthFor, setHealthFor] = useState<CollectionHealth | null>(null)
   const [checkingId, setCheckingId] = useState<string | null>(null)
@@ -555,13 +690,24 @@ export default function CollectionsView() {
     {
       key: 'actions',
       title: '',
-      width: 220,
+      width: 290,
       align: 'right',
       render: (c) => (
         <span onClick={(e) => e.stopPropagation()}>
           <Button type="text" size="small" icon={<Icon name="file" />} onClick={() => setDocsFor(c)}>
             문서
           </Button>
+          <Tooltip title={c.status === 'ready' ? '' : '문서를 인제스트하면 검색할 수 있습니다'}>
+            <Button
+              type="text"
+              size="small"
+              icon={<Icon name="search" />}
+              disabled={c.status !== 'ready'}
+              onClick={() => setSearchFor(c)}
+            >
+              검색
+            </Button>
+          </Tooltip>
           <Button
             type="text"
             size="small"
@@ -622,6 +768,8 @@ export default function CollectionsView() {
       />
 
       <DocsDrawer collection={docsFor} onClose={() => setDocsFor(null)} onChanged={load} />
+
+      <SearchDrawer collection={searchFor} onClose={() => setSearchFor(null)} />
 
       <Modal
         open={!!confirmDel}

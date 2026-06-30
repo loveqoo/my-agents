@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 ORM = {"from_attributes": True}
 
@@ -88,6 +88,39 @@ class CollectionHealth(BaseModel):
     model_dims: int | None = None  # 현재 임베딩 모델 probe 실측(None=probe 실패)
     consistent: bool
     detail: str = ""
+
+
+class CollectionSearchIn(BaseModel):
+    """retrieval 시험 입력(스펙 072) — 단일 컬렉션에 질의를 던져 상위 청크를 받는다."""
+
+    # 빈/공백 질의는 422. max_length는 raw 상한(적대 리뷰 072 P2): 직접 POST라 LLM 입력 한계에
+    # 못 기댄다 — 거대 query가 임베딩 provider를 60초 점유·메모리 폭주시키지 않게 입력서 캡한다.
+    query: str = Field(min_length=1, max_length=4000)
+    top_k: int = Field(default=4, ge=1, le=10)
+
+    @field_validator("query")
+    @classmethod
+    def _non_blank(cls, v: str) -> str:
+        # min_length는 strip 전 길이라 공백("   ")이 통과 → 코어서 빈값으로 502가 됐다.
+        # 입력 경계에서 strip 후 비면 422로 거부(서버 오류 502가 아니라 잘못된 입력).
+        s = v.strip()
+        if not s:
+            raise ValueError("질의는 공백일 수 없습니다.")
+        return s
+
+
+class SearchHit(BaseModel):
+    score: float  # 1 - cosine_distance (1.0=동일 벡터). 내림차순.
+    filename: str
+    text: str
+
+
+class CollectionSearchOut(BaseModel):
+    """retrieval 시험 결과 — production 검색 코어(`search_collections`)와 동일 경로 산출."""
+
+    query: str
+    top_k: int
+    results: list[SearchHit]  # 관련 0건이면 빈 리스트
 
 
 class PermissionIn(BaseModel):

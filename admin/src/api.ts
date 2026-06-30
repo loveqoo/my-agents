@@ -225,6 +225,16 @@ export interface CollectionHealth {
   consistent: boolean
   detail: string
 }
+export interface SearchHit {
+  score: number // 1 - cosine_distance (1.0=동일 벡터), 내림차순
+  filename: string
+  text: string
+}
+export interface CollectionSearchOut {
+  query: string
+  top_k: number
+  results: SearchHit[]
+}
 export const listCollections = () => j<Collection[]>('/collections')
 export const createCollection = (body: {
   name: string
@@ -240,6 +250,9 @@ export const updateCollection = (
 export const deleteCollection = (id: string) => del(`/collections/${id}`)
 export const collectionHealth = (id: string) =>
   j<CollectionHealth>(`/collections/${id}/health`)
+/** retrieval 시험(스펙 072) — 인-챗 도구와 같은 코어를 타는 검색. 등록 직후 품질 즉석 확인. */
+export const searchCollection = (id: string, query: string, topK: number) =>
+  post(`/collections/${id}/search`, { query, top_k: topK }) as Promise<CollectionSearchOut>
 export const listDocuments = (id: string) => j<RagDocument[]>(`/collections/${id}/documents`)
 export const deleteDocument = (id: string, docId: string) =>
   del(`/collections/${id}/documents/${docId}`)

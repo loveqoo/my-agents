@@ -27,8 +27,11 @@ from .schemas import (
     CollectionHealth,
     CollectionIn,
     CollectionOut,
+    CollectionSearchIn,
+    CollectionSearchOut,
     CollectionUpdate,
     DocumentOut,
+    SearchHit,
 )
 from .serializers import collection_to_out
 
@@ -186,6 +189,58 @@ async def collection_health(
         model_dims=model_dims,
         consistent=consistent,
         detail=detail,
+    )
+
+
+# ----------------------------- retrieval 시험(스펙 072) -----------------------------
+@router.post("/{cid}/search", response_model=CollectionSearchOut)
+async def search_collection(
+    cid: uuid.UUID, body: CollectionSearchIn, session: AsyncSession = Depends(get_session)
+) -> CollectionSearchOut:
+    """retrieval 시험 — 단일 컬렉션에 질의를 던져 상위 청크를 받는다(에이전트 채팅 불요).
+
+    **핵심**: 인-챗 도구(`build_rag_tool`)와 **같은 코어**(`runtime.search_collections`)를 호출한다 —
+    평행 구현을 새로 짜면 drift나 "엔드포인트는 초록인데 채팅은 다름"이 된다(스펙 072). 등록 직후
+    같은 컬렉션에 질의를 던져 retrieval 품질을 즉석 확인하는 수단(사용자 보고 '테스트 방법이 없어' 공백).
+
+    완전성 검사(가드): embedding 모델/provider가 불완전하면 검색 불가 → 400(graceful). 차원 drift는
+    health(가드3)가 담당. api_key는 백엔드에서만 복호화하며 응답에 절대 포함하지 않는다.
+    """
+    from . import runtime  # 지연 임포트(런타임 의존 격리)
+
+    c = await _load_collection(session, cid)
+    if c is None:
+        raise HTTPException(status_code=404, detail="not found")
+    em = c.embedding_model
+    ep = em.provider if em else None
+    if em is None or ep is None or not ep.base_url or not em.model_id:
+        raise HTTPException(
+            status_code=400,
+            detail="이 컬렉션은 임베딩 모델/provider 설정이 불완전해 검색할 수 없습니다.",
+        )
+    # kind 가드(적대 리뷰 072 P2): 모델 수정으로 컬렉션 참조 모델이 chat 등으로 바뀌면, 완전성만
+    # 보면 통과해 임베딩 시도 → provider 502로 뭉개진다. embedding 모델이 아니면 설정 오류 400으로 명확히.
+    if em.kind != "embedding":
+        raise HTTPException(
+            status_code=400,
+            detail=f"컬렉션의 모델이 임베딩(kind=embedding)이 아닙니다(현재 kind={em.kind}). 검색할 수 없습니다.",
+        )
+    col = {
+        "id": c.id,
+        "name": c.name,
+        "embed_base_url": ep.base_url,
+        "embed_api_key": crypto.decrypt(ep.api_key),  # 백엔드 전용 — 응답 미노출
+        "embed_model_id": em.model_id,
+    }
+    try:
+        hits = await runtime.search_collections([col], body.query, body.top_k)
+    except runtime.RagSearchError as exc:
+        # 빈 질의는 스키마(min_length=1)가 먼저 막으므로 여기는 embed/db 실패만 — 502로 표면화.
+        raise HTTPException(status_code=502, detail=exc.tool_msg) from exc
+    return CollectionSearchOut(
+        query=body.query,
+        top_k=body.top_k,
+        results=[SearchHit(**h) for h in hits],
     )
 
 
