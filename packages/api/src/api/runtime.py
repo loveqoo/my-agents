@@ -14,8 +14,21 @@ import re
 import time
 from typing import Any
 
+from langchain_core.messages import ToolMessage
 from langchain_core.tools import BaseTool, StructuredTool
 from langgraph.types import interrupt
+
+
+def is_tool_message(msg: Any) -> bool:
+    """도구 노드가 낸 ToolMessage(도구 원본 응답)인가 — 채팅 본문 sink에서 제외하는 단일 판정(스펙 092).
+
+    ReAct 그래프의 stream_mode="messages"는 모델 노드의 AIMessage(Chunk)뿐 아니라 tools 노드의 ToolMessage
+    (도구 실행 원본)도 청크로 흘린다(`.dev/probe_092_tool_message_stream.py`로 실측). 본문에는 모델의
+    추론만 남기고 도구 원본은 빼야 하며, 도구 호출 자체는 인스펙터 trace(calls_sink)에 독립 보존된다.
+    판별은 **isinstance(ToolMessage)** — `.type` 문자열은 청크/비청크 간 불안정하다(ToolMessage.type=='tool'
+    이지만 ToolMessageChunk.type=='ToolMessageChunk', AIMessageChunk.type=='AIMessageChunk'로 측정됨).
+    ToolMessageChunk는 ToolMessage의 서브클래스라 isinstance가 둘 다 잡고 AI 메시지는 제외한다(verify_092로 확정)."""
+    return isinstance(msg, ToolMessage)
 
 
 def _safe_name(server: str, tool_name: str) -> str:
@@ -40,11 +53,13 @@ _TOOL_TIMEOUT_S = 30
 
 
 def _content_text(result: Any) -> str:
-    """MCP 도구 반환을 표시·트레이스용 문자열로 정규화.
+    """메시지/도구 content를 표시·트레이스·영속용 문자열로 정규화.
 
-    실 MCP 도구는 문자열이 아니라 content-block 리스트(`[{'type':'text','text':...}]`)를
-    돌려줄 수 있다(probe로 확인). 텍스트 블록을 추출·결합하고, 그 외 타입은 str()로 폴백한다.
-    """
+    실 MCP 도구는 물론 모델 메시지(AIMessageChunk.content)도 문자열이 아니라
+    content-block 리스트(`[{'type':'text','text':...}]`)일 수 있다(probe로 확인).
+    텍스트 블록을 추출·결합하고, 그 외 타입은 str()로 폴백한다. 채팅 본문 sink가
+    `"".join(acc)`로 합치므로 여기서 str을 보장하지 않으면 list content가 TypeError를
+    낸다 — 스펙 092 적대 검증(codex P1)이 잡은 선재 잠복 크래시를 이 정규화가 막는다."""
     if isinstance(result, str):
         return result
     if isinstance(result, (list, tuple)):

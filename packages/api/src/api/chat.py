@@ -551,7 +551,11 @@ async def stream_local_reply(agent_id: uuid.UUID, user_text: str):
     # 노출 호출은 호출당 단일 메시지(맥락은 A2A contextId가 호출측 책임 — v1 서빙은 무상태).
     messages = _window([{"role": "user", "content": user_text}], ctx["history_depth"])
     async for msg_chunk, _meta in graph.astream({"messages": messages}, stream_mode="messages"):
-        text = getattr(msg_chunk, "content", "")
+        # A2A 서빙도 도구 원본 응답은 외부 소비자에게 노출 않음(스펙 092, 본문 sink와 동일 술어).
+        if runtime.is_tool_message(msg_chunk):
+            continue
+        # content-block 리스트 → str 정규화(본문 sink와 동일, 092 codex P1).
+        text = runtime._content_text(getattr(msg_chunk, "content", ""))
         if text:
             yield text
 
@@ -658,7 +662,14 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
             ):
                 if stream_mode == "messages":
                     msg_chunk, _meta = chunk
-                    text = getattr(msg_chunk, "content", "")
+                    # 도구 원본 응답(ToolMessage)은 본문서 제외 — 표시·영속(acc)·메모리·토큰 일괄 정화
+                    # (스펙 092). 도구 호출은 인스펙터 trace(calls_sink)에 독립 보존(args·타이밍·상태+
+                    # 결과요약; MCP는 2000자 캡, RAG는 건수 — 092 codex P2로 정정). 본문 숨김이 사용자 요청.
+                    if runtime.is_tool_message(msg_chunk):
+                        continue
+                    # content는 str이 아니라 content-block 리스트일 수 있다(AIMessageChunk) →
+                    # _content_text로 str 보장. 안 하면 acc 합치기(`"".join`)서 TypeError(092 codex P1).
+                    text = runtime._content_text(getattr(msg_chunk, "content", ""))
                     if text:
                         acc.append(text)
                         yield f"data: {json.dumps({'text': text}, ensure_ascii=False)}\n\n"
