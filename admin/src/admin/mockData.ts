@@ -76,6 +76,9 @@ export interface Agent {
   systemPrompt?: string
   activeVersion: string
   versions: VersionMeta[]
+  /* 공통 인터페이스 준수 분류(스펙 089) — 백엔드가 resolve와 같은 게이트로 파생.
+     conforming=로컬 적합 / non_conforming=원격 A2A(다른 종류) / config_error=impl 선언했으나 미해결(서빙 거부). */
+  conformance?: 'conforming' | 'non_conforming' | 'config_error'
   /* ---- code-defined agent (source === 'code') ---- */
   source?: 'ui' | 'code' | 'external'
   endpoint?: string
@@ -264,6 +267,14 @@ export const AGENT_SOURCE: Record<string, StatusMeta> = {
   ui: { label: 'UI 구성', tag: 'default', icon: 'appstore', desc: '콘솔에서 빌딩 블록을 조합해 생성 · 편집 가능' },
   code: { label: '원격', tag: 'geekblue', icon: 'code', desc: 'SDK로 코드 정의 · 원격 엔드포인트 실행 · 읽기 전용' },
   external: { label: '외부 A2A', tag: 'purple', icon: 'robot', desc: 'A2A 카드로 등록한 외부 에이전트 · 읽기 전용' },
+}
+/* 공통 인터페이스 준수 분류(스펙 089). resolve_agent_runtime과 같은 게이트로 파생(파생값·저장 안 함).
+   준수=로컬 적합(서빙 가능) · 비준수=원격 A2A로 in-process 인터페이스 미대상(정당한 다른 종류, 실패 아님)
+   · 설정 실패=impl을 선언했으나 미해결(미등록/Protocol 부적합) — 런타임이 서빙을 거부하므로 강조. */
+export const AGENT_CONFORMANCE: Record<string, StatusMeta> = {
+  conforming: { label: '준수', tag: 'green', icon: 'check-circle', desc: '공통 인터페이스에 구조적 적합(Protocol 게이트 통과) · 플랫폼이 in-process로 서빙. 행위(astream/interrupt) 보장은 런타임 몫.' },
+  non_conforming: { label: '비준수', tag: 'default', icon: 'api', desc: '원격 A2A 에이전트 · in-process 인터페이스 미대상(다른 종류)' },
+  config_error: { label: '설정 실패', tag: 'red', icon: 'exclamation-circle', desc: 'impl을 선언했으나 미해결(미등록/부적합) · 런타임이 서빙 거부' },
 }
 
 /* ---------- 세션 ---------- */

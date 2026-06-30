@@ -26,6 +26,7 @@ sys.path.insert(0, os.path.join(ROOT, "packages", "agent", "src"))
 from agent import runtime as agent_rt  # noqa: E402
 from agent.runtime import (  # noqa: E402
     AgentBuildContext,
+    AgentConfigError,
     AgentManifest,
     CustomAgent,
     DefaultUiAgent,
@@ -88,17 +89,22 @@ def unit_checks() -> None:
     # (클로저 캡처). 빌드가 ctx 없이 자기 DB를 읽지 않음을 구조로 보장(빌드는 ctx만 받음).
     check(g_plan is not None, "U2 plan-execute가 주입 ctx만으로 그래프 빌드(자기설정 직접 안 읽음)")
 
-    # U3 resolve_agent_runtime 디스패치 — ui→default, ui+impl→custom, 원격→None, 미지키→default(폴백).
+    # U3 resolve_agent_runtime 디스패치 — ui→default, ui+impl→custom, 원격→None.
+    # (스펙 089가 085를 교정: 선언한 미지키는 더는 default로 *폴백 만회*하지 않고 AgentConfigError를
+    #  던진다 — 그 핀은 verify_089가 소유. 여기선 무회귀 항목만 둔다.)
     r_ui = chat_mod.resolve_agent_runtime({"source": "ui", "impl": None})
     r_custom = chat_mod.resolve_agent_runtime({"source": "ui", "impl": "plan_execute"})
     r_code = chat_mod.resolve_agent_runtime({"source": "code", "impl": None})
     r_ext = chat_mod.resolve_agent_runtime({"source": "external", "impl": None})
-    r_unknown = chat_mod.resolve_agent_runtime({"source": "ui", "impl": "does_not_exist"})
     check(isinstance(r_ui, DefaultUiAgent), "U3 ui+impl없음 → DefaultUiAgent")
     check(isinstance(r_custom, PlanExecuteAgent), "U3 ui+impl=plan_execute → PlanExecuteAgent")
     check(r_code is None, "U3 source=code → None(원격 fallback)")
     check(r_ext is None, "U3 source=external → None(원격 fallback)")
-    check(isinstance(r_unknown, DefaultUiAgent), "U3 ui+미지키 → DefaultUiAgent(graceful, 열거 오라클 없음)")
+    try:
+        chat_mod.resolve_agent_runtime({"source": "ui", "impl": "does_not_exist"})
+        check(False, "U3 ui+미지키 → AgentConfigError(스펙 089: default 폴백 만회 안 함)")
+    except AgentConfigError:
+        check(True, "U3 ui+미지키 → AgentConfigError(스펙 089: default 폴백 만회 안 함)")
 
     # U4 추적 타임라인 파생 — graph_nodes 있으면 실 노드열, 없으면 합성 폴백(무회귀).
     tr_real = api_rt.assemble_trace(

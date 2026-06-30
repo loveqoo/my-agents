@@ -340,6 +340,9 @@ class AgentOut(BaseModel):
     historyDepth: int
     persistHistory: bool = True
     impl: str | None = None  # in-process 커스텀 런타임 키(스펙 085) — 폼 재로드/라운드트립 보존용
+    # 공통 인터페이스 준수 분류(스펙 089) — 파생값(저장 안 함). conforming=준수(default/적합 impl),
+    # non_conforming=A2A 원격(정당한 다른 종류), config_error=impl 선언했으나 미해결(설정 실패).
+    conformance: str = "conforming"
     memories: list[str] = Field(default_factory=list)
     vectorTables: list[str] = Field(default_factory=list)
     permissions: list[str] = Field(default_factory=list)

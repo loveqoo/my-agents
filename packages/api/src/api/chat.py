@@ -13,7 +13,13 @@ import secrets
 import time
 import uuid
 
-from agent.runtime import AgentBuildContext, DefaultUiAgent, get_agent_impl
+from agent.runtime import (
+    AgentBuildContext,
+    AgentConfigError,
+    DefaultUiAgent,
+    get_agent_impl,
+    is_remote_source,
+)
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from langgraph.types import Command
@@ -33,26 +39,42 @@ router = APIRouter(prefix="/agents", tags=["chat"])
 log = logging.getLogger("api.chat")
 
 
-def _is_remote(source: str) -> bool:
-    """원격(A2A 프록시) 소스인가 — code(우리 SDK A2A)·external(제3자 A2A)는 비로컬(스펙 057).
-
-    in-process 인터페이스(스펙 085)의 *대상이 아니다* — 우리 런타임 밖에서 돌아 설정 주입·그래프
-    추적이 불가하다. 이 단일 술어로 chat.py 곳곳의 `source in ("code","external")` 리터럴을
-    수렴한다(learning 060: 드리프트 0)."""
-    return source in ("code", "external")
+# 원격 소스 판정 단일 술어는 agent.runtime로 내렸다(스펙 089) — resolve·classify·직렬화가 공유.
+_is_remote = is_remote_source
 
 
 def resolve_agent_runtime(ctx: dict):
-    """이 에이전트의 **in-process 런타임 구현**을 해석한다(스펙 085).
+    """이 에이전트의 **in-process 런타임 구현**을 해석한다(스펙 085 + 089 폴백 교정).
 
     - 원격(code/external) → None: 인터페이스 미대상 → 호출측이 `_a2a_stream` fallback(지금처럼).
-    - 로컬(ui) → `config["impl"]` 키가 신뢰 레지스트리에 있으면 그 커스텀 에이전트, 없으면(미지정·
-      알 수 없는 키) `DefaultUiAgent`. 즉 **로컬은 항상 non-None**(기본 또는 커스텀).
+    - 로컬(ui) + impl 미선언 → `DefaultUiAgent`(레퍼런스 적합, 정상 default).
+    - 로컬(ui) + impl 적중(적합) → 그 커스텀 에이전트.
+    - 로컬(ui) + impl 선언했으나 미해결(미등록/부적합) → **`AgentConfigError` raise**(스펙 089 교정3):
+      `DefaultUiAgent`로 *만회·폴백하지 않는다* — 등록/설정 실수를 default가 가리지 않게 서빙을
+      거부한다. 호출측이 잡아 정직히 통보.
 
     `impl`은 레지스트리의 *키*일 뿐 코드가 아니다 — eval/import 경로 없음(스펙 085 §보안경계)."""
     if _is_remote(ctx["source"]):
         return None
-    return get_agent_impl(ctx.get("impl")) or DefaultUiAgent()
+    impl_key = ctx.get("impl")
+    if not impl_key:
+        return DefaultUiAgent()
+    inst = get_agent_impl(impl_key)
+    if inst is None:
+        raise AgentConfigError(impl_key)
+    return inst
+
+
+async def _config_error_stream(impl_key: str):
+    """설정 실패(스펙 089) — 선언한 in-process 구현이 미해결. default로 만회하지 않고 SSE로 정직히
+    통보한다. **클라이언트 메시지는 일반화**(impl 값 미반영) — config["impl"]은 관리자가 임의로 저장한
+    값(합의 B)이라 *레지스트리 키임이 증명되지 않으며*, 채팅 클라이언트는 관리자보다 권한이 낮을 수
+    있다(GET /agents의 impl은 인증 관리자 전용). 구체 키는 서버 로그에만 남겨 운영 디버깅을 보존한다
+    (codex 적대 리뷰 089-F1: 미해결 impl 원문이 SSE로 새던 정보노출 봉합 — 비밀누출 0)."""
+    log.warning("config_error 채팅 거부: 미해결 impl %r", impl_key)
+    msg = "에이전트 설정 오류로 응답할 수 없습니다 — 관리자에게 문의하세요(런타임 구현 미해결)."
+    yield f"data: {json.dumps({'error': msg}, ensure_ascii=False)}\n\n"
+    yield "event: done\ndata: [DONE]\n\n"
 
 
 async def _load_context(
@@ -503,7 +525,13 @@ async def stream_local_reply(agent_id: uuid.UUID, user_text: str):
     code/external 소스·모델 미해석이면 ValueError(로컬 그래프 아님 → 라우터가 4xx).
     """
     ctx = await _load_context(agent_id, None)
-    impl = resolve_agent_runtime(ctx)
+    try:
+        impl = resolve_agent_runtime(ctx)
+    except AgentConfigError as e:
+        # 선언한 in-process 구현 미해결(스펙 089) — 노출 서빙 거부(default 만회 없음, 라우터가 4xx).
+        # 구체 impl 키는 서버 로그에만(089-F1: 임의 저장값이라 응답에 미반영 — 비밀누출 0).
+        log.warning("A2A 노출 거부: 미해결 impl %r (agent %s)", str(e), agent_id)
+        raise ValueError("에이전트 설정 실패: 런타임 구현 미해결(A2A 노출 불가)") from e
     if impl is None or ctx["model_cfg"] is None:
         raise ValueError("로컬(ui) 에이전트가 아니거나 채팅 모델이 없습니다(A2A 노출 불가)")
     calls_sink: list[dict] = []
@@ -544,7 +572,13 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
     # code=우리가 SDK로 배포한 A2A(provenance 메타 보유), external=제3자 A2A. 전송은 _a2a_stream 하나.
     # (구 _remote_stream 자체 SSE·code 분기는 057에서 폐기 — 플랫폼 전제대로 SDK도 A2A를 말한다.)
     # in-process 런타임 구현 해석(스펙 085). None이면 원격(A2A 불투명) → 기존 fallback 그대로.
-    impl = resolve_agent_runtime(ctx)
+    # 선언한 impl이 미해결이면 AgentConfigError(스펙 089 교정3) → default로 만회 않고 설정 실패 통보.
+    try:
+        impl = resolve_agent_runtime(ctx)
+    except AgentConfigError as e:
+        return StreamingResponse(
+            _config_error_stream(str(e)), media_type="text/event-stream"
+        )
     if impl is None:
         return StreamingResponse(
             _a2a_stream(ctx, user_text, user_id), media_type="text/event-stream"
@@ -803,7 +837,12 @@ async def resume_approval(approval: Approval, decision: str) -> None:
 
     # 원 턴과 동일하게 컨텍스트·도구·페르소나를 재구성(같은 세션 id → 기존 세션 로딩, 새로 안 만듦).
     ctx = await _load_context(approval.agent_pk, approval.session_id)
-    impl = resolve_agent_runtime(ctx)
+    try:
+        impl = resolve_agent_runtime(ctx)
+    except AgentConfigError as e:
+        # 선언한 구현이 미해결(스펙 089) — 재개 불가, graceful 무시(approval은 이미 결재됨, 세션 무파손).
+        log.warning("resume 불가: 설정 실패 impl '%s' (approval %s)", e, approval.approval_id)
+        return
     if impl is None or ctx["model_cfg"] is None:
         log.warning("resume 불가: 비로컬/모델없음 소스 (approval %s)", approval.approval_id)
         return

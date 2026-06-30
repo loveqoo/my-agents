@@ -1,5 +1,7 @@
 """ORM 모델 → API 출력(dict) 직렬화. 여러 라우터가 공유."""
 
+from agent.runtime import classify_runtime
+
 from .crypto import SECRET_MASK
 from .models import Agent, Approval, Collection, ModelConfig, Provider, Session
 from .schemas import (
@@ -82,6 +84,8 @@ def agent_to_out(a: Agent) -> AgentOut:
         historyDepth=cfg.get("historyDepth", a.history_depth),
         persistHistory=cfg.get("persistHistory", True),
         impl=cfg.get("impl"),  # in-process 커스텀 런타임 키(스펙 085, 폼 재로드용 — 편집 silent drop 방지)
+        # 준수 분류(스펙 089) — resolve_agent_runtime과 같은 게이트로 파생(단일 출처, 저장 안 함).
+        conformance=classify_runtime(a.source, cfg.get("impl")),
         memories=cfg.get("memories", []),
         vectorTables=cfg.get("vectorTables", []),
         permissions=cfg.get("permissions", []),

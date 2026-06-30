@@ -19,6 +19,22 @@ from typing import Any, Protocol, runtime_checkable
 from .main import build_agent
 
 
+class AgentConfigError(Exception):
+    """에이전트 설정 실패(스펙 089) — `config["impl"]`을 *선언*했는데 신뢰 레지스트리에서
+    미해결(미등록 또는 Protocol 미구현)일 때 발생. 핵심: 이걸 `DefaultUiAgent`로 *만회·폴백*하지
+    않는다(등록/설정 실수를 default가 가리는 건 문제 — 교정3). 호출측이 잡아 정직히 통보한다.
+    예외 인자는 미해결 impl 키(레지스트리 키일 뿐 비밀 아님 — 통보 메시지에 안전)."""
+
+
+def is_remote_source(source: str) -> bool:
+    """원격(A2A 프록시) 소스인가 — code(우리 SDK A2A)·external(제3자 A2A)는 비로컬(스펙 057).
+
+    in-process 인터페이스(스펙 085)의 *대상이 아니다* — 우리 런타임 밖에서 돌아 설정 주입·그래프
+    추적이 불가하다. **단일 술어**(스펙 089) — resolve_agent_runtime·classify_runtime·chat.py가
+    모두 이걸 공유해 `source in ("code","external")` 리터럴 드리프트를 0으로 만든다(learning 060)."""
+    return source in ("code", "external")
+
+
 @dataclass
 class AgentBuildContext:
     """플랫폼이 커스텀 에이전트에 *주입*하는 모든 것. 오버라이드는 이미 병합된 상태로 도착한다
@@ -91,19 +107,48 @@ def register_agent(key: str, cls: type) -> None:
 
 
 def get_agent_impl(key: str | None) -> CustomAgent | None:
-    """등록된 커스텀 에이전트 인스턴스 반환. 미등록/None/빈 키 → None(호출측이 기본 폴백).
+    """등록된 **적합** 커스텀 에이전트 인스턴스 반환. 적합하지 않으면 None.
 
-    **dict 조회만** 한다 — 키 문자열을 코드로 해석(eval/importlib)하지 않는다. 알 수 없는 키는
-    조용히 None이라 열거 오라클도 없다."""
+    None/빈 키 → None(impl 미선언). 등록됐어도 인스턴스가 `CustomAgent` Protocol에 **부적합**하거나
+    `cls()` 생성이 던지면 None(스펙 089: isinstance 게이트로 085 갭 봉합 — `@runtime_checkable`을
+    resolve 시점에 *실제로* 적용, fail-closed). **dict 조회만** 한다 — 키 문자열을 코드로
+    해석(eval/importlib)하지 않는다(스펙 085 §보안경계). 알 수 없는 키는 조용히 None(열거 오라클 없음).
+
+    주의: None은 "미선언"과 "선언했으나 부적합"을 구분하지 않는다 — 그 구분(폴백 vs 설정 실패)은
+    호출측(resolve_agent_runtime·classify_runtime)이 *키 선언 여부*로 판정한다(스펙 089 교정3)."""
     if not key:
         return None
     cls = _REGISTRY.get(key)
-    return cls() if cls is not None else None
+    if cls is None:
+        return None
+    try:
+        inst = cls()
+    except Exception:  # noqa: BLE001 — 생성 실패=부적합으로 본다(fail-closed, 만회 없음)
+        return None
+    return inst if isinstance(inst, CustomAgent) else None
 
 
 def list_agent_impls() -> list[str]:
     """등록된 커스텀 에이전트 키 목록(관측·테스트용)."""
     return sorted(_REGISTRY)
+
+
+def classify_runtime(source: str, impl: str | None) -> str:
+    """에이전트 런타임 분류(스펙 089) — `"conforming" | "non_conforming" | "config_error"` 3상태.
+
+    - **non_conforming**: 원격(code/external, A2A) — in-process 인터페이스 미대상. *정당한 다른
+      종류*이지 실패가 아니다(교정2).
+    - **conforming**: impl 미선언(→DefaultUiAgent, 레퍼런스 적합) 또는 impl이 적합 구현으로 해결.
+    - **config_error**: impl을 *선언*했으나 미해결(미등록/부적합) — `DefaultUiAgent`로 만회하지 않고
+      설정 실패로 표면화(교정3). 런타임은 서빙을 거부한다.
+
+    **파생값(저장 안 함)** — 레지스트리 변경 시 stale 드리프트 방지(learning 060). resolve_agent_runtime과
+    *같은 게이트*(`is_remote_source` + `get_agent_impl` isinstance)를 공유한다(술어 단일 출처)."""
+    if is_remote_source(source):
+        return "non_conforming"
+    if not impl:
+        return "conforming"
+    return "conforming" if get_agent_impl(impl) is not None else "config_error"
 
 
 def _bootstrap_builtins() -> None:

@@ -10,6 +10,7 @@ import {
   BLOCKS,
   AGENT_STATUS,
   AGENT_SOURCE,
+  AGENT_CONFORMANCE,
   APPROVER,
   type Agent,
   type AgentConfig,
@@ -905,12 +906,29 @@ function AgentDetail({
             {agent.agentId}
           </code>
         </div>
-        <Tag color="green">
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-            서빙 중 <code style={{ fontFamily: 'var(--font-family-code)' }}>{agent.activeVersion}</code>
-          </span>
-        </Tag>
+        {agent.conformance === 'config_error' ? (
+          <Tag color="red">
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 600 }}>
+              <Icon name="exclamation-circle" size={11} /> 설정 실패
+            </span>
+          </Tag>
+        ) : (
+          <Tag color="green">
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              서빙 중 <code style={{ fontFamily: 'var(--font-family-code)' }}>{agent.activeVersion}</code>
+            </span>
+          </Tag>
+        )}
       </div>
+      {agent.conformance === 'config_error' ? (
+        <Alert
+          type="error"
+          showIcon
+          style={{ marginBottom: 12 }}
+          title="에이전트 설정 실패 — 런타임이 서빙을 거부합니다"
+          description="지정한 커스텀 런타임(impl)이 신뢰 레지스트리에서 미해결입니다(미등록 또는 공통 인터페이스 부적합). 기본 에이전트로 만회·폴백하지 않습니다(스펙 089). 구현을 등록·수정하거나 impl 설정을 비우세요."
+        />
+      ) : null}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
         <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>활성 구성(현재 서빙 중)</span>
         <div style={{ flex: 1 }} />
@@ -1355,6 +1373,25 @@ export default function AgentsView() {
               {s.label}
             </span>
           </Tag>
+        )
+      },
+    },
+    {
+      key: 'conformance',
+      title: '준수',
+      width: 96,
+      render: (a) => {
+        const c = AGENT_CONFORMANCE[a.conformance || 'conforming'] || AGENT_CONFORMANCE.conforming
+        const isError = a.conformance === 'config_error'
+        return (
+          <Tooltip title={c.desc}>
+            <Tag color={c.tag === 'default' ? undefined : c.tag}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: isError ? 600 : 400 }}>
+                {c.icon ? <Icon name={c.icon} size={11} /> : null}
+                {c.label}
+              </span>
+            </Tag>
+          </Tooltip>
         )
       },
     },
