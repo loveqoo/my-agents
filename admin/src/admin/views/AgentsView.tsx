@@ -170,15 +170,17 @@ function AgentForm({
         <Field label="메모리 타입">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {(blocks.memory?.items ?? []).map((m) => (
-              <label
+              <Checkbox
                 key={m.id}
-                style={{ display: 'flex', alignItems: 'baseline', gap: 8, fontSize: 14, cursor: 'pointer' }}
+                checked={form.memories.includes(m.name)}
+                onChange={() => toggle('memories', m.name)}
+                style={{ alignItems: 'flex-start', marginInlineStart: 0 }}
               >
-                <Checkbox checked={form.memories.includes(m.name)} onChange={() => toggle('memories', m.name)}>
-                  <span style={{ fontWeight: 500 }}>{m.name}</span>
-                </Checkbox>
-                <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>{m.body}</span>
-              </label>
+                <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <span style={{ fontSize: 14, fontWeight: 500 }}>{m.name}</span>
+                  <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>{m.body}</span>
+                </span>
+              </Checkbox>
             ))}
             {form.memories.length === 0 ? (
               <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)', fontStyle: 'italic' }}>
@@ -191,19 +193,21 @@ function AgentForm({
         <Field label="지식 소스 (RAG 컬렉션)">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {collections.map((c) => (
-              <label
+              <Checkbox
                 key={c.id}
-                style={{ display: 'flex', alignItems: 'baseline', gap: 8, fontSize: 14, cursor: 'pointer' }}
+                checked={form.vectorTables.includes(c.name)}
+                onChange={() => toggle('vectorTables', c.name)}
+                style={{ alignItems: 'flex-start', marginInlineStart: 0 }}
               >
-                <Checkbox checked={form.vectorTables.includes(c.name)} onChange={() => toggle('vectorTables', c.name)}>
+                <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                   <code style={{ fontFamily: 'var(--font-family-code)', fontSize: 13, color: 'var(--cyan-7)' }}>
                     {c.name}
                   </code>
-                </Checkbox>
-                <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-                  {c.embedding_model_name} · 청크 {c.chunk_count}개
+                  <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+                    {c.embedding_model_name} · 청크 {c.chunk_count}개
+                  </span>
                 </span>
-              </label>
+              </Checkbox>
             ))}
             {collections.length === 0 ? (
               <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)', fontStyle: 'italic' }}>
@@ -246,20 +250,22 @@ function AgentForm({
             {(blocks.permission?.items ?? []).map((p) => {
               const a = p.approver ? APPROVER[p.approver] : APPROVER.user
               return (
-                <label
+                <Checkbox
                   key={p.id}
-                  style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, cursor: 'pointer' }}
+                  checked={form.permissions.includes(p.name)}
+                  onChange={() => toggle('permissions', p.name)}
+                  style={{ marginInlineStart: 0 }}
                 >
-                  <Checkbox checked={form.permissions.includes(p.name)} onChange={() => toggle('permissions', p.name)}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                     <code style={{ fontFamily: 'var(--font-family-code)', fontSize: 13 }}>{p.name}</code>
-                  </Checkbox>
-                  <Tag color={a.tag}>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                      {a.icon ? <Icon name={a.icon} size={10} /> : null}
-                      {a.label}
-                    </span>
-                  </Tag>
-                </label>
+                    <Tag color={a.tag}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                        {a.icon ? <Icon name={a.icon} size={10} /> : null}
+                        {a.label}
+                      </span>
+                    </Tag>
+                  </span>
+                </Checkbox>
               )
             })}
           </div>
