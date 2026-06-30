@@ -9,6 +9,7 @@ MCP 서버에 **실제로 연결**(langchain-mcp-adapters `MultiServerMCPClient`
 """
 
 import asyncio
+import math
 import re
 import time
 from typing import Any
@@ -85,8 +86,8 @@ def _wrap_mcp_tool(server: str, rt: BaseTool, calls_sink: list[dict]) -> Structu
                 "tool": rt.name,
                 "status": status,
                 "ms": int((time.perf_counter() - t0) * 1000) + 1,
-                "args": kwargs,
-                "result": text,
+                "args": _redact_args(kwargs),  # 스펙 087: 민감 키 마스킹 전 적재(형제 표면 누출 차단)
+                "result": _cap(text, _RESULT_CAP),  # 스펙 087: 무제한 적재 방어(learning 059)
             }
         )
         return text
@@ -104,7 +105,7 @@ def _wrap_mcp_tool(server: str, rt: BaseTool, calls_sink: list[dict]) -> Structu
                 "server": server,
                 "tool": rt.name,
                 "action": f"{server}.{rt.name}",
-                "args": kwargs,
+                "args": _redact_args(kwargs),  # 스펙 087: Approval.args(DB 영속)·ApprovalsView로 새기 전 마스킹
                 "summary": f"{server}.{rt.name} 실행 — 관리자 승인 필요",
             }
         )
@@ -306,8 +307,8 @@ def build_rag_tool(collections: list[dict], calls_sink: list[dict]) -> Structure
                     "tool": "search_documents",
                     "status": status,
                     "ms": int((time.perf_counter() - t0) * 1000) + 1,
-                    "args": {"query": (query or "").strip(), "top_k": top_k},
-                    "result": result,
+                    "args": _redact_args({"query": (query or "").strip(), "top_k": top_k}),
+                    "result": _cap(result, _RESULT_CAP),  # 스펙 087 F3: 같은 sink 표면이라 result 캡 일관 적용
                     "hits": n,
                 }
             )
@@ -367,7 +368,11 @@ def build_graph_path(used_memory: bool, used_tools: bool, total_ms: int) -> list
 
 # 노드 상태 델타에서 비밀값을 띄우지 않기 위한 민감 키 패턴(닫힌 집합, 스펙 086 §2).
 # 키 *이름*으로 마스킹한다 — 값 휴리스틱이 아니라(저장 크레덴셜용 crypto.is_masked와 별개).
-_SENSITIVE_KEY = re.compile(r"(api[_-]?key|secret|token|password|passwd|auth|credential|bearer)", re.I)
+# `[_-]key$`·`^key$`는 private_key·access_key·client_key·signing_key·encryption_key 등 *_key 비밀명을
+# 포괄(codex 087 F1: api_key만으론 표준 비밀키 이름을 놓침). monkey/top_k는 구분자 없어 안 걸림.
+_SENSITIVE_KEY = re.compile(
+    r"(api[_-]?key|secret|token|password|passwd|auth|credential|bearer|[_-]key$|^key$)", re.I
+)
 _FIELD_CAP = 300  # 필드(값) 1개 표시 상한(자)
 _NODE_SUMMARY_CAP = 1200  # 노드 요약 전체 상한(자) — 필드 캡보다 커야 단일 필드가 이중 캡 안 됨
                           # (codex F3 후속: per-field 캡 후 join이 또 잘려 생략 길이가 거짓이 되던 버그)
@@ -379,6 +384,46 @@ _REDACTED = "«redacted»"
 # (fail-closed): 키 이름이 평범/비영문이라 _SENSITIVE_KEY가 못 잡아도 *값 자체* 비밀이 안 샌다
 # (codex 적대 리뷰 F2: 값-비밀 차단). 새 안전 필드 추가는 "그 키는 절대 비밀이 아니다"를 보증할 때만.
 _VALUE_SAFE_KEYS = frozenset({"plan"})
+
+# 스펙 087: MCP 호출 인자·결과 redaction(형제 trace 표면). 086 노드델타와 달리 args는 *보여주는 게
+# 목적*(인스펙터 디버깅 가치)이라 평범한 키의 값은 보존하고 민감 *키*만 마스킹한다(value-allowlist
+# 아닌 key-blocklist — polarity가 정당하게 다름, learning 089 §3 형제 표면판). 시스템 자기 비밀은
+# 이 표면에 안 온다(서버 토큰=헤더·모델 키=설정, args 아님) → defense-in-depth.
+_ARG_VALUE_CAP = 500  # args 문자열 leaf 1개 표시 상한(자) — query·path 등 정상 인자 보존하되 거대값 캡
+_RESULT_CAP = 2000  # 도구 결과 문자열 상한(자) — calls_sink에 무제한 적재(trace 비대) 방어(learning 059)
+_REDACT_MAX_DEPTH = 6  # args 재귀 깊이 상한 — 사이클/거대 중첩 fail-closed
+
+
+def _redact_args(obj: Any, _depth: int = 0) -> Any:
+    """MCP 도구 인자(kwargs)를 표시·영속(calls_sink·interrupt·Approval.args) 전에 정화한다(스펙 087).
+
+    - 민감 *키*(_SENSITIVE_KEY)의 값은 `«redacted»`로. 평범한 키의 값은 *원문 보존*(args는 사람에게
+      보일 표면이라 086 노드델타와 polarity가 다름 — 디버깅 가치 유지).
+    - 문자열 leaf는 _cap(_ARG_VALUE_CAP)로 budgeted 캡(raw에서, learning 059).
+    - fail-closed: 비문자 키는 str(k)·깊이 상한·전체 try/except → 실패 시 안전 마커(스트림 안 깸).
+    JSON 직렬화 가능한 구조만 반환(calls_sink→json.dumps·Approval.args JSONB).
+    """
+    try:
+        if _depth > _REDACT_MAX_DEPTH:
+            return "«depth-capped»"
+        if isinstance(obj, dict):
+            out: dict[str, Any] = {}
+            for k, v in obj.items():
+                key = str(k)
+                out[key] = _REDACTED if _SENSITIVE_KEY.search(key) else _redact_args(v, _depth + 1)
+            return out
+        if isinstance(obj, (list, tuple)):
+            return [_redact_args(v, _depth + 1) for v in obj]
+        if isinstance(obj, str):
+            return _cap(obj, _ARG_VALUE_CAP)
+        if isinstance(obj, float):
+            # NaN/Infinity는 JSONB(Approval.args)·JSON 직렬화에 비유효 → 안전 마커로(codex 087 F2 fail-closed).
+            return obj if math.isfinite(obj) else f"<{obj}>"
+        if obj is None or isinstance(obj, (bool, int)):
+            return obj  # 스칼라(유한 길이, 비밀 위험 낮음)
+        return f"<{type(obj).__name__}>"  # 미지 타입은 타입명만(fail-closed)
+    except Exception:  # noqa: BLE001 — redaction 실패가 도구/스트림을 깨면 안 됨(fail-closed)
+        return "«redact-failed»"
 
 
 def _cap(s: str, limit: int = _NODE_SUMMARY_CAP) -> str:
