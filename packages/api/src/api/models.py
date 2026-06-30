@@ -10,7 +10,7 @@ import uuid
 from datetime import datetime
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -247,6 +247,14 @@ class AgentVersion(Base):
 # ----------------------------- 세션/메시지 -----------------------------
 class Session(Base):
     __tablename__ = "sessions"
+    # owner-선두 복합 인덱스(스펙 073, 070 P2 봉합) — member 읽기 `WHERE user_id=:own AND ...`에서
+    # 타인-존재행을 인덱스 진입 단계에서 부재행과 동일하게 미스시켜 heap-fetch 타이밍 델타를 제거.
+    # session_id 단독 unique는 전역 uniqueness 보장용으로 유지(get-or-create flush 의존). 플래너가
+    # 실제로 이 복합을 선택하는지는 EXPLAIN으로 측정(verify_073_explain) — 선언만으론 봉합 미완.
+    __table_args__ = (
+        Index("ix_sessions_user_id_session_id", "user_id", "session_id"),
+        Index("ix_sessions_user_id_agent_pk_session_id", "user_id", "agent_pk", "session_id"),
+    )
     id: Mapped[uuid.UUID] = _pk()
     session_id: Mapped[str] = mapped_column(String(80), unique=True)  # sess_...
     agent_pk: Mapped[uuid.UUID] = mapped_column(
