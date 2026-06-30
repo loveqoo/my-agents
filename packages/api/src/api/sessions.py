@@ -39,13 +39,6 @@ def _own_scope(principal) -> str | None:
     return str(principal.id)
 
 
-def _visible_or_404(s: Session, own: str | None) -> None:
-    """item 가시성 게이트(스펙 067, learning 068) — 비-admin이 *볼 수 없는* 세션(자기 것
-    아님·NULL-owner)은 부재와 동일하게 404로 은폐한다. 403이면 404↔403이 갈려 목록이 숨긴
-    세션의 존재가 session_id 추측으로 샌다(열거 오라클). own is None(admin/머신)이면 무게이트."""
-    if own is not None and s.user_id != own:
-        raise HTTPException(status_code=404, detail="not found")
-
 # 버킷 → status 매핑 (단일출처 — 프론트는 버킷 문자열만 보낸다). 스펙 034.
 _STATUS_BUCKETS: dict[str, tuple[str, ...]] = {
     "live": ("active", "running", "draining"),
@@ -170,11 +163,20 @@ async def list_sessions(
     return SessionPage(items=items, total=total, counts=counts)
 
 
-async def _get_session_or_404(session: AsyncSession, session_id: str) -> Session:
-    result = await session.execute(
-        select(Session).where(Session.session_id == session_id)
-    )
-    s = result.scalar_one_or_none()
+async def _get_session_or_404(
+    session: AsyncSession, session_id: str, own: str | None = None
+) -> Session:
+    """session_id로 세션을 로드. `own`(비-admin 스코프)이 주어지면 **가시성 게이트를 쿼리에
+    융합**한다 — `Session.user_id == own`을 WHERE에 더해, 타인 세션·NULL-owner·부재가 *모두*
+    동일한 단일 쿼리에서 `None`으로 떨어진다(동일 404 경로).
+
+    이렇게 거부행을 *로드조차 안 함*으로써 fetch-then-check가 남기던 타이밍 측면채널을 제거한다
+    (스펙 067 D4를 070이 봉합, retrospect 056 [P3-1], 069 체크리스트 2(a)). 볼 수 없는 세션을
+    404로 은폐해 403↔404 열거 오라클도 차단(learning 068). own=None(admin/머신)이면 무스코프(전체)."""
+    q = select(Session).where(Session.session_id == session_id)
+    if own is not None:
+        q = q.where(Session.user_id == own)
+    s = (await session.execute(q)).scalar_one_or_none()
     if s is None:
         raise HTTPException(status_code=404, detail="not found")
     return s
@@ -211,8 +213,7 @@ async def get_session_detail(
     session: AsyncSession = Depends(get_session),
     principal=Depends(current_principal),
 ) -> SessionOut:
-    s = await _get_session_or_404(session, session_id)
-    _visible_or_404(s, _own_scope(principal))  # 타인/NULL → 404(존재 은폐, 067)
+    s = await _get_session_or_404(session, session_id, _own_scope(principal))  # 스코프 융합(067/070)
     a = await session.get(Agent, s.agent_pk)
     return session_to_out(s, a.agent_id if a else None)
 
@@ -223,8 +224,7 @@ async def list_session_messages(
     session: AsyncSession = Depends(get_session),
     principal=Depends(current_principal),
 ) -> list[MessageOut]:
-    s = await _get_session_or_404(session, session_id)
-    _visible_or_404(s, _own_scope(principal))  # 타인 전사 열람 차단 → 404(067)
+    s = await _get_session_or_404(session, session_id, _own_scope(principal))  # 스코프 융합(067/070)
     result = await session.execute(
         select(Message)
         .where(Message.session_pk == s.id)
@@ -242,8 +242,7 @@ async def end_session(
     session: AsyncSession = Depends(get_session),
     principal=Depends(current_principal),
 ) -> SessionOut:
-    s = await _get_session_or_404(session, session_id)
-    _visible_or_404(s, _own_scope(principal))  # 타인 세션 종료 변조 차단 → 404(067 T5)
+    s = await _get_session_or_404(session, session_id, _own_scope(principal))  # 스코프 융합(067/070 T5)
     s.status = "completed"
     await session.commit()
     a = await session.get(Agent, s.agent_pk)
