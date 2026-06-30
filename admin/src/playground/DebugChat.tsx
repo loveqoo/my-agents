@@ -2,8 +2,17 @@
    Header exposes the agent's config + a "System prompt" toggle. Each assistant
    turn is selectable (drives the Inspector) and shows trace chips. Data is real:
    agents come from the backend, turns/traces come from the streaming chat API. */
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Bubble, Sender, Prompts } from '@ant-design/x'
+import type { GetRef } from 'antd'
+import {
+  INITIAL_HIST,
+  recallOlder,
+  recallNewer,
+  resetHist,
+  dedupeConsecutive,
+  type HistState,
+} from './inputHistory'
 import { Avatar, Button, Tag, Grid, Tooltip } from 'antd'
 import { Icon } from '../admin/icons'
 import { fmtTime } from '../admin/format'
@@ -691,6 +700,58 @@ export function DebugChat({
     if (scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight
   }, [messages, streaming, showPrompt])
 
+  // 터미널 콘솔식 입력 히스토리 재호출(스펙 091). 정책은 inputHistory.ts 순수 함수가 쥐고,
+  // 여기선 caret 판정·DOM 부수효과만. history = 현재 대화에서 *내가 보낸* 입력(연속중복 접음).
+  const senderRef = useRef<GetRef<typeof Sender>>(null)
+  const histRef = useRef<HistState>(INITIAL_HIST)
+  // 재호출마다 ++ 하는 단조 카운터. caret 이동 effect의 의존을 draft가 아니라 이걸로 둬야,
+  // 재호출 값이 현재 입력과 *우연히 같을 때*(예: 최신 입력이 이미 입력창에 있음)도 발화한다
+  // (setDraft가 no-op이면 draft만 보는 effect는 안 돔 — codex 적대 리뷰 P2).
+  const [recallSeq, setRecallSeq] = useState(0)
+  const history = useMemo(
+    () => dedupeConsecutive(messages.filter((m) => m.role === 'me').map((m) => m.text)),
+    [messages],
+  )
+
+  // inputElement는 textarea지만 타입이 union(HTMLElement 포함)이라 caret API 접근 시 좁힌다.
+  const inputTextarea = (): HTMLTextAreaElement | null =>
+    (senderRef.current?.inputElement as HTMLTextAreaElement | undefined) ?? null
+
+  // 재호출 시 caret을 끝으로(편집이 자연스럽게 이어지도록). recallSeq에만 의존하므로 사용자
+  // 타이핑(draft만 변함)엔 발화하지 않고, 마운트(seq 0)도 건너뛴다.
+  useLayoutEffect(() => {
+    if (recallSeq === 0) return
+    const ta = inputTextarea()
+    if (ta) ta.setSelectionRange(ta.value.length, ta.value.length)
+  }, [recallSeq])
+
+  // Sender 키 핸들러: 비탐색 진입은 caret 절대 맨앞(ArrowUp)에서만, 탐색 중엔 caret 무관.
+  const onHistKey = (e: React.KeyboardEvent): void | false => {
+    if (e.nativeEvent.isComposing) return // IME 조합 중엔 양보(조합 깨짐 방지)
+    const ta = inputTextarea()
+    const navigating = histRef.current.idx !== -1
+    if (e.key === 'ArrowUp') {
+      if (!navigating && !(ta && ta.selectionStart === 0 && ta.selectionEnd === 0)) return
+      const r = recallOlder(histRef.current, history, draft)
+      if (!r.handled) return
+      histRef.current = r.state
+      setDraft(r.value)
+      setRecallSeq((n) => n + 1)
+      e.preventDefault()
+      return false
+    }
+    if (e.key === 'ArrowDown') {
+      if (!navigating) return
+      const r = recallNewer(histRef.current, history)
+      if (!r.handled) return
+      histRef.current = r.state
+      setDraft(r.value)
+      setRecallSeq((n) => n + 1)
+      e.preventDefault()
+      return false
+    }
+  }
+
   if (!agent) {
     return (
       <div
@@ -811,18 +872,26 @@ export function DebugChat({
       <div style={{ flex: 'none', padding: '8px 24px 18px' }}>
         <div style={{ maxWidth: 680, margin: '0 auto' }}>
           <Sender
+            ref={senderRef}
             value={draft}
-            onChange={(v) => setDraft(v)}
+            onChange={(v) => {
+              // 사용자 편집은 탐색 종료. (우리 재호출은 setDraft 직접 호출이라 onChange 미발화 →
+              // 여기 들어오는 건 실제 타이핑·붙여넣기뿐.)
+              histRef.current = resetHist()
+              setDraft(v)
+            }}
+            onKeyDown={onHistKey}
             placeholder={`${agent.name}에게 메시지…`}
             loading={streaming}
             onSubmit={(text) => {
+              histRef.current = resetHist()
               setDraft('')
               onSend(text)
             }}
             onCancel={onStop}
             prefix={<Button type="text" icon={<Icon name="paper-clip" />} />}
             footer={() => (
-              <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>LangGraph 에이전트 실행 · 턴마다 트레이스 기록</span>
+              <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>LangGraph 에이전트 실행 · 턴마다 트레이스 기록 · ↑ 이전 입력</span>
             )}
           />
         </div>
