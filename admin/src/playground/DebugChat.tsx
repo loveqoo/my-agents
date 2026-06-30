@@ -72,6 +72,26 @@ function ModelBadge({ a, size }: { a: Agent; size: 'header' | 'row' }) {
   return b.tip ? <Tooltip title={b.tip}>{chip}</Tooltip> : chip
 }
 
+/* 미활성 초안 감지(스펙 078): 편집은 항상 draft 버전에 저장되고 Playground는 활성 서빙
+   config를 실행하므로, 초안이 있으면 "편집이 아직 반영 안 됨"이다. 진실원은 agent.versions
+   (list_agents가 draft 포함 전 버전 직렬화) — mock 상수 아님(learning 035). code/external은
+   draft 상태 버전이 없어 자연히 false. */
+function hasDraft(a: Agent): boolean {
+  return (a.versions ?? []).some((v) => v.status === 'draft')
+}
+
+/* 헤더/피커에 다는 미반영 초안 배지. compact면 아이콘만(좁은 폭에서도 안내 보존). */
+function DraftBadge({ compact }: { compact?: boolean }) {
+  return (
+    <Tooltip title="이 에이전트에 활성화되지 않은 초안 편집이 있습니다. Playground는 활성 버전을 실행합니다 — 변경을 반영하려면 Agents에서 초안을 활성화하세요.">
+      <Tag color="gold" style={{ margin: 0, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+        <Icon name="edit" size={11} />
+        {compact ? null : '미반영 초안'}
+      </Tag>
+    </Tooltip>
+  )
+}
+
 interface DebugChatProps {
   agent: Agent | null
   agents: Agent[]
@@ -188,6 +208,12 @@ function AgentCombo({
             {agent.persona}
           </span>
         </span>
+        {/* 미반영 초안 표식(스펙 078) — 현재 선택된 에이전트가 초안을 안고 있으면 트리거에도 점등. */}
+        {hasDraft(agent) ? (
+          <Tag color="gold" style={{ margin: 0, flex: 'none' }}>
+            <Icon name="edit" size={10} /> 초안
+          </Tag>
+        ) : null}
         <Icon
           name="down"
           size={12}
@@ -272,6 +298,8 @@ function AgentCombo({
                   </span>
                   <span style={{ display: 'block', fontSize: 12, color: 'var(--color-text-secondary)', marginTop: 1 }}>{a.persona}</span>
                   <span style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
+                    {/* 미반영 초안(스펙 078): 어느 에이전트가 미활성 편집을 안고 있는지 피커에서 구분. */}
+                    {hasDraft(a) ? <Tag color="gold">초안</Tag> : null}
                     {a.exposed && a.exposed.a2a ? <Tag color="green">A2A</Tag> : null}
                     {a.mcps.map((m) => (
                       <Tag key={m} color="cyan">
@@ -516,6 +544,9 @@ function ChatHeader({
             {compact ? null : '새 대화'}
           </Button>
         )}
+        {/* 미반영 초안 안내(스펙 078): 편집은 초안에 저장되고 Playground는 활성 버전을 실행 —
+            초안이 있으면 "수정이 안 보임"의 원인을 배지로 알린다. compact에서도 아이콘만 유지. */}
+        {hasDraft(agent) && <DraftBadge compact={compact} />}
         {!compact && <ExposeBadges agent={agent} />}
         <Button
           size="small"
