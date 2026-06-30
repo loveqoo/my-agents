@@ -217,6 +217,28 @@ async def seed_if_empty(session: AsyncSession) -> None:
                 )
             session.add(agent)
 
+        # in-process 커스텀 에이전트(스펙 085) — source=ui(로컬 실행)이되 config.impl로 신뢰
+        # 레지스트리의 plan→execute 그래프를 가리킨다. DefaultUiAgent(create_agent)와 *구조가 다른*
+        # 다노드 그래프라, 플레이그라운드 추적에 실 노드열([plan, execute])이 뜨고 오버라이드 주입도
+        # 동일하게 받는다(인터페이스가 create_agent에 과적합되지 않았음을 화면으로 증명).
+        pe_cfg = {
+            "model": CHAT_MODEL_NAME, "persona": "Methodical Researcher",
+            "memories": ["단기(세션)"], "vectorTables": [], "permissions": [],
+            "mcps": [], "historyDepth": 20, "impl": "plan_execute",
+        }
+        plan_execute = Agent(
+            agent_id="agt_plex_b5e207", name="Plan-Execute Demo", source="ui",
+            model=CHAT_MODEL_NAME,
+            persona=persona_body.get("Methodical Researcher", "Methodical Researcher"),
+            history_depth=20, config=pe_cfg, exposed={"a2a": False},
+            status="online", active_version="v1",
+        )
+        plan_execute.versions.append(
+            AgentVersion(version="v1", status="active", note="plan→execute 커스텀 SDK 데모(스펙 085)",
+                         config=dict(pe_cfg))
+        )
+        session.add(plan_execute)
+
         # 코드 정의(SDK 배포) 에이전트 — UI mock과 동일하게 1개 시드.
         # 스펙 057(A2A 단일화): code도 A2A로 호출한다. endpoint는 mock A2A JSON-RPC 서비스,
         # config["card"]는 connect가 빌드하는 것과 동형(x-my-agents 확장 포함)으로 스냅샷한다.

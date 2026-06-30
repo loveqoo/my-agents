@@ -365,6 +365,29 @@ def build_graph_path(used_memory: bool, used_tools: bool, total_ms: int) -> list
     return path
 
 
+def _timeline_from_nodes(nodes: list[str], total_ms: int) -> list[dict]:
+    """`updates` 스트림서 **관측한 노드 발화 순서**로 타임라인을 구성(스펙 085).
+
+    하드코딩 합성(build_graph_path)과 달리 어떤 적합 그래프든 자기 실 노드를 그대로 싣는다 —
+    create_agent(단일 노드)든 plan→execute(다노드)든. 중복은 보존(같은 노드 반복 발화=실 재진입).
+    __start__/__end__ 센티넬로 감싸 인스펙터 표시 일관성 유지.
+
+    경계(codex 적대 리뷰 F3): 이건 **관측된 update 순서**지 엄밀한 호출 스택 순서가 아니다.
+    *직렬* 그래프(현 출하 2종: create_agent ReAct, plan→execute)에선 update가 노드별 순차
+    도착이라 실행 순서와 일치한다. 하지만 *병렬 superstep* 그래프라면 한 update 청크가 여러
+    분기 노드를 동시에 실어와 dict 키 순서로 평탄화되므로 — 실행에 전순서가 없을 수 있고 — 이
+    타임라인은 근사다. ms도 total을 노드 수로 **균등 분할**한 표시용 추정치지 노드별 실측이
+    아니다. 병렬 그래프를 1급 추적하려면 superstep 그룹핑·노드별 실측 타이밍을 싣는 스트림
+    소스로 승급해야 한다(후속 스펙)."""
+    seq = [n for n in nodes if not n.startswith("__")]
+    per = int(total_ms / max(1, len(seq)))
+    path: list[dict] = [{"node": "__start__", "ms": 0}]
+    for n in seq:
+        path.append({"node": n, "ms": per})
+    path.append({"node": "__end__", "ms": 15})
+    return path
+
+
 def estimate_tokens(prompt_chars: int, output_chars: int) -> dict[str, int]:
     """대략적 토큰 추정 (≈4 chars/token). usage가 없을 때 폴백."""
     return {"in": max(1, prompt_chars // 4), "out": max(1, output_chars // 4)}
@@ -378,13 +401,22 @@ def assemble_trace(
     used_memory: bool,
     total_ms: int,
     tokens: dict[str, int],
+    graph_nodes: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Playground 인스펙터가 기대하는 트레이스 형태로 조립."""
+    """Playground 인스펙터가 기대하는 트레이스 형태로 조립.
+
+    graph_nodes가 주어지면(적합 in-process 그래프의 실 노드열, 스펙 085) 그걸로 실 호출 스택
+    타임라인을 만든다. 없으면(원격 재개 등 노드 관측 불가) 기존 합성 경로로 폴백 — 무회귀."""
+    graph = (
+        _timeline_from_nodes(graph_nodes, total_ms)
+        if graph_nodes
+        else build_graph_path(used_memory, bool(mcp_calls), total_ms)
+    )
     return {
         "latencyMs": total_ms,
         "tokens": tokens,
         "promptRef": agent_id,
         "memories": memories,
         "mcp": mcp_calls,
-        "graph": build_graph_path(used_memory, bool(mcp_calls), total_ms),
+        "graph": graph,
     }

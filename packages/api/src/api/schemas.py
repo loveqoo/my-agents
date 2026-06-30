@@ -304,6 +304,8 @@ class AgentConfig(BaseModel):
     mcps: list[str] = Field(default_factory=list)
     historyDepth: int = 20
     persistHistory: bool = True  # 대화를 DB에 저장할지(끄면 윈도우 모드)
+    impl: str | None = None  # in-process 커스텀 런타임 키(스펙 085). None=기본 DefaultUiAgent.
+    # 신뢰 레지스트리의 *키*일 뿐 코드 아님 — 미지/미등록 키는 조용히 기본으로 폴백(eval 없음).
 
 
 class AgentCreate(BaseModel):
@@ -337,6 +339,7 @@ class AgentOut(BaseModel):
     systemPrompt: str = ""  # 해석된 시스템 프롬프트 본문(런타임이 쓰는 것)
     historyDepth: int
     persistHistory: bool = True
+    impl: str | None = None  # in-process 커스텀 런타임 키(스펙 085) — 폼 재로드/라운드트립 보존용
     memories: list[str] = Field(default_factory=list)
     vectorTables: list[str] = Field(default_factory=list)
     permissions: list[str] = Field(default_factory=list)

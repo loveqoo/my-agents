@@ -145,6 +145,13 @@ async def update_agent(
 
     cfg = body.config.model_dump()
     draft = next((v for v in agent.versions if v.status == "draft"), None)
+    # impl(스펙 085 SDK 런타임 키)은 편집 폼이 아직 안 보내므로(SPA 미배선), 요청에 명시되지
+    # 않으면 기존 값을 보존한다 — 안 그러면 Pydantic 기본 None이 덮어써 편집→활성화가 커스텀
+    # 에이전트를 DefaultUiAgent로 silent 되돌린다(codex 적대 리뷰 F1). 편집 베이스(초안 있으면
+    # 초안, 없으면 활성 config)의 impl을 이어받는다. 명시적으로 보내면(클리어 포함) 그 값 존중.
+    if "impl" not in body.config.model_fields_set:
+        base = (draft.config if draft is not None else None) or dict(agent.config or {})
+        cfg["impl"] = base.get("impl")
     if draft is not None:
         draft.config = cfg
         draft.note = f"Edited {_today()}"

@@ -13,7 +13,7 @@ import secrets
 import time
 import uuid
 
-from agent.main import build_agent
+from agent.runtime import AgentBuildContext, DefaultUiAgent, get_agent_impl
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from langgraph.types import Command
@@ -31,6 +31,28 @@ from .sessions import _own_scope
 
 router = APIRouter(prefix="/agents", tags=["chat"])
 log = logging.getLogger("api.chat")
+
+
+def _is_remote(source: str) -> bool:
+    """원격(A2A 프록시) 소스인가 — code(우리 SDK A2A)·external(제3자 A2A)는 비로컬(스펙 057).
+
+    in-process 인터페이스(스펙 085)의 *대상이 아니다* — 우리 런타임 밖에서 돌아 설정 주입·그래프
+    추적이 불가하다. 이 단일 술어로 chat.py 곳곳의 `source in ("code","external")` 리터럴을
+    수렴한다(learning 060: 드리프트 0)."""
+    return source in ("code", "external")
+
+
+def resolve_agent_runtime(ctx: dict):
+    """이 에이전트의 **in-process 런타임 구현**을 해석한다(스펙 085).
+
+    - 원격(code/external) → None: 인터페이스 미대상 → 호출측이 `_a2a_stream` fallback(지금처럼).
+    - 로컬(ui) → `config["impl"]` 키가 신뢰 레지스트리에 있으면 그 커스텀 에이전트, 없으면(미지정·
+      알 수 없는 키) `DefaultUiAgent`. 즉 **로컬은 항상 non-None**(기본 또는 커스텀).
+
+    `impl`은 레지스트리의 *키*일 뿐 코드가 아니다 — eval/import 경로 없음(스펙 085 §보안경계)."""
+    if _is_remote(ctx["source"]):
+        return None
+    return get_agent_impl(ctx.get("impl")) or DefaultUiAgent()
 
 
 async def _load_context(
@@ -57,7 +79,7 @@ async def _load_context(
         # web 한정 세션 오버라이드(화이트리스트). 코드·외부 에이전트는 분기 진입 안 함 = bypass 보존.
         # (외부=A2A는 비로컬이라 로컬 설정 오버라이드 의미 없음 — 026 read-only 취급.)
         # 모델은 여전히 cfg["model"] 이름으로 레지스트리에서만 해석 → [012] 단일 소스 불변식 유지.
-        if overrides and agent.source not in ("code", "external"):
+        if overrides and not _is_remote(agent.source):
             allowed = {"model", "temperature", "historyDepth", "mcps", "memories"}
             cfg.update({k: v for k, v in overrides.items() if k in allowed})
             # systemPrompt는 비어있지 않을 때만 persona를 덮어쓴다 — 빈/공백 문자열로
@@ -71,6 +93,10 @@ async def _load_context(
             "agent_name": agent.name,
             "agent_pk": agent.id,
             "source": agent.source,
+            "impl": cfg.get("impl"),  # in-process 커스텀 구현 키(스펙 085) — 신뢰 레지스트리 조회용
+            # 원본 오버라이드 — in-process 커스텀 에이전트가 화이트리스트 밖 키도 읽을 수 있게 전달
+            # (스펙 085 AgentBuildContext.overrides). 원격은 None(로컬 설정 주입 무의미, bypass 보존).
+            "overrides": overrides if (overrides and not _is_remote(agent.source)) else None,
             "endpoint": agent.endpoint,
             "token": agent.token,
             "card": cfg.get("card"),  # A2A 카드 스냅샷(외부 에이전트, capabilities.streaming 등)
@@ -84,7 +110,7 @@ async def _load_context(
         # 모델은 레지스트리에서만 해석한다(env 안 봄). 에이전트가 고른 이름 → 없으면
         # 기본(is_default) chat 모델. 그것도 없으면 명확히 400.
         # 코드·외부 에이전트는 비로컬(원격/A2A) 실행이라 로컬 모델이 필요 없다(여기선 건너뜀).
-        if agent.source not in ("code", "external"):
+        if not _is_remote(agent.source):
             model_name = cfg.get("model")
             m = None
             if model_name:
@@ -178,7 +204,7 @@ async def _load_context(
         # 로컬 실행 경로에서만 의미가 있다 — code/external은 chat()에서 프록시/안내로 빠진다.
         rag_collections: list[dict] = []
         vt_names = cfg.get("vectorTables", [])
-        if vt_names and agent.source not in ("code", "external"):
+        if vt_names and not _is_remote(agent.source):
             cols = (
                 await db.execute(
                     select(Collection)
@@ -253,7 +279,7 @@ async def resolve_agent_mem_cfg(db, agent) -> dict | None:
     관리자 메모리 CRUD(agents.py 스펙 029)가 _load_context와 같은 규칙으로 mem_cfg를 얻는 단일
     경로. 코드·외부 에이전트는 비로컬(원격/A2A)이라 로컬 mem0가 없다 → None.
     """
-    if agent.source in ("code", "external"):
+    if _is_remote(agent.source):
         return None
     cfg = dict(agent.config or {})
     model_name = cfg.get("model")
@@ -477,14 +503,23 @@ async def stream_local_reply(agent_id: uuid.UUID, user_text: str):
     code/external 소스·모델 미해석이면 ValueError(로컬 그래프 아님 → 라우터가 4xx).
     """
     ctx = await _load_context(agent_id, None)
-    if ctx["source"] in ("code", "external") or ctx["model_cfg"] is None:
+    impl = resolve_agent_runtime(ctx)
+    if impl is None or ctx["model_cfg"] is None:
         raise ValueError("로컬(ui) 에이전트가 아니거나 채팅 모델이 없습니다(A2A 노출 불가)")
     calls_sink: list[dict] = []
     tools = await runtime.build_mcp_tools(ctx["mcp_servers"], calls_sink)
     if ctx["rag_collections"]:
         tools.append(runtime.build_rag_tool(ctx["rag_collections"], calls_sink))
     run_params = {} if ctx["temperature"] is None else {"temperature": ctx["temperature"]}
-    graph = build_agent(ctx["persona"], run_params, tools, ctx["model_cfg"], checkpointer=None)
+    build_ctx = AgentBuildContext(
+        persona=ctx["persona"],
+        model_cfg=ctx["model_cfg"],
+        tools=tools,
+        checkpointer=None,
+        params=run_params,
+        overrides=ctx.get("overrides"),
+    )
+    graph = impl.build_graph(build_ctx)
     # 노출 호출은 호출당 단일 메시지(맥락은 A2A contextId가 호출측 책임 — v1 서빙은 무상태).
     messages = _window([{"role": "user", "content": user_text}], ctx["history_depth"])
     async for msg_chunk, _meta in graph.astream({"messages": messages}, stream_mode="messages"):
@@ -508,7 +543,9 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
     # 코드(SDK)·외부(A2A) 에이전트 모두 비로컬 — 등록된 카드 url로 A2A 런타임 호출(스펙 057: A2A 단일화).
     # code=우리가 SDK로 배포한 A2A(provenance 메타 보유), external=제3자 A2A. 전송은 _a2a_stream 하나.
     # (구 _remote_stream 자체 SSE·code 분기는 057에서 폐기 — 플랫폼 전제대로 SDK도 A2A를 말한다.)
-    if ctx["source"] in ("code", "external"):
+    # in-process 런타임 구현 해석(스펙 085). None이면 원격(A2A 불투명) → 기존 fallback 그대로.
+    impl = resolve_agent_runtime(ctx)
+    if impl is None:
         return StreamingResponse(
             _a2a_stream(ctx, user_text, user_id), media_type="text/event-stream"
         )
@@ -548,7 +585,16 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
     # HIL 체크포인터(스펙 041). 있으면 위험 도구가 interrupt로 일시정지·재개될 수 있다. 없으면
     # 기존 무상태 동작(무회귀) — 단 위험 도구가 호출되면 interrupt가 예외로 새 fail-closed(미실행).
     ckpt = checkpointer.get_checkpointer()
-    graph = build_agent(persona_prompt, run_params, tools, ctx["model_cfg"], checkpointer=ckpt)
+    build_ctx = AgentBuildContext(
+        persona=persona_prompt,
+        model_cfg=ctx["model_cfg"],
+        tools=tools,
+        checkpointer=ckpt,
+        params=run_params,
+        memories=mem_hits,
+        overrides=ctx.get("overrides"),
+    )
+    graph = impl.build_graph(build_ctx)
     # thread_id는 **턴별 고유**(세션-안정 아님): 세션-안정으로 두고 매 턴 전체 히스토리를 넘기면
     # 체크포인트의 add_messages 리듀서가 메시지를 중복 누적한다(무상태 윈도잉과 충돌). 턴마다 새
     # thread를 만들어 그 턴의 일시정지/재개에만 쓰고, Approval.checkpoint에 박아 재개 키로 삼는다.
@@ -566,6 +612,7 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
         acc: list[str] = []
         errored = False
         interrupts: list[dict] = []
+        observed_nodes: list[str] = []  # updates 스트림서 실제 발화한 노드(스펙 085 추적 배선)
         try:
             # 멀티 stream_mode: "messages"=토큰 스트림(기존), "updates"=노드 업데이트에서 __interrupt__
             # 감지(위험 도구가 그래프를 멈춘 신호). probe로 검증한 형태. 한 업데이트가 다중 interrupt를
@@ -579,8 +626,12 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
                     if text:
                         acc.append(text)
                         yield f"data: {json.dumps({'text': text}, ensure_ascii=False)}\n\n"
-                elif stream_mode == "updates" and isinstance(chunk, dict) and "__interrupt__" in chunk:
-                    interrupts.extend(i.value for i in chunk["__interrupt__"])
+                elif stream_mode == "updates" and isinstance(chunk, dict):
+                    if "__interrupt__" in chunk:
+                        interrupts.extend(i.value for i in chunk["__interrupt__"])
+                    # 실 노드 발화 누적 — 어떤 적합 그래프든 호출 스택 타임라인을 진짜로 채운다
+                    # (하드코딩 아님). __로 시작하는 내부 채널(__interrupt__ 등)은 제외.
+                    observed_nodes.extend(k for k in chunk if not k.startswith("__"))
         except Exception as exc:  # 모델/툴 오류도 프레임으로 전달
             errored = True
             # 연결 실패로 보이면 'Mock LLM' 전환 힌트를 덧붙인다(스펙 058 G4). 그 외 오류는 원문 유지.
@@ -633,6 +684,7 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
             used_memory=used_memory,
             total_ms=total_ms,
             tokens=tokens,
+            graph_nodes=observed_nodes,
         )
         trace["contextMessages"] = len(messages)  # 모델에 넣은 메시지 수(historyDepth 적용 결과)
         if ctx["rag_collections"]:
@@ -733,8 +785,21 @@ async def resume_approval(approval: Approval, decision: str) -> None:
 
     # 원 턴과 동일하게 컨텍스트·도구·페르소나를 재구성(같은 세션 id → 기존 세션 로딩, 새로 안 만듦).
     ctx = await _load_context(approval.agent_pk, approval.session_id)
-    if ctx["source"] in ("code", "external") or ctx["model_cfg"] is None:
+    impl = resolve_agent_runtime(ctx)
+    if impl is None or ctx["model_cfg"] is None:
         log.warning("resume 불가: 비로컬/모델없음 소스 (approval %s)", approval.approval_id)
+        return
+    # config drift 가드(codex 적대 리뷰 F2): approval은 어떤 그래프 topology로 checkpoint를
+    # 만들었는데, 그 사이 admin이 impl을 HIL 미지원 구현(예: plan_execute, supports_hil=False)으로
+    # 바꿔 활성화했다면, 그 그래프는 애초에 interrupt/checkpoint를 만들 수 없으므로 stale
+    # checkpoint에 resume하면 안 된다 → graceful 거부(approval은 이미 결재됨, 세션 무파손).
+    # 잔여 경계: impl-A→impl-B(둘 다 HIL) 교체는 이 가드로 못 잡는다 — Approval에 런타임 키
+    # 스냅샷을 박아 그걸로 재개해야 완전(후속 스펙). 현 출하엔 HIL 커스텀 구현이 없어 미발생.
+    if not impl.describe().supports_hil:
+        log.warning(
+            "resume 불가: 현 런타임(%s)이 HIL 미지원 — checkpoint 생성 그래프와 drift (approval %s)",
+            type(impl).__name__, approval.approval_id,
+        )
         return
 
     recall_scope = {"user_id": None, "run_id": ctx["session_id"], "agent_id": ctx["ext_agent_id"]}
@@ -758,7 +823,16 @@ async def resume_approval(approval: Approval, decision: str) -> None:
         recalled = "\n".join(f"- {h['text']}" for h in mem_hits)
         persona_prompt = f"{persona_prompt}\n\n# 관련 기억(회상됨)\n{recalled}"
     run_params = {} if ctx["temperature"] is None else {"temperature": ctx["temperature"]}
-    graph = build_agent(persona_prompt, run_params, tools, ctx["model_cfg"], checkpointer=ckpt)
+    build_ctx = AgentBuildContext(
+        persona=persona_prompt,
+        model_cfg=ctx["model_cfg"],
+        tools=tools,
+        checkpointer=ckpt,
+        params=run_params,
+        memories=mem_hits,
+        overrides=ctx.get("overrides"),
+    )
+    graph = impl.build_graph(build_ctx)
     config = {"configurable": {"thread_id": thread_id}}
 
     t0 = time.perf_counter()

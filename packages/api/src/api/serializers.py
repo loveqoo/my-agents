@@ -81,6 +81,7 @@ def agent_to_out(a: Agent) -> AgentOut:
         systemPrompt=a.persona,  # 해석된 본문(서빙용)
         historyDepth=cfg.get("historyDepth", a.history_depth),
         persistHistory=cfg.get("persistHistory", True),
+        impl=cfg.get("impl"),  # in-process 커스텀 런타임 키(스펙 085, 폼 재로드용 — 편집 silent drop 방지)
         memories=cfg.get("memories", []),
         vectorTables=cfg.get("vectorTables", []),
         permissions=cfg.get("permissions", []),
