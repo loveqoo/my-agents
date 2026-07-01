@@ -154,11 +154,16 @@ def classify_runtime(source: str, impl: str | None) -> str:
 def _bootstrap_builtins() -> None:
     """기본 제공 커스텀 에이전트 등록. 이 모듈 import 시 1회 실행(아래 호출).
 
-    examples는 *여기서* 늦게 import한다 — examples가 이 모듈의 AgentManifest/AgentBuildContext를
-    import하므로(순환), 모든 이름이 바인딩된 모듈 끝에서 부른다(부분초기화 모듈 캐시 안전)."""
+    examples/flows는 *여기서* 늦게 import한다 — 그들이 이 모듈의 AgentManifest/AgentBuildContext를
+    import하므로(순환), 모든 이름이 바인딩된 모듈 끝에서 부른다(부분초기화 모듈 캐시 안전).
+
+    **agent-flow 스킬 규약(스펙 099)**: 새 flow 생성 시 아래에 두 줄을 추가한다 —
+    `from .flows.<key> import <Cls>` + `register_agent("<key>", <Cls>)`. 신뢰 등록만(런타임 eval 없음)."""
     from .examples.plan_execute import PlanExecuteAgent
+    from .flows.route import RouteAgent
 
     register_agent("plan_execute", PlanExecuteAgent)
+    register_agent("route", RouteAgent)
 
 
 _bootstrap_builtins()
