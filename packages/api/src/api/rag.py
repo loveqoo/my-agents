@@ -23,6 +23,7 @@ from . import crypto, rag_ingest
 from .db import get_session
 from .model_registry import _probe
 from .models import RAG_EMBED_DIMS, Chunk, Collection, Document, ModelConfig
+from .references import agents_referencing, referenced_message
 from .schemas import (
     CollectionHealth,
     CollectionIn,
@@ -154,6 +155,13 @@ async def delete_collection(cid: uuid.UUID, session: AsyncSession = Depends(get_
     c = await session.get(Collection, cid)
     if c is None:
         raise HTTPException(status_code=404, detail="not found")
+    # 참조 무결성(스펙 093): 이 컬렉션 name을 vectorTables에 담은 에이전트가 있으면 삭제 차단.
+    # 삭제하면 config에 dangling name만 남아 런타임이 조용히 RAG 없이 동작(chat.py 미해석).
+    refs = await agents_referencing(session, "vectorTables", c.name)
+    if refs:
+        raise HTTPException(
+            status_code=409, detail=referenced_message(refs, "RAG 컬렉션")
+        )
     await session.delete(c)  # 문서·청크 CASCADE 동반 삭제
     await session.commit()
 

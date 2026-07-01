@@ -16,6 +16,7 @@ from sqlalchemy.orm import selectinload
 from . import crypto
 from .db import get_session
 from .models import Agent, Collection, McpServer, MemoryType, Permission, Persona
+from .references import _config_has, agents_referencing, referenced_message
 from .schemas import (
     McpDiscoverIn,
     McpDiscoverResult,
@@ -294,6 +295,16 @@ async def update_mcp_server(
     if obj is None:
         raise HTTPException(status_code=404, detail="not found")
     data = body.model_dump()
+    # 참조 무결성(스펙 093, operation-symmetry): rename도 삭제와 똑같이 config의 name 링크를 끊는다.
+    # 런타임은 McpServer.name.in_(config["mcps"])로 해석하므로 참조 중인 서버 name을 바꾸면 옛 name이
+    # dangling 되어 도구가 조용히 사라진다 → 참조가 있으면 rename을 409로 막는다(값은 옛 name 기준).
+    new_name = data.get("name")
+    if new_name is not None and new_name != obj.name:
+        refs = await agents_referencing(session, "mcps", obj.name)
+        if refs:
+            raise HTTPException(
+                status_code=409, detail=referenced_message(refs, "MCP 서버", action="이름 변경")
+            )
     # auth 의미 구분(provider.api_key와 동형): None/마스킹 = 기존 암호화 토큰 보존,
     # 빈 문자열 = 명시적 제거, 그 외 = 새 평문 암호화. 마스킹값이 그대로 저장되는 버그 방지.
     auth_in = data.pop("auth", None)
@@ -315,6 +326,13 @@ async def delete_mcp_server(id: uuid.UUID, session: AsyncSession = Depends(get_s
     obj = await session.get(McpServer, id)
     if obj is None:
         raise HTTPException(status_code=404, detail="not found")
+    # 참조 무결성(스펙 093): 이 서버 name을 config에 담은 에이전트가 있으면 삭제 차단.
+    # 삭제하면 config에 dangling name만 남아 런타임이 조용히 도구 없이 동작한다.
+    refs = await agents_referencing(session, "mcps", obj.name)
+    if refs:
+        raise HTTPException(
+            status_code=409, detail=referenced_message(refs, "MCP 서버")
+        )
     await session.delete(obj)
     await session.commit()
 
@@ -382,15 +400,18 @@ _CATEGORY_META: dict[str, dict[str, str]] = {
 
 
 def _count_by(agents: list[Agent], key: str, name: str, *, scalar: bool = False) -> int:
-    """이름이 에이전트 config 배열(또는 스칼라 값)에 포함된 횟수."""
+    """이름이 에이전트 *활성* config 배열(또는 스칼라 값)에 포함된 횟수(usedBy 배지용).
+
+    배열 멤버십은 references._config_has로 위임(삭제 가드와 판정 로직 단일화, 드리프트 0).
+    삭제 가드(agents_referencing)는 여기에 더해 비-archived 버전까지 세지만, 배지는 런타임
+    서빙(Agent.config)만 반영한다 — 두 헬퍼는 답하는 질문이 다르므로 공존."""
     total = 0
     for agent in agents:
         config = agent.config or {}
-        value = config.get(key)
         if scalar:
-            if value == name:
+            if config.get(key) == name:
                 total += 1
-        elif isinstance(value, list) and name in value:
+        elif _config_has(config, key, name):
             total += 1
     return total
 

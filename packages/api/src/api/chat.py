@@ -32,6 +32,7 @@ from .auth import current_principal
 from .db import SessionLocal
 from .mem_config import _build_mem_cfg, _default_chat_model, _default_embed_model
 from .models import Agent, Approval, Collection, McpServer, Message, ModelConfig, Session
+from .references import config_names
 from .schemas import ChatRequest
 from .sessions import _own_scope
 
@@ -201,7 +202,7 @@ async def _load_context(
         # 복호화한 평문(provider.api_key 동형) — 마스킹/빈값이면 None이라 헤더 생략(a2a_client 규칙).
         # enabled_tools가 비면 서버 전체 도구를 노출(get_tools가 결정).
         mcp_servers: list[dict] = []
-        mcps = cfg.get("mcps", [])
+        mcps = config_names(cfg, "mcps")  # 삭제 가드와 동일 normalizer(drift 0, codex P2)
         if mcps:
             rows = (
                 await db.execute(select(McpServer).where(McpServer.name.in_(mcps)))
@@ -225,7 +226,7 @@ async def _load_context(
         # 코드·외부 에이전트는 비로컬이라 위에서 이미 분기되지 않고 도달할 수 있으나, 이 블록은
         # 로컬 실행 경로에서만 의미가 있다 — code/external은 chat()에서 프록시/안내로 빠진다.
         rag_collections: list[dict] = []
-        vt_names = cfg.get("vectorTables", [])
+        vt_names = config_names(cfg, "vectorTables")  # 삭제 가드와 동일 normalizer(drift 0)
         if vt_names and not _is_remote(agent.source):
             cols = (
                 await db.execute(
