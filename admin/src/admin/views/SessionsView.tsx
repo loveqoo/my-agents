@@ -103,6 +103,7 @@ export default function SessionsView() {
       title: '턴',
       width: 80,
       align: 'right',
+      hideBelow: 'xl',
       render: (s) => <span style={{ fontFamily: 'var(--font-family-code)' }}>{s.turns}</span>,
     },
     {
@@ -110,6 +111,7 @@ export default function SessionsView() {
       title: '토큰',
       width: 100,
       align: 'right',
+      hideBelow: 'xl',
       render: (s) => (
         <span style={{ fontFamily: 'var(--font-family-code)', color: 'var(--color-text-secondary)' }}>{(s.tokens / 1000).toFixed(1)}k</span>
       ),

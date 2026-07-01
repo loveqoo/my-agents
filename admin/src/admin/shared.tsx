@@ -1,7 +1,7 @@
 /* Admin 콘솔 공유 UI 헬퍼 — 여러 뷰에서 재사용.
    handoff 번들 ui_kits/admin/adminShared.jsx를 진짜 antd 6/React+TS로 재현.
    토큰은 theme.css의 CSS 변수를 그대로 참조한다. */
-import { type ReactNode, type CSSProperties } from 'react'
+import { type ReactNode, type CSSProperties, useRef, useState, useEffect } from 'react'
 import { Tag, Button, Switch, Grid } from 'antd'
 import { CloseOutlined } from '@ant-design/icons'
 import { Icon } from './icons'
@@ -79,12 +79,20 @@ export function Panel({ children, style }: { children?: ReactNode; style?: CSSPr
   )
 }
 
+/* antd Grid 브레이크포인트(useBreakpoint 키와 동일). */
+export type Breakpoint = 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl'
+
 export interface Column<T> {
   key: string
   title: ReactNode
   width?: number | string
   align?: 'left' | 'right' | 'center'
   render?: (row: T) => ReactNode
+  /* 이 브레이크포인트 미만 폭에선 (데스크톱 표에서만) 숨긴다 — 가로 overflow 완화(스펙 095).
+     모바일 카드 경로엔 적용 안 함(세로 배열이라 가로 공간 문제 없음). 상세는 row-click로. */
+  hideBelow?: Breakpoint
+  /* 오른쪽 고정(sticky). 미지정이라도 마지막 컬럼이 title 없으면(=액션) 자동 고정된다. */
+  fixed?: 'right'
 }
 
 /* 단순 테이블. antd Table 대신 디자인 명세에 맞춘 경량 표.
@@ -104,6 +112,24 @@ export function DataTable<T>({
 }) {
   const cell = (r: T, k: string) => (r as Record<string, unknown>)[k]
   const screens = Grid.useBreakpoint()
+  // 데스크톱 표에서만 저우선 컬럼을 좁은 폭에서 숨겨 가로 overflow를 완화한다(스펙 095).
+  // 훅은 모바일 early-return보다 앞에서 무조건 호출(순서 고정).
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const [overflowing, setOverflowing] = useState(false)
+  const visibleColumns = columns.filter((c) => !c.hideBelow || screens[c.hideBelow])
+  const lastIdx = visibleColumns.length - 1
+  // 마지막 컬럼이 title 없으면(=액션) 자동 오른쪽 고정. 명시 fixed:'right'도 존중.
+  const isStickyRight = (c: Column<T>, i: number) => c.fixed === 'right' || (!c.title && i === lastIdx)
+  // 래퍼가 실제로 가로로 넘칠 때만 sticky 셀에 왼쪽 그림자("더 있음")를 켠다.
+  useEffect(() => {
+    const el = wrapRef.current
+    if (!el) return
+    const check = () => setOverflowing(el.scrollWidth > el.clientWidth + 1)
+    check()
+    const ro = new ResizeObserver(check)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [visibleColumns.length, rows])
 
   // 모바일: 가로 스크롤 표 대신 행을 카드로 — 1열은 헤더, 나머지는 라벨:값, 빈 title(액션)은 라벨 없이.
   if (screens.md === false) {
@@ -154,16 +180,27 @@ export function DataTable<T>({
     )
   }
 
+  // 오른쪽 고정 셀 공통 스타일 — 불투명 배경으로 스크롤된 셀이 비치지 않게, overflow일 때만 왼쪽 그림자.
+  const stickyStyle = (bg: string): CSSProperties => ({
+    position: 'sticky',
+    right: 0,
+    zIndex: 1,
+    background: bg,
+    boxShadow: overflowing ? 'inset 8px 0 8px -8px rgba(0,0,0,0.16)' : undefined,
+  })
   return (
     <Panel>
-      <div style={{ overflowX: 'auto' }}>
+      <div ref={wrapRef} style={{ overflowX: 'auto' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14, minWidth: 'max-content' }}>
         <thead>
           <tr style={{ color: 'var(--color-text-secondary)', textAlign: 'left', background: 'var(--gray-2)' }}>
-            {columns.map((c) => (
+            {visibleColumns.map((c, i) => (
               <th
                 key={c.key}
-                style={{ padding: '11px 16px', fontWeight: 500, width: c.width, textAlign: c.align || 'left', whiteSpace: 'nowrap' }}
+                style={{
+                  padding: '11px 16px', fontWeight: 500, width: c.width, textAlign: c.align || 'left', whiteSpace: 'nowrap',
+                  ...(isStickyRight(c, i) ? stickyStyle('var(--gray-2)') : null),
+                }}
               >
                 {c.title}
               </th>
@@ -174,7 +211,7 @@ export function DataTable<T>({
           {rows.length === 0 ? (
             <tr>
               <td
-                colSpan={columns.length}
+                colSpan={visibleColumns.length}
                 style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--color-text-tertiary)' }}
               >
                 {empty}
@@ -187,16 +224,29 @@ export function DataTable<T>({
                 onClick={onRowClick ? () => onRowClick(r) : undefined}
                 style={{ borderTop: '1px solid var(--color-border-secondary)', cursor: onRowClick ? 'pointer' : 'default' }}
                 onMouseEnter={(e) => {
-                  if (onRowClick) e.currentTarget.style.background = 'var(--color-fill-quaternary)'
+                  if (!onRowClick) return
+                  e.currentTarget.style.background = 'var(--color-fill-quaternary)'
+                  // sticky 셀은 불투명 배경이라 tr hover색이 안 비침 → 직접 hover색으로 맞춘다.
+                  e.currentTarget.querySelectorAll<HTMLElement>('td[data-sticky]').forEach((td) => {
+                    td.style.background = 'var(--color-fill-quaternary)'
+                  })
                 }}
                 onMouseLeave={(e) => {
-                  if (onRowClick) e.currentTarget.style.background = 'transparent'
+                  if (!onRowClick) return
+                  e.currentTarget.style.background = 'transparent'
+                  e.currentTarget.querySelectorAll<HTMLElement>('td[data-sticky]').forEach((td) => {
+                    td.style.background = 'var(--color-bg-container)'
+                  })
                 }}
               >
-                {columns.map((c) => (
+                {visibleColumns.map((c, i) => (
                   <td
                     key={c.key}
-                    style={{ padding: '13px 16px', textAlign: c.align || 'left', color: 'var(--color-text)' }}
+                    data-sticky={isStickyRight(c, i) ? '' : undefined}
+                    style={{
+                      padding: '13px 16px', textAlign: c.align || 'left', color: 'var(--color-text)',
+                      ...(isStickyRight(c, i) ? stickyStyle('var(--color-bg-container)') : null),
+                    }}
                   >
                     {c.render ? c.render(r) : (cell(r, c.key) as ReactNode)}
                   </td>

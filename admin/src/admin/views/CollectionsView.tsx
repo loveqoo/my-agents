@@ -671,6 +671,7 @@ export default function CollectionsView() {
     {
       key: 'embedding_model_name',
       title: '임베딩 모델',
+      hideBelow: 'xl',
       render: (c) => <Tag color="cyan">{c.embedding_model_name}</Tag>,
     },
     {
@@ -692,6 +693,7 @@ export default function CollectionsView() {
       title: '청크',
       width: 70,
       align: 'right',
+      hideBelow: 'xl',
       render: (c) => <span style={{ color: 'var(--color-text-secondary)' }}>{c.chunk_count}</span>,
     },
     {

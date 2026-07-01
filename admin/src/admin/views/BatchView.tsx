@@ -280,6 +280,7 @@ export default function BatchView() {
     {
       key: 'error',
       title: '오류',
+      hideBelow: 'xl',
       render: (r) =>
         r.error ? (
           <Tooltip title={r.error}>

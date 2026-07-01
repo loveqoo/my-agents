@@ -1364,6 +1364,7 @@ export default function AgentsView() {
       key: 'source',
       title: '소스',
       width: 104,
+      hideBelow: 'xl',
       render: (a) => {
         const s = AGENT_SOURCE[a.source || 'ui'] || AGENT_SOURCE.ui
         return (
@@ -1403,6 +1404,7 @@ export default function AgentsView() {
     {
       key: 'mcps',
       title: 'MCP',
+      hideBelow: 'xxl',
       render: (a) => (
         <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 4 }}>
           {a.mcps.map((m) => (
@@ -1417,6 +1419,7 @@ export default function AgentsView() {
       key: 'version',
       title: '버전',
       width: 110,
+      hideBelow: 'xxl',
       render: (a) => {
         if (a.source === 'code')
           return (
@@ -1445,6 +1448,7 @@ export default function AgentsView() {
       key: 'exposed',
       title: '공개',
       width: 130,
+      hideBelow: 'xl',
       render: (a) =>
         // A2A 노출은 로컬(ui) 에이전트만 — 원격(code)·외부(external)는 이미 원격 A2A/프록시라 재노출 불가(스펙 083).
         a.source !== 'ui' ? (
