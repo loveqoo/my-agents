@@ -1,7 +1,7 @@
 /* my-agents admin — Agents view: list created agents, view detail, and
    create / edit / delete (composing building blocks). */
 import { useState, useEffect, useRef } from 'react'
-import { Tag, Button, Avatar, Select, Input, Checkbox, Switch, Slider, Tooltip, Modal, Alert, message } from 'antd'
+import { Tag, Button, Avatar, Select, Input, Checkbox, Switch, Slider, Tooltip, Modal, Alert, Collapse, message } from 'antd'
 import { Page, StatusPill, DataTable, Drawer, Desc, VersionHistory, ExposeSwitch, type Column } from '../shared'
 import { notifyAgentsChanged } from '../../agentsBus'
 import { Icon } from '../icons'
@@ -110,6 +110,7 @@ function AgentForm({
   onSave: (data: AgentFormData) => void
 }) {
   const [form, setForm] = useState<AgentFormData>(() => initial ? { ...initial } : blankForm(blocks, models))
+  const [capSearch, setCapSearch] = useState<Record<string, string>>({}) // 능력 패널별 검색어(스펙 107)
 
   useEffect(() => {
     setForm(initial ? { ...initial } : blankForm(blocks, models))
@@ -384,40 +385,63 @@ function AgentForm({
             {implMeta(form.impl).desc}
           </span>
         </Field>
-        <Field
-          label={
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-              능력 (브로커 위임)
-              {!orchestratorSelected && (
-                <Tag color="default">오케스트레이터 실행 방식에서 사용됨</Tag>
-              )}
-            </span>
-          }
-        >
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {capGroups.map((g) => (
-              <div key={g.title}>
-                <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginBottom: 4 }}>{g.title}</div>
-                {g.items.length === 0 ? (
-                  <span style={{ fontSize: 12, color: 'var(--color-text-quaternary)' }}>없음</span>
-                ) : (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 16px' }}>
-                    {g.items.map((it) => (
-                      <Checkbox
-                        key={it.id}
-                        checked={form.capabilities.includes(it.id)}
-                        onChange={() => toggleCap(it.id)}
-                        style={{ marginInlineStart: 0 }}
-                      >
-                        <span style={{ fontSize: 13 }}>{it.label}</span>
-                      </Checkbox>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </Field>
+        {/* 능력 칸은 오케스트레이터 impl일 때만(스펙 107) — 보통 에이전트 생성 시엔 아예 안 보여 폼 단순.
+            종류별 접이식: 기본 접힘, 선택 있는 종류만 펼쳐 열고, 늘 수 있는 종류엔 패널 내 검색. */}
+        {orchestratorSelected && (
+          <Field label="능력 (브로커 위임)">
+            <Collapse
+              size="small"
+              defaultActiveKey={capGroups.filter((g) => g.items.some((it) => form.capabilities.includes(it.id))).map((g) => g.title)}
+              items={capGroups.map((g) => {
+                const sel = g.items.filter((it) => form.capabilities.includes(it.id)).length
+                const q = (capSearch[g.title] ?? '').trim().toLowerCase()
+                const shown = q ? g.items.filter((it) => it.label.toLowerCase().includes(q)) : g.items
+                return {
+                  key: g.title,
+                  label: (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                      {g.title}
+                      <Tag color={sel > 0 ? 'blue' : 'default'} style={{ marginInlineEnd: 0 }}>
+                        {sel}/{g.items.length}
+                      </Tag>
+                    </span>
+                  ),
+                  children:
+                    g.items.length === 0 ? (
+                      <span style={{ fontSize: 12, color: 'var(--color-text-quaternary)' }}>없음</span>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {g.items.length > 6 && (
+                          <Input
+                            allowClear
+                            size="small"
+                            placeholder={`${g.title} 검색...`}
+                            value={capSearch[g.title] ?? ''}
+                            onChange={(e) => setCapSearch((s) => ({ ...s, [g.title]: e.target.value }))}
+                          />
+                        )}
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 16px' }}>
+                          {shown.map((it) => (
+                            <Checkbox
+                              key={it.id}
+                              checked={form.capabilities.includes(it.id)}
+                              onChange={() => toggleCap(it.id)}
+                              style={{ marginInlineStart: 0 }}
+                            >
+                              <span style={{ fontSize: 13 }}>{it.label}</span>
+                            </Checkbox>
+                          ))}
+                          {shown.length === 0 && (
+                            <span style={{ fontSize: 12, color: 'var(--color-text-quaternary)' }}>검색 결과 없음</span>
+                          )}
+                        </div>
+                      </div>
+                    ),
+                }
+              })}
+            />
+          </Field>
+        )}
       </div>
     </Modal>
   )
