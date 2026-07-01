@@ -39,7 +39,8 @@ from .db import SessionLocal
 from .models import Agent, McpServer
 
 CAP_KIND_AGENT = "agent"  # A2A provider(Phase 1).
-CAP_KIND_MCP = "mcp"  # MCP provider(Phase 2-a). rag|memory는 후속 스펙.
+CAP_KIND_MCP = "mcp"  # MCP provider(Phase 2-a).
+CAP_KIND_RAG = "rag"  # RAG provider(Phase 2, 스펙 103 — 문서 컬렉션 검색). memory는 후속 스펙.
 
 
 class CapabilityNotFound(Exception):
@@ -50,8 +51,14 @@ class CapabilityNotFound(Exception):
 # allowlist·cap_id 항목은 `"<kind>:<id>"`. `mcp:<server>/<tool>`(툴 단위) 또는 `mcp:<server>`(서버 전체).
 # **접두사 없는 bare 항목 = kind agent**(하위호환 — spec 100 config 불변, agent_id는 `agt_...`라 콜론 없음).
 def _kind_of(item: str) -> str:
-    """cap_id/allowlist 항목에서 kind 파싱(별도 조회 없이 id만으로)."""
-    return CAP_KIND_MCP if isinstance(item, str) and item.startswith(f"{CAP_KIND_MCP}:") else CAP_KIND_AGENT
+    """cap_id/allowlist 항목에서 kind 파싱(별도 조회 없이 id만으로).
+    `mcp:`/`rag:` 접두사 → 해당 kind, 그 외(콜론 없는 bare `agt_...`) → agent(하위호환)."""
+    if isinstance(item, str):
+        if item.startswith(f"{CAP_KIND_MCP}:"):
+            return CAP_KIND_MCP
+        if item.startswith(f"{CAP_KIND_RAG}:"):
+            return CAP_KIND_RAG
+    return CAP_KIND_AGENT
 
 
 def _parse_mcp(item: str) -> tuple[str, str | None]:
@@ -61,6 +68,12 @@ def _parse_mcp(item: str) -> tuple[str, str | None]:
         server, tool = body.split("/", 1)
         return server, tool
     return body, None
+
+
+def _parse_rag(item: str) -> str:
+    """`rag:<collection_name>` → `<collection_name>`(접두사만 스트립 — 이름에 콜론/슬래시 있어도 안전).
+    RAG는 mcp의 server/tool 2레벨과 달리 1레벨(컬렉션 이름 하나). 접두사 없으면 원본 방어."""
+    return item[len(CAP_KIND_RAG) + 1:] if item.startswith(f"{CAP_KIND_RAG}:") else item
 
 
 def _card_streaming(card: object) -> bool:
@@ -398,6 +411,144 @@ class McpProvider:
         }
 
 
+class _RagBacking:
+    """RagProvider.load가 돌려주는 backing — 컬렉션 이름·설명 + retrieval 코어용 `col` dict.
+    `col`이 None이면 임베딩 설정 불완전(describe는 되고 invoke가 graceful 오류로 표면화)."""
+
+    __slots__ = ("name", "description", "col")
+
+    def __init__(self, name: str, description: str, col: dict | None):
+        self.name = name
+        self.description = description
+        self.col = col
+
+
+class RagProvider:
+    """kind=rag — `Collection`(문서 컬렉션)을 **읽기 전용** 검색 능력으로. 전송은 `runtime.search_collections`
+    코어(인-챗 RAG 도구·retrieval 시험 072와 공유) + `runtime.format_rag_hits`(스펙 103 공유 포맷터)를
+    재사용 = 평행 구현 0. 부수효과 없음 → `approval_for` 항상 None(HIL 불요, 저위험의 핵심).
+    결과는 문서 내용 = **untrusted 데이터**(learning 100 채널 격리는 flow synthesize 몫)."""
+
+    kind = CAP_KIND_RAG
+
+    def __init__(self, session_factory):
+        self._session_factory = session_factory
+
+    async def _load_rows(self, names: set[str]) -> list:
+        """Collection 행을 embedding_model.provider까지 selectinload(col dict 구성에 필요)."""
+        from sqlalchemy.orm import selectinload
+
+        from .models import Collection, ModelConfig
+
+        async with self._session_factory() as db:
+            return (
+                (
+                    await db.execute(
+                        select(Collection)
+                        .where(Collection.name.in_(names))
+                        .options(
+                            selectinload(Collection.embedding_model).selectinload(ModelConfig.provider)
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+
+    def _col_dict(self, c) -> dict | None:
+        """Collection → retrieval 코어 계약 dict. **chat._load_context와 동일 규칙**(drift 0). 임베딩
+        모델/provider 불완전하거나 kind!=embedding이면 None(search_collection 400 가드와 동형)."""
+        from . import crypto
+
+        em = c.embedding_model
+        ep = em.provider if em else None
+        if em is None or ep is None or not ep.base_url or not em.model_id or em.kind != "embedding":
+            return None
+        return {
+            "id": c.id,
+            "name": c.name,
+            "embed_base_url": ep.base_url,
+            "embed_api_key": crypto.decrypt(ep.api_key),  # 백엔드 전용 — 응답/로그 미노출
+            "embed_model_id": em.model_id,
+        }
+
+    async def candidates(self, allow: set[str]) -> list[Capability]:
+        # 빈 리소스 이름(`rag:`)은 능력으로 승격 안 함(적대 리뷰 103 P2 — cap_id 문법상 빈 id 거부).
+        # 근본(컬렉션 이름 min_length)은 스펙 037 CRUD 영역이라 여기선 파싱 층에서 방어만 한다.
+        names = {n for a in allow if _kind_of(a) == CAP_KIND_RAG and (n := _parse_rag(a))}
+        if not names:
+            return []  # rag-kind 항목 없음 → DB 미접촉
+        # allowlist를 SELECT WHERE에 밀어 거부 대상을 로드조차 안 함(체크리스트 §2 존재 오라클 차단).
+        rows = await self._load_rows(names)
+        return [
+            Capability(
+                id=f"{CAP_KIND_RAG}:{c.name}",
+                kind=CAP_KIND_RAG,
+                name=c.name,
+                hook=_first_line(c.description or "", c.name),
+            )
+            for c in rows
+        ]
+
+    async def load(self, cap_id: str) -> _RagBacking | None:
+        name = _parse_rag(cap_id)
+        if not name:
+            return None  # 빈 리소스 이름 → 없는 것으로(적대 리뷰 103 P2)
+        rows = await self._load_rows({name})
+        if not rows:
+            return None  # 미존재 → 존재 비노출
+        c = rows[0]
+        return _RagBacking(c.name, c.description or "", self._col_dict(c))
+
+    def describe(self, row: _RagBacking) -> Capability:
+        return Capability(
+            id=f"{CAP_KIND_RAG}:{row.name}",
+            kind=CAP_KIND_RAG,
+            name=row.name,
+            hook=_first_line(row.description, row.name),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string"},
+                    "top_k": {"type": "integer", "default": 4},
+                },
+                "required": ["text"],
+            },
+        )
+
+    async def invoke(self, row: _RagBacking, args: dict) -> InvokeResult:
+        cap_id = f"{CAP_KIND_RAG}:{row.name}"
+        if row.col is None:
+            return InvokeResult(
+                text="", trust="untrusted",
+                error=f"컬렉션 '{row.name}'의 임베딩 설정이 불완전해 검색할 수 없습니다.",
+                raw={"cap_id": cap_id, "kind": CAP_KIND_RAG},
+            )
+        text = str(args.get("text", "")) if isinstance(args, dict) else str(args)
+        top_k = args.get("top_k", 4) if isinstance(args, dict) else 4
+        rt = _rt()
+        try:
+            hits = await rt.search_collections([row.col], text, top_k)
+            # 결과 = 문서 내용 = **데이터**(지시 아님). trust=untrusted 불변(인젝션 방어).
+            return InvokeResult(
+                text=rt.format_rag_hits(hits),  # 인-챗 도구와 공유 포맷(drift 0)
+                trust="untrusted", error=None,
+                raw={"cap_id": cap_id, "kind": CAP_KIND_RAG},
+            )
+        except rt.RagSearchError as exc:
+            # 코어가 이미 분류(empty/embed/db) — graceful 오류로 접어 에이전트를 죽이지 않는다.
+            return InvokeResult(
+                text="", trust="untrusted", error=exc.tool_msg,
+                raw={"cap_id": cap_id, "kind": CAP_KIND_RAG},
+            )
+
+    def node_label(self, row: _RagBacking) -> str:
+        return f"broker_invoke:{CAP_KIND_RAG}:{row.name}"
+
+    def approval_for(self, cap_id: str, args: dict) -> dict | None:
+        return None  # RAG=읽기 전용(부수효과 없음) → 승인 게이트 불요.
+
+
 def _rt():
     """api.runtime 지연 접근(모듈 경량·순환 import 방지). mcp_connection 등 전송 헬퍼 공유원."""
     from . import runtime
@@ -427,6 +578,7 @@ class PolicyScopedBroker:
         self._providers: list[_CapabilityProvider] = [
             AgentProvider(session_factory),
             McpProvider(session_factory),
+            RagProvider(session_factory),
         ]
         self._by_kind = {p.kind: p for p in self._providers}
         # 관측(설계결정 7) — invoke 이력. broker.invoke가 invisible하지 않음을 보증(호출별 노드 프레임).

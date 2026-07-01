@@ -18,12 +18,13 @@
 - **admin UI에서 impl 선택 노출** — 생성된 flow(스펙 099 `route`·102 `orchestrate`/`orchestrate_ranked`
   등)를 SPA 편집 폼 드롭다운에서 고르게. 현재 편집 폼은 `impl`을 안 보냄(085 H5 갭). 스펙 099 §5·102
   OUT로 남긴 후속. **전략 교체(102)가 나오며 노출 가치↑**(사용자가 오케스트레이션 전략을 UI로 선택).
-- **능력 브로커 Phase 2 — kind 확장(RAG/memory) + 인가 입도 강화** — Phase 2-a(스펙 101)에서 MCP
-  provider + 서브스텝 HIL 완료. 남은 후속: (a) RAG/memory provider 추가, (b) per-cap·per-user 인가 +
-  에이전트 소유권(현재 Agent는 owner 없는 공유 카탈로그 → member에 kind RBAC 주면 접근 가능한 에이전트
-  allowlist 전부 호출 가능; codex 100/101 [P1] #1/#2 수용·명시경계), (c) 카탈로그 커지면 벡터/하이브리드
-  검색(설계결정 10 — 현 rank_candidates는 lexical 토큰 겹침, 벡터는 OUT). ((d) discovery 오케스트레이션은
-  스펙 102 전략 교체형 골격으로 착수 완료 → 아래 완료 참조.)
+- **능력 브로커 Phase 2 — kind 확장(memory) + 인가 입도 강화** — Phase 2-a(MCP, 스펙 101)·Phase 2-b
+  (RAG, 스펙 103) 완료. 남은 후속: (a) **memory provider 추가**(kind=memory) — per-user 데이터라
+  **인가 입도가 선행 강제**됨(RAG는 owner 없는 공유 카탈로그라 이 빚을 미룰 수 있었으나 memory는 못 미룸),
+  (b) per-cap·per-user 인가 + 에이전트 소유권(현재 Agent·Collection은 owner 없는 공유 카탈로그 → member에
+  kind RBAC 주면 접근 가능한 allowlist 전부 호출 가능; codex 100/101 [P1] #1/#2 수용·명시경계), (c) 카탈로그
+  커지면 벡터/하이브리드 검색(설계결정 10 — 현 rank_candidates는 lexical 토큰 겹침, 벡터는 OUT).
+  ((d) discovery 오케스트레이션은 스펙 102 전략 교체형 골격으로 착수 완료 → 아래 완료 참조.)
 - **데이터 채널 내부 attribution 강화** — 다중 위임 fold(102 `fold_results`)의 `## 능력:` 라벨은
   데이터 채널 *내부* 표식일 뿐 스푸핑 가능(신뢰 경계는 SystemMessage 격리로 견고, codex 102 설계한계).
   구조화 출력 등으로 내부 attribution 강화하는 후속.
@@ -47,6 +48,13 @@
   정책·메커닉 분리) + 서브스텝 HIL(위임 MCP 툴 승인요구 → 전송이전 interrupt, 기존 Approval/resume
   재사용) 완료(2026-07-01, 회고 082·learning 101). integration rung이 설정 지속경로 누락
   (`AgentConfig.capabilities` 필드) 포착·수정. codex 0 actionable(#3 오탐 기각, #1/#2 기존 명시경계).
+- **능력 브로커 Phase 2-b**(스펙 103) — RAG provider(kind=rag, `rag:<collection_name>`, 첫 **읽기전용**
+  provider). 셋째 provider가 시임 무누수를 재측정(`_permitted` rag 분기 0줄=정책은 정말 provider와 분리).
+  invoke는 `search_collections` 코어 재사용+`format_rag_hits` 추출로 엔드포인트·인챗도구·브로커 **세 입구
+  한 코어**(drift 0). 읽기전용→`approval_for` 항상 None(정책은 완전 적용=**두 게이트 분리**) 완료
+  (2026-07-01, 회고 084·learning 103). 46 ok + 072/100/101/102 무회귀. codex 3판정: [P1]인챗도구
+  vectorTables=브로커 밖=정직한 경계(다른 신뢰모델)→스펙 OUT+H4/H5 안전불변식, [P2]질의무제한→공유코어
+  4000자 상한, [P2]빈이름 `rag:`→파싱층 방어.
 - **전략 교체형 오케스트레이션**(스펙 102) — 브로커 위 오케스트레이션 방식을 **소유자가 고르는 전략**
   으로: 공통 조상 ABC 템플릿(OrchestrationAgentBase가 골격·채널격리·HIL·정책 소유, 자식 유일구멍=
   `select`) + 첫 출하 2전략(FirstMatch[행위보존]·Ranked[결정적 top-k], 둘째구현으로 추상 무누수 측정) +

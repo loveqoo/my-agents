@@ -262,6 +262,10 @@ async def search_collections(
     q = (query or "").strip()
     if not q:
         raise RagSearchError("empty", "빈 검색어", "검색어가 비어 있습니다.")
+    # 질의 길이 상한(적대 리뷰 103 P2): 엔드포인트는 스키마서 4000자로 막지만 인-챗 도구·브로커 위임
+    # 경로는 상한이 없어 거대 질의 1건으로 임베딩 provider를 장시간 점유할 수 있었다. 공유 코어에서
+    # 한 번 잘라 세 입구(엔드포인트≤4000이라 무영향·도구·브로커)를 같은 경계로 맞춘다.
+    q = q[:4000]
     # top_k 방어적 강제(타자검증): 비정상 값이 새어 들어와도 크래시 없이 기본 4로 폴백.
     try:
         k = max(1, min(int(top_k), 10))
@@ -318,6 +322,24 @@ async def search_collections(
     ]
 
 
+def format_rag_hits(results: list[dict]) -> str:
+    """검색 hit 리스트 → 사람이 읽을 텍스트 블록(스펙 103 공유 포맷터).
+
+    `build_rag_tool`(인-챗 도구)와 `RagProvider.invoke`(브로커 위임, 스펙 103)가 **같은 포맷**을 쓰도록
+    추출한다 — 각자 포맷하면 "도구는 이렇게, 위임은 저렇게" drift(072가 경계한 평행 구현 함정). 관련
+    0건도 여기서 문자열로 확정한다(호출자별 재판단 금지).
+    """
+    if not results:
+        return "관련 문서를 찾지 못했습니다."
+    lines = [f"[문서 검색 결과 {len(results)}건]"]
+    for i, h in enumerate(results, 1):
+        snippet = h["text"].strip().replace("\n", " ")
+        if len(snippet) > 500:
+            snippet = snippet[:500] + "…"
+        lines.append(f"{i}. ({h['filename']}, 유사도 {h['score']:.3f}) {snippet}")
+    return "\n".join(lines)
+
+
 def build_rag_tool(collections: list[dict], calls_sink: list[dict]) -> StructuredTool:
     """RAG 문서 검색 도구(스펙 037). `search_collections` 코어를 호출해 결과를 문자열로 포맷한다.
 
@@ -349,18 +371,8 @@ def build_rag_tool(collections: list[dict], calls_sink: list[dict]) -> Structure
             _record("error", exc.record_label)
             return exc.tool_msg
 
-        if not results:
-            _record("ok", "관련 결과 0건", 0)
-            return "관련 문서를 찾지 못했습니다."
-
-        lines = [f"[문서 검색 결과 {len(results)}건]"]
-        for i, h in enumerate(results, 1):
-            snippet = h["text"].strip().replace("\n", " ")
-            if len(snippet) > 500:
-                snippet = snippet[:500] + "…"
-            lines.append(f"{i}. ({h['filename']}, 유사도 {h['score']:.3f}) {snippet}")
-        _record("ok", f"{len(results)}건 반환", len(results))
-        return "\n".join(lines)
+        _record("ok", f"{len(results)}건 반환" if results else "관련 결과 0건", len(results))
+        return format_rag_hits(results)
 
     return StructuredTool.from_function(
         coroutine=_search,

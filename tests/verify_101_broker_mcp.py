@@ -172,9 +172,9 @@ def unit_checks() -> None:
     multi = _FakeTool("srch", {"query": {"type": "string"}, "k": {"type": "integer"}})
     check(_adapt_args(multi, {"text": "q"}) == {"query": "q"}, "U5 다중 파라미터 → 알려진 이름(query)로 매핑")
 
-    # U6 provider 라우팅 — 브로커가 두 kind provider를 보유하고 kind→provider 매핑.
+    # U6 provider 라우팅 — 브로커가 kind provider를 보유하고 kind→provider 매핑(rag는 스펙 103서 추가).
     b = PolicyScopedBroker([], lambda k: True, session_factory=_raise_factory())
-    check(set(b._by_kind) == {"agent", "mcp"}, "U6 브로커가 agent·mcp provider 둘 다 보유")
+    check({"agent", "mcp"} <= set(b._by_kind), "U6 브로커가 agent·mcp provider 보유")
     check(isinstance(b._by_kind["mcp"], McpProvider) and isinstance(b._by_kind["agent"], AgentProvider),
           "U6 kind→provider 매핑 정확(라우팅 토대)")
 
