@@ -18,14 +18,15 @@
 - **admin UI에서 impl 선택 노출** — 생성된 flow(스펙 099 `route`·102 `orchestrate`/`orchestrate_ranked`
   등)를 SPA 편집 폼 드롭다운에서 고르게. 현재 편집 폼은 `impl`을 안 보냄(085 H5 갭). 스펙 099 §5·102
   OUT로 남긴 후속. **전략 교체(102)가 나오며 노출 가치↑**(사용자가 오케스트레이션 전략을 UI로 선택).
-- **능력 브로커 Phase 2 — memory 쓰기 + 인가 입도 강화** — Phase 2-a(MCP, 101)·2-b(RAG, 103)·2-c
-  (memory **읽기**, 104) 완료. 남은 후속: (a) **memory 쓰기(add) 능력**(kind=memory, write) — 브로커
-  최초로 **승인 게이트(정책 O + 승인 O, 두 게이트 다)**가 필요한 provider. 과거 자동쓰기 누출(스펙 051·
-  learning 041) 이력이 있어 쓰기 채널 재개는 **별도 누출 분석 선행**(어느 축에 쓰나·infer 여부·HIL 승인
-  payload). (b) per-cap·per-user 인가 + 에이전트 소유권(현재 Agent·Collection은 owner 없는 공유 카탈로그
-  → member에 kind RBAC 주면 접근 가능한 allowlist 전부 호출 가능; codex 100/101 [P1] #1/#2 수용·명시경계.
-  memory 읽기는 104가 principal-도출로 이 빚을 그 kind에 한해 갚음 — agent/mcp/rag는 여전히 공유). (c)
-  카탈로그 커지면 벡터/하이브리드 검색(설계결정 10 — 현 rank_candidates는 lexical, 벡터는 OUT).
+- **능력 브로커 Phase 2 — memory 수정/삭제 + 인가 입도 강화** — Phase 2-a(MCP, 101)·2-b(RAG, 103)·2-c
+  (memory **읽기**, 104)·memory **쓰기**(add, 105) 완료. 남은 후속: (a) **memory 수정(update)/삭제(delete)
+  능력** — add(105)와 달리 **대상 mem_id 소유권 검증(053 `_assert_user_owns`)이 선행**(add는 자기 스코프
+  생성이라 대상 없음, update/delete는 대상 행이 자기 것인지 확인 필요). 승인 게이트는 105 재사용. (b)
+  per-cap·per-user 인가 + 에이전트 소유권(현재 Agent·Collection은 owner 없는 공유 카탈로그 → member에
+  kind RBAC 주면 접근 가능한 allowlist 전부 호출 가능; codex 100/101 [P1] #1/#2 수용·명시경계. memory
+  읽기/쓰기는 104/105가 principal-도출로 이 빚을 그 kind에 한해 갚음 — agent/mcp/rag는 여전히 공유). (c)
+  카탈로그 커지면 벡터/하이브리드 검색(설계결정 10 — 현 rank_candidates는 lexical, 벡터는 OUT). (d) memwrite
+  admin owner-only resolve/args 마스킹(codex 105 P2 미문서 경계 후속 — admin은 이미 053 접근이라 저위험).
 - **데이터 채널 내부 attribution 강화** — 다중 위임 fold(102 `fold_results`)의 `## 능력:` 라벨은
   데이터 채널 *내부* 표식일 뿐 스푸핑 가능(신뢰 경계는 SystemMessage 격리로 견고, codex 102 설계한계).
   구조화 출력 등으로 내부 attribution 강화하는 후속.
@@ -64,6 +65,14 @@
   완료(2026-07-02, 회고 085·learning 104). verify_104 3런(FakeMem 결정적격리+실 mem0 통합)+084/100/101/102/
   103 무회귀. codex 3판정 P0/P1 없음: [P2]limit 타입미검증→recall_probe clamp, [P2]승인재개 브로커 user_id
   누락→주입(새 상태축=모든 팩토리), [P2]format_memory_hits=격리아님→docstring+비목표 명시.
+- **능력 브로커 Memory write**(스펙 105) — Memory write provider(kind=memwrite, `memwrite:user`, **첫
+  부수효과·승인 게이트 능력**). 두 방어 겹침: ①쓰기 축=user_id(자기)만·principal 바인딩(104, agent_id 금지
+  =051 누출축) ②승인 게이트(031 처방—프롬프트 아닌 구조)=`approval_for` 항상 non-None, memory.add 이전
+  interrupt→승인돼야 저장(reject 무저장/approve 1회). 읽기≠쓰기 별도권한(memwrite kind), **소유자 self-승인
+  기본**(사용자 결정—member memory.write self_approve 시드, data.delete는 admin 유지), infer=False(승인=저장).
+  완료(2026-07-02, 회고 086·learning 105). verify_105 3런(FakeMemAdd+**최소 1노드 graph 승인왕복 LLM불요**+
+  실 mem0 쓰기→읽기 왕복)+066/084/100-104 무회귀. codex 3판정 P0/P1 없음: [P2]길이무제한→공유헬퍼 4000자
+  (승인한것==저장되는것), [P2]admin 승인열람=053으로 이미 접근(권한델타0)→명시화.
 - **전략 교체형 오케스트레이션**(스펙 102) — 브로커 위 오케스트레이션 방식을 **소유자가 고르는 전략**
   으로: 공통 조상 ABC 템플릿(OrchestrationAgentBase가 골격·채널격리·HIL·정책 소유, 자식 유일구멍=
   `select`) + 첫 출하 2전략(FirstMatch[행위보존]·Ranked[결정적 top-k], 둘째구현으로 추상 무누수 측정) +

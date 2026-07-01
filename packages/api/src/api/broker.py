@@ -42,7 +42,8 @@ from .models import Agent, McpServer
 CAP_KIND_AGENT = "agent"  # A2A provider(Phase 1).
 CAP_KIND_MCP = "mcp"  # MCP provider(Phase 2-a).
 CAP_KIND_RAG = "rag"  # RAG provider(Phase 2, 스펙 103 — 문서 컬렉션 검색).
-CAP_KIND_MEMORY = "memory"  # Memory provider(Phase 2-c, 스펙 104 — 유저 장기 기억 검색, per-user 소유).
+CAP_KIND_MEMORY = "memory"  # Memory read provider(Phase 2-c, 스펙 104 — 유저 장기 기억 검색, per-user 소유).
+CAP_KIND_MEMORY_WRITE = "memwrite"  # Memory write provider(스펙 105 — 유저 장기 기억 저장, 첫 부수효과·승인 게이트).
 
 
 class CapabilityNotFound(Exception):
@@ -60,6 +61,8 @@ def _kind_of(item: str) -> str:
             return CAP_KIND_MCP
         if item.startswith(f"{CAP_KIND_RAG}:"):
             return CAP_KIND_RAG
+        if item.startswith(f"{CAP_KIND_MEMORY_WRITE}:"):
+            return CAP_KIND_MEMORY_WRITE
         if item.startswith(f"{CAP_KIND_MEMORY}:"):
             return CAP_KIND_MEMORY
     return CAP_KIND_AGENT
@@ -85,6 +88,12 @@ def _parse_mem(item: str) -> str:
     **대상 user_id는 cap_id에 담기지 않는다**(스펙 104 핵심 anti-leak) — 리소스는 자원 *종류*만 가리키고
     누구의 것인지는 런타임 principal에서 도출한다. 접두사 없으면 원본 방어."""
     return item[len(CAP_KIND_MEMORY) + 1:] if item.startswith(f"{CAP_KIND_MEMORY}:") else item
+
+
+def _parse_memwrite(item: str) -> str:
+    """`memwrite:<resource>` → `<resource>`(첫 출하 `"user"`만 — 주체 자신의 기억에 저장). `_parse_mem`과
+    대칭. 대상 user_id는 cap_id에 없다(스펙 105 anti-leak, 104와 동일). 접두사 없으면 원본 방어."""
+    return item[len(CAP_KIND_MEMORY_WRITE) + 1:] if item.startswith(f"{CAP_KIND_MEMORY_WRITE}:") else item
 
 
 def _card_streaming(card: object) -> bool:
@@ -658,7 +667,114 @@ class MemoryProvider:
         return f"broker_invoke:{CAP_KIND_MEMORY}:user"
 
     def approval_for(self, cap_id: str, args: dict) -> dict | None:
-        return None  # 메모리 읽기=부수효과 없음 → 승인 게이트 불요(memory write는 스펙 104 밖).
+        return None  # 메모리 읽기=부수효과 없음 → 승인 게이트 불요(memory write는 스펙 105).
+
+
+# memory write 승인 permission — 066 self-approve/민감도 라벨(memory.write는 member 소유자 self-승인 기본).
+MEMWRITE_PERMISSION = "memory.write"
+_MEMWRITE_PREVIEW = 200  # 승인 summary에 노출할 저장 사실 미리보기 상한.
+# 저장·승인 사실 길이 상한(적대 리뷰 105 P2). 브로커는 args.text를 무검증으로 받아 거대 사실이 승인
+# DB(JSONB)·응답·저장 기억을 무제한 점유할 수 있었다. memory 질의 상한(4000, MemorySearchIn)과 같은
+# 경계로. **approval_for와 invoke가 동일 헬퍼로 자르므로 "승인한 것 == 저장되는 것"**(길이도 일치).
+MEMWRITE_MAX_CHARS = 4000
+
+
+def _memwrite_text(args: dict) -> str:
+    """저장할 사실 추출 — strip + 길이 상한(승인·저장 공유 = 드리프트 0). 비-dict args 방어."""
+    text = str(args.get("text", "")) if isinstance(args, dict) else str(args)
+    return text.strip()[:MEMWRITE_MAX_CHARS]
+
+
+class MemoryWriteProvider:
+    """kind=memwrite — 유저 장기 기억(user_id 축)에 사실을 **저장**. 브로커 **첫 부수효과 능력**이라
+    승인 게이트가 처음 발화한다(`approval_for` **항상 non-None** — 읽기 provider들과 정반대).
+
+    두 구조적 방어(스펙 105):
+    1. **쓰기 축=user_id(자기)만·principal 바인딩** — `{"user_id": self._user_id}`에만 쓴다(agent_id 금지,
+       051 교차유저 누출 축). user_id는 cap_id·args가 아니라 principal 도출값(104와 동일) → 남의 기억에
+       쓸 방법이 구조적으로 없다. 자기 스코프 쓰기는 정의상 교차유저 누출 불가.
+    2. **승인 게이트** — 브로커가 `memory.add`(부수효과) 이전 `interrupt`로 멈추고 승인돼야 저장(learning
+       031: "기억해줘"를 프롬프트 금지보다 우선하는 LLM은 프롬프트 아닌 *구조*로 막는다). 승인 payload는
+       저장될 사실을 **그대로 노출**(마스킹 X — 승인하려면 봐야 함). 저장은 **infer=False**(승인=저장 일치).
+    """
+
+    kind = CAP_KIND_MEMORY_WRITE
+
+    def __init__(self, session_factory, user_id: str | None):
+        self._session_factory = session_factory
+        self._user_id = user_id  # principal 도출값(build_broker) — read provider와 공유. None=머신→deny.
+
+    def _cap(self, *, with_schema: bool) -> Capability:
+        cap = Capability(
+            id=f"{CAP_KIND_MEMORY_WRITE}:user",
+            kind=CAP_KIND_MEMORY_WRITE,
+            name="내 장기 기억에 저장",
+            hook="내 장기 기억(user_id 축)에 사실 저장 — 저장 전 승인 필요",
+        )
+        if with_schema:
+            cap.input_schema = {
+                "type": "object",
+                "properties": {"text": {"type": "string"}},
+                "required": ["text"],
+            }
+        return cap
+
+    async def candidates(self, allow: set[str]) -> list[Capability]:
+        # user_id 없음(머신) → 자기 스코프 없음 → 능력 없음. `memwrite:user`만 승격(빈/미지원 거부).
+        if not self._user_id:
+            return []
+        if not any(
+            _kind_of(a) == CAP_KIND_MEMORY_WRITE and _parse_memwrite(a) == "user" for a in allow
+        ):
+            return []
+        return [self._cap(with_schema=False)]
+
+    async def load(self, cap_id: str) -> _MemBacking | None:
+        if not self._user_id or _parse_memwrite(cap_id) != "user":
+            return None  # 미지원 리소스·머신 → 존재 비노출
+        return _MemBacking("user")
+
+    def describe(self, row: _MemBacking) -> Capability:
+        return self._cap(with_schema=True)
+
+    async def invoke(self, row: _MemBacking, args: dict) -> InvokeResult:
+        # 여기 도달 = 브로커가 approval_for→interrupt로 **이미 승인**을 받은 경우만(부수효과 1회, §7 멱등).
+        cap_id = f"{CAP_KIND_MEMORY_WRITE}:user"
+        raw = {"cap_id": cap_id, "kind": CAP_KIND_MEMORY_WRITE}
+        text = _memwrite_text(args)  # strip + 길이 상한(승인 payload와 동일 = 승인한 것 == 저장되는 것)
+        if not text:
+            # 빈 사실은 **저장하지 않는다**(부수효과 0). 무의미 기억 방지.
+            return InvokeResult(text="", trust="untrusted", error="저장할 내용이 비어 있습니다.", raw=raw)
+        from . import memory
+        from .mem_config import default_mem_cfg
+
+        async with self._session_factory() as db:
+            mem_cfg = await default_mem_cfg(db)
+        if memory.resolve_backend(mem_cfg) is None:
+            return InvokeResult(
+                text="", trust="untrusted",
+                error="메모리 백엔드가 구성되지 않아 저장할 수 없습니다.", raw=raw,
+            )
+        # 스코프는 **오직** principal 도출 user_id(agent_id·run_id·args 불가). infer=False=승인한 원문 저장.
+        await asyncio.to_thread(
+            memory.add, {"user_id": self._user_id}, [{"role": "user", "content": text}], mem_cfg, False
+        )
+        # 결과=저장 확인. 반향된 사실이 데이터 채널로 흐를 수 있어 trust=untrusted(일관).
+        return InvokeResult(text=f"장기 기억에 저장했습니다: {text}", trust="untrusted", error=None, raw=raw)
+
+    def node_label(self, row: _MemBacking) -> str:
+        return f"broker_invoke:{CAP_KIND_MEMORY_WRITE}:user"
+
+    def approval_for(self, cap_id: str, args: dict) -> dict | None:
+        # 쓰기=부수효과 → **항상 승인**(None 절대 안 돌림). 저장될 사실을 마스킹 없이 노출(승인 가시성).
+        text = _memwrite_text(args)  # invoke와 동일 헬퍼(길이 상한 일치) → 승인한 것 == 저장되는 것
+        preview = text[:_MEMWRITE_PREVIEW] + ("…" if len(text) > _MEMWRITE_PREVIEW else "")
+        return {
+            "permission": MEMWRITE_PERMISSION,  # 066 self-approve — 소유자 본인 승인(member 기본 정책)
+            "action": MEMWRITE_PERMISSION,
+            "args": {"text": text},  # 미마스킹 — 사람이 무엇이 저장되는지 봐야 승인 가능
+            "summary": f"장기 기억에 저장: {preview} — 승인 필요",
+        }
 
 
 class PolicyScopedBroker:
@@ -688,6 +804,7 @@ class PolicyScopedBroker:
             McpProvider(session_factory),
             RagProvider(session_factory),
             MemoryProvider(session_factory, user_id),
+            MemoryWriteProvider(session_factory, user_id),
         ]
         self._by_kind = {p.kind: p for p in self._providers}
         # 관측(설계결정 7) — invoke 이력. broker.invoke가 invisible하지 않음을 보증(호출별 노드 프레임).

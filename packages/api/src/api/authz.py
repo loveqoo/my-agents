@@ -29,6 +29,11 @@ _MODEL_PATH = str(Path(__file__).resolve().parent / "rbac_model.conf")
 # 동작하고, 민감 라우트가 admin을 요구한다. 나중에 member에 fine-grained 정책을 정책으로 추가.
 _DEFAULT_POLICIES = [
     ("admin", "*", "*"),
+    # 스펙 105: 브로커 memory write는 소유자 *자기* 기억에 쓰므로 소유자 self-승인이 옳은 민감도 등급
+    # (admin이 남의 개인 기억 쓰기를 승인하는 건 부적절). member가 자기 memory.write 승인을 직접 결정
+    # (066 self_approve). 자기 스코프 쓰기라 self-승인이 교차유저 누출을 열지 않는다(051은 agent_id 축).
+    # data.delete 등 민감 perm은 여전히 admin 전용(시드 없음 → fail-closed) — 민감도 구분 유지.
+    ("member", "memory.write", "self_approve"),
 ]
 
 _enforcer: casbin.AsyncEnforcer | None = None

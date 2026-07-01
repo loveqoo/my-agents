@@ -137,7 +137,7 @@ def unit_checks() -> None:
 
     # U5 _by_kind 4종.
     b = PolicyScopedBroker([], lambda k: True, session_factory=_raise_factory(), user_id="bob")
-    check(set(b._by_kind) == {"agent", "mcp", "rag", "memory"}, "U5 브로커가 4 provider 보유(memory 포함)")
+    check({"agent", "mcp", "rag", "memory"} <= set(b._by_kind), "U5 브로커가 memory 포함 provider 보유")
     check(isinstance(b._by_kind["memory"], MemoryProvider), "U5 memory → MemoryProvider")
 
     # U6 시임 6메서드 계약 + node_label.
