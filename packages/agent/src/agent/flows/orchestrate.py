@@ -107,7 +107,10 @@ class OrchestrateAgent:
         return AgentManifest(
             name="orchestrate",
             description="능력 브로커로 외부 A2A를 서브스텝 호출·조립하는 오케스트레이터(스펙 100)",
-            supports_hil=False,  # 위험 도구 게이트·interrupt 없음(발견·조립) — 정직 표기
+            # 위임 cap이 승인을 요구하면 브로커가 전송 이전 interrupt로 pause(스펙 101 §3.5 — MCP delete_record
+            # 등). 재개 파이프라인(Approval→Command(resume))이 이 flow에도 적용되므로 True로 정직 표기해야
+            # resume_approval의 supports_hil 드리프트 가드를 통과한다(False면 재개가 거부됨).
+            supports_hil=True,
         )
 
     def build_graph(self, ctx: AgentBuildContext):

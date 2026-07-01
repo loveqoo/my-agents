@@ -302,6 +302,10 @@ class AgentConfig(BaseModel):
     vectorTables: list[str] = Field(default_factory=list)
     permissions: list[str] = Field(default_factory=list)
     mcps: list[str] = Field(default_factory=list)
+    # 능력 브로커 allowlist(스펙 100 §69·101) — 오케스트레이터가 서브스텝 위임할 수 있는 능력 id.
+    # 규약: bare=agent cap, `mcp:<server>`=서버 전체, `mcp:<server>/<tool>`=툴 단위. 없으면 []=deny-by-
+    # default. 실제 인가는 요청 시 RBAC와 교집합(build_broker). UI 편집은 Phase 2-d로 이연(스펙 101).
+    capabilities: list[str] = Field(default_factory=list)
     historyDepth: int = 20
     persistHistory: bool = True  # 대화를 DB에 저장할지(끄면 윈도우 모드)
     impl: str | None = None  # in-process 커스텀 런타임 키(스펙 085). None=기본 DefaultUiAgent.

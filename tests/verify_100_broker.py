@@ -142,7 +142,9 @@ def unit_checks() -> None:
     m = oa.describe()
     check(isinstance(m, AgentManifest) and m.name == "orchestrate",
           f"U1 describe()→AgentManifest name='orchestrate' (got {m.name!r})")
-    check(m.supports_hil is False, "U1 supports_hil=False(발견·조립, interrupt 없음 — 정직)")
+    # 스펙 101 §3.5: 위임 cap이 승인을 요구하면 브로커가 전송 이전 interrupt로 pause → 재개 파이프라인이
+    # 이 flow에도 적용되므로 True로 정직 표기(False면 resume_approval 드리프트 가드가 재개를 거부).
+    check(m.supports_hil is True, "U1 supports_hil=True(서브스텝 HIL — 스펙 101 §3.5)")
 
     # U2 구조 — mock ctx(broker=None)로 컴파일, 노드 선언대로(analyze·delegate·synthesize 선형).
     g = oa.build_graph(_ctx(broker=None))

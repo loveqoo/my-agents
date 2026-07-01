@@ -27,12 +27,21 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
-from . import a2a_client, checkpointer, crypto, memory, runtime
+from . import a2a_client, authz, checkpointer, crypto, memory, runtime
 from .auth import current_principal
-from .broker import build_broker
+from .broker import PolicyScopedBroker, build_broker
 from .db import SessionLocal
 from .mem_config import _build_mem_cfg, _default_chat_model, _default_embed_model
-from .models import Agent, Approval, Collection, McpServer, Message, ModelConfig, Session
+from .models import (
+    Agent,
+    Approval,
+    Collection,
+    McpServer,
+    Message,
+    ModelConfig,
+    Session,
+    User,
+)
 from .references import config_names
 from .schemas import ChatRequest
 from .sessions import _own_scope
@@ -746,6 +755,13 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
             yield "event: done\ndata: [DONE]\n\n"
             return
 
+        # 브로커 서브스텝 호출을 관측 타임라인에 합류(스펙 100/101 설계결정 7 — broker.invoke가
+        # invisible하지 않게). delegate 노드 update와 별개로 cap별 broker_invoke:<kind>:<...> 노드를
+        # 남긴다(A2A는 broker_invoke:agent:*, MCP는 broker_invoke:mcp:<server>/<tool>). 위임이 없던
+        # 턴은 invocations가 비어 무영향(무회귀).
+        for inv in build_broker_scoped.invocations:
+            observed.append({"node": inv["node"], "ms": inv.get("ms", 0)})
+
         full = "".join(acc)
         total_ms = int((time.perf_counter() - t0) * 1000)
         prompt_chars = sum(len(m["content"]) for m in messages)
@@ -836,6 +852,33 @@ async def _create_approval(
     return apid
 
 
+async def _build_resume_broker(user_id: str | None, capabilities) -> PolicyScopedBroker:
+    """재개용 스코프 브로커 — 원 요청자(user_id)의 RBAC를 재구성해 request-time 게이트를 그대로 복원.
+
+    build_broker(principal, ...)와 **동일 술어**를 principal 객체 없이 재현한다: superuser면 우회(원
+    요청과 동일 안전판), 아니면 casbin `enforce(user_id, capability:{kind}, invoke)`. user_id가 없으면
+    deny(머신 발 — 이 경로는 애초에 브로커 interrupt를 못 만들므로 실질 미도달, 안전측 기본)."""
+    is_super = False
+    if user_id:
+        try:
+            async with SessionLocal() as s:
+                u = await s.get(User, uuid.UUID(user_id))
+                is_super = bool(u and u.is_superuser)
+        except (ValueError, TypeError):
+            is_super = False  # user_id가 UUID 형식이 아니면 casbin 경로로만(우회 없음)
+
+    def rbac_allows(kind: str) -> bool:
+        if not user_id:
+            return False
+        if is_super:
+            return True
+        return bool(
+            authz.get_enforcer().enforce(user_id, f"capability:{kind}", "invoke")
+        )
+
+    return PolicyScopedBroker(capabilities, rbac_allows)
+
+
 async def resume_approval(approval: Approval, decision: str) -> None:
     """admin 결정(approve/reject)으로 멈춘 그래프를 재개하고 최종 메시지를 원 세션에 영속.
 
@@ -901,6 +944,13 @@ async def resume_approval(approval: Approval, decision: str) -> None:
         recalled = "\n".join(f"- {h['text']}" for h in mem_hits)
         persona_prompt = f"{persona_prompt}\n\n# 관련 기억(회상됨)\n{recalled}"
     run_params = {} if ctx["temperature"] is None else {"temperature": ctx["temperature"]}
+    # 서브스텝 HIL 재개(스펙 101 §3.5): 위임 cap의 interrupt를 재개하려면 원 턴과 **동일 스코프**의
+    # 브로커를 재주입해야 한다 — 없으면 orchestrate.delegate가 broker=None으로 위임을 통째 건너뛰어
+    # *승인된* cap이 영영 미실행된다(approved-but-not-executed = 거부 방향 오류). allowlist=에이전트
+    # config(결정적). RBAC 축은 **원 요청자**(approval.user_id)로 재확인 — 요청 시 이미 통과했고 유저
+    # 축은 재개 사이 불변. user_id None(머신 발)은 요청 시 build_broker가 이미 거부해 브로커 interrupt
+    # 자체가 안 생기므로 여기 도달 시 항상 존재(그 경우만 deny로 안전측). superuser 우회도 원 요청과 동일 보존.
+    resume_broker = await _build_resume_broker(approval.user_id, ctx["capabilities"])
     build_ctx = AgentBuildContext(
         persona=persona_prompt,
         model_cfg=ctx["model_cfg"],
@@ -909,6 +959,7 @@ async def resume_approval(approval: Approval, decision: str) -> None:
         params=run_params,
         memories=mem_hits,
         overrides=ctx.get("overrides"),
+        broker=resume_broker,
     )
     graph = impl.build_graph(build_ctx)
     config = {"configurable": {"thread_id": thread_id}}

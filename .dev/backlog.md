@@ -17,13 +17,13 @@
 
 - **admin UI에서 impl 선택 노출** — 생성된 flow(스펙 099 `route`·`orchestrate` 등)를 SPA 편집 폼
   드롭다운에서 고르게. 현재 편집 폼은 `impl`을 안 보냄(085 H5 갭). 스펙 099 §5 비목표로 남긴 후속.
-- **능력 브로커 Phase 2 — kind 확장(MCP/RAG/memory) + 인가 입도 강화** — Phase 1(스펙 100)은
-  kind=agent만·`(에이전트별 allowlist) ∩ (kind-단위 RBAC)`. 후속: (a) MCP/RAG/memory provider 추가,
-  (b) per-cap·per-user 인가 + 에이전트 소유권(현재 Agent는 owner 없는 공유 카탈로그 → member에 kind
-  RBAC 주면 접근 가능한 에이전트 allowlist 전부 호출 가능; codex 100 [P1] #1/#2 수용·명시경계),
-  (c) 카탈로그 커지면 벡터/하이브리드 검색(설계결정 10), (d) admin UI capabilities allowlist 편집.
-- **admin UI에서 capabilities allowlist 편집** — 에이전트 config `capabilities`를 SPA서 편집(현재
-  DB 직접). Phase 2 (d)와 묶어도 됨.
+- **능력 브로커 Phase 2 — kind 확장(RAG/memory) + 인가 입도 강화** — Phase 2-a(스펙 101)에서 MCP
+  provider + 서브스텝 HIL 완료. 남은 후속: (a) RAG/memory provider 추가, (b) per-cap·per-user 인가 +
+  에이전트 소유권(현재 Agent는 owner 없는 공유 카탈로그 → member에 kind RBAC 주면 접근 가능한 에이전트
+  allowlist 전부 호출 가능; codex 100/101 [P1] #1/#2 수용·명시경계), (c) 카탈로그 커지면 벡터/하이브리드
+  검색(설계결정 10), (d) 브로커 discovery 오케스트레이션(능력 브로커 축의 다음 — memory 참조).
+- **admin UI에서 capabilities allowlist 편집(Phase 2-d)** — 에이전트 config `capabilities`를 SPA서
+  편집. **지속 경로는 이제 열림**(스펙 101에서 `AgentConfig.capabilities` 필드 추가) → UI 폼만 남음.
 
 ## 완료 (요약 — 상세는 각 스펙/회고)
 
@@ -35,3 +35,7 @@
 - **능력 브로커 Phase 1**(스펙 100) — discovery 시임(discover/describe/invoke)+정책 게이트(allowlist∩
   RBAC deny-by-default)+A2A provider+데모 `orchestrate`(서브스텝 조립) 완료(2026-07-01, 회고 081·
   learning 100). codex 3런: #3(untrusted 데이터 채널 격리) 수정, #1/#2(인가 입도) 명시경계로 문서화.
+- **능력 브로커 Phase 2-a**(스펙 101) — MCP provider(툴 단위 `mcp:<server>/<tool>`, provider 시임으로
+  정책·메커닉 분리) + 서브스텝 HIL(위임 MCP 툴 승인요구 → 전송이전 interrupt, 기존 Approval/resume
+  재사용) 완료(2026-07-01, 회고 082·learning 101). integration rung이 설정 지속경로 누락
+  (`AgentConfig.capabilities` 필드) 포착·수정. codex 0 actionable(#3 오탐 기각, #1/#2 기존 명시경계).

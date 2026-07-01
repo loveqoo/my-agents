@@ -141,6 +141,36 @@ def _wrap_mcp_tool(server: str, rt: BaseTool, calls_sink: list[dict]) -> Structu
     )
 
 
+def mcp_connection(server: dict) -> dict | None:
+    """서버 dict(`{name,url,transport,auth_token}`)를 `MultiServerMCPClient` 연결 dict로 변환.
+
+    미지원 transport(stdio 등)나 SSRF 차단 URL이면 None(호출부가 그 서버를 스킵). `build_mcp_tools`(그래프
+    preload)와 능력 브로커 `McpProvider`(동적 discover→invoke, 스펙 101)가 **이 한 함수를 공유**해
+    transport·Bearer·리다이렉트 하드닝(`mcp_http_client_factory`) 정책이 한 곳에서만 산다(드리프트 0).
+    호출 전 `net_guard.refresh_allowed_hosts()`는 호출부 책임(루프당 1회 — DB round-trip 중복 방지)."""
+    from . import net_guard
+
+    if (server.get("transport") or "").lower() not in ("http", "streamable_http"):
+        return None  # stdio 등 미지원 transport
+    url = server.get("url") or ""
+    try:
+        net_guard.guard_url(url)
+    except net_guard.SsrfBlocked:
+        return None  # SSRF 차단 서버는 연결 자체를 안 함(부수효과 0)
+    headers: dict[str, str] = {}
+    token = server.get("auth_token")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return {
+        "transport": "streamable_http",
+        "url": url,
+        "headers": headers or None,
+        # 리다이렉트-SSRF 차단(적대 리뷰 H1): 기본 클라이언트는 3xx를 따라가 가드를 우회하고 토큰을
+        # 재전송한다 → follow_redirects=False 팩토리로 fail-closed(a2a_client와 동일 정책).
+        "httpx_client_factory": net_guard.mcp_http_client_factory,
+    }
+
+
 async def build_mcp_tools(
     servers: list[dict], calls_sink: list[dict]
 ) -> list[StructuredTool]:
@@ -162,25 +192,10 @@ async def build_mcp_tools(
     connections: dict[str, dict] = {}
     meta: dict[str, dict] = {}
     for s in servers:
-        if (s.get("transport") or "").lower() not in ("http", "streamable_http"):
-            continue  # stdio 등 미지원 transport는 조용히 제외(유예)
-        url = s.get("url") or ""
-        try:
-            net_guard.guard_url(url)
-        except net_guard.SsrfBlocked:
-            continue  # SSRF 차단 서버는 연결 자체를 안 함(부수효과 0)
-        headers: dict[str, str] = {}
-        token = s.get("auth_token")
-        if token:
-            headers["Authorization"] = f"Bearer {token}"
-        connections[s["name"]] = {
-            "transport": "streamable_http",
-            "url": url,
-            "headers": headers or None,
-            # 리다이렉트-SSRF 차단(적대 리뷰 H1): 기본 클라이언트는 3xx를 따라가 가드를 우회하고
-            # 토큰을 재전송한다 → follow_redirects=False 팩토리로 fail-closed(a2a_client와 동일 정책).
-            "httpx_client_factory": net_guard.mcp_http_client_factory,
-        }
+        conn = mcp_connection(s)  # transport 검사·SSRF 가드 공유 헬퍼(브로커와 드리프트 0, 스펙 101)
+        if conn is None:
+            continue  # 미지원 transport 또는 SSRF 차단 → 그 서버만 스킵
+        connections[s["name"]] = conn
         meta[s["name"]] = s
 
     if not connections:
