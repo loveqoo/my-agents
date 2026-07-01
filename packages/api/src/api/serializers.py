@@ -90,6 +90,7 @@ def agent_to_out(a: Agent) -> AgentOut:
         vectorTables=cfg.get("vectorTables", []),
         permissions=cfg.get("permissions", []),
         mcps=cfg.get("mcps", []),
+        capabilities=cfg.get("capabilities", []),  # 능력 브로커 allowlist(스펙 106, 폼 재로드용)
         exposed=dict(a.exposed or {"a2a": False}),
         status=a.status,
         activeVersion=a.active_version,

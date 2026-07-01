@@ -351,6 +351,7 @@ class AgentOut(BaseModel):
     vectorTables: list[str] = Field(default_factory=list)
     permissions: list[str] = Field(default_factory=list)
     mcps: list[str] = Field(default_factory=list)
+    capabilities: list[str] = Field(default_factory=list)  # 능력 브로커 allowlist(스펙 106, 폼 재로드용)
     exposed: dict[str, Any] = Field(default_factory=lambda: {"a2a": False})
     status: str
     activeVersion: str | None = None

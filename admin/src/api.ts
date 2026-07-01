@@ -277,6 +277,8 @@ export async function uploadDocument(id: string, file: File): Promise<RagDocumen
 /* ---------- 에이전트 ---------- */
 export const listAgents = () => j<Agent[]>('/agents')
 export const getAgent = (id: string) => j<Agent>(`/agents/${id}`)
+/* 등록된 실행 방식(impl) 키 목록 — 편집 폼 impl Select(스펙 106). 신뢰 레지스트리 단일 출처(drift 0). */
+export const listAgentImpls = () => j<string[]>('/agent-impls')
 export const createAgent = (name: string, config: unknown) =>
   post('/agents', { name, config }) as Promise<Agent>
 export const updateAgent = (id: string, name: string, config: unknown) =>

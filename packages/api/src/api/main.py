@@ -81,6 +81,7 @@ app.include_router(blocks.router, dependencies=_auth)
 app.include_router(providers.router, dependencies=_auth)
 app.include_router(model_registry.router, dependencies=_auth)
 app.include_router(agents.router, dependencies=_auth)
+app.include_router(agents.meta_router, dependencies=_auth)  # /agent-impls(스펙 106) — uuid 경로 충돌 회피
 app.include_router(chat.router, dependencies=_auth)
 app.include_router(sessions.router, dependencies=_auth)
 app.include_router(memory_routes.router, dependencies=_auth)

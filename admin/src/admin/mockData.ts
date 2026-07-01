@@ -15,6 +15,8 @@ export interface AgentConfig {
   vectorTables?: string[]
   permissions?: string[]
   mcps?: string[]
+  impl?: string // 실행 방식(런타임 키, 스펙 085/106). 빈값/미지정=기본 UI 에이전트.
+  capabilities?: string[] // 능력 브로커 allowlist(스펙 106). 오케스트레이터 impl에서 위임 대상.
 }
 export interface VersionMeta {
   version: string
@@ -70,6 +72,8 @@ export interface Agent {
   vectorTables: string[]
   permissions: string[]
   mcps: string[]
+  impl?: string // 실행 방식 런타임 키(스펙 085/106) — 폼 재로드/라운드트립 보존
+  capabilities?: string[] // 능력 브로커 allowlist(스펙 106)
   exposed: { a2a: boolean }
   sessions: number
   created: string

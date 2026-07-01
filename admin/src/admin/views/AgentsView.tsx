@@ -31,6 +31,7 @@ import {
   resyncAgent,
   listModels,
   listCollections,
+  listAgentImpls,
   type Model,
   type Collection,
 } from '../../api'
@@ -47,6 +48,8 @@ interface AgentFormData {
   vectorTables: string[]
   permissions: string[]
   mcps: string[]
+  impl: string // 실행 방식(런타임 키). ''=기본 UI 에이전트(스펙 106).
+  capabilities: string[] // 능력 브로커 allowlist(cap id 목록, 스펙 106).
 }
 
 /* 빈 폼 기본값 — persona는 로드된 blocks에서, model은 등록된 첫 chat 모델에서
@@ -63,8 +66,22 @@ function blankForm(blocks: Record<string, BlockCategory>, models: Model[]): Agen
     vectorTables: [],
     permissions: [],
     mcps: [],
+    impl: '',
+    capabilities: [],
   }
 }
+
+/* impl 키 → 친절 라벨/설명(스펙 106). 미지의 키는 raw로 폴백(레지스트리가 진실 원천, UI는 표시만).
+   오케스트레이터(브로커 위임) 여부도 여기서 — capabilities 힌트 표시에 쓴다. */
+const IMPL_META: Record<string, { label: string; desc: string; orchestrator?: boolean }> = {
+  '': { label: '기본 (UI 에이전트)', desc: '표준 대화 에이전트 — 능력 위임 안 함' },
+  orchestrate: { label: '오케스트레이터 · 첫 매치 위임', desc: '질문에 맞는 첫 능력 하나에 위임', orchestrator: true },
+  orchestrate_ranked: { label: '오케스트레이터 · 랭킹 조합', desc: '관련도 상위 능력들을 순차 조합', orchestrator: true },
+  route: { label: '조건 분기', desc: '입력을 분류해 경로 선택' },
+  plan_execute: { label: '계획–실행', desc: '계획 수립 후 단계 실행' },
+}
+const implMeta = (key: string) => IMPL_META[key] ?? { label: key, desc: '커스텀 런타임' }
+const isOrchestratorImpl = (key: string) => IMPL_META[key]?.orchestrator === true
 
 /* ---- Create / edit form (composes blocks into a version config) ---- */
 function AgentForm({
@@ -75,6 +92,8 @@ function AgentForm({
   blocks,
   models,
   collections,
+  impls,
+  agents,
   onCancel,
   onSave,
 }: {
@@ -85,6 +104,8 @@ function AgentForm({
   blocks: Record<string, BlockCategory>
   models: Model[]
   collections: Collection[]
+  impls: string[]
+  agents: Agent[]
   onCancel: () => void
   onSave: (data: AgentFormData) => void
 }) {
@@ -115,6 +136,13 @@ function AgentForm({
 
   const set = <K extends keyof AgentFormData>(k: K, v: AgentFormData[K]) =>
     setForm((f) => ({ ...f, [k]: v }))
+  const toggleCap = (id: string) =>
+    setForm((f) => ({
+      ...f,
+      capabilities: f.capabilities.includes(id)
+        ? f.capabilities.filter((x) => x !== id)
+        : [...f.capabilities, id],
+    }))
   const toggle = (k: 'memories' | 'vectorTables' | 'permissions' | 'mcps', v: string) =>
     setForm((f) => ({
       ...f,
@@ -128,6 +156,40 @@ function AgentForm({
   if (form.model && !modelOptions.some((o) => o.value === form.model)) {
     modelOptions.push({ label: form.model, value: form.model })
   }
+
+  // 실행 방식(impl) 옵션 — '기본'(빈값) + 등록 impl. 현재 값이 목록 밖이면 보존(편집 시 사라짐 방지).
+  const implOptions = ['', ...impls].map((k) => ({ label: implMeta(k).label, value: k }))
+  if (form.impl && !implOptions.some((o) => o.value === form.impl)) {
+    implOptions.push({ label: implMeta(form.impl).label, value: form.impl })
+  }
+
+  // 능력(capabilities) 후보 — kind별로 폼이 가진 데이터에서 조립(스펙 106). cap id = `<kind>:<...>`.
+  // 강제(allowlist∩RBAC∩승인)는 백엔드 브로커(104/105)가 하고, 여기선 저작만.
+  const capGroups: { title: string; items: { id: string; label: string }[] }[] = [
+    {
+      title: '내 기억',
+      items: [
+        { id: 'memory:user', label: '내 기억 읽기 (memory:user)' },
+        { id: 'memwrite:user', label: '내 기억 쓰기 (memwrite:user) · 저장 시 승인' },
+      ],
+    },
+    {
+      title: '문서 컬렉션 (RAG)',
+      items: collections.map((c) => ({ id: `rag:${c.name}`, label: `${c.name} (rag:${c.name})` })),
+    },
+    {
+      title: 'MCP 서버',
+      items: (blocks.mcp?.items ?? []).map((m) => ({ id: `mcp:${m.name}`, label: `${m.name} 전체 (mcp:${m.name})` })),
+    },
+    {
+      title: '다른 에이전트 (A2A)',
+      // 원격(code/external) 에이전트만 A2A provider 대상(로컬 UI 에이전트는 브로커 위임 대상 아님).
+      items: agents
+        .filter((a) => a.source === 'code' || a.source === 'external')
+        .map((a) => ({ id: a.agentId, label: `${a.name} (${a.agentId})` })),
+    },
+  ]
+  const orchestratorSelected = isOrchestratorImpl(form.impl)
 
   return (
     <Modal
@@ -308,6 +370,51 @@ function AgentForm({
               <Checkbox key={m.id} checked={form.mcps.includes(m.name)} onChange={() => toggle('mcps', m.name)}>
                 {m.name}
               </Checkbox>
+            ))}
+          </div>
+        </Field>
+        <Field label="실행 방식 (impl)">
+          <Select
+            value={form.impl}
+            onChange={(v) => set('impl', v)}
+            options={implOptions}
+            style={{ width: '100%' }}
+          />
+          <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+            {implMeta(form.impl).desc}
+          </span>
+        </Field>
+        <Field
+          label={
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              능력 (브로커 위임)
+              {!orchestratorSelected && (
+                <Tag color="default">오케스트레이터 실행 방식에서 사용됨</Tag>
+              )}
+            </span>
+          }
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {capGroups.map((g) => (
+              <div key={g.title}>
+                <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginBottom: 4 }}>{g.title}</div>
+                {g.items.length === 0 ? (
+                  <span style={{ fontSize: 12, color: 'var(--color-text-quaternary)' }}>없음</span>
+                ) : (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 16px' }}>
+                    {g.items.map((it) => (
+                      <Checkbox
+                        key={it.id}
+                        checked={form.capabilities.includes(it.id)}
+                        onChange={() => toggleCap(it.id)}
+                        style={{ marginInlineStart: 0 }}
+                      >
+                        <span style={{ fontSize: 13 }}>{it.label}</span>
+                      </Checkbox>
+                    ))}
+                  </div>
+                )}
+              </div>
             ))}
           </div>
         </Field>
@@ -1125,6 +1232,7 @@ export default function AgentsView() {
   const [blocks, setBlocks] = useState<Record<string, BlockCategory>>({})
   const [models, setModels] = useState<Model[]>([])
   const [collections, setCollections] = useState<Collection[]>([])
+  const [impls, setImpls] = useState<string[]>([]) // 등록된 실행 방식(스펙 106)
   const [detailId, setDetailId] = useState<string | null>(null)
   const detail = agents.find((a) => a.id === detailId) || null
   const [formOpen, setFormOpen] = useState(false)
@@ -1155,6 +1263,10 @@ export default function AgentsView() {
     listCollections()
       .then(setCollections)
       .catch((e) => message.error(String(e)))
+    // 실행 방식(impl) 목록 — 능력 브로커 UI(스펙 106). 실패해도 폼은 '기본'만으로 동작.
+    listAgentImpls()
+      .then(setImpls)
+      .catch(() => setImpls([]))
   }, [])
 
   // 단일 에이전트를 반환값(전체 AgentOut)으로 교체. 활성화·편집·되돌리기·새초안·재동기 등
@@ -1175,6 +1287,8 @@ export default function AgentsView() {
     vectorTables: [...(a.vectorTables || [])],
     permissions: [...a.permissions],
     mcps: [...a.mcps],
+    impl: a.impl,
+    capabilities: [...(a.capabilities || [])],
   })
   const draftOf = (a: Agent) => (a.versions || []).find((v) => v.status === 'draft')
   const openCreate = () => {
@@ -1275,6 +1389,9 @@ export default function AgentsView() {
       vectorTables: data.vectorTables,
       permissions: data.permissions,
       mcps: data.mcps,
+      // 빈 impl은 config에서 생략(기본 UI 에이전트 동작 보존 — undefined면 백엔드가 default 경로).
+      ...(data.impl ? { impl: data.impl } : {}),
+      capabilities: data.capabilities,
     }
     try {
       if (editing) {
@@ -1531,6 +1648,8 @@ export default function AgentsView() {
         blocks={blocks}
         models={models}
         collections={collections}
+        impls={impls}
+        agents={agents}
         draftVersion={
           editing
             ? draftOf(editing.agent)
@@ -1555,6 +1674,8 @@ export default function AgentsView() {
                   vectorTables: [...(c.vectorTables || [])],
                   permissions: [...(c.permissions || [])],
                   mcps: [...(c.mcps || [])],
+                  impl: c.impl ?? a.impl ?? '',
+                  capabilities: [...(c.capabilities || a.capabilities || [])],
                 }
               })()
             : null

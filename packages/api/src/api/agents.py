@@ -38,6 +38,18 @@ from .serializers import agent_to_out
 
 router = APIRouter(prefix="/agents", tags=["agents"])
 
+# 능력 브로커 UI(스펙 106)용 메타 라우터 — `/agents/{id}`(uuid) 경로와 충돌 않게 top-level에 둔다.
+meta_router = APIRouter(tags=["agents"])
+
+
+@meta_router.get("/agent-impls", response_model=list[str])
+async def list_impls() -> list[str]:
+    """등록된 실행 방식(impl) 키 목록 — 신뢰 레지스트리 단일 출처(drift 0). 편집 폼 impl Select가 소비.
+    키일 뿐(런타임 eval 없음, 스펙 085). agent.runtime import가 `_bootstrap_builtins()`를 이미 실행."""
+    from agent.runtime import list_agent_impls
+
+    return list_agent_impls()
+
 
 # ----------------------------- helpers -----------------------------
 def _today() -> str:
