@@ -20,6 +20,7 @@ import {
 import type { UploadProps } from 'antd'
 import { Page, DataTable, type Column } from '../shared'
 import { Icon } from '../icons'
+import { RetrievalTestDrawer } from './RetrievalTestDrawer'
 import {
   listCollections,
   createCollection,
@@ -424,7 +425,8 @@ function DocsDrawer({
   )
 }
 
-/* ---- 검색 시험 드로어 (스펙 072) ---- */
+/* ---- 검색 시험 드로어 (스펙 072·097) — 공유 RetrievalTestDrawer의 컬렉션 어댑터 ----
+   메모리 RecallDrawer와 셸을 공유해 UI drift 0. 컬렉션은 enabled 항상 true(비활성 안내는 !ready preAlert). */
 function SearchDrawer({
   collection,
   onClose,
@@ -432,127 +434,47 @@ function SearchDrawer({
   collection: Collection | null
   onClose: () => void
 }) {
-  const [query, setQuery] = useState('')
-  const [topK, setTopK] = useState(4)
-  const [hits, setHits] = useState<SearchHit[] | null>(null)
-  const [searching, setSearching] = useState(false)
-  const id = collection?.id ?? null
-
-  // 컬렉션 전환 시 이전 결과/질의 초기화.
-  useEffect(() => {
-    setQuery('')
-    setHits(null)
-  }, [collection?.id])
-
-  const run = async () => {
-    if (!id) return
-    if (!query.trim()) {
-      message.warning('검색어를 입력하세요')
-      return
-    }
-    setSearching(true)
-    try {
-      const out = await searchCollection(id, query.trim(), topK)
-      setHits(out.results)
-      if (!out.results.length) message.info('관련 청크를 찾지 못했습니다')
-    } catch (e) {
-      // 400=임베딩 provider 불완전, 502=임베딩/검색 실패 — 서버 메시지를 그대로 노출.
-      message.error(e instanceof Error ? e.message : '검색에 실패했습니다')
-    } finally {
-      setSearching(false)
-    }
-  }
-
   const ready = collection?.status === 'ready'
-
   return (
-    <Drawer
+    <RetrievalTestDrawer<SearchHit>
       open={!!collection}
-      width={640}
       title={collection ? `검색 시험 · ${collection.name}` : ''}
+      scopeKey={collection?.id ?? ''}
       onClose={onClose}
-      destroyOnHidden
-    >
-      {collection ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-            에이전트가 채팅에서 쓰는 것과 <b>같은 검색 코어</b>로 이 컬렉션에 질의합니다. 유사도(1.0=동일)
-            내림차순으로 상위 청크를 보여줍니다 — 등록한 문서가 의도대로 검색되는지 즉석 확인하세요.
-          </span>
-          {!ready ? (
-            <Alert
-              type="info"
-              showIcon
-              title="아직 검색할 청크가 없습니다"
-              description="이 컬렉션은 ready 상태가 아닙니다. 먼저 문서를 업로드해 인제스트를 완료하세요."
-            />
-          ) : null}
-          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-            <TextArea
-              rows={2}
-              placeholder="예: 환불 정책이 어떻게 되나요?"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onPressEnter={(e) => {
-                e.preventDefault()
-                void run()
-              }}
-              style={{ flex: 1 }}
-            />
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, width: 120 }}>
-              <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>top_k (1–10)</span>
-              <InputNumber
-                min={1}
-                max={10}
-                style={{ width: '100%' }}
-                value={topK}
-                onChange={(v) => setTopK(v ?? 4)}
-              />
-              <Button type="primary" icon={<Icon name="search" />} loading={searching} onClick={() => void run()}>
-                검색
-              </Button>
-            </div>
-          </div>
-
-          {hits !== null ? (
-            hits.length ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-heading)' }}>
-                  결과 {hits.length}건
-                </div>
-                {hits.map((h, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      padding: 12,
-                      border: '1px solid var(--color-border-secondary)',
-                      borderRadius: 'var(--radius-lg)',
-                      background: 'var(--gray-2)',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 6,
-                    }}
-                  >
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                      <Tag color="blue">#{i + 1}</Tag>
-                      <Tag color={h.score >= 0.5 ? 'green' : 'default'}>유사도 {h.score.toFixed(3)}</Tag>
-                      <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)', wordBreak: 'break-all' }}>
-                        {h.filename}
-                      </span>
-                    </div>
-                    <div style={{ fontSize: 13, color: 'var(--color-text-secondary)', whiteSpace: 'pre-wrap' }}>
-                      {h.text}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div style={{ fontSize: 13, color: 'var(--color-text-tertiary)' }}>관련 청크를 찾지 못했습니다.</div>
-            )
-          ) : null}
-        </div>
-      ) : null}
-    </Drawer>
+      onSearch={async (q, l) => {
+        if (!collection) return { results: [], enabled: true }
+        const out = await searchCollection(collection.id, q, l)
+        return { results: out.results, enabled: true }
+      }}
+      hint={
+        <>
+          에이전트가 채팅에서 쓰는 것과 <b>같은 검색 코어</b>로 이 컬렉션에 질의합니다. 유사도(1.0=동일)
+          내림차순으로 상위 청크를 보여줍니다 — 등록한 문서가 의도대로 검색되는지 즉석 확인하세요.
+        </>
+      }
+      preAlert={
+        !ready && collection ? (
+          <Alert
+            type="info"
+            showIcon
+            title="아직 검색할 청크가 없습니다"
+            description="이 컬렉션은 ready 상태가 아닙니다. 먼저 문서를 업로드해 인제스트를 완료하세요."
+          />
+        ) : null
+      }
+      queryPlaceholder="예: 환불 정책이 어떻게 되나요?"
+      limitLabel="top_k (1–10)"
+      runLabel="검색"
+      scoreLabel="유사도"
+      countLabel={(n) => `결과 ${n}건`}
+      emptyMessage="관련 청크를 찾지 못했습니다."
+      emptyQueryWarn="검색어를 입력하세요"
+      noResultInfo="관련 청크를 찾지 못했습니다"
+      errorFallback="검색에 실패했습니다"
+      renderMeta={(h) => (
+        <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)', wordBreak: 'break-all' }}>{h.filename}</span>
+      )}
+    />
   )
 }
 
