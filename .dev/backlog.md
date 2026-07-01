@@ -15,9 +15,6 @@
 
 ## 보류 / 후속 후보
 
-- **admin UI에서 impl 선택 노출** — 생성된 flow(스펙 099 `route`·102 `orchestrate`/`orchestrate_ranked`
-  등)를 SPA 편집 폼 드롭다운에서 고르게. 현재 편집 폼은 `impl`을 안 보냄(085 H5 갭). 스펙 099 §5·102
-  OUT로 남긴 후속. **전략 교체(102)가 나오며 노출 가치↑**(사용자가 오케스트레이션 전략을 UI로 선택).
 - **능력 브로커 Phase 2 — memory 수정/삭제 + 인가 입도 강화** — Phase 2-a(MCP, 101)·2-b(RAG, 103)·2-c
   (memory **읽기**, 104)·memory **쓰기**(add, 105) 완료. 남은 후속: (a) **memory 수정(update)/삭제(delete)
   능력** — add(105)와 달리 **대상 mem_id 소유권 검증(053 `_assert_user_owns`)이 선행**(add는 자기 스코프
@@ -33,10 +30,18 @@
 - **노드 간 멱등 재개(선행 위임 결과 캐시)** — 다중 순차 위임 중 뒤 cap이 interrupt하면 재개 시
   delegate 노드가 처음부터 재실행 → 앞 read-only cap 재호출(gated 부수효과는 exactly-once라 안전하나
   관측상 중복, codex 102 [P1]). 다중 interrupt 난제(스펙 101/102 OUT)의 정공법 후속.
-- **admin UI에서 capabilities allowlist 편집(Phase 2-d)** — 에이전트 config `capabilities`를 SPA서
-  편집. **지속 경로는 이제 열림**(스펙 101에서 `AgentConfig.capabilities` 필드 추가) → UI 폼만 남음.
+- **엔드투엔드 브로커 스모크(스펙 106 잔여)** — UI로 만든 오케스트레이터 에이전트로 플레이그라운드
+  대화 1턴 → 인스펙터 trace에 브로커 위임 노드(`broker_invoke:*`)가 뜨는지. 체인의 각 고리는 증명됨
+  (UI→config.capabilities 지속=106, config→build_broker 소비=100–105)이나 *한 화면에서* 잇는 스모크는
+  미실행(LLM 필요). Ralph 대상은 아님 — 1회 시연.
 
 ## 완료 (요약 — 상세는 각 스펙/회고)
+
+- **능력 브로커 UI**(스펙 106) — 편집 폼에 실행 방식(impl) Select + 능력(capabilities) kind별 피커
+  추가 → 브로커(100–105 6 provider)를 UI 저작으로 개방. `GET /agent-impls`(레지스트리 drift0)+AgentOut
+  capabilities 직렬화; 능력 피커는 cap id `<kind>:<name>` 규약이라 폼이 이미 가진 데이터서 순수 포매팅
+  조립(새 카탈로그 EP 불요). 브라우저 10런+왕복+엔드포인트 검증(2026-07-02, 회고 087·learning 106).
+  **백로그 2항목(impl 노출·capabilities 편집 Phase 2-d) 동시 소진.**
 
 - **로드맵 12항목**(스펙 033, 034~042) — 2026-06-27 소진.
 - **제안 8항목** — #1 conformance(089)·#2 입력히스토리(091)·#3 도구원본숨김(092)·#5 MCP/RAG삭제
