@@ -7,13 +7,7 @@
 
 ## 후보 (다음에 할 만한 것)
 
-- **discovery 기반 능력 오케스트레이션 브로커 + 정책 게이트 (팀 전환 최대 갭, 2026-07-01)** —
-  A2A·MCP·RAG·memory를 *하나의 능력 시임*으로: 발견(search)→기술(describe)→호출(invoke) 3박자를
-  preload 대신 discovery로(컨텍스트 절약+모델 이식성; 하네스 ToolSearch·우리 INDEX와 같은 패턴).
-  외부 에이전트도 "능력의 한 종류"(격리 유지, 로컬 노드가 툴처럼 호출—통합 아님). 제한=allowlist∩RBAC
-  deny-by-default가 안전+선택품질 둘 다. **설계 결정 9개는 `.dev/a2a-capability-broker-design-notes.md`**
-  (맥락 살아있을 때 박음, Planning 진입 시 그대로 재사용). 정정 이력: 등록/호출/신뢰경계는 이미
-  구현됨(026·042·057·061·064)—진짜 갭은 오케스트레이션(서브스텝) 하나.
+- (없음 — 다음은 Scaffolding서 새 방향 모색)
 
 ## 진행 중
 
@@ -21,8 +15,15 @@
 
 ## 보류 / 후속 후보
 
-- **admin UI에서 impl 선택 노출** — 생성된 flow(스펙 099 `route` 등)를 SPA 편집 폼 드롭다운에서
-  고르게. 현재 편집 폼은 `impl`을 안 보냄(085 H5 갭). 스펙 099 §5 비목표로 남긴 자연스러운 후속.
+- **admin UI에서 impl 선택 노출** — 생성된 flow(스펙 099 `route`·`orchestrate` 등)를 SPA 편집 폼
+  드롭다운에서 고르게. 현재 편집 폼은 `impl`을 안 보냄(085 H5 갭). 스펙 099 §5 비목표로 남긴 후속.
+- **능력 브로커 Phase 2 — kind 확장(MCP/RAG/memory) + 인가 입도 강화** — Phase 1(스펙 100)은
+  kind=agent만·`(에이전트별 allowlist) ∩ (kind-단위 RBAC)`. 후속: (a) MCP/RAG/memory provider 추가,
+  (b) per-cap·per-user 인가 + 에이전트 소유권(현재 Agent는 owner 없는 공유 카탈로그 → member에 kind
+  RBAC 주면 접근 가능한 에이전트 allowlist 전부 호출 가능; codex 100 [P1] #1/#2 수용·명시경계),
+  (c) 카탈로그 커지면 벡터/하이브리드 검색(설계결정 10), (d) admin UI capabilities allowlist 편집.
+- **admin UI에서 capabilities allowlist 편집** — 에이전트 config `capabilities`를 SPA서 편집(현재
+  DB 직접). Phase 2 (d)와 묶어도 됨.
 
 ## 완료 (요약 — 상세는 각 스펙/회고)
 
@@ -31,3 +32,6 @@
   차단(093)·#6 오버플로(095)·#7 메모리검색UI일관(097)·#8 세션검색(098).
 - **#4 트리노드 그래프빌더** — 폐기 후 스펙 099(agent-flow 스킬 코드젠, 데모 `route`)로 대체 해결
   (2026-07-01, 회고 080·learning 099).
+- **능력 브로커 Phase 1**(스펙 100) — discovery 시임(discover/describe/invoke)+정책 게이트(allowlist∩
+  RBAC deny-by-default)+A2A provider+데모 `orchestrate`(서브스텝 조립) 완료(2026-07-01, 회고 081·
+  learning 100). codex 3런: #3(untrusted 데이터 채널 격리) 수정, #1/#2(인가 입도) 명시경계로 문서화.

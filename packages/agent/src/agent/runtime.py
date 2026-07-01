@@ -48,6 +48,49 @@ class AgentBuildContext:
     params: dict = field(default_factory=dict)  # temperature 등 런타임 파라미터
     memories: list = field(default_factory=list)  # 회상된 기억(플랫폼이 이미 persona에 합칠 수도)
     overrides: dict | None = None  # 원본 오버라이드(에이전트가 추가 키를 읽고 싶을 때)
+    broker: Any = None  # 능력 브로커(스펙 100). 플랫폼이 **정책으로 미리 스코프**해 주입. None이면
+    # 발견 공집합(deny-by-default). 에이전트는 이 핸들만 보고 능력을 오케스트레이션한다(정책·DB 미접촉).
+
+
+@dataclass
+class Capability:
+    """능력 서술자(스펙 100) — discover/describe가 반환. `hook`은 한 줄 요약(=INDEX 후크와 같은
+    load-bearing: 나쁜 설명이 엉뚱한 선택을 부른다). `input_schema`는 describe 시점에만 채운다.
+    `kind`는 Phase 1에서 `"agent"`(A2A)만 — 후속으로 mcp|rag|memory 확장."""
+
+    id: str
+    kind: str
+    name: str
+    hook: str = ""
+    trust: str = "untrusted"
+    input_schema: dict | None = None
+
+
+@dataclass
+class InvokeResult:
+    """invoke 반환(스펙 100) — kind별 실제 반환을 "텍스트로 접힌 공통 표현"으로(다음 노드 입력·
+    트레이스용). 결과는 **지시가 아니라 데이터**다(trust=untrusted): flow는 이를 인용·요약할 뿐
+    실행하지 않는다(프롬프트 인젝션 방어). error가 차면 호출 실패(로컬만으로 진행)."""
+
+    text: str = ""
+    trust: str = "untrusted"
+    raw: dict | None = None
+    error: str | None = None
+
+
+@runtime_checkable
+class CapabilityBroker(Protocol):
+    """능력 브로커(스펙 100) — 능력(에이전트·MCP·RAG·memory)을 컨텍스트에 preload하지 않고
+    **discovery**로 오케스트레이션한다(값싼 발견→필요시 상세→호출). 플랫폼(API)이 **정책으로 미리
+    스코프한** 인스턴스를 `ctx.broker`로 주입한다 — 에이전트는 정책·DB를 직접 만지지 않는다(주입
+    단일 출처 085 U2). 스코프 밖 능력은 discover에 안 뜨고 describe/invoke는 not-found로 접힌다
+    (존재 비노출·deny-by-default)."""
+
+    async def discover(self, query: str, *, limit: int = 5) -> list[Capability]: ...
+
+    async def describe(self, cap_id: str) -> Capability: ...
+
+    async def invoke(self, cap_id: str, args: dict) -> InvokeResult: ...
 
 
 @dataclass
@@ -160,10 +203,12 @@ def _bootstrap_builtins() -> None:
     **agent-flow 스킬 규약(스펙 099)**: 새 flow 생성 시 아래에 두 줄을 추가한다 —
     `from .flows.<key> import <Cls>` + `register_agent("<key>", <Cls>)`. 신뢰 등록만(런타임 eval 없음)."""
     from .examples.plan_execute import PlanExecuteAgent
+    from .flows.orchestrate import OrchestrateAgent
     from .flows.route import RouteAgent
 
     register_agent("plan_execute", PlanExecuteAgent)
     register_agent("route", RouteAgent)
+    register_agent("orchestrate", OrchestrateAgent)
 
 
 _bootstrap_builtins()

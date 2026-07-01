@@ -29,6 +29,7 @@ from sqlalchemy.orm import selectinload
 
 from . import a2a_client, checkpointer, crypto, memory, runtime
 from .auth import current_principal
+from .broker import build_broker
 from .db import SessionLocal
 from .mem_config import _build_mem_cfg, _default_chat_model, _default_embed_model
 from .models import Agent, Approval, Collection, McpServer, Message, ModelConfig, Session
@@ -124,6 +125,9 @@ async def _load_context(
             "token": agent.token,
             "card": cfg.get("card"),  # A2A 카드 스냅샷(외부 에이전트, capabilities.streaming 등)
             "memories": cfg.get("memories", []),
+            # 능력 브로커 allowlist(스펙 100) — 이 에이전트가 오케스트레이션 허용된 cap id 목록.
+            # 없으면 [] = deny-by-default(브로커가 발견 공집합). RBAC과 교집합해 최종 스코프.
+            "capabilities": cfg.get("capabilities", []),
             # 에이전트가 명시한 temperature만 전달(없으면 None) → 모델 등록 params가 적용되게.
             "temperature": cfg.get("temperature"),
             "history_depth": cfg.get("historyDepth", 20),
@@ -624,6 +628,10 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
     # HIL 체크포인터(스펙 041). 있으면 위험 도구가 interrupt로 일시정지·재개될 수 있다. 없으면
     # 기존 무상태 동작(무회귀) — 단 위험 도구가 호출되면 interrupt가 예외로 새 fail-closed(미실행).
     ckpt = checkpointer.get_checkpointer()
+    # 능력 브로커(스펙 100) — 정책(에이전트 allowlist ∩ 유저 RBAC)으로 **미리 스코프**해 주입.
+    # 로컬(ui) 실행 경로에만 준다: 원격 통째 프록시(_a2a_stream)는 broker 미주입(bypass 보존).
+    # broker를 쓰는 flow(예: orchestrate)만 소비하고, 안 쓰면 무해(deny-by-default).
+    build_broker_scoped = build_broker(principal, ctx["capabilities"])
     build_ctx = AgentBuildContext(
         persona=persona_prompt,
         model_cfg=ctx["model_cfg"],
@@ -632,6 +640,7 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
         params=run_params,
         memories=mem_hits,
         overrides=ctx.get("overrides"),
+        broker=build_broker_scoped,
     )
     graph = impl.build_graph(build_ctx)
     # thread_id는 **턴별 고유**(세션-안정 아님): 세션-안정으로 두고 매 턴 전체 히스토리를 넘기면
