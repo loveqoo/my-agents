@@ -19,14 +19,23 @@ description: 공통 인터페이스(CustomAgent Protocol)를 기반으로 LangGr
   checkpointer·params), `AgentManifest`(name·description·accepts_overrides·supports_hil),
   `CustomAgent` Protocol(`describe()`·`build_graph(ctx)`), `register_agent`, `_bootstrap_builtins`.
 - 참조 구현: `packages/agent/src/agent/examples/plan_execute.py`(선형 2노드),
-  `packages/agent/src/agent/flows/route.py`(조건분기 — 이 스킬의 첫 산출물, 템플릿 기준).
+  `packages/agent/src/agent/flows/route.py`(조건분기 — 이 스킬의 첫 산출물, 일반 경로 템플릿).
+- **오케스트레이션 전략** 참조: `packages/agent/src/agent/flows/orchestrate.py` —
+  `OrchestrationAgentBase`(ABC, 골격·불변식 소유) + `FirstMatchOrchestrateAgent`/`RankedOrchestrateAgent`
+  (자식은 `select`만 구현). 전략 경로의 템플릿 기준(스펙 102).
 
 ## 절차 (4단계)
 
 ### 1. 의도 수집
 
+**먼저 물어 경로를 가른다** — "이 플로우가 **오케스트레이션 전략**인가(능력 브로커로 능력을 발견·조합,
+후보를 *어떻게 고르나*가 핵심)?"
+- **아니오** → 일반 경로(아래 그대로 — `route.py` 템플릿, `CustomAgent`를 처음부터 구현).
+- **예** → **오케스트레이션 전략 경로**(§2-오케스트레이션). 이땐 골격·불변식(채널 격리·HIL·정책)을
+  **처음부터 쓰지 않는다** — 조상 `OrchestrationAgentBase`가 이미 소유하므로 `select`만 저작한다.
+
 사용자에게 확정한다(모호하면 질문):
-- **key**: 레지스트리 키(snake_case, 예 `route`·`summarize`·`triage`). `list_agent_impls()`와 충돌 금지.
+- **key**: 레지스트리 키(snake_case, 예 `route`·`summarize`·`triage`·`orchestrate_ranked`). `list_agent_impls()`와 충돌 금지.
 - **클래스명**: PascalCase + `Agent` 접미(예 `RouteAgent`).
 - **노드 구성**: 노드 이름과 흐름(선형? 조건분기? 루프?). 어떤 노드가 **모델을 호출**하고 어떤 노드가
   **결정적**(모델 없음)인지 명시.
@@ -44,6 +53,19 @@ description: 공통 인터페이스(CustomAgent Protocol)를 기반으로 LangGr
 - `g.compile(checkpointer=ctx.checkpointer)`로 컴파일(HIL 배선 보존).
 - `describe()`의 `AgentManifest`는 **정직**하게 — 그래프에 `interrupt`가 없으면 `supports_hil=False`.
   상상 능력을 선언하지 않는다.
+
+### 2-오케스트레이션. 전략 경로 — `OrchestrationAgentBase`를 상속, `select`만 저작 (스펙 102)
+
+전략 경로면 `orchestrate.py`를 템플릿으로 **조상을 상속**하고 **`select`만** 구현한다. **규칙(위반=드리프트)**:
+- `class <Cls>(OrchestrationAgentBase)`로 상속하고 `@abstractmethod select(query, candidates)`만 override.
+  클래스 상수 `NAME`(=impl 키)·`DESCRIPTION`·`DISCOVER_LIMIT`(랭킹 대상 후보 상한)·필요시 `TOP_K`만 설정.
+- **`build_graph`·`describe`·`build_synthesis_messages`(채널 격리)·HIL 배선을 작성하지 않는다** — 전부
+  조상이 소유한다. 자식이 이를 재정의하면 **override 홀**(불변식 우회)이 되어 금지다. 자식은 상속으로
+  채널 격리·HIL·정책 재검증을 뺄 수 없다(이게 조상을 두는 이유).
+- `select`는 **모듈 순수 함수**(`rank_candidates`류)에 위임한다 — 모델 없이 결정성을 단위 검증
+  (스펙 099 규약). 후보를 어떻게 고르나만 여기서 갈린다.
+- 반환 순서대로 **순차 위임**된다(조상 delegate 루프). 각 결과는 조상이 데이터 채널로 fold하므로 자식은
+  신뢰 경계를 신경 쓸 필요가 없다.
 
 ### 3. 신뢰 등록 — `runtime.py` `_bootstrap_builtins()`
 
@@ -63,6 +85,10 @@ description: 공통 인터페이스(CustomAgent Protocol)를 기반으로 LangGr
 - **통합**(in-process ASGI + 실 그래프): `ui+impl=<key>` 에이전트 생성→chat SSE → 토큰 + **실 노드
   타임라인**(합성 call_model 아님). 조건분기면 실행된 분기만 타임라인에 뜨는지 확인. 생성 에이전트 정리.
 
+**오케스트레이션 전략 경로**면 `tests/verify_102_orchestration_strategy.py`를 템플릿으로 삼되 **`select`만**
+검증한다(조상 불변식은 조상 테스트가 이미 커버 — 재검증 아님): `select` 결정성(순수함수)·골격 드리프트0
+(`get_graph().nodes`가 조상 노드집합 `{analyze,delegate,synthesize}`와 동일)·conformance·채널 격리 상속.
+
 ## 검증 (수용 게이트 — 새로 발명하지 않음)
 
 생성 flow는 아래를 **모두** 통과해야 "완료"다:
@@ -72,6 +98,9 @@ description: 공통 인터페이스(CustomAgent Protocol)를 기반으로 LangGr
   드리프트 0 유지).
 - 비자명하면 **codex 적대 리뷰**: "생성 코드가 ctx 외 상태를 읽는가 / 매니페스트를 과대선언하는가 /
   등록이 eval 경로를 여는가"를 여집합으로 검토.
+- **오케스트레이션 전략 경로 추가 게이트**: 자식이 `build_graph`/`describe`/`build_synthesis_messages`를
+  **재정의하지 않았는가**(override 홀 없음 — 있으면 채널 격리·HIL 우회). 자식 본문은 `select`(+ 순수함수)와
+  클래스 상수뿐이어야 한다.
 
 통합 검증은 API 서버가 떠 있어야 한다(`uv run --project packages/api ...`). 새 flow 등록은 import
 시점이므로 **서버 재기동 후** 반영된다.

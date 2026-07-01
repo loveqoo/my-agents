@@ -203,12 +203,15 @@ def _bootstrap_builtins() -> None:
     **agent-flow 스킬 규약(스펙 099)**: 새 flow 생성 시 아래에 두 줄을 추가한다 —
     `from .flows.<key> import <Cls>` + `register_agent("<key>", <Cls>)`. 신뢰 등록만(런타임 eval 없음)."""
     from .examples.plan_execute import PlanExecuteAgent
-    from .flows.orchestrate import OrchestrateAgent
+    from .flows.orchestrate import FirstMatchOrchestrateAgent, RankedOrchestrateAgent
     from .flows.route import RouteAgent
 
     register_agent("plan_execute", PlanExecuteAgent)
     register_agent("route", RouteAgent)
-    register_agent("orchestrate", OrchestrateAgent)
+    # 오케스트레이션 전략(스펙 102) — 공통 조상 OrchestrationAgentBase 밑 두 자식. `orchestrate`는
+    # 행위보존(첫 후보), `orchestrate_ranked`는 결정적 랭킹 상위 k 조합.
+    register_agent("orchestrate", FirstMatchOrchestrateAgent)
+    register_agent("orchestrate_ranked", RankedOrchestrateAgent)
 
 
 _bootstrap_builtins()

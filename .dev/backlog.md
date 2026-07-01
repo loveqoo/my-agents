@@ -15,13 +15,21 @@
 
 ## 보류 / 후속 후보
 
-- **admin UI에서 impl 선택 노출** — 생성된 flow(스펙 099 `route`·`orchestrate` 등)를 SPA 편집 폼
-  드롭다운에서 고르게. 현재 편집 폼은 `impl`을 안 보냄(085 H5 갭). 스펙 099 §5 비목표로 남긴 후속.
+- **admin UI에서 impl 선택 노출** — 생성된 flow(스펙 099 `route`·102 `orchestrate`/`orchestrate_ranked`
+  등)를 SPA 편집 폼 드롭다운에서 고르게. 현재 편집 폼은 `impl`을 안 보냄(085 H5 갭). 스펙 099 §5·102
+  OUT로 남긴 후속. **전략 교체(102)가 나오며 노출 가치↑**(사용자가 오케스트레이션 전략을 UI로 선택).
 - **능력 브로커 Phase 2 — kind 확장(RAG/memory) + 인가 입도 강화** — Phase 2-a(스펙 101)에서 MCP
   provider + 서브스텝 HIL 완료. 남은 후속: (a) RAG/memory provider 추가, (b) per-cap·per-user 인가 +
   에이전트 소유권(현재 Agent는 owner 없는 공유 카탈로그 → member에 kind RBAC 주면 접근 가능한 에이전트
   allowlist 전부 호출 가능; codex 100/101 [P1] #1/#2 수용·명시경계), (c) 카탈로그 커지면 벡터/하이브리드
-  검색(설계결정 10), (d) 브로커 discovery 오케스트레이션(능력 브로커 축의 다음 — memory 참조).
+  검색(설계결정 10 — 현 rank_candidates는 lexical 토큰 겹침, 벡터는 OUT). ((d) discovery 오케스트레이션은
+  스펙 102 전략 교체형 골격으로 착수 완료 → 아래 완료 참조.)
+- **데이터 채널 내부 attribution 강화** — 다중 위임 fold(102 `fold_results`)의 `## 능력:` 라벨은
+  데이터 채널 *내부* 표식일 뿐 스푸핑 가능(신뢰 경계는 SystemMessage 격리로 견고, codex 102 설계한계).
+  구조화 출력 등으로 내부 attribution 강화하는 후속.
+- **노드 간 멱등 재개(선행 위임 결과 캐시)** — 다중 순차 위임 중 뒤 cap이 interrupt하면 재개 시
+  delegate 노드가 처음부터 재실행 → 앞 read-only cap 재호출(gated 부수효과는 exactly-once라 안전하나
+  관측상 중복, codex 102 [P1]). 다중 interrupt 난제(스펙 101/102 OUT)의 정공법 후속.
 - **admin UI에서 capabilities allowlist 편집(Phase 2-d)** — 에이전트 config `capabilities`를 SPA서
   편집. **지속 경로는 이제 열림**(스펙 101에서 `AgentConfig.capabilities` 필드 추가) → UI 폼만 남음.
 
@@ -39,3 +47,9 @@
   정책·메커닉 분리) + 서브스텝 HIL(위임 MCP 툴 승인요구 → 전송이전 interrupt, 기존 Approval/resume
   재사용) 완료(2026-07-01, 회고 082·learning 101). integration rung이 설정 지속경로 누락
   (`AgentConfig.capabilities` 필드) 포착·수정. codex 0 actionable(#3 오탐 기각, #1/#2 기존 명시경계).
+- **전략 교체형 오케스트레이션**(스펙 102) — 브로커 위 오케스트레이션 방식을 **소유자가 고르는 전략**
+  으로: 공통 조상 ABC 템플릿(OrchestrationAgentBase가 골격·채널격리·HIL·정책 소유, 자식 유일구멍=
+  `select`) + 첫 출하 2전략(FirstMatch[행위보존]·Ranked[결정적 top-k], 둘째구현으로 추상 무누수 측정) +
+  agent-flow 스킬 전략 분기(D7) 완료(2026-07-01, 회고 083·learning 102). 40 ok + 무회귀. codex 5건 정직
+  분류: [P1]다중위임+중간interrupt 재실행=여집합공격성공이나 안전위반 아님→주석경계+H10 실측(정직화),
+  [P2]override홀→@final, [P2]select계약→chosen⊆candidates 교집합, [설계한계]라벨스푸핑→명시, ABC=오탐.
