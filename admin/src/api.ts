@@ -432,18 +432,21 @@ export interface SessionPage {
 }
 // 서버 페이징·필터(스펙 034). status 버킷(all|live|awaiting|error) + limit/offset.
 // agent_id(스펙 055): 외부 agent_id로 해당 에이전트 세션만 — Playground 세션 이어가기용.
+// q(스펙 098): 메타데이터 검색 — session_id·user_id·agent_name 부분일치(서버측, status와 AND).
 export const listSessions = (params?: {
   status?: string
   agent_id?: string
+  q?: string
   limit?: number
   offset?: number
 }) => {
-  const q = new URLSearchParams()
-  if (params?.status) q.set('status', params.status)
-  if (params?.agent_id) q.set('agent_id', params.agent_id)
-  if (params?.limit != null) q.set('limit', String(params.limit))
-  if (params?.offset != null) q.set('offset', String(params.offset))
-  const qs = q.toString()
+  const qp = new URLSearchParams()
+  if (params?.status) qp.set('status', params.status)
+  if (params?.agent_id) qp.set('agent_id', params.agent_id)
+  if (params?.q?.trim()) qp.set('q', params.q.trim())
+  if (params?.limit != null) qp.set('limit', String(params.limit))
+  if (params?.offset != null) qp.set('offset', String(params.offset))
+  const qs = qp.toString()
   return j<SessionPage>(`/sessions${qs ? `?${qs}` : ''}`)
 }
 // 대화에 쓰인 distinct user_id(이제 로그인 유저 UUID — 스펙 032), 최근 사용순.

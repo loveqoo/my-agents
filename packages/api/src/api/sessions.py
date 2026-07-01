@@ -1,7 +1,7 @@
 """세션 라우터 (007 도메인). 세션 조회·메시지·종료."""
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from . import authz
@@ -105,23 +105,32 @@ async def _session_previews(session: AsyncSession, pks: list) -> dict:
     return out
 
 
+def _like_escape(term: str) -> str:
+    """ilike 리터럴화 — 사용자 입력의 `\\`·`%`·`_`를 이스케이프해 와일드카드 오라클/과매칭 차단.
+    `escape="\\"`와 함께 쓴다. 순서 중요: `\\`를 먼저 치환(뒤 치환이 넣은 이스케이프를 재이스케이프 방지)."""
+    return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 @router.get("", response_model=SessionPage)
 async def list_sessions(
     status: str = "all",
     agent_id: str | None = None,
+    q: str | None = None,
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     session: AsyncSession = Depends(get_session),
     principal=Depends(current_principal),
 ) -> SessionPage:
-    """세션 목록 (페이징·필터·배지 집계). 스펙 034 + agent 필터(스펙 055) + 유저 스코핑(스펙 067).
+    """세션 목록 (페이징·필터·검색·배지 집계). 스펙 034 + agent 필터(055) + 스코핑(067) + 검색(098).
 
     - `status`: 버킷(all|live|awaiting|error). 미지정/미지의 값은 all로 폴백(관대).
     - `agent_id`: 외부 agent_id(agt_...). 주어지면 해당 에이전트 세션만(items/total). Playground
       세션 이어가기용. 미지의 id는 빈 목록(404 아님 — 목록 API 관대).
+    - `q`(098): 메타데이터 검색 — session_id·user_id·agent_name 부분일치(OR ilike). status·agent_id·
+      스코프와 **AND**(페이징 이전 전체 스코프 매칭). 빈/공백은 무시. `%_\\`는 리터럴 이스케이프.
     - 스코핑(067): 비-admin은 자기 user_id 세션만(NULL-owner 숨김). admin/머신은 전체.
-      `counts`도 동일 스코프(member 배지=본인 수).
-    - `total`: 현재 필터 적용 총 건수. `counts`: status 필터 무관 집계(배지용, 스코프 동일).
+      `counts`도 동일 스코프(member 배지=본인 수). **검색은 스코프를 넓힐 수 없다**(AND는 좁히기만).
+    - `total`: 현재 필터 적용 총 건수. `counts`: status·검색 무관 집계(배지용, 스코프 동일).
     """
     own = _own_scope(principal)
     members = _STATUS_BUCKETS.get(status)
@@ -131,6 +140,16 @@ async def list_sessions(
         base = base.where(Session.user_id == own)
     if members is not None:
         base = base.where(Session.status.in_(members))
+    if q and q.strip():
+        # own-scope WHERE 뒤에 AND로 얹는다 → 소유권 경계 상속(스코프 확장 불가).
+        term = f"%{_like_escape(q.strip())}%"
+        base = base.where(
+            or_(
+                Session.session_id.ilike(term, escape="\\"),
+                Session.user_id.ilike(term, escape="\\"),
+                Session.agent_name.ilike(term, escape="\\"),
+            )
+        )
     if agent_id is not None:
         # 외부 agent_id → pk로 해석해 Session.agent_pk 필터. agent 스코프 한정(타 에이전트 누출 0).
         agent_pk = (
