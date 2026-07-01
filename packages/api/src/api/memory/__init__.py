@@ -30,6 +30,20 @@ def search(scope: dict, query: str, mem_cfg: dict | None, limit: int = 4) -> lis
     return backend.search(scope, query, limit) if backend else []
 
 
+def format_memory_hits(hits: list[dict]) -> str:
+    """회상 히트를 텍스트 블록으로(챗 회상 주입·브로커 memory 능력 공유 포맷, 스펙 104 drift 0).
+
+    챗은 이 문자열을 페르소나 프롬프트의 `# 관련 기억(회상됨)` 섹션에, 브로커는 InvokeResult.text로
+    쓴다 — 한 곳에서 포맷해 두 입구가 같은 표현을 갖는다(103 format_rag_hits와 동형).
+
+    **이건 격리 장치가 아니라 순수 문자열 결합이다**(적대 리뷰 104 P2 명시화). "결과=데이터(지시 아님)"의
+    보장은 *여기서 안 생기고* 소비 측 채널 조립에 달렸다: 브로커 위임 경로는 flow가 결과를 라벨 붙은
+    별도 Human 데이터 채널(`build_synthesis_messages`, learning 100)로 감싸 system 지침과 격리한다.
+    챗 직접 회상 경로는 회상 사실을 persona 프롬프트에 합치는데(스펙 104 이전부터의 설계, 자기 user_id
+    기억 = 자기 대화서 추출된 자기 사실이라 교차유저 인젝션 아님) — 이 채널 결정은 104 밖이다."""
+    return "\n".join(f"- {h['text']}" for h in (hits or []))
+
+
 def recall_probe(scope: dict, query: str, mem_cfg: dict | None, limit: int = 4) -> list[dict] | None:
     """회상 *시험*용(스펙 084) — `search`와 같되 백엔드 **가용성**을 결과와 구분해 돌린다.
 
@@ -41,7 +55,19 @@ def recall_probe(scope: dict, query: str, mem_cfg: dict | None, limit: int = 4) 
     backend = resolve_backend(mem_cfg)
     if backend is None:
         return None
-    return backend.search(scope, query, limit)[:limit]
+    # limit 정수 강제 + 범위 clamp(적대 리뷰 104 P2). 엔드포인트는 스키마(1-10)로 막지만 브로커 위임
+    # 경로는 args의 limit을 검증 없이 넘겨(`{"limit":"boom"}`) `[:limit]`에서 TypeError·`-1`로 꼬리절단
+    # 될 수 있었다. 여기(084가 이미 방어 슬라이스를 둔 지점)서 한 번 정규화해 세 입구를 같은 경계로.
+    n = _clamp_limit(limit)
+    return backend.search(scope, query, n)[:n]
+
+
+def _clamp_limit(limit) -> int:
+    """recall 상한을 정수 [1,10]로 정규화(엔드포인트 스키마와 동일 경계). 비정수/음수/거대 방어."""
+    try:
+        return max(1, min(int(limit), 10))
+    except (TypeError, ValueError):
+        return 4
 
 
 def add(scope: dict, messages: list[dict], mem_cfg: dict | None, infer: bool = True) -> None:

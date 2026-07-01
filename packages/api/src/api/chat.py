@@ -631,7 +631,8 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
     # ("System message must be at the beginning"). 단일 system 프롬프트 유지.
     persona_prompt = ctx["persona"]
     if mem_hits:
-        recalled = "\n".join(f"- {h['text']}" for h in mem_hits)
+        # 브로커 memory 능력과 공유하는 포맷(스펙 104 drift 0) — 회상 텍스트 표현이 한 곳.
+        recalled = memory.format_memory_hits(mem_hits)
         persona_prompt = f"{persona_prompt}\n\n# 관련 기억(회상됨)\n{recalled}"
     run_params = {} if ctx["temperature"] is None else {"temperature": ctx["temperature"]}
     # HIL 체크포인터(스펙 041). 있으면 위험 도구가 interrupt로 일시정지·재개될 수 있다. 없으면
@@ -876,7 +877,9 @@ async def _build_resume_broker(user_id: str | None, capabilities) -> PolicyScope
             authz.get_enforcer().enforce(user_id, f"capability:{kind}", "invoke")
         )
 
-    return PolicyScopedBroker(capabilities, rbac_allows)
+    # user_id 주입(스펙 104) — MemoryProvider가 재개 경로에서도 원 요청자 스코프를 복원한다. 없으면
+    # 재개 시 `memory:user`가 사라져 자기 기억 접근이 깨진다(fail-closed지만 기능 회귀, 적대 리뷰 104 P2).
+    return PolicyScopedBroker(capabilities, rbac_allows, user_id=user_id)
 
 
 async def resume_approval(approval: Approval, decision: str) -> None:
@@ -941,7 +944,8 @@ async def resume_approval(approval: Approval, decision: str) -> None:
 
     persona_prompt = ctx["persona"]
     if mem_hits:
-        recalled = "\n".join(f"- {h['text']}" for h in mem_hits)
+        # 브로커 memory 능력과 공유하는 포맷(스펙 104 drift 0) — 회상 텍스트 표현이 한 곳.
+        recalled = memory.format_memory_hits(mem_hits)
         persona_prompt = f"{persona_prompt}\n\n# 관련 기억(회상됨)\n{recalled}"
     run_params = {} if ctx["temperature"] is None else {"temperature": ctx["temperature"]}
     # 서브스텝 HIL 재개(스펙 101 §3.5): 위임 cap의 interrupt를 재개하려면 원 턴과 **동일 스코프**의

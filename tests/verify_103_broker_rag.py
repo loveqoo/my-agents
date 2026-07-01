@@ -135,9 +135,9 @@ def unit_checks() -> None:
     check("text" in props and desc.input_schema.get("required") == ["text"], "U5 text 필수 파라미터")
     check("top_k" in props, "U5 top_k 선택 파라미터 노출")
 
-    # U6 _by_kind 3종.
+    # U6 _by_kind에 rag 포함(memory는 스펙 104서 추가 — ⊇로 완화, 무회귀).
     b = PolicyScopedBroker([], lambda k: True, session_factory=_raise_factory())
-    check(set(b._by_kind) == {"agent", "mcp", "rag"}, "U6 브로커가 agent·mcp·rag provider 셋 보유")
+    check({"agent", "mcp", "rag"} <= set(b._by_kind), "U6 브로커가 agent·mcp·rag provider 보유")
     check(isinstance(b._by_kind["rag"], RagProvider), "U6 rag → RagProvider")
 
     # U7 셋째-provider 시임 무누수 측정 — 6메서드 계약 충족(agent/mcp와 동일 시그니처).

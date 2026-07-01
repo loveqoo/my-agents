@@ -18,13 +18,14 @@
 - **admin UI에서 impl 선택 노출** — 생성된 flow(스펙 099 `route`·102 `orchestrate`/`orchestrate_ranked`
   등)를 SPA 편집 폼 드롭다운에서 고르게. 현재 편집 폼은 `impl`을 안 보냄(085 H5 갭). 스펙 099 §5·102
   OUT로 남긴 후속. **전략 교체(102)가 나오며 노출 가치↑**(사용자가 오케스트레이션 전략을 UI로 선택).
-- **능력 브로커 Phase 2 — kind 확장(memory) + 인가 입도 강화** — Phase 2-a(MCP, 스펙 101)·Phase 2-b
-  (RAG, 스펙 103) 완료. 남은 후속: (a) **memory provider 추가**(kind=memory) — per-user 데이터라
-  **인가 입도가 선행 강제**됨(RAG는 owner 없는 공유 카탈로그라 이 빚을 미룰 수 있었으나 memory는 못 미룸),
-  (b) per-cap·per-user 인가 + 에이전트 소유권(현재 Agent·Collection은 owner 없는 공유 카탈로그 → member에
-  kind RBAC 주면 접근 가능한 allowlist 전부 호출 가능; codex 100/101 [P1] #1/#2 수용·명시경계), (c) 카탈로그
-  커지면 벡터/하이브리드 검색(설계결정 10 — 현 rank_candidates는 lexical 토큰 겹침, 벡터는 OUT).
-  ((d) discovery 오케스트레이션은 스펙 102 전략 교체형 골격으로 착수 완료 → 아래 완료 참조.)
+- **능력 브로커 Phase 2 — memory 쓰기 + 인가 입도 강화** — Phase 2-a(MCP, 101)·2-b(RAG, 103)·2-c
+  (memory **읽기**, 104) 완료. 남은 후속: (a) **memory 쓰기(add) 능력**(kind=memory, write) — 브로커
+  최초로 **승인 게이트(정책 O + 승인 O, 두 게이트 다)**가 필요한 provider. 과거 자동쓰기 누출(스펙 051·
+  learning 041) 이력이 있어 쓰기 채널 재개는 **별도 누출 분석 선행**(어느 축에 쓰나·infer 여부·HIL 승인
+  payload). (b) per-cap·per-user 인가 + 에이전트 소유권(현재 Agent·Collection은 owner 없는 공유 카탈로그
+  → member에 kind RBAC 주면 접근 가능한 allowlist 전부 호출 가능; codex 100/101 [P1] #1/#2 수용·명시경계.
+  memory 읽기는 104가 principal-도출로 이 빚을 그 kind에 한해 갚음 — agent/mcp/rag는 여전히 공유). (c)
+  카탈로그 커지면 벡터/하이브리드 검색(설계결정 10 — 현 rank_candidates는 lexical, 벡터는 OUT).
 - **데이터 채널 내부 attribution 강화** — 다중 위임 fold(102 `fold_results`)의 `## 능력:` 라벨은
   데이터 채널 *내부* 표식일 뿐 스푸핑 가능(신뢰 경계는 SystemMessage 격리로 견고, codex 102 설계한계).
   구조화 출력 등으로 내부 attribution 강화하는 후속.
@@ -55,6 +56,14 @@
   (2026-07-01, 회고 084·learning 103). 46 ok + 072/100/101/102 무회귀. codex 3판정: [P1]인챗도구
   vectorTables=브로커 밖=정직한 경계(다른 신뢰모델)→스펙 OUT+H4/H5 안전불변식, [P2]질의무제한→공유코어
   4000자 상한, [P2]빈이름 `rag:`→파싱층 방어.
+- **능력 브로커 Phase 2-c**(스펙 104) — Memory provider(kind=memory, `memory:user`, 첫 **per-user 소유**
+  능력). 100/081이 미룬 **인가 입도 빚 상환**: 공유카탈로그와 반대로 능력 이름에 대상 안 박고 소유자를
+  **런타임 principal서 도출**(user_id=`str(principal.id)`, invoke 스코프 오직 `{"user_id":self._user_id}`)
+  →이름으로 남 못 가리켜 교차유출 *구조적* 불가+어드민 에스컬레이션 자동차단. 정책 무변경(`_permitted`
+  memory분기 0), invoke=`recall_probe` 코어+`format_memory_hits` 추출 공유(drift 0), 읽기전용→approval None.
+  완료(2026-07-02, 회고 085·learning 104). verify_104 3런(FakeMem 결정적격리+실 mem0 통합)+084/100/101/102/
+  103 무회귀. codex 3판정 P0/P1 없음: [P2]limit 타입미검증→recall_probe clamp, [P2]승인재개 브로커 user_id
+  누락→주입(새 상태축=모든 팩토리), [P2]format_memory_hits=격리아님→docstring+비목표 명시.
 - **전략 교체형 오케스트레이션**(스펙 102) — 브로커 위 오케스트레이션 방식을 **소유자가 고르는 전략**
   으로: 공통 조상 ABC 템플릿(OrchestrationAgentBase가 골격·채널격리·HIL·정책 소유, 자식 유일구멍=
   `select`) + 첫 출하 2전략(FirstMatch[행위보존]·Ranked[결정적 top-k], 둘째구현으로 추상 무누수 측정) +

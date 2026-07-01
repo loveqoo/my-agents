@@ -27,6 +27,7 @@ admin('*','*')만 시드돼 member는 kind 자체가 거부(deny-by-default). pe
 
 from __future__ import annotations
 
+import asyncio
 import time
 from collections.abc import Callable
 from typing import Protocol
@@ -40,7 +41,8 @@ from .models import Agent, McpServer
 
 CAP_KIND_AGENT = "agent"  # A2A provider(Phase 1).
 CAP_KIND_MCP = "mcp"  # MCP provider(Phase 2-a).
-CAP_KIND_RAG = "rag"  # RAG provider(Phase 2, 스펙 103 — 문서 컬렉션 검색). memory는 후속 스펙.
+CAP_KIND_RAG = "rag"  # RAG provider(Phase 2, 스펙 103 — 문서 컬렉션 검색).
+CAP_KIND_MEMORY = "memory"  # Memory provider(Phase 2-c, 스펙 104 — 유저 장기 기억 검색, per-user 소유).
 
 
 class CapabilityNotFound(Exception):
@@ -58,6 +60,8 @@ def _kind_of(item: str) -> str:
             return CAP_KIND_MCP
         if item.startswith(f"{CAP_KIND_RAG}:"):
             return CAP_KIND_RAG
+        if item.startswith(f"{CAP_KIND_MEMORY}:"):
+            return CAP_KIND_MEMORY
     return CAP_KIND_AGENT
 
 
@@ -74,6 +78,13 @@ def _parse_rag(item: str) -> str:
     """`rag:<collection_name>` → `<collection_name>`(접두사만 스트립 — 이름에 콜론/슬래시 있어도 안전).
     RAG는 mcp의 server/tool 2레벨과 달리 1레벨(컬렉션 이름 하나). 접두사 없으면 원본 방어."""
     return item[len(CAP_KIND_RAG) + 1:] if item.startswith(f"{CAP_KIND_RAG}:") else item
+
+
+def _parse_mem(item: str) -> str:
+    """`memory:<resource>` → `<resource>`(첫 출하는 `"user"`만 유효 — 주체 자신의 장기 기억).
+    **대상 user_id는 cap_id에 담기지 않는다**(스펙 104 핵심 anti-leak) — 리소스는 자원 *종류*만 가리키고
+    누구의 것인지는 런타임 principal에서 도출한다. 접두사 없으면 원본 방어."""
+    return item[len(CAP_KIND_MEMORY) + 1:] if item.startswith(f"{CAP_KIND_MEMORY}:") else item
 
 
 def _card_streaming(card: object) -> bool:
@@ -556,6 +567,100 @@ def _rt():
     return runtime
 
 
+class _MemBacking:
+    """MemoryProvider.load가 돌려주는 backing — 리소스 종류만 담는다(첫 출하 `"user"`).
+    **대상 user_id는 여기 없다** — invoke가 provider의 self._user_id(principal 도출값)만 스코프로 쓴다."""
+
+    __slots__ = ("resource",)
+
+    def __init__(self, resource: str):
+        self.resource = resource
+
+
+class MemoryProvider:
+    """kind=memory — 유저 장기 기억(user_id 축)을 **읽기 전용** 검색 능력으로. 첫 **per-user 소유** 능력.
+
+    핵심(스펙 104): 능력은 `memory:user` 하나뿐이고 **누구의 기억인지는 cap_id·args가 아니라 런타임
+    principal에서 도출한 `user_id`**로 정한다. 그래서 능력 이름으로 남을 가리킬 방법이 없어 교차 유저
+    유출이 구조적으로 불가능하다. 검색 코어 `memory.recall_probe`(챗 회상·retrieval 시험 084와 공유) +
+    `memory.format_memory_hits`(챗 회상 주입 포맷 추출, drift 0) 재사용. 읽기 전용 → `approval_for` None.
+    결과는 기억 내용 = **untrusted 데이터**(learning 100 채널 격리는 flow synthesize 몫).
+    """
+
+    kind = CAP_KIND_MEMORY
+
+    def __init__(self, session_factory, user_id: str | None):
+        self._session_factory = session_factory
+        self._user_id = user_id  # principal 도출값(build_broker). None=머신 → 자기 스코프 없음 → deny.
+
+    def _cap(self, *, with_schema: bool) -> Capability:
+        cap = Capability(
+            id=f"{CAP_KIND_MEMORY}:user",
+            kind=CAP_KIND_MEMORY,
+            name="내 장기 기억",
+            hook="내 장기 기억(user_id 축)에서 관련 사실 회상",
+        )
+        if with_schema:
+            cap.input_schema = {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string"},
+                    "limit": {"type": "integer", "default": 4},
+                },
+                "required": ["text"],
+            }
+        return cap
+
+    async def candidates(self, allow: set[str]) -> list[Capability]:
+        # user_id 없음(머신 principal) → 자기 스코프가 없으므로 능력 없음(DB·백엔드 미접촉). cap 문법상
+        # `memory:` 항목 중 리소스가 `user`인 것만 승격(빈/미지원 리소스 거부, 적대 리뷰 대비).
+        if not self._user_id:
+            return []
+        if not any(_kind_of(a) == CAP_KIND_MEMORY and _parse_mem(a) == "user" for a in allow):
+            return []
+        return [self._cap(with_schema=False)]
+
+    async def load(self, cap_id: str) -> _MemBacking | None:
+        # 리소스가 `user`가 아니거나(미지원/빈) user_id 없으면 없는 것으로(존재 비노출).
+        if not self._user_id or _parse_mem(cap_id) != "user":
+            return None
+        return _MemBacking("user")
+
+    def describe(self, row: _MemBacking) -> Capability:
+        return self._cap(with_schema=True)
+
+    async def invoke(self, row: _MemBacking, args: dict) -> InvokeResult:
+        cap_id = f"{CAP_KIND_MEMORY}:user"
+        raw = {"cap_id": cap_id, "kind": CAP_KIND_MEMORY}
+        # 스코프는 **오직** principal 도출 user_id — args의 어떤 필드(user_id 등)도 무시(anti-leak 불변식).
+        text = str(args.get("text", "")) if isinstance(args, dict) else str(args)
+        limit = args.get("limit", 4) if isinstance(args, dict) else 4
+        from . import memory
+        from .mem_config import default_mem_cfg
+
+        async with self._session_factory() as db:
+            mem_cfg = await default_mem_cfg(db)
+        # recall_probe: 백엔드 *가용성*을 결과와 구분(None=미가용). 챗 경로 `search`와 코어 공유(drift 0).
+        hits = await asyncio.to_thread(
+            memory.recall_probe, {"user_id": self._user_id}, text, mem_cfg, limit
+        )
+        if hits is None:
+            return InvokeResult(
+                text="", trust="untrusted",
+                error="메모리 백엔드가 구성되지 않아 회상할 수 없습니다.", raw=raw,
+            )
+        # 결과 = 기억 내용 = **데이터**(지시 아님). 챗 회상 주입과 동일 포맷(drift 0).
+        return InvokeResult(
+            text=memory.format_memory_hits(hits), trust="untrusted", error=None, raw=raw
+        )
+
+    def node_label(self, row: _MemBacking) -> str:
+        return f"broker_invoke:{CAP_KIND_MEMORY}:user"
+
+    def approval_for(self, cap_id: str, args: dict) -> dict | None:
+        return None  # 메모리 읽기=부수효과 없음 → 승인 게이트 불요(memory write는 스펙 104 밖).
+
+
 class PolicyScopedBroker:
     """정책으로 미리 스코프된 능력 브로커. `agent.runtime.CapabilityBroker` Protocol 적합.
 
@@ -571,14 +676,18 @@ class PolicyScopedBroker:
         rbac_allows: Callable[[str], bool],
         *,
         session_factory=SessionLocal,
+        user_id: str | None = None,
     ):
         self._allow: set[str] = set(allowlist or [])
         self._rbac_allows = rbac_allows
         self._session_factory = session_factory
+        # user_id = 실행 주체(principal) 도출값 — MemoryProvider가 per-user 스코프에 씀(스펙 104).
+        # cap_id·args가 아니라 여기서만 주입돼, 능력 이름으로 남을 가리킬 방법이 없다(anti-leak).
         self._providers: list[_CapabilityProvider] = [
             AgentProvider(session_factory),
             McpProvider(session_factory),
             RagProvider(session_factory),
+            MemoryProvider(session_factory, user_id),
         ]
         self._by_kind = {p.kind: p for p in self._providers}
         # 관측(설계결정 7) — invoke 이력. broker.invoke가 invisible하지 않음을 보증(호출별 노드 프레임).
@@ -673,4 +782,7 @@ def build_broker(principal, allowlist) -> PolicyScopedBroker:
             authz.get_enforcer().enforce(str(principal.id), f"capability:{kind}", "invoke")
         )
 
-    return PolicyScopedBroker(allowlist, rbac_allows)
+    # user_id = 주체 도출값(스펙 104 MemoryProvider self-scope). 머신 토큰(str)은 id 없음 → None →
+    # 메모리 능력 없음(rbac_allows도 deny). 어드민이어도 자기 id라 타인 기억 위임 접근 불가(에스컬레이션 X).
+    uid = None if isinstance(principal, str) else str(principal.id)
+    return PolicyScopedBroker(allowlist, rbac_allows, user_id=uid)
