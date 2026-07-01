@@ -31,7 +31,6 @@ import {
   resyncAgent,
   listModels,
   listCollections,
-  listAgentImpls,
   type Model,
   type Collection,
 } from '../../api'
@@ -71,17 +70,16 @@ function blankForm(blocks: Record<string, BlockCategory>, models: Model[]): Agen
   }
 }
 
-/* impl 키 → 친절 라벨/설명(스펙 106). 미지의 키는 raw로 폴백(레지스트리가 진실 원천, UI는 표시만).
-   오케스트레이터(브로커 위임) 여부도 여기서 — capabilities 힌트 표시에 쓴다. */
-const IMPL_META: Record<string, { label: string; desc: string; orchestrator?: boolean }> = {
-  '': { label: '기본 (UI 에이전트)', desc: '표준 대화 에이전트 — 능력 위임 안 함' },
-  orchestrate: { label: '오케스트레이터 · 첫 매치 위임', desc: '질문에 맞는 첫 능력 하나에 위임', orchestrator: true },
-  orchestrate_ranked: { label: '오케스트레이터 · 랭킹 조합', desc: '관련도 상위 능력들을 순차 조합', orchestrator: true },
-  route: { label: '조건 분기', desc: '입력을 분류해 경로 선택' },
-  plan_execute: { label: '계획–실행', desc: '계획 수립 후 단계 실행' },
-}
-const implMeta = (key: string) => IMPL_META[key] ?? { label: key, desc: '커스텀 런타임' }
-const isOrchestratorImpl = (key: string) => IMPL_META[key]?.orchestrator === true
+/* 에이전트 종류(사용자 언어, 스펙 108) — 내부 impl 키를 유저가 이해하는 두 선택지로 감싼다.
+   ''=직접 응답(DefaultUiAgent, 자기 도구로 답함), 'orchestrate'=조율형(다른 곳에 넘김).
+   impl·브로커·위임·오케스트레이터 같은 내부어는 UI에 절대 노출하지 않는다. */
+const AGENT_TYPES: { value: string; label: string; desc: string }[] = [
+  { value: '', label: '직접 응답', desc: '스스로 도구·문서·기억을 써서 답합니다.' },
+  { value: 'orchestrate', label: '조율형', desc: '일을 다른 에이전트·도구에 넘겨 처리합니다.' },
+]
+const typeDesc = (key: string) => AGENT_TYPES.find((t) => t.value === key)?.desc ?? ''
+// 조율형(다른 곳에 위임하는 런타임) 판정 — orchestrate/orchestrate_ranked 둘 다(구 저장분 호환).
+const isOrchestratorImpl = (key: string) => key === 'orchestrate' || key === 'orchestrate_ranked'
 
 /* ---- Create / edit form (composes blocks into a version config) ---- */
 function AgentForm({
@@ -92,7 +90,6 @@ function AgentForm({
   blocks,
   models,
   collections,
-  impls,
   agents,
   onCancel,
   onSave,
@@ -104,7 +101,6 @@ function AgentForm({
   blocks: Record<string, BlockCategory>
   models: Model[]
   collections: Collection[]
-  impls: string[]
   agents: Agent[]
   onCancel: () => void
   onSave: (data: AgentFormData) => void
@@ -158,36 +154,36 @@ function AgentForm({
     modelOptions.push({ label: form.model, value: form.model })
   }
 
-  // 실행 방식(impl) 옵션 — '기본'(빈값) + 등록 impl. 현재 값이 목록 밖이면 보존(편집 시 사라짐 방지).
-  const implOptions = ['', ...impls].map((k) => ({ label: implMeta(k).label, value: k }))
-  if (form.impl && !implOptions.some((o) => o.value === form.impl)) {
-    implOptions.push({ label: implMeta(form.impl).label, value: form.impl })
+  // 종류 선택지 2개(직접 응답/조율형). 구 저장분이 exotic impl이면 값 보존해 편집 시 안 사라지게.
+  const typeOptions = AGENT_TYPES.map((t) => ({ label: t.label, value: t.value }))
+  if (form.impl && !typeOptions.some((o) => o.value === form.impl)) {
+    typeOptions.push({ label: isOrchestratorImpl(form.impl) ? '조율형' : form.impl, value: form.impl })
   }
 
-  // 능력(capabilities) 후보 — kind별로 폼이 가진 데이터에서 조립(스펙 106). cap id = `<kind>:<...>`.
-  // 강제(allowlist∩RBAC∩승인)는 백엔드 브로커(104/105)가 하고, 여기선 저작만.
+  // "무엇에 맡길까요?" 후보 — 폼이 가진 데이터에서 조립(스펙 106). 표시엔 사람이 읽는 이름만,
+  // 내부 id(cap = `<kind>:<...>`)는 값으로만(스펙 108 유저어). 강제는 백엔드 브로커(104/105).
   const capGroups: { title: string; items: { id: string; label: string }[] }[] = [
     {
-      title: '내 기억',
-      items: [
-        { id: 'memory:user', label: '내 기억 읽기 (memory:user)' },
-        { id: 'memwrite:user', label: '내 기억 쓰기 (memwrite:user) · 저장 시 승인' },
-      ],
-    },
-    {
-      title: '문서 컬렉션 (RAG)',
-      items: collections.map((c) => ({ id: `rag:${c.name}`, label: `${c.name} (rag:${c.name})` })),
-    },
-    {
-      title: 'MCP 서버',
-      items: (blocks.mcp?.items ?? []).map((m) => ({ id: `mcp:${m.name}`, label: `${m.name} 전체 (mcp:${m.name})` })),
-    },
-    {
-      title: '다른 에이전트 (A2A)',
-      // 원격(code/external) 에이전트만 A2A provider 대상(로컬 UI 에이전트는 브로커 위임 대상 아님).
+      title: '다른 에이전트',
+      // 원격(code/external) 에이전트만 위임 대상(로컬 UI 에이전트는 대상 아님).
       items: agents
         .filter((a) => a.source === 'code' || a.source === 'external')
-        .map((a) => ({ id: a.agentId, label: `${a.name} (${a.agentId})` })),
+        .map((a) => ({ id: a.agentId, label: a.name })),
+    },
+    {
+      title: '도구',
+      items: (blocks.mcp?.items ?? []).map((m) => ({ id: `mcp:${m.name}`, label: m.name })),
+    },
+    {
+      title: '문서',
+      items: collections.map((c) => ({ id: `rag:${c.name}`, label: c.name })),
+    },
+    {
+      title: '사용자 기억',
+      items: [
+        { id: 'memory:user', label: '사용자 기억 읽기' },
+        { id: 'memwrite:user', label: '사용자 기억에 저장 · 승인 필요' },
+      ],
     },
   ]
   const orchestratorSelected = isOrchestratorImpl(form.impl)
@@ -262,6 +258,21 @@ function AgentForm({
             {form.temperature == null ? '자동 — 모델 등록 기본값을 사용합니다.' : '에이전트에 저장됩니다(세션마다 동일).'}
           </span>
         </Field>
+        <Field label="에이전트 종류">
+          <Select
+            value={form.impl}
+            onChange={(v) => set('impl', v)}
+            options={typeOptions}
+            style={{ width: '100%' }}
+          />
+          <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+            {typeDesc(form.impl)}
+          </span>
+        </Field>
+        {/* 종류가 설정면을 가른다(스펙 108): 직접 응답=직접 자원(기억·문서·권한·도구),
+            조율형=위임 대상만. 같은 자원(도구·문서)이 한 곳에만 나오게 해 중복 제거. */}
+        {!orchestratorSelected && (
+          <>
         <Field label="메모리 타입">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {(blocks.memory?.items ?? []).map((m) => (
@@ -315,6 +326,8 @@ function AgentForm({
             ) : null}
           </div>
         </Field>
+          </>
+        )}
         <Field label="채팅 히스토리">
           <Select
             value={form.historyDepth}
@@ -340,6 +353,8 @@ function AgentForm({
             </span>
           </div>
         </Field>
+        {!orchestratorSelected && (
+          <>
         <Field label="권한">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {(blocks.permission?.items ?? []).map((p) => {
@@ -365,7 +380,7 @@ function AgentForm({
             })}
           </div>
         </Field>
-        <Field label="MCP 서버">
+        <Field label="도구 (MCP)">
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 16px' }}>
             {(blocks.mcp?.items ?? []).map((m) => (
               <Checkbox key={m.id} checked={form.mcps.includes(m.name)} onChange={() => toggle('mcps', m.name)}>
@@ -374,21 +389,12 @@ function AgentForm({
             ))}
           </div>
         </Field>
-        <Field label="실행 방식 (impl)">
-          <Select
-            value={form.impl}
-            onChange={(v) => set('impl', v)}
-            options={implOptions}
-            style={{ width: '100%' }}
-          />
-          <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-            {implMeta(form.impl).desc}
-          </span>
-        </Field>
-        {/* 능력 칸은 오케스트레이터 impl일 때만(스펙 107) — 보통 에이전트 생성 시엔 아예 안 보여 폼 단순.
+          </>
+        )}
+        {/* "무엇에 맡길까요?" 칸은 조율형일 때만(스펙 107·108) — 보통 에이전트 생성 시엔 아예 안 보여 폼 단순.
             종류별 접이식: 기본 접힘, 선택 있는 종류만 펼쳐 열고, 늘 수 있는 종류엔 패널 내 검색. */}
         {orchestratorSelected && (
-          <Field label="능력 (브로커 위임)">
+          <Field label="무엇에 맡길까요?">
             <Collapse
               size="small"
               defaultActiveKey={capGroups.filter((g) => g.items.some((it) => form.capabilities.includes(it.id))).map((g) => g.title)}
@@ -1256,7 +1262,6 @@ export default function AgentsView() {
   const [blocks, setBlocks] = useState<Record<string, BlockCategory>>({})
   const [models, setModels] = useState<Model[]>([])
   const [collections, setCollections] = useState<Collection[]>([])
-  const [impls, setImpls] = useState<string[]>([]) // 등록된 실행 방식(스펙 106)
   const [detailId, setDetailId] = useState<string | null>(null)
   const detail = agents.find((a) => a.id === detailId) || null
   const [formOpen, setFormOpen] = useState(false)
@@ -1287,10 +1292,6 @@ export default function AgentsView() {
     listCollections()
       .then(setCollections)
       .catch((e) => message.error(String(e)))
-    // 실행 방식(impl) 목록 — 능력 브로커 UI(스펙 106). 실패해도 폼은 '기본'만으로 동작.
-    listAgentImpls()
-      .then(setImpls)
-      .catch(() => setImpls([]))
   }, [])
 
   // 단일 에이전트를 반환값(전체 AgentOut)으로 교체. 활성화·편집·되돌리기·새초안·재동기 등
@@ -1672,7 +1673,6 @@ export default function AgentsView() {
         blocks={blocks}
         models={models}
         collections={collections}
-        impls={impls}
         agents={agents}
         draftVersion={
           editing
