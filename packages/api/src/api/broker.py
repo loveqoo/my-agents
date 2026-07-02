@@ -1086,7 +1086,7 @@ class PolicyScopedBroker:
         # 관측: broker.invoke 1회 = 노드 프레임 1개(설계결정 7 — invisible 금지). args/result는 안 담음
         # (087/092 — 원문 누출 0). interrupt payload만 _redact_args로 마스킹된 args를 싣는다.
         inv: dict = {"node": provider.node_label(row), "cap_id": cap_id, "ms": ms}
-        # 표시용 메타(스펙 130) — provider가 raw에 실은 숫자만 통과(hits/topScore), 본문·args 불포함.
+        # 표시용 메타(스펙 130) — provider가 raw에 실은 숫자만 통과(hits/topScore), args 불포함.
         raw = res.raw if isinstance(res.raw, dict) else {}
         if "hits" in raw:
             inv["hits"] = raw["hits"]
@@ -1094,6 +1094,13 @@ class PolicyScopedBroker:
             inv["topScore"] = raw["topScore"]
         if res.error:
             inv["error"] = True
+        if res.text:
+            # 결과 본문 프리뷰(스펙 131) — 직접 MCP의 result(2000캡, 087)와 동일 계약으로 브로커도
+            # 노출(플레이그라운드=정밀 디버깅). 비밀 마스킹 백스톱(125 _sanitize) + 캡. 원문 전문은
+            # 여전히 미저장(캡 절단), args는 계속 불포함.
+            from .memory import _sanitize  # 지연 — 순환 import 방지
+
+            inv["resultPreview"] = _sanitize(res.text, cap=2000)
         self.invocations.append(inv)
         return res
 

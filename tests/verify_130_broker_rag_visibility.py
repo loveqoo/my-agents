@@ -48,8 +48,10 @@ async def main() -> None:
     check(inv.get("node", "").startswith("broker_invoke:rag:") and "ms" in inv and inv.get("cap_id") == "rag:Obsidian",
           "V2c 기존 필드(node/cap_id/ms) 유지")
 
-    allowed_keys = {"node", "cap_id", "ms", "hits", "topScore", "error"}
-    check(set(inv.keys()) <= allowed_keys, f"V3 엔트리 키 화이트리스트(본문/args 없음) (got {set(inv.keys())})")
+    # 스펙 131: resultPreview(마스킹·캡된 결과 본문) 추가 — 불변식은 "args 미포함+화이트리스트 밖 없음".
+    allowed_keys = {"node", "cap_id", "ms", "hits", "topScore", "error", "resultPreview"}
+    check(set(inv.keys()) <= allowed_keys and "args" not in inv,
+          f"V3 엔트리 키 화이트리스트(args 없음, 131 resultPreview 허용) (got {set(inv.keys())})")
     check("text" not in str(inv.get("hits")) and all(not isinstance(v, (list, dict)) for v in inv.values()),
           "V3b 값에 컬렉션 본문류(리스트/딕트) 없음")
 

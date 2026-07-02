@@ -2,7 +2,7 @@
    Shows the resolved system prompt, retrieved memories, MCP tool calls and the
    LangGraph execution path for the currently-selected assistant turn. */
 import { useState, type CSSProperties, type ReactNode } from 'react'
-import { Tag, Button } from 'antd'
+import { Tag, Button, Collapse } from 'antd'
 import { Icon } from '../admin/icons'
 import type { ChatMsg, Memory, McpCallT, GraphNode, Trace } from './agentData'
 import type { Agent } from '../admin/mockData'
@@ -318,19 +318,43 @@ export function Inspector({
             <Metric label="출력 토큰" value={t.tokens.out.toLocaleString()} />
           </div>
 
-          <Section icon="file" iconColor="var(--color-primary)" title="시스템 프롬프트">
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap', rowGap: 6 }}>
-              <Tag color="blue" style={{ whiteSpace: 'normal', height: 'auto', maxWidth: '100%', overflowWrap: 'anywhere' }}>
-                {agent.name}
-              </Tag>
-              {(agent.memories || []).map((m) => (
-                <Tag key={m} color="purple" style={{ whiteSpace: 'normal', height: 'auto', maxWidth: '100%', overflowWrap: 'anywhere' }}>
-                  {m}
+          {/* 전송 프롬프트(스펙 131) — 실제 LLM에 넣은 메시지 배열(조립 system=persona+회상 포함).
+              trace.sentMessages 있으면 그것을(충실본), 없으면(구 트레이스·재개 턴) 정적 persona 폴백. */}
+          {t.sentMessages?.length ? (
+            <Section icon="file" iconColor="var(--color-primary)" title="전송 프롬프트" count={t.sentMessages.length}>
+              <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginBottom: 8 }}>
+                이 턴에 모델로 전송된 메시지 전체(회상 주입 포함 · 메시지당 2000자 표시 상한).
+              </div>
+              <Collapse
+                size="small"
+                defaultActiveKey={['m0']}
+                items={t.sentMessages.map((m, i) => ({
+                  key: `m${i}`,
+                  label: (
+                    <span>
+                      <Tag color={m.role === 'system' ? 'blue' : m.role === 'user' ? 'orange' : 'green'}>{m.role}</Tag>
+                      <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>{m.content.length}자</span>
+                    </span>
+                  ),
+                  children: <pre style={codeBox}>{m.content}</pre>,
+                }))}
+              />
+            </Section>
+          ) : (
+            <Section icon="file" iconColor="var(--color-primary)" title="시스템 프롬프트">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap', rowGap: 6 }}>
+                <Tag color="blue" style={{ whiteSpace: 'normal', height: 'auto', maxWidth: '100%', overflowWrap: 'anywhere' }}>
+                  {agent.name}
                 </Tag>
-              ))}
-            </div>
-            <pre style={codeBox}>{agent.systemPrompt}</pre>
-          </Section>
+                {(agent.memories || []).map((m) => (
+                  <Tag key={m} color="purple" style={{ whiteSpace: 'normal', height: 'auto', maxWidth: '100%', overflowWrap: 'anywhere' }}>
+                    {m}
+                  </Tag>
+                ))}
+              </div>
+              <pre style={codeBox}>{agent.systemPrompt}</pre>
+            </Section>
+          )}
 
           <Section icon="bulb" iconColor="var(--purple-6)" title="메모리" count={t.memories.length}>
             <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>메모리 타입: {(agent.memories || []).join(', ')}</div>
@@ -409,27 +433,37 @@ export function Inspector({
                     ⚠ 미해석 컬렉션(임베딩 모델/프로바이더 불완전): {unresolved.join(', ')}
                   </div>
                 ) : null}
-                {/* 브로커 위임 검색(조율형, 스펙 130) — 건수·최고 유사도·판정 태그. */}
+                {/* 브로커 위임 검색(조율형, 스펙 130) — 건수·최고 유사도·판정 태그.
+                    131: 결과 본문 프리뷰를 접이식으로(2000자 캡·마스킹된 안전본). */}
                 {brokerRag.map((b, i) => (
-                  <div key={`bk-${i}`} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6, fontSize: 13 }}>
-                    <Tag color="geekblue" style={{ fontFamily: 'var(--font-family-code)' }}>{b.cap_id}</Tag>
-                    {b.error ? (
-                      <Tag color="red">검색 실패</Tag>
-                    ) : (
-                      <>
-                        <span>검색 {b.hits ?? 0}건</span>
-                        {/* 유사도·판정은 topScore가 **실측 숫자일 때만** — 없는데 0.000/관련도낮음으로
-                            오표시하지 않는다(codex 130 P3). */}
-                        {b.hits && typeof b.topScore === 'number' ? (
-                          <span style={{ color: 'var(--color-text-secondary)' }}>· 최고 유사도 {b.topScore.toFixed(3)}</span>
-                        ) : null}
-                        {b.hits && typeof b.topScore === 'number' && b.topScore < 0.5 ? (
-                          <Tag color="orange">관련도 낮음</Tag>
-                        ) : null}
-                        {!b.hits ? <Tag color="default">0건</Tag> : null}
-                      </>
-                    )}
-                    <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>{b.ms}ms</span>
+                  <div key={`bk-${i}`} style={{ marginBottom: 6 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 13 }}>
+                      <Tag color="geekblue" style={{ fontFamily: 'var(--font-family-code)' }}>{b.cap_id}</Tag>
+                      {b.error ? (
+                        <Tag color="red">검색 실패</Tag>
+                      ) : (
+                        <>
+                          <span>검색 {b.hits ?? 0}건</span>
+                          {/* 유사도·판정은 topScore가 **실측 숫자일 때만** — 없는데 0.000/관련도낮음으로
+                              오표시하지 않는다(codex 130 P3). */}
+                          {b.hits && typeof b.topScore === 'number' ? (
+                            <span style={{ color: 'var(--color-text-secondary)' }}>· 최고 유사도 {b.topScore.toFixed(3)}</span>
+                          ) : null}
+                          {b.hits && typeof b.topScore === 'number' && b.topScore < 0.5 ? (
+                            <Tag color="orange">관련도 낮음</Tag>
+                          ) : null}
+                          {!b.hits ? <Tag color="default">0건</Tag> : null}
+                        </>
+                      )}
+                      <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>{b.ms}ms</span>
+                    </div>
+                    {b.resultPreview ? (
+                      <Collapse
+                        size="small"
+                        style={{ marginTop: 4 }}
+                        items={[{ key: 'r', label: <span style={{ fontSize: 12 }}>검색 결과 본문</span>, children: <pre style={codeBox}>{b.resultPreview}</pre> }]}
+                      />
+                    ) : null}
                   </div>
                 ))}
                 {ragCalls.length ? (
@@ -448,6 +482,34 @@ export function Inspector({
               <div style={{ fontSize: 13, color: 'var(--color-text-tertiary)' }}>호출된 도구 없음.</div>
             )}
           </Section>
+
+          {/* 비-RAG 브로커 위임 호출(스펙 131, codex #4) — mcp:/memory:/agent: 능력도 결과 본문을
+              표면화(부분 표면화=새 사각지대, 130 교훈). rag:* 는 위 RAG 섹션이 담당. */}
+          {(() => {
+            const others = (t.brokerCalls ?? []).filter((b) => !b.cap_id.startsWith('rag:'))
+            if (!others.length) return null
+            return (
+              <Section icon="share-alt" iconColor="var(--gold-6)" title="위임 호출 (브로커)" count={others.length}>
+                {others.map((b, i) => (
+                  <div key={`ob-${i}`} style={{ marginBottom: 6 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 13 }}>
+                      <Tag color="gold" style={{ fontFamily: 'var(--font-family-code)' }}>{b.cap_id}</Tag>
+                      {b.error ? <Tag color="red">실패</Tag> : null}
+                      {typeof b.hits === 'number' ? <span>{b.hits}건</span> : null}
+                      <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>{b.ms}ms</span>
+                    </div>
+                    {b.resultPreview ? (
+                      <Collapse
+                        size="small"
+                        style={{ marginTop: 4 }}
+                        items={[{ key: 'r', label: <span style={{ fontSize: 12 }}>결과 본문</span>, children: <pre style={codeBox}>{b.resultPreview}</pre> }]}
+                      />
+                    ) : null}
+                  </div>
+                ))}
+              </Section>
+            )
+          })()}
 
           <Section icon="share-alt" iconColor="var(--green-6)" title="LangGraph 경로" count={t.graph.length}>
             {t.resumedFrom ? (

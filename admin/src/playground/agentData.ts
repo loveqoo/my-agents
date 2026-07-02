@@ -51,8 +51,19 @@ export interface Trace {
   ragCollections?: string[]
   // 요청됐으나 해석 실패한 컬렉션명(조용히 비는 footgun을 드러냄). 스펙 079.
   ragUnresolved?: string[]
-  // 브로커 호출 상세(스펙 130) — 조율형 위임 호출의 표시용 메타(본문/args 없음). rag:* 는 RAG 섹션이 렌더.
-  brokerCalls?: { cap_id: string; ms: number; hits?: number; topScore?: number; error?: boolean }[]
+  // 브로커 호출 상세(스펙 130) — 조율형 위임 호출의 표시용 메타. rag:* 는 RAG 섹션이 렌더.
+  // resultPreview(스펙 131): 결과 본문 프리뷰(2000자 캡·비밀 마스킹, args는 계속 미포함).
+  brokerCalls?: {
+    cap_id: string
+    ms: number
+    hits?: number
+    topScore?: number
+    error?: boolean
+    resultPreview?: string
+  }[]
+  // 전송 프롬프트 전문(스펙 131) — 실제 그래프에 넣은 배열(조립 system=persona+회상 포함), 메시지당
+  // 2000자 캡. 재개 턴은 N/A(체크포인트 내부 재개 — 스펙 131 경계).
+  sentMessages?: { role: string; content: string }[]
 }
 
 export type ChatMsg = { role: 'me' | 'ai'; text: string; trace?: Trace }

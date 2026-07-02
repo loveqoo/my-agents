@@ -371,7 +371,8 @@ def build_rag_tool(collections: list[dict], calls_sink: list[dict]) -> Structure
             _record("error", exc.record_label)
             return exc.tool_msg
 
-        _record("ok", f"{len(results)}건 반환" if results else "관련 결과 0건", len(results))
+        # 결과 본문 스니펫(스펙 131) — "N건 반환" 카운트 대신 실제 구절(_record가 _RESULT_CAP 캡).
+        _record("ok", format_rag_hits(results) if results else "관련 결과 0건", len(results))
         return format_rag_hits(results)
 
     return StructuredTool.from_function(
@@ -422,10 +423,13 @@ _REDACTED = "«redacted»"
 
 
 # 값 원문을 *노출해도 되는* 알려진 안전 필드(최소 allowlist). 이 기능의 존재이유가 "그 값을 보여주는
-# 것"인 필드만 — 현재는 `plan`(노드가 세운 계획 텍스트)뿐. 그 외 임의 키의 문자열 값은 원문 미표시
-# (fail-closed): 키 이름이 평범/비영문이라 _SENSITIVE_KEY가 못 잡아도 *값 자체* 비밀이 안 샌다
-# (codex 적대 리뷰 F2: 값-비밀 차단). 새 안전 필드 추가는 "그 키는 절대 비밀이 아니다"를 보증할 때만.
-_VALUE_SAFE_KEYS = frozenset({"plan"})
+# 것"인 필드만. 그 외 임의 키의 문자열 값은 원문 미표시(fail-closed): 키 이름이 평범/비영문이라
+# _SENSITIVE_KEY가 못 잡아도 *값 자체* 비밀이 안 샌다(codex 적대 리뷰 F2: 값-비밀 차단). 새 안전 필드
+# 추가는 "그 키는 절대 비밀이 아니다"를 보증할 때만.
+# 스펙 131 확대: query(analyze가 뽑은 유저 질의)·route(분류 라벨)·delegated(위임 결과 fold, 인스펙터
+# brokerCalls resultPreview와 같은 내용) — 출하 그래프(route/plan_execute/orchestrate)의 닫힌 상태 키로
+# 전부 비-비밀임을 코드로 확인(131 조사). 미지 키는 여전히 길이만(F2 유지 — 커스텀 플로우 안전).
+_VALUE_SAFE_KEYS = frozenset({"plan", "query", "route", "delegated"})
 
 # 스펙 087: MCP 호출 인자·결과 redaction(형제 trace 표면). 086 노드델타와 달리 args는 *보여주는 게
 # 목적*(인스펙터 디버깅 가치)이라 평범한 키의 값은 보존하고 민감 *키*만 마스킹한다(value-allowlist
@@ -503,7 +507,13 @@ def _summarize_node_update(node: str, delta: Any) -> str | None:
             if isinstance(val, str):
                 # 안전 키(plan)만 값 원문(budgeted 캡); 그 외 임의 키는 길이만(F2 값-비밀 fail-closed).
                 if key in _VALUE_SAFE_KEYS:
-                    parts.append(_cap(val, _FIELD_CAP))  # 필드 캡(노드 전체 캡보다 작음 — 이중 캡 방지)
+                    # 키 접두로 어떤 값인지 명시(131 — 안전 키가 4개로 늘어 구분 필요).
+                    # delegated는 위임 결과(untrusted 본문) fold라 **비밀 마스킹 백스톱 필수**
+                    # (codex 131 #1 — 캡은 크기 방어일 뿐). 마스킹은 캡 **이전에**(cap 크게 줘 무절단),
+                    # 잘림은 기존 _cap이 담당 — "…N자 생략" 정직 표기 보존(086 U2 불변식).
+                    from .memory import _sanitize as _mask
+
+                    parts.append(f"{key}: {_cap(_mask(val, cap=1_000_000), _FIELD_CAP)}")
                 else:
                     parts.append(f"{key}: <{len(val)}자>")
             elif isinstance(val, (list, tuple)):

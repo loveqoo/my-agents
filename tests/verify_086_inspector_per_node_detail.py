@@ -58,7 +58,9 @@ def unit_checks() -> None:
         leak = api_rt._summarize_node_update("n", {key: "sk-live-PLAINKEY-9999"})
         check("PLAINKEY" not in (leak or ""), f"U1c 평범/비영문 키({key}) 문자열 값도 원문 미표시")
     # plan은 유일한 값-노출 안전 키(이 기능의 존재이유) — 원문 표시 유지.
-    check(api_rt._summarize_node_update("plan", {"plan": "단계1"}) == "단계1", "U1c plan은 값 원문 유지")
+    # 스펙 131: 안전 키가 4개(plan/query/route/delegated)로 늘며 "키: 값" 접두 표기 — 불변식은
+    # **값 원문 노출**(길이 가림 아님)이지 접두 유무가 아니다(learning 124: 표시형식≠불변식).
+    check("단계1" in (api_rt._summarize_node_update("plan", {"plan": "단계1"}) or ""), "U1c plan은 값 원문 유지")
 
     # U2 캡 — raw 문자열 길이에서 자르고 정직 표기(no silent truncation).
     big = api_rt._summarize_node_update("n", {"plan": "가" * 1000})
@@ -76,7 +78,7 @@ def unit_checks() -> None:
 
     # U3 알려진 형태 — plan 문자열·messages 건수·빈/비dict→None.
     plan_s = api_rt._summarize_node_update("plan", {"plan": "1) 핵심 2) 근거"})
-    check(plan_s == "1) 핵심 2) 근거", f"U3 plan은 계획 문자열 그대로 (got {plan_s})")
+    check("1) 핵심 2) 근거" in (plan_s or ""), f"U3 plan 값 원문 포함(131: 키 접두 허용) (got {plan_s})")
     msg_s = api_rt._summarize_node_update("execute", {"messages": [object(), object()]})
     check(msg_s == "메시지 2건", f"U3 messages는 건수만(본문 중복 안 실음) (got {msg_s})")
     check(api_rt._summarize_node_update("n", {}) is None, "U3 빈 델타 → None(요약 행 미표시)")

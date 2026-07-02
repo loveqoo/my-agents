@@ -451,11 +451,36 @@ def _next_owner(current: str | None, incoming: str | None) -> str | None:
     return current
 
 
+# 전송 프롬프트 캡처 상한(스펙 131) — 메시지당 자수 캡 + **개수 캡**(codex 131 #3: historyDepth
+# 오버라이드로 무제한 히스토리가 trace JSONB에 통째 영속되는 비대 차단).
+_SENT_MSG_CHAR_CAP = 2000
+_SENT_MSG_COUNT_CAP = 30
+
+
+def _build_sent_messages(persona_prompt: str, messages: list[dict]) -> list[dict]:
+    """전송 프롬프트 전문 캡처(스펙 131) — 실제 그래프 입력(system=persona+회상 포함)을 표시용으로.
+
+    안전장치: (a) 메시지당 자수 캡, (b) 개수 캡(초과분은 생략 표식 1건으로), (c) **비밀 마스킹 백스톱**
+    (codex 131 #2 — 페르소나/오버라이드에 사용자가 적은 API 키가 trace JSONB에 복제되지 않게,
+    125 _sanitize 재사용). 원문 전문은 저장하지 않는다(캡 절단본)."""
+    from .memory import _sanitize as _mask
+
+    out = [{"role": "system", "content": _mask(persona_prompt, cap=_SENT_MSG_CHAR_CAP)}]
+    tail = messages[-_SENT_MSG_COUNT_CAP:]
+    omitted = len(messages) - len(tail)
+    if omitted > 0:
+        out.append({"role": "notice", "content": f"(이전 {omitted}개 메시지 생략 — 표시 상한 {_SENT_MSG_COUNT_CAP}개)"})
+    out.extend(
+        {"role": m["role"], "content": _mask(m["content"] or "", cap=_SENT_MSG_CHAR_CAP)} for m in tail
+    )
+    return out
+
+
 def _broker_calls_trace(invocations: list[dict]) -> list[dict]:
     """브로커 호출 이력 → 트레이스 표시용 투영(스펙 130) — **키 화이트리스트 단일 출처**(메인/승인대기/
     재개 세 경로 공유, drift 0). 본문·args 불포함(087/092 원문 누출 0 유지)."""
     return [
-        {k: v for k, v in inv.items() if k in ("cap_id", "ms", "hits", "topScore", "error")}
+        {k: v for k, v in inv.items() if k in ("cap_id", "ms", "hits", "topScore", "error", "resultPreview")}
         for inv in invocations
     ]
 
@@ -732,6 +757,10 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
     messages = _window(
         [{"role": m.role, "content": m.content} for m in body.messages], ctx["history_depth"]
     )
+    # 전송 프롬프트 전문(스펙 131) — 실제 그래프 입력을 캡·마스킹해 캡처(_build_sent_messages).
+    # 조율형의 synthesize 내부 데이터 채널 재조립은 delegated 노드 값(131 #3)으로 관측. 재개 턴은
+    # 체크포인트 내부 재개라 조립본이 여기 없음 — N/A(스펙 131 경계).
+    sent_messages = _build_sent_messages(persona_prompt, messages)
 
     async def event_stream():
         t0 = time.perf_counter()
@@ -822,6 +851,7 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
             if build_broker_scoped.invocations:
                 # 일시정지 **이전에 이미 실행된** 선행 브로커 호출 표면화(스펙 130, codex #2).
                 pending_trace["brokerCalls"] = _broker_calls_trace(build_broker_scoped.invocations)
+            pending_trace["sentMessages"] = sent_messages  # 승인대기 턴도 전송 전문(스펙 131)
             if ctx["rag_collections"]:
                 pending_trace["ragCollections"] = [c["name"] for c in ctx["rag_collections"]]
             yield f"event: trace\ndata: {json.dumps(pending_trace, ensure_ascii=False)}\n\n"
@@ -849,6 +879,7 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
             graph_observations=observed,
         )
         trace["contextMessages"] = len(messages)  # 모델에 넣은 메시지 수(historyDepth 적용 결과)
+        trace["sentMessages"] = sent_messages  # 전송 프롬프트 전문(스펙 131, 메시지당 2000자 캡)
         if build_broker_scoped.invocations:
             # 브로커 호출 상세(스펙 130) — 조율형의 RAG 검색이 인스펙터에 "N건·최고 유사도"로 보이게.
             # 위임 없던 턴은 필드 자체가 없음(무회귀).
