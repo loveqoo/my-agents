@@ -159,6 +159,42 @@ async def create_agent(
     return await _reload_out(session, agent.id)
 
 
+# ----------------------------- 복제 (저마찰 재사용, 스펙 120) -----------------------------
+@router.post("/{agent_id}/clone", response_model=AgentOut, status_code=201)
+async def clone_agent(
+    agent_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    principal=Depends(current_principal),
+) -> AgentOut:
+    """기존 에이전트 설정을 새 **ui 초안**으로 복사(행위 재사용 — '이거랑 비슷한 거 하나 더'). 복제는
+    **읽기+새 생성**이라 원본 *관리 권한 불요*(가시하면 복제 가능 — 사용≠관리, 스펙 112). 소유권은
+    **복제자**에게 스탬프(원본 소유자 승계 금지 — 069 no-takeover). 미존재/미가시 원본은 404-fold."""
+    src = await _load_agent(session, agent_id)
+    if src is None:
+        raise HTTPException(status_code=404, detail="agent not found")
+    cfg = dict(src.config or {})
+    cfg.pop("card", None)  # 외부 등록 스냅샷은 복사 안 함(ui 복제=행위 설정만; endpoint/token은 Agent 컬럼이라 애초 미복사)
+    clone = Agent(
+        agent_id=_new_agent_id(),
+        name=f"{src.name} (복사본)",
+        source="ui",
+        model=cfg.get("model") or src.model,
+        persona=await resolve_persona(session, cfg.get("persona") or ""),
+        history_depth=cfg.get("historyDepth") or src.history_depth,
+        config=cfg,
+        exposed={"a2a": False},
+        status="idle",
+        active_version=None,
+        owner_id=owner_of(principal),  # 복제자가 소유(스펙 112·069 — 원본 소유자 승계 안 함)
+    )
+    clone.versions.append(
+        AgentVersion(version="v1", status="draft", note=f"복제: {src.name}", config=cfg)
+    )
+    session.add(clone)
+    await session.commit()
+    return await _reload_out(session, clone.id)
+
+
 # ----------------------------- 편집 = 초안 저장 -----------------------------
 @router.put("/{agent_id}", response_model=AgentOut)
 async def update_agent(

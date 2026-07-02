@@ -286,6 +286,8 @@ export const createAgent = (name: string, config: unknown) =>
 export const updateAgent = (id: string, name: string, config: unknown) =>
   put(`/agents/${id}`, { name, config }) as Promise<Agent>
 export const deleteAgent = (id: string) => del(`/agents/${id}`)
+/* 복제 — 기존 설정을 새 ui 초안으로 복사(저마찰 재사용, 스펙 120). 복제자가 소유. */
+export const cloneAgent = (id: string) => post(`/agents/${id}/clone`) as Promise<Agent>
 export const activateVersion = (id: string, version: string) =>
   post(`/agents/${id}/activate`, { version }) as Promise<Agent>
 export const revertVersion = (id: string, version: string) =>

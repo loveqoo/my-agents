@@ -23,6 +23,7 @@ import {
   createAgent,
   updateAgent,
   deleteAgent,
+  cloneAgent,
   activateVersion as apiActivateVersion,
   revertVersion as apiRevertVersion,
   forkVersion as apiForkVersion,
@@ -614,11 +615,13 @@ function CodeAgentDetail({
   agent,
   onClose,
   onDelete,
+  onClone,
   onResync,
 }: {
   agent: Agent
   onClose: () => void
   onDelete: (a: Agent) => void
+  onClone: (a: Agent) => void
   onResync: (a: Agent) => void
 }) {
   return (
@@ -628,13 +631,19 @@ function CodeAgentDetail({
       width={480}
       onClose={onClose}
       footer={
-        agent.can_manage === false ? (
-          <span style={{ color: 'var(--color-text-tertiary)' }}>다른 사용자 소유 — 관리 권한 없음</span>
-        ) : (
-          <Button danger icon={<Icon name="delete" />} onClick={() => onDelete(agent)}>
-            등록 해제
+        // 복제(스펙 120)는 관리 권한 불요 — 원격 에이전트도 행위 설정을 내 ui 초안으로 복사 가능.
+        <>
+          <Button icon={<Icon name="copy" />} onClick={() => onClone(agent)}>
+            복제
           </Button>
-        )
+          {agent.can_manage === false ? (
+            <span style={{ color: 'var(--color-text-tertiary)', marginLeft: 8 }}>다른 사용자 소유 — 관리 권한 없음</span>
+          ) : (
+            <Button danger icon={<Icon name="delete" />} onClick={() => onDelete(agent)}>
+              등록 해제
+            </Button>
+          )}
+        </>
       }
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
@@ -804,10 +813,12 @@ function ExternalAgentDetail({
   agent,
   onClose,
   onDelete,
+  onClone,
 }: {
   agent: Agent
   onClose: () => void
   onDelete: (a: Agent) => void
+  onClone: (a: Agent) => void
 }) {
   const card = agent.card
   const caps = Object.entries(card?.capabilities ?? {})
@@ -820,13 +831,19 @@ function ExternalAgentDetail({
       width={480}
       onClose={onClose}
       footer={
-        agent.can_manage === false ? (
-          <span style={{ color: 'var(--color-text-tertiary)' }}>다른 사용자 소유 — 관리 권한 없음</span>
-        ) : (
-          <Button danger icon={<Icon name="delete" />} onClick={() => onDelete(agent)}>
-            등록 해제
+        // 복제(스펙 120)는 관리 권한 불요 — 외부 A2A 에이전트의 행위 설정도 내 ui 초안으로 복사 가능.
+        <>
+          <Button icon={<Icon name="copy" />} onClick={() => onClone(agent)}>
+            복제
           </Button>
-        )
+          {agent.can_manage === false ? (
+            <span style={{ color: 'var(--color-text-tertiary)', marginLeft: 8 }}>다른 사용자 소유 — 관리 권한 없음</span>
+          ) : (
+            <Button danger icon={<Icon name="delete" />} onClick={() => onDelete(agent)}>
+              등록 해제
+            </Button>
+          )}
+        </>
       }
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
@@ -945,6 +962,7 @@ function AgentDetail({
   onClose,
   onEdit,
   onDelete,
+  onClone,
   onToggleExpose,
   onActivate,
   onTest,
@@ -956,6 +974,7 @@ function AgentDetail({
   onClose: () => void
   onEdit: (a: Agent) => void
   onDelete: (a: Agent) => void
+  onClone: (a: Agent) => void
   onToggleExpose: (a: Agent) => void
   onActivate: (a: Agent, v: VersionMeta) => void
   onTest: (a: Agent, v: VersionMeta) => void
@@ -970,6 +989,7 @@ function AgentDetail({
         agent={agent}
         onClose={onClose}
         onDelete={onDelete}
+        onClone={onClone}
         onResync={onResync}
       />
     )
@@ -979,6 +999,7 @@ function AgentDetail({
         agent={agent}
         onClose={onClose}
         onDelete={onDelete}
+        onClone={onClone}
       />
     )
   const draft = (agent.versions || []).find((v) => v.status === 'draft')
@@ -989,18 +1010,24 @@ function AgentDetail({
       width={480}
       onClose={onClose}
       footer={
-        agent.can_manage === false ? (
-          <span style={{ color: 'var(--color-text-tertiary)' }}>다른 사용자 소유 — 관리 권한 없음</span>
-        ) : (
-          <>
-            <Button danger icon={<Icon name="delete" />} onClick={() => onDelete(agent)}>
-              삭제
-            </Button>
-            <Button type="primary" icon={<Icon name="edit" />} onClick={() => onEdit(agent)}>
-              {draft ? '초안 편집' : '편집(새 초안)'}
-            </Button>
-          </>
-        )
+        // 복제는 **관리 권한 불요**(가시하면 복제 가능 — 사용≠관리, 스펙 112·120) → can_manage 밖에 항상 노출.
+        <>
+          <Button icon={<Icon name="copy" />} onClick={() => onClone(agent)}>
+            복제
+          </Button>
+          {agent.can_manage === false ? (
+            <span style={{ color: 'var(--color-text-tertiary)', marginLeft: 8 }}>다른 사용자 소유 — 관리 권한 없음</span>
+          ) : (
+            <>
+              <Button danger icon={<Icon name="delete" />} onClick={() => onDelete(agent)}>
+                삭제
+              </Button>
+              <Button type="primary" icon={<Icon name="edit" />} onClick={() => onEdit(agent)}>
+                {draft ? '초안 편집' : '편집(새 초안)'}
+              </Button>
+            </>
+          )}
+        </>
       }
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
@@ -1425,6 +1452,19 @@ export default function AgentsView() {
     }
   }
 
+  // 복제(스펙 120) — 기존 설정을 새 ui 초안으로 복사(저마찰 재사용). 관리 권한 불요(가시하면 복제 가능).
+  const onClone = async (a: Agent) => {
+    try {
+      const created = await cloneAgent(a.id)
+      setAgents((as) => [created, ...as])
+      notifyAgentsChanged()
+      setToast(`"${a.name}" 복제됨 → "${created.name}"`)
+      setDetailId(null)
+    } catch (e) {
+      message.error(String(e))
+    }
+  }
+
   // ---- 원격 에이전트 연결(스펙 057): URL 하나로 백엔드가 카드 fetch·검증·provenance 자동분류 ----
   // 프론트는 매니페스트를 날조하지 않는다 — 토큰 마스킹·분류는 모두 서버. 반환 source로 토스트를 도출.
   const connectAgent = async (data: { url: string; token: string }) => {
@@ -1641,6 +1681,7 @@ export default function AgentsView() {
         onClose={() => setDetailId(null)}
         onEdit={openEdit}
         onDelete={setConfirmDel}
+        onClone={onClone}
         onToggleExpose={toggleExpose}
         onActivate={activateVersion}
         onTest={testVersion}
