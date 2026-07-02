@@ -1,13 +1,13 @@
-/* 스펙 125 검증 — 메모리 "조회 시험" 드로어에 **지속 진단 패널**이 뜨는지.
-   회상 후(결과·0건·오류 무관) "진단" 접이식이 남아 백엔드 상태·임베딩 모델·스코프·오류를 보인다
-   (사라지는 토스트 아님). 시스템 Chrome.
-   실행: PLAYWRIGHT_DIR=<dir> node tests/browser/shot-memory-search-diag-125.mjs [out.png] */
+/* 스펙 126 검증 — 메모리 조회(검색)가 **드로어 아님, 상세 페이지 인라인**(검색이 위·목록 아래).
+   유저 선택 시 "회상 시험" 카드가 페이지 상단에 전체 폭으로 뜨고, 질의→조회하면 진단 패널(125)이
+   그 자리에 지속 표시된다(드로어 없음·비밀 미노출). 시스템 Chrome.
+   실행: PLAYWRIGHT_DIR=<dir> node tests/browser/shot-memory-search-page-126.mjs [out.png] */
 const pwDir = process.env.PLAYWRIGHT_DIR
 const _pw = await import(pwDir ? `${pwDir}/index.js` : 'playwright')
 const chromium = _pw.chromium ?? _pw.default?.chromium
 
 const URL = process.env.ADMIN_URL ?? 'http://127.0.0.1:5173'
-const OUT = process.argv[2] ?? '/tmp/memory-search-diag-125.png'
+const OUT = process.argv[2] ?? '/tmp/memory-search-page-126.png'
 const _fx = process.env.ADMIN_EMAIL ? null : (await import('./_fixture.mjs')).provisionSuper()
 const EMAIL = process.env.ADMIN_EMAIL ?? _fx.email
 const PASSWORD = process.env.ADMIN_PASSWORD ?? _fx.password
@@ -16,7 +16,7 @@ const fails = []
 const check = (c, m) => { console.log((c ? '  ok  ' : ' FAIL ') + m); if (!c) fails.push(m) }
 
 const browser = await chromium.launch({ channel: 'chrome', headless: true })
-const ctx = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 1200, height: 1100 } })
+const ctx = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 1400, height: 1100 } })
 const page = await ctx.newPage()
 
 try {
@@ -27,42 +27,33 @@ try {
   await page.getByRole('button', { name: '로그인' }).click()
   await page.getByText('에이전트', { exact: true }).first().waitFor({ timeout: 10000 })
 
-  // 메모리 뷰로
   await page.getByText('메모리', { exact: true }).first().click()
   await page.waitForTimeout(800)
-
-  // 유저 메모리 탭 — 유저는 항상 존재(진단 패널은 기억 유무 무관 렌더)
   await page.getByText('유저 메모리', { exact: true }).first().click()
   await page.waitForTimeout(600)
-  // 유저 Select 열어 첫 유저 선택(showSearch — combobox 롤로 연다)
   const combo = page.getByRole('combobox').first()
   await combo.click({ timeout: 8000 })
   await page.waitForTimeout(500)
   await page.locator('.ant-select-item-option').first().click({ timeout: 8000 })
   await page.waitForTimeout(800)
 
-  // "조회 시험" 버튼 → 드로어
-  await page.getByRole('button', { name: /조회 시험/ }).first().click()
-  await page.waitForTimeout(600)
-  const drawerVisible = await page.getByText(/회상 시험|같은 메모리 코어/).first().isVisible().catch(() => false)
-  check(drawerVisible, '회상 시험 드로어 열림')
+  // 드로어가 아니라 페이지 인라인 카드로 뜬다
+  const noDrawer = (await page.locator('.ant-drawer-open').count()) === 0
+  check(noDrawer, '드로어 없음(인라인 상세 페이지)')
+  const card = page.locator('.ant-card').filter({ hasText: '회상 시험' }).first()
+  check(await card.isVisible().catch(() => false), '"회상 시험" 카드가 페이지 상단에 인라인 표시')
 
-  // 질의 입력 후 조회(드로어 내 primary 버튼 = 파란 "조회")
-  await page.locator('.ant-drawer textarea').first().fill('내가 선호하는 보고서 형식은?')
-  await page.locator('.ant-drawer button.ant-btn-primary').first().click({ timeout: 8000 })
+  // 질의(유일 textarea) → 조회(카드 내 primary 버튼)
+  await page.locator('textarea').first().fill('내가 선호하는 보고서 형식은?')
+  await page.locator('.ant-card button.ant-btn-primary').first().click({ timeout: 8000 })
   await page.waitForTimeout(1800)
 
-  // 지속 진단 패널: "진단" 라벨이 드로어에 남아있나(토스트 아님)
-  const diagLabel = page.locator('.ant-drawer').getByText('진단', { exact: false }).first()
-  const diagVisible = await diagLabel.isVisible().catch(() => false)
-  check(diagVisible, '지속 "진단" 패널이 드로어에 표시됨(사라지지 않음)')
-
-  // 진단 펼쳐 내용 확인(오류면 이미 펼쳐짐; 아니면 클릭)
-  await diagLabel.click().catch(() => {})
+  const diag = page.getByText('진단', { exact: false }).first()
+  check(await diag.isVisible().catch(() => false), '진단 패널이 페이지에 지속 표시')
+  await diag.click().catch(() => {})
   await page.waitForTimeout(400)
-  const body = await page.locator('.ant-drawer').innerText().catch(() => '')
+  const body = await page.locator('#root').innerText().catch(() => '')
   check(/임베딩 모델|백엔드|스코프/.test(body), '진단 내용(임베딩 모델·백엔드·스코프) 노출')
-  // 비밀 누출 0 — 화면에 api_key/sk- 흔적 없어야
   check(!/sk-[A-Za-z0-9]{6,}/.test(body), '비밀(sk-…) 화면 노출 없음')
 
   await page.screenshot({ path: OUT, fullPage: false })

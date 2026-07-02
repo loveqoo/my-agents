@@ -2,7 +2,7 @@
    유저가 대화 중 남긴 장기 기억을 조회·필터·수정·삭제한다. 관리자는 유저 사실을
    *저작*하지 않고 *교정*만 한다 → add 없음(조회/수정/삭제만). */
 import { useState, useEffect, useCallback } from 'react'
-import { Button, Input, message, Popconfirm } from 'antd'
+import { Button, Card, Input, message, Popconfirm } from 'antd'
 import { Icon } from '../icons'
 import {
   listUserMemory,
@@ -11,7 +11,7 @@ import {
   searchUserMemory,
   type AgentMemory,
 } from '../../api'
-import { RecallDrawer } from './RecallDrawer'
+import { RecallPanel } from './RecallPanel'
 
 export function UserMemoryPanel({ userId, label }: { userId: string; label?: string }) {
   const [items, setItems] = useState<AgentMemory[]>([])
@@ -20,7 +20,6 @@ export function UserMemoryPanel({ userId, label }: { userId: string; label?: str
   const [editText, setEditText] = useState('')
   const [busy, setBusy] = useState(false)
   const [filter, setFilter] = useState('')
-  const [recall, setRecall] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -71,27 +70,22 @@ export function UserMemoryPanel({ userId, label }: { userId: string; label?: str
     : items
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-        <span style={{ flex: 1, fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* 검색(위) — 상세 페이지 전체 폭 활용(스펙 126, 드로어 제거). */}
+      <Card size="small" title={`회상 시험 · ${label ?? userId}`}>
+        <RecallPanel scopeKey={userId} onSearch={(q, l) => searchUserMemory(userId, q, l)} />
+      </Card>
+
+      {/* 목록(아래) — 저장된 기억 조회·교정·삭제. */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
           이 유저가 대화 중 남긴 장기 기억. <b>{label ?? userId}</b>
           {label ? (
             <span style={{ opacity: 0.6, fontFamily: 'monospace' }}> ({userId})</span>
           ) : null}{' '}
           에게만 회상됩니다 — 잘못되거나 민감한 정보는 여기서 교정·삭제하세요.
         </span>
-        <Button size="small" icon={<Icon name="search" />} onClick={() => setRecall(true)}>
-          조회 시험
-        </Button>
-      </div>
-      <RecallDrawer
-        open={recall}
-        title={`회상 시험 · ${label ?? userId}`}
-        scopeKey={userId}
-        onClose={() => setRecall(false)}
-        onSearch={(q, l) => searchUserMemory(userId, q, l)}
-      />
-      {items.length > 0 ? (
+        {items.length > 0 ? (
         <Input
           placeholder="필터 (텍스트 부분일치)"
           value={filter}
@@ -156,8 +150,9 @@ export function UserMemoryPanel({ userId, label }: { userId: string; label?: str
               </div>
             )
           )}
-        </div>
-      )}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

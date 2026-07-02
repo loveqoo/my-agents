@@ -1,31 +1,23 @@
-/* my-agents admin — 메모리 회상 시험 드로어 (스펙 084·097).
-   에이전트/유저 메모리 패널이 공유한다 — 챗과 *같은 코어*(memory.search)로 스코프에 질의해
-   "이 쿼리로 무엇이 회상되는가"를 즉석 확인. 공유 RetrievalTestDrawer(097)의 메모리 어댑터 —
-   컬렉션 SearchDrawer와 셸을 공유해 UI drift 0. onSearch만 주입(searchAgentMemory/searchUserMemory 바인딩).
-   enabled=false(미구성) vs 0건 회상(enabled=true·빈 results) 구분은 공유 셸이 disabledAlert로 처리(None≠[]). */
+/* my-agents admin — 메모리 회상 시험 패널 (스펙 084·097·125·126).
+   에이전트/유저 메모리 상세 페이지가 공유한다 — 챗과 *같은 코어*(memory.search)로 스코프에 질의해
+   "이 쿼리로 무엇이 회상되는가"를 즉석 확인. 126에서 드로어를 벗고 **상세 페이지 상단 인라인**으로
+   넓게 쓴다(컬렉션 SearchDrawer는 여전히 드로어). 공유 RetrievalTestPanel의 메모리 어댑터 — onSearch만
+   주입(searchAgentMemory/searchUserMemory 바인딩). enabled=false(미구성) vs 0건 회상 구분·진단(diag)은
+   패널이 처리(None≠[], 스펙 125). */
 import { Alert, Tag } from 'antd'
-import { RetrievalTestDrawer } from './RetrievalTestDrawer'
+import { RetrievalTestPanel } from './RetrievalTestPanel'
 import { type MemorySearchOut, type MemoryHit } from '../../api'
 
-export function RecallDrawer({
-  open,
-  title,
+export function RecallPanel({
   scopeKey,
-  onClose,
   onSearch,
 }: {
-  open: boolean
-  title: string
   scopeKey: string // 스코프(에이전트/유저) 식별자 — 바뀌면 질의·결과 초기화
-  onClose: () => void
   onSearch: (query: string, limit: number) => Promise<MemorySearchOut>
 }) {
   return (
-    <RetrievalTestDrawer<MemoryHit>
-      open={open}
-      title={title}
+    <RetrievalTestPanel<MemoryHit>
       scopeKey={scopeKey}
-      onClose={onClose}
       onSearch={async (q, l) => {
         const out = await onSearch(q, l)
         return { results: out.results, enabled: out.enabled, diag: out.diag } // 진단 통과(스펙 125)

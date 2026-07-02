@@ -2,7 +2,7 @@
    관리자가 저작한 에이전트 전용 지식을 조회·수정·삭제·추가한다. 채팅 자가기록 경로는 제거됨
    (스펙 051) — 유저가 채팅에서 agent_id 메모리를 못 넣게 막아 페르소나를 보호한다. */
 import { useState, useEffect, useCallback } from 'react'
-import { Button, Input, message, Popconfirm } from 'antd'
+import { Button, Card, Input, message, Popconfirm } from 'antd'
 import { Icon } from '../icons'
 import {
   listAgentMemory,
@@ -12,7 +12,7 @@ import {
   searchAgentMemory,
   type AgentMemory,
 } from '../../api'
-import { RecallDrawer } from './RecallDrawer'
+import { RecallPanel } from './RecallPanel'
 
 export function AgentMemoryPanel({ agentId }: { agentId: string }) {
   const [items, setItems] = useState<AgentMemory[]>([])
@@ -22,7 +22,6 @@ export function AgentMemoryPanel({ agentId }: { agentId: string }) {
   const [editText, setEditText] = useState('')
   const [busy, setBusy] = useState(false)
   const [filter, setFilter] = useState('')
-  const [recall, setRecall] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -89,24 +88,19 @@ export function AgentMemoryPanel({ agentId }: { agentId: string }) {
     : items
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-        <span style={{ flex: 1, fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* 검색(위) — 상세 페이지 전체 폭 활용(스펙 126, 드로어 제거). */}
+      <Card size="small" title="회상 시험 · 에이전트 전용 기억">
+        <RecallPanel scopeKey={agentId} onSearch={(q, l) => searchAgentMemory(agentId, q, l)} />
+      </Card>
+
+      {/* 목록(아래) — 전용 지식 조회·교정·삭제·추가. */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
           관리자가 저작한 에이전트 전용 지식. 모든 세션·사용자를 가로질러 회상됩니다 —
           특정 사용자 정보는 여기 두지 마세요(채팅 자가기록은 차단됨).
         </span>
-        <Button size="small" icon={<Icon name="search" />} onClick={() => setRecall(true)}>
-          조회 시험
-        </Button>
-      </div>
-      <RecallDrawer
-        open={recall}
-        title="회상 시험 · 에이전트 전용 기억"
-        scopeKey={agentId}
-        onClose={() => setRecall(false)}
-        onSearch={(q, l) => searchAgentMemory(agentId, q, l)}
-      />
-      {items.length > 0 ? (
+        {items.length > 0 ? (
         <Input
           placeholder="필터 (텍스트 부분일치)"
           value={filter}
@@ -173,16 +167,17 @@ export function AgentMemoryPanel({ agentId }: { agentId: string }) {
           )}
         </div>
       )}
-      <div style={{ display: 'flex', gap: 6 }}>
-        <Input
-          placeholder="에이전트 전용 지식 추가 (예: 보고서는 항상 한 줄 요약으로 시작한다)"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onPressEnter={add}
-        />
-        <Button type="primary" loading={busy} disabled={!draft.trim()} onClick={add}>
-          추가
-        </Button>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <Input
+            placeholder="에이전트 전용 지식 추가 (예: 보고서는 항상 한 줄 요약으로 시작한다)"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onPressEnter={add}
+          />
+          <Button type="primary" loading={busy} disabled={!draft.trim()} onClick={add}>
+            추가
+          </Button>
+        </div>
       </div>
     </div>
   )
