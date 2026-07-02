@@ -7,7 +7,11 @@
 
 ## 후보 (다음에 할 만한 것)
 
-- (없음 — 다음은 Scaffolding서 새 방향 모색)
+- **런타임 tool 배선 인가(spec 112 P0 후속)** — 채팅 런타임이 agent config `mcps`/`vectorTables` 이름으로
+  MCP/컬렉션을 로드해 복호화 크레덴셜로 tool 배선하는데 RBAC/소유권 검사가 없다(브로커 밖 별개 경로,
+  112 이전부터 존재). 에이전트를 설정할 수 있는 주체가 임의 자원을 이름 참조로 쓸 수 있음. per-cap/소유권을
+  **런타임 배선에도** 거는 스펙. 현 위협 모델(admin만 사용)에선 비활성이나 member 개방 전 선행.
+- (그 외는 Scaffolding서 새 방향 모색)
 
 ## 진행 중
 
@@ -31,6 +35,13 @@
   관측상 중복, codex 102 [P1]). 다중 interrupt 난제(스펙 101/102 OUT)의 정공법 후속.
 
 ## 완료 (요약 — 상세는 각 스펙/회고)
+
+- **공유 카탈로그 소유권 + per-cap 인가**(스펙 112) — 브로커 인가를 kind→per-cap(`capability:{kind}:{name}`)
+  으로 좁히고(축 A, 인가 빚 상환), Agent·McpServer·Collection에 owner_id 붙여 카탈로그 **관리(수정/삭제)**를
+  소유자/특권 게이트(축 B). **설계 갈래**=소유권으로 invoke 막으면 공유 에이전트 깨짐→소유권=관리만·사용은
+  per-cap RBAC. 게이트 추가가 기존 열린 문(카탈로그 변경 인증만) 봉합. codex rung3: 메모리 3라우트·404-fold
+  body·mcp 서버단위 봉합, P0(런타임 tool 배선 우회)는 정직히 OUT→후보로 승격. 백로그 #1의 (b) 완료
+  (2026-07-02, 회고 093·learning 112).
 
 - **브로커 메모리 수정/삭제 능력**(스펙 111) — 브로커가 사용자 기억을 수정/삭제(memedit). 대상 mem_id 소유권 선행(남의 기억 못 건드림, 미소유=404-fold)+실행 전 승인(삭제 비가역→관리자만 fail-closed)+principal user_id 고정(anti-leak). 소유권 술어 `memory.user_owns` HTTP와 단일화. 검증 3런(단위+그래프+실mem0)+codex 적대(하중가정 정직화). 백로그 #1의 (a) 완료(2026-07-02, 회고 092·learning 111).
 

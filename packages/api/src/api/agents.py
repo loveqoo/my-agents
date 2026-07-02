@@ -34,6 +34,8 @@ from .schemas import (
     RegisterExternalAgentIn,
 )
 from . import agent_card, crypto, net_guard
+from .auth import current_principal
+from .ownership import assert_may_manage, owner_of
 from .serializers import agent_to_out
 
 router = APIRouter(prefix="/agents", tags=["agents"])
@@ -121,7 +123,9 @@ async def get_agent(
 # ----------------------------- 생성 (UI) -----------------------------
 @router.post("", response_model=AgentOut, status_code=201)
 async def create_agent(
-    body: AgentCreate, session: AsyncSession = Depends(get_session)
+    body: AgentCreate,
+    session: AsyncSession = Depends(get_session),
+    principal=Depends(current_principal),
 ) -> AgentOut:
     cfg = body.config.model_dump()
     agent = Agent(
@@ -135,6 +139,7 @@ async def create_agent(
         exposed={"a2a": False},
         status="idle",
         active_version=None,
+        owner_id=owner_of(principal),  # 생성 시 1회 스탬프(스펙 112, 069)
     )
     agent.versions.append(
         AgentVersion(version="v1", status="draft", note="초기 초안", config=cfg)
@@ -150,10 +155,12 @@ async def update_agent(
     agent_id: uuid.UUID,
     body: AgentUpdate,
     session: AsyncSession = Depends(get_session),
+    principal=Depends(current_principal),
 ) -> AgentOut:
     agent = await _load_agent(session, agent_id)
     if agent is None:
         raise HTTPException(status_code=404, detail="agent not found")
+    assert_may_manage(agent, principal, not_found_detail="agent not found")  # 소유자/특권만(스펙 112)
 
     cfg = body.config.model_dump()
     draft = next((v for v in agent.versions if v.status == "draft"), None)
@@ -185,11 +192,14 @@ async def update_agent(
 
 @router.delete("/{agent_id}", status_code=204)
 async def delete_agent(
-    agent_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+    agent_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    principal=Depends(current_principal),
 ) -> None:
     agent = await session.get(Agent, agent_id)
     if agent is None:
         raise HTTPException(status_code=404, detail="agent not found")
+    assert_may_manage(agent, principal, not_found_detail="agent not found")  # 소유자/특권만(스펙 112)
     await session.delete(agent)
     await session.commit()
 
@@ -197,11 +207,14 @@ async def delete_agent(
 # ----------------------------- 버전: 포크 -----------------------------
 @router.post("/{agent_id}/versions", response_model=AgentOut)
 async def fork_version(
-    agent_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+    agent_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    principal=Depends(current_principal),
 ) -> AgentOut:
     agent = await _load_agent(session, agent_id)
     if agent is None:
         raise HTTPException(status_code=404, detail="agent not found")
+    assert_may_manage(agent, principal, not_found_detail="agent not found")  # 소유자/특권만(스펙 112)
 
     # 단일 초안 불변식: 이미 초안이 있으면 새로 만들지 않는다(편집은 그 초안에 저장).
     if any(v.status == "draft" for v in agent.versions):
@@ -225,10 +238,12 @@ async def activate_version(
     agent_id: uuid.UUID,
     body: ActivateIn,
     session: AsyncSession = Depends(get_session),
+    principal=Depends(current_principal),
 ) -> AgentOut:
     agent = await _load_agent(session, agent_id)
     if agent is None:
         raise HTTPException(status_code=404, detail="agent not found")
+    assert_may_manage(agent, principal, not_found_detail="agent not found")  # 소유자/특권만(스펙 112)
 
     target = _find_version(agent, body.version)
     if target is None:
@@ -261,10 +276,12 @@ async def revert_version(
     agent_id: uuid.UUID,
     body: ActivateIn,
     session: AsyncSession = Depends(get_session),
+    principal=Depends(current_principal),
 ) -> AgentOut:
     agent = await _load_agent(session, agent_id)
     if agent is None:
         raise HTTPException(status_code=404, detail="agent not found")
+    assert_may_manage(agent, principal, not_found_detail="agent not found")  # 소유자/특권만(스펙 112)
 
     target = _find_version(agent, body.version)
     if target is None:
@@ -303,10 +320,12 @@ async def expose_agent(
     agent_id: uuid.UUID,
     body: ExposeIn,
     session: AsyncSession = Depends(get_session),
+    principal=Depends(current_principal),
 ) -> AgentOut:
     agent = await _load_agent(session, agent_id)
     if agent is None:
         raise HTTPException(status_code=404, detail="agent not found")
+    assert_may_manage(agent, principal, not_found_detail="agent not found")  # 소유자/특권만(스펙 112)
 
     if body.a2a and agent.source != "ui":
         # 원격(code)·외부(external)는 이미 원격 A2A/프록시 — 우리 A2A로 재노출은 proxy-of-proxy(스펙 083).
@@ -325,7 +344,9 @@ async def expose_agent(
 # ----------------------------- 코드 에이전트 등록 -----------------------------
 @router.post("/register", response_model=AgentOut, status_code=201)
 async def register_code_agent(
-    body: RegisterCodeAgentIn, session: AsyncSession = Depends(get_session)
+    body: RegisterCodeAgentIn,
+    session: AsyncSession = Depends(get_session),
+    principal=Depends(current_principal),
 ) -> AgentOut:
     # endpoint를 절대 http(s)로 정규화(스펙 060, 일관성). SDK 직접 등록이라 base는 없다 — 스킴 없는
     # host:port는 http:// 전치, 절대화 불가(빈 값·비-http 스킴)면 등록 시점에 400(채팅서 늦게 안 깸).
@@ -360,6 +381,7 @@ async def register_code_agent(
         registered_at=_today(),
         last_sync="방금",
         active_version=body.commit or None,
+        owner_id=owner_of(principal),  # 생성 시 1회 스탬프(스펙 112)
     )
     if body.commit:
         agent.versions.append(
@@ -522,7 +544,9 @@ def _build_code_agent_from_card(card: dict, ext: dict, token: str | None, live: 
 # ----------------------------- 통합 연결 (스펙 057 — A2A 단일화) -----------------------------
 @router.post("/connect", response_model=AgentOut, status_code=201)
 async def connect_agent(
-    body: ConnectAgentIn, session: AsyncSession = Depends(get_session)
+    body: ConnectAgentIn,
+    session: AsyncSession = Depends(get_session),
+    principal=Depends(current_principal),
 ) -> AgentOut:
     """원격 에이전트 연결 — URL 하나로 A2A 카드를 fetch해 provenance 자동분류(스펙 057).
 
@@ -542,6 +566,7 @@ async def connect_agent(
         agent = _build_code_agent_from_card(card, ext, body.token, live, body.url)
     else:
         agent = _build_external_agent(card, body.token, live, body.url)
+    agent.owner_id = owner_of(principal)  # 생성 시 1회 스탬프(스펙 112)
     session.add(agent)
     await session.commit()
     return await _reload_out(session, agent.id)
@@ -550,7 +575,9 @@ async def connect_agent(
 # ----------------------------- 외부 에이전트 등록 (A2A 카드) — deprecated, connect로 대체 -----------------------------
 @router.post("/external", response_model=AgentOut, status_code=201)
 async def register_external_agent(
-    body: RegisterExternalAgentIn, session: AsyncSession = Depends(get_session)
+    body: RegisterExternalAgentIn,
+    session: AsyncSession = Depends(get_session),
+    principal=Depends(current_principal),
 ) -> AgentOut:
     """A2A Agent Card URL을 fetch·검증해 외부 에이전트로 등록(026, 1차).
 
@@ -564,6 +591,7 @@ async def register_external_agent(
 
     live = await agent_card.probe_endpoint(card.get("url"))
     agent = _build_external_agent(card, body.token, live, body.cardUrl)
+    agent.owner_id = owner_of(principal)  # 생성 시 1회 스탬프(스펙 112)
     session.add(agent)
     await session.commit()
     return await _reload_out(session, agent.id)
@@ -632,10 +660,14 @@ async def search_agent_memory(
 
 @router.post("/{agent_id}/memory", status_code=201)
 async def add_agent_memory(
-    agent_id: uuid.UUID, body: AgentMemoryIn, session: AsyncSession = Depends(get_session)
+    agent_id: uuid.UUID,
+    body: AgentMemoryIn,
+    session: AsyncSession = Depends(get_session),
+    principal=Depends(current_principal),
 ) -> dict:
     """관리자 저작 — agent_id-only·infer=False로 한 줄 사실을 저장(스펙 029)."""
     agent, mem_cfg = await _agent_mem_cfg(session, agent_id)
+    assert_may_manage(agent, principal, not_found_detail="agent not found")  # 소유자/특권만(스펙 112, codex P1)
     if mem_cfg is None:
         raise HTTPException(status_code=400, detail="이 에이전트는 장기 메모리가 활성화되지 않았습니다")
     text = body.text.strip()
@@ -657,9 +689,11 @@ async def update_agent_memory(
     mem_id: str,
     body: AgentMemoryIn,
     session: AsyncSession = Depends(get_session),
+    principal=Depends(current_principal),
 ) -> dict:
     """관리자 교정 — 기억 본문 수정(스펙 029)."""
     agent, mem_cfg = await _agent_mem_cfg(session, agent_id)
+    assert_may_manage(agent, principal, not_found_detail="agent not found")  # 소유자/특권만(스펙 112, codex P1)
     if mem_cfg is None:
         raise HTTPException(status_code=400, detail="이 에이전트는 장기 메모리가 활성화되지 않았습니다")
     await _assert_owns(agent, mem_id, mem_cfg)
@@ -671,10 +705,14 @@ async def update_agent_memory(
 
 @router.delete("/{agent_id}/memory/{mem_id}", status_code=204)
 async def delete_agent_memory(
-    agent_id: uuid.UUID, mem_id: str, session: AsyncSession = Depends(get_session)
+    agent_id: uuid.UUID,
+    mem_id: str,
+    session: AsyncSession = Depends(get_session),
+    principal=Depends(current_principal),
 ) -> None:
     """관리자 교정 — 기억 삭제(스펙 029)."""
     agent, mem_cfg = await _agent_mem_cfg(session, agent_id)
+    assert_may_manage(agent, principal, not_found_detail="agent not found")  # 소유자/특권만(스펙 112, codex P1)
     if mem_cfg is None:
         raise HTTPException(status_code=400, detail="이 에이전트는 장기 메모리가 활성화되지 않았습니다")
     await _assert_owns(agent, mem_id, mem_cfg)
@@ -686,7 +724,9 @@ async def delete_agent_memory(
 # ----------------------------- 코드 에이전트 재동기화 -----------------------------
 @router.post("/{agent_id}/resync", response_model=AgentOut)
 async def resync_agent(
-    agent_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+    agent_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    principal=Depends(current_principal),
 ) -> AgentOut:
     """stale endpoint 자가치유(스펙 081 P1).
 
@@ -702,6 +742,7 @@ async def resync_agent(
     agent = await _load_agent(session, agent_id)
     if agent is None:
         raise HTTPException(status_code=404, detail="agent not found")
+    assert_may_manage(agent, principal, not_found_detail="agent not found")  # 소유자/특권만(스펙 112)
 
     cfg = dict(agent.config or {})
     card_url = cfg.get("cardUrl")

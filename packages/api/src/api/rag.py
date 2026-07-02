@@ -20,7 +20,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from . import crypto, rag_ingest
+from .auth import current_principal
 from .db import get_session
+from .ownership import assert_may_manage, owner_of
 from .model_registry import _probe
 from .models import RAG_EMBED_DIMS, Chunk, Collection, Document, ModelConfig
 from .references import agents_referencing, referenced_message
@@ -93,7 +95,9 @@ async def list_collections(session: AsyncSession = Depends(get_session)) -> list
 
 @router.post("", response_model=CollectionOut, status_code=201)
 async def create_collection(
-    body: CollectionIn, session: AsyncSession = Depends(get_session)
+    body: CollectionIn,
+    session: AsyncSession = Depends(get_session),
+    principal=Depends(current_principal),
 ) -> CollectionOut:
     m = await _embedding_model(session, body.embedding_model_id)
     if m is None:
@@ -114,6 +118,7 @@ async def create_collection(
         chunk_size=body.chunk_size,
         chunk_overlap=body.chunk_overlap,
         status="empty",
+        owner_id=owner_of(principal),  # 생성 시 1회 스탬프(스펙 112)
     )
     session.add(c)
     try:
@@ -134,11 +139,15 @@ async def get_collection(cid: uuid.UUID, session: AsyncSession = Depends(get_ses
 
 @router.put("/{cid}", response_model=CollectionOut)
 async def update_collection(
-    cid: uuid.UUID, body: CollectionUpdate, session: AsyncSession = Depends(get_session)
+    cid: uuid.UUID,
+    body: CollectionUpdate,
+    session: AsyncSession = Depends(get_session),
+    principal=Depends(current_principal),
 ) -> CollectionOut:
     c = await _load_collection(session, cid)
     if c is None:
         raise HTTPException(status_code=404, detail="not found")
+    assert_may_manage(c, principal)  # 소유자/특권만(스펙 112)
     # 임베딩 모델·dims는 불변(차원 고정). 설명·청킹 설정만 갱신.
     if body.description is not None:
         c.description = body.description
@@ -151,10 +160,15 @@ async def update_collection(
 
 
 @router.delete("/{cid}", status_code=204)
-async def delete_collection(cid: uuid.UUID, session: AsyncSession = Depends(get_session)) -> None:
+async def delete_collection(
+    cid: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    principal=Depends(current_principal),
+) -> None:
     c = await session.get(Collection, cid)
     if c is None:
         raise HTTPException(status_code=404, detail="not found")
+    assert_may_manage(c, principal)  # 소유자/특권만(스펙 112)
     # 참조 무결성(스펙 093): 이 컬렉션 name을 vectorTables에 담은 에이전트가 있으면 삭제 차단.
     # 삭제하면 config에 dangling name만 남아 런타임이 조용히 RAG 없이 동작(chat.py 미해석).
     refs = await agents_referencing(session, "vectorTables", c.name)
@@ -270,11 +284,13 @@ async def ingest_document(
     cid: uuid.UUID,
     file: UploadFile = File(...),
     session: AsyncSession = Depends(get_session),
+    principal=Depends(current_principal),
 ) -> DocumentOut:
     """업로드 → 파싱 → 청킹 → 임베딩 → pgvector 적재(동기). 실패는 status=error로 보존."""
     c = await _load_collection(session, cid)
     if c is None:
         raise HTTPException(status_code=404, detail="not found")
+    assert_may_manage(c, principal)  # 소유자/특권만(스펙 112)
 
     # 적재 전 크기 차단(OOM 방지). size 헤더가 있으면 read 전에, 없으면 read 후 이중 점검.
     limit_mb = MAX_UPLOAD_BYTES // (1024 * 1024)
@@ -359,11 +375,16 @@ async def ingest_document(
 
 @router.delete("/{cid}/documents/{doc_id}", status_code=204)
 async def delete_document(
-    cid: uuid.UUID, doc_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+    cid: uuid.UUID,
+    doc_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    principal=Depends(current_principal),
 ) -> None:
     doc = await session.get(Document, doc_id)
     if doc is None or doc.collection_id != cid:
         raise HTTPException(status_code=404, detail="not found")
+    col = await session.get(Collection, cid)
+    assert_may_manage(col, principal)  # 컬렉션 소유자/특권만(스펙 112)
     removed = doc.chunk_count
     await session.delete(doc)  # 청크 CASCADE 동반 삭제
     # 집계 캐시는 원자적 SQL 감소(greatest로 음수 방지). 마지막 문서가 빠지면 status=empty.

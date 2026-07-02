@@ -98,6 +98,23 @@ def _parse_memedit(item: str) -> str:
     return item[len(CAP_KIND_MEMORY_EDIT) + 1:] if item.startswith(f"{CAP_KIND_MEMORY_EDIT}:") else item
 
 
+def _cap_resource(cap_id: str, kind: str) -> str:
+    """per-cap RBAC object의 리소스 부분(스펙 112) — `capability:{kind}:{resource}`로 특정 능력만 부여.
+    kind별 식별자: mcp=`server[/tool]`, rag=컬렉션명, memory/memwrite/memedit=`user`, agent=cap_id(agt_…).
+    kind-레벨 부여(`capability:{kind}`)와 별개로 admin이 세분 부여할 수 있게 하는 안정 키."""
+    if kind == CAP_KIND_MCP:
+        return cap_id[len(CAP_KIND_MCP) + 1:] if cap_id.startswith(f"{CAP_KIND_MCP}:") else cap_id
+    if kind == CAP_KIND_RAG:
+        return _parse_rag(cap_id)
+    if kind == CAP_KIND_MEMORY:
+        return _parse_mem(cap_id)
+    if kind == CAP_KIND_MEMORY_WRITE:
+        return _parse_memwrite(cap_id)
+    if kind == CAP_KIND_MEMORY_EDIT:
+        return _parse_memedit(cap_id)
+    return cap_id  # agent: cap_id 자체가 리소스 식별자(agt_…)
+
+
 def _parse_memwrite(item: str) -> str:
     """`memwrite:<resource>` → `<resource>`(첫 출하 `"user"`만 — 주체 자신의 기억에 저장). `_parse_mem`과
     대칭. 대상 user_id는 cap_id에 없다(스펙 105 anti-leak, 104와 동일). 접두사 없으면 원본 방어."""
@@ -963,11 +980,13 @@ class PolicyScopedBroker:
 
     def _permitted(self, cap_id: str, kind: str | None = None) -> bool:
         """**단일 판정 헬퍼**(체크리스트 §3, drift 0) — allowlist ∩ RBAC. deny-by-default.
-        kind별 매칭은 헬퍼 *내부*: mcp는 정확 툴 항목 **또는** 서버 전체(`mcp:<server>`)가 그 툴을 덮음."""
+        kind별 매칭은 헬퍼 *내부*: mcp는 정확 툴 항목 **또는** 서버 전체(`mcp:<server>`)가 그 툴을 덮음.
+        RBAC는 **per-cap 포함**(스펙 112): kind-레벨(`capability:{kind}`) OR 능력별
+        (`capability:{kind}:{resource}`) — admin이 kind 전체 대신 특정 cap만 member에 부여 가능."""
         if not cap_id:
             return False
         kind = kind or _kind_of(cap_id)
-        if not self._rbac_allows(kind):
+        if not self._rbac_allows(kind, _cap_resource(cap_id, kind)):
             return False
         if kind == CAP_KIND_MCP:
             server, _tool = _parse_mcp(cap_id)
@@ -980,10 +999,16 @@ class PolicyScopedBroker:
             return []
         caps: list[Capability] = []
         for provider in self._providers:
-            # 이 kind가 RBAC 거부면 provider를 아예 안 부른다(DB/네트워크 미접촉, 존재 누출 0).
+            # DB 미접촉 게이트(존재 누출 0 보존): 이 kind에 **어떤 부여도 없으면** provider를 안 부른다.
+            # `rbac_allows(kind)`(name=None) = "kind-레벨 OR 이 kind의 per-cap이 하나라도 있나"(스펙 112).
+            # kind 전체 거부인데 per-cap 부여가 있으면 여기 통과 → 아래서 후보를 **per-cap 개별 필터**한다
+            # (kind-gate만 두면 per-cap 부여 능력이 discover에 안 떠 오케스트레이션서 못 쓴다).
             if not self._rbac_allows(provider.kind):
                 continue
-            caps.extend(await provider.candidates(self._allow))
+            for c in await provider.candidates(self._allow):
+                # 특정 판정: kind-레벨이면 전체 통과, per-cap 전용이면 부여된 cap만(같은 술어 재사용).
+                if self._rbac_allows(c.kind, _cap_resource(c.id, c.kind)):
+                    caps.append(c)
         # lexical(부분일치, 대소문자 무시) — 카탈로그 작아 벡터 없이 시작(설계결정 10).
         q = (query or "").strip().lower()
         if q:
@@ -1033,6 +1058,41 @@ class PolicyScopedBroker:
         return res
 
 
+def _rbac_check(enforcer, subject: str, kind: str, name: str | None) -> bool:
+    """per-cap RBAC 판정 **단일 술어**(스펙 112 — build_broker·_build_resume_broker 공유, drift 0).
+    - name 지정: kind-레벨(`capability:{kind}`) OR 능력별(`capability:{kind}:{name}`) 부여.
+    - name=None: **DB 회피 게이트**용 — kind-레벨 OR 이 kind에 per-cap 부여가 *하나라도* 있나
+      (casbin 암묵 권한 열거, prefix `capability:{kind}:`). discover가 provider DB 접촉을 거를 때 씀."""
+    if enforcer.enforce(subject, f"capability:{kind}", "invoke"):
+        return True
+    if name is not None:
+        if enforcer.enforce(subject, f"capability:{kind}:{name}", "invoke"):
+            return True
+        # mcp 서버단위 부여(`capability:mcp:{server}`)는 그 서버의 **모든 툴**을 덮는다 — allowlist
+        # 시맨틱(`mcp:{server}`가 툴 항목을 포함)과 일치시켜 per-cap 부여가 서버 입도로도 동작(codex 112 P2).
+        if kind == CAP_KIND_MCP and "/" in name:
+            server = name.split("/", 1)[0]
+            return bool(enforcer.enforce(subject, f"capability:{kind}:{server}", "invoke"))
+        return False
+    # name=None: "이 kind에 per-cap 부여가 하나라도?" — AsyncEnforcer는 implicit 헬퍼가 async라
+    # sync 정책 열거로 우회한다(get_policy/get_grouping_policy는 in-memory sync). 주체 본인 + 상속 역할
+    # (transitive)의 정책에서 obj가 `capability:{kind}:` prefix인 invoke를 찾는다.
+    subjects = {subject}
+    grouping = enforcer.get_grouping_policy()
+    frontier = [subject]
+    while frontier:  # user→role→role 전이 폐쇄(작은 정책셋, 순환 방지 위해 visited 체크)
+        cur = frontier.pop()
+        for g in grouping:
+            if len(g) >= 2 and g[0] == cur and g[1] not in subjects:
+                subjects.add(g[1])
+                frontier.append(g[1])
+    prefix = f"capability:{kind}:"
+    return any(
+        len(p) >= 3 and p[0] in subjects and p[1].startswith(prefix) and p[2] == "invoke"
+        for p in enforcer.get_policy()
+    )
+
+
 def build_broker(principal, allowlist) -> PolicyScopedBroker:
     """chat.py 배선용 — principal(유저/머신)에서 RBAC 판정 클로저를 만들어 스코프된 브로커 구성.
 
@@ -1041,14 +1101,15 @@ def build_broker(principal, allowlist) -> PolicyScopedBroker:
     기본 정책은 admin('*','*')만 시드돼 있어 member는 거부된다(deny-by-default가 정책 부재에서도 성립)."""
     from . import authz
 
-    def rbac_allows(kind: str) -> bool:
+    def rbac_allows(kind: str, name: str | None = None) -> bool:
+        # per-cap 부여 지원(스펙 112). name 지정=특정 판정(kind-레벨 OR `capability:{kind}:{name}`).
+        # name=None=**DB 회피 게이트**용 "이 kind에 부여가 하나라도 있나"(kind-레벨 OR 임의 per-cap) —
+        # discover가 이걸로 provider DB 접촉을 거른다(존재 누출 0 보존).
         if isinstance(principal, str):
             return False  # 머신 토큰: 능력 오케스트레이션 비대상(deny-by-default)
         if getattr(principal, "is_superuser", False):
             return True  # 부트스트랩·운영 안전판(authz 우회 패턴)
-        return bool(
-            authz.get_enforcer().enforce(str(principal.id), f"capability:{kind}", "invoke")
-        )
+        return _rbac_check(authz.get_enforcer(), str(principal.id), kind, name)
 
     # user_id = 주체 도출값(스펙 104 MemoryProvider self-scope). 머신 토큰(str)은 id 없음 → None →
     # 메모리 능력 없음(rbac_allows도 deny). 어드민이어도 자기 id라 타인 기억 위임 접근 불가(에스컬레이션 X).

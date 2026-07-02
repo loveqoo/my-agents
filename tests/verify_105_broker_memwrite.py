@@ -125,10 +125,10 @@ def unit_checks() -> None:
     check(_parse_memwrite("memwrite:") == "", "U1 memwrite: → 빈 리소스")
     check(_parse_memwrite("memory:user") == "memory:user", "U1 다른 kind는 원본 방어(memory: 접두사 안 벗김)")
 
-    bt = PolicyScopedBroker({MEMWRITE}, lambda k: True, session_factory=_raise_factory(), user_id="bob")
+    bt = PolicyScopedBroker({MEMWRITE}, lambda k, name=None: True, session_factory=_raise_factory(), user_id="bob")
     check(bt._permitted(MEMWRITE) is True, "U2 정확 memwrite cap 허용 → permitted")
     check(bt._permitted("memwrite:other") is False, "U2 allow 밖 → deny(비노출)")
-    brd = PolicyScopedBroker({MEMWRITE}, lambda k: False, session_factory=_raise_factory(), user_id="bob")
+    brd = PolicyScopedBroker({MEMWRITE}, lambda k, name=None: False, session_factory=_raise_factory(), user_id="bob")
     check(brd._permitted(MEMWRITE) is False, "U2 RBAC 거부 → deny(교집합)")
 
     mw = MemoryWriteProvider(_raise_factory(), "bob")
@@ -147,7 +147,7 @@ def unit_checks() -> None:
     check("text" in props and desc.input_schema.get("required") == ["text"], "U4 text 필수")
     check("user_id" not in props, "U4 스키마에 user_id 없음(대상=주체 도출)")
 
-    b = PolicyScopedBroker([], lambda k: True, session_factory=_raise_factory(), user_id="bob")
+    b = PolicyScopedBroker([], lambda k, name=None: True, session_factory=_raise_factory(), user_id="bob")
     check("memwrite" in b._by_kind and isinstance(b._by_kind["memwrite"], MemoryWriteProvider),
           "U5 _by_kind에 memwrite → MemoryWriteProvider")
     check({"agent", "mcp", "rag", "memory", "memwrite"} <= set(b._by_kind), "U5 5 provider 보유(읽기+쓰기 분리)")
@@ -245,7 +245,7 @@ async def graph_gate_checks() -> None:
     # approve 결.
     fake = FakeMemAdd()
     with_mem(fake)
-    b = PolicyScopedBroker({MEMWRITE}, lambda k: True, session_factory=_fake_factory, user_id="bob")
+    b = PolicyScopedBroker({MEMWRITE}, lambda k, name=None: True, session_factory=_fake_factory, user_id="bob")
     g = _write_graph(b)
     cfg = {"configurable": {"thread_id": "v105-approve"}}
     itr = await _stream(g, {"fact": "밥은 재즈를 친다"}, cfg)
@@ -261,7 +261,7 @@ async def graph_gate_checks() -> None:
     # reject 결.
     fake2 = FakeMemAdd()
     with_mem(fake2)
-    b2 = PolicyScopedBroker({MEMWRITE}, lambda k: True, session_factory=_fake_factory, user_id="bob")
+    b2 = PolicyScopedBroker({MEMWRITE}, lambda k, name=None: True, session_factory=_fake_factory, user_id="bob")
     g2 = _write_graph(b2)
     cfg2 = {"configurable": {"thread_id": "v105-reject"}}
     itr2 = await _stream(g2, {"fact": "저장되면 안 되는 사실"}, cfg2)

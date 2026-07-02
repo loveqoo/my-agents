@@ -868,14 +868,14 @@ async def _build_resume_broker(user_id: str | None, capabilities) -> PolicyScope
         except (ValueError, TypeError):
             is_super = False  # user_id가 UUID 형식이 아니면 casbin 경로로만(우회 없음)
 
-    def rbac_allows(kind: str) -> bool:
+    def rbac_allows(kind: str, name: str | None = None) -> bool:
+        # per-cap 부여 지원(스펙 112) — build_broker와 **동일 술어**(`_rbac_check`, drift 0).
         if not user_id:
             return False
         if is_super:
             return True
-        return bool(
-            authz.get_enforcer().enforce(user_id, f"capability:{kind}", "invoke")
-        )
+        from .broker import _rbac_check
+        return _rbac_check(authz.get_enforcer(), user_id, kind, name)
 
     # user_id 주입(스펙 104) — MemoryProvider가 재개 경로에서도 원 요청자 스코프를 복원한다. 없으면
     # 재개 시 `memory:user`가 사라져 자기 기억 접근이 깨진다(fail-closed지만 기능 회귀, 적대 리뷰 104 P2).

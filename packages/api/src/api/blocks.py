@@ -14,7 +14,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from . import crypto
+from .auth import current_principal
 from .db import get_session
+from .ownership import assert_may_manage, owner_of
 from .models import Agent, Collection, McpServer, MemoryType, Permission, Persona
 from .references import _config_has, agents_referencing, referenced_message
 from .schemas import (
@@ -214,12 +216,15 @@ async def list_mcp_servers(session: AsyncSession = Depends(get_session)) -> Any:
 
 @router.post("/mcp-servers", response_model=McpServerOut, status_code=201)
 async def create_mcp_server(
-    body: McpServerIn, session: AsyncSession = Depends(get_session)
+    body: McpServerIn,
+    session: AsyncSession = Depends(get_session),
+    principal=Depends(current_principal),
 ) -> Any:
     data = body.model_dump()
     data["enabled_tools"] = body.enabled_tools or body.tools
     # auth는 평문 입력 → Fernet 암호화 저장. 마스킹값이 들어오면(신규엔 없어야 함) 비워둔다.
     data["auth"] = None if (body.auth and crypto.is_masked(body.auth)) else crypto.encrypt(body.auth)
+    data["owner_id"] = owner_of(principal)  # 생성 시 1회 스탬프(스펙 112)
     obj = McpServer(**data)
     session.add(obj)
     await session.commit()
@@ -289,11 +294,15 @@ async def get_mcp_server(id: uuid.UUID, session: AsyncSession = Depends(get_sess
 
 @router.put("/mcp-servers/{id}", response_model=McpServerOut)
 async def update_mcp_server(
-    id: uuid.UUID, body: McpServerIn, session: AsyncSession = Depends(get_session)
+    id: uuid.UUID,
+    body: McpServerIn,
+    session: AsyncSession = Depends(get_session),
+    principal=Depends(current_principal),
 ) -> Any:
     obj = await session.get(McpServer, id)
     if obj is None:
         raise HTTPException(status_code=404, detail="not found")
+    assert_may_manage(obj, principal)  # 소유자/특권만(스펙 112)
     data = body.model_dump()
     # 참조 무결성(스펙 093, operation-symmetry): rename도 삭제와 똑같이 config의 name 링크를 끊는다.
     # 런타임은 McpServer.name.in_(config["mcps"])로 해석하므로 참조 중인 서버 name을 바꾸면 옛 name이
@@ -322,10 +331,15 @@ async def update_mcp_server(
 
 
 @router.delete("/mcp-servers/{id}", status_code=204)
-async def delete_mcp_server(id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> None:
+async def delete_mcp_server(
+    id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    principal=Depends(current_principal),
+) -> None:
     obj = await session.get(McpServer, id)
     if obj is None:
         raise HTTPException(status_code=404, detail="not found")
+    assert_may_manage(obj, principal)  # 소유자/특권만(스펙 112)
     # 참조 무결성(스펙 093): 이 서버 name을 config에 담은 에이전트가 있으면 삭제 차단.
     # 삭제하면 config에 dangling name만 남아 런타임이 조용히 도구 없이 동작한다.
     refs = await agents_referencing(session, "mcps", obj.name)
@@ -339,11 +353,15 @@ async def delete_mcp_server(id: uuid.UUID, session: AsyncSession = Depends(get_s
 
 @router.put("/mcp-servers/{id}/publish", response_model=McpServerOut)
 async def publish_mcp_server(
-    id: uuid.UUID, body: McpPublishIn, session: AsyncSession = Depends(get_session)
+    id: uuid.UUID,
+    body: McpPublishIn,
+    session: AsyncSession = Depends(get_session),
+    principal=Depends(current_principal),
 ) -> Any:
     obj = await session.get(McpServer, id)
     if obj is None:
         raise HTTPException(status_code=404, detail="not found")
+    assert_may_manage(obj, principal)  # 소유자/특권만(스펙 112)
     obj.published = body.published
     await session.commit()
     await session.refresh(obj)

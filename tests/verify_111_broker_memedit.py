@@ -129,10 +129,10 @@ def unit_checks() -> None:
     check(_parse_memedit("memedit:") == "", "U1 memedit: → 빈 리소스")
     check(_parse_memedit("memory:user") == "memory:user", "U1 다른 kind는 원본 방어(접두사 안 벗김)")
 
-    bt = PolicyScopedBroker({MEMEDIT}, lambda k: True, session_factory=_raise_factory(), user_id="bob")
+    bt = PolicyScopedBroker({MEMEDIT}, lambda k, name=None: True, session_factory=_raise_factory(), user_id="bob")
     check(bt._permitted(MEMEDIT) is True, "U2 정확 memedit cap 허용 → permitted")
     check(bt._permitted("memedit:other") is False, "U2 allow 밖 → deny(비노출)")
-    brd = PolicyScopedBroker({MEMEDIT}, lambda k: False, session_factory=_raise_factory(), user_id="bob")
+    brd = PolicyScopedBroker({MEMEDIT}, lambda k, name=None: False, session_factory=_raise_factory(), user_id="bob")
     check(brd._permitted(MEMEDIT) is False, "U2 RBAC 거부 → deny(교집합)")
 
     me = MemEditProvider(_raise_factory(), "bob")
@@ -154,7 +154,7 @@ def unit_checks() -> None:
     check(desc.input_schema.get("required") == ["op", "mem_id"], "U4 op·mem_id 필수")
     check("user_id" not in props, "U4 스키마에 user_id 없음(대상=주체 도출)")
 
-    b = PolicyScopedBroker([], lambda k: True, session_factory=_raise_factory(), user_id="bob")
+    b = PolicyScopedBroker([], lambda k, name=None: True, session_factory=_raise_factory(), user_id="bob")
     check("memedit" in b._by_kind and isinstance(b._by_kind["memedit"], MemEditProvider),
           "U5 _by_kind에 memedit → MemEditProvider")
     check({"agent", "mcp", "rag", "memory", "memwrite", "memedit"} <= set(b._by_kind),
@@ -278,7 +278,7 @@ async def graph_gate_checks() -> None:
     store = FakeMemStore()
     mid = store.seed("bob", "삭제될 사실")
     with_mem(store)
-    b = PolicyScopedBroker({MEMEDIT}, lambda k: True, session_factory=_fake_factory, user_id="bob")
+    b = PolicyScopedBroker({MEMEDIT}, lambda k, name=None: True, session_factory=_fake_factory, user_id="bob")
     g = _edit_graph(b)
     cfg = {"configurable": {"thread_id": "v111-approve"}}
     itr = await _stream(g, {"op": "delete", "mem_id": mid}, cfg)
@@ -294,7 +294,7 @@ async def graph_gate_checks() -> None:
     store2 = FakeMemStore()
     mid2 = store2.seed("bob", "삭제되면 안 되는 사실")
     with_mem(store2)
-    b2 = PolicyScopedBroker({MEMEDIT}, lambda k: True, session_factory=_fake_factory, user_id="bob")
+    b2 = PolicyScopedBroker({MEMEDIT}, lambda k, name=None: True, session_factory=_fake_factory, user_id="bob")
     g2 = _edit_graph(b2)
     cfg2 = {"configurable": {"thread_id": "v111-reject"}}
     itr2 = await _stream(g2, {"op": "delete", "mem_id": mid2}, cfg2)

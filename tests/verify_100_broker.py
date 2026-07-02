@@ -191,12 +191,12 @@ def unit_checks() -> None:
     check(list_agent_impls() == sorted(agent_rt._REGISTRY), "U5 list=등록 키 집합(드리프트 0)")
 
     # U6 정책 의미론(_permitted) = allowlist ∩ RBAC. 순수(DB 무관).
-    b_allow = PolicyScopedBroker({"cap1"}, lambda k: True, session_factory=_raise_factory())
+    b_allow = PolicyScopedBroker({"cap1"}, lambda k, name=None: True, session_factory=_raise_factory())
     check(b_allow._permitted("cap1") is True, "U6 allowlist∈ ∩ RBAC허용 → permitted")
     check(b_allow._permitted("cap_other") is False, "U6 allowlist∉ → deny(교집합)")
-    b_rbac_deny = PolicyScopedBroker({"cap1"}, lambda k: False, session_factory=_raise_factory())
+    b_rbac_deny = PolicyScopedBroker({"cap1"}, lambda k, name=None: False, session_factory=_raise_factory())
     check(b_rbac_deny._permitted("cap1") is False, "U6 RBAC거부 → deny(교집합)")
-    b_empty = PolicyScopedBroker([], lambda k: True, session_factory=_raise_factory())
+    b_empty = PolicyScopedBroker([], lambda k, name=None: True, session_factory=_raise_factory())
     check(b_empty._permitted("cap1") is False, "U6 빈 allowlist(무설정) → deny-by-default")
 
 
@@ -204,14 +204,14 @@ async def unit_async_checks() -> None:
     print("[U] 단위(async) — deny-by-default가 DB 미접촉·존재 비노출")
 
     # U7 deny 경로는 **DB를 만지지도 않는다**(session_factory가 호출되면 AssertionError). 존재 누출 0.
-    b_empty = PolicyScopedBroker([], lambda k: True, session_factory=_raise_factory())
+    b_empty = PolicyScopedBroker([], lambda k, name=None: True, session_factory=_raise_factory())
     check(await b_empty.discover("무엇이든") == [], "U7 빈 allowlist discover → [](DB 미접촉)")
 
-    b_rbac = PolicyScopedBroker({"cap1"}, lambda k: False, session_factory=_raise_factory())
+    b_rbac = PolicyScopedBroker({"cap1"}, lambda k, name=None: False, session_factory=_raise_factory())
     check(await b_rbac.discover("x") == [], "U7 RBAC거부 discover → [](DB 미접촉)")
 
     # 미허가 describe/invoke는 not-found로 접힘(403/404 구분 없음 = 존재 비노출), 역시 DB 미접촉.
-    b = PolicyScopedBroker({"cap1"}, lambda k: True, session_factory=_raise_factory())
+    b = PolicyScopedBroker({"cap1"}, lambda k, name=None: True, session_factory=_raise_factory())
     raised = False
     try:
         await b.describe("cap_not_allowed")
@@ -242,7 +242,7 @@ async def policy_transport_checks() -> None:
     ui = _FakeAgent("cap_ui", "로컬봇", source="ui", endpoint=None)  # Phase1 provider 아님
 
     # P1 discover 양성 + provider 필터 — allowlist에 둘 다 있어도 external(+endpoint)만 후보.
-    b = PolicyScopedBroker({"cap_ext", "cap_ui"}, lambda k: True,
+    b = PolicyScopedBroker({"cap_ext", "cap_ui"}, lambda k, name=None: True,
                            session_factory=_factory([ext, ui]))
     caps = await b.discover("")
     ids = {c.id for c in caps}
@@ -311,7 +311,7 @@ async def http_checks() -> None:
 
     try:
         # allowlist = {ext_ok, ui_ok}. ext_deny는 **allowlist에 없음**(실 SQL WHERE로 로드조차 안 됨).
-        b = PolicyScopedBroker({ext_ok, ui_ok}, lambda k: True, session_factory=SessionLocal)
+        b = PolicyScopedBroker({ext_ok, ui_ok}, lambda k, name=None: True, session_factory=SessionLocal)
 
         caps = await b.discover("")
         ids = {c.id for c in caps}

@@ -118,10 +118,10 @@ def unit_checks() -> None:
     check(_parse_rag("agt_x") == "agt_x", "U1 접두사 없음 → 원본 방어")
 
     # U3 _permitted rag — 1레벨 정확 매치(mcp 서버-전체 특례 없음).
-    bt = PolicyScopedBroker({RAG_MAIN}, lambda k: True, session_factory=_raise_factory())
+    bt = PolicyScopedBroker({RAG_MAIN}, lambda k, name=None: True, session_factory=_raise_factory())
     check(bt._permitted(RAG_MAIN) is True, "U3 정확 rag cap 허용 → permitted")
     check(bt._permitted(f"rag:{CP}other") is False, "U3 allow 밖 rag → deny(비노출)")
-    brd = PolicyScopedBroker({RAG_MAIN}, lambda k: False, session_factory=_raise_factory())
+    brd = PolicyScopedBroker({RAG_MAIN}, lambda k, name=None: False, session_factory=_raise_factory())
     check(brd._permitted(RAG_MAIN) is False, "U3 RBAC 거부 → deny(교집합)")
 
     rp = RagProvider(_raise_factory())
@@ -136,7 +136,7 @@ def unit_checks() -> None:
     check("top_k" in props, "U5 top_k 선택 파라미터 노출")
 
     # U6 _by_kind에 rag 포함(memory는 스펙 104서 추가 — ⊇로 완화, 무회귀).
-    b = PolicyScopedBroker([], lambda k: True, session_factory=_raise_factory())
+    b = PolicyScopedBroker([], lambda k, name=None: True, session_factory=_raise_factory())
     check({"agent", "mcp", "rag"} <= set(b._by_kind), "U6 브로커가 agent·mcp·rag provider 보유")
     check(isinstance(b._by_kind["rag"], RagProvider), "U6 rag → RagProvider")
 
@@ -161,13 +161,13 @@ async def unit_async_checks() -> None:
     check(await rp.candidates({"rag:"}) == [], "U8 빈 이름 `rag:` → [](승격 안 함, DB 미접촉)")
     check(await rp.load("rag:") is None, "U8 빈 이름 load → None(DB 미접촉)")
     # 빈 allowlist → discover [](provider.candidates 미호출).
-    b_empty = PolicyScopedBroker([], lambda k: True, session_factory=_raise_factory())
+    b_empty = PolicyScopedBroker([], lambda k, name=None: True, session_factory=_raise_factory())
     check(await b_empty.discover("문서") == [], "U8 빈 allowlist → [](DB 미접촉)")
     # rag allow 있으나 RBAC 거부 → provider 미호출(존재 누출 0).
-    b_rbac = PolicyScopedBroker({RAG_MAIN}, lambda k: False, session_factory=_raise_factory())
+    b_rbac = PolicyScopedBroker({RAG_MAIN}, lambda k, name=None: False, session_factory=_raise_factory())
     check(await b_rbac.discover("") == [], "U8 RBAC rag 거부 → [](존재 누출 0)")
     # allow 밖 invoke → not-found(_permitted가 load 이전에 거부 → DB 미접촉).
-    b_main = PolicyScopedBroker({RAG_MAIN}, lambda k: True, session_factory=_raise_factory())
+    b_main = PolicyScopedBroker({RAG_MAIN}, lambda k, name=None: True, session_factory=_raise_factory())
     r = await b_main.invoke(f"rag:{CP}other", {"text": "q"})
     check(r.error == "capability not found", "U8 allow 밖 rag invoke → not-found(존재 비노출)")
 
@@ -198,7 +198,7 @@ async def integration_checks() -> None:
         chunk0 = await _first_chunk_text(f"{CP}main")
 
         # 브로커: allow=rag:main, RBAC 허용, 실 DB.
-        b = PolicyScopedBroker({RAG_MAIN}, lambda k: True, session_factory=SessionLocal)
+        b = PolicyScopedBroker({RAG_MAIN}, lambda k, name=None: True, session_factory=SessionLocal)
 
         # H1 discover → rag cap 노출.
         caps = await b.discover(CP)  # 부분일치(컬렉션 이름 접두사)
@@ -220,7 +220,7 @@ async def integration_checks() -> None:
         check(bool(secret) and secret not in res.text, "H3 복호화 api_key 결과 미노출")
 
         # H4 정책 격리: RBAC rag 거부 → discover에 rag 0(DB 미접촉).
-        b_deny = PolicyScopedBroker({RAG_MAIN}, lambda k: False, session_factory=_raise_factory())
+        b_deny = PolicyScopedBroker({RAG_MAIN}, lambda k, name=None: False, session_factory=_raise_factory())
         check(await b_deny.discover(CP) == [], "H4 RBAC rag 거부 → discover [](DB 미접촉)")
 
         # H5 allow 밖(rag:empty는 실존하나 미허가) invoke → not-found(존재 비노출).
@@ -239,7 +239,7 @@ async def integration_checks() -> None:
         check(res.text == runtime.format_rag_hits(core_hits), "H7 provider invoke == 공유 코어+포맷(drift 0)")
 
         # H8 빈 컬렉션 위임(허가) → graceful 무결과 텍스트(코어 [] → 공유 포맷).
-        b_empty_allow = PolicyScopedBroker({f"rag:{CP}empty"}, lambda k: True, session_factory=SessionLocal)
+        b_empty_allow = PolicyScopedBroker({f"rag:{CP}empty"}, lambda k, name=None: True, session_factory=SessionLocal)
         r8 = await b_empty_allow.invoke(f"rag:{CP}empty", {"text": "아무거나 질의"})
         check(r8.error is None and "찾지 못했습니다" in r8.text, "H8 빈 컬렉션 → graceful 무결과 텍스트")
 
