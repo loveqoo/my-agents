@@ -60,13 +60,23 @@ const DEPTH_OPTS = [
   { label: '최근 100개 메시지', value: 100 },
 ]
 
-function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
-  return (
-    <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+/* group=false(기본): 단일 컨트롤용 <label> — 라벨 클릭이 그 컨트롤로 포커스 이동(UX). group=true:
+   컨트롤 여러 개(PickerGroups 등)를 담을 땐 <div>로 감싼다 — <label>은 컨트롤 하나에만 붙어야 하고,
+   여러 컨트롤을 label로 감싸면 라벨 어디를 클릭하든 브라우저가 **첫 하위 컨트롤로 클릭을 전달**해
+   엉뚱한 항목이 토글된다(스펙 123: 그룹 헤더 클릭→첫 체크박스 오토글 버그). */
+function Field({ label, hint, children, group = false }: { label: string; hint?: string; children: React.ReactNode; group?: boolean }) {
+  const inner = (
+    <>
       <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text)' }}>{label}</span>
       {children}
       {hint ? <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>{hint}</span> : null}
-    </label>
+    </>
+  )
+  const style = { display: 'flex', flexDirection: 'column' as const, gap: 6 }
+  return group ? (
+    <div role="group" aria-label={label} style={style}>{inner}</div>
+  ) : (
+    <label style={style}>{inner}</label>
   )
 }
 
@@ -316,7 +326,7 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
           {/* 이 대화에서 쓸 것(스펙 109/122) — 조율형은 위임 대상(capabilities), 직접형은 도구·기억.
               편집 폼과 같은 kind별 표면(스펙 108): 조율형에 mcps/memories를 보여주면 런타임 미사용이라
               오해만 준다(learning 108). */}
-          <Field label={isOrchestrator ? '이 대화에서 맡길 것' : '이 대화에서 쓸 것'}>
+          <Field group label={isOrchestrator ? '이 대화에서 맡길 것' : '이 대화에서 쓸 것'}>
             {isOrchestrator ? (
               <PickerGroups groups={capGroups} selected={draft.capabilities} onToggle={capToggle} />
             ) : (
@@ -334,6 +344,7 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
                 children: (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                     <Field
+                      group
                       label="Temperature"
                       hint={draft.temperature == null ? '자동 — 모델 등록 기본값을 사용합니다.' : undefined}
                     >
