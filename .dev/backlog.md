@@ -16,8 +16,7 @@
 ## 보류 / 후속 후보
 
 - **능력 브로커 Phase 2 — memory 수정/삭제 + 인가 입도 강화** — Phase 2-a(MCP, 101)·2-b(RAG, 103)·2-c
-  (memory **읽기**, 104)·memory **쓰기**(add, 105) 완료. 남은 후속: (a) **memory 수정(update)/삭제(delete)
-  능력** — add(105)와 달리 **대상 mem_id 소유권 검증(053 `_assert_user_owns`)이 선행**(add는 자기 스코프
+  (memory **읽기**, 104)·memory **쓰기**(add, 105) 완료. 남은 후속: (a) ✅**memory 수정/삭제 능력=스펙 111 완료** — add(105)와 달리 **대상 mem_id 소유권 검증(053 `_assert_user_owns`)이 선행**(add는 자기 스코프
   생성이라 대상 없음, update/delete는 대상 행이 자기 것인지 확인 필요). 승인 게이트는 105 재사용. (b)
   per-cap·per-user 인가 + 에이전트 소유권(현재 Agent·Collection은 owner 없는 공유 카탈로그 → member에
   kind RBAC 주면 접근 가능한 allowlist 전부 호출 가능; codex 100/101 [P1] #1/#2 수용·명시경계. memory
@@ -32,6 +31,8 @@
   관측상 중복, codex 102 [P1]). 다중 interrupt 난제(스펙 101/102 OUT)의 정공법 후속.
 
 ## 완료 (요약 — 상세는 각 스펙/회고)
+
+- **브로커 메모리 수정/삭제 능력**(스펙 111) — 브로커가 사용자 기억을 수정/삭제(memedit). 대상 mem_id 소유권 선행(남의 기억 못 건드림, 미소유=404-fold)+실행 전 승인(삭제 비가역→관리자만 fail-closed)+principal user_id 고정(anti-leak). 소유권 술어 `memory.user_owns` HTTP와 단일화. 검증 3런(단위+그래프+실mem0)+codex 적대(하중가정 정직화). 백로그 #1의 (a) 완료(2026-07-02, 회고 092·learning 111).
 
 - **엔드투엔드 오케스트레이션 시연**(스펙 110, 106 잔여) — 조율형 에이전트로 채팅 1턴을 돌려 브로커가 실제로 일을 넘기는지 trace의 `broker_invoke:rag:docs_kb` 노드로 확인. 결정적 테스트(verify_110 5/5)+플레이그라운드 인스펙터 스샷. **발견**: 위임은 유저 세션에서만(머신 토큰 deny-by-default)—E2E는 실제 principal 재현 필요(2026-07-02, 회고 091·learning 110).
 

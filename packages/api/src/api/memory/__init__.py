@@ -87,6 +87,14 @@ def list_memories(scope: dict, mem_cfg: dict | None) -> list[dict]:
     return backend.list_all(scope) if backend else []
 
 
+def user_owns(user_id: str, mem_id: str, mem_cfg: dict | None) -> bool:
+    """mem_id가 이 user_id의 기억에 속하는지(소유권 술어 — **단일 출처**, 스펙 111). 공유 pgvector라
+    전역 mem_id를 소유자 스코프 목록과 대조하지 않으면 임의 user_id/agent_id 행을 id만으로 변조 가능
+    (learning 054). HTTP 라우트(`_assert_user_owns`)와 브로커 memedit invoke가 이 술어를 공유한다
+    (드리프트 0). 순수 판정 — 호출자가 `asyncio.to_thread`로 감싼다(list_memories가 동기 백엔드 I/O)."""
+    return any(r["id"] == mem_id for r in list_memories({"user_id": user_id}, mem_cfg))
+
+
 def update_memory(mem_id: str, text: str, mem_cfg: dict | None) -> bool:
     """기억 본문 수정. 성공 True / 실패·무력화 False. (스펙 029)"""
     backend = resolve_backend(mem_cfg)

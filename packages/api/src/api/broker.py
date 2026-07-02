@@ -44,6 +44,7 @@ CAP_KIND_MCP = "mcp"  # MCP provider(Phase 2-a).
 CAP_KIND_RAG = "rag"  # RAG provider(Phase 2, 스펙 103 — 문서 컬렉션 검색).
 CAP_KIND_MEMORY = "memory"  # Memory read provider(Phase 2-c, 스펙 104 — 유저 장기 기억 검색, per-user 소유).
 CAP_KIND_MEMORY_WRITE = "memwrite"  # Memory write provider(스펙 105 — 유저 장기 기억 저장, 첫 부수효과·승인 게이트).
+CAP_KIND_MEMORY_EDIT = "memedit"  # Memory edit provider(스펙 111 — 유저 장기 기억 수정/삭제, 대상 있는 첫 부수효과·소유권 선행).
 
 
 class CapabilityNotFound(Exception):
@@ -63,6 +64,8 @@ def _kind_of(item: str) -> str:
             return CAP_KIND_RAG
         if item.startswith(f"{CAP_KIND_MEMORY_WRITE}:"):
             return CAP_KIND_MEMORY_WRITE
+        if item.startswith(f"{CAP_KIND_MEMORY_EDIT}:"):
+            return CAP_KIND_MEMORY_EDIT
         if item.startswith(f"{CAP_KIND_MEMORY}:"):
             return CAP_KIND_MEMORY
     return CAP_KIND_AGENT
@@ -88,6 +91,11 @@ def _parse_mem(item: str) -> str:
     **대상 user_id는 cap_id에 담기지 않는다**(스펙 104 핵심 anti-leak) — 리소스는 자원 *종류*만 가리키고
     누구의 것인지는 런타임 principal에서 도출한다. 접두사 없으면 원본 방어."""
     return item[len(CAP_KIND_MEMORY) + 1:] if item.startswith(f"{CAP_KIND_MEMORY}:") else item
+
+
+def _parse_memedit(item: str) -> str:
+    """memedit cap 리소스 파싱(`memedit:user` → `user`). 미지원 리소스는 load가 거른다(존재 비노출)."""
+    return item[len(CAP_KIND_MEMORY_EDIT) + 1:] if item.startswith(f"{CAP_KIND_MEMORY_EDIT}:") else item
 
 
 def _parse_memwrite(item: str) -> str:
@@ -777,6 +785,148 @@ class MemoryWriteProvider:
         }
 
 
+# ---- 스펙 111: 메모리 수정/삭제(memedit) — 대상 있는 첫 브로커 부수효과 --------------------------
+# add(105)와 결정적 차이: add는 자기 스코프 *생성*(대상 없음)이나 update/delete는 **기존 mem_id 대상**
+# → 소유권 선행(learning 054·069). approval_for와 invoke가 `_memedit_args`로 동일 정규화 → "승인한 것 ==
+# 실행되는 것". 삭제 비가역이라 RBAC는 fail-closed(member 시드 없음, admin/superuser만; 105 self_approve
+# 보다 민감도 상향). 소유권 술어는 `memory.user_owns` 단일 출처(HTTP 라우트와 공유, 드리프트 0).
+MEMEDIT_PERMISSION = "memory.edit"  # admin('*','*')만 승인 가능 — member 시드 없음(삭제 비가역 fail-closed).
+MEMEDIT_MAX_CHARS = 4000
+_MEMEDIT_PREVIEW = 200
+
+
+def _memedit_args(args: dict) -> tuple[str, str, str]:
+    """(op, mem_id, text) 정규화 — 승인·실행 공유(드리프트 0). 비-dict 방어. text는 update 전용."""
+    if not isinstance(args, dict):
+        return "", "", ""
+    op = str(args.get("op", "")).strip().lower()
+    mem_id = str(args.get("mem_id", "")).strip()
+    text = str(args.get("text", "")).strip()[:MEMEDIT_MAX_CHARS]
+    return op, mem_id, text
+
+
+class MemEditProvider:
+    """kind=memedit — 유저 장기 기억(user_id 축)을 **수정/삭제**. 대상 있는 첫 브로커 부수효과.
+
+    세 구조적 방어(스펙 111):
+    1. **스코프=principal 도출 user_id 고정** — args의 user_id 등 무시(104/105 anti-leak 불변식).
+    2. **대상 소유권 선행** — mem_id가 자기 것인지 `memory.user_owns`로 확인(미소유·부재 동일 error로
+       404-fold = 존재 비노출, 068). add(105)엔 없던 축(대상이 있으므로).
+    3. **승인 게이트 항상** — 부수효과 이전 interrupt. 승인 payload는 op·mem_id·(update)새 본문을
+       마스킹 없이 노출. 삭제 비가역이라 RBAC fail-closed(member 시드 없음).
+    """
+
+    kind = CAP_KIND_MEMORY_EDIT
+
+    def __init__(self, session_factory, user_id: str | None):
+        self._session_factory = session_factory
+        self._user_id = user_id  # principal 도출값(build_broker) — read/write provider와 공유. None=머신→deny.
+
+    def _cap(self, *, with_schema: bool) -> Capability:
+        cap = Capability(
+            id=f"{CAP_KIND_MEMORY_EDIT}:user",
+            kind=CAP_KIND_MEMORY_EDIT,
+            name="내 장기 기억 수정·삭제",
+            hook="내 장기 기억(user_id 축) 수정/삭제 — 실행 전 승인 필요",
+        )
+        if with_schema:
+            cap.input_schema = {
+                "type": "object",
+                "properties": {
+                    "op": {"type": "string", "enum": ["update", "delete"]},
+                    "mem_id": {"type": "string"},
+                    "text": {"type": "string"},
+                },
+                "required": ["op", "mem_id"],
+            }
+        return cap
+
+    async def candidates(self, allow: set[str]) -> list[Capability]:
+        # user_id 없음(머신) → 자기 스코프 없음 → 능력 없음(DB 미접촉). `memedit:user`만 승격.
+        if not self._user_id:
+            return []
+        if not any(
+            _kind_of(a) == CAP_KIND_MEMORY_EDIT and _parse_memedit(a) == "user" for a in allow
+        ):
+            return []
+        return [self._cap(with_schema=False)]
+
+    async def load(self, cap_id: str) -> _MemBacking | None:
+        if not self._user_id or _parse_memedit(cap_id) != "user":
+            return None  # 미지원 리소스·머신 → 존재 비노출
+        return _MemBacking("user")
+
+    def describe(self, row: _MemBacking) -> Capability:
+        return self._cap(with_schema=True)
+
+    async def invoke(self, row: _MemBacking, args: dict) -> InvokeResult:
+        # 여기 도달 = approval_for→interrupt로 **이미 승인**된 경우만(부수효과 1회, 멱등).
+        cap_id = f"{CAP_KIND_MEMORY_EDIT}:user"
+        raw = {"cap_id": cap_id, "kind": CAP_KIND_MEMORY_EDIT}
+
+        def err(msg: str) -> InvokeResult:  # 부수효과 0으로 실패 반환(guard)
+            return InvokeResult(text="", trust="untrusted", error=msg, raw=raw)
+
+        op, mem_id, text = _memedit_args(args)  # 승인 payload와 동일 정규화(승인한 것 == 실행되는 것)
+        if op not in ("update", "delete"):
+            return err("지원하지 않는 작업입니다 (update/delete).")
+        if not mem_id:
+            return err("대상 기억 id가 없습니다.")
+        if op == "update" and not text:
+            return err("수정할 내용이 비어 있습니다.")
+        from . import memory
+        from .mem_config import default_mem_cfg
+
+        async with self._session_factory() as db:
+            mem_cfg = await default_mem_cfg(db)
+        if memory.resolve_backend(mem_cfg) is None:
+            return err("메모리 백엔드가 구성되지 않아 수정/삭제할 수 없습니다.")
+        # 소유권 선행 — 미소유·부재는 **동일 error**로 404-fold(존재 비노출). 스코프=self._user_id(고정).
+        # **check-then-act 하중 가정(codex 111 [P1] — 정직화)**: user_owns 확인과 update/delete가 원자적으로
+        # 묶이지 않는다(백엔드 계약이 scope 없는 `update(mem_id)`/`delete(mem_id)` — 전역 mem_id 대상). 이게
+        # 안전한 이유는 두 사실에 의존한다: (1) mem_id = **전역 유일 UUID**(mem0 memory_id), (2) 기억의
+        # 소유자(user_id)는 **불변**(소유권 이전 연산 없음). 따라서 "확인 후 실제로 다른 유저 행이 같은
+        # mem_id로 해석"되는 창이 구조적으로 없다(HTTP `_assert_user_owns`→`update_memory`와 **동일** 의미 —
+        # 111이 더 나빠진 게 아니라 같은 잔존). 두 가정을 깨는 백엔드(mem_id 재사용·소유자 가변)라면 이 경로가
+        # 뚫리므로 그런 백엔드는 **scope-bound 원자 mutation을 제공해야 한다**(fail-closed; 현 mem0 API엔
+        # scope 필터 mutation이 없어 재구조화 불가 = OUT). 안전 불변식은 verify_111 교차유저 거부가 실증.
+        if not await asyncio.to_thread(memory.user_owns, self._user_id, mem_id, mem_cfg):
+            return err("이 유저의 기억이 아닙니다.")
+        if op == "update":
+            ok = await asyncio.to_thread(memory.update_memory, mem_id, text, mem_cfg)
+            if not ok:
+                return err("메모리 수정 실패")
+            preview = text[:_MEMEDIT_PREVIEW] + ("…" if len(text) > _MEMEDIT_PREVIEW else "")
+            return InvokeResult(text=f"기억을 수정했습니다: {preview}", trust="untrusted", raw=raw)
+        ok = await asyncio.to_thread(memory.delete_memory, mem_id, mem_cfg)
+        if not ok:
+            return err("메모리 삭제 실패")
+        return InvokeResult(text="기억을 삭제했습니다.", trust="untrusted", raw=raw)
+
+    def node_label(self, row: _MemBacking) -> str:
+        return f"broker_invoke:{CAP_KIND_MEMORY_EDIT}:user"
+
+    def approval_for(self, cap_id: str, args: dict) -> dict | None:
+        # 수정/삭제=부수효과 → **항상 승인**(None 절대 안 돌림). 마스킹 없이 노출(승인 가시성).
+        op, mem_id, text = _memedit_args(args)  # invoke와 동일 정규화 → 승인한 것 == 실행되는 것
+        if op == "delete":
+            summary = f"장기 기억 삭제(id={mem_id}) — 승인 필요"
+            payload_args = {"op": "delete", "mem_id": mem_id}
+        elif op == "update":
+            preview = text[:_MEMEDIT_PREVIEW] + ("…" if len(text) > _MEMEDIT_PREVIEW else "")
+            summary = f"장기 기억 수정(id={mem_id}): {preview} — 승인 필요"
+            payload_args = {"op": "update", "mem_id": mem_id, "text": text}
+        else:
+            summary = f"장기 기억 작업(op={op or '미지정'}, id={mem_id}) — 승인 필요"
+            payload_args = {"op": op, "mem_id": mem_id}
+        return {
+            "permission": MEMEDIT_PERMISSION,  # admin 전용(member 시드 없음 — 삭제 비가역 fail-closed)
+            "action": MEMEDIT_PERMISSION,
+            "args": payload_args,  # 미마스킹 — 사람이 무엇이 바뀌는지 봐야 승인 가능
+            "summary": summary,
+        }
+
+
 class PolicyScopedBroker:
     """정책으로 미리 스코프된 능력 브로커. `agent.runtime.CapabilityBroker` Protocol 적합.
 
@@ -805,6 +955,7 @@ class PolicyScopedBroker:
             RagProvider(session_factory),
             MemoryProvider(session_factory, user_id),
             MemoryWriteProvider(session_factory, user_id),
+            MemEditProvider(session_factory, user_id),
         ]
         self._by_kind = {p.kind: p for p in self._providers}
         # 관측(설계결정 7) — invoke 이력. broker.invoke가 invisible하지 않음을 보증(호출별 노드 프레임).

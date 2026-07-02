@@ -123,10 +123,10 @@ async def _user_mem_cfg(session: AsyncSession):
 
 
 async def _assert_user_owns(user_id: str, mem_id: str, mem_cfg) -> None:
-    """mem_id가 이 user_id의 기억에 속하는지 확인. 공유 pgvector라 path user_id로
-    소유권을 강제하지 않으면 임의 user_id/agent_id 행을 id만으로 변조 가능."""
-    rows = await asyncio.to_thread(memory.list_memories, {"user_id": user_id}, mem_cfg)
-    if not any(r["id"] == mem_id for r in rows):
+    """mem_id가 이 user_id의 기억에 속하는지 확인. 공유 pgvector라 path user_id로 소유권을 강제하지
+    않으면 임의 user_id/agent_id 행을 id만으로 변조 가능. 소유권 술어는 `memory.user_owns` **단일
+    출처**(스펙 111 — 브로커 memedit invoke와 공유, 드리프트 0)."""
+    if not await asyncio.to_thread(memory.user_owns, user_id, mem_id, mem_cfg):
         raise HTTPException(status_code=404, detail="이 유저의 기억이 아닙니다")
 
 
