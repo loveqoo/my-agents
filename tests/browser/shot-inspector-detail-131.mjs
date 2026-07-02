@@ -90,17 +90,17 @@ try {
   const d1 = /전송 프롬프트/.test(bodyText) && !/^시스템 프롬프트$/m.test(bodyText)
   check(d1, 'D1: "전송 프롬프트" 섹션 존재(구 "시스템 프롬프트" 미표시)')
 
-  // D2: 그 안 Collapse에 role 태그 "system"/"user" 표시 + system 패널(기본 펼침)에 페르소나
+  // D2: role 태그 "system" 표시 + **user는 표시 생략**(131 후속 — 채팅 버블 중복, 사용자 요청)
   // 텍스트 일부("Friendly") + 메시지 수 카운트(Section 헤더 Tag) 표시.
   // role 태그는 antd Tag 뒤에 글자수(예: "system88자")가 공백 없이 바로 붙어 렌더되므로
   // \b(단어 경계) 대신 태그 뒤 숫자로 경계를 잡는다(실측: "system88자", "user17자").
-  const roleTagsOk = /\bsystem\d/.test(bodyText) && /\buser\d/.test(bodyText)
+  const roleTagsOk = /\bsystem\d/.test(bodyText) && !/\buser\d/.test(bodyText) && /user 입력 \d+개는 채팅에서 확인/.test(bodyText)
   const personaOk = /Friendly/.test(bodyText)
   // 메시지 수 카운트: "전송 프롬프트" 옆 Tag 배지(예: "전송 프롬프트" 다음 줄에 숫자만 있는 Tag) —
   // Section 컴포넌트가 title 옆에 count Tag를 렌더하므로 "전송 프롬프트\n2" 류 패턴으로 확인.
   const countMatch = bodyText.match(/전송 프롬프트\s*\n?\s*(\d+)/)
   const countOk = !!countMatch && Number(countMatch[1]) >= 2
-  check(roleTagsOk, 'D2a: role 태그 "system"/"user" 표시')
+  check(roleTagsOk, 'D2a: system 태그 표시 + user 패널 생략(생략 안내문 존재)')
   check(personaOk, 'D2b: system 패널에 페르소나 텍스트("Friendly") 표시')
   check(countOk, `D2c: 메시지 수 카운트 표시(실측: ${countMatch ? countMatch[1] : '없음'})`)
   const d2 = roleTagsOk && personaOk && countOk

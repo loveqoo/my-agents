@@ -319,27 +319,34 @@ export function Inspector({
           </div>
 
           {/* 전송 프롬프트(스펙 131) — 실제 LLM에 넣은 메시지 배열(조립 system=persona+회상 포함).
-              trace.sentMessages 있으면 그것을(충실본), 없으면(구 트레이스·재개 턴) 정적 persona 폴백. */}
+              trace.sentMessages 있으면 그것을(충실본), 없으면(구 트레이스·재개 턴) 정적 persona 폴백.
+              user 입력은 채팅 버블에서 이미 보이므로 **표시에서 제외**(사용자 요청 — 데이터는 보존). */}
           {t.sentMessages?.length ? (
-            <Section icon="file" iconColor="var(--color-primary)" title="전송 프롬프트" count={t.sentMessages.length}>
-              <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginBottom: 8 }}>
-                이 턴에 모델로 전송된 메시지 전체(회상 주입 포함 · 메시지당 2000자 표시 상한).
-              </div>
-              <Collapse
-                size="small"
-                defaultActiveKey={['m0']}
-                items={t.sentMessages.map((m, i) => ({
-                  key: `m${i}`,
-                  label: (
-                    <span>
-                      <Tag color={m.role === 'system' ? 'blue' : m.role === 'user' ? 'orange' : 'green'}>{m.role}</Tag>
-                      <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>{m.content.length}자</span>
-                    </span>
-                  ),
-                  children: <pre style={codeBox}>{m.content}</pre>,
-                }))}
-              />
-            </Section>
+            (() => {
+              const shown = t.sentMessages.filter((m) => m.role !== 'user')
+              return (
+                <Section icon="file" iconColor="var(--color-primary)" title="전송 프롬프트" count={t.sentMessages.length}>
+                  <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginBottom: 8 }}>
+                    이 턴에 모델로 전송된 메시지 {t.sentMessages.length}개(회상 주입 포함 · 메시지당 2000자
+                    표시 상한). user 입력 {t.sentMessages.length - shown.length}개는 채팅에서 확인 — 표시 생략.
+                  </div>
+                  <Collapse
+                    size="small"
+                    defaultActiveKey={['m0']}
+                    items={shown.map((m, i) => ({
+                      key: `m${i}`,
+                      label: (
+                        <span>
+                          <Tag color={m.role === 'system' ? 'blue' : 'green'}>{m.role}</Tag>
+                          <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>{m.content.length}자</span>
+                        </span>
+                      ),
+                      children: <pre style={codeBox}>{m.content}</pre>,
+                    }))}
+                  />
+                </Section>
+              )
+            })()
           ) : (
             <Section icon="file" iconColor="var(--color-primary)" title="시스템 프롬프트">
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap', rowGap: 6 }}>

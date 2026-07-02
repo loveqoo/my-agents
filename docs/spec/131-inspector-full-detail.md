@@ -36,9 +36,10 @@
    담아도 안전). allowlist 키를 커스텀 그래프가 비밀 용도로 재사용하는 경우는 문서화된 경계(OUT).
 
 ### 프론트 (리치 컴포넌트 — 사용자 요청)
-4. **"전송 프롬프트" 섹션 신설**: antd Collapse — 메시지별 패널(role 태그 색 구분: system/user/
-   assistant), 내용은 코드 스타일(monospace·pre-wrap) 블록, system 패널 기본 펼침. 기존 "시스템
-   프롬프트" 섹션은 이 섹션으로 대체(정적 persona 표시는 혼동 원인이었음).
+4. **"전송 프롬프트" 섹션 신설**: antd Collapse — 메시지별 패널(role 태그 색 구분), 내용은 코드
+   스타일(monospace·pre-wrap) 블록, system 패널 기본 펼침. 기존 "시스템 프롬프트" 섹션은 이 섹션으로
+   대체(정적 persona 표시는 혼동 원인이었음). **user 입력은 표시 생략**(후속 사용자 요청 — 채팅 버블과
+   중복; 데이터(sentMessages)는 보존, 생략 안내문 표기).
 5. **도구 결과**: 브로커 호출 행에 확장 토글(Collapse) — resultPreview 본문. RAG 스니펫도 동일.
 6. **노드 요약**: 값 노출로 `query: 옵시디언 노트...` 식 실내용 표시(300캡, 기존 GraphPath 유지).
 
