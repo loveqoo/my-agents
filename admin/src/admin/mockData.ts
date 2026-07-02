@@ -18,6 +18,11 @@ export interface AgentConfig {
   impl?: string // 실행 방식(런타임 키, 스펙 085/106). 빈값/미지정=기본 UI 에이전트.
   capabilities?: string[] // 능력 브로커 allowlist(스펙 106). 오케스트레이터 impl에서 위임 대상.
 }
+
+/* 조율형(다른 곳에 위임하는 런타임) 판정 — orchestrate/orchestrate_ranked 둘 다(구 저장분 호환).
+   편집 폼·오버라이드 폼이 공유하는 단일 소스(스펙 122, 드리프트 0). */
+export const isOrchestratorImpl = (impl?: string): boolean =>
+  impl === 'orchestrate' || impl === 'orchestrate_ranked'
 export interface VersionMeta {
   version: string
   status: 'draft' | 'active' | 'archived'

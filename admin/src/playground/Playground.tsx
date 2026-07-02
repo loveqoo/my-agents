@@ -9,8 +9,8 @@ import { OverridePanel, overrideDefaults, overridePayload, type Overrides } from
 import type { ChatMsg, Trace } from './agentData'
 import type { Agent, BlockCategory, Session } from '../admin/mockData'
 import {
-  listAgents, streamChat, getBlocks, listModels, listSessions, getSessionMessages,
-  type ChatMessage, type Model,
+  listAgents, streamChat, getBlocks, listModels, listSessions, getSessionMessages, listCollections,
+  type ChatMessage, type Model, type Collection,
 } from '../api'
 import { onAgentsChanged } from '../agentsBus'
 
@@ -30,6 +30,7 @@ export function Playground() {
   // 오버라이드 패널(스펙 025) — 카탈로그(모델·블록) + 에이전트별 적용 오버라이드.
   const [models, setModels] = useState<Model[]>([])
   const [blocks, setBlocks] = useState<Record<string, BlockCategory>>({})
+  const [collections, setCollections] = useState<Collection[]>([]) // 조율형 위임 카탈로그(문서, 스펙 122)
   const [overridePanelOpen, setOverridePanelOpen] = useState(false)
   const [appliedByAgent, setAppliedByAgent] = useState<Record<string, Overrides>>({})
   const controllerRef = useRef<AbortController | null>(null)
@@ -157,6 +158,10 @@ export function Playground() {
       .catch(() => {})
     getBlocks()
       .then((b) => !cancelled && setBlocks(b))
+      .catch(() => {})
+    // 조율형 위임 대상 카탈로그(스펙 122) — 문서 컬렉션. 실패는 조용히(패널 문서 그룹만 빔).
+    listCollections()
+      .then((c) => !cancelled && setCollections(c))
       .catch(() => {})
     return () => {
       cancelled = true
@@ -360,6 +365,8 @@ export function Playground() {
         agent={activeAgent}
         models={models}
         blocks={blocks}
+        agents={agents}
+        collections={collections}
         applied={appliedOv}
         onApply={applyOverrides}
         onClear={clearOverrides}

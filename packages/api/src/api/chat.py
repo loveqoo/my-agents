@@ -140,7 +140,10 @@ async def _load_context(
         # (외부=A2A는 비로컬이라 로컬 설정 오버라이드 의미 없음 — 026 read-only 취급.)
         # 모델은 여전히 cfg["model"] 이름으로 레지스트리에서만 해석 → [012] 단일 소스 불변식 유지.
         if overrides and not _is_remote(agent.source):
-            allowed = {"model", "temperature", "historyDepth", "mcps", "memories"}
+            # capabilities(스펙 122): 조율형 MCP는 config.capabilities로 담기므로 오버라이드도 이 키를
+            # 허용해야 세션에 반영된다. 브로커가 build_broker(principal=호출자, capabilities)로
+            # 호출자 RBAC 게이트(_permitted = allowlist ∩ RBAC)하므로 주입분도 안전(confused-deputy 무관).
+            allowed = {"model", "temperature", "historyDepth", "mcps", "memories", "capabilities"}
             cfg.update({k: v for k, v in overrides.items() if k in allowed})
             # systemPrompt는 비어있지 않을 때만 persona를 덮어쓴다 — 빈/공백 문자열로
             # 저장된 페르소나를 지우지 않도록(백엔드 자체 가드, 클라이언트 신뢰 안 함. codex P1).

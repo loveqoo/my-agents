@@ -12,6 +12,7 @@ import {
   AGENT_SOURCE,
   AGENT_CONFORMANCE,
   APPROVER,
+  isOrchestratorImpl,
   type Agent,
   type AgentConfig,
   type BlockCategory,
@@ -80,8 +81,6 @@ const AGENT_TYPES: { value: string; label: string; desc: string }[] = [
   { value: 'orchestrate', label: '조율형', desc: '일을 다른 에이전트·도구에 넘겨 처리합니다.' },
 ]
 const typeDesc = (key: string) => AGENT_TYPES.find((t) => t.value === key)?.desc ?? ''
-// 조율형(다른 곳에 위임하는 런타임) 판정 — orchestrate/orchestrate_ranked 둘 다(구 저장분 호환).
-const isOrchestratorImpl = (key: string) => key === 'orchestrate' || key === 'orchestrate_ranked'
 
 /* ---- Create / edit form (composes blocks into a version config) ---- */
 function AgentForm({
