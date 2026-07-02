@@ -34,6 +34,7 @@ import {
   type Model,
   type Collection,
 } from '../../api'
+import { PickerGroups, type PickerGroup } from '../../PickerGroups'
 
 /* 폼 데이터 shape — 생성/편집에서 공유. */
 interface AgentFormData {
@@ -106,7 +107,6 @@ function AgentForm({
   onSave: (data: AgentFormData) => void
 }) {
   const [form, setForm] = useState<AgentFormData>(() => initial ? { ...initial } : blankForm(blocks, models))
-  const [capSearch, setCapSearch] = useState<Record<string, string>>({}) // 능력 패널별 검색어(스펙 107)
 
   useEffect(() => {
     setForm(initial ? { ...initial } : blankForm(blocks, models))
@@ -160,10 +160,11 @@ function AgentForm({
     typeOptions.push({ label: isOrchestratorImpl(form.impl) ? '조율형' : form.impl, value: form.impl })
   }
 
-  // "무엇에 맡길까요?" 후보 — 폼이 가진 데이터에서 조립(스펙 106). 표시엔 사람이 읽는 이름만,
-  // 내부 id(cap = `<kind>:<...>`)는 값으로만(스펙 108 유저어). 강제는 백엔드 브로커(104/105).
-  const capGroups: { title: string; items: { id: string; label: string }[] }[] = [
+  // 조율형 "무엇에 맡길까요?" 그룹 — 폼 데이터에서 조립(스펙 106). 표시엔 사람이 읽는 이름만,
+  // 내부 id(cap = `<kind>:<...>`)는 값으로만(스펙 108). 강제는 백엔드 브로커(104/105).
+  const capGroups: PickerGroup[] = [
     {
+      key: '다른 에이전트',
       title: '다른 에이전트',
       // 원격(code/external) 에이전트만 위임 대상(로컬 UI 에이전트는 대상 아님).
       items: agents
@@ -171,19 +172,85 @@ function AgentForm({
         .map((a) => ({ id: a.agentId, label: a.name })),
     },
     {
+      key: '도구',
       title: '도구',
       items: (blocks.mcp?.items ?? []).map((m) => ({ id: `mcp:${m.name}`, label: m.name })),
     },
     {
+      key: '문서',
       title: '문서',
       items: collections.map((c) => ({ id: `rag:${c.name}`, label: c.name })),
     },
     {
+      key: '사용자 기억',
       title: '사용자 기억',
       items: [
         { id: 'memory:user', label: '사용자 기억 읽기' },
         { id: 'memwrite:user', label: '사용자 기억에 저장 · 승인 필요' },
       ],
+    },
+  ]
+
+  // 직접 응답 "하는 일" 그룹 — 4개 form 배열(memories/vectorTables/permissions/mcps)을 PickerGroups
+  // 하나로 묶으려 id를 카테고리 prefix로 네임스페이스(스펙 109). 저장은 기존 배열 그대로, prefix는
+  // UI 라우팅용. 리치 렌더 보존: 권한→extra(승인자 태그), 메모리/컬렉션→hint(설명).
+  const DIRECT_FIELD: Record<string, 'memories' | 'vectorTables' | 'permissions' | 'mcps'> = {
+    mem: 'memories',
+    col: 'vectorTables',
+    perm: 'permissions',
+    tool: 'mcps',
+  }
+  const directSelected = [
+    ...form.memories.map((x) => `mem:${x}`),
+    ...form.vectorTables.map((x) => `col:${x}`),
+    ...form.permissions.map((x) => `perm:${x}`),
+    ...form.mcps.map((x) => `tool:${x}`),
+  ]
+  const toggleDirect = (id: string) => {
+    const i = id.indexOf(':')
+    const field = DIRECT_FIELD[id.slice(0, i)]
+    if (field) toggle(field, id.slice(i + 1))
+  }
+  const doGroups: PickerGroup[] = [
+    {
+      key: '도구',
+      title: '도구',
+      items: (blocks.mcp?.items ?? []).map((m) => ({ id: `tool:${m.name}`, label: m.name })),
+      emptyText: 'MCP 서버 없음 — 빌딩 블록에서 등록하세요.',
+    },
+    {
+      key: '문서',
+      title: '문서',
+      items: collections.map((c) => ({
+        id: `col:${c.name}`,
+        label: c.name,
+        hint: `${c.embedding_model_name} · 청크 ${c.chunk_count}개`,
+      })),
+      emptyText: '컬렉션 없음 — RAG 컬렉션 메뉴에서 문서를 적재하세요.',
+    },
+    {
+      key: '기억',
+      title: '기억',
+      items: (blocks.memory?.items ?? []).map((m) => ({ id: `mem:${m.name}`, label: m.name, hint: m.body })),
+    },
+    {
+      key: '권한',
+      title: '권한',
+      items: (blocks.permission?.items ?? []).map((p) => {
+        const a = p.approver ? APPROVER[p.approver] : APPROVER.user
+        return {
+          id: `perm:${p.name}`,
+          label: p.name,
+          extra: (
+            <Tag color={a.tag}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                {a.icon ? <Icon name={a.icon} size={10} /> : null}
+                {a.label}
+              </span>
+            </Tag>
+          ),
+        }
+      }),
     },
   ]
   const orchestratorSelected = isOrchestratorImpl(form.impl)
@@ -209,6 +276,8 @@ function AgentForm({
               : '에이전트의 v1 초안을 만듭니다. 테스트 후 활성화해 게시하세요.'
           }
         />
+        {/* ── 1단계: 기본(필수) — 이름·모델·페르소나·종류(스펙 109) ── */}
+        <SectionHeader first>기본</SectionHeader>
         <Field label="이름">
           <Input placeholder="예: 리서치 어시스턴트" value={form.name} onChange={(e) => set('name', e.target.value)} />
         </Field>
@@ -230,34 +299,6 @@ function AgentForm({
             />
           </Field>
         </div>
-        {/* 온도 — 에이전트 영속 필드(스펙 077). 자동(끔)=모델 등록 기본값, 수동=0–2 저장.
-            플그 오버라이드의 Temperature와 동일 UX로 대칭. */}
-        <Field label="Temperature">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <Tooltip title="끄면 모델 등록 기본값(자동)">
-              <Switch
-                size="small"
-                checked={form.temperature != null}
-                onChange={(on) => set('temperature', on ? 0.7 : null)}
-              />
-            </Tooltip>
-            <Slider
-              min={0}
-              max={2}
-              step={0.1}
-              disabled={form.temperature == null}
-              value={form.temperature ?? 0.7}
-              onChange={(v) => set('temperature', v)}
-              style={{ flex: 1 }}
-            />
-            <span style={{ width: 32, textAlign: 'right', fontFamily: 'var(--font-family-code)', fontSize: 13 }}>
-              {form.temperature == null ? '—' : form.temperature.toFixed(1)}
-            </span>
-          </div>
-          <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-            {form.temperature == null ? '자동 — 모델 등록 기본값을 사용합니다.' : '에이전트에 저장됩니다(세션마다 동일).'}
-          </span>
-        </Field>
         <Field label="에이전트 종류">
           <Select
             value={form.impl}
@@ -269,185 +310,82 @@ function AgentForm({
             {typeDesc(form.impl)}
           </span>
         </Field>
-        {/* 종류가 설정면을 가른다(스펙 108): 직접 응답=직접 자원(기억·문서·권한·도구),
-            조율형=위임 대상만. 같은 자원(도구·문서)이 한 곳에만 나오게 해 중복 제거. */}
-        {!orchestratorSelected && (
-          <>
-        <Field label="메모리 타입">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {(blocks.memory?.items ?? []).map((m) => (
-              <Checkbox
-                key={m.id}
-                checked={form.memories.includes(m.name)}
-                onChange={() => toggle('memories', m.name)}
-                style={{ alignItems: 'flex-start', marginInlineStart: 0 }}
-              >
-                <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  <span style={{ fontSize: 14, fontWeight: 500 }}>{m.name}</span>
-                  <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>{m.body}</span>
-                </span>
-              </Checkbox>
-            ))}
-            {form.memories.length === 0 ? (
-              <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)', fontStyle: 'italic' }}>
-                메모리 없음 — 에이전트가 과거를 기억하지 않습니다(스테이트리스).
-              </span>
-            ) : null}
-          </div>
-        </Field>
-        {/* RAG 지식 소스(스펙 037) — 실 컬렉션. mem0 장기기억과 독립(RAG ≠ mem0). */}
-        <Field label="지식 소스 (RAG 컬렉션)">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {collections.map((c) => (
-              <Checkbox
-                key={c.id}
-                checked={form.vectorTables.includes(c.name)}
-                onChange={() => toggle('vectorTables', c.name)}
-                style={{ alignItems: 'flex-start', marginInlineStart: 0 }}
-              >
-                <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  <code style={{ fontFamily: 'var(--font-family-code)', fontSize: 13, color: 'var(--cyan-7)' }}>
-                    {c.name}
-                  </code>
-                  <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-                    {c.embedding_model_name} · 청크 {c.chunk_count}개
-                  </span>
-                </span>
-              </Checkbox>
-            ))}
-            {collections.length === 0 ? (
-              <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)', fontStyle: 'italic' }}>
-                컬렉션 없음 — 'RAG 컬렉션' 메뉴에서 먼저 문서를 적재하세요.
-              </span>
-            ) : form.vectorTables.length === 0 ? (
-              <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)', fontStyle: 'italic' }}>
-                연결된 컬렉션 없음 — 에이전트가 문서를 검색하지 않습니다.
-              </span>
-            ) : null}
-          </div>
-        </Field>
-          </>
+
+        {/* ── 2단계: 이 에이전트가 하는 일(스펙 109) — 종류가 그룹 세트를 가른다(108). 늘어나는 항목은
+            PickerGroups(접이식+검색+카운트)로 효율 렌더 → 항목 100개여도 폼 높이 안정. ── */}
+        <SectionHeader>이 에이전트가 하는 일</SectionHeader>
+        {orchestratorSelected ? (
+          <PickerGroups groups={capGroups} selected={form.capabilities} onToggle={toggleCap} />
+        ) : (
+          <PickerGroups groups={doGroups} selected={directSelected} onToggle={toggleDirect} />
         )}
-        <Field label="채팅 히스토리">
-          <Select
-            value={form.historyDepth}
-            onChange={(v) => set('historyDepth', v)}
-            style={{ width: '100%' }}
-            options={[
-              { label: '기억 안 함 (0개)', value: 0 },
-              { label: '최근 6개 메시지', value: 6 },
-              { label: '최근 10개 메시지', value: 10 },
-              { label: '최근 20개 메시지', value: 20 },
-              { label: '최근 40개 메시지', value: 40 },
-              { label: '최근 100개 메시지', value: 100 },
-            ]}
-          />
-        </Field>
-        <Field label="대화 저장">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <Switch checked={form.persistHistory} onChange={(v) => set('persistHistory', v)} />
-            <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-              {form.persistHistory
-                ? '대화를 DB에 저장 (세션·인스펙터·재개)'
-                : '윈도우 모드 — 저장 안 함 (가벼움·프라이버시, 사후 기록 없음)'}
-            </span>
-          </div>
-        </Field>
-        {!orchestratorSelected && (
-          <>
-        <Field label="권한">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {(blocks.permission?.items ?? []).map((p) => {
-              const a = p.approver ? APPROVER[p.approver] : APPROVER.user
-              return (
-                <Checkbox
-                  key={p.id}
-                  checked={form.permissions.includes(p.name)}
-                  onChange={() => toggle('permissions', p.name)}
-                  style={{ marginInlineStart: 0 }}
-                >
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                    <code style={{ fontFamily: 'var(--font-family-code)', fontSize: 13 }}>{p.name}</code>
-                    <Tag color={a.tag}>
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                        {a.icon ? <Icon name={a.icon} size={10} /> : null}
-                        {a.label}
+
+        {/* ── 3단계: 세부 설정(선택·기본 접힘) — 기본값 있어 평소 접어둠. Temperature·히스토리·대화저장. ── */}
+        <Collapse
+          size="small"
+          items={[
+            {
+              key: 'advanced',
+              label: '세부 설정 (선택)',
+              children: (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  {/* 온도(스펙 077) — 자동(끔)=모델 등록 기본값, 수동=0–2 저장. 플그 오버라이드와 대칭. */}
+                  <Field label="Temperature">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <Tooltip title="끄면 모델 등록 기본값(자동)">
+                        <Switch
+                          size="small"
+                          checked={form.temperature != null}
+                          onChange={(on) => set('temperature', on ? 0.7 : null)}
+                        />
+                      </Tooltip>
+                      <Slider
+                        min={0}
+                        max={2}
+                        step={0.1}
+                        disabled={form.temperature == null}
+                        value={form.temperature ?? 0.7}
+                        onChange={(v) => set('temperature', v)}
+                        style={{ flex: 1 }}
+                      />
+                      <span style={{ width: 32, textAlign: 'right', fontFamily: 'var(--font-family-code)', fontSize: 13 }}>
+                        {form.temperature == null ? '—' : form.temperature.toFixed(1)}
                       </span>
-                    </Tag>
-                  </span>
-                </Checkbox>
-              )
-            })}
-          </div>
-        </Field>
-        <Field label="도구 (MCP)">
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 16px' }}>
-            {(blocks.mcp?.items ?? []).map((m) => (
-              <Checkbox key={m.id} checked={form.mcps.includes(m.name)} onChange={() => toggle('mcps', m.name)}>
-                {m.name}
-              </Checkbox>
-            ))}
-          </div>
-        </Field>
-          </>
-        )}
-        {/* "무엇에 맡길까요?" 칸은 조율형일 때만(스펙 107·108) — 보통 에이전트 생성 시엔 아예 안 보여 폼 단순.
-            종류별 접이식: 기본 접힘, 선택 있는 종류만 펼쳐 열고, 늘 수 있는 종류엔 패널 내 검색. */}
-        {orchestratorSelected && (
-          <Field label="무엇에 맡길까요?">
-            <Collapse
-              size="small"
-              defaultActiveKey={capGroups.filter((g) => g.items.some((it) => form.capabilities.includes(it.id))).map((g) => g.title)}
-              items={capGroups.map((g) => {
-                const sel = g.items.filter((it) => form.capabilities.includes(it.id)).length
-                const q = (capSearch[g.title] ?? '').trim().toLowerCase()
-                const shown = q ? g.items.filter((it) => it.label.toLowerCase().includes(q)) : g.items
-                return {
-                  key: g.title,
-                  label: (
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                      {g.title}
-                      <Tag color={sel > 0 ? 'blue' : 'default'} style={{ marginInlineEnd: 0 }}>
-                        {sel}/{g.items.length}
-                      </Tag>
+                    </div>
+                    <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+                      {form.temperature == null ? '자동 — 모델 등록 기본값을 사용합니다.' : '에이전트에 저장됩니다(세션마다 동일).'}
                     </span>
-                  ),
-                  children:
-                    g.items.length === 0 ? (
-                      <span style={{ fontSize: 12, color: 'var(--color-text-quaternary)' }}>없음</span>
-                    ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        {g.items.length > 6 && (
-                          <Input
-                            allowClear
-                            size="small"
-                            placeholder={`${g.title} 검색...`}
-                            value={capSearch[g.title] ?? ''}
-                            onChange={(e) => setCapSearch((s) => ({ ...s, [g.title]: e.target.value }))}
-                          />
-                        )}
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 16px' }}>
-                          {shown.map((it) => (
-                            <Checkbox
-                              key={it.id}
-                              checked={form.capabilities.includes(it.id)}
-                              onChange={() => toggleCap(it.id)}
-                              style={{ marginInlineStart: 0 }}
-                            >
-                              <span style={{ fontSize: 13 }}>{it.label}</span>
-                            </Checkbox>
-                          ))}
-                          {shown.length === 0 && (
-                            <span style={{ fontSize: 12, color: 'var(--color-text-quaternary)' }}>검색 결과 없음</span>
-                          )}
-                        </div>
-                      </div>
-                    ),
-                }
-              })}
-            />
-          </Field>
-        )}
+                  </Field>
+                  <Field label="채팅 히스토리">
+                    <Select
+                      value={form.historyDepth}
+                      onChange={(v) => set('historyDepth', v)}
+                      style={{ width: '100%' }}
+                      options={[
+                        { label: '기억 안 함 (0개)', value: 0 },
+                        { label: '최근 6개 메시지', value: 6 },
+                        { label: '최근 10개 메시지', value: 10 },
+                        { label: '최근 20개 메시지', value: 20 },
+                        { label: '최근 40개 메시지', value: 40 },
+                        { label: '최근 100개 메시지', value: 100 },
+                      ]}
+                    />
+                  </Field>
+                  <Field label="대화 저장">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <Switch checked={form.persistHistory} onChange={(v) => set('persistHistory', v)} />
+                      <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+                        {form.persistHistory
+                          ? '대화를 DB에 저장 (세션·인스펙터·재개)'
+                          : '윈도우 모드 — 저장 안 함 (가벼움·프라이버시, 사후 기록 없음)'}
+                      </span>
+                    </div>
+                  </Field>
+                </div>
+              ),
+            },
+          ]}
+        />
       </div>
     </Modal>
   )
@@ -459,6 +397,26 @@ function Field({ label, children }: { label: React.ReactNode; children?: React.R
       <span style={{ fontSize: 14, color: 'var(--color-text)', fontWeight: 500 }}>{label}</span>
       {children}
     </label>
+  )
+}
+
+/* 폼 3단계 구획 머리말(스펙 109) — 기본 / 이 에이전트가 하는 일 / (세부 설정은 Collapse 자체 라벨).
+   first=첫 구획(맨 위)은 상단 구분선 없음. */
+function SectionHeader({ children, first }: { children: React.ReactNode; first?: boolean }) {
+  return (
+    <div
+      style={{
+        fontSize: 12,
+        fontWeight: 600,
+        color: 'var(--color-text-tertiary)',
+        letterSpacing: 0.3,
+        marginTop: first ? 0 : 4,
+        paddingTop: first ? 0 : 8,
+        borderTop: first ? 'none' : '1px solid var(--color-border-secondary)',
+      }}
+    >
+      {children}
+    </div>
   )
 }
 
