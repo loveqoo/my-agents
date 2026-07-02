@@ -146,14 +146,15 @@ def unit_checks() -> None:
     # 이 flow에도 적용되므로 True로 정직 표기(False면 resume_approval 드리프트 가드가 재개를 거부).
     check(m.supports_hil is True, "U1 supports_hil=True(서브스텝 HIL — 스펙 101 §3.5)")
 
-    # U2 구조 — mock ctx(broker=None)로 컴파일, 노드 선언대로(analyze·delegate·synthesize 선형).
+    # U2 구조 — mock ctx(broker=None)로 컴파일. analyze→plan→delegate→synthesize(plan은 스펙 116에서
+    # 위임 대상을 invoke 이전에 확정·커밋하는 노드로 추가). delegate가 orchestrate 고유 마커.
     g = oa.build_graph(_ctx(broker=None))
     check(hasattr(g, "astream"), "U2 그래프가 astream 보유(호출 계약)")
     nodes = set(g.get_graph().nodes)
-    check({"analyze", "delegate", "synthesize"} <= nodes,
-          f"U2 3노드(analyze·delegate·synthesize) (got {nodes})")
-    check("classify" not in nodes and "plan" not in nodes,
-          "U2 route/plan 노드 없음(구조 상이 = 과적합 측정 토대)")
+    check({"analyze", "plan", "delegate", "synthesize"} <= nodes,
+          f"U2 4노드(analyze·plan·delegate·synthesize) (got {nodes})")
+    check("classify" not in nodes and "delegate" in nodes,
+          "U2 route의 classify 없음·orchestrate 고유 delegate 보유(구조 상이 = 과적합 측정 토대)")
 
     # U3 conformance 분류 + 신뢰 로딩.
     check(get_agent_impl("orchestrate") is not None, "U3 get_agent_impl('orchestrate') 적합 인스턴스")

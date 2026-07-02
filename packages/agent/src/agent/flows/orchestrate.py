@@ -22,6 +22,7 @@ Human 블록)로 격리해 넣고 그 안의 지시를 따르지 않는다(codex
 
 from __future__ import annotations
 
+import operator
 import re
 import secrets
 from abc import ABC, abstractmethod
@@ -39,6 +40,10 @@ class _State(TypedDict):
     messages: Annotated[list, add_messages]
     query: str
     delegated: str
+    # 스펙 116 — 위임을 **cap 하나씩 자기 노드 실행**으로 소비해 각 완료 결과를 state에 커밋한다.
+    # interrupt(승인 대기)로 노드가 재실행돼도 이미 done에 커밋된 선행 cap은 재호출되지 않는다(재개 멱등).
+    pending: list  # 처리 대기 [{"id","name"}] — plan이 1회 확정, delegate가 매 턴 앞 하나 소비
+    done: Annotated[list, operator.add]  # 완료 결과 [{"id","name","text"}] 누적(체크포인트 보존)
 
 
 def _model_from_cfg(ctx: AgentBuildContext) -> ChatOpenAI:
@@ -116,6 +121,17 @@ def fold_results(parts: list[tuple[Capability, str]], fence: str = "") -> str:
     return "\n\n".join(
         f"## 능력: {_label_safe(cap)}\n{begin}\n{text}\n{end}" for cap, text in kept
     )
+
+
+def _fold_done(items: list[dict]) -> str:
+    """state.done의 [{"id","name","text"}] 항목을 fold_results 입력으로 변환해 접는다(스펙 116).
+    fold_results는 cap.name/id만 읽으므로 최소 Capability로 재구성한다. nonce는 여기서 요청별 생성
+    (스펙 115 — 매 fold마다 새 펜스, untrusted 콘텐츠 미노출)."""
+    parts = [
+        (Capability(id=d["id"], kind="", name=d["name"]), d["text"])
+        for d in items
+    ]
+    return fold_results(parts, fence=secrets.token_hex(8))
 
 
 def _label_safe(cap: Capability) -> str:
@@ -229,30 +245,40 @@ class OrchestrationAgentBase(ABC):
             # 결정적 — 모델 호출 없음. 노드 발화가 updates→추적 타임라인에 남는다.
             return {"query": extract_query(_last_user_text(state))}
 
-        async def delegate(state: _State) -> dict:
+        async def plan(state: _State) -> dict:
+            """위임 대상을 **어떤 invoke·interrupt 이전에** 확정·커밋한다(스펙 116, codex 116 [P1] 봉합).
+            discover/select는 부수효과·interrupt가 없으므로 이 노드는 항상 완주해 pending을 체크포인트에
+            남긴다 → 뒤이어 첫 cap이 interrupt해도 재개 시 **재-discover되지 않는다**(재개 전 카탈로그·정책이
+            바뀌어 승인 대상이 뒤바뀌는 위험 차단)."""
             if broker is None:
-                return {"delegated": ""}  # 정책 미주입 = 발견 공집합(deny-by-default)
+                return {"pending": []}  # deny-by-default(발견 공집합)
             candidates = await broker.discover(state["query"], limit=self.DISCOVER_LIMIT)
-            # select는 후보 중에서 **고를** 뿐 — 조상이 반환을 candidates로 교집합(id 기준)해 canonical
-            # 후보로 되돌린다. 전략이 임의 `Capability(id=...)`를 지어내 위임하거나 name/hook을 스푸핑할
-            # 구멍을 *구조로* 닫는다(codex 102 [P2]). broker.invoke도 정책을 재검증하지만(TOCTOU),
-            # '고르는 자이지 만드는 자 아님'을 조상이 한 번 더 강제한다(단일 지점, 드리프트 0).
+            # select는 후보 중 **고를** 뿐 — 조상이 candidates로 교집합(id)해 canonical로 되돌린다
+            # (임의 Capability 날조·스푸핑 구조 차단, codex 102 [P2]). broker.invoke도 재검증(TOCTOU).
             allowed = {c.id: c for c in candidates}
             chosen = [allowed[c.id]
                       for c in self.select(state["query"], list(candidates)) if c.id in allowed]
-            # 순차 위임(스펙 102 §D5) — 각 invoke가 스펙 101 HIL(interrupt-before-sideeffect)을 보존한다:
-            # 승인 요구 cap은 broker.invoke가 전송 이전 interrupt로 pause한다.
-            # **경계(스펙 101·102 OUT — 다중 interrupt/멱등 재개, codex 102 [P1])**: 여러 cap을 순차
-            # 위임하다 뒤쪽 cap이 interrupt하면 LangGraph는 재개 시 이 노드를 **처음부터 재실행**한다 →
-            # 앞선 **비승인(read-only) cap이 재호출**된다(중복 읽기; 멱등이라 안전하나 관측상 중복). 단
-            # **승인-게이트 cap의 부수효과는 정확히 1회**로 유지된다(interrupt-before-sideeffect가 그 cap엔
-            # 그대로 — verify_102 H10이 실측). 노드 간 멱등 재개(선행 결과 캐시)는 별개 난제로 후속.
-            parts: list[tuple[Capability, str]] = []
-            for cap in chosen:
-                res = await broker.invoke(cap.id, {"text": state["query"]})
-                parts.append((cap, fold_result(res.text, res.error)))
-            # 요청별 랜덤 nonce로 출처 펜스(스펙 115) — untrusted 콘텐츠가 알 수 없어 라벨 스푸핑 불가.
-            return {"delegated": fold_results(parts, fence=secrets.token_hex(8))}
+            return {"pending": [{"id": c.id, "name": c.name} for c in chosen]}
+
+        async def delegate(state: _State) -> dict:
+            """plan이 확정한 pending을 **cap 하나씩 자기 노드 실행**으로 소비(스펙 116 — 재개 멱등). 매 턴
+            pending 앞 하나를 invoke하고 결과를 done에 커밋한 뒤 자기 자신으로 루프한다. 승인-게이트 cap이
+            interrupt하면 LangGraph가 이 노드를 재실행하지만, **선행 cap 결과는 이미 done에 커밋**돼
+            재호출되지 않는다(앞선 read-only cap의 중복 읽기 제거, codex 102 [P1] 봉합). 그 cap 자체는
+            재실행되나 interrupt-before-sideeffect로 부수효과는 정확히 1회(스펙 101)."""
+            pending = state.get("pending") or []
+            if pending:
+                cap = pending[0]
+                # gated cap이면 여기서 interrupt(재개 시 이 cap만 재호출; done의 선행 cap은 보존).
+                res = await broker.invoke(cap["id"], {"text": state["query"]})
+                item = {"id": cap["id"], "name": cap["name"], "text": fold_result(res.text, res.error)}
+                rest = pending[1:]
+                upd = {"pending": rest, "done": [item]}
+                if not rest:  # 마지막 cap — 전체 done을 fold해 데이터 채널로 넘긴다.
+                    upd["delegated"] = _fold_done((state.get("done") or []) + [item])
+                return upd
+            # 후보 0(plan이 빈 pending) — 로컬 종합.
+            return {"delegated": _fold_done(state.get("done") or [])}
 
         async def synthesize(state: _State) -> dict:
             # 위임 결과(untrusted)는 system이 아닌 **데이터 채널**로 격리해 주입(순수함수 조립).
@@ -262,11 +288,20 @@ class OrchestrationAgentBase(ABC):
 
         g = StateGraph(_State)
         g.add_node("analyze", analyze)
+        g.add_node("plan", plan)
         g.add_node("delegate", delegate)
         g.add_node("synthesize", synthesize)
         g.add_edge(START, "analyze")
-        g.add_edge("analyze", "delegate")
-        g.add_edge("delegate", "synthesize")
+        # plan(위임 대상 확정)을 invoke 이전에 두어 pending을 먼저 커밋(스펙 116 — 첫 cap interrupt에도
+        # 재-discover 방지). 그 뒤 delegate가 cap 하나씩 소비.
+        g.add_edge("analyze", "plan")
+        g.add_edge("plan", "delegate")
+        # delegate 자기 루프(스펙 116): pending 남으면 delegate로 되돌아가 다음 cap을 소비, 없으면 종합.
+        g.add_conditional_edges(
+            "delegate",
+            lambda s: "delegate" if s.get("pending") else "synthesize",
+            ["delegate", "synthesize"],
+        )
         g.add_edge("synthesize", END)
         # checkpointer 주입 보존(interrupt 배선 유지 — HIL 계약).
         return g.compile(checkpointer=ctx.checkpointer)

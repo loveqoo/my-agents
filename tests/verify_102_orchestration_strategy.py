@@ -152,8 +152,9 @@ def unit_checks() -> None:
     g_fm = fm.build_graph(_ctx(broker=None, checkpointer=MemorySaver()))
     g_rk = rk.build_graph(_ctx(broker=None, checkpointer=MemorySaver()))
     nodes_fm, nodes_rk = _node_set(g_fm), _node_set(g_rk)
-    check(nodes_fm == {"analyze", "delegate", "synthesize"},
-          f"U4 골격 = {{analyze,delegate,synthesize}} (got {nodes_fm})")
+    # 스펙 116 — plan(위임 대상 확정, invoke 이전 커밋) 노드 추가. 골격은 두 자식 공통(조상 소유).
+    check(nodes_fm == {"analyze", "plan", "delegate", "synthesize"},
+          f"U4 골격 = {{analyze,plan,delegate,synthesize}} (got {nodes_fm})")
     check(nodes_fm == nodes_rk, f"U4 두 자식 노드집합 동일(드리프트0) (fm={nodes_fm} rk={nodes_rk})")
 
     # U5 채널 격리(k개 결과) — 다중 fold가 Human에만, system엔 지침만(스펙 100, k-결과판).

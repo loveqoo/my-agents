@@ -7,7 +7,11 @@
 
 ## 후보 (다음에 할 만한 것)
 
-- **스펙 116 — 재개 시 선행 위임 결과 캐시**(102 후속, 진행 예정) — 다중 위임 재개 시 앞 read-only cap 재호출 제거.
+- (비어 있음 — "1~4 루프" 4건 모두 완료. 다음은 Scaffolding서 새 방향 모색.)
+
+### 후속 씨앗 (급하지 않음)
+- **다단 승인 큐**(스펙 116 OUT) — 다중 gated cap 순차 위임 시 두 번째 이후 interrupt를 chat.py resume
+  경로가 새 Approval row로 승격(현재는 고아, 안전은 fail-closed 유지). 101/102 다중 interrupt OUT의 완전성 갭.
 
 ## 진행 중
 
@@ -31,6 +35,12 @@
   관측상 중복, codex 102 [P1]). 다중 interrupt 난제(스펙 101/102 OUT)의 정공법 후속.
 
 ## 완료 (요약 — 상세는 각 스펙/회고)
+
+- **재개 시 선행 위임 결과 보존**(스펙 116, 102 codex [P1] 봉합) — 다중 순차 위임 중 뒤 gated cap
+  interrupt 시 재개서 앞 read-only cap 재호출되던 것을, cap 하나씩 delegate self-loop(pending/done
+  operator.add)로 소비해 재개 멱등화(cap 하나=체크포인트 경계). codex [P1] 첫 cap 재-discover→plan
+  노드 분리로 봉합. 다중 gated 승인 표면화는 OUT(안전 fail-closed 유지). "1~4 루프" 4번(마지막) 완료
+  (2026-07-02, 회고 097·learning 116).
 
 - **위임 결과 attribution 견고화**(스펙 115, 102 codex 설계한계 봉합) — 다중 위임 fold의 `## 능력:` 라벨
   스푸핑을 요청별 랜덤 nonce 펜스(⟦BEGIN nonce⟧…⟦END nonce⟧, 라벨은 펜스 밖·nonce는 위임 능력 미노출)로
