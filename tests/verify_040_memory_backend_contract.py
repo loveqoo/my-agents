@@ -60,8 +60,11 @@ class Mem0Sim:
                 out.append({"id": r["id"], "memory": r["memory"], "score": score})
         return {"results": out[:top_k]}
 
-    def get_all(self, filters):
-        return {"results": [{"id": r["id"], "memory": r["memory"]} for r in self.recs if self._match(r, filters)]}
+    def get_all(self, filters, top_k=20):
+        # 실제 mem0 시그니처 미러(top_k 기본 20 = 미지정 시 잘림) — 어댑터가 top_k를 명시하는지가
+        # 계약의 일부(스펙 127: 미지정이 21번째부터 조용히 자르던 버그).
+        rows = [{"id": r["id"], "memory": r["memory"]} for r in self.recs if self._match(r, filters)]
+        return {"results": rows[:top_k]}
 
     def update(self, memory_id, data):
         for r in self.recs:

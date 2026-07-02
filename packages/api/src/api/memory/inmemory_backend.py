@@ -68,6 +68,27 @@ class InMemoryBackend:
                     merged[rec["id"]] = {"id": rec["id"], "text": rec["text"]}
         return list(merged.values())
 
+    def list_page(self, scope: dict, q: str | None, limit: int, offset: int) -> dict:
+        """페이지 목록(스펙 127) — 최신순(삽입 역순), q 부분일치(대소문자 무시), 합집합 dedup."""
+        axes = scope_axes(scope)
+        if not axes:
+            return {"items": [], "total": 0}
+        ql = (q or "").strip().lower()
+        seen: set[str] = set()
+        matches: list[dict] = []
+        for rec in reversed(self._store):  # 최신순 — created_at이 없어 삽입 순서가 시간 대리
+            if rec["id"] in seen:
+                continue
+            if not any(rec["axes"].get(a) == v for a, v in axes):
+                continue
+            if ql and ql not in rec["text"].lower():
+                continue
+            seen.add(rec["id"])
+            matches.append({"id": rec["id"], "text": rec["text"], "created_at": None, "updated_at": None})
+        n = max(1, min(int(limit), 100))
+        off = max(0, int(offset))
+        return {"items": matches[off : off + n], "total": len(matches)}
+
     def update(self, mem_id: str, text: str) -> bool:
         if not mem_id:
             return False

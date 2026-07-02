@@ -10,7 +10,7 @@ import re
 import secrets
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,6 +29,8 @@ from .schemas import (
     ExposeIn,
     MemoryHit,
     MemorySearchDiag,
+    MemoryPageItem,
+    MemoryPageOut,
     MemorySearchIn,
     MemorySearchOut,
     RegisterCodeAgentIn,
@@ -679,6 +681,37 @@ async def list_agent_memory(
         return []
     return await asyncio.to_thread(
         memory.list_memories, {"agent_id": agent.agent_id}, mem_cfg
+    )
+
+
+@router.get("/{agent_id}/memory/page", response_model=MemoryPageOut)
+async def page_agent_memory(
+    agent_id: uuid.UUID,
+    q: str | None = Query(None, max_length=500),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0, le=1_000_000),
+    session: AsyncSession = Depends(get_session),
+) -> MemoryPageOut:
+    """에이전트 기억 페이지 목록(스펙 127) — 서버 페이지네이션 + 부분일치(q).
+
+    소유권: 기존 agent-memory CRUD와 동일 router-auth, 스코프(agent_id)는 백엔드가 SQL WHERE로.
+    미구성 → enabled=False. 백엔드 실패 → 502(빈 목록 위장 금지, learning 125)."""
+    agent, mem_cfg = await _agent_mem_cfg(session, agent_id)
+    try:
+        page = await asyncio.to_thread(
+            memory.list_page, {"agent_id": agent.agent_id}, q, mem_cfg, limit, offset
+        )
+    except Exception as exc:
+        secrets = memory._cfg_secrets(mem_cfg)
+        raise HTTPException(status_code=502, detail="메모리 목록 조회 실패: " + memory._sanitize(exc, secrets=secrets))
+    if page is None:
+        return MemoryPageOut(items=[], total=0, limit=limit, offset=offset, enabled=False)
+    return MemoryPageOut(
+        items=[MemoryPageItem(**it) for it in page["items"]],
+        total=page["total"],
+        limit=limit,
+        offset=offset,
+        enabled=True,
     )
 
 

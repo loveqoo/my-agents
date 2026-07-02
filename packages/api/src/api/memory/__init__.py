@@ -173,6 +173,16 @@ def list_memories(scope: dict, mem_cfg: dict | None) -> list[dict]:
     return backend.list_all(scope) if backend else []
 
 
+def list_page(scope: dict, q: str | None, mem_cfg: dict | None, limit: int = 20, offset: int = 0) -> dict | None:
+    """기억 페이지 목록(스펙 127) — {"items", "total"}. 백엔드 미가용(미구성) → None(빈 결과와 구분,
+    recall_probe와 동일 계약). 백엔드 실패는 **던진다**(관리 조회 실패≠0건, learning 125) — 호출 라우트가
+    오류로 표면화한다."""
+    backend = resolve_backend(mem_cfg)
+    if backend is None:
+        return None
+    return backend.list_page(scope, q, limit, offset)
+
+
 def user_owns(user_id: str, mem_id: str, mem_cfg: dict | None) -> bool:
     """mem_id가 이 user_id의 기억에 속하는지(소유권 술어 — **단일 출처**, 스펙 111). 공유 pgvector라
     전역 mem_id를 소유자 스코프 목록과 대조하지 않으면 임의 user_id/agent_id 행을 id만으로 변조 가능

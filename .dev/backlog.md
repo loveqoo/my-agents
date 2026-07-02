@@ -47,6 +47,11 @@
 
 ## 완료 (요약 — 상세는 각 스펙/회고)
 
+- **메모리 서버 페이지네이션 + 일치/유사도 통합**(스펙 127) — 증가 데이터 대응: list_page 추상 계약+mem0
+  raw SQL(20건 캡 버그도 수정)+PagedMemoryList(Segmented 일치|유사도, SessionsView 패턴). 첫 오케스트레이션
+  실전(deep-reasoner 조사·fast-worker 브라우저·codex 적대). 완료(2026-07-02, 회고 108·learning 127). 미푸시.
+  **후속 씨앗**: 세션/컬렉션에 같은 패턴 일반화(모범 적용), 수십만 건 시 keyset 페이지네이션.
+
 - **메모리 조회를 드로어→상세 페이지 인라인**(스펙 126) — "넓게 활용". 검색시험 셸이 컬렉션과 공유라
   본문을 RetrievalTestPanel로 추출·드로어는 얇은 래퍼(컬렉션 무변경)·메모리는 상단 Card 전체폭+목록 아래
   (위아래 스택, 사용자 선택). RecallPanel 신설·RecallDrawer 삭제. codex NO ISSUES. 완료(2026-07-02,

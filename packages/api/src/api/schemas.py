@@ -151,6 +151,26 @@ class MemoryHit(BaseModel):
     scope: str  # 매치된 스코프 축 이름(agent_id/user_id/run_id)
 
 
+class MemoryPageItem(BaseModel):
+    """페이지 목록 항목(스펙 127) — created/updated는 mem0 payload의 ISO 문자열(없으면 None)."""
+
+    id: str
+    text: str
+    created_at: str | None = None
+    updated_at: str | None = None
+
+
+class MemoryPageOut(BaseModel):
+    """기억 페이지 목록(스펙 127) — 서버 페이지네이션 + 부분일치(q). enabled=False는 메모리 미구성
+    (빈 결과와 구분, 084/125 정직성 계약). 백엔드 *실패*는 이 스키마가 아니라 502로 표면화(실패≠0건)."""
+
+    items: list[MemoryPageItem]
+    total: int  # q 적용 후 전체 건수
+    limit: int
+    offset: int
+    enabled: bool
+
+
 class MemorySearchDiag(BaseModel):
     """회상 시험 진단(스펙 125) — "왜 0건/실패인지"를 UI가 지속 표시. 비밀(api_key) 절대 미포함."""
 

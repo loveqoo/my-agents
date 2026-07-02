@@ -10,7 +10,7 @@ mem_id만 변조 허용(타 유저·타 에이전트 행 변조 차단 — 스�
 
 import asyncio
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,7 +21,14 @@ from .authz import get_enforcer
 from .db import get_session
 from .mem_config import default_mem_cfg
 from .models import Session as SessionModel, User
-from .schemas import MemoryHit, MemorySearchDiag, MemorySearchIn, MemorySearchOut
+from .schemas import (
+    MemoryHit,
+    MemoryPageItem,
+    MemoryPageOut,
+    MemorySearchDiag,
+    MemorySearchIn,
+    MemorySearchOut,
+)
 
 router = APIRouter(prefix="/memory", tags=["memory"])
 
@@ -142,6 +149,41 @@ async def list_user_memory(
     if mem_cfg is None:
         return []
     return await asyncio.to_thread(memory.list_memories, {"user_id": user_id}, mem_cfg)
+
+
+@router.get("/user/{user_id}/page", response_model=MemoryPageOut)
+async def page_user_memory(
+    user_id: str,
+    q: str | None = Query(None, max_length=500),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0, le=1_000_000),
+    principal=Depends(current_principal),
+    session: AsyncSession = Depends(get_session),
+) -> MemoryPageOut:
+    """유저 기억 페이지 목록(스펙 127) — 서버 페이지네이션 + 부분일치(q).
+
+    소유권: 비-어드민은 자기 user_id만(`_assert_principal_may_access` 403), 스코프는 백엔드가
+    **SQL WHERE로** 민다(fetch-then-check 아님). 미구성 → enabled=False(빈 결과와 구분).
+    백엔드 실패 → 502(빈 목록으로 위장 금지, learning 125)."""
+    _assert_principal_may_access(principal, user_id)
+    mem_cfg = await _user_mem_cfg(session)
+    try:
+        page = await asyncio.to_thread(
+            memory.list_page, {"user_id": user_id}, q, mem_cfg, limit, offset
+        )
+    except Exception as exc:
+        # 비밀 마스킹 후 표면화 — 실패를 0건으로 위장하지 않는다(125).
+        secrets = memory._cfg_secrets(mem_cfg)
+        raise HTTPException(status_code=502, detail="메모리 목록 조회 실패: " + memory._sanitize(exc, secrets=secrets))
+    if page is None:
+        return MemoryPageOut(items=[], total=0, limit=limit, offset=offset, enabled=False)
+    return MemoryPageOut(
+        items=[MemoryPageItem(**it) for it in page["items"]],
+        total=page["total"],
+        limit=limit,
+        offset=offset,
+        enabled=True,
+    )
 
 
 @router.post("/user/{user_id}/search", response_model=MemorySearchOut)

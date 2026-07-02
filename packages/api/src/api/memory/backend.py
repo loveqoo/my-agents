@@ -47,6 +47,15 @@ class MemoryBackend(Protocol):
         """스코프 합집합의 모든 기억 [{id, text}]. 빈 스코프·실패 시 []."""
         ...
 
+    def list_page(self, scope: dict, q: str | None, limit: int, offset: int) -> dict:
+        """스코프 합집합의 기억 **페이지**(스펙 127) — {"items": [{id, text, created_at, updated_at}],
+        "total": int}. items는 결정적 순서(최신순), q는 본문 부분일치(대소문자 무시), total은 q 적용 후
+        전체 건수. 빈 스코프 → {"items": [], "total": 0}.
+
+        **graceful 예외**: 다른 메서드와 달리 실패를 삼키지 않고 **던진다** — 관리 조회가 실패를
+        "0건"으로 위장하면 진단이 거짓이 된다(learning 125 실패≠0건). 챗 회상 경로는 이 메서드를 안 쓴다."""
+        ...
+
     def update(self, mem_id: str, text: str) -> bool:
         """기억 본문 수정. 성공 True / 실패·무력화 False."""
         ...

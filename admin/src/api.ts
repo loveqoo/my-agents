@@ -350,6 +350,26 @@ export const searchAgentMemory = (id: string, query: string, limit: number) =>
   post(`/agents/${id}/memory/search`, { query, limit }) as Promise<MemorySearchOut>
 export const searchUserMemory = (userId: string, query: string, limit: number) =>
   post(`/memory/user/${encodeURIComponent(userId)}/search`, { query, limit }) as Promise<MemorySearchOut>
+/* 기억 페이지 목록(스펙 127) — 서버 페이지네이션 + 부분일치(q). enabled=false=미구성(0건과 구분). */
+export interface MemoryPageItem {
+  id: string
+  text: string
+  created_at: string | null
+  updated_at: string | null
+}
+export interface MemoryPageOut {
+  items: MemoryPageItem[]
+  total: number // q 적용 후 전체 건수
+  limit: number
+  offset: number
+  enabled: boolean
+}
+const pageQS = (q: string, limit: number, offset: number) =>
+  `?limit=${limit}&offset=${offset}` + (q ? `&q=${encodeURIComponent(q)}` : '')
+export const pageUserMemory = (userId: string, q: string, limit: number, offset: number) =>
+  j<MemoryPageOut>(`/memory/user/${encodeURIComponent(userId)}/page${pageQS(q, limit, offset)}`)
+export const pageAgentMemory = (id: string, q: string, limit: number, offset: number) =>
+  j<MemoryPageOut>(`/agents/${id}/memory/page${pageQS(q, limit, offset)}`)
 
 /* ---------- 프로바이더 (연결처 — base_url + 자격증명, 스펙 035) ---------- */
 export type ProviderKind = 'local' | 'mock' | 'remote'
