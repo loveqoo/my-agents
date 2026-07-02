@@ -27,7 +27,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
-from . import a2a_client, authz, checkpointer, crypto, memory, runtime
+from . import a2a_client, authz, checkpointer, crypto, memory, observability, runtime
 from .auth import current_principal
 from .broker import PolicyScopedBroker, build_broker
 from .db import SessionLocal
@@ -613,7 +613,11 @@ async def stream_local_reply(agent_id: uuid.UUID, user_text: str):
     graph = impl.build_graph(build_ctx)
     # 노출 호출은 호출당 단일 메시지(맥락은 A2A contextId가 호출측 책임 — v1 서빙은 무상태).
     messages = _window([{"role": "user", "content": user_text}], ctx["history_depth"])
-    async for msg_chunk, _meta in graph.astream({"messages": messages}, stream_mode="messages"):
+    # 관측(스펙 118) — checkpointer=None이라 thread_id 불요, 콜백만 병합(미설정=무동작).
+    _cfg = observability.with_trace(None, name="a2a-serve-local")
+    async for msg_chunk, _meta in graph.astream(
+        {"messages": messages}, config=_cfg, stream_mode="messages"
+    ):
         # A2A 서빙도 도구 원본 응답은 외부 소비자에게 노출 않음(스펙 092, 본문 sink와 동일 술어).
         if runtime.is_tool_message(msg_chunk):
             continue
@@ -707,6 +711,10 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
     # thread를 만들어 그 턴의 일시정지/재개에만 쓰고, Approval.checkpoint에 박아 재개 키로 삼는다.
     thread_id = f"{ctx['ext_agent_id']}:{ctx['session_id']}:{secrets.token_hex(4)}"
     config = {"configurable": {"thread_id": thread_id}}
+    # 관측(스펙 118) — Langfuse가 설정됐을 때만 콜백 부착(미설정=무동작). 핵심 채팅 경로 무영향.
+    config = observability.with_trace(
+        config, name=f"chat:{ctx['ext_agent_id']}", session_id=ctx["session_id"], user_id=user_id
+    )
 
     # 실행 컨텍스트를 historyDepth로 절단(최근 N개만 모델에 전달).
     messages = _window(
@@ -1016,6 +1024,8 @@ async def resume_approval(approval: Approval, decision: str) -> None:
     )
     graph = impl.build_graph(build_ctx)
     config = {"configurable": {"thread_id": thread_id}}
+    # 관측(스펙 118) — 재개 경로도 Langfuse가 설정됐을 때만 콜백 부착(미설정=무동작).
+    config = observability.with_trace(config, name="chat-resume", user_id=approval.user_id)
 
     t0 = time.perf_counter()
     try:

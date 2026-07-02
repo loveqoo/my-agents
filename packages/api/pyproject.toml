@@ -24,6 +24,7 @@ dependencies = [
     "casbin>=1.40",
     "casbin-async-sqlalchemy-adapter>=1.4",
     "apscheduler>=3.10",  # 격리 배치 서비스 내부 스케줄러(스펙 038)
+    "langfuse>=4.12.0",
 ]
 
 [project.scripts]
