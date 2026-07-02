@@ -28,6 +28,7 @@ from .schemas import (
     ConnectAgentIn,
     ExposeIn,
     MemoryHit,
+    MemorySearchDiag,
     MemorySearchIn,
     MemorySearchOut,
     RegisterCodeAgentIn,
@@ -690,17 +691,26 @@ async def search_agent_memory(
     에이전트 메모리는 유저 축이 아니라 기존 agent-memory CRUD처럼 router-auth만(새 principal 게이트
     없음). 스코프 dict가 mem0 filter로 들어가 이 에이전트 기억만 로드. 미구성이면 enabled=False·빈결과."""
     agent, mem_cfg = await _agent_mem_cfg(session, agent_id)
-    # recall_probe: 백엔드 미가용(mem_cfg None·구성 실패)이면 None → enabled=False. 가용이면
-    # limit로 슬라이스된 리스트. enabled를 mem_cfg 유무가 아닌 *백엔드 가용성*에 묶어 깨진
-    # 백엔드를 "회상 0건"으로 위장하지 않는다(적대 리뷰 084 P2a·P2b).
-    hits = await asyncio.to_thread(
-        memory.recall_probe, {"agent_id": agent.agent_id}, body.query, mem_cfg, body.limit
+    # recall_diag(스펙 125): 미가용 사유(미설정/초기화실패/검색예외)를 구조화(예외 안 던짐).
+    # enabled=backend_ready로 기존 계약 유지(깨진 백엔드를 "회상 0건"으로 위장 안 함, 084 P2a).
+    d = await asyncio.to_thread(
+        memory.recall_diag, {"agent_id": agent.agent_id}, body.query, mem_cfg, body.limit
     )
+    results = [MemoryHit(**h) for h in d["results"]]
     return MemorySearchOut(
         query=body.query,
         limit=body.limit,
-        enabled=hits is not None,
-        results=[MemoryHit(**h) for h in (hits or [])],
+        enabled=d["backend_ready"],
+        results=results,
+        diag=MemorySearchDiag(
+            configured=d["configured"],
+            backendReady=d["backend_ready"],
+            embedderModel=d["embedder_model"],
+            llmModel=d["llm_model"],
+            error=d["error"],
+            scope=agent.agent_id,
+            count=len(results),
+        ),
     )
 
 

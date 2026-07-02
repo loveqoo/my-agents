@@ -6,8 +6,58 @@
    정직성 계약(084): onSearch가 돌려주는 `enabled`가 false면 결과 대신 `disabledAlert`를 보인다 —
    "미구성(enabled=false)"과 "0건 회상(enabled=true & 빈 results)"을 구분한다(None≠[]). */
 import { useState, useEffect, useRef, type ReactNode } from 'react'
-import { Drawer, Input, InputNumber, Button, Tag, Alert, message } from 'antd'
+import { Drawer, Input, InputNumber, Button, Tag, Alert, Collapse, message } from 'antd'
 import { Icon } from '../icons'
+
+/* 지속 진단 패널(스펙 125) — "왜 0건/실패인지". 오류 있으면 기본 펼침. 메모리 경로만 diag를 준다. */
+function DiagPanel({ diag }: { diag: SearchDiag }) {
+  const status = !diag.configured
+    ? { color: 'red', text: '임베딩 미설정' }
+    : !diag.backendReady
+      ? { color: 'red', text: '백엔드 초기화 실패' }
+      : diag.error
+        ? { color: 'orange', text: '검색 오류' }
+        : { color: 'green', text: '정상' }
+  const row = (k: string, v: string, mono = false) => (
+    <div style={{ display: 'flex', gap: 8 }}>
+      <span style={{ width: 96, color: 'var(--color-text-tertiary)', flex: 'none' }}>{k}</span>
+      <span style={{ fontFamily: mono ? 'var(--font-family-code)' : undefined, wordBreak: 'break-all' }}>{v}</span>
+    </div>
+  )
+  return (
+    <Collapse
+      size="small"
+      defaultActiveKey={diag.error ? ['diag'] : []}
+      items={[
+        {
+          key: 'diag',
+          label: (
+            <span>
+              진단 <Tag color={status.color}>{status.text}</Tag>
+            </span>
+          ),
+          children: (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12 }}>
+              {diag.error ? (
+                <Alert
+                  type={diag.configured && diag.backendReady ? 'warning' : 'error'}
+                  showIcon
+                  message={diag.error}
+                  style={{ marginBottom: 4 }}
+                />
+              ) : null}
+              {row('임베딩 모델', diag.embedderModel ?? '(미설정)')}
+              {row('LLM 모델', diag.llmModel ?? '(미설정)')}
+              {row('스코프', diag.scope, true)}
+              {row('회상 건수', String(diag.count))}
+              {row('백엔드', diag.configured ? (diag.backendReady ? '준비됨' : '초기화 실패') : '미구성')}
+            </div>
+          ),
+        },
+      ]}
+    />
+  )
+}
 
 const { TextArea } = Input
 
@@ -17,10 +67,22 @@ export interface RetrievalHit {
   text: string
 }
 
+/** 검색 진단(스펙 125) — "왜 0건/실패인지". 메모리 경로만 채운다(컬렉션은 undefined). */
+export interface SearchDiag {
+  configured: boolean
+  backendReady: boolean
+  embedderModel: string | null
+  llmModel: string | null
+  error: string | null
+  scope: string
+  count: number
+}
+
 /** onSearch 정규화 반환 — enabled는 "백엔드 가용성"(메모리는 실제 값, 컬렉션은 항상 true). */
 export interface RetrievalOut<H extends RetrievalHit> {
   results: H[]
   enabled: boolean
+  diag?: SearchDiag | null // 진단(스펙 125) — 선택
 }
 
 export function RetrievalTestDrawer<H extends RetrievalHit>({
@@ -67,6 +129,7 @@ export function RetrievalTestDrawer<H extends RetrievalHit>({
   const [query, setQuery] = useState('')
   const [limit, setLimit] = useState(defaultLimit)
   const [out, setOut] = useState<RetrievalOut<H> | null>(null)
+  const [errMsg, setErrMsg] = useState<string | null>(null) // 지속 오류(스펙 125) — 사라지는 토스트 대신
   const [searching, setSearching] = useState(false)
   // 요청 시퀀스 — 스코프 전환·후속 질의로 밀린 늦은 응답이 다른 스코프 결과를 덮어쓰지 못하게 한다
   // (원본 072/084 두 드로어에 잠재하던 stale-async 스코프 유출; 통합 셸에서 한 번에 봉합).
@@ -77,6 +140,7 @@ export function RetrievalTestDrawer<H extends RetrievalHit>({
     reqSeq.current++
     setQuery('')
     setOut(null)
+    setErrMsg(null)
     setSearching(false)
   }, [scopeKey])
 
@@ -87,15 +151,21 @@ export function RetrievalTestDrawer<H extends RetrievalHit>({
     }
     const seq = ++reqSeq.current
     setSearching(true)
+    setErrMsg(null)
     try {
       const res = await onSearch(query.trim(), limit)
       if (seq !== reqSeq.current) return // 스코프 전환/후속 요청에 밀림 — 늦은 결과 폐기
       setOut(res)
-      if (res.enabled && !res.results.length) message.info(noResultInfo)
+      // diag.error가 있으면 "0건"이 아니라 *실패*다 — "회상 없음" 토스트를 억제(codex 125 M2).
+      if (res.enabled && !res.results.length && !res.diag?.error) message.info(noResultInfo)
     } catch (e) {
       if (seq !== reqSeq.current) return
-      // 4xx(입력·권한)·5xx(임베딩/검색 실패) — 서버 메시지를 그대로 노출.
-      message.error(e instanceof Error ? e.message : errorFallback)
+      // 4xx(입력·권한)·5xx·네트워크 — 서버 메시지를 그대로. 토스트는 사라지므로 **지속 오류**로도 남긴다
+      // (스펙 125: 다른 디바이스서 검색 실패가 깜빡 후 빈 화면이 되던 걸 방지).
+      const m = e instanceof Error ? e.message : errorFallback
+      setErrMsg(m)
+      setOut(null)
+      message.error(m)
     } finally {
       if (seq === reqSeq.current) setSearching(false)
     }
@@ -157,10 +227,16 @@ export function RetrievalTestDrawer<H extends RetrievalHit>({
                 </div>
               ))}
             </div>
-          ) : (
+          ) : out.diag?.error ? null : (
+            // diag.error면 "회상 없음" 대신 아래 진단 패널이 실패를 말한다(codex 125 M2 — 실패≠0건).
             <div style={{ fontSize: 13, color: 'var(--color-text-tertiary)' }}>{emptyMessage}</div>
           )
         ) : null}
+
+        {/* 지속 오류(스펙 125) — 토스트는 사라지므로 네트워크/HTTP 실패를 화면에 남긴다. */}
+        {errMsg ? <Alert type="error" showIcon message="검색 실패" description={errMsg} /> : null}
+        {/* 진단 패널 — 메모리 경로가 diag를 주면 "왜 0건/실패인지"를 지속 표시. */}
+        {out?.diag ? <DiagPanel diag={out.diag} /> : null}
       </div>
     </Drawer>
   )

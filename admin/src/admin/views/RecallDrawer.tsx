@@ -28,7 +28,7 @@ export function RecallDrawer({
       onClose={onClose}
       onSearch={async (q, l) => {
         const out = await onSearch(q, l)
-        return { results: out.results, enabled: out.enabled }
+        return { results: out.results, enabled: out.enabled, diag: out.diag } // 진단 통과(스펙 125)
       }}
       hint={
         <>

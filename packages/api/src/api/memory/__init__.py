@@ -13,6 +13,8 @@ mem_cfg = {"llm": {base_url, api_key, model_id}, "embedder": {base_url, api_key,
 백엔드 선택은 `MEMORY_BACKEND` env(기본 "mem0"). 지배 스펙: 007/008/019/020/040.
 """
 
+import re as _re
+
 from .backend import MemoryBackend, resolve_backend, scope_axes  # noqa: F401  (재노출)
 
 # 카탈로그에서 mem0 장기 메모리를 켜는 토글 이름(seed.py MEMORY_TYPES와 동일해야 함).
@@ -60,6 +62,90 @@ def recall_probe(scope: dict, query: str, mem_cfg: dict | None, limit: int = 4) 
     # 될 수 있었다. 여기(084가 이미 방어 슬라이스를 둔 지점)서 한 번 정규화해 세 입구를 같은 경계로.
     n = _clamp_limit(limit)
     return backend.search(scope, query, n)[:n]
+
+
+# 예외/텍스트에서 비밀로 보이는 토큰 마스킹(스펙 125) — 진단 error 문자열이 비밀을 흘리지 않게.
+# **1차 방어는 mem_cfg의 실제 api_key 값을 정확 치환**(정규식 추측이 아니라 — 어떤 형태든 확실히 제거).
+# 2차 백스톱 정규식: sk-/Bearer + 라벨(api_key·authorization·token·secret·password) 뒤 값. base_url·
+# model_id는 비밀 아님(그대로). 라벨 뒤 값은 공백/따옴표/`:`/`=` 뒤 형태를 넓게 잡는다(codex 125 H1).
+_SECRET_RE = _re.compile(
+    r"(sk-[A-Za-z0-9_\-]{6,}"
+    r"|Bearer\s+[A-Za-z0-9._\-+/]{6,}"
+    r"|(?:api[_-]?key|authorization|auth[_-]?token|access[_-]?token|token|secret|password)"
+    r"['\"]?\s*[:=]\s*['\"]?(?:Bearer\s+)?[A-Za-z0-9._\-+/]{6,})",
+    _re.I,
+)
+
+
+def _sanitize(text: object, *, secrets: object = (), cap: int = 300) -> str:
+    """진단 노출용 문자열 정제 — 비밀 마스킹 + 길이 상한. 항상 str 반환.
+
+    secrets: mem_cfg에서 뽑은 실제 비밀 값(api_key 등). **정확 치환이 1차 방어**(형태 무관 확실 제거).
+    이후 정규식 백스톱으로 라벨/토큰 형태를 추가로 마스킹. 짧은/빈 secret은 오탐 방지로 건너뛴다."""
+    s = str(text)
+    for sec in secrets or ():
+        if isinstance(sec, str) and len(sec) >= 4:
+            s = s.replace(sec, "«secret»")
+    s = _SECRET_RE.sub("«secret»", s)
+    return s[:cap] + ("…" if len(s) > cap else "")
+
+
+def _cfg_secrets(mem_cfg: object) -> list[str]:
+    """mem_cfg의 llm·embedder api_key(있으면) — _sanitize 정확 치환용. 비밀 외 필드는 미포함."""
+    out: list[str] = []
+    if isinstance(mem_cfg, dict):
+        for sect in (mem_cfg.get("llm"), mem_cfg.get("embedder")):
+            if isinstance(sect, dict) and isinstance(sect.get("api_key"), str):
+                out.append(sect["api_key"])
+    return out
+
+
+def _model_id(section: object) -> str | None:
+    """mem_cfg의 llm/embedder 섹션에서 model_id만(비밀 아님). dict 아니면 None."""
+    return section.get("model_id") if isinstance(section, dict) else None
+
+
+def recall_diag(scope: dict, query: str, mem_cfg: dict | None, limit: int = 4) -> dict:
+    """회상 *진단*(스펙 125) — `recall_probe`가 모든 미가용을 None으로 뭉개고 검색 예외를 던지는 대신,
+    **왜 안 되는지**를 구조화해 돌린다(예외를 던지지 않음). 반환:
+      {configured, backend_ready, embedder_model, llm_model, error, results}
+    - configured: mem_cfg에 llm·embedder 둘 다. - backend_ready: resolve_backend 비-None.
+    - error: 미설정/초기화 실패/검색 예외를 사람이 읽는(비밀 마스킹) 문자열로. 정상이면 None.
+    회상 코어(`search`)는 무변경 — 이건 시험 도구 전용 추가(drift 0). 비밀(api_key)은 절대 미포함."""
+    llm = mem_cfg.get("llm") if isinstance(mem_cfg, dict) else None
+    emb = mem_cfg.get("embedder") if isinstance(mem_cfg, dict) else None
+    configured = bool(llm and emb)
+    secrets = _cfg_secrets(mem_cfg)  # 실제 api_key 정확 치환용(codex 125 H1)
+    diag: dict = {
+        "configured": configured,
+        "backend_ready": False,
+        "embedder_model": _model_id(emb),
+        "llm_model": _model_id(llm),
+        "error": None,
+        "results": [],
+    }
+    # resolve_backend가 **가용성의 단일 권위**(recall_probe와 동일 경로 — configured로 조기반환하면
+    # resolve_backend를 우회해 계약이 갈린다). 항상 호출하고, configured는 error *문구 선택*에만 쓴다.
+    try:
+        backend = resolve_backend(mem_cfg)
+    except Exception as exc:  # noqa: BLE001 — 진단은 모든 예외를 삼켜 구조화(던지지 않음)
+        diag["error"] = "메모리 백엔드 초기화 실패: " + _sanitize(exc, secrets=secrets)
+        return diag
+    if backend is None:
+        # 미가용 사유를 configured로 갈라 명시: 모델 미설정 vs (설정됐으나) 초기화 실패.
+        diag["error"] = (
+            "임베딩/LLM 모델이 설정되지 않았습니다 (에이전트 메모리·모델 설정을 확인하세요)."
+            if not configured
+            else "메모리 백엔드 초기화에 실패했습니다 (임베딩/LLM 모델 접속·설정을 확인하세요)."
+        )
+        return diag
+    diag["backend_ready"] = True
+    try:
+        n = _clamp_limit(limit)
+        diag["results"] = backend.search(scope, query, n)[:n]
+    except Exception as exc:  # noqa: BLE001 — 검색 중 예외(임베더 호출 실패 등)를 500 대신 진단으로
+        diag["error"] = "검색 실행 실패: " + _sanitize(exc, secrets=secrets)
+    return diag
 
 
 def _clamp_limit(limit) -> int:

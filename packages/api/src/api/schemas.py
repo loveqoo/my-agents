@@ -151,6 +151,18 @@ class MemoryHit(BaseModel):
     scope: str  # 매치된 스코프 축 이름(agent_id/user_id/run_id)
 
 
+class MemorySearchDiag(BaseModel):
+    """회상 시험 진단(스펙 125) — "왜 0건/실패인지"를 UI가 지속 표시. 비밀(api_key) 절대 미포함."""
+
+    configured: bool  # mem_cfg에 llm·embedder 둘 다 있나
+    backendReady: bool  # resolve_backend 비-None(초기화 성공)
+    embedderModel: str | None = None  # embedder model_id(비밀 아님)
+    llmModel: str | None = None
+    error: str | None = None  # 미설정/초기화 실패/검색 예외(정제·마스킹). 정상이면 None
+    scope: str  # 질의 스코프(user_id 등)
+    count: int  # 회상 건수
+
+
 class MemorySearchOut(BaseModel):
     """메모리 회상 시험 결과 — production 회상 코어(`memory.search`)와 동일 경로 산출.
 
@@ -161,6 +173,7 @@ class MemorySearchOut(BaseModel):
     limit: int
     enabled: bool
     results: list[MemoryHit]  # 회상 0건이면 빈 리스트
+    diag: MemorySearchDiag | None = None  # 진단(스펙 125) — 선택. 컬렉션 검색 등 비-메모리 경로는 None
 
 
 class PermissionIn(BaseModel):

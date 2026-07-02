@@ -330,11 +330,21 @@ export interface MemoryHit {
   score: number // 내림차순(1.0=가장 관련)
   scope: string // 매치된 축(agent_id/user_id/run_id)
 }
+export interface MemorySearchDiag {
+  configured: boolean // mem_cfg에 llm·embedder 둘 다
+  backendReady: boolean // 백엔드 초기화 성공
+  embedderModel: string | null
+  llmModel: string | null
+  error: string | null // 미설정/초기화실패/검색예외(정제·마스킹). 정상이면 null
+  scope: string
+  count: number
+}
 export interface MemorySearchOut {
   query: string
   limit: number
   enabled: boolean // false=메모리 미구성/비활성(빈 results와 구분)
   results: MemoryHit[]
+  diag?: MemorySearchDiag | null // 진단(스펙 125) — "왜 0건/실패인지"
 }
 export const searchAgentMemory = (id: string, query: string, limit: number) =>
   post(`/agents/${id}/memory/search`, { query, limit }) as Promise<MemorySearchOut>
