@@ -49,6 +49,8 @@ export interface BlockItem {
   auth?: string
   activeVersion?: string
   versions?: VersionMeta[]
+  owner_id?: string | null // 소유자(스펙 112, mcp만)
+  can_manage?: boolean // 관리 가능(스펙 114) — false면 편집/삭제 숨김
 }
 export interface BlockCategory {
   label: string
@@ -74,6 +76,8 @@ export interface Agent {
   mcps: string[]
   impl?: string // 실행 방식 런타임 키(스펙 085/106) — 폼 재로드/라운드트립 보존
   capabilities?: string[] // 능력 브로커 allowlist(스펙 106)
+  owner_id?: string | null // 소유자(스펙 112). null=공유/레거시
+  can_manage?: boolean // 관리 가능(스펙 114) — false면 편집/삭제 숨김
   exposed: { a2a: boolean }
   sessions: number
   created: string

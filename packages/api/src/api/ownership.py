@@ -59,6 +59,15 @@ def is_privileged(principal, enforcer=None) -> bool:
     return bool(enforcer.enforce(str(pid), "*", "*"))  # admin 역할 = (*,*)
 
 
+def may_manage(row_owner: str | None, principal, enforcer=None) -> bool:
+    """관리 가능 여부 **불리언 술어**(스펙 114) — assert_may_manage의 형제(단일 술어, drift 0).
+    특권(머신·superuser·admin 역할) or 소유자 본인. UI가 can_manage를 이걸로 파생(프론트 재계산 금지)."""
+    if is_privileged(principal, enforcer):
+        return True
+    oid = owner_of(principal)
+    return bool(oid) and row_owner == oid
+
+
 def assert_may_manage(resource, principal, enforcer=None, not_found_detail: str = "not found") -> None:
     """카탈로그 항목 수정/삭제 게이트(스펙 112) — 특권 or 소유자 본인만. 아니면 **404-fold**(존재
     비노출, 068 — 남의/NULL-owned 항목을 403으로 구분해주지 않는다). NULL-owned는 특권만(fail-closed).
@@ -70,10 +79,7 @@ def assert_may_manage(resource, principal, enforcer=None, not_found_detail: str 
     404-fold가 성립한다."""
     from fastapi import HTTPException
 
-    if is_privileged(principal, enforcer):
-        return
-    oid = owner_of(principal)
-    if oid and getattr(resource, "owner_id", None) == oid:
+    if may_manage(getattr(resource, "owner_id", None), principal, enforcer):
         return
     raise HTTPException(status_code=404, detail=not_found_detail)
 

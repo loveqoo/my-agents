@@ -206,6 +206,8 @@ export interface Collection {
   doc_count: number
   chunk_count: number
   status: string // empty|ingesting|ready|error
+  owner_id?: string | null // 소유자(스펙 112). null=공유/레거시
+  can_manage?: boolean // 관리 가능(스펙 114) — false면 편집/삭제 숨김
 }
 export interface RagDocument {
   id: string

@@ -22,7 +22,7 @@ from sqlalchemy.orm import selectinload
 from . import crypto, rag_ingest
 from .auth import current_principal
 from .db import get_session
-from .ownership import assert_may_manage, owner_of
+from .ownership import assert_may_manage, may_manage, owner_of
 from .model_registry import _probe
 from .models import RAG_EMBED_DIMS, Chunk, Collection, Document, ModelConfig
 from .references import agents_referencing, referenced_message
@@ -82,7 +82,10 @@ async def _embedding_model(session: AsyncSession, model_id: uuid.UUID) -> ModelC
 
 # ----------------------------- 컬렉션 CRUD -----------------------------
 @router.get("", response_model=list[CollectionOut])
-async def list_collections(session: AsyncSession = Depends(get_session)) -> list[CollectionOut]:
+async def list_collections(
+    session: AsyncSession = Depends(get_session),
+    principal=Depends(current_principal),
+) -> list[CollectionOut]:
     rows = (
         await session.execute(
             select(Collection)
@@ -90,7 +93,10 @@ async def list_collections(session: AsyncSession = Depends(get_session)) -> list
             .order_by(Collection.name)
         )
     ).scalars().all()
-    return [collection_to_out(c) for c in rows]
+    outs = [collection_to_out(c) for c in rows]
+    for o in outs:  # 스펙 114 — 관리 가능 여부 파생
+        o.can_manage = may_manage(o.owner_id, principal)
+    return outs
 
 
 @router.post("", response_model=CollectionOut, status_code=201)
@@ -130,11 +136,17 @@ async def create_collection(
 
 
 @router.get("/{cid}", response_model=CollectionOut)
-async def get_collection(cid: uuid.UUID, session: AsyncSession = Depends(get_session)) -> CollectionOut:
+async def get_collection(
+    cid: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    principal=Depends(current_principal),
+) -> CollectionOut:
     c = await _load_collection(session, cid)
     if c is None:
         raise HTTPException(status_code=404, detail="not found")
-    return collection_to_out(c)
+    out = collection_to_out(c)
+    out.can_manage = may_manage(out.owner_id, principal)  # 스펙 114
+    return out
 
 
 @router.put("/{cid}", response_model=CollectionOut)

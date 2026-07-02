@@ -2,7 +2,7 @@
    create / edit / delete (composing building blocks). */
 import { useState, useEffect, useRef } from 'react'
 import { Tag, Button, Avatar, Select, Input, Checkbox, Switch, Slider, Tooltip, Modal, Alert, Collapse, message } from 'antd'
-import { Page, StatusPill, DataTable, Drawer, Desc, VersionHistory, ExposeSwitch, type Column } from '../shared'
+import { Page, StatusPill, DataTable, Drawer, Desc, VersionHistory, ExposeSwitch, OwnerTag, type Column } from '../shared'
 import { notifyAgentsChanged } from '../../agentsBus'
 import { Icon } from '../icons'
 import { AgentMemoryPanel } from './AgentMemoryPanel'
@@ -628,9 +628,13 @@ function CodeAgentDetail({
       width={480}
       onClose={onClose}
       footer={
-        <Button danger icon={<Icon name="delete" />} onClick={() => onDelete(agent)}>
-          등록 해제
-        </Button>
+        agent.can_manage === false ? (
+          <span style={{ color: 'var(--color-text-tertiary)' }}>다른 사용자 소유 — 관리 권한 없음</span>
+        ) : (
+          <Button danger icon={<Icon name="delete" />} onClick={() => onDelete(agent)}>
+            등록 해제
+          </Button>
+        )
       }
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
@@ -816,9 +820,13 @@ function ExternalAgentDetail({
       width={480}
       onClose={onClose}
       footer={
-        <Button danger icon={<Icon name="delete" />} onClick={() => onDelete(agent)}>
-          등록 해제
-        </Button>
+        agent.can_manage === false ? (
+          <span style={{ color: 'var(--color-text-tertiary)' }}>다른 사용자 소유 — 관리 권한 없음</span>
+        ) : (
+          <Button danger icon={<Icon name="delete" />} onClick={() => onDelete(agent)}>
+            등록 해제
+          </Button>
+        )
       }
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
@@ -981,14 +989,18 @@ function AgentDetail({
       width={480}
       onClose={onClose}
       footer={
-        <>
-          <Button danger icon={<Icon name="delete" />} onClick={() => onDelete(agent)}>
-            삭제
-          </Button>
-          <Button type="primary" icon={<Icon name="edit" />} onClick={() => onEdit(agent)}>
-            {draft ? '초안 편집' : '편집(새 초안)'}
-          </Button>
-        </>
+        agent.can_manage === false ? (
+          <span style={{ color: 'var(--color-text-tertiary)' }}>다른 사용자 소유 — 관리 권한 없음</span>
+        ) : (
+          <>
+            <Button danger icon={<Icon name="delete" />} onClick={() => onDelete(agent)}>
+              삭제
+            </Button>
+            <Button type="primary" icon={<Icon name="edit" />} onClick={() => onEdit(agent)}>
+              {draft ? '초안 편집' : '편집(새 초안)'}
+            </Button>
+          </>
+        )
       }
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
@@ -1135,15 +1147,19 @@ function AgentDetail({
               : null}
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
-            <Button size="small" icon={<Icon name="edit" />} onClick={() => onEdit(agent)}>
-              편집
-            </Button>
+            {agent.can_manage !== false && (
+              <Button size="small" icon={<Icon name="edit" />} onClick={() => onEdit(agent)}>
+                편집
+              </Button>
+            )}
             <Button size="small" type="primary" icon={<Icon name="thunderbolt" />} onClick={() => onTest(agent, draft)}>
               테스트
             </Button>
-            <Button size="small" icon={<Icon name="check" />} onClick={() => onActivate(agent, draft)}>
-              활성화
-            </Button>
+            {agent.can_manage !== false && (
+              <Button size="small" icon={<Icon name="check" />} onClick={() => onActivate(agent, draft)}>
+                활성화
+              </Button>
+            )}
           </div>
         </div>
       ) : null}
@@ -1451,7 +1467,10 @@ export default function AgentsView() {
               <Icon name={isCode ? 'code' : 'robot'} size={14} />
             </Avatar>
             <div>
-              <div style={{ fontWeight: 500, color: 'var(--color-text-heading)' }}>{a.name}</div>
+              <div style={{ fontWeight: 500, color: 'var(--color-text-heading)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                {a.name}
+                <OwnerTag ownerId={a.owner_id} canManage={a.can_manage} />
+              </div>
               <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-family-code)' }}>
                 {a.model}
               </div>
@@ -1578,7 +1597,10 @@ export default function AgentsView() {
       align: 'right',
       render: (a) => (
         <span onClick={(e) => e.stopPropagation()} style={{ display: 'inline-flex', gap: 2 }}>
-          {a.source === 'code' || a.source === 'external' ? (
+          {a.can_manage === false ? (
+            // 비소유(스펙 114) — 관리 잠금, 삭제 버튼도 숨김.
+            <Button type="text" size="small" icon={<Icon name="lock" />} disabled title="다른 사용자 소유 — 관리 권한 없음" />
+          ) : a.source === 'code' || a.source === 'external' ? (
             <Button
               type="text"
               size="small"
@@ -1589,7 +1611,9 @@ export default function AgentsView() {
           ) : (
             <Button type="text" size="small" icon={<Icon name="edit" />} onClick={() => openEdit(a)} />
           )}
-          <Button type="text" size="small" danger icon={<Icon name="delete" />} onClick={() => setConfirmDel(a)} />
+          {a.can_manage !== false && (
+            <Button type="text" size="small" danger icon={<Icon name="delete" />} onClick={() => setConfirmDel(a)} />
+          )}
         </span>
       ),
     },

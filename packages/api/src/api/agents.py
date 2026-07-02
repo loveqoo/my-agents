@@ -35,7 +35,7 @@ from .schemas import (
 )
 from . import agent_card, crypto, net_guard
 from .auth import current_principal
-from .ownership import assert_may_manage, owner_of
+from .ownership import assert_may_manage, may_manage, owner_of
 from .serializers import agent_to_out
 
 router = APIRouter(prefix="/agents", tags=["agents"])
@@ -105,19 +105,29 @@ def _find_version(agent: Agent, version: str) -> AgentVersion | None:
 
 # ----------------------------- 조회 -----------------------------
 @router.get("", response_model=list[AgentOut])
-async def list_agents(session: AsyncSession = Depends(get_session)) -> list[AgentOut]:
+async def list_agents(
+    session: AsyncSession = Depends(get_session),
+    principal=Depends(current_principal),
+) -> list[AgentOut]:
     result = await session.execute(select(Agent).options(selectinload(Agent.versions)))
-    return [agent_to_out(a) for a in result.scalars().all()]
+    outs = [agent_to_out(a) for a in result.scalars().all()]
+    for o in outs:  # 스펙 114 — 관리 가능 여부를 각 객체에 실어 UI가 버튼 표시를 파생
+        o.can_manage = may_manage(o.owner_id, principal)
+    return outs
 
 
 @router.get("/{agent_id}", response_model=AgentOut)
 async def get_agent(
-    agent_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+    agent_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    principal=Depends(current_principal),
 ) -> AgentOut:
     agent = await _load_agent(session, agent_id)
     if agent is None:
         raise HTTPException(status_code=404, detail="agent not found")
-    return agent_to_out(agent)
+    out = agent_to_out(agent)
+    out.can_manage = may_manage(out.owner_id, principal)  # 스펙 114
+    return out
 
 
 # ----------------------------- 생성 (UI) -----------------------------

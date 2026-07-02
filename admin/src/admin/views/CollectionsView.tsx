@@ -18,7 +18,7 @@ import {
   message,
 } from 'antd'
 import type { UploadProps } from 'antd'
-import { Page, DataTable, type Column } from '../shared'
+import { Page, DataTable, OwnerTag, type Column } from '../shared'
 import { Icon } from '../icons'
 import { RetrievalTestDrawer } from './RetrievalTestDrawer'
 import {
@@ -360,7 +360,8 @@ function DocsDrawer({
     >
       {collection ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-          {/* 업로드 */}
+          {/* 업로드 — 소유자/특권만(스펙 114, 백엔드도 게이트) */}
+          {collection.can_manage !== false && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             <Upload {...uploadProps}>
               <Button type="primary" icon={<Icon name="paper-clip" />} loading={uploading}>
@@ -371,6 +372,7 @@ function DocsDrawer({
               PDF와 UTF-8 텍스트(.txt, .md)만 지원합니다.
             </span>
           </div>
+          )}
 
           {/* 문서 목록 */}
           <DataTable columns={columns} rows={docs} empty={loading ? '불러오는 중…' : '문서 없음'} />
@@ -573,6 +575,7 @@ export default function CollectionsView() {
         // 액션 컬럼(점검·삭제)이 가로 스크롤 뒤로 잘리던 것을 억제한다.
         <div style={{ maxWidth: 260 }}>
           <span style={{ fontWeight: 500, color: 'var(--color-text-heading)' }}>{c.name}</span>
+          <span style={{ marginLeft: 6 }}><OwnerTag ownerId={c.owner_id} canManage={c.can_manage} /></span>
           {c.description ? (
             <div
               style={{
@@ -661,9 +664,11 @@ export default function CollectionsView() {
               onClick={() => void runHealth(c)}
             />
           </Tooltip>
-          <Tooltip title="삭제">
-            <Button type="text" size="small" danger icon={<Icon name="delete" />} onClick={() => setConfirmDel(c)} />
-          </Tooltip>
+          {c.can_manage !== false && (
+            <Tooltip title="삭제">
+              <Button type="text" size="small" danger icon={<Icon name="delete" />} onClick={() => setConfirmDel(c)} />
+            </Tooltip>
+          )}
         </span>
       ),
     },

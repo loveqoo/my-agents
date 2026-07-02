@@ -2,7 +2,7 @@
    permissions, MCP servers. Category tabs → list → detail drawer. */
 import { useState, useEffect } from 'react'
 import { Tag, Button, Tabs, Switch, Modal, Input, Select, Checkbox, Alert, message } from 'antd'
-import { Page, DataTable, Drawer, Desc, type Column } from '../shared'
+import { Page, DataTable, Drawer, Desc, OwnerTag, type Column } from '../shared'
 import { Icon } from '../icons'
 import { MCP_STATUS, VECTOR_STATUS, APPROVER, type BlockItem, type BlockCategory, type StatusMeta } from '../mockData'
 import {
@@ -39,6 +39,9 @@ interface McpServerIn {
   status: string
   published: boolean
   auth?: string
+  id?: string
+  owner_id?: string | null  // 소유자(스펙 112)
+  can_manage?: boolean  // 관리 가능(스펙 114) — false면 편집/삭제 숨김
 }
 
 /* 비-MCP 카테고리 → 백엔드 resource 경로 매핑.
@@ -690,6 +693,7 @@ export default function BlocksView() {
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
               <code style={{ fontFamily: 'var(--font-family-code)', color: 'var(--cyan-7)', fontSize: 13 }}>{r.name}</code>
               {r.source === 'external' ? <Tag color="purple">외부</Tag> : <Tag>로컬</Tag>}
+              <OwnerTag ownerId={r.owner_id} canManage={r.can_manage} />
             </span>
           ),
         },
@@ -912,6 +916,10 @@ export default function BlocksView() {
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--color-text-tertiary)', fontSize: 13 }}>
               <Icon name="lock" /> 시스템 정의 메모리 타입 — 읽기 전용
             </span>
+          ) : cat === 'mcp' && detail?.can_manage === false ? (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--color-text-tertiary)', fontSize: 13 }}>
+              <Icon name="lock" /> 다른 사용자 소유 — 관리 권한 없음
+            </span>
           ) : (
           <>
             <Button danger icon={<Icon name="delete" />} onClick={() => void deleteCurrent()}>
@@ -1066,7 +1074,7 @@ export default function BlocksView() {
                       이 서버의 도구를 LangGraph MCP 프로토콜로 노출합니다
                     </div>
                   </div>
-                  <Switch checked={detail.published} onChange={() => void togglePublish(detail.id)} />
+                  <Switch checked={detail.published} disabled={detail.can_manage === false} onChange={() => void togglePublish(detail.id)} />
                 </div>
                 {detail.published ? (
                   <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 8 }}>

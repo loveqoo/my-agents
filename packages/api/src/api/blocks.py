@@ -16,7 +16,7 @@ from sqlalchemy.orm import selectinload
 from . import crypto
 from .auth import current_principal
 from .db import get_session
-from .ownership import assert_may_manage, owner_of
+from .ownership import assert_may_manage, may_manage, owner_of
 from .models import Agent, Collection, McpServer, MemoryType, Permission, Persona
 from .references import _config_has, agents_referencing, referenced_message
 from .schemas import (
@@ -205,13 +205,20 @@ def mcp_to_out(obj: McpServer) -> McpServerOut:
         status=obj.status,
         published=obj.published,
         auth=_mcp_auth_masked(obj),
+        owner_id=obj.owner_id,  # 스펙 112(can_manage는 list서 세팅)
     )
 
 
 @router.get("/mcp-servers", response_model=list[McpServerOut])
-async def list_mcp_servers(session: AsyncSession = Depends(get_session)) -> Any:
+async def list_mcp_servers(
+    session: AsyncSession = Depends(get_session),
+    principal=Depends(current_principal),
+) -> Any:
     result = await session.execute(select(McpServer))
-    return [mcp_to_out(o) for o in result.scalars().all()]
+    outs = [mcp_to_out(o) for o in result.scalars().all()]
+    for o in outs:  # 스펙 114 — 관리 가능 여부 파생
+        o.can_manage = may_manage(o.owner_id, principal)
+    return outs
 
 
 @router.post("/mcp-servers", response_model=McpServerOut, status_code=201)
@@ -435,7 +442,10 @@ def _count_by(agents: list[Agent], key: str, name: str, *, scalar: bool = False)
 
 
 @router.get("/blocks")
-async def get_blocks(session: AsyncSession = Depends(get_session)) -> dict[str, Any]:
+async def get_blocks(
+    session: AsyncSession = Depends(get_session),
+    principal=Depends(current_principal),
+) -> dict[str, Any]:
     agents = list((await session.execute(select(Agent))).scalars().all())
 
     personas = list((await session.execute(select(Persona))).scalars().all())
@@ -517,6 +527,8 @@ async def get_blocks(session: AsyncSession = Depends(get_session)) -> dict[str, 
             "auth": _mcp_auth_masked(row),
             "usedBy": _count_by(agents, "mcps", row.name),
             "updated": "—",
+            "owner_id": row.owner_id,  # 스펙 112
+            "can_manage": may_manage(row.owner_id, principal),  # 스펙 114 — UI 편집/삭제 표시 파생
         }
         for row in mcp_servers
     ]

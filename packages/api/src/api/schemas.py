@@ -65,6 +65,8 @@ class CollectionOut(BaseModel):
     doc_count: int
     chunk_count: int
     status: str
+    owner_id: str | None = None  # 소유자(스펙 112). None=공유/레거시
+    can_manage: bool = True  # 이 요청 주체가 수정/삭제 가능(스펙 114, list/get서 계산·기본 True)
 
 
 class DocumentOut(BaseModel):
@@ -188,6 +190,8 @@ class McpServerIn(BaseModel):
 
 class McpServerOut(McpServerIn):
     id: uuid.UUID
+    owner_id: str | None = None  # 소유자(스펙 112). None=공유/레거시
+    can_manage: bool = True  # 요청 주체 수정/삭제 가능(스펙 114, list/get서 계산·기본 True)
     model_config = ORM
 
 
@@ -352,6 +356,8 @@ class AgentOut(BaseModel):
     permissions: list[str] = Field(default_factory=list)
     mcps: list[str] = Field(default_factory=list)
     capabilities: list[str] = Field(default_factory=list)  # 능력 브로커 allowlist(스펙 106, 폼 재로드용)
+    owner_id: str | None = None  # 소유자(스펙 112). None=공유/레거시
+    can_manage: bool = True  # 요청 주체 수정/삭제 가능(스펙 114, list/get서 계산·기본 True)
     exposed: dict[str, Any] = Field(default_factory=lambda: {"a2a": False})
     status: str
     activeVersion: str | None = None

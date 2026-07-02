@@ -63,6 +63,7 @@ def collection_to_out(c: Collection) -> CollectionOut:
         doc_count=c.doc_count,
         chunk_count=c.chunk_count,
         status=c.status,
+        owner_id=c.owner_id,  # 스펙 112(can_manage는 list/get 라우트서 세팅)
     )
 
 
@@ -91,6 +92,7 @@ def agent_to_out(a: Agent) -> AgentOut:
         permissions=cfg.get("permissions", []),
         mcps=cfg.get("mcps", []),
         capabilities=cfg.get("capabilities", []),  # 능력 브로커 allowlist(스펙 106, 폼 재로드용)
+        owner_id=a.owner_id,  # 스펙 112(can_manage는 list/get 라우트서 세팅)
         exposed=dict(a.exposed or {"a2a": False}),
         status=a.status,
         activeVersion=a.active_version,
