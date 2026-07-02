@@ -7,11 +7,10 @@
 
 ## 후보 (다음에 할 만한 것)
 
-- **런타임 tool 배선 인가(spec 112 P0 후속)** — 채팅 런타임이 agent config `mcps`/`vectorTables` 이름으로
-  MCP/컬렉션을 로드해 복호화 크레덴셜로 tool 배선하는데 RBAC/소유권 검사가 없다(브로커 밖 별개 경로,
-  112 이전부터 존재). 에이전트를 설정할 수 있는 주체가 임의 자원을 이름 참조로 쓸 수 있음. per-cap/소유권을
-  **런타임 배선에도** 거는 스펙. 현 위협 모델(admin만 사용)에선 비활성이나 member 개방 전 선행.
-- (그 외는 Scaffolding서 새 방향 모색)
+- **스펙 114 — 화면에 주인(owner) 표시 + 비소유 수정 버튼 숨김**(진행 예정) — owner_id를 API 응답에 노출,
+  admin UI 목록에 주인 표시 + 내 것 아니면 수정/삭제 숨김. 브라우저 검증 포함.
+- **스펙 115 — 위임 결과 attribution 견고화**(102 후속) — fold의 `## 능력:` 라벨 스푸핑 방지(구조화 출력).
+- **스펙 116 — 재개 시 선행 위임 결과 캐시**(102 후속) — 다중 위임 재개 시 앞 read-only cap 재호출 제거.
 
 ## 진행 중
 
@@ -35,6 +34,12 @@
   관측상 중복, codex 102 [P1]). 다중 interrupt 난제(스펙 101/102 OUT)의 정공법 후속.
 
 ## 완료 (요약 — 상세는 각 스펙/회고)
+
+- **런타임 tool 배선 인가**(스펙 113, 112 P0 봉합) — 채팅 런타임이 config mcps/vectorTables 이름으로
+  크레덴셜 tool 배선하던 무인가 경로에 인가. 주체=에이전트 **작성자**(채팅 사용자 아님—공유 보존),
+  단일 헬퍼 agent_may_wire(NULL-owner 무회귀·특권·자기소유·published·RBAC per-cap). codex rung3:
+  override 주입 confused-deputy(P0)→저장본=작성자·주입분=호출자 분리, non-UUID owner casbin 충돌(P2)→
+  UUID 선검증. 3런+무회귀. 사용자 "1~4 루프"의 1번 완료(2026-07-02, 회고 094·learning 113).
 
 - **공유 카탈로그 소유권 + per-cap 인가**(스펙 112) — 브로커 인가를 kind→per-cap(`capability:{kind}:{name}`)
   으로 좁히고(축 A, 인가 빚 상환), Agent·McpServer·Collection에 owner_id 붙여 카탈로그 **관리(수정/삭제)**를
