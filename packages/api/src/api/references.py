@@ -8,19 +8,19 @@
 있으면 삭제를 409로 막는다 — 삭제 후 config에 dangling name만 남아 런타임이 조용히 도구/RAG 없이
 동작(chat.py 미해석 warning)하는 실수를 방지.
 
-참조 범위(스펙 093 §2.1, codex 적대리뷰로 교정) = **활성 서빙 config ∪ 모든 버전 config**:
-  - Agent.config      : 활성(발행) 버전 config(activate_version이 agent.config=cfg로 덮음). 런타임이 로드.
-  - AgentVersion(전 상태): draft/active/**archived 포함**. 어떤 상태의 버전이든 `activate_version`으로
-    활성화 가능하다(agents.py:225 "archived=롤백은 허용", :232 active 승격 → :235 agent.config 부활).
-    즉 archived도 *죽은 이력이 아니라 롤백 가능한 live 참조*다 — 여기 name을 지우면 롤백 순간 dead ref.
-    (초안 스펙은 "archived는 활성화 불가"로 잘못 가정해 제외했었다 — codex가 반증, 측정으로 교정.)
+참조 범위(스펙 121로 완화) = **활성 서빙 config만**(`Agent.config`):
+  - 스펙 093은 모든 버전(draft/archived 포함)까지 훑어 "롤백 시 dead ref"를 막았으나, 실사용에서
+    과거 버전에 남은 참조 하나가 자원을 영구히 못 지우게 해 과도하게 엄격했다(사용자 버그1).
+  - **활성 config만 검사**로 완화 — 과거 버전은 무시한다. 트레이드오프: 삭제된 자원을 참조하는 오래된
+    버전으로 롤백하면 그 자원 없이 동작하나, 런타임이 dangling name을 **경고 후 우아하게 degrade**한다
+    (chat.py 미해석 warning — 도구/RAG 없이 진행). 이 완화는 **usedBy 배지(활성만)와 삭제 가드를 일치**
+    시킨다(093에선 배지는 활성만·삭제만 버전까지 세던 어긋남을 스스로 지적했었다).
 """
 
 from __future__ import annotations
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from .models import Agent
 
@@ -50,31 +50,22 @@ def _config_has(config: object, field: str, name: str) -> bool:
 async def agents_referencing(
     session: AsyncSession, field: str, name: str
 ) -> list[dict[str, str]]:
-    """config[field]에 name을 담은 참조 목록.
+    """config[field]에 name을 담은 참조 목록 — **활성 서빙 config만**(스펙 121, 과거 버전 무시).
 
-    반환: [{"agent": <에이전트 이름>, "where": "active"|"version"}] — where=active는 서빙
-    config(Agent.config), version은 서빙은 아니지만 *활성화 가능한* 버전(draft/archived 포함)에 있는
-    잠복 참조. 같은 에이전트가 양쪽이면 active 우선 1건(dedupe). field는 _FIELDS 중 하나(오타 방지)."""
+    반환: [{"agent": <에이전트 이름>, "where": "active"}]. 활성 `Agent.config`만 검사해 usedBy 배지와
+    일치시킨다. 과거 버전(draft/archived)은 세지 않는다 — 그 참조가 자원을 영구 잠그던 과엄격을 완화
+    (롤백 시엔 런타임이 dangling name을 경고·degrade). field는 _FIELDS 중 하나(오타 방지)."""
     if field not in _FIELDS:
         raise ValueError(f"unknown reference field: {field!r} (expected one of {_FIELDS})")
     if not name:
         return []  # 빈 name은 참조 대상이 될 수 없음(자원 name은 non-empty·unique)
 
-    agents = list(
-        (
-            await session.execute(select(Agent).options(selectinload(Agent.versions)))
-        ).scalars().all()
-    )
-
-    refs: list[dict[str, str]] = []
-    for agent in agents:
-        if _config_has(agent.config, field, name):
-            refs.append({"agent": agent.name, "where": "active"})
-            continue  # active로 이미 잡힘 — 버전 중복 계상 안 함
-        # archived 포함 전 버전: 어떤 상태든 activate_version으로 롤백/발행 가능 → live 참조.
-        if any(_config_has(v.config, field, name) for v in agent.versions):
-            refs.append({"agent": agent.name, "where": "version"})
-    return refs
+    agents = list((await session.execute(select(Agent))).scalars().all())
+    return [
+        {"agent": agent.name, "where": "active"}
+        for agent in agents
+        if _config_has(agent.config, field, name)
+    ]
 
 
 # where 코드 → 사람이 읽는 위치말. active=서빙 config, version=활성화 가능한 비-서빙 버전.

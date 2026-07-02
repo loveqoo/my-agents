@@ -1,15 +1,17 @@
-"""verify_093 — 연결된 에이전트가 있으면 MCP 서버·RAG 컬렉션 삭제/rename 차단 (스펙 093).
+"""verify_093 — 연결된 에이전트가 있으면 MCP 서버·RAG 컬렉션 삭제/rename 차단 (스펙 093·**121 완화**).
+
+**스펙 121**: 참조 가드를 **활성 서빙 config만** 검사로 완화(과거 버전 draft/archived 무시). 과거 버전에
+남은 참조가 자원을 영구 잠그던 과엄격 제거(사용자 버그1) — 롤백 시엔 런타임이 dangling name을 경고·degrade.
 
 검증 ①(단위 시맨틱): references.config_names(가드·런타임 단일 normalizer)·_config_has(멤버십)·
   referenced_message(string detail·where 라벨·action·길이상한).
 검증 ②(실 DB 통합, 자기 픽스처 learning 045): 실 SessionLocal로 에이전트/서버/컬렉션을 만들고
   엔드포인트 함수를 직접 호출 —
     - 활성(Agent.config) 참조 → 409 where=active (T1·T5)
-    - 비-서빙 버전(draft) 참조 → 409 where=version (T2)
-    - archived 버전 참조 → 409 (T3) — codex 교정: activate_version이 archived 롤백 허용(agents.py:225)
-      이므로 archived도 롤백 가능한 live 참조, 삭제 시 부활 방지 차단
+    - **비-서빙 버전(draft)만 참조 → 삭제 성공(T2)** — 121 완화(과거 버전 무시)
+    - **archived 버전만 참조 → 삭제 성공(T3)** — 121 완화(활성만 잠금)
     - 미참조 → 삭제 성공(T4·T6), 참조 해제 후 삭제 성공(T7) — 자가-잠금 대칭 핀
-    - 참조중 rename → 409 (T8, operation-symmetry 형제 입구), name 동일 update는 허용(T9, 과잉차단 아님)
+    - 활성 참조중 rename → 409 (T8, operation-symmetry 형제 입구), name 동일 update는 허용(T9, 과잉차단 아님)
   MCP·컬렉션 둘 다(operation-symmetry, learning 050). 픽스처는 _TAG로 정리.
 
 전제: DB 마이그레이션 적용됨(SessionLocal 연결 가능). API 서버 실행 불요(엔드포인트 함수 직접 호출).
@@ -39,6 +41,17 @@ from api.models import (  # noqa: E402
 
 _fails: list[str] = []
 _TAG = "_verify093"  # 픽스처 식별 접두사(정리용)
+
+
+class _Super:
+    """특권 principal 스텁 — 라우트가 스펙 112 assert_may_manage(principal)을 요구한다. 픽스처 자원은
+    owner_id=None(admin-only)이라 superuser로 통과시킨다(가드는 verify_112 담당·여기선 참조 무결성만)."""
+    is_superuser = True
+    is_active = True
+    is_verified = True
+
+
+_SUPER = _Super()
 
 passed = 0
 
@@ -74,11 +87,13 @@ def unit_config_has() -> None:
 
     print("① 단위 — references.referenced_message (string detail, 062 계약)")
     rm = references.referenced_message
+    # 포매터는 where 라벨을 방어적으로 유지(active/version) — 스펙 121 이후 가드는 active만 반환하나
+    # 순수 포매터 계약은 불변(입력받은 where를 그대로 라벨링).
     msg = rm([{"agent": "Weather Bot", "where": "active"},
               {"agent": "Old Bot", "where": "version"}], "MCP 서버")
     check(isinstance(msg, str), "detail은 dict 아닌 string(httpError는 string만 노출)")
     check("Weather Bot(활성)" in msg, "active → '이름(활성)'")
-    check("Old Bot(버전)" in msg, "version → '이름(버전)' (usedBy 배지와 어긋나는 차단 설명)")
+    check("Old Bot(버전)" in msg, "version 라벨 포매팅 유지(방어적)")
     check("2개 에이전트" in msg, "참조 개수 포함")
     check("MCP 서버" in msg, "자원 명사 포함")
     check("삭제할 수 없습니다" in msg, "기본 action=삭제")
@@ -188,92 +203,93 @@ async def integration() -> None:
             await s.refresh(o)
 
         # ── T1. 활성 참조 MCP 삭제 → 409, where=active ──
-        d = await _expect_409(blocks.delete_mcp_server(srv_active.id, s), "T1 활성참조 MCP 삭제")
+        d = await _expect_409(blocks.delete_mcp_server(srv_active.id, s, _SUPER), "T1 활성참조 MCP 삭제")
         if d is not None:
             check(f"{agent_a.name}(활성)" in d,
                   f"T1 메시지에 active 참조 에이전트(활성) 정확(got {d!r})")
 
-        # ── T2. draft-only(비-서빙 버전) 참조 MCP 삭제 → 409, where=version ──
-        d = await _expect_409(blocks.delete_mcp_server(srv_draft.id, s), "T2 draft참조 MCP 삭제")
-        if d is not None:
-            check(f"{agent_b.name}(버전)" in d,
-                  f"T2 메시지에 버전 참조 에이전트(버전) 정확(got {d!r})")
+        # ── T2. draft-only(비-서빙 버전)만 참조 MCP 삭제 → **성공**(스펙 121: 과거 버전 무시) ──
+        try:
+            await blocks.delete_mcp_server(srv_draft.id, s, _SUPER)
+            check(await s.get(McpServer, srv_draft.id) is None,
+                  "T2 draft 버전만 참조 → 삭제 성공(121 완화: 활성만 잠금)")
+        except HTTPException as e:
+            check(False, f"T2 draft-only 참조가 삭제 막힘(121 완화 실패!) status={e.status_code}")
 
-        # ── T3. archived-only 참조 MCP 삭제 → 409(차단) ──
-        # codex 적대리뷰로 교정: activate_version이 archived 롤백을 허용(agents.py:225)하므로
-        # archived 참조도 삭제하면 롤백 순간 dead ref가 된다 → live 참조로 취급, 삭제 차단.
-        d = await _expect_409(blocks.delete_mcp_server(srv_arch.id, s), "T3 archived참조 MCP 삭제")
-        if d is not None:
-            check(f"{agent_c.name}(버전)" in d,
-                  f"T3 archived 참조도 차단(롤백 가능 → live), where=version(got {d!r})")
+        # ── T3. archived 버전만 참조 MCP 삭제 → **성공**(스펙 121: 활성만 잠금) ──
+        try:
+            await blocks.delete_mcp_server(srv_arch.id, s, _SUPER)
+            check(await s.get(McpServer, srv_arch.id) is None,
+                  "T3 archived 버전만 참조 → 삭제 성공(121 완화)")
+        except HTTPException as e:
+            check(False, f"T3 archived-only 참조가 삭제 막힘(121 완화 실패!) status={e.status_code}")
 
         # ── T4. 미참조 MCP 삭제 → 성공(자가-잠금 대칭 핀) ──
         try:
-            await blocks.delete_mcp_server(srv_free.id, s)
+            await blocks.delete_mcp_server(srv_free.id, s, _SUPER)
             check(await s.get(McpServer, srv_free.id) is None, "T4 미참조 서버 삭제 성공(가드 과잉 아님)")
         except HTTPException as e:
             check(False, f"T4 미참조 서버 삭제가 막힘(과잉차단!) status={e.status_code}")
 
         # ── T5. 활성 참조 컬렉션 삭제 → 409 (operation-symmetry: RAG도 동일) ──
-        d = await _expect_409(rag.delete_collection(col_ref.id, s), "T5 활성참조 컬렉션 삭제")
+        d = await _expect_409(rag.delete_collection(col_ref.id, s, _SUPER), "T5 활성참조 컬렉션 삭제")
         if d is not None:
             check(f"{agent_a.name}(활성)" in d and "RAG 컬렉션" in d,
                   f"T5 컬렉션 메시지 정확(got {d!r})")
 
         # ── T6. 미참조 컬렉션 삭제 → 성공 ──
         try:
-            await rag.delete_collection(col_free.id, s)
+            await rag.delete_collection(col_free.id, s, _SUPER)
             check(await s.get(Collection, col_free.id) is None, "T6 미참조 컬렉션 삭제 성공")
         except HTTPException as e:
             check(False, f"T6 미참조 컬렉션 삭제가 막힘(과잉차단!) status={e.status_code}")
 
-        # ── T7. 참조 해제 후 삭제 성공 (해제→삭제 경로) ──
-        agent_a.config = {"mcps": [], "vectorTables": []}
-        # active 버전도 갱신(그대로 두면 여전히 참조 — 실제 해제는 config+활성버전 동시)
-        for v in agent_a.versions:
-            if v.status == "active":
-                v.config = {"mcps": [], "vectorTables": []}
-        await s.commit()
-        try:
-            await blocks.delete_mcp_server(srv_active.id, s)
-            check(await s.get(McpServer, srv_active.id) is None, "T7 참조 해제 후 MCP 삭제 성공")
-        except HTTPException as e:
-            check(False, f"T7 해제 후에도 삭제 막힘 status={e.status_code}")
-
-        # ── T8. 참조 중인 MCP rename → 409 (operation-symmetry: 삭제와 형제 입구) ──
-        # srv_draft는 agent_b의 v2 draft가 여전히 참조(T2에서 삭제 차단됨). name을 바꾸면 옛 name이
-        # config에 dangling으로 남아 런타임이 조용히 도구를 잃는다 → rename도 409로 차단.
         from sqlalchemy import select as _sel
 
         from api.schemas import McpServerIn
 
         # rollback이 ORM 객체를 expire시키므로 id/name을 plain 값으로 먼저 캡처(재로드 방지).
-        draft_id = srv_draft.id
-        draft_name = srv_draft.name
-        rename_body = McpServerIn(name=f"{_TAG}_srv_draft_RENAMED", source="local",
+        active_id = srv_active.id
+        active_name = srv_active.name
+
+        # ── T8. **활성** 참조 중인 MCP rename → 409 (operation-symmetry: 삭제와 형제 입구) ──
+        # srv_active는 agent_a의 활성 config가 참조. name을 바꾸면 옛 name이 활성 config에 dangling으로
+        # 남아 런타임이 조용히 도구를 잃는다 → rename도 409로 차단(활성 참조 기준, 스펙 121).
+        rename_body = McpServerIn(name=f"{_TAG}_srv_active_RENAMED", source="local",
                                   transport="http", url="http://127.0.0.1:9/mcp")
         try:
-            await blocks.update_mcp_server(draft_id, rename_body, s)
-            check(False, "T8 참조중 MCP rename이 통과함(가드 누락!)")
+            await blocks.update_mcp_server(active_id, rename_body, s, _SUPER)
+            check(False, "T8 활성참조중 MCP rename이 통과함(가드 누락!)")
         except HTTPException as e:
-            check(e.status_code == 409, f"T8 참조중 MCP rename → 409 (got {e.status_code})")
+            check(e.status_code == 409, f"T8 활성참조중 MCP rename → 409 (got {e.status_code})")
             check(isinstance(e.detail, str) and "이름 변경할 수 없습니다" in e.detail,
                   f"T8 rename 차단 메시지(이름 변경) 정확(got {e.detail!r})")
         await s.rollback()  # 실패한 rename 트랜잭션 정리
 
         # ── T9. 같은 name으로 update(rename 아님) → 가드 통과(과잉차단 아님) ──
-        # srv_draft를 원래 name 그대로 두고 다른 필드만 갱신 → new_name==obj.name이라 가드 스킵.
-        same_body = McpServerIn(name=draft_name, source="local", transport="http",
+        same_body = McpServerIn(name=active_name, source="local", transport="http",
                                 url="http://127.0.0.1:9/mcp/v2")
         try:
-            await blocks.update_mcp_server(draft_id, same_body, s)
+            await blocks.update_mcp_server(active_id, same_body, s, _SUPER)
             new_url = (
-                await s.execute(_sel(McpServer.url).where(McpServer.id == draft_id))
+                await s.execute(_sel(McpServer.url).where(McpServer.id == active_id))
             ).scalar_one()
             check(new_url.endswith("/v2"),
                   "T9 name 동일 update는 참조 있어도 허용(rename만 차단)")
         except HTTPException as e:
             check(False, f"T9 name 동일 update가 막힘(과잉차단!) status={e.status_code}")
+
+        # ── T7. 활성 참조 해제 후 삭제 성공 (해제→삭제 경로, 자가-잠금 대칭 핀) ──
+        agent_a.config = {"mcps": [], "vectorTables": []}
+        for v in agent_a.versions:
+            if v.status == "active":
+                v.config = {"mcps": [], "vectorTables": []}
+        await s.commit()
+        try:
+            await blocks.delete_mcp_server(active_id, s, _SUPER)
+            check(await s.get(McpServer, active_id) is None, "T7 활성 참조 해제 후 MCP 삭제 성공")
+        except HTTPException as e:
+            check(False, f"T7 해제 후에도 삭제 막힘 status={e.status_code}")
 
         await _cleanup(s)
 

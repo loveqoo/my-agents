@@ -428,8 +428,8 @@ def _count_by(agents: list[Agent], key: str, name: str, *, scalar: bool = False)
     """이름이 에이전트 *활성* config 배열(또는 스칼라 값)에 포함된 횟수(usedBy 배지용).
 
     배열 멤버십은 references._config_has로 위임(삭제 가드와 판정 로직 단일화, 드리프트 0).
-    삭제 가드(agents_referencing)는 여기에 더해 비-archived 버전까지 세지만, 배지는 런타임
-    서빙(Agent.config)만 반영한다 — 두 헬퍼는 답하는 질문이 다르므로 공존."""
+    스펙 121 이후 삭제 가드(agents_referencing)도 **활성 config만** 세므로 배지와 답하는 질문이
+    일치한다(과거 예엔 삭제만 버전까지 세던 어긋남을 121이 해소)."""
     total = 0
     for agent in agents:
         config = agent.config or {}
