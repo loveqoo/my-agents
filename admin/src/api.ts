@@ -475,6 +475,8 @@ export interface SessionPage {
 // 서버 페이징·필터(스펙 034). status 버킷(all|live|awaiting|error) + limit/offset.
 // agent_id(스펙 055): 외부 agent_id로 해당 에이전트 세션만 — Playground 세션 이어가기용.
 // q(스펙 098): 메타데이터 검색 — session_id·user_id·agent_name 부분일치(서버측, status와 AND).
+/* 세션 종료(스펙 129) — status→completed. 소유권은 서버 스코프(_own_scope)가 강제. 응답=갱신된 세션. */
+export const endSession = (id: string) => post(`/sessions/${id}/end`) as Promise<Session>
 export const listSessions = (params?: {
   status?: string
   agent_id?: string

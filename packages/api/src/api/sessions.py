@@ -264,5 +264,9 @@ async def end_session(
     s = await _get_session_or_404(session, session_id, _own_scope(principal))  # 스코프 융합(067/070 T5)
     s.status = "completed"
     await session.commit()
+    # refresh 필수(스펙 129) — last_activity가 onupdate=func.now() **서버 생성값**이라 commit 후 만료
+    # 상태로 남고, session_to_out의 동기 접근이 lazy-load를 시도해 MissingGreenlet 500이 났다
+    # (커밋은 성공·응답만 실패 = 거짓 실패 UX, 회고 026 재발 부류). 직렬화 전에 재로드로 확정.
+    await session.refresh(s)
     a = await session.get(Agent, s.agent_pk)
     return session_to_out(s, a.agent_id if a else None)

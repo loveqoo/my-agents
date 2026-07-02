@@ -4,19 +4,39 @@
    (기존 사라지는 토스트 오류도 지속 Alert로 교정됨). counts 배지는 응답 extra로 받아 Radio에 반영,
    status 필터는 pageResetKey로 page만 리셋(검색어 보존 — 기존 UX 유지). */
 import { useEffect, useState } from 'react'
-import { Tag, Button, Avatar, Alert, Radio } from 'antd'
+import { Tag, Button, Avatar, Alert, Radio, Popconfirm, message } from 'antd'
 import { Page, StatusPill, Drawer, Desc, type Column } from '../shared'
 import { PagedListShell } from './PagedListShell'
 import { Icon } from '../icons'
 import { SESSION_STATUS, type Session } from '../mockData'
 import { fmtTime } from '../format'
-import { listSessions, getSessionMessages, type SessionMessage } from '../../api'
+import { listSessions, getSessionMessages, endSession, type SessionMessage } from '../../api'
 
 export default function SessionsView() {
   const [counts, setCounts] = useState<Record<string, number>>({})
   const [filter, setFilter] = useState<string>('all')
   const [detail, setDetail] = useState<Session | null>(null)
   const [messages, setMessages] = useState<SessionMessage[]>([])
+  const [ending, setEnding] = useState(false)
+  const [refreshKey, setRefreshKey] = useState(0) // 종료 후 목록·counts 재조회(셸 트리거)
+
+  // 세션 종료(스펙 129) — 서버가 status→completed로 전이(소유권은 서버 _own_scope가 강제).
+  // 성공 시 드로어를 응답으로 갱신(완료 상태 즉시 반영 — footer 조건에 의해 종료 버튼이 사라짐)
+  // + 목록·counts 재조회.
+  const doEnd = async () => {
+    if (!detail) return
+    setEnding(true)
+    try {
+      const updated = await endSession(detail.id)
+      setDetail(updated)
+      setRefreshKey((k) => k + 1)
+      message.success('세션을 종료했습니다')
+    } catch (e) {
+      message.error('세션 종료 실패: ' + (e as Error).message)
+    } finally {
+      setEnding(false)
+    }
+  }
 
   useEffect(() => {
     if (!detail) {
@@ -109,6 +129,7 @@ export default function SessionsView() {
       <PagedListShell<Session, Record<string, number>>
         scopeKey="sessions"
         pageResetKey={filter} // status 전환 → page만 1로(검색어 보존, 기존 UX)
+        refreshKey={refreshKey} // 세션 종료 후 목록·counts 재조회(스펙 129)
         fetchPage={async (q, limit, offset) => {
           const data = await listSessions({ status: filter, q, limit, offset })
           return { items: data.items, total: data.total, extra: data.counts }
@@ -143,9 +164,17 @@ export default function SessionsView() {
           detail && (detail.status === 'active' || detail.status === 'running' || detail.status === 'idle') ? (
             <>
               <Button onClick={() => setDetail(null)}>닫기</Button>
-              <Button danger icon={<Icon name="pause-circle" />}>
-                세션 종료
-              </Button>
+              <Popconfirm
+                title="이 세션을 종료할까요?"
+                description="세션이 완료 상태로 전환됩니다 (되돌릴 수 없음)."
+                okText="종료"
+                cancelText="취소"
+                onConfirm={() => void doEnd()}
+              >
+                <Button danger loading={ending} icon={<Icon name="pause-circle" />}>
+                  세션 종료
+                </Button>
+              </Popconfirm>
             </>
           ) : (
             <Button onClick={() => setDetail(null)}>닫기</Button>

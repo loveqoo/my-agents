@@ -47,10 +47,15 @@
 
 ## 완료 (요약 — 상세는 각 스펙/회고)
 
+- **세션 종료 버튼 배선**(스펙 129) — 목업 버튼에 endSession+Popconfirm+드로어 완료 전환+목록 재조회.
+  검증이 "백엔드 완성" 전제를 반증 — 첫 실호출 500(commit 후 onupdate 컬럼 만료→MissingGreenlet,
+  커밋 성공+응답 실패=거짓 실패 UX)→refresh 1줄 수정. fast-worker 10/10 PASS·DB completed 확인.
+  완료(2026-07-03, 회고 110·learning 129). 미푸시.
+
 - **PagedListShell 일반화**(스펙 128) — 127 엔진을 공용 셸로 추출, 세션(프론트 이관+토스트→지속오류)·
   컬렉션 문서(백엔드 페이지 API 신설)·메모리(소비자 재작성) 3면 공유. 컬렉션 목록은 소수라 OUT.
   codex 2건(과도기 요청·토스트 중복)+사용자 신고(드로어 absolute 스크롤 깨짐→fixed) 수정. 완료
-  (2026-07-03, 회고 109·learning 128). 미푸시. **후속 씨앗**: 세션 end 버튼 배선(현재 목업), keyset.
+  (2026-07-03, 회고 109·learning 128). **후속 씨앗**: keyset(대규모 시). 세션 end 배선은 스펙 129로 완료.
 
 - **메모리 서버 페이지네이션 + 일치/유사도 통합**(스펙 127) — 증가 데이터 대응: list_page 추상 계약+mem0
   raw SQL(20건 캡 버그도 수정)+PagedMemoryList(Segmented 일치|유사도, SessionsView 패턴). 첫 오케스트레이션
