@@ -312,7 +312,8 @@ export default function AdminShell({ user, onLogout }: { user: Me; onLogout: () 
           )}
         </Header>
 
-        {/* position:relative — shared.tsx의 Drawer가 이 영역을 덮는다. */}
+        {/* shared.tsx Drawer는 fixed(뷰포트 기준)로 덮는다 — absolute(이 영역 기준)는 스크롤 시
+            하단이 노출되던 버그(128 중 수정). position:relative는 다른 absolute 자식 대비 유지. */}
         <Content style={{ overflow: 'auto', display: 'flex', flexDirection: 'column', position: 'relative' }}>
           {views[view]}
         </Content>

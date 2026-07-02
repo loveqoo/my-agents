@@ -255,7 +255,13 @@ export const collectionHealth = (id: string) =>
 /** retrieval 시험(스펙 072) — 인-챗 도구와 같은 코어를 타는 검색. 등록 직후 품질 즉석 확인. */
 export const searchCollection = (id: string, query: string, topK: number) =>
   post(`/collections/${id}/search`, { query, top_k: topK }) as Promise<CollectionSearchOut>
-export const listDocuments = (id: string) => j<RagDocument[]>(`/collections/${id}/documents`)
+/* 문서 페이지 목록(스펙 128) — 문서는 증가 축이라 서버 페이지네이션 + 파일명 부분일치(q). */
+export interface DocumentPageOut {
+  items: RagDocument[]
+  total: number
+}
+export const listDocuments = (id: string, q = '', limit = 20, offset = 0) =>
+  j<DocumentPageOut>(`/collections/${id}/documents${pageQS(q, limit, offset)}`)
 export const deleteDocument = (id: string, docId: string) =>
   del(`/collections/${id}/documents/${docId}`)
 /** 문서 업로드(멀티파트). FormData는 Content-Type을 브라우저가 boundary와 함께 자동 설정 — 직접 넣지 않는다. */

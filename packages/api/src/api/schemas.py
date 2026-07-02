@@ -81,6 +81,13 @@ class DocumentOut(BaseModel):
     model_config = ORM
 
 
+class DocumentPageOut(BaseModel):
+    """문서 페이지 목록(스펙 128) — 문서는 증가 축이라 서버 페이지네이션(세션·메모리와 동형 패턴)."""
+
+    items: list[DocumentOut]
+    total: int  # q(파일명 부분일치) 적용 후 전체 건수
+
+
 class CollectionHealth(BaseModel):
     """차원 정합 점검(읽기 전용) — DB 컬럼 / Collection 박제 / 현재 임베딩 모델 probe 3자 비교."""
 

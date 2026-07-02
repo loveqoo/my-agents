@@ -19,6 +19,7 @@ import {
 } from 'antd'
 import type { UploadProps } from 'antd'
 import { Page, DataTable, OwnerTag, type Column } from '../shared'
+import { PagedListShell, type ListController } from './PagedListShell'
 import { Icon } from '../icons'
 import { RetrievalTestDrawer } from './RetrievalTestDrawer'
 import {
@@ -204,9 +205,8 @@ function DocsDrawer({
   onClose: () => void
   onChanged: () => void
 }) {
-  const [docs, setDocs] = useState<RagDocument[]>([])
-  const [loading, setLoading] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [refreshKey, setRefreshKey] = useState(0) // 업로드 후 문서 목록 재조회(셸 트리거)
   // 청크 정책·설명 편집 폼.
   const [description, setDescription] = useState('')
   const [chunkSize, setChunkSize] = useState(1000)
@@ -215,26 +215,11 @@ function DocsDrawer({
 
   const id = collection?.id ?? null
 
-  const loadDocs = async () => {
-    if (!id) return
-    setLoading(true)
-    try {
-      setDocs(await listDocuments(id))
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : '문서를 불러오지 못했습니다')
-    } finally {
-      setLoading(false)
-    }
-  }
-
   useEffect(() => {
     if (collection) {
       setDescription(collection.description ?? '')
       setChunkSize(collection.chunk_size)
       setChunkOverlap(collection.chunk_overlap)
-      void loadDocs()
-    } else {
-      setDocs([])
     }
     /* eslint-disable-next-line */
   }, [collection?.id])
@@ -246,7 +231,7 @@ function DocsDrawer({
       const doc = await uploadDocument(id, file)
       if (doc.status === 'error') message.error(doc.error || '인제스트에 실패했습니다')
       else message.success(`${doc.filename} 인제스트 완료`)
-      await loadDocs()
+      setRefreshKey((k) => k + 1)
       onChanged() // 컬렉션 카운트(문서·청크)도 갱신
     } catch (e) {
       message.error(e instanceof Error ? e.message : '업로드에 실패했습니다')
@@ -255,11 +240,13 @@ function DocsDrawer({
     }
   }
 
-  const doDeleteDoc = async (docId: string) => {
+  const doDeleteDoc = async (ctl: ListController, docId: string) => {
     if (!id) return
     try {
       await deleteDocument(id, docId)
-      await loadDocs()
+      // 페이지 마지막 문서 삭제로 빈 페이지가 되면 앞 페이지로(128 셸 보정 패턴).
+      if (ctl.rowCount === 1 && ctl.page > 1) ctl.setPage(ctl.page - 1)
+      else await ctl.reload()
       onChanged()
     } catch (e) {
       message.error(e instanceof Error ? e.message : '문서 삭제에 실패했습니다')
@@ -295,7 +282,7 @@ function DocsDrawer({
     },
   }
 
-  const columns: Column<RagDocument>[] = [
+  const columns = (ctl: ListController): Column<RagDocument>[] => [
     {
       key: 'filename',
       title: '파일명',
@@ -342,7 +329,7 @@ function DocsDrawer({
           title="문서를 삭제할까요?"
           okText="삭제"
           cancelText="취소"
-          onConfirm={() => void doDeleteDoc(d.id)}
+          onConfirm={() => void doDeleteDoc(ctl, d.id)}
         >
           <Button type="text" size="small" danger icon={<Icon name="delete" />} />
         </Popconfirm>
@@ -374,8 +361,17 @@ function DocsDrawer({
           </div>
           )}
 
-          {/* 문서 목록 */}
-          <DataTable columns={columns} rows={docs} empty={loading ? '불러오는 중…' : '문서 없음'} />
+          {/* 문서 목록 — 공용 셸(스펙 128): 서버 페이지네이션 + 파일명 검색. 드로어 폭 고려 10건/쪽. */}
+          <PagedListShell<RagDocument>
+            scopeKey={collection.id}
+            fetchPage={(q, l, o) => listDocuments(collection.id, q, l, o)}
+            columns={columns}
+            refreshKey={refreshKey}
+            pageSize={10}
+            searchPlaceholder="파일명 부분일치 검색"
+            emptyText={(q) => (q ? '일치하는 문서가 없습니다.' : '문서 없음')}
+            errorTitle="문서를 불러오지 못했습니다"
+          />
 
           {/* 청크 정책·설명 편집 */}
           <div

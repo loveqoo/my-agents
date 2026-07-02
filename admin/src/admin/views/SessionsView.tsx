@@ -1,55 +1,22 @@
 /* my-agents admin — Sessions view: live & past conversation sessions, each with
-   status; click a session to see its state detail. */
+   status; click a session to see its state detail.
+   목록 엔진은 공용 PagedListShell(스펙 128) — 디바운스 서버검색·페이지네이션·지속 오류를 셸이 담당
+   (기존 사라지는 토스트 오류도 지속 Alert로 교정됨). counts 배지는 응답 extra로 받아 Radio에 반영,
+   status 필터는 pageResetKey로 page만 리셋(검색어 보존 — 기존 UX 유지). */
 import { useEffect, useState } from 'react'
-import { Tag, Button, Avatar, Alert, Radio, Pagination, Input, message } from 'antd'
-import { Page, StatusPill, DataTable, Drawer, Desc, type Column } from '../shared'
+import { Tag, Button, Avatar, Alert, Radio } from 'antd'
+import { Page, StatusPill, Drawer, Desc, type Column } from '../shared'
+import { PagedListShell } from './PagedListShell'
 import { Icon } from '../icons'
 import { SESSION_STATUS, type Session } from '../mockData'
 import { fmtTime } from '../format'
 import { listSessions, getSessionMessages, type SessionMessage } from '../../api'
 
-const PAGE_SIZE = 20
-
 export default function SessionsView() {
-  const [rows, setRows] = useState<Session[]>([])
-  const [total, setTotal] = useState(0)
   const [counts, setCounts] = useState<Record<string, number>>({})
   const [filter, setFilter] = useState<string>('all')
-  const [search, setSearch] = useState('') // 검색 입력 즉시값
-  const [q, setQ] = useState('') // 디바운스된 검색어(서버 질의) — 스펙 098
-  const [page, setPage] = useState(1) // 1-base
   const [detail, setDetail] = useState<Session | null>(null)
   const [messages, setMessages] = useState<SessionMessage[]>([])
-
-  // 검색어 디바운스(~300ms) — 입력 연타마다 서버 질의하지 않는다. 확정 시 첫 페이지로 리셋.
-  useEffect(() => {
-    const t = setTimeout(() => {
-      setQ(search.trim())
-      setPage(1)
-    }, 300)
-    return () => clearTimeout(t)
-  }, [search])
-
-  // 필터·검색·페이지 변경 → 서버 재조회. 검색은 서버측(전체 스코프 매칭 — 로컬 필터는 현재 페이지만
-  // 걸러 부정직). 필터/검색 전환 시 page=1로 리셋. 필터 전환은 아래 onChange에서.
-  useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      try {
-        const data = await listSessions({ status: filter, q, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE })
-        if (!cancelled) {
-          setRows(data.items)
-          setTotal(data.total)
-          setCounts(data.counts)
-        }
-      } catch {
-        message.error('세션을 불러오지 못했습니다')
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [filter, q, page])
 
   useEffect(() => {
     if (!detail) {
@@ -139,43 +106,33 @@ export default function SessionsView() {
 
   return (
     <Page title="세션" subtitle="모든 채널에서 에이전트와 진행 중인 대화">
-      <div style={{ marginBottom: 16, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-        <Radio.Group
-          optionType="button"
-          value={filter}
-          onChange={(e) => {
-            setFilter(e.target.value)
-            setPage(1) // 필터 전환 시 첫 페이지로
-          }}
-          options={[
-            { label: `전체 (${counts.all ?? 0})`, value: 'all' },
-            { label: `라이브 (${counts.live ?? 0})`, value: 'live' },
-            { label: `승인 대기 (${counts.awaiting ?? 0})`, value: 'awaiting' },
-            { label: `오류 (${counts.error ?? 0})`, value: 'error' },
-          ]}
-        />
-        <Input
-          allowClear
-          prefix={<Icon name="search" size={13} />}
-          placeholder="세션 ID·유저·에이전트 검색"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          style={{ width: 280, marginInlineStart: 'auto' }}
-        />
-      </div>
-      <DataTable<Session> columns={columns} rows={rows} onRowClick={setDetail} empty="조건에 맞는 세션이 없습니다" />
-      {total > PAGE_SIZE ? (
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
-          <Pagination
-            current={page}
-            pageSize={PAGE_SIZE}
-            total={total}
-            showSizeChanger={false}
-            onChange={setPage}
-            showTotal={(t) => `총 ${t}건`}
+      <PagedListShell<Session, Record<string, number>>
+        scopeKey="sessions"
+        pageResetKey={filter} // status 전환 → page만 1로(검색어 보존, 기존 UX)
+        fetchPage={async (q, limit, offset) => {
+          const data = await listSessions({ status: filter, q, limit, offset })
+          return { items: data.items, total: data.total, extra: data.counts }
+        }}
+        onExtra={(c) => setCounts(c ?? {})}
+        columns={columns}
+        onRowClick={setDetail}
+        searchPlaceholder="세션 ID·유저·에이전트 검색"
+        emptyText="조건에 맞는 세션이 없습니다"
+        errorTitle="세션을 불러오지 못했습니다"
+        leftSlot={
+          <Radio.Group
+            optionType="button"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            options={[
+              { label: `전체 (${counts.all ?? 0})`, value: 'all' },
+              { label: `라이브 (${counts.live ?? 0})`, value: 'live' },
+              { label: `승인 대기 (${counts.awaiting ?? 0})`, value: 'awaiting' },
+              { label: `오류 (${counts.error ?? 0})`, value: 'error' },
+            ]}
           />
-        </div>
-      ) : null}
+        }
+      />
 
       <Drawer
         open={!!detail}

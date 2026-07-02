@@ -13,7 +13,7 @@ import os
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy import case, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,9 +34,11 @@ from .schemas import (
     CollectionSearchOut,
     CollectionUpdate,
     DocumentOut,
+    DocumentPageOut,
     SearchHit,
 )
 from .serializers import collection_to_out
+from .sessions import _like_escape
 
 router = APIRouter(prefix="/collections", tags=["rag"])
 
@@ -279,16 +281,29 @@ async def search_collection(
 
 
 # ----------------------------- 문서 인제스트 -----------------------------
-@router.get("/{cid}/documents", response_model=list[DocumentOut])
-async def list_documents(cid: uuid.UUID, session: AsyncSession = Depends(get_session)) -> Any:
+@router.get("/{cid}/documents", response_model=DocumentPageOut)
+async def list_documents(
+    cid: uuid.UUID,
+    q: str | None = Query(None, max_length=500),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0, le=1_000_000),
+    session: AsyncSession = Depends(get_session),
+) -> Any:
+    """문서 페이지 목록(스펙 128) — 문서는 증가 축이라 서버 페이지네이션 + 파일명 부분일치(q).
+
+    세션(list_sessions)과 동형: LIMIT/OFFSET + count total + ilike(`_like_escape` 재사용 — 단일 출처).
+    스코프(collection_id)는 SQL WHERE. 읽기 개방 모델은 기존 그대로(존재 확인만 — RBAC 무변경)."""
     if await session.get(Collection, cid) is None:
         raise HTTPException(status_code=404, detail="not found")
+    base = select(Document).where(Document.collection_id == cid)
+    if q and q.strip():
+        base = base.where(Document.filename.ilike(f"%{_like_escape(q.strip())}%", escape="\\"))
+    total = (await session.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
     rows = (
-        await session.execute(
-            select(Document).where(Document.collection_id == cid).order_by(Document.created_at)
-        )
+        # id tiebreak — 같은 created_at(한 트랜잭션 일괄 인제스트)에서도 페이지가 결정적·비중복(127 원칙).
+        await session.execute(base.order_by(Document.created_at, Document.id).offset(offset).limit(limit))
     ).scalars().all()
-    return rows
+    return DocumentPageOut(items=rows, total=total)
 
 
 @router.post("/{cid}/documents", response_model=DocumentOut, status_code=201)

@@ -289,9 +289,12 @@ export function Drawer({
   const isMobile = screens.md === false
   const bodyPad = isMobile ? 16 : 24
   // 래퍼 overflow:hidden — 닫힘 시 패널이 translateX(100%)로 화면 밖 오른쪽에 머물며
-  // Content(overflow:auto)의 가로 스크롤을 만들던 문제 차단. 열림 시 패널은 경계 안.
+  // 가로 스크롤을 만들던 문제 차단. 열림 시 패널은 경계 안.
+  // position **fixed**(128 중 사용자 신고 수정) — 이전 absolute는 스크롤 컨테이너(Content) 좌표계라,
+  // 목록을 아래로 스크롤한 채 열면 오버레이가 위로 밀려 하단 행이 드로어 밖으로 노출됐다(마지막
+  // 세션 클릭 시 화면 깨짐). fixed는 스크롤 위치와 무관하게 뷰포트 전체를 덮는다(antd Drawer 동일 거동).
   return (
-    <div style={{ position: 'absolute', inset: 0, zIndex: 1000, overflow: 'hidden', pointerEvents: open ? 'auto' : 'none' }}>
+    <div style={{ position: 'fixed', inset: 0, zIndex: 1000, overflow: 'hidden', pointerEvents: open ? 'auto' : 'none' }}>
       <div
         onClick={onClose}
         style={{ position: 'absolute', inset: 0, background: 'var(--color-bg-mask)', opacity: open ? 1 : 0, transition: 'opacity .25s' }}
