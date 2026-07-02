@@ -202,8 +202,16 @@ class _CapabilityProvider(Protocol):
     def node_label(self, row) -> str:  # 관측 프레임 노드명 broker_invoke:<kind>:<...>
         ...
 
-    def approval_for(self, cap_id: str, args: dict) -> dict | None:  # HIL 승인 payload | None
+    def approval_for(self, row, cap_id: str, args: dict) -> dict | None:  # HIL 승인 payload | None
         ...
+
+
+A2A_DELEGATE_PERMISSION = "a2a.delegate"  # A2A 위임 승인 action(대상 Agent opt-in requires_approval, 스펙 117)
+
+
+def _a2a_text(args: dict) -> str:
+    """A2A 위임 입력 텍스트 정규화 — approval_for·invoke **공유**(드리프트 0, 승인=전송)."""
+    return str(args.get("text", "")) if isinstance(args, dict) else str(args)
 
 
 class AgentProvider:
@@ -253,7 +261,7 @@ class AgentProvider:
         )
 
     async def invoke(self, row: Agent, args: dict) -> InvokeResult:
-        user_text = str(args.get("text", "")) if isinstance(args, dict) else str(args)
+        user_text = _a2a_text(args)  # approval_for와 동일 헬퍼(승인한 것 == 전송되는 것)
         card = (row.config or {}).get("card")
         acc: list[str] = []
         errored: str | None = None
@@ -276,8 +284,21 @@ class AgentProvider:
     def node_label(self, row: Agent) -> str:
         return f"broker_invoke:{CAP_KIND_AGENT}:{row.name}"
 
-    def approval_for(self, cap_id: str, args: dict) -> dict | None:
-        return None  # A2A 위임 승인 정책 소스 없음(Phase 2-a 비목표 — "에이전트 X에 위임 승인"은 후속)
+    def approval_for(self, row, cap_id: str, args: dict) -> dict | None:
+        """A2A 위임 승인 = **대상 Agent의 opt-in 플래그**(스펙 117). config.requires_approval가 참일 때만
+        게이트(부재/거짓 = 게이트 없음 = **현동작 보존·무회귀**). MCP `_APPROVAL_ACTIONS` 옵트인의
+        에이전트 단위 형제. approval_for와 invoke가 `_a2a_text`로 동일 정규화 → **승인한 것 == 전송되는 것**."""
+        cfg = getattr(row, "config", None)
+        cfg = cfg if isinstance(cfg, dict) else {}  # 오염 데이터(비-dict config) 방어 — .get AttributeError 차단
+        if not cfg.get("requires_approval"):
+            return None
+        text = _a2a_text(args)  # invoke와 동일 헬퍼(드리프트 0) — 마스킹 없이 노출(사람이 무엇이 전송되는지 봐야 승인)
+        return {
+            "permission": A2A_DELEGATE_PERMISSION,
+            "action": A2A_DELEGATE_PERMISSION,
+            "args": {"text": text},
+            "summary": f"에이전트 '{row.name}'에게 위임 전송(A2A) — 승인 필요",
+        }
 
 
 class _McpBacking:
@@ -437,7 +458,7 @@ class McpProvider:
     def node_label(self, row: _McpBacking) -> str:
         return f"broker_invoke:{CAP_KIND_MCP}:{row.server}/{row.tool_name}"
 
-    def approval_for(self, cap_id: str, args: dict) -> dict | None:
+    def approval_for(self, row, cap_id: str, args: dict) -> dict | None:
         """MCP 승인 정책 = 그래프-tools 경로와 **동일 소스**(`_APPROVAL_ACTIONS`) 재사용(드리프트 0).
         payload 마스킹도 기존 `_redact_args` 재사용. 걸리지 않는 툴은 None(즉시 실행)."""
         from .runtime import _APPROVAL_ACTIONS, _redact_args
@@ -590,7 +611,7 @@ class RagProvider:
     def node_label(self, row: _RagBacking) -> str:
         return f"broker_invoke:{CAP_KIND_RAG}:{row.name}"
 
-    def approval_for(self, cap_id: str, args: dict) -> dict | None:
+    def approval_for(self, row, cap_id: str, args: dict) -> dict | None:
         return None  # RAG=읽기 전용(부수효과 없음) → 승인 게이트 불요.
 
 
@@ -691,7 +712,7 @@ class MemoryProvider:
     def node_label(self, row: _MemBacking) -> str:
         return f"broker_invoke:{CAP_KIND_MEMORY}:user"
 
-    def approval_for(self, cap_id: str, args: dict) -> dict | None:
+    def approval_for(self, row, cap_id: str, args: dict) -> dict | None:
         return None  # 메모리 읽기=부수효과 없음 → 승인 게이트 불요(memory write는 스펙 105).
 
 
@@ -790,7 +811,7 @@ class MemoryWriteProvider:
     def node_label(self, row: _MemBacking) -> str:
         return f"broker_invoke:{CAP_KIND_MEMORY_WRITE}:user"
 
-    def approval_for(self, cap_id: str, args: dict) -> dict | None:
+    def approval_for(self, row, cap_id: str, args: dict) -> dict | None:
         # 쓰기=부수효과 → **항상 승인**(None 절대 안 돌림). 저장될 사실을 마스킹 없이 노출(승인 가시성).
         text = _memwrite_text(args)  # invoke와 동일 헬퍼(길이 상한 일치) → 승인한 것 == 저장되는 것
         preview = text[:_MEMWRITE_PREVIEW] + ("…" if len(text) > _MEMWRITE_PREVIEW else "")
@@ -923,7 +944,7 @@ class MemEditProvider:
     def node_label(self, row: _MemBacking) -> str:
         return f"broker_invoke:{CAP_KIND_MEMORY_EDIT}:user"
 
-    def approval_for(self, cap_id: str, args: dict) -> dict | None:
+    def approval_for(self, row, cap_id: str, args: dict) -> dict | None:
         # 수정/삭제=부수효과 → **항상 승인**(None 절대 안 돌림). 마스킹 없이 노출(승인 가시성).
         op, mem_id, text = _memedit_args(args)  # invoke와 동일 정규화 → 승인한 것 == 실행되는 것
         if op == "delete":
@@ -1040,7 +1061,7 @@ class PolicyScopedBroker:
             return InvokeResult(error="capability not found", trust="untrusted")  # 존재 비노출
         # 서브스텝 HIL(§3.5): 승인 요구 cap이면 전송(부수효과) **이전** interrupt로 부모 그래프 pause.
         # interrupt는 재개 시 delegate 재실행에도 이 지점 이전 부수효과 0 = 전송 1회(멱등, 체크리스트 §7).
-        payload = provider.approval_for(cap_id, args)
+        payload = provider.approval_for(row, cap_id, args)
         if payload is not None:
             from langgraph.types import interrupt  # 지연 임포트(그래프 밖 호출 시 부담 0)
 

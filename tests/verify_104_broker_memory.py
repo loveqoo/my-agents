@@ -125,7 +125,7 @@ def unit_checks() -> None:
 
     mp = MemoryProvider(_raise_factory(), "bob")
     # U3 approval_for — 읽기전용 → 항상 None.
-    check(mp.approval_for(MEM_USER, {"text": "x"}) is None, "U3 memory approval_for → 항상 None(읽기전용)")
+    check(mp.approval_for(None, MEM_USER, {"text": "x"}) is None, "U3 memory approval_for → 항상 None(읽기전용)")
 
     # U4 describe input_schema — text 필수, limit 선택, **user_id 필드 없음**(주체 고정).
     desc = mp.describe(_MemBacking("user"))

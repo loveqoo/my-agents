@@ -312,6 +312,10 @@ class AgentConfig(BaseModel):
     capabilities: list[str] = Field(default_factory=list)
     historyDepth: int = 20
     persistHistory: bool = True  # 대화를 DB에 저장할지(끄면 윈도우 모드)
+    # A2A 위임 승인 opt-in(스펙 117) — 이 에이전트에게 위임(A2A 전송)할 때 승인 게이트를 걸지. 기본 False=
+    # 게이트 없음(무회귀). 브로커 AgentProvider.approval_for가 read하는 정책 소스라 **라운드트립 보존 필수**
+    # (없으면 model_dump가 조용히 드롭 → 게이트 비활성, learning 101 seed-bypasses-write-schema).
+    requires_approval: bool = False
     impl: str | None = None  # in-process 커스텀 런타임 키(스펙 085). None=기본 DefaultUiAgent.
     # 신뢰 레지스트리의 *키*일 뿐 코드 아님 — 미지/미등록 키는 조용히 기본으로 폴백(eval 없음).
 

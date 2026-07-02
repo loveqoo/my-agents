@@ -137,13 +137,13 @@ def unit_checks() -> None:
 
     me = MemEditProvider(_raise_factory(), "bob")
     # U3 approval_for — 부수효과 → **항상 non-None** + 액션 노출.
-    ap_del = me.approval_for(MEMEDIT, {"op": "delete", "mem_id": "m1"})
+    ap_del = me.approval_for(None, MEMEDIT, {"op": "delete", "mem_id": "m1"})
     check(ap_del is not None and ap_del["permission"] == MEMEDIT_PERMISSION == "memory.edit",
           "U3 approval_for delete → non-None, permission=memory.edit(admin 전용)")
     check("m1" in ap_del["summary"] and "삭제" in ap_del["summary"], "U3 delete summary에 대상 id·액션 노출")
-    ap_up = me.approval_for(MEMEDIT, {"op": "update", "mem_id": "m2", "text": "밥은 재즈를 친다"})
+    ap_up = me.approval_for(None, MEMEDIT, {"op": "update", "mem_id": "m2", "text": "밥은 재즈를 친다"})
     check("재즈" in ap_up["args"]["text"] and "재즈" in ap_up["summary"], "U3 update 새 본문 마스킹 없이 노출")
-    ap_long = me.approval_for(MEMEDIT, {"op": "update", "mem_id": "m3", "text": "가" * 500})
+    ap_long = me.approval_for(None, MEMEDIT, {"op": "update", "mem_id": "m3", "text": "가" * 500})
     check(len(ap_long["summary"]) < 400 and "…" in ap_long["summary"], "U3 update summary 미리보기 상한")
 
     # U4 describe — op enum + mem_id 필수, user_id 필드 없음(주체 고정).
@@ -221,7 +221,7 @@ async def unit_async_checks() -> None:
     huge = "가" * 50_000
     await me.invoke(_MemBacking("user"), {"op": "update", "mem_id": bob_mid, "text": huge})
     stored = store.rows[bob_mid]["text"]
-    approved = me.approval_for(MEMEDIT, {"op": "update", "mem_id": bob_mid, "text": huge})["args"]["text"]
+    approved = me.approval_for(None, MEMEDIT, {"op": "update", "mem_id": bob_mid, "text": huge})["args"]["text"]
     check(len(stored) == MEMEDIT_MAX_CHARS and stored == approved,
           f"U7 거대 update → 상한({MEMEDIT_MAX_CHARS}) & 승인==실행(길이 {len(stored)})")
 

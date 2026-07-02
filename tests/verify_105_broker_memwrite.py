@@ -133,11 +133,11 @@ def unit_checks() -> None:
 
     mw = MemoryWriteProvider(_raise_factory(), "bob")
     # U3 approval_for — 쓰기=부수효과 → **항상 non-None**(읽기와 정반대) + 저장될 사실 노출.
-    ap = mw.approval_for(MEMWRITE, {"text": "밥은 재즈를 친다"})
+    ap = mw.approval_for(None, MEMWRITE, {"text": "밥은 재즈를 친다"})
     check(ap is not None, "U3 approval_for → 항상 non-None(쓰기=부수효과, 읽기와 정반대)")
     check(ap["permission"] == MEMWRITE_PERMISSION == "memory.write", "U3 permission=memory.write(066 self-approve)")
     check("재즈" in ap["args"]["text"] and "재즈" in ap["summary"], "U3 저장될 사실을 마스킹 없이 노출(승인 가시성)")
-    ap_long = mw.approval_for(MEMWRITE, {"text": "가" * 500})
+    ap_long = mw.approval_for(None, MEMWRITE, {"text": "가" * 500})
     check(len(ap_long["summary"]) < 400 and "…" in ap_long["summary"], "U3 summary 미리보기 상한(거대 사실)")
 
     # U4 describe — text 필수, user_id 필드 없음(주체 고정).
@@ -193,7 +193,7 @@ async def unit_async_checks() -> None:
     huge = "가" * 50_000
     await mw.invoke(_MemBacking("user"), {"text": huge})
     stored = fake.adds[0][1][0]["content"]
-    approved = mw.approval_for(MEMWRITE, {"text": huge})["args"]["text"]
+    approved = mw.approval_for(None, MEMWRITE, {"text": huge})["args"]["text"]
     check(len(stored) == MEMWRITE_MAX_CHARS, f"U7 거대 text → 저장 상한({MEMWRITE_MAX_CHARS}) (got {len(stored)})")
     check(stored == approved, "U7 승인 args.text == 저장 text(동일 상한 = 승인한 것==저장되는 것)")
 

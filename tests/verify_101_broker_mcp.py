@@ -153,15 +153,17 @@ def unit_checks() -> None:
     check(brd._permitted(ECHO_CAP) is False, "U3 RBAC 거부 → deny(교집합)")
 
     # U4 approval_for — MCP 승인 정책은 _APPROVAL_ACTIONS 재사용(드리프트0), agent는 항상 None.
-    payload = mp.approval_for(DELETE_CAP, {"text": "x", "record_id": "r1"})
+    payload = mp.approval_for(None, DELETE_CAP, {"text": "x", "record_id": "r1"})
     check(isinstance(payload, dict) and payload.get("permission") == "data.delete",
           "U4 mcp delete_record → payload permission=data.delete")
     check(payload and payload.get("action") == f"{MCP}.delete_record" and "승인" in payload.get("summary", ""),
           "U4 payload action=server.tool + 승인 요약")
-    check(mp.approval_for(ECHO_CAP, {"text": "x"}) is None, "U4 비게이트 툴(echo) → None(즉시 실행)")
-    check(mp.approval_for(WEBSEARCH_CAP, {}) is None, "U4 비게이트 툴(web_search) → None")
+    check(mp.approval_for(None, ECHO_CAP, {"text": "x"}) is None, "U4 비게이트 툴(echo) → None(즉시 실행)")
+    check(mp.approval_for(None, WEBSEARCH_CAP, {}) is None, "U4 비게이트 툴(web_search) → None")
     ap = AgentProvider(_raise_factory())
-    check(ap.approval_for("agt_x", {"text": "x"}) is None, "U4 agent provider → 항상 None(위임 승인 소스 없음)")
+    # 스펙 117 — agent 위임 승인은 대상 opt-in(config.requires_approval). 플래그 없는(또는 row=None) 기본은
+    # None(무회귀). opt-in True→payload는 verify_117에서 검증.
+    check(ap.approval_for(None, "agt_x", {"text": "x"}) is None, "U4 agent provider 기본(opt-in 없음) → None")
 
     # U5 _adapt_args — generic {text} 위임 인자를 툴 실제 파라미터로 적응(flow 코드 변경 없이).
     from api.broker import _adapt_args

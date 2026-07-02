@@ -5,13 +5,20 @@
 > retrospect/spec의 `INDEX.md`가 회고 상기를 싸게 만들듯, 이 파일은 *백로그 상기*를 싸게 만든다.
 > 규칙이 아니라 종이 한 장 — 새 작업 정해지면 여기서 옮기고, 끝나면 완료로 내린다.
 
-## 후보 (다음에 할 만한 것)
+## 후보 (다음에 할 만한 것) — 새 방향 4개(사용자 "모두 차례대로", 순서대로)
 
-- (비어 있음 — "1~4 루프" 4건 모두 완료. 다음은 Scaffolding서 새 방향 모색.)
+- ✅ **방향 1 — A2A 협업 실증 + 위임 승인 게이트**(스펙 117) 완료 → 아래 완료.
+- **방향 2 — 관측·측정 계층(Langfuse)**(진행 예정) — 기술스택엔 있으나 코드 0줄. 에이전트 실행 trace/
+  메트릭 Langfuse 내보내기. 수치 토대=자율(목표 주고 무한 반복)의 전제.
+- **방향 3 — 에이전트 평가 하네스(수치)** — 답 품질 수치화(관측 계층 위). Ralph 루프 자율 재료.
+- **방향 4 — 저마찰 생성 성숙** — 템플릿·복제·프리셋으로 에이전트 생성 저마찰화(UI/UX).
 
 ### 후속 씨앗 (급하지 않음)
-- **다단 승인 큐**(스펙 116 OUT) — 다중 gated cap 순차 위임 시 두 번째 이후 interrupt를 chat.py resume
-  경로가 새 Approval row로 승격(현재는 고아, 안전은 fail-closed 유지). 101/102 다중 interrupt OUT의 완전성 갭.
+- **다단 승인 큐**(스펙 116·117 OUT) — 다중 gated/A2A cap 순차 위임 시 두 번째 이후 interrupt를 chat.py
+  resume 경로가 새 Approval row로 승격(현재는 고아, 안전은 fail-closed 유지). 101/102 다중 interrupt 완전성 갭.
+- **A2A 승인 payload args 스냅샷 바인딩**(스펙 117 OUT) — "승인==전송"을 임의 브로커 호출자까지 일반보장
+  (재개 간 args 비결정 대비). 기본 orchestrate 경로는 이미 안전.
+- **a2a.delegate self-approve 시드**(스펙 117 OUT) — 현재 admin만 승인(fail-closed). 소유자 self-승인(105 선례).
 
 ## 진행 중
 
@@ -35,6 +42,12 @@
   관측상 중복, codex 102 [P1]). 다중 interrupt 난제(스펙 101/102 OUT)의 정공법 후속.
 
 ## 완료 (요약 — 상세는 각 스펙/회고)
+
+- **A2A 협업 실증 + 위임 승인 게이트**(스펙 117, 방향 1) — AgentProvider(kind=agent) 성공 협업을 채팅 1턴
+  관통 실증(a2a_stream 결정적 패치: 원격 성공·1회 호출·질의 도달·종합) + approval_for opt-in 게이트
+  (config.requires_approval 기본 off=무회귀·전송 이전 interrupt). codex rung3: requires_approval 스키마
+  드롭(P1)→AgentConfig 필드+라운드트립 가드, 승인==전송 재개 경계(P1)→문서화, 비-dict config(P2)→방어.
+  방향 1 완료(2026-07-02, 회고 098·learning 117).
 
 - **재개 시 선행 위임 결과 보존**(스펙 116, 102 codex [P1] 봉합) — 다중 순차 위임 중 뒤 gated cap
   interrupt 시 재개서 앞 read-only cap 재호출되던 것을, cap 하나씩 delegate self-loop(pending/done

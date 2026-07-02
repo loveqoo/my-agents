@@ -126,7 +126,7 @@ def unit_checks() -> None:
 
     rp = RagProvider(_raise_factory())
     # U4 approval_for — RAG는 읽기전용 → 항상 None(HIL 없음).
-    check(rp.approval_for(RAG_MAIN, {"text": "x"}) is None, "U4 rag approval_for → 항상 None(읽기전용)")
+    check(rp.approval_for(None, RAG_MAIN, {"text": "x"}) is None, "U4 rag approval_for → 항상 None(읽기전용)")
 
     # U5 describe input_schema — text 필수, top_k 선택.
     desc = rp.describe(_RagBacking(f"{CP}main", "설명", _FAKE_COL))
