@@ -451,6 +451,15 @@ def _next_owner(current: str | None, incoming: str | None) -> str | None:
     return current
 
 
+def _broker_calls_trace(invocations: list[dict]) -> list[dict]:
+    """브로커 호출 이력 → 트레이스 표시용 투영(스펙 130) — **키 화이트리스트 단일 출처**(메인/승인대기/
+    재개 세 경로 공유, drift 0). 본문·args 불포함(087/092 원문 누출 0 유지)."""
+    return [
+        {k: v for k, v in inv.items() if k in ("cap_id", "ms", "hits", "topScore", "error")}
+        for inv in invocations
+    ]
+
+
 async def _persist(
     ctx: dict, user_text: str, reply: str, trace: dict, tokens: dict, store_messages: bool,
     user_id: str | None = None,
@@ -810,6 +819,9 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
             # 승인대기 턴도 회상 조회 이력 일관 노출(스펙 079).
             if used_memory:
                 pending_trace["memoryQuery"] = user_text[:300]
+            if build_broker_scoped.invocations:
+                # 일시정지 **이전에 이미 실행된** 선행 브로커 호출 표면화(스펙 130, codex #2).
+                pending_trace["brokerCalls"] = _broker_calls_trace(build_broker_scoped.invocations)
             if ctx["rag_collections"]:
                 pending_trace["ragCollections"] = [c["name"] for c in ctx["rag_collections"]]
             yield f"event: trace\ndata: {json.dumps(pending_trace, ensure_ascii=False)}\n\n"
@@ -837,6 +849,10 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
             graph_observations=observed,
         )
         trace["contextMessages"] = len(messages)  # 모델에 넣은 메시지 수(historyDepth 적용 결과)
+        if build_broker_scoped.invocations:
+            # 브로커 호출 상세(스펙 130) — 조율형의 RAG 검색이 인스펙터에 "N건·최고 유사도"로 보이게.
+            # 위임 없던 턴은 필드 자체가 없음(무회귀).
+            trace["brokerCalls"] = _broker_calls_trace(build_broker_scoped.invocations)
         if ctx["rag_collections"]:
             # 구성된 RAG 컬렉션 — 호출 안 해도 인스펙터에 노출(실제 호출은 trace["mcp"]의 server="rag").
             trace["ragCollections"] = [c["name"] for c in ctx["rag_collections"]]
@@ -1057,6 +1073,9 @@ async def resume_approval(approval: Approval, decision: str) -> None:
         used_memory=used_memory, total_ms=total_ms, tokens=tokens,
     )
     trace["resumedApproval"] = {"id": approval.approval_id, "decision": decision}
+    if resume_broker.invocations:
+        # 재개 턴의 브로커 호출도 표면화(스펙 130, codex #1).
+        trace["brokerCalls"] = _broker_calls_trace(resume_broker.invocations)
     await _persist(
         ctx, user_text, reply, trace, tokens, ctx["persist_history"], user_id=None
     )

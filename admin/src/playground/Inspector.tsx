@@ -384,14 +384,16 @@ export function Inspector({
           </Section>
 
           {/* 문서 검색(RAG) 이력 — RAG 호출은 MCP에서 분리해 전용 섹션에. 연결 컬렉션/미해석도 노출
-              해 도구를 안 불렀어도 RAG가 가용했는지 보인다(스펙 079). 셋 다 없으면 섹션 숨김(무회귀). */}
+              해 도구를 안 불렀어도 RAG가 가용했는지 보인다(스펙 079). 조율형의 **브로커 경유 RAG**도
+              여기에 표면화(스펙 130) — 이전엔 그래프 노드명뿐이라 "검색 안 함"으로 오인됐다. */}
           {(() => {
             const ragCalls = t.mcp.filter((c) => c.server === 'rag')
+            const brokerRag = (t.brokerCalls ?? []).filter((b) => b.cap_id.startsWith('rag:'))
             const cols = t.ragCollections ?? []
             const unresolved = t.ragUnresolved ?? []
-            if (!ragCalls.length && !cols.length && !unresolved.length) return null
+            if (!ragCalls.length && !brokerRag.length && !cols.length && !unresolved.length) return null
             return (
-              <Section icon="search" iconColor="var(--geekblue-6)" title="문서 검색 (RAG)" count={ragCalls.length}>
+              <Section icon="search" iconColor="var(--geekblue-6)" title="문서 검색 (RAG)" count={ragCalls.length + brokerRag.length}>
                 {cols.length ? (
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
                     <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>연결 컬렉션:</span>
@@ -407,11 +409,34 @@ export function Inspector({
                     ⚠ 미해석 컬렉션(임베딩 모델/프로바이더 불완전): {unresolved.join(', ')}
                   </div>
                 ) : null}
+                {/* 브로커 위임 검색(조율형, 스펙 130) — 건수·최고 유사도·판정 태그. */}
+                {brokerRag.map((b, i) => (
+                  <div key={`bk-${i}`} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6, fontSize: 13 }}>
+                    <Tag color="geekblue" style={{ fontFamily: 'var(--font-family-code)' }}>{b.cap_id}</Tag>
+                    {b.error ? (
+                      <Tag color="red">검색 실패</Tag>
+                    ) : (
+                      <>
+                        <span>검색 {b.hits ?? 0}건</span>
+                        {/* 유사도·판정은 topScore가 **실측 숫자일 때만** — 없는데 0.000/관련도낮음으로
+                            오표시하지 않는다(codex 130 P3). */}
+                        {b.hits && typeof b.topScore === 'number' ? (
+                          <span style={{ color: 'var(--color-text-secondary)' }}>· 최고 유사도 {b.topScore.toFixed(3)}</span>
+                        ) : null}
+                        {b.hits && typeof b.topScore === 'number' && b.topScore < 0.5 ? (
+                          <Tag color="orange">관련도 낮음</Tag>
+                        ) : null}
+                        {!b.hits ? <Tag color="default">0건</Tag> : null}
+                      </>
+                    )}
+                    <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>{b.ms}ms</span>
+                  </div>
+                ))}
                 {ragCalls.length ? (
                   ragCalls.map((c, i) => <RagCall key={i} c={c} />)
-                ) : (
+                ) : !brokerRag.length ? (
                   <div style={{ fontSize: 13, color: 'var(--color-text-tertiary)' }}>이 턴에서는 문서 검색을 호출하지 않았습니다.</div>
-                )}
+                ) : null}
               </Section>
             )
           })()}

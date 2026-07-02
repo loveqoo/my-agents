@@ -596,10 +596,13 @@ class RagProvider:
         try:
             hits = await rt.search_collections([row.col], text, top_k)
             # 결과 = 문서 내용 = **데이터**(지시 아님). trust=untrusted 불변(인젝션 방어).
+            # hits/topScore 구조화(스펙 130) — 조율형의 RAG 검색이 인스펙터에 "N건·최고 유사도"로
+            # 보이게. 문서 본문은 raw에 싣지 않는다(표시용 메타 숫자만 — 과대 데이터/누출 없음).
+            top = max((float(h.get("score", 0.0)) for h in hits), default=0.0)
             return InvokeResult(
                 text=rt.format_rag_hits(hits),  # 인-챗 도구와 공유 포맷(drift 0)
                 trust="untrusted", error=None,
-                raw={"cap_id": cap_id, "kind": CAP_KIND_RAG},
+                raw={"cap_id": cap_id, "kind": CAP_KIND_RAG, "hits": len(hits), "topScore": round(top, 3)},
             )
         except rt.RagSearchError as exc:
             # 코어가 이미 분류(empty/embed/db) — graceful 오류로 접어 에이전트를 죽이지 않는다.
@@ -1082,7 +1085,16 @@ class PolicyScopedBroker:
         ms = int((time.perf_counter() - t0) * 1000)
         # 관측: broker.invoke 1회 = 노드 프레임 1개(설계결정 7 — invisible 금지). args/result는 안 담음
         # (087/092 — 원문 누출 0). interrupt payload만 _redact_args로 마스킹된 args를 싣는다.
-        self.invocations.append({"node": provider.node_label(row), "cap_id": cap_id, "ms": ms})
+        inv: dict = {"node": provider.node_label(row), "cap_id": cap_id, "ms": ms}
+        # 표시용 메타(스펙 130) — provider가 raw에 실은 숫자만 통과(hits/topScore), 본문·args 불포함.
+        raw = res.raw if isinstance(res.raw, dict) else {}
+        if "hits" in raw:
+            inv["hits"] = raw["hits"]
+        if "topScore" in raw:
+            inv["topScore"] = raw["topScore"]
+        if res.error:
+            inv["error"] = True
+        self.invocations.append(inv)
         return res
 
 

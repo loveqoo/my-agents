@@ -660,7 +660,18 @@ function TraceChips({ trace, active, onClick }: { trace?: Trace; active: boolean
       }}
     >
       <Chip icon="bulb" color="var(--purple-6)" n={trace.memories.length} label="mem" />
-      <Chip icon="thunderbolt" color="var(--cyan-7)" n={trace.mcp.length} label="mcp" />
+      {/* rag 칩(스펙 130) — 직접형(mcp server='rag') + 조율형(브로커 rag:*) 합산. mcp 칩은 rag를
+          제외해 중복 계산 방지(인스펙터 섹션 카운트와 동일 기준). */}
+      <Chip
+        icon="search"
+        color="var(--geekblue-6)"
+        n={
+          trace.mcp.filter((c) => c.server === 'rag').length +
+          (trace.brokerCalls?.filter((b) => b.cap_id.startsWith('rag:')).length ?? 0)
+        }
+        label="rag"
+      />
+      <Chip icon="thunderbolt" color="var(--cyan-7)" n={trace.mcp.filter((c) => c.server !== 'rag').length} label="mcp" />
       <Chip icon="clock-circle" color="var(--color-text-tertiary)" label={(trace.latencyMs / 1000).toFixed(2) + 's'} />
       <span style={{ fontSize: 12, color: 'var(--color-primary)', fontWeight: 500 }}>인스펙터{active ? ' ✓' : ''}</span>
     </div>

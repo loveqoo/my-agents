@@ -47,6 +47,11 @@
 
 ## 완료 (요약 — 상세는 각 스펙/회고)
 
+- **조율형 RAG 검색 표면화**(스펙 130) — "RAG 검색 안 함" 신고를 진단으로 반증(검색은 동작·표시가 구멍),
+  hits/topScore 구조화→trace.brokerCalls(3경로 전수)→인스펙터 "검색 N건·최고 유사도"+관련도낮음 태그+
+  메시지 칩 rag 카운트. codex 3건(경로 누락 P2×2·오표시 P3) 수정. 완료(2026-07-03, 회고 111·learning
+  130). 미푸시. **후속 씨앗**: 플레이그라운드 UI 개선·기능 점검(사용자 제기 — Scaffolding서 논의).
+
 - **세션 종료 버튼 배선**(스펙 129) — 목업 버튼에 endSession+Popconfirm+드로어 완료 전환+목록 재조회.
   검증이 "백엔드 완성" 전제를 반증 — 첫 실호출 500(commit 후 onupdate 컬럼 만료→MissingGreenlet,
   커밋 성공+응답 실패=거짓 실패 UX)→refresh 1줄 수정. fast-worker 10/10 PASS·DB completed 확인.
