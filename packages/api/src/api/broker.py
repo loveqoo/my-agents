@@ -1030,10 +1030,17 @@ class PolicyScopedBroker:
                 # 특정 판정: kind-레벨이면 전체 통과, per-cap 전용이면 부여된 cap만(같은 술어 재사용).
                 if self._rbac_allows(c.kind, _cap_resource(c.id, c.kind)):
                     caps.append(c)
-        # lexical(부분일치, 대소문자 무시) — 카탈로그 작아 벡터 없이 시작(설계결정 10).
-        q = (query or "").strip().lower()
-        if q:
-            caps = [c for c in caps if q in f"{c.name} {c.id} {c.hook}".lower()]
+        # lexical 겹침은 **하드 필터가 아니라 랭킹 신호**다(스펙 124). 예전엔 `q in cap-text`(쿼리 전체가
+        # 능력 텍스트의 부분문자열)로 하드 필터해, 자연어 쿼리가 짧은 능력 이름의 부분문자열일 리 없어
+        # **허가된 도구/문서/기억이 전부 탈락→조율형이 아무 능력도 못 씀**(버그). 이제 쿼리 토큰과 겹치는
+        # 수가 많은 순으로 **정렬만** 하고(0 겹침도 유지), limit까지 반환한다. 안정 정렬로 동수는 기존 순서
+        # 보존. (allowlist∩RBAC 게이트는 위에서 이미 적용 — 이 후처리는 허가 범위를 넓히지 않는다.)
+        q_tokens = [t for t in (query or "").strip().lower().split() if t]
+        if q_tokens:
+            caps.sort(
+                key=lambda c: sum(t in f"{c.name} {c.id} {c.hook}".lower() for t in q_tokens),
+                reverse=True,
+            )
         return caps[:limit]
 
     async def _resolve(self, cap_id: str):

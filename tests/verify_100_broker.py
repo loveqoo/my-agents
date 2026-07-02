@@ -251,9 +251,12 @@ async def policy_transport_checks() -> None:
     check(caps and caps[0].kind == "agent" and caps[0].hook.startswith("텍스트를 번역"),
           "P1 Capability kind=agent·hook=카드 설명 첫 줄(load-bearing)")
 
-    # P2 lexical(부분일치, 대소문자 무시) — 이름/후크 매칭.
-    check({c.id for c in await b.discover("번역")} == {"cap_ext"}, "P2 lexical '번역' 매칭")
-    check(await b.discover("존재하지않는키워드zzz") == [], "P2 lexical 불일치 → []")
+    # P2 lexical은 **하드 필터가 아니라 랭킹**이다(스펙 124). 허가된 능력은 매칭 쿼리든 비매칭 쿼리든
+    # 유지된다 — 예전엔 비매칭 시 하드 필터로 []가 돼 조율형이 능력을 못 썼다(버그). 여기 브로커는 후보가
+    # cap_ext 하나뿐이라, 비매칭 쿼리에서도 그 능력이 남는지로 "필터 아님"을 확인한다(랭킹 순서는 verify_124 D2).
+    check({c.id for c in await b.discover("번역")} == {"cap_ext"}, "P2 매칭 쿼리 → cap_ext")
+    check({c.id for c in await b.discover("존재하지않는키워드zzz")} == {"cap_ext"},
+          "P2 비매칭 쿼리도 허가 능력 유지(랭킹, 하드 필터 아님 — 스펙 124)")
 
     # P3 describe → input_schema 채움.
     d = await b.describe("cap_ext")

@@ -237,7 +237,12 @@ async def integration_broker() -> None:
           f"H1 관측 노드 broker_invoke:mcp:{MCP}/echo (invisible 아님)")
 
     # H2 deny-by-default(툴 단위) — echo만 허가된 브로커는 web_search를 발견·기술·호출 못 함.
-    check(await b.discover("web_search") == [], "H2 툴 단위: 미허가 web_search 미발견(같은 서버라도)")
+    # 스펙 124: discover는 어휘로 하드 필터하지 않고 랭킹만 하므로, echo(허가됨)는 어떤 쿼리든 반환된다.
+    # 핵심 불변식은 "미허가 web_search가 결과에 없다"(echo 노출 여부와 무관) — 그것을 직접 단언한다.
+    # (옛 테스트 `== []`는 버그 필터가 비매칭 쿼리서 echo까지 떨구던 것에 의존했음.)
+    _ws_ids = {c.id for c in await b.discover("web_search")}
+    check(WEBSEARCH_CAP not in _ws_ids,
+          f"H2 툴 단위: 미허가 web_search 미발견(같은 서버라도, got {sorted(_ws_ids)})")
     raised = False
     try:
         await b.describe(WEBSEARCH_CAP)
