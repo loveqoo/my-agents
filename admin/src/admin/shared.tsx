@@ -140,7 +140,9 @@ export function DataTable<T>({
   }, [visibleColumns.length, rows])
 
   // 모바일: 가로 스크롤 표 대신 행을 카드로 — 1열은 헤더, 나머지는 라벨:값, 빈 title(액션)은 라벨 없이.
-  if (screens.md === false) {
+  // 카드 스택 전환점 lg(992) — 컬럼 많은 표는 768~992 태블릿 구간에서도 비좁다(스펙 145 실측:
+  // 에이전트 표 intrinsic 890px). "숨기지도 밀지도 않는다" 원칙상 이 구간은 카드가 정답.
+  if (screens.lg === false) {
     const [head, ...rest] = columns
     const labeled = rest.filter((c) => c.title)
     const actions = rest.filter((c) => !c.title)
@@ -199,7 +201,9 @@ export function DataTable<T>({
   return (
     <Panel>
       <div ref={wrapRef} style={{ overflowX: 'auto' }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14, minWidth: 'max-content' }}>
+      {/* 반응형(스펙 145): tableLayout fixed — 컬럼이 컨테이너 폭을 나눠 갖고(내용의 min-content가
+          표를 못 늘림) 셀 내용은 overflowWrap으로 줄바꿈. 래퍼 overflowX는 안전망으로만. */}
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14, tableLayout: 'fixed' }}>
         <thead>
           <tr style={{ color: 'var(--color-text-secondary)', textAlign: 'left', background: 'var(--gray-2)' }}>
             {visibleColumns.map((c, i) => (
@@ -253,6 +257,7 @@ export function DataTable<T>({
                     data-sticky={isStickyRight(c, i) ? '' : undefined}
                     style={{
                       padding: '13px 16px', textAlign: c.align || 'left', color: 'var(--color-text)',
+                      overflowWrap: 'anywhere', // 반응형(스펙 145) — 좁은 폭에선 내용이 줄바꿈
                       ...(isStickyRight(c, i) ? stickyStyle('var(--color-bg-container)') : null),
                     }}
                   >

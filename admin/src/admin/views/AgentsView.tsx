@@ -1536,7 +1536,6 @@ export default function AgentsView({ onOpenPlayground }: { onOpenPlayground?: (a
     {
       key: 'source',
       title: '소스',
-      width: 104,
       render: (a) => {
         const s = AGENT_SOURCE[a.source || 'ui'] || AGENT_SOURCE.ui
         return (
@@ -1552,7 +1551,6 @@ export default function AgentsView({ onOpenPlayground }: { onOpenPlayground?: (a
     {
       key: 'conformance',
       title: '준수',
-      width: 96,
       render: (a) => {
         const c = AGENT_CONFORMANCE[a.conformance || 'conforming'] || AGENT_CONFORMANCE.conforming
         const isError = a.conformance === 'config_error'
@@ -1589,7 +1587,6 @@ export default function AgentsView({ onOpenPlayground }: { onOpenPlayground?: (a
     {
       key: 'version',
       title: '버전',
-      width: 110,
       render: (a) => {
         if (a.source === 'code')
           return (
@@ -1617,7 +1614,6 @@ export default function AgentsView({ onOpenPlayground }: { onOpenPlayground?: (a
     {
       key: 'exposed',
       title: '공개',
-      width: 130,
       render: (a) =>
         // A2A 노출은 로컬(ui) 에이전트만 — 원격(code)·외부(external)는 이미 원격 A2A/프록시라 재노출 불가(스펙 083).
         a.source !== 'ui' ? (
@@ -1643,7 +1639,6 @@ export default function AgentsView({ onOpenPlayground }: { onOpenPlayground?: (a
     {
       key: 'actions',
       title: '',
-      width: 96,
       align: 'right',
       render: (a) => (
         <span onClick={(e) => e.stopPropagation()} style={{ display: 'inline-flex', gap: 2 }}>
