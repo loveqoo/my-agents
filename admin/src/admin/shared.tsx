@@ -65,7 +65,7 @@ export function StatusPill({ color, label }: { color: string; label: ReactNode }
 /* 소유 표시 태그(스펙 114) — owner_id·can_manage로 파생. 백엔드가 판정을 소유하므로(learning 113)
    프론트는 재계산 없이 표시만: null=공유, 관리 불가=다른 사용자, 관리 가능+소유=null(태그 없음). */
 export function OwnerTag({ ownerId, canManage }: { ownerId?: string | null; canManage?: boolean }) {
-  if (ownerId == null) return <Tag>공유</Tag>
+  if (ownerId == null) return <Tag>공용</Tag>  // 특정 사용자 소유 아님 = 모두의 공용(라벨 혼동 교정)
   if (canManage === false) return <Tag color="orange">다른 사용자</Tag>
   return null  // 내가 관리 가능(내 것 또는 관리자) — 별도 표식 불요
 }
@@ -111,12 +111,16 @@ export function DataTable<T>({
   onRowClick,
   rowKey = 'id',
   empty = '데이터 없음',
+  subRow,
 }: {
   columns: Column<T>[]
   rows: T[]
   onRowClick?: (row: T) => void
   rowKey?: string
   empty?: ReactNode
+  /* 행당 보조 줄(스펙 146) — 메타 태그처럼 컬럼 격자에 안 맞는 내용을 두 번째 줄에 폭 전체로.
+     마지막 액션 컬럼은 rowSpan=2로 두 줄에 걸친다. 모바일 카드에선 하단 섹션으로 합류. */
+  subRow?: (row: T) => ReactNode
 }) {
   const cell = (r: T, k: string) => (r as Record<string, unknown>)[k]
   const screens = Grid.useBreakpoint()
@@ -175,6 +179,9 @@ export function DataTable<T>({
                     </span>
                   </div>
                 ))}
+                {subRow ? (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>{subRow(r)}</div>
+                ) : null}
                 {actions.length > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 10 }}>
                     {actions.map((c) => (
@@ -219,8 +226,8 @@ export function DataTable<T>({
             ))}
           </tr>
         </thead>
-        <tbody>
-          {rows.length === 0 ? (
+        {rows.length === 0 ? (
+          <tbody>
             <tr>
               <td
                 colSpan={visibleColumns.length}
@@ -229,45 +236,67 @@ export function DataTable<T>({
                 {empty}
               </td>
             </tr>
-          ) : (
-            rows.map((r) => (
-              <tr
+          </tbody>
+        ) : (
+          rows.map((r) => (
+              // 행 단위 tbody(스펙 146) — subRow가 있으면 두 tr이 한 몸(hover·클릭·경계 공유).
+              <tbody
                 key={String(cell(r, rowKey))}
                 onClick={onRowClick ? () => onRowClick(r) : undefined}
                 style={{ borderTop: '1px solid var(--color-border-secondary)', cursor: onRowClick ? 'pointer' : 'default' }}
                 onMouseEnter={(e) => {
                   if (!onRowClick) return
-                  e.currentTarget.style.background = 'var(--color-fill-quaternary)'
-                  // sticky 셀은 불투명 배경이라 tr hover색이 안 비침 → 직접 hover색으로 맞춘다.
+                  e.currentTarget.querySelectorAll<HTMLElement>('tr').forEach((tr) => {
+                    tr.style.background = 'var(--color-fill-quaternary)'
+                  })
+                  // sticky 셀은 불투명 배경이라 hover색이 안 비침 → 직접 맞춘다.
                   e.currentTarget.querySelectorAll<HTMLElement>('td[data-sticky]').forEach((td) => {
                     td.style.background = 'var(--color-fill-quaternary)'
                   })
                 }}
                 onMouseLeave={(e) => {
                   if (!onRowClick) return
-                  e.currentTarget.style.background = 'transparent'
+                  e.currentTarget.querySelectorAll<HTMLElement>('tr').forEach((tr) => {
+                    tr.style.background = 'transparent'
+                  })
                   e.currentTarget.querySelectorAll<HTMLElement>('td[data-sticky]').forEach((td) => {
                     td.style.background = 'var(--color-bg-container)'
                   })
                 }}
               >
+              <tr>
                 {visibleColumns.map((c, i) => (
                   <td
                     key={c.key}
                     data-sticky={isStickyRight(c, i) ? '' : undefined}
+                    rowSpan={subRow && isStickyRight(c, i) ? 2 : undefined}
                     style={{
-                      padding: '13px 16px', textAlign: c.align || 'left', color: 'var(--color-text)',
+                      padding: subRow ? '13px 16px 4px' : '13px 16px', textAlign: c.align || 'left', color: 'var(--color-text)',
                       overflowWrap: 'anywhere', // 반응형(스펙 145) — 좁은 폭에선 내용이 줄바꿈
-                      ...(isStickyRight(c, i) ? stickyStyle('var(--color-bg-container)') : null),
+                      ...(subRow && !isStickyRight(c, i) ? { borderBottom: 'none' } : null),
+                      ...(isStickyRight(c, i) ? { ...stickyStyle('var(--color-bg-container)'), verticalAlign: 'middle', padding: '13px 16px' } : null),
                     }}
                   >
                     {c.render ? c.render(r) : (cell(r, c.key) as ReactNode)}
                   </td>
                 ))}
               </tr>
-            ))
-          )}
-        </tbody>
+              {subRow ? (
+                <tr>
+                  {/* 보조 줄(스펙 146) — 액션(마지막 sticky) 컬럼을 뺀 전체 폭. */}
+                  <td
+                    colSpan={visibleColumns.length - 1}
+                    style={{ padding: '0 16px 13px', overflowWrap: 'anywhere' }}
+                  >
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                      {subRow(r)}
+                    </div>
+                  </td>
+                </tr>
+              ) : null}
+              </tbody>
+          ))
+        )}
       </table>
       </div>
     </Panel>

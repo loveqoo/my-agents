@@ -1503,6 +1503,52 @@ export default function AgentsView({ onOpenPlayground }: { onOpenPlayground?: (a
       sortKey === 'name' ? x.name.localeCompare(y.name, 'ko') : 0 /* recent=서버 응답 순서(최신 생성이 앞) 보존 */
     )
 
+  // 보조 줄 구성 요소(스펙 146 — 2줄 행): 소유·소스·준수·MCP·RAG를 컬럼 격자 밖 두 번째 줄로.
+  const renderSource = (a: Agent) => {
+    const src = AGENT_SOURCE[a.source || 'ui'] || AGENT_SOURCE.ui
+    return (
+      <Tag color={src.tag === 'default' ? undefined : src.tag}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          {src.icon ? <Icon name={src.icon} size={11} /> : null}
+          {src.label}
+        </span>
+      </Tag>
+    )
+  }
+  const renderConformance = (a: Agent) => {
+    const c = AGENT_CONFORMANCE[a.conformance || 'conforming'] || AGENT_CONFORMANCE.conforming
+    const isError = a.conformance === 'config_error'
+    return (
+      <Tooltip title={c.desc}>
+        <Tag color={c.tag === 'default' ? undefined : c.tag}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: isError ? 600 : 400 }}>
+            {c.icon ? <Icon name={c.icon} size={11} /> : null}
+            {c.label}
+          </span>
+        </Tag>
+      </Tooltip>
+    )
+  }
+  const agentSubRow = (a: Agent) => {
+    const rags = [
+      ...(a.vectorTables || []),
+      ...(a.capabilities || []).filter((c) => c.startsWith('rag:')).map((c) => c.slice(4)),
+    ]
+    return (
+      <>
+        <OwnerTag ownerId={a.owner_id} canManage={a.can_manage} />
+        {renderSource(a)}
+        {renderConformance(a)}
+        {a.mcps.map((m) => (
+          <Tag key={`m-${m}`} color="cyan">{m}</Tag>
+        ))}
+        {[...new Set(rags)].map((r) => (
+          <Tag key={`r-${r}`} color="geekblue">rag:{r}</Tag>
+        ))}
+      </>
+    )
+  }
+
   const columns: Column<Agent>[] = [
     {
       key: 'name',
@@ -1523,50 +1569,12 @@ export default function AgentsView({ onOpenPlayground }: { onOpenPlayground?: (a
               <Icon name={isCode ? 'code' : 'robot'} size={14} />
             </Avatar>
             <div>
-              <div style={{ fontWeight: 500, color: 'var(--color-text-heading)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                {a.name}
-                <OwnerTag ownerId={a.owner_id} canManage={a.can_manage} />
-              </div>
+              <div style={{ fontWeight: 500, color: 'var(--color-text-heading)' }}>{a.name}</div>
               <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-family-code)' }}>
                 {a.model}
               </div>
             </div>
           </div>
-        )
-      },
-    },
-    {
-      key: 'source',
-      width: '9%',
-      title: '소스',
-      render: (a) => {
-        const s = AGENT_SOURCE[a.source || 'ui'] || AGENT_SOURCE.ui
-        return (
-          <Tag color={s.tag === 'default' ? undefined : s.tag}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-              {s.icon ? <Icon name={s.icon} size={11} /> : null}
-              {s.label}
-            </span>
-          </Tag>
-        )
-      },
-    },
-    {
-      key: 'conformance',
-      width: '8%',
-      title: '준수',
-      render: (a) => {
-        const c = AGENT_CONFORMANCE[a.conformance || 'conforming'] || AGENT_CONFORMANCE.conforming
-        const isError = a.conformance === 'config_error'
-        return (
-          <Tooltip title={c.desc}>
-            <Tag color={c.tag === 'default' ? undefined : c.tag}>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: isError ? 600 : 400 }}>
-                {c.icon ? <Icon name={c.icon} size={11} /> : null}
-                {c.label}
-              </span>
-            </Tag>
-          </Tooltip>
         )
       },
     },
@@ -1605,8 +1613,8 @@ export default function AgentsView({ onOpenPlayground }: { onOpenPlayground?: (a
     },
     {
       key: 'exposed',
-      width: '9%',
-      title: '공개',
+      width: '12%',
+      title: 'A2A 공개', // 라벨 혼동 교정(공용=소유권과 구분)
       render: (a) =>
         // A2A 노출은 로컬(ui) 에이전트만 — 원격(code)·외부(external)는 이미 원격 A2A/프록시라 재노출 불가(스펙 083).
         a.source !== 'ui' ? (
@@ -1622,7 +1630,7 @@ export default function AgentsView({ onOpenPlayground }: { onOpenPlayground?: (a
     },
     {
       key: 'status',
-      width: '8%',
+      width: '10%',
       title: '상태',
       render: (a) => {
         const st = AGENT_STATUS[a.status]
@@ -1696,7 +1704,7 @@ export default function AgentsView({ onOpenPlayground }: { onOpenPlayground?: (a
           {visibleAgents.length}/{agents.length}개
         </span>
       </div>
-      <DataTable columns={columns} rows={visibleAgents} onRowClick={(a) => setDetailId(a.id)} />
+      <DataTable columns={columns} rows={visibleAgents} onRowClick={(a) => setDetailId(a.id)} subRow={agentSubRow} />
 
       <AgentDetail
         agent={detail}
