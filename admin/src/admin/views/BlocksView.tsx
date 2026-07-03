@@ -13,6 +13,8 @@ import {
   deleteMcp,
   publishMcp,
   discoverMcpTools,
+  rediscoverMcp,
+  type McpToolInfo,
   createBlockItem,
   updateBlockItem,
   deleteBlockItem,
@@ -38,6 +40,7 @@ interface McpServerIn {
   endpoint?: string
   tools: string[]
   enabled_tools: string[]
+  tools_meta?: Record<string, unknown> | null // 도구 메타(스펙 151) — null=미변경
   status: string
   published: boolean
   auth?: string
@@ -71,6 +74,7 @@ type McpFormData = {
   auth: string // Bearer 토큰(평문 입력) 또는 편집 시 마스킹 sentinel(보존)
   tools: string[]
   enabledTools: string[]
+  toolsDetail?: McpToolInfo[] // 탐색 결과 메타(스펙 151) — 저장 시 tools_meta로
   usedBy?: number
   published?: boolean
   endpoint?: string
@@ -141,7 +145,7 @@ function McpForm({
     try {
       const r = await discoverMcpTools({ url, transport: 'http', auth: f.authMode === 'bearer' ? f.auth : undefined })
       if (r.ok) {
-        setF((s) => ({ ...s, tools: r.tools, enabledTools: r.tools }))
+        setF((s) => ({ ...s, tools: r.tools, enabledTools: r.tools, toolsDetail: r.toolsDetail ?? [] }))
         setDiscoverMsg({ ok: true, text: `${r.detail} · ${r.latencyMs}ms` })
       } else {
         setDiscoverMsg({ ok: false, text: r.detail || '연결 실패' })
@@ -177,6 +181,10 @@ function McpForm({
       status: 'connected',
       updated: 'just now',
       published: isEdit ? !!f.published : false,
+      // 도구 메타(스펙 151): 이번 폼에서 탐색했으면 그 결과로, 아니면 기존 스냅샷 보존
+      toolsMeta: f.toolsDetail && f.toolsDetail.length
+        ? Object.fromEntries(f.toolsDetail.map((d) => [d.name, { description: d.description ?? '', params: d.params ?? [] }]))
+        : (isEdit ? form.item?.toolsMeta ?? null : null),
       url: isExternal ? (f.url || 'mcp://remote/endpoint') : undefined,
       // bearer면 토큰(평문 또는 마스킹 sentinel=보존), 없음이면 빈 문자열=제거. 로컬은 미전송.
       auth: isExternal ? (f.authMode === 'bearer' ? f.auth : '') : undefined,
@@ -645,6 +653,21 @@ export default function BlocksView() {
 
   const def = data[cat]
 
+  const [rediscovering, setRediscovering] = useState(false)
+  // 도구 정보 재탐색(스펙 151) — 자격증명은 백엔드가 복호. 갱신 후 목록 재로드(드로어는 id로 재조회).
+  const runRediscover = async (id: string) => {
+    setRediscovering(true)
+    try {
+      await rediscoverMcp(id)
+      await loadBlocks()
+      message.success('도구 정보를 새로 탐색했습니다')
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '재탐색에 실패했습니다')
+    } finally {
+      setRediscovering(false)
+    }
+  }
+
   const togglePublish = async (id: string) => {
     const current = data.mcp?.items.find((m) => m.id === id)
     if (!current) return
@@ -667,6 +690,7 @@ export default function BlocksView() {
       endpoint: item.endpoint,
       tools: item.tools ?? [],
       enabled_tools: item.enabledTools ?? [],
+      tools_meta: (item.toolsMeta as Record<string, unknown> | null) ?? null, // null=백엔드 미변경(스펙 151)
       status: item.status ?? 'connected',
       published: !!item.published,
       auth: item.auth,
@@ -1105,18 +1129,76 @@ export default function BlocksView() {
                 <Tag>{detail.auth}</Tag>
               </Desc>
             ) : null}
-            {detail.tools ? (
+            {cat === 'mcp' && detail.tools ? (
+              /* 도구 카드(스펙 151) — 이름·활성·설명·파라미터 표. 메타 없는 기존 행은 이름만(grandfather). */
+              <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-heading)' }}>
+                    도구 {detail.tools.length}개
+                  </span>
+                  {detail.transport === 'http' && detail.url && detail.can_manage !== false ? (
+                    <Button
+                      size="small"
+                      icon={<Icon name="reload" />}
+                      loading={rediscovering}
+                      onClick={() => void runRediscover(detail.id)}
+                    >
+                      도구 정보 새로 탐색
+                    </Button>
+                  ) : null}
+                </div>
+                {detail.tools.map((t) => {
+                  const enabled = (detail.enabledTools || detail.tools || []).includes(t)
+                  const meta = detail.toolsMeta?.[t]
+                  return (
+                    <div
+                      key={t}
+                      style={{
+                        padding: '10px 12px',
+                        border: '1px solid var(--color-border-secondary)',
+                        borderRadius: 'var(--radius-lg)',
+                        background: 'var(--gray-2)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 6,
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <code style={{ fontFamily: 'var(--font-family-code)', fontSize: 13, color: 'var(--cyan-7)', fontWeight: 600 }}>
+                          {t}
+                        </code>
+                        {enabled ? <Tag color="geekblue" style={{ margin: 0 }}>활성</Tag> : <Tag style={{ margin: 0 }}>비활성</Tag>}
+                      </div>
+                      {meta?.description ? (
+                        <div style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>{meta.description}</div>
+                      ) : null}
+                      {Array.isArray(meta?.params) && meta.params.length > 0 ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                          {meta.params.map((p) => (
+                            <div key={p.name} style={{ display: 'flex', gap: 8, fontSize: 12, alignItems: 'baseline' }}>
+                              <code style={{ fontFamily: 'var(--font-family-code)', color: 'var(--color-text-heading)' }}>{p.name}</code>
+                              <span style={{ color: 'var(--color-text-tertiary)' }}>{p.type ?? 'any'}</span>
+                              {p.required ? <Tag color="orange" style={{ margin: 0, fontSize: 11 }}>필수</Tag> : null}
+                            </div>
+                          ))}
+                        </div>
+                      ) : meta ? (
+                        <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>파라미터 없음</div>
+                      ) : (
+                        <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+                          상세 정보 없음 — [도구 정보 새로 탐색]으로 채울 수 있습니다.
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            ) : detail.tools ? (
               <Desc label="도구">
                 <span style={{ display: 'inline-flex', gap: 4, flexWrap: 'wrap' }}>
-                  {detail.tools.map((t) => {
-                    const enabled = (detail.enabledTools || detail.tools || []).includes(t)
-                    const label = t + (detail.enabledTools && !detail.enabledTools.includes(t) ? ' (비활성)' : '')
-                    return enabled ? (
-                      <Tag key={t} color="geekblue">{label}</Tag>
-                    ) : (
-                      <Tag key={t}>{label}</Tag>
-                    )
-                  })}
+                  {detail.tools.map((t) => (
+                    <Tag key={t}>{t}</Tag>
+                  ))}
                 </span>
               </Desc>
             ) : null}

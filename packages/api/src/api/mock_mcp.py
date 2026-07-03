@@ -23,6 +23,23 @@ MOCK_MCP_URL = "http://127.0.0.1:8000/_remote/mcp/"
 # 권위 있는 출처는 라이브 get_tools지만, 시드 기본값은 이 상수로 통일해 평행 리터럴 드리프트를 막는다.
 MOCK_MCP_TOOLS = ["web_search", "echo", "delete_record"]
 
+# 도구 메타 시드(스펙 151) — 아래 @mcp.tool 정의(단일 출처)의 docstring·시그니처와 수동 정합.
+# 신규 설치에서 상세 드로어가 바로 채워지게 seed가 사용. 라이브 탐색(rediscover)이 갱신 경로.
+MOCK_MCP_TOOLS_META = {
+    "web_search": {
+        "description": "웹을 검색해 관련 결과 요약을 돌려준다(개발용 결정적 mock). 같은 query면 같은 결과.",
+        "params": [{"name": "query", "type": "string", "required": True}],
+    },
+    "echo": {
+        "description": "입력 텍스트를 그대로 돌려준다(연결·왕복 확인용).",
+        "params": [{"name": "text", "type": "string", "required": True}],
+    },
+    "delete_record": {
+        "description": "레코드를 삭제한다(위험 작업 — HIL 승인 게이트 대상, 스펙 041). 부수효과를 흉내내는 mock.",
+        "params": [{"name": "record_id", "type": "string", "required": True}],
+    },
+}
+
 mcp = FastMCP("my-agents-local-tools", streamable_http_path="/", stateless_http=True)
 
 

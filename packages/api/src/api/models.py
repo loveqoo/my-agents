@@ -215,6 +215,8 @@ class McpServer(Base):
     endpoint: Mapped[str | None] = mapped_column(String(400), default=None)
     tools: Mapped[list] = mapped_column(JSONB, default=list)
     enabled_tools: Mapped[list] = mapped_column(JSONB, default=list)
+    # 도구 메타 스냅샷(스펙 151) — name→{description, params:[{name,type,required}]}. 탐색 시점 저장.
+    tools_meta: Mapped[dict | None] = mapped_column(JSONB, default=None)
     status: Mapped[str] = mapped_column(String(40), default="connected")
     published: Mapped[bool] = mapped_column(Boolean, default=False)
     auth: Mapped[str | None] = mapped_column(String(400), default=None)  # 암호화 저장(Fernet, 스펙 054 F) — 응답은 마스킹

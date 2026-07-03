@@ -230,6 +230,22 @@ class PermissionOut(PermissionIn):
     model_config = ORM
 
 
+class McpToolParam(BaseModel):
+    """도구 파라미터 요약(스펙 151) — args 스키마에서 파생한 표시용. 길이 캡=원격 유래 방어."""
+
+    name: str = Field(max_length=80)
+    type: str = Field(default="any", max_length=40)
+    required: bool = False
+
+
+class McpToolInfo(BaseModel):
+    """도구 메타(스펙 151) — 탐색 시점 스냅샷. 캡은 _tool_info 파생값과 정합(설명500·파라미터30)."""
+
+    name: str = Field(max_length=120)
+    description: str = Field(default="", max_length=500)
+    params: list[McpToolParam] = Field(default_factory=list, max_length=30)
+
+
 class McpServerIn(BaseModel):
     name: str = Field(max_length=120)  # 식별 이름(규칙, 스펙 148) — DB String(120) 정합
     alias: str | None = Field(default=None, max_length=200)  # 별명(자유 표기, 스펙 148)
@@ -239,9 +255,38 @@ class McpServerIn(BaseModel):
     endpoint: str | None = None
     tools: list[str] = Field(default_factory=list)
     enabled_tools: list[str] = Field(default_factory=list)
+    # 도구 메타 스냅샷(스펙 151) — name→{description, params}. None=미변경(편집 시 기존 보존)
+    tools_meta: dict[str, Any] | None = None
     status: str = "connected"
     published: bool = False
     auth: str | None = None
+
+    @field_validator("tools_meta")
+    @classmethod
+    def _check_tools_meta(cls, v: dict[str, Any] | None) -> dict[str, Any] | None:
+        """직접 저장 경로 방어(codex 151 High) — discover 경유 캡이 직접 POST/PUT엔 안 걸리므로
+        입력 경계에서 구조·크기를 강제(서버당 100개·McpToolInfo 캡). 위반=422, 정규화해 반환."""
+        if v is None:
+            return v
+        if not isinstance(v, dict) or len(v) > 100:
+            raise ValueError("tools_meta는 도구 100개 이하의 객체여야 합니다.")
+        out: dict[str, Any] = {}
+        for k, item in v.items():
+            if not isinstance(k, str) or not isinstance(item, dict):
+                raise ValueError("tools_meta 항목은 {도구이름: {description, params}} 형식이어야 합니다.")
+            try:
+                info = McpToolInfo(
+                    name=k,
+                    description=item.get("description", "") or "",
+                    params=item.get("params", []) or [],
+                )
+            except Exception as exc:  # noqa: BLE001 — pydantic 상세를 422 메시지로
+                raise ValueError(f"tools_meta[{k[:40]!r}] 형식 위반: {str(exc)[:200]}")
+            out[info.name] = {
+                "description": info.description,
+                "params": [p.model_dump() for p in info.params],
+            }
+        return out
 
 
 class McpServerOut(McpServerIn):
@@ -267,6 +312,7 @@ class McpDiscoverResult(BaseModel):
     ok: bool
     reachable: bool
     tools: list[str] = Field(default_factory=list)
+    toolsDetail: list[McpToolInfo] = Field(default_factory=list)  # 도구 메타(스펙 151)
     latencyMs: int = 0
     detail: str = ""
 

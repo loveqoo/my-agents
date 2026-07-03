@@ -10,7 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from . import crypto
-from .mock_mcp import MOCK_MCP_SERVER_NAME, MOCK_MCP_TOOLS, MOCK_MCP_URL
+from .mock_mcp import MOCK_MCP_SERVER_NAME, MOCK_MCP_TOOLS, MOCK_MCP_TOOLS_META, MOCK_MCP_URL
 
 from .models import (
     RAG_EMBED_DIMS,
@@ -154,7 +154,9 @@ async def seed_if_empty(session: AsyncSession) -> None:
     if await _empty(session, McpServer):
         session.add_all([
             McpServer(name=n, source=src, transport=tr, url=url, endpoint=ep,
-                      tools=list(tools), enabled_tools=list(tools), status=st, published=pub, auth=auth)
+                      tools=list(tools), enabled_tools=list(tools), status=st, published=pub, auth=auth,
+                      # 도구 메타(스펙 151) — local-tools만 정의 존재(단일 시드 행)
+                      tools_meta=MOCK_MCP_TOOLS_META if n == MOCK_MCP_SERVER_NAME else None)
             for n, src, tr, url, ep, tools, st, pub, auth in MCP_SERVERS
         ])
 

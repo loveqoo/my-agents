@@ -234,6 +234,53 @@ async def delete_permission(id: uuid.UUID, session: AsyncSession = Depends(get_s
 
 
 # ----------------------------- MCP 서버 -----------------------------
+# 도구 메타 캡(스펙 151) — 원격 유래 문자열이라 표시·저장 상한을 입력 경계에서 건다.
+_TOOL_DESC_CAP = 500
+_TOOL_PARAMS_CAP = 30
+_TOOLS_META_CAP = 100  # 서버당 메타 저장 도구 수 상한
+
+
+def _tool_info(t) -> dict:
+    """langchain 도구 객체 → {name, description, params[{name,type,required}]} (스펙 151).
+    스키마 파생 실패는 params=[]로 접는다(표시용 — 탐색 자체를 죽이지 않는다). 순수 함수."""
+    params: list[dict] = []
+    try:
+        props = dict(getattr(t, "args", None) or {})
+        required: set[str] = set()
+        try:
+            schema = t.tool_call_schema
+            js = schema.model_json_schema() if hasattr(schema, "model_json_schema") else (schema or {})
+            required = set(js.get("required") or [])
+        except Exception:  # noqa: BLE001 — required 미상은 False로
+            pass
+        for pname, ps in list(props.items())[:_TOOL_PARAMS_CAP]:
+            ptype = "any"
+            if isinstance(ps, dict):
+                if isinstance(ps.get("type"), str):
+                    ptype = ps["type"]
+                elif isinstance(ps.get("anyOf"), list):
+                    ptype = "/".join(
+                        str(x.get("type", "?")) for x in ps["anyOf"] if isinstance(x, dict)
+                    ) or "any"
+            params.append({"name": str(pname)[:80], "type": str(ptype)[:40], "required": pname in required})
+    except Exception:  # noqa: BLE001
+        params = []
+    return {
+        "name": str(getattr(t, "name", ""))[:120],
+        "description": str(getattr(t, "description", "") or "")[:_TOOL_DESC_CAP],
+        "params": params,
+    }
+
+
+def _tools_meta_from_details(details: list[dict]) -> dict:
+    """toolsDetail 리스트 → 저장용 dict(name→{description, params}). 서버당 상한 적용."""
+    return {
+        d["name"]: {"description": d.get("description", ""), "params": d.get("params", [])}
+        for d in details[:_TOOLS_META_CAP]
+        if d.get("name")
+    }
+
+
 def _mcp_auth_masked(obj: McpServer) -> str | None:
     """저장된 auth(암호문)를 응답용 마스킹값으로 — 평문/암호문 절대 미노출(스펙 054 F, 누출-안전)."""
     return crypto.SECRET_MASK if obj.auth else None
@@ -251,6 +298,7 @@ def mcp_to_out(obj: McpServer) -> McpServerOut:
         endpoint=obj.endpoint,
         tools=list(obj.tools or []),
         enabled_tools=list(obj.enabled_tools or []),
+        tools_meta=obj.tools_meta,  # 도구 메타(스펙 151)
         status=obj.status,
         published=obj.published,
         auth=_mcp_auth_masked(obj),
@@ -289,13 +337,10 @@ async def create_mcp_server(
     return mcp_to_out(obj)
 
 
-@router.post("/mcp-servers/discover", response_model=McpDiscoverResult)
-async def discover_mcp_tools(body: McpDiscoverIn) -> Any:
-    """저장 전 폼에서 MCP 서버에 **실제로 붙어** 도구목록을 읽는다(부작용 0 — list만). 등록 자동채움용(스펙 054 E).
-
-    SSRF: 연결 이전 `guard_url` — 사설/비-allowlist 대역은 **4xx로 거절**(보안 경계, 정상 연결실패와 구분).
-    stdio는 유예 — http만 라이브 탐색. 비밀은 결과에 미포함(latency·도구이름만). 마스킹(•) auth는 헤더 생략.
-    """
+async def _live_discover(url: str, token: str | None) -> McpDiscoverResult:
+    """MCP 라이브 탐색 공유 코어(스펙 054 E·151) — SSRF guard → 연결 → 이름+메타.
+    discover(폼, 평문/마스킹 토큰)와 rediscover(저장 서버, 복호 토큰)가 공유(드리프트 0).
+    SsrfBlocked는 HTTPException 400으로 올린다(보안 경계 ≠ 정상 연결실패)."""
     import asyncio
     import time
 
@@ -303,11 +348,6 @@ async def discover_mcp_tools(body: McpDiscoverIn) -> Any:
 
     from . import net_guard
 
-    url = (body.url or "").strip()
-    if body.transport != "http":
-        return McpDiscoverResult(
-            ok=False, reachable=False, detail="stdio transport는 라이브 탐색 미지원(유예)"
-        )
     try:
         await net_guard.refresh_allowed_hosts()  # DB allowlist 무재시작 반영(스펙 064)
         net_guard.guard_url(url)
@@ -315,16 +355,12 @@ async def discover_mcp_tools(body: McpDiscoverIn) -> Any:
         # 보안 경계 위반은 4xx(정상 연결실패의 ok=False와 구분) — 스펙 054 완료조건 ④.
         raise HTTPException(status_code=400, detail=str(exc)) from None
 
-    headers: dict[str, str] = {}
-    token = (body.auth or "").strip()
-    if token and "•" not in token:  # 마스킹값(•)이면 헤더 생략(a2a_client 규칙)
-        headers["Authorization"] = f"Bearer {token}"
-
+    headers = {"Authorization": f"Bearer {token}"} if token else None
     t0 = time.perf_counter()
     try:
         client = MultiServerMCPClient(
             {"probe": {
-                "transport": "streamable_http", "url": url, "headers": headers or None,
+                "transport": "streamable_http", "url": url, "headers": headers,
                 # 리다이렉트-SSRF 차단(적대 리뷰 H1) — runtime.build_mcp_tools와 동일 정책.
                 "httpx_client_factory": net_guard.mcp_http_client_factory,
             }}
@@ -336,9 +372,72 @@ async def discover_mcp_tools(body: McpDiscoverIn) -> Any:
         return McpDiscoverResult(ok=False, reachable=False, latencyMs=ms, detail="연결 실패")
     ms = int((time.perf_counter() - t0) * 1000)
     names = [t.name for t in tools]
+    details = [_tool_info(t) for t in tools[:_TOOLS_META_CAP]]  # 메타(설명·파라미터, 스펙 151)
     return McpDiscoverResult(
-        ok=True, reachable=True, tools=names, latencyMs=ms, detail=f"{len(names)}개 도구 발견"
+        ok=True, reachable=True, tools=names, toolsDetail=details, latencyMs=ms,
+        detail=f"{len(names)}개 도구 발견",
     )
+
+
+@router.post("/mcp-servers/discover", response_model=McpDiscoverResult)
+async def discover_mcp_tools(body: McpDiscoverIn) -> Any:
+    """저장 전 폼에서 MCP 서버에 **실제로 붙어** 도구목록을 읽는다(부작용 0 — list만). 등록 자동채움용(스펙 054 E).
+
+    stdio는 유예 — http만 라이브 탐색. 비밀은 결과에 미포함(latency·도구이름·메타만).
+    마스킹(•) auth는 헤더 생략(a2a_client 규칙).
+    """
+    url = (body.url or "").strip()
+    if body.transport != "http":
+        return McpDiscoverResult(
+            ok=False, reachable=False, detail="stdio transport는 라이브 탐색 미지원(유예)"
+        )
+    token = (body.auth or "").strip()
+    return await _live_discover(url, token if token and "•" not in token else None)
+
+
+@router.post("/mcp-servers/{id}/rediscover", response_model=McpServerOut)
+async def rediscover_mcp_server(
+    id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    principal=Depends(current_principal),
+) -> Any:
+    """저장된 MCP 서버의 도구·메타를 재탐색해 갱신(스펙 151 — 상세 화면 '도구 정보 새로 탐색').
+
+    저장된 자격증명을 **백엔드에서 복호**해 쓴다(프론트는 마스킹 토큰만 가져 재탐색 불가).
+    enabled_tools는 새 목록과의 교집합으로 보존(사라진 도구만 떨어냄 — 임의 활성화 없음)."""
+    obj = await session.get(McpServer, id)
+    if obj is None:
+        raise HTTPException(status_code=404, detail="not found")
+    assert_may_manage(obj, principal)  # 소유자/특권만(스펙 112)
+    if obj.transport != "http" or not obj.url:
+        raise HTTPException(status_code=400, detail="http transport + URL이 있는 서버만 재탐색할 수 있습니다.")
+    token = crypto.decrypt(obj.auth) if obj.auth else None
+    r = await _live_discover(obj.url, token)
+    if not r.ok:
+        raise HTTPException(status_code=502, detail=f"재탐색 실패 — {r.detail}")
+    # 참조 보호(codex 151 Medium): 원격이 일시적으로 도구를 빠뜨리면 재탐색 한 번에 에이전트의
+    # 툴 단위 능력(`mcp:{서버}/{도구}`)이 조용히 사라진다 — 제거될 도구를 참조하는 에이전트가
+    # 있으면 409(rename/삭제 가드와 같은 operation-symmetry).
+    removed = [t for t in (obj.enabled_tools or []) if t not in set(r.tools)]
+    if removed:
+        agents = list((await session.execute(select(Agent))).scalars().all())
+        refs = []
+        for agent in agents:
+            caps = (agent.config or {}).get("capabilities") if isinstance(agent.config, dict) else None
+            if isinstance(caps, list) and any(f"mcp:{obj.name}/{t}" in caps for t in removed):
+                refs.append({"agent": agent.name, "where": "active"})
+        if refs:
+            raise HTTPException(
+                status_code=409,
+                detail=referenced_message(refs, f"MCP 도구({', '.join(removed[:5])})", action="재탐색(도구 제거)"),
+            )
+    obj.tools = r.tools
+    obj.tools_meta = _tools_meta_from_details([d.model_dump() for d in r.toolsDetail])
+    obj.enabled_tools = [t for t in (obj.enabled_tools or []) if t in r.tools]
+    obj.status = "connected"
+    await session.commit()
+    await session.refresh(obj)
+    return mcp_to_out(obj)
 
 
 @router.get("/mcp-servers/{id}", response_model=McpServerOut)
@@ -361,6 +460,8 @@ async def update_mcp_server(
         raise HTTPException(status_code=404, detail="not found")
     assert_may_manage(obj, principal)  # 소유자/특권만(스펙 112)
     data = _norm_alias(body.model_dump())
+    if data.get("tools_meta") is None:
+        data.pop("tools_meta", None)  # None=미변경(스펙 151 — 편집 폼이 메타를 안 들고 있어도 보존)
     # 참조 무결성(스펙 093, operation-symmetry): rename도 삭제와 똑같이 config의 name 링크를 끊는다.
     # 런타임은 McpServer.name.in_(config["mcps"])로 해석하므로 참조 중인 서버 name을 바꾸면 옛 name이
     # dangling 되어 도구가 조용히 사라진다 → 참조가 있으면 rename을 409로 막는다(값은 옛 name 기준).
@@ -578,6 +679,7 @@ async def get_blocks(
             "endpoint": row.endpoint,
             "tools": row.tools,
             "enabledTools": row.enabled_tools,
+            "toolsMeta": row.tools_meta,  # 도구 메타(스펙 151) — 상세 드로어 카드용
             "status": row.status,
             "published": row.published,
             "auth": _mcp_auth_masked(row),

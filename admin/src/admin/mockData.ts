@@ -49,6 +49,8 @@ export interface BlockItem {
   /* mcp */ transport?: string
   tools?: string[]
   enabledTools?: string[]
+  /* mcp 도구 메타(스펙 151) — name→{description, params}. 탐색 시점 스냅샷 */
+  toolsMeta?: Record<string, { description?: string; params?: { name: string; type?: string; required?: boolean }[] }> | null
   published?: boolean
   endpoint?: string
   url?: string
