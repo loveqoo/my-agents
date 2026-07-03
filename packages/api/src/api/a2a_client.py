@@ -135,6 +135,7 @@ async def a2a_stream(
     *,
     streaming: bool = True,
     context_id: str | None = None,
+    extra_headers: dict | None = None,
 ):
     """외부 A2A 엔드포인트를 호출하고 {text}/{error} 프레임을 yield. SSRF 가드·캡·타임아웃 적용.
 
@@ -156,7 +157,8 @@ async def a2a_stream(
     body = _jsonrpc_request(user_text, streaming=streaming, context_id=context_id)
     try:
         # 토큰 복호화(키 회전 시 RuntimeError 가능)도 try 안에서 — try 밖이면 미프레임 크래시(적대리뷰 H3).
-        headers = {"Content-Type": "application/json", **_auth_headers(token)}
+        # extra_headers: 중계 홉 표식(x-my-agents-relay, 스펙 154 루프 가드) 등 — Authorization은 못 덮는다.
+        headers = {"Content-Type": "application/json", **(extra_headers or {}), **_auth_headers(token)}
         # redirects 비활성(명시) — 리다이렉트로 SSRF 가드/Authorization 경계를 우회 못 하게.
         async with httpx.AsyncClient(timeout=A2A_TIMEOUT_S, follow_redirects=False) as client:
             if streaming:

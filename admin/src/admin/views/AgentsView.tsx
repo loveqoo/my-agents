@@ -25,6 +25,7 @@ import {
   updateAgent,
   deleteAgent,
   cloneAgent,
+  setAgentVisibility,
   activateVersion as apiActivateVersion,
   revertVersion as apiRevertVersion,
   forkVersion as apiForkVersion,
@@ -636,12 +637,16 @@ function CodeAgentDetail({
   onDelete,
   onClone,
   onResync,
+  onToggleExpose,
+  onSetVisibility,
 }: {
   agent: Agent
   onClose: () => void
   onDelete: (a: Agent) => void
   onClone: (a: Agent) => void
   onResync: (a: Agent) => void
+  onToggleExpose: (a: Agent) => void
+  onSetVisibility: (a: Agent, pub: boolean) => void
 }) {
   return (
     <Drawer
@@ -823,6 +828,51 @@ function CodeAgentDetail({
           배포는 코드 푸시로 생성됩니다 — 콘솔에서 새 버전을 만들거나 활성화하지 않습니다.
         </div>
       </div>
+
+      {/* 공개 범위 + A2A 중계 공개(스펙 154) — 직접 코딩(SDK 배포) 에이전트도 우리 A2A 주소로 공개.
+          private는 A2A 불가(147)라 공개 전환이 선행 조건. 호출은 서버가 1홉 중계한다. */}
+      {agent.can_manage !== false ? (
+        <div
+          style={{
+            marginTop: 18, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 10,
+            border: '1px solid var(--color-border-secondary)', borderRadius: 'var(--radius-lg)',
+            background: 'var(--gray-2)',
+          }}
+        >
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--color-text-heading)' }}>공개 범위</div>
+            <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+              {agent.owner_id == null ? 'public · 모두 사용 가능(A2A 켜기 가능)' : 'private · 소유자만 사용(A2A 불가)'}
+            </div>
+          </div>
+          <Button
+            size="small"
+            onClick={() =>
+              Modal.confirm({
+                title: agent.owner_id == null ? '비공개(private)로 전환할까요?' : '공개(public)로 전환할까요?',
+                content:
+                  agent.owner_id == null
+                    ? 'private가 되면 소유자만 사용할 수 있고, 켜져 있던 A2A 공개는 자동으로 꺼집니다.'
+                    : 'public이 되면 모든 사용자가 사용할 수 있고 A2A 공개(서버가 1홉 중계)도 켤 수 있습니다.',
+                okText: '전환',
+                cancelText: '취소',
+                onOk: () => onSetVisibility(agent, agent.owner_id != null),
+              })
+            }
+          >
+            {agent.owner_id == null ? '비공개로 전환' : '공개로 전환'}
+          </Button>
+        </div>
+      ) : null}
+      <div style={{ marginTop: 10 }}>
+        <ExposeSwitch
+          on={!!agent.exposed.a2a}
+          onChange={() => onToggleExpose(agent)}
+          label="A2A로 공개 (중계)"
+          onText="켬 · 우리 A2A 주소로 호출을 중계"
+          offText="꺼짐 · 노출되지 않음"
+        />
+      </div>
     </Drawer>
   )
 }
@@ -983,6 +1033,7 @@ function AgentDetail({
   onDelete,
   onClone,
   onToggleExpose,
+  onSetVisibility,
   onActivate,
   onTest,
   onRevert,
@@ -995,6 +1046,7 @@ function AgentDetail({
   onDelete: (a: Agent) => void
   onClone: (a: Agent) => void
   onToggleExpose: (a: Agent) => void
+  onSetVisibility: (a: Agent, pub: boolean) => void
   onActivate: (a: Agent, v: VersionMeta) => void
   onTest: (a: Agent, v: VersionMeta) => void
   onRevert: (a: Agent, v: VersionMeta) => void
@@ -1010,6 +1062,8 @@ function AgentDetail({
         onDelete={onDelete}
         onClone={onClone}
         onResync={onResync}
+        onToggleExpose={onToggleExpose}
+        onSetVisibility={onSetVisibility}
       />
     )
   if (agent.source === 'external')
@@ -1210,7 +1264,44 @@ function AgentDetail({
         </div>
       ) : null}
 
-      <div style={{ marginTop: 18 }}>
+      {/* 공개 범위 전환(스펙 154 — 승격/강등). private는 A2A 불가(147)라 이 컨트롤이 A2A의 선행 조건. */}
+      {agent.can_manage !== false ? (
+        <div
+          style={{
+            marginTop: 18, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 10,
+            border: '1px solid var(--color-border-secondary)', borderRadius: 'var(--radius-lg)',
+            background: 'var(--gray-2)',
+          }}
+        >
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--color-text-heading)' }}>공개 범위</div>
+            <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+              {agent.owner_id == null
+                ? 'public · 모두 도구처럼 사용 가능(A2A 켜기 가능)'
+                : 'private · 소유자만 사용(A2A 불가)'}
+            </div>
+          </div>
+          <Button
+            size="small"
+            onClick={() =>
+              Modal.confirm({
+                title: agent.owner_id == null ? '비공개(private)로 전환할까요?' : '공개(public)로 전환할까요?',
+                content:
+                  agent.owner_id == null
+                    ? 'private가 되면 소유자만 사용할 수 있고, 켜져 있던 A2A 공개는 자동으로 꺼집니다.'
+                    : 'public이 되면 모든 사용자가 이 에이전트를 도구처럼 사용할 수 있고 A2A 공개도 켤 수 있게 됩니다.',
+                okText: '전환',
+                cancelText: '취소',
+                onOk: () => onSetVisibility(agent, agent.owner_id != null),
+              })
+            }
+          >
+            {agent.owner_id == null ? '비공개로 전환' : '공개로 전환'}
+          </Button>
+        </div>
+      ) : null}
+
+      <div style={{ marginTop: 10 }}>
         <ExposeSwitch
           on={!!agent.exposed.a2a}
           onChange={() => onToggleExpose(agent)}
@@ -1362,12 +1453,22 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
     )
     return 'v' + (max + 1)
   }
+  // 공개/비공개 전환(스펙 154) — 강등 시 서버가 A2A 자동 off.
+  const setVisibility = async (agent: Agent, pub: boolean) => {
+    try {
+      const updated = await setAgentVisibility(agent.id, pub)
+      replaceAgent(updated)
+      setToast(pub ? `${displayName(agent)} — 공개(public)로 전환됨` : `${displayName(agent)} — 비공개(private)로 전환됨`)
+    } catch (e) {
+      message.error(String(e))
+    }
+  }
+
   // 라이브 세션 카운트는 더 이상 추적하지 않는다(ADMIN_SESSIONS 제거). UX용 모달만 유지.
   const toggleExpose = async (agent: Agent) => {
-    // A2A 노출은 로컬(ui) 에이전트만 — 스펙 083 불변식. 렌더 단계서 토글을 이미 숨기지만,
-    // 헬퍼가 재사용돼도 켜는 호출이 새지 않도록 중앙에서도 source 가드(끄기는 멱등 청소라 허용).
-    if (!agent.exposed.a2a && agent.source !== 'ui') {
-      message.warning('원격/외부 에이전트는 A2A로 노출할 수 없습니다')
+    // 외부에서 받아온 에이전트만 재공개 금지(스펙 152) — code(제1자 SDK)는 1홉 중계 노출(스펙 154).
+    if (!agent.exposed.a2a && agent.source === 'external') {
+      message.warning('외부에서 가져온 에이전트는 A2A로 재공개할 수 없습니다')
       return
     }
     if (!agent.exposed.a2a) {
@@ -1652,8 +1753,9 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
       width: '10%',
       title: 'A2A', // 프로토콜을 켬=공개 — 라벨 간결화(사용자 피드백)
       render: (a) =>
-        // A2A 노출은 로컬(ui) 에이전트만 — 원격(code)·외부(external)는 이미 원격 A2A/프록시라 재노출 불가(스펙 083).
-        a.source !== 'ui' ? (
+        // external만 재공개 금지(스펙 152) — ui는 직접 서빙, code는 1홉 중계(스펙 154). 목록에서도
+        // code 공개 상태가 보여야 운영자가 놓치지 않는다(codex 154 Low).
+        a.source === 'external' ? (
           <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>—</span>
         ) : (
           <span onClick={(e) => e.stopPropagation()} style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
@@ -1812,6 +1914,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
         onDelete={setConfirmDel}
         onClone={onClone}
         onToggleExpose={toggleExpose}
+        onSetVisibility={setVisibility}
         onActivate={activateVersion}
         onTest={testVersion}
         onRevert={revertToDraft}
