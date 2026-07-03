@@ -1265,6 +1265,10 @@ export default function AgentsView({ onOpenPlayground }: { onOpenPlayground?: (a
   const [detailId, setDetailId] = useState<string | null>(null)
   const [query, setQuery] = useState('') // 리스트 검색(스펙 144 #3)
   const [sortKey, setSortKey] = useState<'name' | 'recent'>('name')
+  // 속성 필터(스펙 146 후속 — 사용자: 소유/소스/상태로 조회 가능해야)
+  const [ownerFilter, setOwnerFilter] = useState<'all' | 'shared' | 'mine' | 'others'>('all')
+  const [sourceFilter, setSourceFilter] = useState<'all' | 'ui' | 'code' | 'external'>('all')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'online' | 'idle' | 'offline'>('all')
   const detail = agents.find((a) => a.id === detailId) || null
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing] = useState<{ agent: Agent; version: string | null } | null>(null)
@@ -1496,8 +1500,12 @@ export default function AgentsView({ onOpenPlayground }: { onOpenPlayground?: (a
   }
 
   const q = query.trim().toLowerCase()
+  const ownerKind = (a: Agent) => (a.owner_id == null ? 'shared' : a.can_manage === false ? 'others' : 'mine')
   const visibleAgents = agents
     .filter((a) => !q || [a.name, a.model, a.source].some((f) => (f || '').toLowerCase().includes(q)))
+    .filter((a) => ownerFilter === 'all' || ownerKind(a) === ownerFilter)
+    .filter((a) => sourceFilter === 'all' || (a.source || 'ui') === sourceFilter)
+    .filter((a) => statusFilter === 'all' || a.status === statusFilter)
     .slice()
     .sort((x, y) =>
       sortKey === 'name' ? x.name.localeCompare(y.name, 'ko') : 0 /* recent=서버 응답 순서(최신 생성이 앞) 보존 */
@@ -1698,6 +1706,39 @@ export default function AgentsView({ onOpenPlayground }: { onOpenPlayground?: (a
           options={[
             { value: 'name', label: '이름순' },
             { value: 'recent', label: '최근 등록순' },
+          ]}
+        />
+        <Select
+          value={ownerFilter}
+          onChange={setOwnerFilter}
+          style={{ width: 140 }}
+          options={[
+            { value: 'all', label: '소유: 전체' },
+            { value: 'shared', label: '공용' },
+            { value: 'mine', label: '내 소유' },
+            { value: 'others', label: '다른 사용자' },
+          ]}
+        />
+        <Select
+          value={sourceFilter}
+          onChange={setSourceFilter}
+          style={{ width: 130 }}
+          options={[
+            { value: 'all', label: '소스: 전체' },
+            { value: 'ui', label: 'UI 구성' },
+            { value: 'code', label: '코드' },
+            { value: 'external', label: '외부' },
+          ]}
+        />
+        <Select
+          value={statusFilter}
+          onChange={setStatusFilter}
+          style={{ width: 130 }}
+          options={[
+            { value: 'all', label: '상태: 전체' },
+            { value: 'online', label: '온라인' },
+            { value: 'idle', label: '유휴' },
+            { value: 'offline', label: '오프라인' },
           ]}
         />
         <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
