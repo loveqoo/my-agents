@@ -1585,7 +1585,7 @@ export default function AgentsView({ onOpenPlayground }: { onOpenPlayground?: (a
     },
     {
       key: 'version',
-      width: '8%',
+      width: 96, // 짧고 고정적인 내용 — 비율 대신 고정폭(v6+초안이 세로로 깨지던 것)
       title: '버전',
       render: (a) => {
         if (a.source === 'code')
@@ -1602,11 +1602,11 @@ export default function AgentsView({ onOpenPlayground }: { onOpenPlayground?: (a
           )
         const draft = (a.versions || []).find((v) => v.status === 'draft')
         return (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
             <code style={{ fontFamily: 'var(--font-family-code)', fontSize: 13, color: 'var(--color-text-heading)' }}>
               {a.activeVersion}
             </code>
-            {draft ? <Tag color="gold">+초안</Tag> : null}
+            {draft ? <Tag color="gold" style={{ whiteSpace: 'nowrap', margin: 0 }}>+초안</Tag> : null}
           </span>
         )
       },
