@@ -1,7 +1,7 @@
 /* my-agents admin — Agents view: list created agents, view detail, and
    create / edit / delete (composing building blocks). */
 import { useState, useEffect, useRef } from 'react'
-import { Tag, Button, Avatar, Select, Input, Checkbox, Switch, Slider, Tooltip, Modal, Alert, Collapse, message } from 'antd'
+import { Tag, Button, Avatar, Select, Input, Checkbox, Switch, Slider, Tooltip, Popover, Modal, Alert, Collapse, message } from 'antd'
 import { Page, StatusPill, DataTable, Drawer, Desc, VersionHistory, ExposeSwitch, OwnerTag, type Column } from '../shared'
 import { notifyAgentsChanged } from '../../agentsBus'
 import { Icon } from '../icons'
@@ -1513,6 +1513,7 @@ export default function AgentsView({ onOpenPlayground }: { onOpenPlayground?: (a
 
   // 보조 줄 구성 요소(스펙 146 — 2줄 행): 소유·소스·준수·MCP·RAG를 컬럼 격자 밖 두 번째 줄로.
   const renderSource = (a: Agent) => {
+    if ((a.source || 'ui') === 'ui') return null // 기본값은 무표시(예외만 표시 원칙 — 분류 과밀 완화)
     const src = AGENT_SOURCE[a.source || 'ui'] || AGENT_SOURCE.ui
     return (
       <Tag color={src.tag === 'default' ? undefined : src.tag}>
@@ -1524,6 +1525,7 @@ export default function AgentsView({ onOpenPlayground }: { onOpenPlayground?: (a
     )
   }
   const renderConformance = (a: Agent) => {
+    if ((a.conformance || 'conforming') === 'conforming') return null // 정상은 무표시(예외만 표시)
     const c = AGENT_CONFORMANCE[a.conformance || 'conforming'] || AGENT_CONFORMANCE.conforming
     const isError = a.conformance === 'config_error'
     return (
@@ -1744,6 +1746,22 @@ export default function AgentsView({ onOpenPlayground }: { onOpenPlayground?: (a
         <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
           {visibleAgents.length}/{agents.length}개
         </span>
+        <Popover
+          title="태그 안내"
+          content={
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13, maxWidth: 340 }}>
+              <div><Tag>공용</Tag><Tag color="blue">내 소유</Tag><Tag color="orange">다른 사용자</Tag> 소유권 — 관리(편집·삭제)는 소유자만, 사용은 모두</div>
+              <div><Tag color="geekblue">코드</Tag><Tag color="purple">외부</Tag> 만든 방식 — 표시가 없으면 이 콘솔에서 만든 것(UI 구성)</div>
+              <div><Tag color="red">설정 오류</Tag><Tag color="gold">비준수</Tag> 문제가 있을 때만 표시(정상이면 없음)</div>
+              <div><Tag color="cyan">MCP 이름</Tag><Tag color="geekblue">rag:컬렉션</Tag> 연결된 도구·문서</div>
+              <div>상태(온라인·유휴)는 최근 사용 여부, A2A 공개는 다른 에이전트의 호출 허용입니다.</div>
+            </div>
+          }
+        >
+          <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)', cursor: 'help', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+            <Icon name="info-circle" size={13} /> 태그 안내
+          </span>
+        </Popover>
       </div>
       <DataTable columns={columns} rows={visibleAgents} onRowClick={(a) => setDetailId(a.id)} subRow={agentSubRow} />
 
