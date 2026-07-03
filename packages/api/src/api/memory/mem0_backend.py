@@ -46,6 +46,11 @@ def _env_positive_int(name: str) -> int | None:
 
 
 _EMBED_REQUEST_DIMS = _env_positive_int("MEM0_EMBED_REQUEST_DIMS")  # int|None, None → dimensions 미전송
+# 비대칭 임베딩 모델(e5·arctic 등) 접두어(스펙 160). 기본 ""=미주입(no-op). 검색어엔 QUERY, 저장
+# 문서엔 PASSAGE를 앞에 붙인다. arctic-v2.0은 query만 접두어·passage raw → PASSAGE는 빈값으로 둔다.
+# 구분자(공백/콜론)까지 값에 포함해야 한다(예: "query: "). 측정상 e5는 효과 미미(스펙 160).
+_QUERY_PREFIX = os.environ.get("MEM0_QUERY_PREFIX", "")
+_PASSAGE_PREFIX = os.environ.get("MEM0_PASSAGE_PREFIX", "")
 _MEM_TABLE = "mem0_memories"  # mem0 전용 테이블(앱 테이블과 공존, 관리 주체는 mem0)
 # list_all("모든 기억" 계약)의 mem0 get_all top_k. 명시하지 않으면 mem0 기본 20으로 **조용히 잘려**
 # 21번째부터 목록·소유권 판정(user_owns)에서 사라진다(스펙 127에서 발견·수정). UI 대량 조회는
@@ -168,6 +173,35 @@ def _build_config(mem_cfg: dict) -> dict:
     }
 
 
+def _wrap_embedder_prefixes(mem) -> None:
+    """mem0 임베더의 embed/embed_batch를 감싸 memory_action별 접두어를 주입(스펙 160).
+
+    mem0 OpenAIEmbedding은 memory_action을 무시하고 원문 전송 → 비대칭 모델(e5·arctic)이 query/passage를
+    구분 못 한다. 여기서 action을 보고 접두어를 앞에 붙인다(search=query, 그 외 저장=passage). 접두어는
+    **래핑 시점에 캡처**(백엔드 생성 시 확정). 둘 다 빈값이면 래핑 스킵(순수 no-op·무회귀)."""
+    qp, pp = _QUERY_PREFIX, _PASSAGE_PREFIX
+    if not qp and not pp:
+        return
+    em = mem.embedding_model
+    _orig_embed = em.embed
+    _orig_batch = getattr(em, "embed_batch", None)
+
+    def _pfx(action: str) -> str:
+        return qp if action == "search" else pp
+
+    def embed(text, memory_action=None):
+        p = _pfx(memory_action)
+        return _orig_embed((p + text) if p else text, memory_action)
+
+    em.embed = embed
+    if _orig_batch is not None:
+        def embed_batch(texts, memory_action="add"):
+            p = _pfx(memory_action)
+            return _orig_batch([(p + t) if p else t for t in texts], memory_action)
+
+        em.embed_batch = embed_batch
+
+
 class Mem0Backend:
     """mem0 Memory 인스턴스를 감싸 `MemoryBackend` 계약을 구현. 생성 실패는 호출자(resolve_backend)가 흡수."""
 
@@ -175,6 +209,7 @@ class Mem0Backend:
         from mem0 import Memory  # 지연 임포트 — mem0 결합을 이 모듈에 가둠
 
         self._mem = Memory.from_config(_build_config(mem_cfg))
+        _wrap_embedder_prefixes(self._mem)  # 비대칭 모델 query/passage 접두어(스펙 160, 기본 no-op)
         # list_page용 직결 DSN(스펙 127) — mem0 공개 API엔 offset/정렬이 없어 페이지네이션은
         # mem0_memories 테이블 직접 SQL만이 길. 스키마 결합(payload 키 등)은 이 모듈에 격리.
         self._dsn = _sync_dsn(os.environ.get("DATABASE_URL", "postgresql+asyncpg://agent:agent@localhost:5432/agents"))
