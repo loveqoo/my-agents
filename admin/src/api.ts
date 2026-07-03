@@ -328,6 +328,23 @@ export const revertVersion = (id: string, version: string) =>
 export const forkVersion = (id: string) => post(`/agents/${id}/versions`) as Promise<Agent>
 export const exposeAgent = (id: string, a2a: boolean) =>
   put(`/agents/${id}/expose`, { a2a }) as Promise<Agent>
+
+/* A2A 카드의 광고 스킬(스펙 157) — 노출 에이전트가 외부에 광고하는 능력(chat+mcp+delegate+rag).
+   카드는 공개(전역 인증 밖)라 자격증명 없이 GET. 미노출/부재면 404 → 호출측이 빈 배열 처리. */
+export interface A2ASkill {
+  id: string
+  name: string
+  description: string
+  tags: string[]
+}
+export async function getA2ASkills(agentId: string): Promise<A2ASkill[]> {
+  const res = await fetch(`${BASE}/agents/${agentId}/.well-known/agent-card.json`, {
+    credentials: 'include',
+  })
+  if (!res.ok) return []
+  const card = await res.json()
+  return Array.isArray(card?.skills) ? (card.skills as A2ASkill[]) : []
+}
 /* 원격 에이전트 연결(스펙 057 — A2A 단일화) — URL 하나를 보내면 백엔드가 카드를 fetch·검증하고
    my-agents 확장 유무로 source(code=배포한 SDK / external=제3자)를 자동분류한다. 등록 진입점 단일.
    (구 registerCodeAgent `/agents/register`·registerExternalAgent `/agents/external`를 대체.) */
