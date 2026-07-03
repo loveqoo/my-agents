@@ -51,6 +51,9 @@ async def lifespan(app: FastAPI):
     swept = await eval_routes.sweep_zombie_runs()
     if swept:
         logging.getLogger("api.eval").info("죽은 평가 런 %d건을 error로 정리(재시작 잔류)", swept)
+    swept_ds = await eval_routes.sweep_zombie_datasets()
+    if swept_ds:
+        logging.getLogger("api.eval").info("죽은 골든 생성 %d건을 중단 박제(재시작 잔류)", swept_ds)
     # self-host mock MCP(스펙 054)의 세션 매니저 lifespan을 직접 연다 — 마운트된 서브앱 lifespan은
     # Starlette가 자동 호출하지 않으므로 부모가 진입해야 streamable-HTTP 핸들러가 동작한다.
     async with mock_mcp.mcp.session_manager.run():

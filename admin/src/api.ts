@@ -656,6 +656,8 @@ export const startEvalRun = (
     collection_id: target.collectionId ?? null,
     models: target.models ?? [],
   }) as Promise<EvalRunT>
+export const generateEvalDataset = (body: { collection_id: string; name: string; count: number }) =>
+  post('/eval/generate-dataset', body) as Promise<EvalDataset>
 export const listEvalRunsByGroup = (groupId: string) =>
   j<EvalRunT[]>(`/eval/runs?group_id=${groupId}`)
 export const listEvalRuns = (datasetId?: string) =>

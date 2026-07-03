@@ -357,6 +357,9 @@ async def start_run(
         if agent is None:
             raise HTTPException(status_code=404, detail="agent not found")
         target_name = agent.name
+    if (ds.description or "").startswith("생성 중"):
+        # 골든 생성 진행 중 실행하면 부분 문제집 점수가 된다(codex 142) — 완료 후 실행.
+        raise HTTPException(status_code=409, detail="문제 생성이 진행 중입니다 — 완료 후 실행하세요")
     n_cases = (
         await session.execute(select(func.count(EvalCase.id)).where(EvalCase.dataset_id == dataset_id))
     ).scalar_one()
@@ -478,6 +481,20 @@ async def get_run(
     ).model_copy(update={"dataset_name": ds.name if ds else None})
 
 
+async def sweep_zombie_datasets() -> int:
+    """startup 정리(codex 142) — 생성 백그라운드 태스크는 재시작을 못 넘기므로, 부팅 시점의
+    "생성 중…" description은 전부 죽은 생성이다. 정직 박제(영원한 '생성 중' 방지)."""
+    async with SessionLocal() as s:
+        rows = (
+            await s.execute(select(EvalDataset).where(EvalDataset.description.like("생성 중%")))
+        ).scalars().all()
+        for d in rows:
+            d.description = "생성 중단(서버 재시작) — 삭제 후 다시 생성하세요"
+        if rows:
+            await s.commit()
+        return len(rows)
+
+
 async def sweep_zombie_runs() -> int:
     """startup 정리(codex 137 #1) — asyncio.create_task는 프로세스 재시작을 못 넘기므로, 부팅 시점에
     남아 있는 status='running'은 전부 죽은 실행이다. error로 박제해 "영원한 실행 중" 잔류를 막는다."""
@@ -492,3 +509,86 @@ async def sweep_zombie_runs() -> int:
         if rows:
             await s.commit()
         return len(rows)
+
+
+# ----------------------------- 골든셋 자동 생성 (스펙 142) -----------------------------
+class GenerateIn(BaseModel):
+    collection_id: uuid.UUID
+    name: str = Field(min_length=1, max_length=120)
+    count: int = Field(default=10, ge=1, le=20)
+
+
+async def _execute_generation(dataset_id: uuid.UUID, collection_id: uuid.UUID, count: int) -> None:
+    """백그라운드 골든 생성 — 완료/실패를 dataset.description에 박제(조용한 빈 문제집 금지).
+    케이스 기준은 자기일관 골든 3종: 출처 문서 회수 + 결과 존재 + 오류 없음."""
+    from .eval_golden import generate_golden_cases
+
+    try:
+        from . import crypto
+        from .mem_config import _default_chat_model
+
+        async with SessionLocal() as s:
+            cm = await _default_chat_model(s)
+        if cm is None or cm.provider is None or not cm.provider.base_url or not cm.model_id:
+            raise RuntimeError("기본 chat 모델 미설정 — 질문 생성 불가")
+        llm_cfg = {"base_url": cm.provider.base_url,
+                   "api_key": crypto.decrypt(cm.provider.api_key), "model_id": cm.model_id}
+        result = await generate_golden_cases(collection_id, count, llm_cfg)
+        async with SessionLocal() as s:
+            ds = await s.get(EvalDataset, dataset_id)
+            if ds is None:
+                return
+            for i, c in enumerate(result["cases"]):
+                s.add(EvalCase(
+                    dataset_id=dataset_id, name=f"골든 {i + 1} · {c['filename'][:60]}",
+                    input=c["question"], order_idx=i,
+                    asserts=[
+                        {"type": "rag_source_contains", "arg": c["filename"][:500]},
+                        {"type": "rag_hits_gte", "arg": "1"},
+                        {"type": "no_error"},
+                    ],
+                ))
+            made = len(result["cases"])
+            if made == 0:
+                # 조용한 빈 문제집 금지(codex 142) — 0건은 성공이 아니라 실패다.
+                ds.description = (
+                    f"생성 실패: 케이스 0건 (요청 {count}, 건너뜀 {result['skipped']}) — "
+                    "컬렉션 문서가 너무 짧거나 생성 모델 응답이 형식을 벗어났습니다. 삭제 후 다시 시도하세요"
+                )
+            else:
+                ds.description = (
+                    f"자동 생성 {made}건 (요청 {count}"
+                    + (f", 건너뜀 {result['skipped']}" if result["skipped"] else "")
+                    + ") — 문제는 열어서 검토·수정하세요"
+                )
+            await s.commit()
+    except Exception as exc:  # noqa: BLE001 — 실패도 description에 정직 박제
+        try:
+            async with SessionLocal() as s:
+                ds = await s.get(EvalDataset, dataset_id)
+                if ds is not None:
+                    ds.description = f"생성 실패: {str(exc)[:200]} — 삭제 후 다시 시도하세요"
+                    await s.commit()
+        except Exception:
+            pass
+
+
+@router.post("/generate-dataset", response_model=DatasetOut, status_code=202)
+async def generate_dataset(
+    body: GenerateIn, session: AsyncSession = Depends(get_session), user=_manage
+) -> DatasetOut:
+    """컬렉션에서 RAG 문제집 자동 생성(스펙 142) — 문제집 즉시 반환, 케이스는 백그라운드 생성
+    (완료/실패는 description으로 확인). 컬렉션 완전성은 검색 해석기로 사전 검증."""
+    from .rag import resolve_search_collection
+
+    await resolve_search_collection(session, body.collection_id)  # 404/400 사전 검증
+    ds = EvalDataset(name=body.name, description="생성 중… (문제가 곧 채워집니다)",
+                     kind="rag", owner_id=owner_of(user))
+    session.add(ds)
+    try:
+        await session.commit()
+    except Exception:
+        await session.rollback()
+        raise HTTPException(status_code=409, detail="같은 이름의 문제집이 이미 있습니다")
+    asyncio.create_task(_execute_generation(ds.id, body.collection_id, body.count))
+    return DatasetOut(id=ds.id, name=ds.name, description=ds.description, kind=ds.kind, case_count=0)

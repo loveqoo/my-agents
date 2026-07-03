@@ -11,7 +11,7 @@ import { MatrixView } from './EvalMatrix'
 import {
   listEvalDatasets, createEvalDataset, deleteEvalDataset,
   listEvalCases, createEvalCase, updateEvalCase, deleteEvalCase,
-  startEvalRun, listEvalRuns, getEvalRun, listAgents, listCollections, listModels,
+  startEvalRun, listEvalRuns, getEvalRun, listAgents, listCollections, listModels, generateEvalDataset,
   type EvalDataset, type EvalCaseT, type EvalAssert, type EvalRunT, type EvalRunDetail, type Agent, type Collection, type Model,
 } from '../../api'
 
@@ -394,6 +394,11 @@ export default function EvalView() {
   const [newName, setNewName] = useState('')
   const [newDesc, setNewDesc] = useState('')
   const [newKind, setNewKind] = useState<'agent' | 'rag'>('agent')
+  const [genOpen, setGenOpen] = useState(false)
+  const [genCol, setGenCol] = useState<string | undefined>()
+  const [genCount, setGenCount] = useState(10)
+  const [genName, setGenName] = useState('')
+  const [genBusy, setGenBusy] = useState(false)
   const [collections, setCollections] = useState<Collection[]>([])
   const [chatModels, setChatModels] = useState<Model[]>([])
 
@@ -426,7 +431,17 @@ export default function EvalView() {
   }, [runs, loadRuns])
 
   const dsCols: Column<EvalDataset>[] = [
-    { key: 'name', title: '문제집', render: (d) => <span style={{ fontWeight: 600 }}>{d.name}</span> },
+    {
+      key: 'name', title: '문제집',
+      render: (d) => (
+        <div>
+          <div style={{ fontWeight: 600 }}>{d.name}</div>
+          {d.description ? (
+            <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>{d.description}</div>
+          ) : null}
+        </div>
+      ),
+    },
     { key: 'kind', title: '종류', width: 90, render: (d) => <Tag>{d.kind}</Tag> },
     { key: 'case_count', title: '문제 수', width: 90, align: 'right', render: (d) => d.case_count },
     {
@@ -494,9 +509,14 @@ export default function EvalView() {
             key: 'datasets', label: '문제집',
             children: (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                <Button type="primary" icon={<Icon name="plus" />} onClick={() => setCreating(true)} style={{ alignSelf: 'flex-start' }}>
-                  새 문제집
-                </Button>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <Button type="primary" icon={<Icon name="plus" />} onClick={() => setCreating(true)}>
+                    새 문제집
+                  </Button>
+                  <Button icon={<Icon name="experiment" />} onClick={() => setGenOpen(true)}>
+                    컬렉션에서 생성
+                  </Button>
+                </div>
                 <DataTable<EvalDataset> columns={dsCols} rows={datasets} onRowClick={setDetail} empty="문제집이 없습니다 — 첫 문제집을 만들어 보세요." />
               </div>
             ),
@@ -571,6 +591,55 @@ export default function EvalView() {
           />
           <Input placeholder="이름 (예: 옵시디언 매니저 회귀 시험)" value={newName} onChange={(e) => setNewName(e.target.value)} />
           <Input placeholder="설명 (선택)" value={newDesc} onChange={(e) => setNewDesc(e.target.value)} />
+        </div>
+      </Modal>
+
+      <Modal
+        open={genOpen}
+        title="컬렉션에서 문제집 생성"
+        okText="생성"
+        cancelText="취소"
+        okButtonProps={{ disabled: !genCol || !genName.trim(), loading: genBusy }}
+        onCancel={() => setGenOpen(false)}
+        onOk={() => {
+          if (!genCol) return
+          setGenBusy(true)
+          generateEvalDataset({ collection_id: genCol, name: genName.trim(), count: genCount })
+            .then(() => {
+              setGenOpen(false)
+              setGenName('')
+              message.success('생성 시작 — 문제집 목록의 설명에 진행 상태가 표시됩니다')
+              loadDatasets()
+            })
+            .catch((e) => message.error((e as Error).message))
+            .finally(() => setGenBusy(false))
+        }}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+            컬렉션 문서에서 질문을 자동 출제합니다 — 각 문제의 채점 기준은 "그 질문으로 검색하면
+            출처 문서가 나와야 한다"(자기일관 골든)로 자동 부여되고, 생성 후 검토·수정할 수 있습니다.
+          </div>
+          <Select
+            placeholder="컬렉션 선택"
+            value={genCol}
+            onChange={(v) => {
+              setGenCol(v)
+              const c = collections.find((x) => x.id === v)
+              if (c && !genName.trim()) setGenName(`${c.name} 골든셋`)
+            }}
+            options={collections.map((c) => ({ value: c.id, label: c.name }))}
+          />
+          <Input placeholder="문제집 이름" value={genName} onChange={(e) => setGenName(e.target.value)} />
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13 }}>
+            문제 수
+            <Select
+              value={genCount}
+              onChange={setGenCount}
+              style={{ width: 90 }}
+              options={[5, 10, 15, 20].map((n) => ({ value: n, label: String(n) }))}
+            />
+          </div>
         </div>
       </Modal>
 
