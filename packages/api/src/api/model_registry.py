@@ -112,7 +112,16 @@ async def _probe(
         ids = [m.get("id") for m in (r.json().get("data") or [])]
     except Exception:  # noqa: BLE001
         ids = []
-    available = model_id in ids if model_id else False
+    if not model_id:
+        # 프로바이더 레벨 테스트(특정 모델 미지정, 스펙 164) — 목록 존재 여부로 판정한다.
+        # 빈 model_id를 "미발견"으로 오판하던 버그: 프로바이더는 잘 붙었고 모델도 있는데
+        # "연결됨 · 모델 미발견"이 떠 사용자가 오해했다(등록 화면엔 모델이 주르륵). 개수로 정직하게.
+        n = len(ids)
+        return ModelProbeResult(
+            ok=True, reachable=True, modelAvailable=n > 0, latencyMs=ms,
+            detail=f"연결됨 · 모델 {n}개 발견" if n else "연결됨 · 모델 목록 비어있음",
+        )
+    available = model_id in ids
     detail = "연결됨" + (" · 모델 사용 가능" if available else " · 모델 미발견")
     return ModelProbeResult(ok=True, reachable=True, modelAvailable=available, latencyMs=ms, detail=detail)
 
