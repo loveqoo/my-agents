@@ -69,6 +69,19 @@ def _self_base(request: Request) -> str:
     return base.rstrip("/")
 
 
+async def _org_name() -> str:
+    """카드 organization(스펙 153) — 저장값 → env A2A_ORG_NAME → "my-agents".
+    저장 *여부*로 분기(codex 153 — 값 비교 추정은 관리자가 기본 문자열로 의도 저장한 경우를 뭉갠다)."""
+    import os
+
+    from .app_settings import get_setting_stored
+
+    found, org = await get_setting_stored("a2a_org_name")
+    if found:
+        return org
+    return os.environ.get("A2A_ORG_NAME", "my-agents")
+
+
 @router.get("/{agent_id}/.well-known/agent-card.json")
 async def exposed_agent_card(agent_id: uuid.UUID, request: Request):
     """공개 — 노출된 ui 에이전트의 A2A 카드. connect가 fetch해 external로 분류(x-my-agents 없음).
@@ -78,12 +91,13 @@ async def exposed_agent_card(agent_id: uuid.UUID, request: Request):
     """
     agent = await _load_exposed_ui_agent(agent_id)
     base = _self_base(request)
+    org = await _org_name()  # 설정→env→기본 3단(스펙 153, 무재시작 반영)
     return {
         "name": agent.name,
         "description": f"{agent.name} — 로컬 에이전트의 A2A 노출(스펙 061).",
         "url": f"{base}/agents/{agent_id}/a2a",
         "version": agent.active_version or "1.0.0",
-        "provider": {"organization": "my-agents", "url": base},
+        "provider": {"organization": org, "url": base},
         "capabilities": {"streaming": True, "pushNotifications": False},
         "defaultInputModes": ["text/plain"],
         "defaultOutputModes": ["text/plain"],

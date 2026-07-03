@@ -17,6 +17,7 @@ import {
   TeamOutlined,
   ScheduleOutlined,
   SafetyCertificateOutlined,
+  SettingOutlined,
   LogoutOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
@@ -34,6 +35,7 @@ import UsersView from './views/UsersView'
 import BatchView from './views/BatchView'
 import EvalView from './views/EvalView'
 import AllowedHostsView from './views/AllowedHostsView'
+import SettingsView from './views/SettingsView'
 import { Playground } from '../playground/Playground'
 import { logout as apiLogout, listApprovals, type Me } from '../api'
 
@@ -51,6 +53,7 @@ type ViewKey =
   | 'users'
   | 'batch'
   | 'allowed-hosts'
+  | 'settings'
   | 'eval'
   | 'debug'
 
@@ -66,6 +69,7 @@ const TITLES: Record<ViewKey, string> = {
   users: '유저',
   batch: '배치',
   'allowed-hosts': '허용 호스트',
+  settings: '설정',
   eval: '평가',
   debug: 'Playground',
 }
@@ -142,6 +146,7 @@ export default function AdminShell({ user, onLogout }: { user: Me; onLogout: () 
               { key: 'batch', icon: <ScheduleOutlined />, label: '배치' },
               { key: 'eval', icon: <CheckCircleOutlined />, label: '평가' },
               { key: 'allowed-hosts', icon: <SafetyCertificateOutlined />, label: '허용 호스트' },
+              { key: 'settings', icon: <SettingOutlined />, label: '설정' },
             ],
           },
         ]
@@ -174,6 +179,7 @@ export default function AdminShell({ user, onLogout }: { user: Me; onLogout: () 
     batch: <BatchView />,
     eval: <EvalView />,
     'allowed-hosts': <AllowedHostsView />,
+    settings: <SettingsView />,
     debug: <Playground initialAgentId={playgroundAgent} onConsumedInitial={() => setPlaygroundAgent(null)} />,
   }
 

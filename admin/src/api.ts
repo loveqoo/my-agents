@@ -155,6 +155,11 @@ export const triggerBatchJob = (job: string, dryRun: boolean) =>
     error?: string
   }>
 
+/* ---------- 앱 설정 (스펙 153) ---------- */
+export const getAppSettings = () => j<Record<string, unknown>>('/admin/settings')
+export const putAppSetting = (key: string, value: unknown) =>
+  put(`/admin/settings/${encodeURIComponent(key)}`, { value }) as Promise<Record<string, unknown>>
+
 /* ---------- SSRF allowlist (스펙 064) ---------- */
 export interface AllowedHost {
   id: string

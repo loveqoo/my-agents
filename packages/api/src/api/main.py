@@ -16,6 +16,7 @@ from . import (
     a2a_server,
     agents,
     allowed_hosts,
+    app_settings,
     approvals,
     batch_routes,
     eval_routes,
@@ -100,6 +101,7 @@ app.include_router(approvals.router, dependencies=_auth)
 app.include_router(batch_routes.router)  # 자체 보호(admin) — user_admin과 동일 패턴
 app.include_router(eval_routes.router)  # 자체 보호(admin) — 평가 하네스 제품화(스펙 137)
 app.include_router(allowed_hosts.router)  # 자체 보호(admin) — SSRF allowlist 관리(스펙 064)
+app.include_router(app_settings.router, dependencies=_auth)  # 앱 설정(스펙 153) — 변이는 자체 특권 게이트
 app.include_router(mock_remote.router)
 # 로컬(ui) 에이전트 A2A 노출(스펙 061) — mock_remote처럼 전역 _auth 미적용(self-fetch 호환).
 # 카드는 공개, JSON-RPC 호출만 라우트 단위 current_principal 인증. 게이트=ui+exposed.a2a.
