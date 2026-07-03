@@ -1507,6 +1507,7 @@ export default function AgentsView({ onOpenPlayground }: { onOpenPlayground?: (a
     {
       key: 'name',
       title: '에이전트',
+      width: '20%', // 내용 최다(아바타+이름+모델) — 균등 분할 방지(스펙 145 후속)
       render: (a) => {
         const isCode = a.source === 'code'
         return (
@@ -1516,6 +1517,7 @@ export default function AgentsView({ onOpenPlayground }: { onOpenPlayground?: (a
               style={{
                 background: isCode ? 'var(--geekblue-1)' : 'var(--gray-12)',
                 color: isCode ? 'var(--geekblue-7)' : '#fff',
+                flex: 'none', // fixed 레이아웃 좁은 셀에서 원형 유지(찌그러짐 방지 — 사용자 보고)
               }}
             >
               <Icon name={isCode ? 'code' : 'robot'} size={14} />
@@ -1535,6 +1537,7 @@ export default function AgentsView({ onOpenPlayground }: { onOpenPlayground?: (a
     },
     {
       key: 'source',
+      width: '9%',
       title: '소스',
       render: (a) => {
         const s = AGENT_SOURCE[a.source || 'ui'] || AGENT_SOURCE.ui
@@ -1550,6 +1553,7 @@ export default function AgentsView({ onOpenPlayground }: { onOpenPlayground?: (a
     },
     {
       key: 'conformance',
+      width: '8%',
       title: '준수',
       render: (a) => {
         const c = AGENT_CONFORMANCE[a.conformance || 'conforming'] || AGENT_CONFORMANCE.conforming
@@ -1573,6 +1577,7 @@ export default function AgentsView({ onOpenPlayground }: { onOpenPlayground?: (a
     },
     {
       key: 'mcps',
+      width: '12%',
       title: 'MCP',
       render: (a) => (
         <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 4 }}>
@@ -1586,6 +1591,7 @@ export default function AgentsView({ onOpenPlayground }: { onOpenPlayground?: (a
     },
     {
       key: 'version',
+      width: '8%',
       title: '버전',
       render: (a) => {
         if (a.source === 'code')
@@ -1613,6 +1619,7 @@ export default function AgentsView({ onOpenPlayground }: { onOpenPlayground?: (a
     },
     {
       key: 'exposed',
+      width: '9%',
       title: '공개',
       render: (a) =>
         // A2A 노출은 로컬(ui) 에이전트만 — 원격(code)·외부(external)는 이미 원격 A2A/프록시라 재노출 불가(스펙 083).
@@ -1629,8 +1636,8 @@ export default function AgentsView({ onOpenPlayground }: { onOpenPlayground?: (a
     },
     {
       key: 'status',
+      width: '8%',
       title: '상태',
-      width: 100,
       render: (a) => {
         const st = AGENT_STATUS[a.status]
         return <StatusPill color={st.color || 'var(--gray-6)'} label={st.label} />
@@ -1638,6 +1645,7 @@ export default function AgentsView({ onOpenPlayground }: { onOpenPlayground?: (a
     },
     {
       key: 'actions',
+      width: 80,
       title: '',
       align: 'right',
       render: (a) => (
