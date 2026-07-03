@@ -647,5 +647,6 @@ export const updateEvalCase = (caseId: string, body: { name: string; input: stri
 export const deleteEvalCase = (caseId: string) => del(`/eval/cases/${caseId}`)
 export const startEvalRun = (datasetId: string, agentId: string) =>
   post(`/eval/datasets/${datasetId}/runs`, { agent_id: agentId }) as Promise<EvalRunT>
-export const listEvalRuns = () => j<EvalRunT[]>('/eval/runs')
+export const listEvalRuns = (datasetId?: string) =>
+  j<EvalRunT[]>(`/eval/runs${datasetId ? `?dataset_id=${datasetId}` : ''}`)
 export const getEvalRun = (runId: string) => j<EvalRunDetail>(`/eval/runs/${runId}`)

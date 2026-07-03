@@ -3,9 +3,10 @@
    수치 검증→자율 반복(Ralph) 로드맵의 제품 표면. 러너는 오염 제로(백엔드 eval_runner) —
    실행해도 세션/메모리에 흔적이 남지 않는다. */
 import { useState, useEffect, useCallback } from 'react'
-import { Tabs, Button, Input, Select, Tag, Modal, Popconfirm, Alert, Collapse, message } from 'antd'
+import { Tabs, Button, Input, Select, Tag, Modal, Popconfirm, Alert, Collapse, Checkbox, message } from 'antd'
 import { Page, DataTable, Drawer, Desc, type Column } from '../shared'
 import { Icon } from '../icons'
+import { TrendChart, CompareDrawer } from './EvalTrend'
 import {
   listEvalDatasets, createEvalDataset, deleteEvalDataset,
   listEvalCases, createEvalCase, updateEvalCase, deleteEvalCase,
@@ -92,15 +93,17 @@ function CaseForm({
 
 /* 문제집 상세 드로어 — 케이스 목록/편집 + 시험 실행. */
 function DatasetDrawer({
-  dataset, agents, onClose, onChanged, onRunStarted,
+  dataset, agents, onClose, onChanged, onRunStarted, onOpenRun,
 }: {
   dataset: EvalDataset | null
   agents: Agent[]
   onClose: () => void
   onChanged: () => void
   onRunStarted: () => void
+  onOpenRun: (runId: string) => void
 }) {
   const [cases, setCases] = useState<EvalCaseT[]>([])
+  const [dsRuns, setDsRuns] = useState<EvalRunT[]>([])
   const [editing, setEditing] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -120,6 +123,8 @@ function DatasetDrawer({
     setEditing(null)
     setAdding(false)
     void load()
+    if (dataset) listEvalRuns(dataset.id).then(setDsRuns).catch(() => setDsRuns([]))
+    else setDsRuns([])
   }, [load])
 
   const save = async (body: { name: string; input: string; asserts: EvalAssert[] }, caseId?: string) => {
@@ -171,6 +176,38 @@ function DatasetDrawer({
               시험 실행
             </Button>
           </div>
+          {/* 성적 추이(스펙 138) — 이 문제집의 완료 런들. 최근 런 목록이 표 뷰 역할(클릭→성적표). */}
+          {dsRuns.length > 0 ? (
+            <div style={{ padding: 12, border: '1px solid var(--color-border-secondary)', borderRadius: 8 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+                성적 추이{' '}
+                <span style={{ fontWeight: 400, fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+                  (최근 {dsRuns.length}회{dsRuns.length >= 50 ? ' — 50회까지만 표시' : ''})
+                </span>
+              </div>
+              <TrendChart runs={dsRuns} />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 6 }}>
+                {dsRuns.slice(0, 5).map((r) => (
+                  <div
+                    key={r.id}
+                    onClick={() => r.status !== 'running' && onOpenRun(r.id)}
+                    style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12, cursor: r.status !== 'running' ? 'pointer' : 'default' }}
+                  >
+                    <span style={{ color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-family-code)' }}>{(r.started_at ?? '').slice(5, 16).replace('T', ' ')}</span>
+                    <span>{r.agent_name}</span>
+                    <div style={{ flex: 1 }} />
+                    {r.status === 'ok' ? (
+                      <span style={{ fontWeight: 600 }}>{r.score != null ? Math.round(r.score * 100) + '%' : '—'} ({r.passed}/{r.total})</span>
+                    ) : r.status === 'running' ? (
+                      <Tag color="blue">실행 중</Tag>
+                    ) : (
+                      <Tag color="red">error</Tag>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
           {cases.length === 0 ? (
             <Alert type="info" showIcon message="문제가 없습니다 — 아래에서 첫 문제를 추가하세요." />
           ) : null}
@@ -288,6 +325,9 @@ export default function EvalView() {
   const [detail, setDetail] = useState<EvalDataset | null>(null)
   const [runDetail, setRunDetail] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
+  const [runFilter, setRunFilter] = useState<string | undefined>() // 실행 이력 문제집 필터(스펙 138)
+  const [compareSel, setCompareSel] = useState<string[]>([]) // 비교 선택(최대 2, 같은 문제집·ok만)
+  const [compare, setCompare] = useState<string[]>([]) // 비교 드로어에 넘길 확정 쌍
   const [newName, setNewName] = useState('')
   const [newDesc, setNewDesc] = useState('')
 
@@ -295,7 +335,13 @@ export default function EvalView() {
     listEvalDatasets().then(setDatasets).catch((e) => message.error((e as Error).message))
   }, [])
   const loadRuns = useCallback(() => {
-    listEvalRuns().then(setRuns).catch((e) => message.error((e as Error).message))
+    listEvalRuns()
+      .then((rs) => {
+        setRuns(rs)
+        // 비교 선택 정리(codex 138 #3) — 갱신 후 목록에 없는/미완료 id가 남아 유령 비교가 되지 않게.
+        setCompareSel((sel) => sel.filter((id) => rs.some((r) => r.id === id && r.status === 'ok')))
+      })
+      .catch((e) => message.error((e as Error).message))
   }, [])
 
   useEffect(() => {
@@ -327,7 +373,28 @@ export default function EvalView() {
     },
   ]
 
+  const toggleCompare = (r: EvalRunT) => {
+    setCompareSel((sel) => {
+      if (sel.includes(r.id)) return sel.filter((x) => x !== r.id)
+      const first = runs.find((x) => x.id === sel[0])
+      // 같은 문제집의 ok 런만 비교 대상 — 다른 문제집을 고르면 새로 시작.
+      if (first && first.dataset_id !== r.dataset_id) return [r.id]
+      return sel.length >= 2 ? [sel[1], r.id] : [...sel, r.id]
+    })
+  }
   const runCols: Column<EvalRunT>[] = [
+    {
+      key: 'cmp', title: '비교', width: 56, align: 'center',
+      render: (r) => (
+        <span onClick={(e) => e.stopPropagation()}>
+          <Checkbox
+            disabled={r.status !== 'ok'}
+            checked={compareSel.includes(r.id)}
+            onChange={() => toggleCompare(r)}
+          />
+        </span>
+      ),
+    },
     { key: 'dataset_name', title: '문제집', render: (r) => r.dataset_name ?? '—' },
     { key: 'agent_name', title: '에이전트', render: (r) => r.agent_name ?? '—' },
     {
@@ -369,10 +436,32 @@ export default function EvalView() {
             key: 'runs', label: '실행 이력',
             children: (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                <Button icon={<Icon name="reload" />} onClick={loadRuns} style={{ alignSelf: 'flex-start' }}>
-                  새로고침
-                </Button>
-                <DataTable<EvalRunT> columns={runCols} rows={runs} onRowClick={(r) => setRunDetail(r.id)} empty="실행 이력이 없습니다." />
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <Button icon={<Icon name="reload" />} onClick={loadRuns}>새로고침</Button>
+                  <Select
+                    allowClear
+                    style={{ minWidth: 200 }}
+                    placeholder="문제집으로 필터"
+                    value={runFilter}
+                    onChange={(v) => { setRunFilter(v); setCompareSel([]) }}
+                    options={datasets.map((d) => ({ value: d.id, label: d.name }))}
+                  />
+                  <div style={{ flex: 1 }} />
+                  <Button
+                    type="primary"
+                    disabled={compareSel.length !== 2}
+                    onClick={() => setCompare(compareSel)}
+                    title="같은 문제집의 완료된 런 2개를 체크하면 비교할 수 있습니다"
+                  >
+                    선택 {compareSel.length}/2 비교
+                  </Button>
+                </div>
+                <DataTable<EvalRunT>
+                  columns={runCols}
+                  rows={runFilter ? runs.filter((r) => r.dataset_id === runFilter) : runs}
+                  onRowClick={(r) => setRunDetail(r.id)}
+                  empty="실행 이력이 없습니다."
+                />
               </div>
             ),
           },
@@ -403,7 +492,15 @@ export default function EvalView() {
         </div>
       </Modal>
 
-      <DatasetDrawer dataset={detail} agents={agents} onClose={() => setDetail(null)} onChanged={loadDatasets} onRunStarted={() => { loadRuns(); setTab('runs') }} />
+      <DatasetDrawer
+        dataset={detail}
+        agents={agents}
+        onClose={() => setDetail(null)}
+        onChanged={loadDatasets}
+        onRunStarted={() => { loadRuns(); setTab('runs') }}
+        onOpenRun={(rid) => { setDetail(null); setRunDetail(rid) }}
+      />
+      <CompareDrawer aId={compare[0] ?? null} bId={compare[1] ?? null} onClose={() => setCompare([])} />
       <RunDrawer runId={runDetail} onClose={() => setRunDetail(null)} />
     </Page>
   )

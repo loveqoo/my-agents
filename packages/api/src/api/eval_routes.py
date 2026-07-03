@@ -325,16 +325,18 @@ async def start_run(
 
 @router.get("/runs", response_model=list[RunOut])
 async def list_runs(
+    dataset_id: uuid.UUID | None = None,  # 문제집 필터(스펙 138 — 추이/비교용)
     session: AsyncSession = Depends(get_session), user=_manage
 ) -> list[RunOut]:
-    rows = (
-        await session.execute(
-            select(EvalRun, EvalDataset.name)
-            .join(EvalDataset, EvalDataset.id == EvalRun.dataset_id)
-            .order_by(EvalRun.started_at.desc())
-            .limit(50)
-        )
-    ).all()
+    q = (
+        select(EvalRun, EvalDataset.name)
+        .join(EvalDataset, EvalDataset.id == EvalRun.dataset_id)
+        .order_by(EvalRun.started_at.desc())
+        .limit(50)
+    )
+    if dataset_id is not None:
+        q = q.where(EvalRun.dataset_id == dataset_id)
+    rows = (await session.execute(q)).all()
     out = []
     for r, ds_name in rows:
         o = RunOut.model_validate(r)
