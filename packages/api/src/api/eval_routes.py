@@ -245,12 +245,39 @@ async def _execute_run(run_id: uuid.UUID, dataset_id: uuid.UUID, agent_pk: uuid.
                 )
             ).scalars().all()
             cases = [
-                HarnessCase(name=c.name, input=c.input, asserts=build_asserts(c.asserts))
+                HarnessCase(name=c.name, input=c.input, asserts=build_asserts(c.asserts),
+                            meta={"raw_asserts": c.asserts})
                 for c in rows
             ]
 
+        # LLM-judge 심판 모델(스펙 139) — 기본 chat 모델(is_default)만 직접 해석. default_mem_cfg는
+        # embedding까지 요구해 embedding 미설정이 judge를 인질로 잡는다(codex 139 #3) → chat만 본다.
+        # 미설정이면 judge 전부 실패(fail-closed) — run_llm_judge가 사유를 남긴다.
+        from . import crypto
+        from .eval_judge import run_llm_judge
+        from .mem_config import _default_chat_model
+
+        async with SessionLocal() as s:
+            _cm = await _default_chat_model(s)
+        judge_llm = None
+        if _cm is not None and _cm.provider is not None and _cm.provider.base_url and _cm.model_id:
+            judge_llm = {
+                "base_url": _cm.provider.base_url,
+                "api_key": crypto.decrypt(_cm.provider.api_key),
+                "model_id": _cm.model_id,
+            }
+
         async def run_fn(case: HarnessCase) -> dict:
-            return await eval_run_agent(agent_pk, case.input, principal)
+            obs = await eval_run_agent(agent_pk, case.input, principal)
+            # 이 케이스의 llm_judge 기준만 순차 심판(스펙 139) — 결과를 obs에 주입, scorer는 읽기만.
+            criteria = [a.get("arg") for a in case.meta.get("raw_asserts", [])
+                        if isinstance(a, dict) and a.get("type") == "llm_judge" and a.get("arg")]
+            if criteria:
+                judge: dict = {}
+                for crit in criteria:
+                    judge[crit] = await run_llm_judge(case.input, obs.get("output", ""), crit, judge_llm)
+                obs["judge"] = judge
+            return obs
 
         report = await run_eval(cases, run_fn)
 

@@ -110,17 +110,34 @@ async def run_eval(
 # ----------------------------- 선언적 asserts 매핑 (스펙 137) -----------------------------
 # 문제집(DB)의 asserts JSON([{"type","arg"}])을 scorer 팩토리로 변환. **닫힌 집합** — 미지 type은
 # ValueError(평가는 fail-closed: 모르는 채점 기준을 조용히 통과 처리하면 조용한 초록, 회고 100 대죄).
+def llm_judge(criterion: str):
+    """LLM-judge 채점(스펙 139, 비결정 축) — 러너가 obs["judge"][criterion]에 심판 결과를 주입하고
+    이 scorer는 읽기만 한다(부재=False, fail-closed — 심판 미실행/미설정을 통과로 위장 금지).
+    이름에 짧은 해시 접미 — 앞 60자가 같은 다른 기준의 details 이름 충돌 방지(codex 139 #5)."""
+    import hashlib
+    suffix = hashlib.md5(criterion.encode()).hexdigest()[:4]
+    return (
+        f"llm_judge:{criterion[:56]}#{suffix}",
+        lambda o: bool((o.get("judge") or {}).get(criterion, {}).get("pass", False)),
+    )
+
+
 _ASSERT_TYPES = {
     "trace_has": (trace_has, True),  # (팩토리, arg 필수 여부)
     "trace_lacks": (trace_lacks, True),
     "output_contains": (output_contains, True),
     "no_error": (no_error, False),
     "output_nonempty": (output_nonempty, False),
+    "llm_judge": (llm_judge, True),  # 스펙 139 — 비결정 축(러너가 judge 주입)
 }
 
 
 def build_asserts(spec_list: list) -> list:
     """선언 JSON → [(name, fn)] scorer 목록. 형식/type 오류는 ValueError(API 검증 계층에서 400으로)."""
+    n_judge = sum(1 for it in (spec_list or []) if isinstance(it, dict) and it.get("type") == "llm_judge")
+    if n_judge > 5:
+        # 케이스당 judge 시간 상한(codex 139 #4): 5개 × 30초 타임아웃 = 최악 2.5분/케이스.
+        raise ValueError(f"llm_judge 기준은 케이스당 5개 이하여야 합니다 (got {n_judge})")
     out = []
     for i, item in enumerate(spec_list or []):
         if not isinstance(item, dict) or "type" not in item:

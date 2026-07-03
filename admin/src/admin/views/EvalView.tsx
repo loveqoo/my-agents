@@ -21,6 +21,7 @@ const ASSERT_TYPES: { value: EvalAssert['type']; label: string; needsArg: boolea
   { value: 'trace_has', label: '필수 도구/노드', needsArg: true, hint: '예: rag: (RAG 필수) · mcp:local-tools/ · memory:used' },
   { value: 'trace_lacks', label: '금지 도구/노드', needsArg: true, hint: '예: mcp:danger/ — 이 흔적이 있으면 실패' },
   { value: 'output_contains', label: '답변에 포함', needsArg: true, hint: '답변에 이 문구가 있어야 통과' },
+  { value: 'llm_judge', label: 'AI 판정 (비결정)', needsArg: true, hint: '예: 답변이 정중한 존댓말로 작성되었는가 — 심판 모델이 PASS/FAIL 판정' },
   { value: 'no_error', label: '오류 없음', needsArg: false, hint: '실행 오류가 없어야 통과' },
   { value: 'output_nonempty', label: '답변 비어있지 않음', needsArg: false, hint: '' },
 ]
@@ -229,7 +230,7 @@ function DatasetDrawer({
                 <div style={{ fontSize: 13, color: 'var(--color-text-secondary)', marginTop: 6 }}>{c.input}</div>
                 <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 6 }}>
                   {c.asserts.map((a, i) => (
-                    <Tag key={i} color={a.type === 'trace_lacks' ? 'red' : a.type === 'trace_has' ? 'geekblue' : 'default'}>
+                    <Tag key={i} color={a.type === 'trace_lacks' ? 'red' : a.type === 'trace_has' ? 'geekblue' : a.type === 'llm_judge' ? 'purple' : 'default'}>
                       {a.type}{a.arg ? `: ${a.arg}` : ''}
                     </Tag>
                   ))}
@@ -298,6 +299,19 @@ function RunDrawer({ runId, onClose }: { runId: string | null; onClose: () => vo
                     children: (
                       <div style={{ fontSize: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
                         {r.obs.detail ? <Alert type="warning" showIcon message={r.obs.detail} /> : null}
+                        {/* AI 판정 이유(스펙 139) — 비결정 축임을 라벨로 명시. */}
+                        {r.obs.judge
+                          ? Object.entries(r.obs.judge).map(([crit, v]) => (
+                              <div key={crit} style={{ padding: '6px 8px', background: 'var(--purple-1)', borderRadius: 6 }}>
+                                <Tag color="purple">AI 판정</Tag>
+                                <Tag color={v.pass ? 'green' : 'red'}>{v.pass ? 'PASS' : 'FAIL'}</Tag>
+                                <span style={{ fontWeight: 600 }}>{crit}</span>
+                                {v.reason ? (
+                                  <div style={{ marginTop: 4, color: 'var(--color-text-secondary)' }}>{v.reason}</div>
+                                ) : null}
+                              </div>
+                            ))
+                          : null}
                         <div style={{ whiteSpace: 'pre-wrap', color: 'var(--color-text-secondary)' }}>{r.obs.output || '(빈 답변)'}</div>
                         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                           {(r.obs.trace_nodes ?? []).map((t, k) => (
