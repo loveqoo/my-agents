@@ -1507,7 +1507,7 @@ export default function AgentsView({ onOpenPlayground }: { onOpenPlayground?: (a
     {
       key: 'name',
       title: '에이전트',
-      width: '20%', // 내용 최다(아바타+이름+모델) — 균등 분할 방지(스펙 145 후속)
+      width: '26%', // 내용 최다(아바타+이름+모델) — MCP 컬럼 제거분 흡수(스펙 145 후속3)
       render: (a) => {
         const isCode = a.source === 'code'
         return (
@@ -1574,20 +1574,6 @@ export default function AgentsView({ onOpenPlayground }: { onOpenPlayground?: (a
       key: 'persona',
       title: '페르소나',
       render: (a) => <span style={{ color: 'var(--color-text-secondary)' }}>{a.persona}</span>,
-    },
-    {
-      key: 'mcps',
-      width: '12%',
-      title: 'MCP',
-      render: (a) => (
-        <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 4 }}>
-          {a.mcps.map((m) => (
-            <Tag key={m} color="cyan">
-              {m}
-            </Tag>
-          ))}
-        </span>
-      ),
     },
     {
       key: 'version',
