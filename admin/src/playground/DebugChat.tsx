@@ -140,10 +140,12 @@ function AgentCombo({
   agent,
   agents,
   onSwitch,
+  iconOnly = false, // 모바일(스펙 132): 아바타+화살표만 — 이름/모델/페르소나/초안 태그 숨김
 }: {
   agent: Agent
   agents: Agent[]
   onSwitch: (id: string) => void
+  iconOnly?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -161,8 +163,8 @@ function AgentCombo({
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: 12,
-          padding: '6px 12px 6px 8px',
+          gap: iconOnly ? 6 : 12,
+          padding: iconOnly ? '6px 8px' : '6px 12px 6px 8px',
           borderRadius: 10,
           border: '1px solid ' + (open ? 'var(--color-primary-border)' : 'var(--color-border)'),
           background: open ? 'var(--color-primary-bg)' : 'var(--color-bg-container)',
@@ -191,6 +193,7 @@ function AgentCombo({
             }}
           />
         </span>
+        {iconOnly ? null : (
         <span style={{ minWidth: 0, textAlign: 'left' }}>
           <span
             style={{
@@ -220,8 +223,9 @@ function AgentCombo({
             {agent.persona}
           </span>
         </span>
+        )}
         {/* 미반영 초안 표식(스펙 078) — 현재 선택된 에이전트가 초안을 안고 있으면 트리거에도 점등. */}
-        {hasDraft(agent) ? (
+        {!iconOnly && hasDraft(agent) ? (
           <Tag color="gold" style={{ margin: 0, flex: 'none' }}>
             <Icon name="edit" size={10} /> 초안
           </Tag>
@@ -244,7 +248,7 @@ function AgentCombo({
             top: 'calc(100% + 6px)',
             left: 0,
             zIndex: 1050,
-            width: 360,
+            width: 'min(360px, calc(100vw - 24px))',
             background: 'var(--color-bg-elevated)',
             borderRadius: 12,
             boxShadow: 'var(--box-shadow)',
@@ -349,6 +353,7 @@ function SessionCombo({
   onPick,
   onNew,
   onReload,
+  iconOnly = false, // 모바일(스펙 132): 말풍선 아이콘+화살표만 — 라벨 숨김
 }: {
   sessions: Session[]
   currentId?: string
@@ -356,6 +361,7 @@ function SessionCombo({
   onPick: (sid: string) => void
   onNew: () => void
   onReload: () => void
+  iconOnly?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -389,6 +395,7 @@ function SessionCombo({
         }}
       >
         <Icon name="comment" size={13} style={{ color: 'var(--color-text-tertiary)', flex: 'none' }} />
+        {iconOnly ? null : (
         <span
           style={{
             fontSize: 13, fontFamily: labelIsPreview ? undefined : (currentId ? 'var(--font-family-code)' : undefined),
@@ -398,6 +405,7 @@ function SessionCombo({
         >
           {label}
         </span>
+        )}
         <Icon
           name="down" size={11}
           style={{ color: 'var(--color-text-tertiary)', flex: 'none', transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }}
@@ -406,7 +414,7 @@ function SessionCombo({
       {open ? (
         <div
           style={{
-            position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 1050, width: 300,
+            position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 1050, width: 'min(300px, calc(100vw - 24px))',
             background: 'var(--color-bg-elevated)', borderRadius: 12, boxShadow: 'var(--box-shadow)',
             padding: 6, maxHeight: 420, overflow: 'auto',
           }}
@@ -533,7 +541,7 @@ function ChatHeader({
     <div style={{ flex: 'none', borderBottom: '1px solid var(--color-border-secondary)', background: 'var(--color-bg-container)' }}>
       {/* compact: 버튼 아이콘만(라벨 제거) + A2A 배지 숨김 — 한 줄에 안 들어가 겹치던 문제. */}
       <div style={{ height: 64, display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 12, padding: isMobile ? '0 12px' : '0 20px' }}>
-        <AgentCombo agent={agent} agents={agents} onSwitch={onSwitchAgent} />
+        <AgentCombo agent={agent} agents={agents} onSwitch={onSwitchAgent} iconOnly={isMobile} />
         {/* 세션 이어가기(스펙 055): 에이전트 피커 옆에서 과거 세션을 골라 복원. */}
         <SessionCombo
           sessions={sessions}
@@ -542,6 +550,7 @@ function ChatHeader({
           onPick={onPickSession}
           onNew={onResetConversation}
           onReload={onReloadSessions}
+          iconOnly={isMobile}
         />
         <div style={{ flex: 1 }} />
         {/* mem0 user_id 축은 서버가 로그인 유저에서 도출한다(스펙 032) — 수동 userId 입력은 제거.
