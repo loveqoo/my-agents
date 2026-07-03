@@ -578,6 +578,79 @@ function handleFrame(frame: string, cb: ChatCallbacks): boolean {
   return false
 }
 
+/** A2A 서빙 프레임(스펙 155) 파서 — direct용 handleFrame과 형태가 달라 별도.
+ * JSON-RPC message/stream: result.kind==="status-update" → status.message.parts[].text 델타,
+ * final:true 또는 [DONE]에서 종료. error 프레임은 표면화. 세션/trace는 A2A가 안 준다(정직). */
+function handleA2AFrame(frame: string, onToken: (t: string) => void): boolean {
+  const dataLine = frame.split('\n').find((l) => l.startsWith('data: '))
+  // 프레임에 `data:`가 없으면 SSE가 아니다 — 서버가 스트림 대신 평문 JSON-RPC error 바디를 준 경우
+  // (루프 가드 -32000, 미지원 메서드 -32601 등은 dispatch 전에 평문으로 반환). 통째로 파싱해 표면화.
+  const data = dataLine ? dataLine.slice(6) : frame.trim()
+  if (!data) return false
+  if (data === '[DONE]') return true
+  try {
+    const parsed = JSON.parse(data)
+    const err = parsed.error
+    if (err) {
+      onToken(`\n[오류] ${typeof err === 'object' ? err.message ?? JSON.stringify(err) : err}`)
+      return false
+    }
+    const result = parsed.result
+    if (result && result.kind === 'status-update') {
+      const parts = result.status?.message?.parts
+      if (Array.isArray(parts)) {
+        for (const p of parts) {
+          if (p && p.kind === 'text' && typeof p.text === 'string' && p.text) onToken(p.text)
+        }
+      }
+      if (result.final === true) return true
+    }
+  } catch {
+    /* 비-JSON 프레임 무시 */
+  }
+  return false
+}
+
+/** A2A 경유 테스트(스펙 155) — 노출 에이전트(source∈{ui,code} + exposed.a2a)를 외부 소비자처럼
+ * `/agents/{id}/a2a` JSON-RPC message/stream으로 호출한다. 단발 메시지 텍스트만 전달(세션/히스토리/
+ * trace/오버라이드 없음 — 우리 A2A 서빙이 안 넘김). 인증은 direct와 동일(current_principal). */
+export async function streamChatA2A(
+  agentId: string,
+  text: string,
+  onToken: (t: string) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch(`${BASE}/agents/${agentId}/a2a`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: authHeaders(true),
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'message/stream',
+      params: { message: { role: 'user', parts: [{ kind: 'text', text }] } },
+    }),
+    signal,
+  })
+  if (!res.ok) throw await httpError(res, 'POST', `/agents/${agentId}/a2a`)
+  if (!res.body) throw new Error('A2A 테스트 실패: 응답 본문이 없습니다')
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buf = ''
+  for (;;) {
+    const { value, done } = await reader.read()
+    if (done) break
+    buf += decoder.decode(value, { stream: true })
+    const frames = buf.split('\n\n')
+    buf = frames.pop() ?? ''
+    for (const frame of frames) {
+      if (handleA2AFrame(frame, onToken)) return
+    }
+  }
+  if (buf.trim()) handleA2AFrame(buf, onToken)
+}
+
 /** chat SSE 스트리밍 (POST → fetch+ReadableStream). session/trace 이벤트도 콜백. */
 export async function streamChat(
   agentId: string,

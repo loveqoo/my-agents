@@ -9,10 +9,11 @@ import { OverridePanel, overrideDefaults, overridePayload, type Overrides } from
 import type { ChatMsg, Trace } from './agentData'
 import type { Agent, BlockCategory, Session } from '../admin/mockData'
 import {
-  listAgents, streamChat, getBlocks, listModels, listSessions, getSessionMessages, listCollections,
+  listAgents, streamChat, streamChatA2A, getBlocks, listModels, listSessions, getSessionMessages, listCollections,
   type ChatMessage, type Model, type Collection,
 } from '../api'
 import { onAgentsChanged } from '../agentsBus'
+import { isA2AExposed } from './DebugChat'
 
 export function Playground({
   initialAgentId = null,
@@ -39,6 +40,9 @@ export function Playground({
   const [collections, setCollections] = useState<Collection[]>([]) // 조율형 위임 카탈로그(문서, 스펙 122)
   const [overridePanelOpen, setOverridePanelOpen] = useState(false)
   const [appliedByAgent, setAppliedByAgent] = useState<Record<string, Overrides>>({})
+  // A2A 루프백 테스트 모드(스펙 155) — 에이전트별. true면 send가 /agents/{id}/a2a(JSON-RPC)로
+  // 외부 소비자처럼 호출. 노출 에이전트에서만 토글 노출. 기본 false(직접 /chat — 무회귀).
+  const [a2aByAgent, setA2aByAgent] = useState<Record<string, boolean>>({})
   const controllerRef = useRef<AbortController | null>(null)
   // 세션 로드 레이스 가드(스펙 055): 늦게 도착한 응답이 최신 선택을 덮어쓰지 않게 하는 시퀀스.
   const sessionLoadSeqRef = useRef(0)
@@ -217,7 +221,24 @@ export function Playground({
     const controller = new AbortController()
     controllerRef.current = controller
     setStreaming(true)
+    // A2A 루프백 모드(스펙 155): 노출 에이전트를 외부 소비자처럼 /agents/{id}/a2a로 호출.
+    // 단발 메시지(세션/히스토리/오버라이드/trace 미전달 — 우리 A2A 서빙이 안 넘김).
+    const useA2A = !!activeAgent && isA2AExposed(activeAgent) && !!a2aByAgent[id]
     try {
+      if (useA2A) {
+        // 인스펙터를 새 A2A 턴으로 이동(codex 경계 #2): A2A 경로는 trace를 안 주므로 갱신하지 않으면
+        // 인스펙터가 직전 direct 턴의 trace를 stale 표시한다. 새 ai 턴(= prior 뒤 index)을 선택해
+        // 빈 상태("이 턴엔 trace 없음")를 보이게 한다.
+        setSelectedTurn(prior.length + 1)
+        await streamChatA2A(
+          id,
+          text,
+          (t) => appendToLastAi((prev) => ({ ...prev, text: prev.text + t })),
+          controller.signal,
+        )
+        setStreaming(false)
+        return
+      }
       await streamChat(
         id,
         apiMessages,
@@ -378,6 +399,8 @@ export function Playground({
         onToggleInspector={() => setInspectorOpen((o) => !o)}
         overrideActive={overrideActive}
         onToggleOverrides={() => setOverridePanelOpen((o) => !o)}
+        a2aMode={!!a2aByAgent[activeId]}
+        onToggleA2A={(v) => setA2aByAgent((m) => ({ ...m, [activeId]: v }))}
       />
       <OverridePanel
         open={overridePanelOpen}

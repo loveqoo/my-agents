@@ -13,7 +13,7 @@ import {
   dedupeConsecutive,
   type HistState,
 } from './inputHistory'
-import { Avatar, Button, Tag, Grid, Tooltip } from 'antd'
+import { Avatar, Button, Tag, Grid, Tooltip, Segmented } from 'antd'
 import { Icon } from '../admin/icons'
 import { fmtTime } from '../admin/format'
 import { MessageContent } from './MessageContent'
@@ -126,12 +126,18 @@ interface DebugChatProps {
   onToggleInspector: () => void
   overrideActive: boolean
   onToggleOverrides: () => void
+  a2aMode: boolean
+  onToggleA2A: (v: boolean) => void
+}
+
+// A2A 노출 판정(스펙 154·155): source∈{ui,code} + exposed.a2a. 154가 code 중계 공개를 허용해
+// 게이트를 넓혔다(이전엔 ui만 — code 노출 에이전트를 놓치던 낡은 게이트). external은 봉인(152).
+export function isA2AExposed(agent: Agent): boolean {
+  return (agent.source === 'ui' || agent.source === 'code') && !!agent.exposed?.a2a
 }
 
 function ExposeBadges({ agent }: { agent: Agent }) {
-  // A2A 배지는 로컬(ui) 노출 에이전트만 — 원격/외부는 재노출 불가(스펙 083 불변식: exposed.a2a ⟹ source=ui).
-  const exposed = agent.source === 'ui' && agent.exposed?.a2a
-  return <div style={{ display: 'flex', gap: 6 }}>{exposed ? <Tag color="green">A2A</Tag> : null}</div>
+  return <div style={{ display: 'flex', gap: 6 }}>{isA2AExposed(agent) ? <Tag color="green">A2A</Tag> : null}</div>
 }
 
 /* Rich agent picker — replaces the left rail. Shows avatar, persona, model and
@@ -314,7 +320,7 @@ function AgentCombo({
                   <span style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
                     {/* 미반영 초안(스펙 078): 어느 에이전트가 미활성 편집을 안고 있는지 피커에서 구분. */}
                     {hasDraft(a) ? <Tag color="gold">초안</Tag> : null}
-                    {a.source === 'ui' && a.exposed && a.exposed.a2a ? <Tag color="green">A2A</Tag> : null}
+                    {isA2AExposed(a) ? <Tag color="green">A2A</Tag> : null}
                     {a.mcps.map((m) => (
                       <Tag key={m} color="cyan">
                         {m}
@@ -509,6 +515,8 @@ function ChatHeader({
   onToggleInspector,
   overrideActive,
   onToggleOverrides,
+  a2aMode,
+  onToggleA2A,
 }: {
   agent: Agent
   agents: Agent[]
@@ -527,6 +535,8 @@ function ChatHeader({
   onToggleInspector: () => void
   overrideActive: boolean
   onToggleOverrides: () => void
+  a2aMode: boolean
+  onToggleA2A: (v: boolean) => void
 }) {
   const screens = Grid.useBreakpoint()
   const isMobile = !screens.md
@@ -579,6 +589,21 @@ function ChatHeader({
             초안이 있으면 "수정이 안 보임"의 원인을 배지로 알린다. compact에서도 아이콘만 유지. */}
         {hasDraft(agent) && <DraftBadge compact={compact} />}
         {!compact && <ExposeBadges agent={agent} />}
+        {/* A2A 루프백 테스트 토글(스펙 155) — 노출 에이전트만. 직접=/chat, A2A=/agents/{id}/a2a
+            (외부 소비자처럼 JSON-RPC 호출). A2A는 단발·세션/trace 미전달(정직 경계). */}
+        {isA2AExposed(agent) && (
+          <Tooltip title={a2aMode ? 'A2A 경유 테스트 — 단발 메시지(세션·trace·오버라이드 미전달)' : '직접 실행(/chat)'}>
+            <Segmented
+              size="small"
+              value={a2aMode ? 'a2a' : 'direct'}
+              onChange={(v) => onToggleA2A(v === 'a2a')}
+              options={[
+                { label: '직접', value: 'direct' },
+                { label: 'A2A', value: 'a2a' },
+              ]}
+            />
+          </Tooltip>
+        )}
         <Button
           size="small"
           type={overrideActive ? 'primary' : 'default'}
@@ -608,6 +633,16 @@ function ChatHeader({
         </Button>
         </div>
       </div>
+      {/* A2A 모드 가시 힌트(스펙 155, codex 경계 #1): A2A 경유는 단발 호출이라 세션/히스토리/trace를
+          안 넘긴다. 기존 세션을 이어보는 것처럼 보여도 이 턴은 우리 DB에 안 남는다(재로드 시 사라짐).
+          툴팁은 hover-only라 부족 — 인라인 배너로 경계를 늘 보이게. */}
+      {a2aMode && isA2AExposed(agent) ? (
+        <div style={{ padding: '0 20px 10px' }}>
+          <Tag color="green" style={{ whiteSpace: 'normal', height: 'auto', margin: 0 }}>
+            A2A 경유 테스트 — 단발 호출입니다(세션·히스토리·trace 미저장 · 이 턴은 저장되지 않음).
+          </Tag>
+        </div>
+      ) : null}
       {showPrompt ? (
         <div style={{ padding: '0 20px 16px' }}>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
@@ -722,6 +757,8 @@ export function DebugChat({
   onToggleInspector,
   overrideActive,
   onToggleOverrides,
+  a2aMode,
+  onToggleA2A,
 }: DebugChatProps) {
   const scroller = useRef<HTMLDivElement>(null)
   // Sender는 submit 시 스스로 입력을 비우지 않는다(@ant-design/x 2.8 — triggerSend가
@@ -833,6 +870,8 @@ export function DebugChat({
         onToggleInspector={onToggleInspector}
         overrideActive={overrideActive}
         onToggleOverrides={onToggleOverrides}
+        a2aMode={a2aMode}
+        onToggleA2A={onToggleA2A}
       />
 
       <div ref={scroller} style={{ flex: 1, overflowY: 'auto' }}>
