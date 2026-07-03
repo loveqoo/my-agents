@@ -357,8 +357,8 @@ async def start_run(
         if agent is None:
             raise HTTPException(status_code=404, detail="agent not found")
         target_name = agent.name
-    if (ds.description or "").startswith("생성 중"):
-        # 골든 생성 진행 중 실행하면 부분 문제집 점수가 된다(codex 142) — 완료 후 실행.
+    if dataset_id in _active_jobs or (ds.description or "").startswith("생성 중"):
+        # 골든 생성/출제 진행 중 실행 금지(codex 142/143) — 락 우선, description은 재시작 잔류용 보조.
         raise HTTPException(status_code=409, detail="문제 생성이 진행 중입니다 — 완료 후 실행하세요")
     n_cases = (
         await session.execute(select(func.count(EvalCase.id)).where(EvalCase.dataset_id == dataset_id))
@@ -490,9 +490,15 @@ async def sweep_zombie_datasets() -> int:
         ).scalars().all()
         for d in rows:
             d.description = "생성 중단(서버 재시작) — 삭제 후 다시 생성하세요"
-        if rows:
+        # AI 출제(스펙 143)도 같은 create_task라 재시작에 죽는다 — 접미 상태를 중단 박제.
+        rows2 = (
+            await s.execute(select(EvalDataset).where(EvalDataset.description.like("%AI 출제 중…")))
+        ).scalars().all()
+        for d in rows2:
+            d.description = (d.description or "").replace("AI 출제 중…", "AI 출제 중단(서버 재시작) — 다시 시도하세요")
+        if rows or rows2:
             await s.commit()
-        return len(rows)
+        return len(rows) + len(rows2)
 
 
 async def sweep_zombie_runs() -> int:
@@ -523,6 +529,7 @@ async def _execute_generation(dataset_id: uuid.UUID, collection_id: uuid.UUID, c
     케이스 기준은 자기일관 골든 3종: 출처 문서 회수 + 결과 존재 + 오류 없음."""
     from .eval_golden import generate_golden_cases
 
+    _active_jobs.add(dataset_id)
     try:
         from . import crypto
         from .mem_config import _default_chat_model
@@ -571,6 +578,8 @@ async def _execute_generation(dataset_id: uuid.UUID, collection_id: uuid.UUID, c
                     await s.commit()
         except Exception:
             pass
+    finally:
+        _active_jobs.discard(dataset_id)
 
 
 @router.post("/generate-dataset", response_model=DatasetOut, status_code=202)
@@ -592,3 +601,129 @@ async def generate_dataset(
         raise HTTPException(status_code=409, detail="같은 이름의 문제집이 이미 있습니다")
     asyncio.create_task(_execute_generation(ds.id, body.collection_id, body.count))
     return DatasetOut(id=ds.id, name=ds.name, description=ds.description, kind=ds.kind, case_count=0)
+
+
+# ----------------------------- AI 출제 (스펙 143 — 평가 도우미 1탄) -----------------------------
+# 진행 중 백그라운드 작업 락(codex 143 — description 접미 검사는 PATCH로 우회/오작동 가능).
+# create_task와 수명이 같아 재시작 시 자동 소멸(잔류 description은 sweep이 정리).
+_active_jobs: set = set()
+
+
+class SuggestIn(BaseModel):
+    agent_id: uuid.UUID
+    count: int = Field(default=10, ge=1, le=10)
+
+
+class HelperStatusOut(BaseModel):
+    available: bool
+    reason: str | None = None
+
+
+async def _helper_llm(session: AsyncSession) -> tuple[dict | None, str | None]:
+    """도우미 LLM 해석 — (llm_cfg, 불가 사유). 기본 chat이 실모델일 때만(사용자 원칙)."""
+    from . import crypto
+    from .eval_suggest import is_mock_llm
+    from .mem_config import _default_chat_model
+
+    cm = await _default_chat_model(session)
+    if cm is None or cm.provider is None or not cm.provider.base_url or not cm.model_id:
+        return None, "기본 chat 모델이 없습니다 — 프로바이더·모델에서 기본 모델을 지정하세요"
+    if is_mock_llm(cm.provider.base_url, cm.model_id):
+        return None, "기본 chat 모델이 mock입니다 — 실모델을 기본으로 지정하면 도우미가 활성화됩니다"
+    return {
+        "base_url": cm.provider.base_url,
+        "api_key": crypto.decrypt(cm.provider.api_key),
+        "model_id": cm.model_id,
+    }, None
+
+
+@router.get("/helper-status", response_model=HelperStatusOut)
+async def helper_status(
+    session: AsyncSession = Depends(get_session), user=_manage
+) -> HelperStatusOut:
+    """도우미 가용성 — UI가 버튼 활성/비활성+사유 툴팁에 사용(정직 비활성)."""
+    _llm, reason = await _helper_llm(session)
+    return HelperStatusOut(available=_llm is not None, reason=reason)
+
+
+async def _execute_suggestion(dataset_id: uuid.UUID, agent_pk: uuid.UUID, count: int,
+                              llm_cfg: dict, prior_desc: str | None) -> None:
+    """백그라운드 출제 — 기존 문제 보존(추가만), description에 상태 박제(142 패턴).
+    order_idx는 기존 최대값 뒤로 이어붙인다. 게이트는 _active_jobs(메모리 락)."""
+    from .eval_suggest import suggest_agent_cases
+
+    _active_jobs.add(dataset_id)
+    try:
+        result = await suggest_agent_cases(agent_pk, count, llm_cfg)
+        async with SessionLocal() as s:
+            ds = await s.get(EvalDataset, dataset_id)
+            if ds is None:
+                return
+            base_idx = (
+                await s.execute(
+                    select(func.coalesce(func.max(EvalCase.order_idx), -1)).where(
+                        EvalCase.dataset_id == dataset_id
+                    )
+                )
+            ).scalar_one() + 1
+            for i, c in enumerate(result["cases"]):
+                s.add(EvalCase(
+                    dataset_id=dataset_id,
+                    name=f"AI 출제 {base_idx + i + 1} ({'RAG' if c['label'] == 'rag' else '역할'})",
+                    input=c["question"], order_idx=base_idx + i, asserts=c["asserts"],
+                ))
+            made = len(result["cases"])
+            tail = (
+                f"AI 출제 {made}건 추가 (요청 {count}"
+                + (f", 건너뜀 {result['skipped']}" if result["skipped"] else "") + ")"
+                if made else f"AI 출제 실패: 0건 (요청 {count}, 건너뜀 {result['skipped']})"
+            )
+            # 완료 표기는 **현재** description 기준(codex 143 — 진행 중 사용자 편집 보존):
+            # "AI 출제 중…" 접미가 남아 있으면 치환, 사용자가 바꿨으면 그 값 뒤에 덧붙인다.
+            cur = ds.description or ""
+            if cur.endswith("AI 출제 중…"):
+                ds.description = cur[: -len("AI 출제 중…")].rstrip(" ·") or None
+                ds.description = f"{ds.description} · {tail}" if ds.description else tail
+            else:
+                ds.description = f"{cur} · {tail}" if cur else tail
+            await s.commit()
+    except Exception as exc:  # noqa: BLE001 — 실패도 정직 박제
+        try:
+            async with SessionLocal() as s:
+                ds = await s.get(EvalDataset, dataset_id)
+                if ds is not None:
+                    ds.description = f"{prior_desc + ' · ' if prior_desc else ''}AI 출제 실패: {str(exc)[:150]}"
+                    await s.commit()
+        except Exception:
+            pass
+    finally:
+        _active_jobs.discard(dataset_id)
+
+
+@router.post("/datasets/{dataset_id}/suggest-cases", response_model=DatasetOut, status_code=202)
+async def suggest_cases(
+    dataset_id: uuid.UUID,
+    body: SuggestIn,
+    session: AsyncSession = Depends(get_session),
+    user=_manage,
+) -> DatasetOut:
+    """에이전트 문제집 AI 출제(스펙 143) — 기존 문제 보존+추가, 백그라운드(상태=description)."""
+    ds = await _dataset_or_404(session, dataset_id)
+    if ds.kind != "agent":
+        raise HTTPException(status_code=400, detail="AI 출제는 에이전트 문제집 전용입니다(RAG는 '컬렉션에서 생성')")
+    if dataset_id in _active_jobs:
+        raise HTTPException(status_code=409, detail="이미 출제가 진행 중입니다")
+    agent = await session.get(Agent, body.agent_id)
+    if agent is None:
+        raise HTTPException(status_code=404, detail="agent not found")
+    llm_cfg, reason = await _helper_llm(session)
+    if llm_cfg is None:
+        raise HTTPException(status_code=400, detail=f"도우미 사용 불가: {reason}")
+    prior = ds.description
+    ds.description = f"{prior + ' · ' if prior else ''}AI 출제 중…"
+    await session.commit()
+    asyncio.create_task(_execute_suggestion(dataset_id, agent.id, body.count, llm_cfg, prior))
+    n = (
+        await session.execute(select(func.count(EvalCase.id)).where(EvalCase.dataset_id == ds.id))
+    ).scalar_one()
+    return DatasetOut(id=ds.id, name=ds.name, description=ds.description, kind=ds.kind, case_count=n)

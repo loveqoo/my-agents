@@ -3,7 +3,7 @@
    수치 검증→자율 반복(Ralph) 로드맵의 제품 표면. 러너는 오염 제로(백엔드 eval_runner) —
    실행해도 세션/메모리에 흔적이 남지 않는다. */
 import { useState, useEffect, useCallback } from 'react'
-import { Tabs, Button, Input, Select, Tag, Modal, Popconfirm, Alert, Collapse, Checkbox, message } from 'antd'
+import { Tabs, Button, Input, Select, Tag, Modal, Popconfirm, Alert, Collapse, Checkbox, Tooltip, message } from 'antd'
 import { Page, DataTable, Drawer, Desc, type Column } from '../shared'
 import { Icon } from '../icons'
 import { TrendChart, CompareDrawer } from './EvalTrend'
@@ -11,7 +11,7 @@ import { MatrixView } from './EvalMatrix'
 import {
   listEvalDatasets, createEvalDataset, deleteEvalDataset,
   listEvalCases, createEvalCase, updateEvalCase, deleteEvalCase,
-  startEvalRun, listEvalRuns, getEvalRun, listAgents, listCollections, listModels, generateEvalDataset,
+  startEvalRun, listEvalRuns, getEvalRun, listAgents, listCollections, listModels, generateEvalDataset, suggestEvalCases, getEvalHelperStatus,
   type EvalDataset, type EvalCaseT, type EvalAssert, type EvalRunT, type EvalRunDetail, type Agent, type Collection, type Model,
 } from '../../api'
 
@@ -104,12 +104,13 @@ function CaseForm({
 
 /* 문제집 상세 드로어 — 케이스 목록/편집 + 시험 실행. */
 function DatasetDrawer({
-  dataset, agents, collections, chatModels, onClose, onChanged, onRunStarted, onOpenRun,
+  dataset, agents, collections, chatModels, helper, onClose, onChanged, onRunStarted, onOpenRun,
 }: {
   dataset: EvalDataset | null
   agents: Agent[]
   collections: Collection[]
   chatModels: Model[]
+  helper: { available: boolean; reason: string | null }
   onClose: () => void
   onChanged: () => void
   onRunStarted: () => void
@@ -123,6 +124,7 @@ function DatasetDrawer({
   const [runAgent, setRunAgent] = useState<string | undefined>()
   const [runModels, setRunModels] = useState<string[]>([]) // 모델 비교(스펙 141, 빈 배열=기본 모델 1회)
   const [starting, setStarting] = useState(false)
+  const [suggesting, setSuggesting] = useState(false)
 
   const load = useCallback(async () => {
     if (!dataset) return
@@ -280,9 +282,35 @@ function DatasetDrawer({
           {adding ? (
             <CaseForm busy={busy} kind={dataset.kind} onSave={(b) => void save(b)} onCancel={() => setAdding(false)} />
           ) : (
-            <Button icon={<Icon name="plus" />} onClick={() => setAdding(true)} style={{ alignSelf: 'flex-start' }}>
-              문제 추가
-            </Button>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <Button icon={<Icon name="plus" />} onClick={() => setAdding(true)}>
+                문제 추가
+              </Button>
+              {!isRag ? (
+                /* AI 출제(스펙 143) — 대상 에이전트의 구성(RAG 능력·역할)에 맞춰 문제를 채워준다.
+                   도우미는 기본 chat이 실모델일 때만(사용자 원칙 — mock이면 사유 툴팁+비활성). */
+                <Tooltip title={!helper.available ? helper.reason : !runAgent ? '위에서 시험 칠 에이전트를 먼저 선택하세요' : 'AI가 이 에이전트에 맞는 문제 10개를 추가합니다(기존 문제 보존) — 생성 후 수정하세요'}>
+                  <Button
+                    icon={<Icon name="experiment" />}
+                    loading={suggesting}
+                    disabled={!helper.available || !runAgent}
+                    onClick={() => {
+                      if (!dataset || !runAgent) return
+                      setSuggesting(true)
+                      suggestEvalCases(dataset.id, { agent_id: runAgent, count: 10 })
+                        .then(() => {
+                          message.success('AI 출제 시작 — 잠시 후 문제가 채워집니다(문제집을 다시 열면 갱신)')
+                          onChanged()
+                        })
+                        .catch((e) => message.error((e as Error).message))
+                        .finally(() => setSuggesting(false))
+                    }}
+                  >
+                    AI로 문제 채우기
+                  </Button>
+                </Tooltip>
+              ) : null}
+            </div>
           )}
         </div>
       ) : null}
@@ -401,6 +429,7 @@ export default function EvalView() {
   const [genBusy, setGenBusy] = useState(false)
   const [collections, setCollections] = useState<Collection[]>([])
   const [chatModels, setChatModels] = useState<Model[]>([])
+  const [helper, setHelper] = useState<{ available: boolean; reason: string | null }>({ available: false, reason: '확인 중…' })
 
   const loadDatasets = useCallback(() => {
     listEvalDatasets().then(setDatasets).catch((e) => message.error((e as Error).message))
@@ -421,6 +450,7 @@ export default function EvalView() {
     listAgents().then(setAgents).catch(() => {})
     listCollections().then(setCollections).catch(() => {})
     listModels('chat').then(setChatModels).catch(() => {})
+    getEvalHelperStatus().then(setHelper).catch(() => setHelper({ available: false, reason: '도우미 상태 확인 실패' }))
   }, [loadDatasets, loadRuns])
 
   // 실행 중인 런이 있으면 5초 폴링(성적 반영) — 없으면 중지.
@@ -648,6 +678,7 @@ export default function EvalView() {
         agents={agents}
         collections={collections}
         chatModels={chatModels}
+        helper={helper}
         onClose={() => setDetail(null)}
         onChanged={loadDatasets}
         onRunStarted={() => { loadRuns(); setTab('runs') }}

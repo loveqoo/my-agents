@@ -656,6 +656,10 @@ export const startEvalRun = (
     collection_id: target.collectionId ?? null,
     models: target.models ?? [],
   }) as Promise<EvalRunT>
+export const getEvalHelperStatus = () =>
+  j<{ available: boolean; reason: string | null }>('/eval/helper-status')
+export const suggestEvalCases = (datasetId: string, body: { agent_id: string; count: number }) =>
+  post(`/eval/datasets/${datasetId}/suggest-cases`, body) as Promise<EvalDataset>
 export const generateEvalDataset = (body: { collection_id: string; name: string; count: number }) =>
   post('/eval/generate-dataset', body) as Promise<EvalDataset>
 export const listEvalRunsByGroup = (groupId: string) =>
