@@ -23,6 +23,29 @@ log = logging.getLogger("api.memory")
 # 불일치 시 insert가 깨지고 mem0 add는 except로 삼켜 메모리가 조용히 죽는다(스펙 019). 현재 기본
 # multilingual-e5-large=1024(라이브 probe로 검증). 기본 임베딩 모델을 바꾸면 이 값(또는 env)을 맞춰라.
 _EMBED_DIMS = int(os.environ.get("MEM0_EMBED_DIMS", "1024"))
+# 임베더 API에 **명시적으로 요청할** 출력 차원(스펙 159). 기본 None=미전송 → 모델이 네이티브 차원을
+# 반환한다. self-hosted OpenAI 호환 임베더(snowflake-arctic·vLLM·Voyage 등)는 `dimensions` 파라미터를
+# 거부(400)하므로 강제하면 안 된다(mem0 openai.py 주석). matryoshka 절단을 **의도적으로** 쓰는
+# 경우(OpenAI text-embedding-3 등)만 이 env로 opt-in. _EMBED_DIMS(컬럼 차원)와 별개 축이다 —
+# 컬럼은 "저장 벡터 길이", 이건 "요청 차원". 전자를 후자로 강제하던 게 근인.
+def _env_positive_int(name: str) -> int | None:
+    """env를 양수 int로 파싱. 미설정/빈값/비정수/≤0은 None(무시, codex 159b Low). 잘못된 값이
+    _build_config에서 ValueError로 터져 백엔드를 죽이지 않게 여기서 걸러 경고만 남긴다."""
+    v = os.environ.get(name)
+    if not v:
+        return None
+    try:
+        n = int(v)
+    except ValueError:
+        log.warning("%s=%r is not an int — ignored", name, v)
+        return None
+    if n <= 0:
+        log.warning("%s=%d must be positive — ignored", name, n)
+        return None
+    return n
+
+
+_EMBED_REQUEST_DIMS = _env_positive_int("MEM0_EMBED_REQUEST_DIMS")  # int|None, None → dimensions 미전송
 _MEM_TABLE = "mem0_memories"  # mem0 전용 테이블(앱 테이블과 공존, 관리 주체는 mem0)
 # list_all("모든 기억" 계약)의 mem0 get_all top_k. 명시하지 않으면 mem0 기본 20으로 **조용히 잘려**
 # 21번째부터 목록·소유권 판정(user_owns)에서 사라진다(스펙 127에서 발견·수정). UI 대량 조회는
@@ -63,9 +86,64 @@ def _pg_vector_store() -> dict:
     }
 
 
+_native_dims_cache: dict[tuple, int] = {}  # (base_url, model_id, api_key) → 네이티브 출력 차원(probe 캐시)
+_PROBE_TIMEOUT_S = 10.0  # probe HTTP 상한(codex 159b Med — cold probe가 루프 블록 방지)
+
+
+def _native_embed_dims(emb: dict) -> int | None:
+    """임베딩 모델의 **네이티브 출력 차원**을 실측(dimensions 미전송). (base_url, model_id, api_key)로 캐시.
+
+    실패 시 None(호출자는 보수적으로 미전송). 캐시 키에 api_key 포함(codex 159b High — 같은 base_url+
+    model_id가 키별로 다른 모델로 라우팅되면 차원 오염). 타임아웃·무재시도 클라이언트로 루프 블록 상한.
+    스펙 159: 이 값으로 요청 차원 전송 여부를 판단 — 네이티브==컬럼이면 dimensions 미전송(snowflake처럼
+    파라미터 거부 서버 안전), 다르면 절단 의도로 dimensions=컬럼 전송(text-embedding-3)."""
+    base_url, model_id = emb.get("base_url"), emb.get("model_id")
+    api_key = emb.get("api_key") or "sk-noauth"
+    key = (base_url, model_id, api_key)
+    if key in _native_dims_cache:
+        return _native_dims_cache[key]
+    try:
+        from openai import OpenAI
+
+        # mem0 OpenAIEmbedding 기본 클라(타임아웃 600s)는 blackhole 호스트에서 루프를 오래 막는다.
+        # 차원은 모델 속성이라 dimensions 미전송 평문 임베딩 1회로 충분 → 짧은 타임아웃·무재시도로 측정.
+        client = OpenAI(api_key=api_key, base_url=base_url, timeout=_PROBE_TIMEOUT_S, max_retries=0)
+        vec = client.embeddings.create(
+            input=["dimension probe"], model=model_id, encoding_format="float"
+        ).data[0].embedding
+        _native_dims_cache[key] = len(vec)
+        return len(vec)
+    except Exception as exc:  # noqa: BLE001 — 타입명만(비밀 미노출, 스펙 158)
+        log.warning("mem0 native-dim probe failed: %s", type(exc).__name__)
+        return None
+
+
+def _embedder_request_dims(emb: dict) -> int | None:
+    """임베더에 **요청할** dimensions(None=미전송). 스펙 159 근인 수정.
+
+    - 수동 override(`MEM0_EMBED_REQUEST_DIMS`, 양수 int) 있으면 그 값(matryoshka 절단 의도적 사용).
+    - 아니면 네이티브를 probe: 네이티브==컬럼(_EMBED_DIMS)→None(미전송, dimensions 거부 서버 안전).
+      네이티브≠컬럼→_EMBED_DIMS(절단 요청, 컬럼 길이에 맞춤). probe 실패→None(보수적 미전송).
+    경계(codex 159b High2): 네이티브≠컬럼 **이면서 모델이 dimensions를 거부**하면 이 요청이 400난다 —
+    그 조합은 컬럼(고정)과 모델이 근본 불일치라 코드로 못 고친다(컬럼 재생성/모델 교체 필요). 진단(158)이
+    400을 표면화한다. 아래 경고로 운영자에게 신호."""
+    if _EMBED_REQUEST_DIMS is not None:
+        return _EMBED_REQUEST_DIMS
+    native = _native_embed_dims(emb)
+    if native is not None and native != _EMBED_DIMS:
+        log.warning(
+            "mem0 embedder native dims=%d != column %d — requesting dimensions=%d (truncation). "
+            "모델이 dimensions를 거부하면 회상이 400난다(컬럼/모델 차원 정합 필요).",
+            native, _EMBED_DIMS, _EMBED_DIMS,
+        )
+        return _EMBED_DIMS  # 절단 의도 — 컬럼 길이로 요청(codex 159 High: text-embedding-3류 회귀 방지)
+    return None  # 네이티브==컬럼이거나 probe 실패 → 미전송
+
+
 def _build_config(mem_cfg: dict) -> dict:
     llm = mem_cfg["llm"]
     emb = mem_cfg["embedder"]
+    req_dims = _embedder_request_dims(emb)
     return {
         "llm": {
             "provider": "openai",
@@ -81,7 +159,9 @@ def _build_config(mem_cfg: dict) -> dict:
                 "model": emb["model_id"],
                 "openai_base_url": emb["base_url"],
                 "api_key": emb.get("api_key") or "sk-noauth",
-                "embedding_dims": _EMBED_DIMS,
+                # embedding_dims를 넣으면 mem0가 요청에 `dimensions=`를 전송(openai.py:19). 네이티브==컬럼이면
+                # 미포함(snowflake 등 파라미터 거부 서버 안전), 다르면 컬럼 길이로 절단 요청(스펙 159).
+                **({"embedding_dims": req_dims} if req_dims is not None else {}),
             },
         },
         "vector_store": _pg_vector_store(),
