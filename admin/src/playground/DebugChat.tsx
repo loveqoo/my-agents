@@ -140,12 +140,12 @@ function AgentCombo({
   agent,
   agents,
   onSwitch,
-  iconOnly = false, // 모바일(스펙 132): 아바타+화살표만 — 이름/모델/페르소나/초안 태그 숨김
+  fullWidth = false, // 모바일(스펙 132 v2): 한 줄을 통째로 — 이름·모델을 온전히 표시(잘림 최소화)
 }: {
   agent: Agent
   agents: Agent[]
   onSwitch: (id: string) => void
-  iconOnly?: boolean
+  fullWidth?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -157,21 +157,21 @@ function AgentCombo({
     return () => document.removeEventListener('mousedown', onDoc)
   }, [])
   return (
-    <div ref={ref} style={{ position: 'relative', minWidth: 0 }}>
+    <div ref={ref} style={{ position: 'relative', minWidth: 0, width: fullWidth ? '100%' : undefined }}>
       <button
         onClick={() => setOpen((o) => !o)}
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: iconOnly ? 6 : 12,
-          padding: iconOnly ? '6px 8px' : '6px 12px 6px 8px',
+          gap: 12,
+          padding: '6px 12px 6px 8px',
           borderRadius: 10,
           border: '1px solid ' + (open ? 'var(--color-primary-border)' : 'var(--color-border)'),
           background: open ? 'var(--color-primary-bg)' : 'var(--color-bg-container)',
           cursor: 'pointer',
           font: 'inherit',
           transition: 'all .2s',
-          maxWidth: 360,
+          maxWidth: fullWidth ? '100%' : 360,
           // 슬롯이 좁아지면 버튼도 따라 줄고 안쪽 텍스트가 ellipsis 되도록 — 안 그러면
           // 콘텐츠 폭(~347px)을 고수해 슬롯 밖으로 넘쳐 옆 요소(userId)를 덮는다.
           width: '100%',
@@ -193,8 +193,7 @@ function AgentCombo({
             }}
           />
         </span>
-        {iconOnly ? null : (
-        <span style={{ minWidth: 0, textAlign: 'left' }}>
+        <span style={{ minWidth: 0, textAlign: 'left', flex: fullWidth ? 1 : undefined }}>
           <span
             style={{
               display: 'block',
@@ -223,9 +222,8 @@ function AgentCombo({
             {agent.persona}
           </span>
         </span>
-        )}
         {/* 미반영 초안 표식(스펙 078) — 현재 선택된 에이전트가 초안을 안고 있으면 트리거에도 점등. */}
-        {!iconOnly && hasDraft(agent) ? (
+        {hasDraft(agent) ? (
           <Tag color="gold" style={{ margin: 0, flex: 'none' }}>
             <Icon name="edit" size={10} /> 초안
           </Tag>
@@ -353,7 +351,7 @@ function SessionCombo({
   onPick,
   onNew,
   onReload,
-  iconOnly = false, // 모바일(스펙 132): 말풍선 아이콘+화살표만 — 라벨 숨김
+  fullWidth = false, // 모바일(스펙 132 v2): 한 줄 통째 — 세션 미리보기를 온전히 표시
 }: {
   sessions: Session[]
   currentId?: string
@@ -361,7 +359,7 @@ function SessionCombo({
   onPick: (sid: string) => void
   onNew: () => void
   onReload: () => void
-  iconOnly?: boolean
+  fullWidth?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -383,7 +381,7 @@ function SessionCombo({
   const label = current?.preview || (currentId ? shortSid(currentId) : '새 세션')
   const labelIsPreview = !!current?.preview
   return (
-    <div ref={ref} style={{ position: 'relative', minWidth: 0, flex: 'none' }}>
+    <div ref={ref} style={{ position: 'relative', minWidth: 0, flex: 'none', width: fullWidth ? '100%' : undefined }}>
       <button
         onClick={toggle}
         title="세션 — 과거 대화를 골라 이어서 대화합니다."
@@ -391,21 +389,21 @@ function SessionCombo({
           display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px',
           borderRadius: 8, border: '1px solid ' + (open ? 'var(--color-primary-border)' : 'var(--color-border)'),
           background: open ? 'var(--color-primary-bg)' : 'var(--color-bg-container)',
-          cursor: 'pointer', font: 'inherit', maxWidth: 240, minWidth: 0, transition: 'all .2s',
+          cursor: 'pointer', font: 'inherit', maxWidth: fullWidth ? '100%' : 240, width: fullWidth ? '100%' : undefined,
+          minWidth: 0, transition: 'all .2s',
         }}
       >
         <Icon name="comment" size={13} style={{ color: 'var(--color-text-tertiary)', flex: 'none' }} />
-        {iconOnly ? null : (
         <span
           style={{
             fontSize: 13, fontFamily: labelIsPreview ? undefined : (currentId ? 'var(--font-family-code)' : undefined),
             color: currentId ? 'var(--color-text)' : 'var(--color-text-tertiary)',
-            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: fullWidth ? 1 : undefined,
+            textAlign: 'left',
           }}
         >
           {label}
         </span>
-        )}
         <Icon
           name="down" size={11}
           style={{ color: 'var(--color-text-tertiary)', flex: 'none', transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }}
@@ -536,12 +534,22 @@ function ChatHeader({
   // 쭈그러든다. md만으로는 너무 늦으니 lg부터 컨트롤을 축소(A2A 숨김 + 버튼 아이콘만)해 공간 확보.
   // 또한 인스펙터가 나란히(side-by-side) 열려 있으면 채팅 컬럼이 384px만큼 더 줄어 라벨이 인스펙터로
   // 흘러넘친다(#9). 그래서 인스펙터가 열린 동안엔 폭과 무관하게 항상 compact로 둔다.
-  const compact = !screens.lg || inspectorOpen
+  // 모바일(스펙 132 v2)은 여러 줄 스택이라 라벨 공간이 충분 — compact(라벨 제거)는 **비모바일**
+  // 좁은 데스크톱/인스펙터 병행에만 적용. 사용자 피드백: 아이콘만으로는 버튼 뜻을 알 수 없음.
+  const compact = !isMobile && (!screens.lg || inspectorOpen)
   return (
     <div style={{ flex: 'none', borderBottom: '1px solid var(--color-border-secondary)', background: 'var(--color-bg-container)' }}>
       {/* compact: 버튼 아이콘만(라벨 제거) + A2A 배지 숨김 — 한 줄에 안 들어가 겹치던 문제. */}
-      <div style={{ height: 64, display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 12, padding: isMobile ? '0 12px' : '0 20px' }}>
-        <AgentCombo agent={agent} agents={agents} onSwitch={onSwitchAgent} iconOnly={isMobile} />
+      {/* 모바일(스펙 132 v2 — 사용자 피드백): 아이콘만으로는 무슨 에이전트/세션인지 알 수 없다 →
+          **여러 줄 스택 + 온전한 텍스트**(1줄 에이전트, 2줄 세션, 3줄 도구 라벨·줄바꿈 허용). */}
+      <div
+        style={
+          isMobile
+            ? { display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: 8, padding: '10px 12px' }
+            : { height: 64, display: 'flex', alignItems: 'center', gap: 12, padding: '0 20px' }
+        }
+      >
+        <AgentCombo agent={agent} agents={agents} onSwitch={onSwitchAgent} fullWidth={isMobile} />
         {/* 세션 이어가기(스펙 055): 에이전트 피커 옆에서 과거 세션을 골라 복원. */}
         <SessionCombo
           sessions={sessions}
@@ -550,9 +558,11 @@ function ChatHeader({
           onPick={onPickSession}
           onNew={onResetConversation}
           onReload={onReloadSessions}
-          iconOnly={isMobile}
+          fullWidth={isMobile}
         />
-        <div style={{ flex: 1 }} />
+        {!isMobile && <div style={{ flex: 1 }} />}
+        {/* 도구 줄 — 모바일은 라벨 포함·줄바꿈 허용(flexWrap). */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         {/* mem0 user_id 축은 서버가 로그인 유저에서 도출한다(스펙 032) — 수동 userId 입력은 제거.
             "새 대화"는 userId 잠금에서 분리된 일반 리셋: 진행 중인 대화가 있을 때만 노출. */}
         {canResetConversation && (
@@ -596,6 +606,7 @@ function ChatHeader({
         >
           {compact ? null : '인스펙터'}
         </Button>
+        </div>
       </div>
       {showPrompt ? (
         <div style={{ padding: '0 20px 16px' }}>

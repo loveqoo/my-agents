@@ -1,5 +1,6 @@
-/* 스펙 132 e2e — 플레이그라운드 모바일 컴팩트 헤더(에이전트/세션 트리거가 아이콘만인지),
-   데스크톱 무회귀(이름/미리보기 텍스트 유지)를 두 개의 뷰포트 컨텍스트로 검증한다.
+/* 스펙 132(v2) e2e — 사용자 피드백으로 방향 전환: "아이콘만으론 뭔지 모름" → 모바일 헤더는
+   세로 스택 3줄(1줄 에이전트 전체폭 이름/모델, 2줄 세션 전체폭 라벨, 3줄 도구 버튼 라벨 포함
+   flexWrap)로 온전한 텍스트를 표시한다. 데스크톱은 무변경(한 줄 레이아웃).
    채팅 전송·세션 생성은 하지 않는다(헤더 표면 검증만).
 
    실행: PLAYWRIGHT_DIR=<dir> node tests/browser/shot-mobile-header-132.mjs */
@@ -57,13 +58,13 @@ try {
   await sessionBtn.waitFor({ state: 'visible', timeout: 10000 })
   const headerRow = agentBtn.locator('xpath=../..')
 
-  // M1: 에이전트 트리거에 이름 텍스트 없음(아바타+화살표만 — 텍스트 노드가 아예 없어야 함).
+  // M1(v2 — 반전): 에이전트 트리거에 이름 텍스트 표시(아이콘만이 아니라 온전한 텍스트).
   const agentBtnText = (await agentBtn.innerText()).trim()
-  check(agentBtnText === '', `M1: 에이전트 트리거에 이름 텍스트 없음(실측 트리거 텍스트: "${agentBtnText}")`)
+  check(agentBtnText.length > 0, `M1: 에이전트 트리거에 이름 텍스트 표시(실측: "${agentBtnText.split('\n')[0]}")`)
 
-  // M2: 세션 트리거에 미리보기/세션ID 텍스트 없음(아이콘만).
+  // M2(v2 — 반전): 세션 트리거에 라벨("새 세션" 등) 표시.
   const sessionBtnText = (await sessionBtn.innerText()).trim()
-  check(sessionBtnText === '', `M2: 세션 트리거에 미리보기/세션ID 텍스트 없음(실측 트리거 텍스트: "${sessionBtnText}")`)
+  check(sessionBtnText.length > 0, `M2: 세션 트리거에 라벨 표시(실측: "${sessionBtnText}")`)
 
   // M3: 아바타 탭 → 에이전트 피커 드롭다운 열림 + 화면(390px) 안에 들어옴.
   await agentBtn.click()
@@ -87,11 +88,15 @@ try {
   await sessionBtn.click() // 닫기(토글)
   await mp.waitForTimeout(300)
 
-  // M5: 도구 버튼들(오버라이드/시스템 프롬프트/인스펙터)이 라벨 없이 아이콘만
-  // (헤더 innerText에 라벨 문자열 부재 — title 속성은 있어도 무방).
+  // M5(v2 — 반전): 도구 버튼들(오버라이드/시스템 프롬프트/인스펙터)이 라벨 포함 표시
+  // (헤더 innerText에 라벨 문자열 존재).
   const headerText = await headerRow.innerText()
-  const m5 = !/오버라이드/.test(headerText) && !/시스템 프롬프트/.test(headerText) && !/인스펙터/.test(headerText)
-  check(m5, `M5: 도구 버튼 라벨 없음(실측 헤더 텍스트: "${headerText.replace(/\n/g, ' | ')}")`)
+  const m5 = /오버라이드/.test(headerText) && /시스템 프롬프트/.test(headerText) && /인스펙터/.test(headerText)
+  check(m5, `M5: 도구 버튼 라벨 표시(실측 헤더 텍스트: "${headerText.replace(/\n/g, ' | ')}")`)
+
+  // M6(신규): 헤더 컨테이너에 가로 오버플로 없음 — 세로 스택으로 바뀌며 폭 넘침이 없는지.
+  const scrollWidth = await mp.evaluate(() => document.documentElement.scrollWidth)
+  check(scrollWidth <= 390, `M6: 가로 오버플로 없음(document.documentElement.scrollWidth=${scrollWidth} <= 390)`)
 
   await mp.screenshot({ path: OUT_MOBILE, fullPage: false })
   console.log('shot:', OUT_MOBILE)
@@ -113,14 +118,19 @@ try {
   await agentBtn.waitFor({ state: 'visible', timeout: 15000 })
   const sessionBtn = dp.getByTitle(/^세션/)
   await sessionBtn.waitFor({ state: 'visible', timeout: 10000 })
+  const headerRow = agentBtn.locator('xpath=../..')
 
   // D1: 에이전트 트리거에 이름 텍스트 표시(무회귀).
   const agentBtnText = (await agentBtn.innerText()).trim()
   check(agentBtnText.length > 0, `D1: 에이전트 트리거에 이름 텍스트 표시(실측: "${agentBtnText.split('\n')[0]}")`)
 
-  // D2: 세션 트리거에 라벨("새 세션" 또는 미리보기) 표시.
+  // D2: 세션 트리거에 라벨("새 세션" 또는 미리보기) 표시 + 한 줄 레이아웃(헤더 높이 < 80px —
+  // 모바일 v2의 세로 스택과 달리 무회귀 확인).
   const sessionBtnText = (await sessionBtn.innerText()).trim()
   check(sessionBtnText.length > 0, `D2: 세션 트리거에 라벨 표시(실측: "${sessionBtnText}")`)
+  const headerBox = await headerRow.boundingBox()
+  const oneLine = !!headerBox && headerBox.height < 80
+  check(oneLine, `D2b: 데스크톱 헤더 한 줄 레이아웃(무회귀 — 세로 스택 아님, 실측 헤더 높이 ${headerBox?.height}px < 80)`)
 
   await dp.screenshot({ path: OUT_DESKTOP, fullPage: false })
   console.log('shot:', OUT_DESKTOP)
