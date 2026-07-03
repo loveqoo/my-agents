@@ -388,6 +388,7 @@ export interface MemorySearchDiag {
   error: string | null // 미설정/초기화실패/검색예외(정제·마스킹). 정상이면 null
   scope: string
   count: number
+  stored?: number | null // 스코프 저장 건수(스펙 158) — 저장>0인데 회상 0이면 유사도/임베더 문제
 }
 export interface MemorySearchOut {
   query: string

@@ -218,6 +218,7 @@ async def search_user_memory(
             error=d["error"],
             scope=user_id,
             count=len(results),
+            stored=d.get("stored"),  # 스코프 저장 건수(스펙 158)
         ),
     )
 

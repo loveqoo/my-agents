@@ -847,6 +847,7 @@ async def search_agent_memory(
             error=d["error"],
             scope=agent.agent_id,
             count=len(results),
+            stored=d.get("stored"),  # 스코프 저장 건수(스펙 158) — 유저 라우트와 동형(codex Med)
         ),
     )
 

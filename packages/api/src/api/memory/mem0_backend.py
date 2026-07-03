@@ -100,18 +100,26 @@ class Mem0Backend:
         self._dsn = _sync_dsn(os.environ.get("DATABASE_URL", "postgresql+asyncpg://agent:agent@localhost:5432/agents"))
         log.info("mem0 initialized (registry models)")
 
-    def search(self, scope: dict, query: str, limit: int) -> list[dict]:
+    def search(self, scope: dict, query: str, limit: int, threshold: float | None = None) -> list[dict]:
         axes = scope_axes(scope)
         if not query or not axes:
             return []
         merged: dict[str, dict] = {}
+        ok_axes = 0  # 예외 없이 반환한 축 수([]도 성공) — 성공 0이면 전 축 실패로 판단(스펙 158)
+        last_exc: Exception | None = None
+        # threshold(스펙 158): 명시하면 mem0의 숨은 기본(0.1)을 덮는다. 0.0=관련도순 top-k 점수무관.
+        extra = {} if threshold is None else {"threshold": threshold}
         for axis, val in axes:
             try:
                 # mem0 2.0.7 search는 top_k= 를 받는다(limit=는 **kwargs로 삼켜져 무시됨, 기본 20 → 과다 fetch).
-                res = self._mem.search(query=query, filters={axis: val}, top_k=limit)
-            except Exception as exc:
-                log.warning("mem0 search failed (%s): %s", axis, exc)
+                res = self._mem.search(query=query, filters={axis: val}, top_k=limit, **extra)
+            except Exception as exc:  # noqa: BLE001 — 축별 격리하되 전 축 실패는 아래서 raise
+                # 타입명만 로그(스펙 158, codex High) — 예외 메시지에 임베더 api_key/base_url이 섞일 수
+                # 있어 raw를 로그하면 비밀이 샌다. 마스킹된 상세는 recall_diag 응답(error)이 담는다.
+                log.warning("mem0 search failed (%s): %s", axis, type(exc).__name__)
+                last_exc = exc
                 continue
+            ok_axes += 1
             rows = res.get("results", res) if isinstance(res, dict) else res
             for r in rows or []:
                 text = r.get("memory") or r.get("text") or ""
@@ -121,6 +129,10 @@ class Mem0Backend:
                 prev = merged.get(key)
                 if prev is None or score > prev["score"]:
                     merged[key] = {"type": "semantic", "text": text, "score": score, "scope": axis}
+        # 전 축이 예외로 실패(성공 축 0)면 던진다 — 진단이 "정상·0건"으로 위장 못 하게(스펙 158, M1).
+        # 부분 성공(≥1 축 반환, []도 성공)은 견고하게 결과 반환(정직한 0건은 raise 안 함, M2 오탐 방지).
+        if ok_axes == 0 and last_exc is not None:
+            raise last_exc
         hits = sorted(merged.values(), key=lambda h: h["score"], reverse=True)
         return hits[:limit]
 

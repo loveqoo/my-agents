@@ -699,9 +699,17 @@ class MemoryProvider:
         async with self._session_factory() as db:
             mem_cfg = await default_mem_cfg(db)
         # recall_probe: 백엔드 *가용성*을 결과와 구분(None=미가용). 챗 경로 `search`와 코어 공유(drift 0).
-        hits = await asyncio.to_thread(
-            memory.recall_probe, {"user_id": self._user_id}, text, mem_cfg, limit
-        )
+        # 스펙 158: 전 축 검색 실패는 recall_probe가 던진다 → 여기서 잡아 error로 표면화([]로 접으면
+        # "실패를 0건으로 위장"이 재발). invoke 자체는 안 죽고(런타임 견고) error 필드로 정직히 알린다.
+        try:
+            hits = await asyncio.to_thread(
+                memory.recall_probe, {"user_id": self._user_id}, text, mem_cfg, limit
+            )
+        except Exception as exc:  # noqa: BLE001 — 실행 실패를 error로(0건 위장 금지)
+            return InvokeResult(
+                text="", trust="untrusted",
+                error=f"메모리 회상 실행 실패({type(exc).__name__}).", raw=raw,
+            )
         if hits is None:
             return InvokeResult(
                 text="", trust="untrusted",

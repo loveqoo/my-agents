@@ -28,6 +28,7 @@ export interface SearchDiag {
   error: string | null
   scope: string
   count: number
+  stored?: number | null // 스코프 저장 건수(스펙 158, 메모리 전용) — 저장>0인데 회상 0이면 유사도/임베더 문제
 }
 
 /** onSearch 정규화 반환 — enabled는 "백엔드 가용성"(메모리는 실제 값, 컬렉션은 항상 true). */
@@ -77,6 +78,8 @@ function DiagPanel({ diag }: { diag: SearchDiag }) {
               {row('임베딩 모델', diag.embedderModel ?? '(미설정)')}
               {row('LLM 모델', diag.llmModel ?? '(미설정)')}
               {row('스코프', diag.scope, true)}
+              {/* 저장 건수(스펙 158) — 저장>0인데 회상 0이면 유사도/임베더 문제 신호(진단 error도 함께). */}
+              {diag.stored != null ? row('저장 건수', String(diag.stored)) : null}
               {row('회상 건수', String(diag.count))}
               {row('백엔드', diag.configured ? (diag.backendReady ? '준비됨' : '초기화 실패') : '미구성')}
             </div>

@@ -13,9 +13,12 @@ mem_cfg = {"llm": {base_url, api_key, model_id}, "embedder": {base_url, api_key,
 백엔드 선택은 `MEMORY_BACKEND` env(기본 "mem0"). 지배 스펙: 007/008/019/020/040.
 """
 
+import logging
 import re as _re
 
 from .backend import MemoryBackend, resolve_backend, scope_axes  # noqa: F401  (재노출)
+
+_log = logging.getLogger("api.memory")
 
 # 카탈로그에서 mem0 장기 메모리를 켜는 토글 이름(seed.py MEMORY_TYPES와 동일해야 함).
 LONG_TERM_MEMORY = "장기 기억 (mem0)"
@@ -27,9 +30,20 @@ def memory_enabled(memories: list[str]) -> bool:
 
 
 def search(scope: dict, query: str, mem_cfg: dict | None, limit: int = 4) -> list[dict]:
-    """관련 메모리 top-k. [{type, text, score, scope}]. 무력화/실패 시 []."""
+    """관련 메모리 top-k(챗 회상). [{type, text, score, scope}]. 무력화/실패 시 [].
+
+    챗 경로는 **견고**해야 한다(회상 실패가 대화 턴을 500내면 안 됨) — backend.search가 전 축 실패로
+    던지면(스펙 158) 여기서 흡수해 []. 실패의 *표면화*는 진단(recall_diag)·브로커(InvokeResult.error)
+    담당이고, 챗은 조용히 회상 없이 진행한다."""
     backend = resolve_backend(mem_cfg)
-    return backend.search(scope, query, limit) if backend else []
+    if not backend:
+        return []
+    try:
+        return backend.search(scope, query, limit)
+    except Exception as exc:  # noqa: BLE001 — 챗 회상은 견고(무회귀)
+        # 타입명만 로그(스펙 158, codex High) — 예외 메시지에 임베더 비밀이 섞일 수 있어 raw 금지.
+        _log.warning("memory.search failed — chat recall skipped: %s", type(exc).__name__)
+        return []
 
 
 def format_memory_hits(hits: list[dict]) -> str:
@@ -53,7 +67,11 @@ def recall_probe(scope: dict, query: str, mem_cfg: dict | None, limit: int = 4) 
     가용 → top-k 리스트(limit로 방어적 슬라이스). `search`가 두 경우를 모두 []로 뭉개는 것과 다르다:
     시험 도구가 *구성됐으나 깨진* 백엔드를 "기억 없음(빈 results)"으로 오인하면 진단이 거짓이 된다
     (적대 리뷰 084 P2a). 호출자는 `hits is None`으로 enabled=False를, `[]`로 "가용·회상 0건"을
-    구분한다. chat 경로(`search`)는 무변경 — drift 0."""
+    구분한다. chat 경로(`search`)는 무변경 — drift 0.
+
+    스펙 158: backend.search가 전 축 실패로 **던지면 그대로 전파**한다(여기선 안 삼킴). 브로커
+    `invoke`가 이 예외를 잡아 `InvokeResult.error`로 표면화한다 — []로 접으면 recall_probe가 막으려던
+    "실패를 0건으로 위장"이 재발하기 때문(None=미가용 / []=가용·0건 / raise=실행 실패 3분기)."""
     backend = resolve_backend(mem_cfg)
     if backend is None:
         return None
@@ -123,6 +141,7 @@ def recall_diag(scope: dict, query: str, mem_cfg: dict | None, limit: int = 4) -
         "llm_model": _model_id(llm),
         "error": None,
         "results": [],
+        "stored": None,  # 스코프 저장 건수(스펙 158) — 저장>0인데 회상 0이면 유사도/임베더 문제 신호
     }
     # resolve_backend가 **가용성의 단일 권위**(recall_probe와 동일 경로 — configured로 조기반환하면
     # resolve_backend를 우회해 계약이 갈린다). 항상 호출하고, configured는 error *문구 선택*에만 쓴다.
@@ -140,11 +159,28 @@ def recall_diag(scope: dict, query: str, mem_cfg: dict | None, limit: int = 4) -
         )
         return diag
     diag["backend_ready"] = True
+    # 스코프 저장 건수(스펙 158) — count(*)로 싸게(list_all은 최대 1만행 페치라 금지). 저장>0인데 회상 0이면
+    # 유사도<임계·임베더/벡터공간 문제 신호. 카운트 실패는 진단을 막지 않음(None 유지).
+    try:
+        diag["stored"] = int(backend.list_page(scope, None, 1, 0).get("total", 0))
+    except Exception:  # noqa: BLE001 — 카운트는 보조 신호(실패해도 회상 진단 진행)
+        diag["stored"] = None
     try:
         n = _clamp_limit(limit)
-        diag["results"] = backend.search(scope, query, n)[:n]
-    except Exception as exc:  # noqa: BLE001 — 검색 중 예외(임베더 호출 실패 등)를 500 대신 진단으로
+        # threshold=0.0(스펙 158): UI 약속("관련도 내림차순 상위 기억")대로 top-k를 점수 무관 표시한다.
+        # mem0의 숨은 기본 0.1이 저유사도(arctic query-prefix 미주입·약한 질의 등)를 전부 컷해 "정상·0건"
+        # 위장을 만들던 것을 종료 — 낮은 점수까지 보여 사용자가 원인(임베더/질의 유사도)을 자가진단.
+        diag["results"] = backend.search(scope, query, n, threshold=0.0)[:n]
+    except Exception as exc:  # noqa: BLE001 — 전 축 실패(임베더 호출 등)를 500 대신 진단 error로(M1 표면화)
         diag["error"] = "검색 실행 실패: " + _sanitize(exc, secrets=secrets)
+        return diag
+    # 정직한 0건 진단(스펙 158): 예외는 없는데 저장>0·회상0이면 유사도/필터/벡터공간 심층 문제.
+    if not diag["results"] and diag["stored"]:
+        diag["error"] = (
+            f"스코프에 {diag['stored']}건이 저장돼 있으나 회상 0건입니다 — 질의-기억 유사도가 매우 낮거나"
+            "(질의 어휘·임베더 query prefix 문제), 저장 시 임베더와 현재 임베더가 달라 벡터공간이"
+            " 어긋났을 수 있습니다(다르면 재인덱싱 필요). 필터 축 불일치도 확인하세요."
+        )
     return diag
 
 

@@ -35,8 +35,12 @@ class MemoryBackend(Protocol):
     메모리가 없어도 채팅·관리가 동작하게 한다(스펙 019).
     """
 
-    def search(self, scope: dict, query: str, limit: int) -> list[dict]:
-        """스코프 합집합 top-k. [{type, text, score, scope}]. 빈 질의/스코프·실패 시 []."""
+    def search(self, scope: dict, query: str, limit: int, threshold: float | None = None) -> list[dict]:
+        """스코프 합집합 top-k. [{type, text, score, scope}]. 빈 질의/스코프 시 [].
+
+        threshold(스펙 158): None=백엔드 기본(mem0는 0.1을 숨겨 상속). 0.0=관련도순 top-k를 점수
+        무관 반환(회상 테스트가 UI 약속 "관련도 내림차순 상위"대로 보여주려고 씀). **전 축이 예외로
+        실패하면 예외를 던진다**(진단이 실패를 0건으로 위장 못 하게 — graceful은 파사드가 흡수)."""
         ...
 
     def add(self, scope: dict, messages: list[dict], infer: bool) -> None:

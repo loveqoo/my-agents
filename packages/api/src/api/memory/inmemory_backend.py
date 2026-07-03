@@ -38,7 +38,8 @@ class InMemoryBackend:
     def _matches(self, rec: dict, axis: str, val: str) -> bool:
         return rec["axes"].get(axis) == val
 
-    def search(self, scope: dict, query: str, limit: int) -> list[dict]:
+    def search(self, scope: dict, query: str, limit: int, threshold: float | None = None) -> list[dict]:
+        # threshold(스펙 158): 부분일치 백엔드는 벡터 점수가 없어 무시(계약 시그니처만 맞춤).
         axes = scope_axes(scope)
         if not query or not axes:
             return []

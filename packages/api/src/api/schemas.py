@@ -202,6 +202,7 @@ class MemorySearchDiag(BaseModel):
     error: str | None = None  # 미설정/초기화 실패/검색 예외(정제·마스킹). 정상이면 None
     scope: str  # 질의 스코프(user_id 등)
     count: int  # 회상 건수
+    stored: int | None = None  # 스코프 저장 건수(스펙 158) — 저장>0인데 회상 0이면 유사도/임베더 문제
 
 
 class MemorySearchOut(BaseModel):
