@@ -320,15 +320,22 @@ class Mem0Backend:
             f"ORDER BY {order_ts} DESC NULLS LAST, id LIMIT %s OFFSET %s"
         )
         sql_total = f"SELECT count(*) FROM {_MEM_TABLE} WHERE {where}"  # noqa: S608
-        with psycopg.connect(self._dsn) as conn, conn.cursor() as cur:
-            cur.execute(sql_total, params)
-            total = int(cur.fetchone()[0])
-            cur.execute(sql_items, [*params, n, off])
-            items = [
-                {"id": str(r[0]), "text": r[1] or "", "created_at": r[2], "updated_at": r[3]}
-                for r in cur.fetchall()
-            ]
-        return {"items": items, "total": total}
+        try:
+            with psycopg.connect(self._dsn) as conn, conn.cursor() as cur:
+                cur.execute(sql_total, params)
+                total = int(cur.fetchone()[0])
+                cur.execute(sql_items, [*params, n, off])
+                items = [
+                    {"id": str(r[0]), "text": r[1] or "", "created_at": r[2], "updated_at": r[3]}
+                    for r in cur.fetchall()
+                ]
+            return {"items": items, "total": total}
+        except psycopg.errors.UndefinedTable:
+            # mem0_memories는 mem0가 첫 저장 시 lazy 생성한다(스펙 162). 리셋/신규 DB에서 아직 아무
+            # 기억도 안 들어왔으면 테이블이 없다 = 진짜 "0건"(실패 아님). "실패≠0건"(스펙 158)은 유지 —
+            # 다른 예외(연결·문법 등)는 그대로 던져 502로 표면화. UndefinedTable만 정직한 empty로.
+            # 읽기 경로는 테이블을 생성하지 않는다(부수효과 0) — 첫 저장 때 mem0가 만든다.
+            return {"items": [], "total": 0}
 
     def update(self, mem_id: str, text: str) -> bool:
         if not mem_id:
