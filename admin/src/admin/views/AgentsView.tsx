@@ -1195,8 +1195,8 @@ function AgentDetail({
           on={!!agent.exposed.a2a}
           onChange={() => onToggleExpose(agent)}
           label="A2A로 공개"
-          onText="공개 · 다른 에이전트가 호출 가능"
-          offText="비공개 · 노출되지 않음"
+          onText="public · 다른 에이전트가 호출 가능"
+          offText="private · 노출되지 않음"
         />
       </div>
 
@@ -1623,8 +1623,8 @@ export default function AgentsView({ onOpenPlayground }: { onOpenPlayground?: (a
     },
     {
       key: 'exposed',
-      width: '12%',
-      title: 'A2A 공개', // 라벨 혼동 교정(공용=소유권과 구분)
+      width: '10%',
+      title: 'A2A', // 프로토콜을 켬=공개 — 라벨 간결화(사용자 피드백)
       render: (a) =>
         // A2A 노출은 로컬(ui) 에이전트만 — 원격(code)·외부(external)는 이미 원격 A2A/프록시라 재노출 불가(스펙 083).
         a.source !== 'ui' ? (
@@ -1633,7 +1633,7 @@ export default function AgentsView({ onOpenPlayground }: { onOpenPlayground?: (a
           <span onClick={(e) => e.stopPropagation()} style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
             <Switch size="small" checked={!!a.exposed.a2a} onChange={() => toggleExpose(a)} />
             <span style={{ fontSize: 12, color: a.exposed.a2a ? 'var(--color-success)' : 'var(--color-text-tertiary)' }}>
-              {a.exposed.a2a ? 'A2A' : '꺼짐'}
+              {a.exposed.a2a ? 'public' : 'private'}
             </span>
           </span>
         ),
@@ -1716,9 +1716,9 @@ export default function AgentsView({ onOpenPlayground }: { onOpenPlayground?: (a
           style={{ width: 140 }}
           options={[
             { value: 'all', label: '소유: 전체' },
-            { value: 'shared', label: '공용' },
-            { value: 'mine', label: '내 소유' },
-            { value: 'others', label: '다른 사용자' },
+            { value: 'shared', label: 'shared (공용)' },
+            { value: 'mine', label: 'private (내 소유)' },
+            { value: 'others', label: 'private · 타인' },
           ]}
         />
         <Select
@@ -1727,9 +1727,9 @@ export default function AgentsView({ onOpenPlayground }: { onOpenPlayground?: (a
           style={{ width: 130 }}
           options={[
             { value: 'all', label: '소스: 전체' },
-            { value: 'ui', label: 'UI 구성' },
-            { value: 'code', label: '코드' },
-            { value: 'external', label: '외부' },
+            { value: 'ui', label: 'internal (UI 구성)' },
+            { value: 'code', label: 'internal (code)' },
+            { value: 'external', label: 'external' },
           ]}
         />
         <Select
@@ -1749,12 +1749,24 @@ export default function AgentsView({ onOpenPlayground }: { onOpenPlayground?: (a
         <Popover
           title="태그 안내"
           content={
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13, maxWidth: 340 }}>
-              <div><Tag>공용</Tag><Tag color="blue">내 소유</Tag><Tag color="orange">다른 사용자</Tag> 소유권 — 관리(편집·삭제)는 소유자만, 사용은 모두</div>
-              <div><Tag color="geekblue">코드</Tag><Tag color="purple">외부</Tag> 만든 방식 — 표시가 없으면 이 콘솔에서 만든 것(UI 구성)</div>
-              <div><Tag color="red">설정 오류</Tag><Tag color="gold">비준수</Tag> 문제가 있을 때만 표시(정상이면 없음)</div>
-              <div><Tag color="cyan">MCP 이름</Tag><Tag color="geekblue">rag:컬렉션</Tag> 연결된 도구·문서</div>
-              <div>상태(온라인·유휴)는 최근 사용 여부, A2A 공개는 다른 에이전트의 호출 허용입니다.</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 13, maxWidth: 360 }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
+                <Tag>shared</Tag><Tag color="blue">private</Tag><Tag color="orange">private · 타인</Tag>
+                <span>소유 — shared=모두의 공용, private=개인 소유(관리는 소유자만)</span>
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
+                <Tag color="geekblue">code</Tag><Tag color="purple">external</Tag>
+                <span>출처 — 없으면 internal(이 콘솔 제작). external은 항상 공개·공용</span>
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
+                <Tag color="red">설정 오류</Tag><Tag color="gold">비준수</Tag>
+                <span>문제가 있을 때만 표시</span>
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
+                <Tag color="cyan">MCP 이름</Tag><Tag color="geekblue">rag:컬렉션</Tag>
+                <span>연결된 도구·문서</span>
+              </div>
+              <div>상태(온라인·유휴)=최근 사용 여부 · A2A 스위치=public(호출 허용)/private</div>
             </div>
           }
         >
