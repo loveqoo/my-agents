@@ -1,7 +1,7 @@
 /* my-agents debug console — right rail: per-turn Inspector.
    Shows the resolved system prompt, retrieved memories, MCP tool calls and the
    LangGraph execution path for the currently-selected assistant turn. */
-import { useState, type CSSProperties, type ReactNode } from 'react'
+import { useState, useEffect, type CSSProperties, type ReactNode } from 'react'
 import { Tag, Button, Collapse } from 'antd'
 import { Icon } from '../admin/icons'
 import type { ChatMsg, Memory, McpCallT, GraphNode, Trace } from './agentData'
@@ -257,6 +257,16 @@ export function Inspector({
   onClose?: () => void
   fullWidth?: boolean
 }) {
+  // Escape 닫기(스펙 135) — 모바일은 불투명 전체화면 오버레이라 X 하나에 의존하던 것을 보완.
+  // 훅은 early-return 이전에 무조건 호출(규칙).
+  useEffect(() => {
+    if (!onClose) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onClose])
   if (!agent) return null
   const t: Trace | undefined = turn && turn.role === 'ai' ? turn.trace : undefined
   const empty = !t

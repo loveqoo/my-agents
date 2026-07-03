@@ -288,6 +288,16 @@ export function Drawer({
   const screens = Grid.useBreakpoint()
   const isMobile = screens.md === false
   const bodyPad = isMobile ? 16 : 24
+  // Escape 닫기(스펙 135) — antd Drawer와 거동 통일. 모바일은 패널이 100% 폭이라 마스크 탭이
+  // 불가해(구조상) X 하나에 의존하던 것을 보완.
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose?.()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [open, onClose])
   // 래퍼 overflow:hidden — 닫힘 시 패널이 translateX(100%)로 화면 밖 오른쪽에 머물며
   // 가로 스크롤을 만들던 문제 차단. 열림 시 패널은 경계 안.
   // position **fixed**(128 중 사용자 신고 수정) — 이전 absolute는 스크롤 컨테이너(Content) 좌표계라,
