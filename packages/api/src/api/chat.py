@@ -699,6 +699,14 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
     # 스펙 068: resume 바인딩에 067과 *동일한* 소유자 스코프를 주입(단일 출처 _own_scope 재사용).
     # 비-admin이 타인/추측 session_id를 줘도 매칭 실패 → 새 세션(열거 오라클·소유권 탈취 봉인).
     own = _own_scope(principal)
+    # 사용 게이트(스펙 147): private 에이전트는 소유자·특권만 — 목록에서 안 보이는 존재이므로
+    # 404-fold(068 — 403으로 존재를 알려주지 않는다).
+    from .models import Agent as _AgentRow
+    from .ownership import may_use_agent
+    async with SessionLocal() as _s:
+        _arow = await _s.get(_AgentRow, agent_id)
+    if _arow is None or not may_use_agent(_arow, principal):
+        raise HTTPException(status_code=404, detail="agent not found")
     ctx = await _load_context(agent_id, body.sessionId, body.overrides, own=own)
     user_text = body.messages[-1].content if body.messages else ""
 

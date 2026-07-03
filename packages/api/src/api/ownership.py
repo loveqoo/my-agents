@@ -131,3 +131,17 @@ def owner_scope_filter(column, user_id: str | None, is_privileged: bool):
         from sqlalchemy import false
         return false()
     return column == user_id
+
+
+def may_use_agent(agent, principal) -> bool:
+    """에이전트 **사용**(채팅·목록 노출) 게이트 — 스펙 147 트리:
+    public(owner 없음)=모두, private(owner 있음)=소유자·특권만, external=항상(가져다 쓰는 것).
+    관리(may_manage)와 축이 다르다 — public은 모두 사용하지만 관리는 특권만."""
+    if getattr(agent, "source", "ui") == "external":
+        return True
+    owner = getattr(agent, "owner_id", None)
+    if owner is None:
+        return True  # public
+    if is_privileged(principal):
+        return True
+    return owner_of(principal) == owner

@@ -64,11 +64,12 @@ export function StatusPill({ color, label }: { color: string; label: ReactNode }
 
 /* 소유 표시 태그(스펙 114) — owner_id·can_manage로 파생. 백엔드가 판정을 소유하므로(learning 113)
    프론트는 재계산 없이 표시만: null=공유, 관리 불가=다른 사용자, 관리 가능+소유=null(태그 없음). */
-export function OwnerTag({ ownerId, canManage }: { ownerId?: string | null; canManage?: boolean }) {
-  // 영어 태그 체계(스펙 146 — 사용자 계위): shared(공용) / private(내 소유) / private·타인.
-  // 3상태 전부 명시 — 무표시는 규칙을 숨긴다.
-  if (ownerId == null) return <Tag>shared</Tag>
-  if (canManage === false) return <Tag color="orange">private · 타인</Tag>
+export function OwnerTag({ ownerId, canManage, meId }: { ownerId?: string | null; canManage?: boolean; meId?: string }) {
+  // 최소 어휘(스펙 147): public/private/private·타인. '타인' 판정은 meId 비교 우선 —
+  // can_manage는 admin에게 항상 true라 admin 시야에서 타인 구분이 사라진다(e2e 147 실측).
+  if (ownerId == null) return <Tag>public</Tag>
+  const others = meId !== undefined ? ownerId !== meId : canManage === false
+  if (others) return <Tag color="orange">private · 타인</Tag>
   return <Tag color="blue">private</Tag>
 }
 

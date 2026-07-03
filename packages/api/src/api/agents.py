@@ -38,7 +38,7 @@ from .schemas import (
 )
 from . import agent_card, crypto, net_guard
 from .auth import current_principal
-from .ownership import assert_may_manage, may_manage, owner_of
+from .ownership import may_use_agent, assert_may_manage, may_manage, owner_of
 from .serializers import agent_to_out
 
 router = APIRouter(prefix="/agents", tags=["agents"])
@@ -113,7 +113,12 @@ async def list_agents(
     principal=Depends(current_principal),
 ) -> list[AgentOut]:
     result = await session.execute(select(Agent).options(selectinload(Agent.versions)))
-    outs = [agent_to_out(a) for a in result.scalars().all()]
+    rows = result.scalars().all()
+    # 가시성(스펙 147): private(owner 있음)는 소유자·특권만 목록에서 본다(external은 항상).
+    # 플레이그라운드도 이 목록을 쓰므로 자동 적용. admin/machine은 전부(관리 시야).
+    from .ownership import may_use_agent
+    rows = [a for a in rows if may_use_agent(a, principal)]
+    outs = [agent_to_out(a) for a in rows]
     for o in outs:  # 스펙 114 — 관리 가능 여부를 각 객체에 실어 UI가 버튼 표시를 파생
         o.can_manage = may_manage(o.owner_id, principal)
     return outs
@@ -126,7 +131,9 @@ async def get_agent(
     principal=Depends(current_principal),
 ) -> AgentOut:
     agent = await _load_agent(session, agent_id)
-    if agent is None:
+    if agent is None or not may_use_agent(agent, principal):
+        # 사용 게이트(스펙 147, codex High#1) — 타인 private는 UUID를 알아도 미존재와 동일(404-fold,
+        # 068: systemPrompt·config가 단건 응답에 실리므로 목록만 막으면 열람 우회).
         raise HTTPException(status_code=404, detail="agent not found")
     out = agent_to_out(agent)
     out.can_manage = may_manage(out.owner_id, principal)  # 스펙 114
@@ -173,7 +180,9 @@ async def clone_agent(
     **읽기+새 생성**이라 원본 *관리 권한 불요*(가시하면 복제 가능 — 사용≠관리, 스펙 112). 소유권은
     **복제자**에게 스탬프(원본 소유자 승계 금지 — 069 no-takeover). 미존재/미가시 원본은 404-fold."""
     src = await _load_agent(session, agent_id)
-    if src is None:
+    if src is None or not may_use_agent(src, principal):
+        # codex High#2 — 타인 private를 복제하면 설정(페르소나·능력)이 내 소유로 유출되고
+        # 복제본 채팅으로 사용 게이트가 무력화된다. "가시하면 복제"의 가시=may_use(147 이후).
         raise HTTPException(status_code=404, detail="agent not found")
     cfg = dict(src.config or {})
     cfg.pop("card", None)  # 외부 등록 스냅샷은 복사 안 함(ui 복제=행위 설정만; endpoint/token은 Agent 컬럼이라 애초 미복사)
@@ -376,6 +385,10 @@ async def expose_agent(
         raise HTTPException(status_code=404, detail="agent not found")
     assert_may_manage(agent, principal, not_found_detail="agent not found")  # 소유자/특권만(스펙 112)
 
+    if body.a2a and agent.owner_id is not None:
+        # 트리 불변식(스펙 147): private(소유자 전용) 에이전트는 A2A 공유가 성립하지 않는다 —
+        # 소유자만 쓰는 걸 다른 에이전트가 호출하게 열면 사용 게이트가 뚫린다. 끄기는 항상 허용.
+        raise HTTPException(status_code=400, detail="private 에이전트는 A2A를 켤 수 없습니다 (public만 가능)")
     if body.a2a and agent.source != "ui":
         # 원격(code)·외부(external)는 이미 원격 A2A/프록시 — 우리 A2A로 재노출은 proxy-of-proxy(스펙 083).
         # A2A 서버(a2a_server._load_exposed_ui_agent)도 non-ui면 404라 노출해도 dead state. 입구에서 거부.
@@ -651,10 +664,12 @@ class AgentMemoryIn(BaseModel):
     text: str
 
 
-async def _agent_mem_cfg(session: AsyncSession, agent_id: uuid.UUID):
-    """에이전트 + agent_id 메모리용 mem_cfg 확보. 메모리 미가용이면 (agent, None)."""
+async def _agent_mem_cfg(session: AsyncSession, agent_id: uuid.UUID, principal=None):
+    """에이전트 + agent_id 메모리용 mem_cfg 확보. 메모리 미가용이면 (agent, None).
+    principal 전달 시 사용 게이트(스펙 147, codex High#3) — 타인 private의 기억 읽기/검색 차단
+    (쓰기/삭제는 assert_may_manage가 이미 막지만 읽기가 무게이트였다). 404-fold."""
     agent = await session.get(Agent, agent_id)
-    if agent is None:
+    if agent is None or (principal is not None and not may_use_agent(agent, principal)):
         raise HTTPException(status_code=404, detail="agent not found")
     mem_cfg = await resolve_agent_mem_cfg(session, agent)
     return agent, mem_cfg
@@ -673,10 +688,11 @@ async def _assert_owns(agent, mem_id: str, mem_cfg) -> None:
 
 @router.get("/{agent_id}/memory")
 async def list_agent_memory(
-    agent_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+    agent_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+    principal=Depends(current_principal),
 ) -> list[dict]:
     """에이전트 전용(agent_id) 기억 목록. 메모리 미가용이면 빈 목록(graceful)."""
-    agent, mem_cfg = await _agent_mem_cfg(session, agent_id)
+    agent, mem_cfg = await _agent_mem_cfg(session, agent_id, principal)
     if mem_cfg is None:
         return []
     return await asyncio.to_thread(
@@ -691,12 +707,13 @@ async def page_agent_memory(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0, le=1_000_000),
     session: AsyncSession = Depends(get_session),
+    principal=Depends(current_principal),
 ) -> MemoryPageOut:
     """에이전트 기억 페이지 목록(스펙 127) — 서버 페이지네이션 + 부분일치(q).
 
-    소유권: 기존 agent-memory CRUD와 동일 router-auth, 스코프(agent_id)는 백엔드가 SQL WHERE로.
+    소유권: 사용 게이트(147) + 스코프(agent_id)는 백엔드가 SQL WHERE로.
     미구성 → enabled=False. 백엔드 실패 → 502(빈 목록 위장 금지, learning 125)."""
-    agent, mem_cfg = await _agent_mem_cfg(session, agent_id)
+    agent, mem_cfg = await _agent_mem_cfg(session, agent_id, principal)
     try:
         page = await asyncio.to_thread(
             memory.list_page, {"agent_id": agent.agent_id}, q, mem_cfg, limit, offset
@@ -717,13 +734,14 @@ async def page_agent_memory(
 
 @router.post("/{agent_id}/memory/search", response_model=MemorySearchOut)
 async def search_agent_memory(
-    agent_id: uuid.UUID, body: MemorySearchIn, session: AsyncSession = Depends(get_session)
+    agent_id: uuid.UUID, body: MemorySearchIn, session: AsyncSession = Depends(get_session),
+    principal=Depends(current_principal),
 ) -> MemorySearchOut:
     """회상 시험(스펙 084) — 챗과 동일한 공유 코어 `memory.search`로 agent_id 스코프 회상.
 
-    에이전트 메모리는 유저 축이 아니라 기존 agent-memory CRUD처럼 router-auth만(새 principal 게이트
-    없음). 스코프 dict가 mem0 filter로 들어가 이 에이전트 기억만 로드. 미구성이면 enabled=False·빈결과."""
-    agent, mem_cfg = await _agent_mem_cfg(session, agent_id)
+    사용 게이트(147) 적용. 스코프 dict가 mem0 filter로 들어가 이 에이전트 기억만 로드.
+    미구성이면 enabled=False·빈결과."""
+    agent, mem_cfg = await _agent_mem_cfg(session, agent_id, principal)
     # recall_diag(스펙 125): 미가용 사유(미설정/초기화실패/검색예외)를 구조화(예외 안 던짐).
     # enabled=backend_ready로 기존 계약 유지(깨진 백엔드를 "회상 0건"으로 위장 안 함, 084 P2a).
     d = await asyncio.to_thread(

@@ -1195,8 +1195,8 @@ function AgentDetail({
           on={!!agent.exposed.a2a}
           onChange={() => onToggleExpose(agent)}
           label="A2A로 공개"
-          onText="public · 다른 에이전트가 호출 가능"
-          offText="private · 노출되지 않음"
+          onText="켬 · 다른 에이전트가 호출 가능"
+          offText="꺼짐 · 노출되지 않음"
         />
       </div>
 
@@ -1257,7 +1257,7 @@ function AgentDetail({
 }
 
 /* ---- Main view ---- */
-export default function AgentsView({ onOpenPlayground }: { onOpenPlayground?: (agentRowId: string) => void }) {
+export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlayground?: (agentRowId: string) => void; meId?: string }) {
   const [agents, setAgents] = useState<Agent[]>([])
   const [blocks, setBlocks] = useState<Record<string, BlockCategory>>({})
   const [models, setModels] = useState<Model[]>([])
@@ -1500,10 +1500,14 @@ export default function AgentsView({ onOpenPlayground }: { onOpenPlayground?: (a
   }
 
   const q = query.trim().toLowerCase()
-  const ownerKind = (a: Agent) => (a.owner_id == null ? 'shared' : a.can_manage === false ? 'others' : 'mine')
+  // '타인' 판정은 meId 비교(admin은 can_manage가 늘 true — e2e 147 실측 결함 교정)
+  const ownerKind = (a: Agent) =>
+    a.owner_id == null ? 'shared' : meId !== undefined ? (a.owner_id === meId ? 'mine' : 'others') : a.can_manage === false ? 'others' : 'mine'
   const visibleAgents = agents
     .filter((a) => !q || [a.name, a.model, a.source].some((f) => (f || '').toLowerCase().includes(q)))
-    .filter((a) => ownerFilter === 'all' || ownerKind(a) === ownerFilter)
+    // 타인 private는 기본 숨김(스펙 147 — 소유자에게만 보임): admin도 '소유: private · 타인'을
+    // 명시 선택해야 표시(정리·지원용 opt-in). 일반 사용자는 백엔드가 애초에 안 준다.
+    .filter((a) => (ownerFilter === 'all' ? ownerKind(a) !== 'others' : ownerKind(a) === ownerFilter))
     .filter((a) => sourceFilter === 'all' || (a.source || 'ui') === sourceFilter)
     .filter((a) => statusFilter === 'all' || a.status === statusFilter)
     .slice()
@@ -1546,7 +1550,7 @@ export default function AgentsView({ onOpenPlayground }: { onOpenPlayground?: (a
     ]
     return (
       <>
-        <OwnerTag ownerId={a.owner_id} canManage={a.can_manage} />
+        {a.source !== 'external' ? <OwnerTag ownerId={a.owner_id} canManage={a.can_manage} meId={meId} /> : null}
         {renderSource(a)}
         {renderConformance(a)}
         {a.mcps.map((m) => (
@@ -1631,9 +1635,11 @@ export default function AgentsView({ onOpenPlayground }: { onOpenPlayground?: (a
           <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>—</span>
         ) : (
           <span onClick={(e) => e.stopPropagation()} style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-            <Switch size="small" checked={!!a.exposed.a2a} onChange={() => toggleExpose(a)} />
+            <Tooltip title={a.owner_id != null ? 'private 에이전트는 A2A를 켤 수 없습니다(소유자 전용)' : undefined}>
+              <Switch size="small" checked={!!a.exposed.a2a} disabled={a.owner_id != null} onChange={() => toggleExpose(a)} />
+            </Tooltip>
             <span style={{ fontSize: 12, color: a.exposed.a2a ? 'var(--color-success)' : 'var(--color-text-tertiary)' }}>
-              {a.exposed.a2a ? 'public' : 'private'}
+              {a.exposed.a2a ? '켬' : '꺼짐'}
             </span>
           </span>
         ),
@@ -1716,9 +1722,9 @@ export default function AgentsView({ onOpenPlayground }: { onOpenPlayground?: (a
           style={{ width: 140 }}
           options={[
             { value: 'all', label: '소유: 전체' },
-            { value: 'shared', label: 'shared (공용)' },
-            { value: 'mine', label: 'private (내 소유)' },
-            { value: 'others', label: 'private · 타인' },
+            { value: 'shared', label: 'public (모두 사용)' },
+            { value: 'mine', label: 'private (내 것)' },
+            { value: 'others', label: 'private · 타인 (숨김 해제)' },
           ]}
         />
         <Select
@@ -1751,12 +1757,12 @@ export default function AgentsView({ onOpenPlayground }: { onOpenPlayground?: (a
           content={
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 13, maxWidth: 360 }}>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
-                <Tag>shared</Tag><Tag color="blue">private</Tag><Tag color="orange">private · 타인</Tag>
-                <span>소유 — shared=모두의 공용, private=개인 소유(관리는 소유자만)</span>
+                <Tag>public</Tag><Tag color="blue">private</Tag><Tag color="orange">private · 타인</Tag>
+                <span>public=모두 도구처럼 사용 · private=소유자만 사용(A2A 불가)</span>
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
                 <Tag color="geekblue">code</Tag><Tag color="purple">external</Tag>
-                <span>출처 — 없으면 internal(이 콘솔 제작). external은 항상 공개·공용</span>
+                <span>출처 — 없으면 이 콘솔 제작(internal). external=가져다 쓰는 것(항상 public)</span>
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
                 <Tag color="red">설정 오류</Tag><Tag color="gold">비준수</Tag>
@@ -1766,7 +1772,7 @@ export default function AgentsView({ onOpenPlayground }: { onOpenPlayground?: (a
                 <Tag color="cyan">MCP 이름</Tag><Tag color="geekblue">rag:컬렉션</Tag>
                 <span>연결된 도구·문서</span>
               </div>
-              <div>상태(온라인·유휴)=최근 사용 여부 · A2A 스위치=public(호출 허용)/private</div>
+              <div>상태(온라인·유휴)=최근 사용 여부 · A2A 스위치=다른 에이전트의 호출 허용(public만 켤 수 있음)</div>
             </div>
           }
         >

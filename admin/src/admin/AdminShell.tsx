@@ -157,6 +157,7 @@ export default function AdminShell({ user, onLogout }: { user: Me; onLogout: () 
     overview: <OverviewView onGo={(v) => setView(v as ViewKey)} />,
     agents: (
       <AgentsView
+        meId={user.id}
         onOpenPlayground={(id) => {
           setPlaygroundAgent(id)
           setView('debug')
