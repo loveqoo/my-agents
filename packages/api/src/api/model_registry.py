@@ -13,13 +13,38 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from sqlalchemy.exc import IntegrityError
+
 from . import crypto
+from .auth import current_principal
 from .db import get_session
 from .models import Agent, AgentVersion, Collection, ModelConfig, Provider
+from .ownership import is_privileged
 from .schemas import ModelIn, ModelOut, ModelProbeIn, ModelProbeResult
 from .serializers import model_to_out
 
 router = APIRouter(prefix="/models", tags=["models"])
+
+
+async def require_model_manage(principal=Depends(current_principal)):
+    """모델/프로바이더 변이 게이트(스펙 150, codex High) — 기본 모델·연결처는 채팅·메모리·평가의
+    전역 동작과 비용면을 바꾸므로 특권(머신 토큰·superuser·admin)만. member는 403.
+    (읽기·연결 테스트는 인증만 — 기존과 동일.)"""
+    if not is_privileged(principal):
+        raise HTTPException(status_code=403, detail="모델 관리 권한이 없습니다")
+    return principal
+
+
+_manage = Depends(require_model_manage)
+
+
+async def _commit_or_409(session: AsyncSession, detail: str) -> None:
+    """유니크 충돌(kind당 기본 1개 부분 인덱스·이름)을 500 대신 409로(스펙 150 — 동시 지정 레이스)."""
+    try:
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        raise HTTPException(status_code=409, detail=detail)
 
 
 async def _probe(
@@ -95,15 +120,22 @@ async def _probe(
 async def _clear_other_defaults(
     session: AsyncSession, kind: str, exclude_id: uuid.UUID | None = None
 ) -> None:
-    """kind별 기본값은 하나만 — 나머지 is_default를 끈다(codex P2)."""
+    """kind별 기본값은 하나만 — 나머지 is_default를 끈다(codex P2).
+
+    해제를 **즉시 flush** — 부분 유니크 인덱스(uq_models_default_per_kind, 스펙 150)는 문장 단위로
+    검사되므로, 해제 UPDATE가 새 기본 지정보다 먼저 실행됨을 보장해야 자기 트랜잭션과 안 충돌한다."""
     rows = (
         await session.execute(
             select(ModelConfig).where(ModelConfig.kind == kind, ModelConfig.is_default.is_(True))
         )
     ).scalars().all()
+    changed = False
     for r in rows:
         if exclude_id is None or r.id != exclude_id:
             r.is_default = False
+            changed = True
+    if changed:
+        await session.flush()
 
 
 async def _get_with_provider(session: AsyncSession, model_id: uuid.UUID) -> ModelConfig | None:
@@ -159,7 +191,7 @@ async def _require_provider(session: AsyncSession, provider_id: uuid.UUID) -> No
         raise HTTPException(status_code=400, detail="provider not found — provider를 먼저 등록하세요.")
 
 
-@router.post("", response_model=ModelOut, status_code=201)
+@router.post("", response_model=ModelOut, status_code=201, dependencies=[_manage])
 async def create_model(body: ModelIn, session: AsyncSession = Depends(get_session)) -> ModelOut:
     await _require_provider(session, body.provider_id)
     if body.is_default:
@@ -169,7 +201,7 @@ async def create_model(body: ModelIn, session: AsyncSession = Depends(get_sessio
         kind=body.kind, is_default=body.is_default, params=body.params, meta=body.meta,
     )
     session.add(m)
-    await session.commit()
+    await _commit_or_409(session, "동시 변경 충돌 또는 중복 — 다시 시도하세요.")
     return model_to_out(await _get_with_provider(session, m.id))
 
 
@@ -181,7 +213,7 @@ async def get_model(model_id: uuid.UUID, session: AsyncSession = Depends(get_ses
     return model_to_out(m)
 
 
-@router.put("/{model_id}", response_model=ModelOut)
+@router.put("/{model_id}", response_model=ModelOut, dependencies=[_manage])
 async def update_model(
     model_id: uuid.UUID, body: ModelIn, session: AsyncSession = Depends(get_session)
 ) -> ModelOut:
@@ -198,11 +230,31 @@ async def update_model(
     m.is_default = body.is_default
     m.params = body.params
     m.meta = body.meta
-    await session.commit()
+    await _commit_or_409(session, "동시 변경 충돌 또는 중복 — 다시 시도하세요.")
     return model_to_out(await _get_with_provider(session, m.id))
 
 
-@router.delete("/{model_id}", status_code=204)
+@router.put("/{model_id}/default", response_model=ModelOut, dependencies=[_manage])
+async def set_default_model(
+    model_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+) -> ModelOut:
+    """이 모델을 그 kind(chat/embedding)의 기본으로 지정 — 같은 kind의 기존 기본은 자동 해제
+    (스펙 150, 실사용 버그 #1: 등록 모달에만 기본 스위치가 있어 삭제 후 재등록으로만 전환 가능했다).
+    전용 액션인 이유: 프론트가 부분 데이터로 full PUT을 재구성하면 params/meta 유실 위험."""
+    m = await session.get(ModelConfig, model_id)
+    if m is None:
+        raise HTTPException(status_code=404, detail="not found")
+    if m.kind not in ("chat", "embedding"):
+        # 레거시/수동 행 방어(codex 150) — 런타임은 chat/embedding 기본만 읽으므로 그 외 kind의
+        # "기본 지정 성공"은 아무 효과 없는 거짓 성공이 된다.
+        raise HTTPException(status_code=400, detail=f"kind={m.kind!r}는 기본 지정 대상이 아닙니다(chat/embedding만).")
+    await _clear_other_defaults(session, m.kind, exclude_id=m.id)
+    m.is_default = True
+    await _commit_or_409(session, "동시에 다른 기본 지정이 있었습니다 — 새로고침 후 다시 시도하세요.")
+    return model_to_out(await _get_with_provider(session, m.id))
+
+
+@router.delete("/{model_id}", status_code=204, dependencies=[_manage])
 async def delete_model(model_id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> None:
     m = await session.get(ModelConfig, model_id)
     if m is None:

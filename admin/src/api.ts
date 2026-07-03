@@ -430,6 +430,8 @@ export const listModels = (kind?: 'chat' | 'embedding') =>
   j<Model[]>(`/models${kind ? `?kind=${kind}` : ''}`)
 export const createModel = (body: unknown) => post('/models', body) as Promise<Model>
 export const updateModel = (id: string, body: unknown) => put(`/models/${id}`, body) as Promise<Model>
+/** 기본 모델 지정(스펙 150) — 같은 kind의 기존 기본은 서버가 자동 해제. */
+export const setDefaultModel = (id: string) => put(`/models/${id}/default`, {}) as Promise<Model>
 export const deleteModel = (id: string) => del(`/models/${id}`)
 
 /* ---------- 프로바이더 실모델 + 카탈로그 (통합 뷰 토글, 스펙 047 #7·#8) ---------- */

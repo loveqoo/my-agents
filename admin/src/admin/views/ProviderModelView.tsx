@@ -16,9 +16,12 @@ import {
   testProviderConfig,
   testSavedProvider,
   listAvailableModels,
+  listModels,
   createModel,
   deleteModel,
+  setDefaultModel,
   testModelConfig,
+  type Model,
   type Provider,
   type ProviderKind,
   type AvailableModel,
@@ -373,6 +376,8 @@ export default function ProviderModelView() {
   const [availLoading, setAvailLoading] = useState(false)
   const [busyMid, setBusyMid] = useState<string | null>(null) // 토글 진행 중 model_id
 
+  // 등록 모델 전체(스펙 150) — 기본 요약 배너 + 행별 kind/기본 표시·전환의 단일 소스.
+  const [regModels, setRegModels] = useState<Model[]>([])
   const [provModal, setProvModal] = useState<{ editing: Provider | null } | null>(null)
   const [modelModal, setModelModal] = useState<{ prefill: { model_id?: string; meta?: Record<string, unknown> } | null } | null>(null)
   const [confirmProvDel, setConfirmProvDel] = useState<Provider | null>(null)
@@ -381,7 +386,16 @@ export default function ProviderModelView() {
 
   const selected = providers.find((p) => p.id === selectedId) ?? null
 
+  const loadRegModels = async () => {
+    try {
+      setRegModels(await listModels())
+    } catch {
+      /* 배너/태그 표시용 — 실패해도 화면은 동작(조용히 비움) */
+    }
+  }
+
   const loadProviders = async (keepSel = true) => {
+    await loadRegModels() // 배너/태그의 진실원 — avail보다 먼저 최신화(codex 150 stale)
     try {
       const ps = await listProviders()
       setProviders(ps)
@@ -519,6 +533,36 @@ export default function ProviderModelView() {
     }
   }
 
+  // 기본 모델 전환(스펙 150) — 같은 kind의 기존 기본은 서버가 자동 해제(배타).
+  const makeDefault = async (reg: Model) => {
+    const run = async () => {
+      try {
+        const updated = await setDefaultModel(reg.id)
+        message.success(`기본 ${updated.kind === 'chat' ? 'Chat' : 'Embedding'} 모델 → ${updated.name}`)
+        await loadRegModels()
+      } catch (e) {
+        message.error(e instanceof Error ? e.message : '기본 지정에 실패했습니다')
+      }
+    }
+    if (reg.kind === 'embedding') {
+      // 임베딩 전환은 저장된 벡터와의 정합이 걸린다(codex 150) — 맹클릭 방지 확인 1회.
+      Modal.confirm({
+        title: '기본 Embedding 모델을 바꿀까요?',
+        content:
+          '메모리(mem0)가 즉시 새 모델로 임베딩합니다. 새 모델의 벡터 차원이 기존과 다르면 저장된 기억 회상이 실패하거나 무의미해질 수 있습니다(기존 기억 재적재 필요). RAG 컬렉션은 영향 없습니다 — 각자 생성 시 바인딩된 모델을 계속 씁니다.',
+        okText: '전환',
+        cancelText: '취소',
+        onOk: run,
+      })
+      return
+    }
+    await run()
+  }
+
+  const regById = new Map(regModels.map((m) => [m.id, m]))
+  const defaultChat = regModels.find((m) => m.kind === 'chat' && m.is_default)
+  const defaultEmb = regModels.find((m) => m.kind === 'embedding' && m.is_default)
+
   return (
     <Page
       title="프로바이더·모델"
@@ -529,6 +573,31 @@ export default function ProviderModelView() {
         </Button>
       }
     >
+      {/* 현재 기본 요약(스펙 150) — "지금 뭐가 기본인지"가 안 보이던 것이 전환 혼란의 절반 */}
+      <div
+        style={{
+          display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap', marginBottom: 16,
+          padding: '10px 14px', border: '1px solid var(--color-border-secondary)',
+          borderRadius: 8, background: 'var(--gray-2)', fontSize: 13,
+        }}
+      >
+        <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+          <Tag color="blue" style={{ margin: 0 }}>기본 Chat</Tag>
+          <span style={{ fontWeight: 500, color: defaultChat ? 'var(--color-text-heading)' : 'var(--color-warning)' }}>
+            {defaultChat ? defaultChat.name : '미설정'}
+          </span>
+        </span>
+        <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+          <Tag color="purple" style={{ margin: 0 }}>기본 Embedding</Tag>
+          <span style={{ fontWeight: 500, color: defaultEmb ? 'var(--color-text-heading)' : 'var(--color-warning)' }}>
+            {defaultEmb ? defaultEmb.name : '미설정'}
+          </span>
+        </span>
+        <span style={{ color: 'var(--color-text-tertiary)' }}>
+          {/* RAG 컬렉션은 생성 시 바인딩된 임베딩 모델을 계속 쓴다 — 과장 금지(codex 150 Low) */}
+          채팅·메모리·평가가 이 기본을 사용합니다(RAG 컬렉션은 각자 바인딩된 모델 유지). 등록된 모델에서 [기본으로 지정]으로 바꿉니다.
+        </span>
+      </div>
       <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
         {/* 마스터 — 프로바이더 목록 */}
         <Panel style={{ flex: '1 1 320px', minWidth: 280, maxWidth: 420 }}>
@@ -615,7 +684,15 @@ export default function ProviderModelView() {
               {/* 모델 툴바 */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <span style={{ fontWeight: 600, fontSize: 14 }}>모델</span>
-                <Button size="small" icon={<Icon name="reload" />} loading={availLoading} onClick={() => loadAvail(selected.id)}>
+                <Button
+                  size="small"
+                  icon={<Icon name="reload" />}
+                  loading={availLoading}
+                  onClick={() => {
+                    void loadRegModels() // 배너/기본 태그도 함께 최신화(codex 150 stale)
+                    void loadAvail(selected.id)
+                  }}
+                >
                   GET /models
                 </Button>
                 <div style={{ flex: 1 }} />
@@ -665,6 +742,25 @@ export default function ProviderModelView() {
                               등록됨{m.registered_name && m.registered_name !== m.model_id ? ` · ${m.registered_name}` : ''}
                             </Tag>
                           ) : null}
+                          {/* 기본 표시·전환(스펙 150) — 등록된 모델만. kind/기본은 등록 모델 목록에서 해석 */}
+                          {(() => {
+                            const reg = m.registered_id ? regById.get(m.registered_id) : undefined
+                            if (!reg) return null
+                            return (
+                              <>
+                                <Tag color={reg.kind === 'chat' ? 'blue' : 'purple'} style={{ marginInlineEnd: 0 }}>
+                                  {reg.kind === 'chat' ? 'Chat' : 'Embedding'}
+                                </Tag>
+                                {reg.is_default ? (
+                                  <Tag color="gold" style={{ marginInlineEnd: 0 }}>기본</Tag>
+                                ) : (
+                                  <Button size="small" onClick={() => void makeDefault(reg)}>
+                                    기본으로 지정
+                                  </Button>
+                                )}
+                              </>
+                            )
+                          })()}
                         </div>
                         <div style={{ marginTop: 6 }}>
                           <CatalogChips c={m.catalog} />

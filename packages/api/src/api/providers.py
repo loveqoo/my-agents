@@ -39,7 +39,14 @@ _MAX_MODELS_BYTES = 2 * 1024 * 1024
 # 누적해도 이 deadline 안에서 끝나야 코루틴을 오래 붙잡지 않는다.
 _STREAM_DEADLINE = 20
 
+from fastapi import Depends as _Depends
+
+from .model_registry import require_model_manage
+
 router = APIRouter(prefix="/providers", tags=["providers"])
+
+# 변이 게이트(스펙 150, codex High) — provider(연결처·자격증명)도 기본 모델과 같은 전역 민감면.
+_manage = _Depends(require_model_manage)
 
 
 async def _model_counts(session: AsyncSession) -> dict[uuid.UUID, int]:
@@ -77,7 +84,7 @@ async def test_saved_provider(
     return await _probe(p.base_url, crypto.decrypt(p.api_key), "", "chat")
 
 
-@router.post("", response_model=ProviderOut, status_code=201)
+@router.post("", response_model=ProviderOut, status_code=201, dependencies=[_manage])
 async def create_provider(body: ProviderIn, session: AsyncSession = Depends(get_session)) -> ProviderOut:
     p = Provider(
         name=body.name, protocol=body.protocol, base_url=body.base_url,
@@ -187,7 +194,7 @@ async def get_provider(
     return provider_to_out(p, counts.get(p.id, 0))
 
 
-@router.put("/{provider_id}", response_model=ProviderOut)
+@router.put("/{provider_id}", response_model=ProviderOut, dependencies=[_manage])
 async def update_provider(
     provider_id: uuid.UUID, body: ProviderIn, session: AsyncSession = Depends(get_session)
 ) -> ProviderOut:
@@ -212,7 +219,7 @@ async def update_provider(
     return provider_to_out(p, counts.get(p.id, 0))
 
 
-@router.delete("/{provider_id}", status_code=204)
+@router.delete("/{provider_id}", status_code=204, dependencies=[_manage])
 async def delete_provider(
     provider_id: uuid.UUID, session: AsyncSession = Depends(get_session)
 ) -> None:

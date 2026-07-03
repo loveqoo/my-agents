@@ -10,7 +10,7 @@ import uuid
 from datetime import datetime
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, func, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -191,6 +191,11 @@ class ModelConfig(Base):
     model_id: Mapped[str] = mapped_column(String(200), default="")  # API에 보내는 모델 id
     kind: Mapped[str] = mapped_column(String(20), default="chat")  # chat | embedding
     is_default: Mapped[bool] = mapped_column(Boolean, default=False)
+    # kind당 기본 1개 DB 불변식(스펙 150 — 동시 지정 레이스 봉인). alembic(a1b2c3d4e5f7)과 정합 —
+    # create_all 폴백 DB에도 같은 인덱스가 생기게 메타데이터에 선언.
+    __table_args__ = (
+        Index("uq_models_default_per_kind", "kind", unique=True, postgresql_where=text("is_default")),
+    )
     params: Mapped[dict] = mapped_column(JSONB, default=dict)  # temperature 등(런타임 파라미터)
     # models.dev 카탈로그 파생 메타(스펙 047 #7) — context·modalities·cost·capabilities. params와 분리.
     meta: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
