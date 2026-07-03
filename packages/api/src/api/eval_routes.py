@@ -41,9 +41,9 @@ class DatasetOut(BaseModel):
 
 class CaseIn(BaseModel):
     name: str = Field(min_length=1, max_length=200)
-    input: str = Field(min_length=1)
-    asserts: list = Field(default_factory=list)
-    order_idx: int = 0
+    input: str = Field(min_length=1, max_length=4000)  # 모델 프롬프트로 들어감 — 폭주 상한(codex 137 #3)
+    asserts: list = Field(default_factory=list, max_length=20)  # 채점 기준 개수 상한
+    order_idx: int = Field(default=0, ge=0, le=10_000)
 
 
 class CaseOut(BaseModel):
@@ -208,6 +208,7 @@ class RunStartIn(BaseModel):
 class RunOut(BaseModel):
     id: uuid.UUID
     dataset_id: uuid.UUID
+    dataset_name: str | None = None  # 목록 표시용(조인 채움)
     agent_name: str | None
     status: str
     score: float | None
@@ -301,6 +302,17 @@ async def start_run(
     ).scalar_one()
     if n_cases == 0:
         raise HTTPException(status_code=400, detail="케이스가 없는 문제집은 실행할 수 없습니다")
+    # 중복 실행 게이트(codex 137 #2) — 같은 문제집에 running이 있으면 409(더블클릭·다중 탭이
+    # 실모델 호출을 N배로 만드는 사고 차단. admin 전용이어도 비용 사고는 사고).
+    running = (
+        await session.execute(
+            select(func.count(EvalRun.id)).where(
+                EvalRun.dataset_id == dataset_id, EvalRun.status == "running"
+            )
+        )
+    ).scalar_one()
+    if running:
+        raise HTTPException(status_code=409, detail="이 문제집은 이미 실행 중입니다 — 완료 후 다시 시도하세요")
     run = EvalRun(
         dataset_id=dataset_id, agent_pk=agent.id, agent_name=agent.name,
         status="running", total=n_cases, owner_id=owner_of(user),
@@ -316,9 +328,19 @@ async def list_runs(
     session: AsyncSession = Depends(get_session), user=_manage
 ) -> list[RunOut]:
     rows = (
-        await session.execute(select(EvalRun).order_by(EvalRun.started_at.desc()).limit(50))
-    ).scalars().all()
-    return [RunOut.model_validate(r) for r in rows]
+        await session.execute(
+            select(EvalRun, EvalDataset.name)
+            .join(EvalDataset, EvalDataset.id == EvalRun.dataset_id)
+            .order_by(EvalRun.started_at.desc())
+            .limit(50)
+        )
+    ).all()
+    out = []
+    for r, ds_name in rows:
+        o = RunOut.model_validate(r)
+        o.dataset_name = ds_name
+        out.append(o)
+    return out
 
 
 @router.get("/runs/{run_id}", response_model=RunDetailOut)
@@ -328,11 +350,33 @@ async def get_run(
     run = await session.get(EvalRun, run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="run not found")
+    ds = await session.get(EvalDataset, run.dataset_id)  # 성적표 제목용(codex 137 #4 — 목록만 채우던 것)
     results = (
         await session.execute(
             select(EvalCaseResult).where(EvalCaseResult.run_id == run_id).order_by(EvalCaseResult.created_at)
         )
     ).scalars().all()
-    out = RunDetailOut.model_validate(run)
-    out.results = [CaseResultOut.model_validate(r) for r in results]
-    return out
+    # RunDetailOut을 run으로 직접 model_validate하면 안 된다 — results 필드명이 ORM lazy 관계
+    # EvalRun.results와 겹쳐 from_attributes가 비동기 밖 lazy load를 시도, MissingGreenlet 500
+    # (129와 같은 부류 — e2e가 포착). RunOut(results 없음)으로 안전 추출 후 명시 구성.
+    base = RunOut.model_validate(run)
+    return RunDetailOut(
+        **base.model_dump(),
+        results=[CaseResultOut.model_validate(r) for r in results],
+    ).model_copy(update={"dataset_name": ds.name if ds else None})
+
+
+async def sweep_zombie_runs() -> int:
+    """startup 정리(codex 137 #1) — asyncio.create_task는 프로세스 재시작을 못 넘기므로, 부팅 시점에
+    남아 있는 status='running'은 전부 죽은 실행이다. error로 박제해 "영원한 실행 중" 잔류를 막는다."""
+    async with SessionLocal() as s:
+        rows = (
+            await s.execute(select(EvalRun).where(EvalRun.status == "running"))
+        ).scalars().all()
+        for r in rows:
+            r.status = "error"
+            r.error = "서버 재시작으로 실행이 중단되었습니다 — 다시 실행하세요"
+            r.finished_at = datetime.now(timezone.utc)
+        if rows:
+            await s.commit()
+        return len(rows)

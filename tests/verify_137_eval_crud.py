@@ -53,6 +53,7 @@ def part_a():
         ([{"type": "llm_judge", "arg": "x"}], "미지 type"),
         ([{"type": "trace_has"}], "arg 누락"),
         (["문자열"], "비-dict"),
+        ([{"type": "trace_has", "arg": "x" * 501}], "arg 500자 초과(codex #3)"),
     ]:
         try:
             build_asserts(bad)

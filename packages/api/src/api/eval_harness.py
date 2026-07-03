@@ -133,6 +133,8 @@ def build_asserts(spec_list: list) -> list:
         if needs_arg:
             if not isinstance(arg, str) or not arg.strip():
                 raise ValueError(f"asserts[{i}]: type {t!r}는 비어있지 않은 문자열 arg가 필요합니다")
+            if len(arg) > 500:
+                raise ValueError(f"asserts[{i}]: arg는 500자 이하여야 합니다 (got {len(arg)}자)")
             out.append(factory(arg))
         else:
             out.append(factory())

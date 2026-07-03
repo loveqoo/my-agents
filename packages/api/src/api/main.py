@@ -4,6 +4,7 @@
 """
 
 import os
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -45,6 +46,11 @@ async def lifespan(app: FastAPI):
     await init_authz()  # casbin_rule + enforcer + 기본 정책(멱등)
     await users.seed_admin()  # superuser 시드(env, fail-closed)
     await checkpointer.init_checkpointer()  # HIL durable 체크포인터(스펙 041, graceful)
+    # 좀비 평가 런 정리(스펙 137, codex #1) — create_task는 재시작을 못 넘기므로 부팅 시 running은
+    # 전부 죽은 실행 → error 박제("영원한 실행 중" 잔류 방지).
+    swept = await eval_routes.sweep_zombie_runs()
+    if swept:
+        logging.getLogger("api.eval").info("죽은 평가 런 %d건을 error로 정리(재시작 잔류)", swept)
     # self-host mock MCP(스펙 054)의 세션 매니저 lifespan을 직접 연다 — 마운트된 서브앱 lifespan은
     # Starlette가 자동 호출하지 않으므로 부모가 진입해야 streamable-HTTP 핸들러가 동작한다.
     async with mock_mcp.mcp.session_manager.run():

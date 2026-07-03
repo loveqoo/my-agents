@@ -592,3 +592,60 @@ export async function streamChat(
   }
   if (buf.trim()) handleFrame(buf, callbacks)
 }
+
+/* ---------- 평가 (스펙 137, admin 전용) ---------- */
+export interface EvalDataset {
+  id: string
+  name: string
+  description: string | null
+  kind: 'agent' | 'rag'
+  case_count: number
+}
+export interface EvalAssert {
+  type: 'trace_has' | 'trace_lacks' | 'output_contains' | 'no_error' | 'output_nonempty'
+  arg?: string
+}
+export interface EvalCaseT {
+  id: string
+  dataset_id: string
+  name: string
+  input: string
+  asserts: EvalAssert[]
+  order_idx: number
+}
+export interface EvalRunT {
+  id: string
+  dataset_id: string
+  dataset_name?: string | null
+  agent_name: string | null
+  status: 'running' | 'ok' | 'error'
+  score: number | null
+  passed: number
+  total: number
+  error: string | null
+  started_at: string
+  finished_at: string | null
+}
+export interface EvalCaseResultT {
+  case_name: string
+  case_passed: boolean
+  details: [string, boolean][]
+  obs: { output?: string; trace_nodes?: string[]; error?: boolean; detail?: string } | null
+}
+export interface EvalRunDetail extends EvalRunT {
+  results: EvalCaseResultT[]
+}
+export const listEvalDatasets = () => j<EvalDataset[]>('/eval/datasets')
+export const createEvalDataset = (body: { name: string; description?: string | null; kind?: string }) =>
+  post('/eval/datasets', body) as Promise<EvalDataset>
+export const deleteEvalDataset = (id: string) => del(`/eval/datasets/${id}`)
+export const listEvalCases = (datasetId: string) => j<EvalCaseT[]>(`/eval/datasets/${datasetId}/cases`)
+export const createEvalCase = (datasetId: string, body: { name: string; input: string; asserts: EvalAssert[]; order_idx?: number }) =>
+  post(`/eval/datasets/${datasetId}/cases`, body) as Promise<EvalCaseT>
+export const updateEvalCase = (caseId: string, body: { name: string; input: string; asserts: EvalAssert[]; order_idx?: number }) =>
+  patch(`/eval/cases/${caseId}`, body) as Promise<EvalCaseT>
+export const deleteEvalCase = (caseId: string) => del(`/eval/cases/${caseId}`)
+export const startEvalRun = (datasetId: string, agentId: string) =>
+  post(`/eval/datasets/${datasetId}/runs`, { agent_id: agentId }) as Promise<EvalRunT>
+export const listEvalRuns = () => j<EvalRunT[]>('/eval/runs')
+export const getEvalRun = (runId: string) => j<EvalRunDetail>(`/eval/runs/${runId}`)

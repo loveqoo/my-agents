@@ -126,6 +126,11 @@ async def main():
             check(len(results) == 1 and results[0].case_passed
                   and any(d[0].startswith("trace_has:rag:") and d[1] for d in results[0].details),
                   f"C4b 케이스 결과 영속+assert 상세 (got {results[0].details if results else '없음'})")
+        # C4d(e2e가 잡은 500 회귀 핀) — 성적표 단건 조회가 lazy 관계를 안 건드리고 정상 응답.
+        async with async_session() as s:
+            detail = await ER.get_run(run_id, session=s, user=sup)
+            check(detail.status == "ok" and len(detail.results) == 1 and detail.dataset_name is not None,
+                  f"C4d get_run 상세 정상(MissingGreenlet 회귀 핀) (got {detail.status}, results {len(detail.results)}, ds {detail.dataset_name!r})")
     finally:
         async with async_session() as s:
             try:
@@ -135,6 +140,40 @@ async def main():
         async with async_session() as s:
             left = (await s.execute(select(EvalRun).where(EvalRun.dataset_id == ds.id))).scalars().all()
             check(left == [], "C4c 데이터셋 삭제 → run/results CASCADE")
+
+    # C5(codex #1·#2 핀) — 좀비 sweep + 중복 실행 게이트
+    tag2 = f"v137z-{_uuid.uuid4().hex[:6]}"
+    async with async_session() as s:
+        ds2 = await ER.create_dataset(ER.DatasetIn(name=f"{tag2}-좀비"), session=s, user=sup)
+    try:
+        async with async_session() as s:
+            await ER.create_case(ds2.id, ER.CaseIn(name="c", input="q", asserts=[{"type": "no_error"}]),
+                                 session=s, user=sup)
+        async with async_session() as s:
+            zombie = EvalRun(dataset_id=ds2.id, status="running", total=1)
+            s.add(zombie)
+            await s.commit()
+            zid = zombie.id
+        # 중복 게이트: running 존재 → 409
+        from fastapi import HTTPException as _HTTPExc
+        async with async_session() as s:
+            try:
+                await ER.start_run(ds2.id, ER.RunStartIn(agent_id=agent_pk), session=s, user=sup)
+                check(False, "C5a running 중 재실행 → 409여야 함")
+            except _HTTPExc as e:
+                check(e.status_code == 409, f"C5a 중복 실행 게이트 409 (got {e.status_code})")
+        # 좀비 sweep: running → error 박제
+        n = await ER.sweep_zombie_runs()
+        async with async_session() as s:
+            z = await s.get(EvalRun, zid)
+            check(n >= 1 and z.status == "error" and z.finished_at is not None,
+                  f"C5b 좀비 sweep → error 박제 (swept {n}, status {z.status})")
+    finally:
+        async with async_session() as s:
+            try:
+                await ER.delete_dataset(ds2.id, session=s, user=sup)
+            except Exception:
+                pass
 
     print(f"\n{passed} passed, {len(_fails)} failed")
     if _fails:
