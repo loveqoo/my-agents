@@ -363,6 +363,28 @@ export function Inspector({
             </Section>
           )}
 
+          {/* 이 턴에 적용된 오버라이드(스펙 134) — 세션에 설정 다른 턴이 섞여도 턴별로 영구 구분. */}
+          {t.overrides && Object.keys(t.overrides).length ? (
+            <Section icon="experiment" iconColor="var(--gold-6)" title="오버라이드 (이 턴 적용)" count={Object.keys(t.overrides).length}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12 }}>
+                {Object.entries(t.overrides).map(([k, v]) => (
+                  <div key={k} style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
+                    <span style={{ width: 100, flex: 'none', color: 'var(--color-text-tertiary)' }}>{k}</span>
+                    {Array.isArray(v) ? (
+                      <span style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                        {v.map((it, i) => (
+                          <Tag key={i} style={{ margin: 0, whiteSpace: 'normal', height: 'auto', overflowWrap: 'anywhere' }}>{String(it)}</Tag>
+                        ))}
+                      </span>
+                    ) : (
+                      <span style={{ fontFamily: 'var(--font-family-code)', overflowWrap: 'anywhere' }}>{String(v)}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </Section>
+          ) : null}
+
           <Section icon="bulb" iconColor="var(--purple-6)" title="메모리" count={t.memories.length}>
             <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>메모리 타입: {(agent.memories || []).join(', ')}</div>
             {/* 회상 조회 이력(스펙 079) — 0건이어도 "조회 행위"를 남긴다. memoryQuery 있을 때만. */}

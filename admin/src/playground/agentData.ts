@@ -64,6 +64,8 @@ export interface Trace {
   // 전송 프롬프트 전문(스펙 131) — 실제 그래프에 넣은 배열(조립 system=persona+회상 포함), 메시지당
   // 2000자 캡. 재개 턴은 N/A(체크포인트 내부 재개 — 스펙 131 경계).
   sentMessages?: { role: string; content: string }[]
+  // 이 턴에 적용된 오버라이드(스펙 134) — 세션에 설정 다른 턴이 섞여도 턴별 구분(마스킹·캡된 값).
+  overrides?: Record<string, unknown>
 }
 
 export type ChatMsg = { role: 'me' | 'ai'; text: string; trace?: Trace }

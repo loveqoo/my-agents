@@ -476,6 +476,36 @@ def _build_sent_messages(persona_prompt: str, messages: list[dict]) -> list[dict
     return out
 
 
+# 트레이스에 기록할 오버라이드 허용 키(스펙 134) — _load_context 병합 allowlist + systemPrompt.
+_OVERRIDE_TRACE_KEYS = ("model", "temperature", "historyDepth", "mcps", "memories", "capabilities", "systemPrompt")
+
+
+def _overrides_trace(overrides: dict | None) -> dict | None:
+    """이 턴에 적용된 오버라이드를 트레이스 표시용으로 정화(스펙 134) — 한 세션에 설정이 다른 턴이
+    섞여도 턴별로 구분 가능하게 영구 기록. 값 정화는 131 프레임 재사용: 문자열=비밀 마스킹+캡 300,
+    리스트=항목별 캡 100·개수 20, 숫자 통과. 실제 온 허용 키만 — 없으면 None(필드 미기록=무회귀)."""
+    if not isinstance(overrides, dict):
+        return None
+    from .memory import _sanitize
+
+    out: dict = {}
+    for k in _OVERRIDE_TRACE_KEYS:
+        if k not in overrides or overrides[k] is None:
+            continue
+        v = overrides[k]
+        if isinstance(v, str):
+            # systemPrompt는 _load_context가 **비어있지 않을 때만 적용**(빈/공백은 무시) — 트레이스도
+            # 같은 가드를 미러(적용 안 된 값을 "적용됨"으로 기록 금지, codex 134 #1).
+            if k == "systemPrompt" and not v.strip():
+                continue
+            out[k] = _sanitize(v, cap=300)
+        elif isinstance(v, (int, float, bool)):
+            out[k] = v
+        elif isinstance(v, list):
+            out[k] = [_sanitize(str(it), cap=100) for it in v[:20]]
+    return out or None
+
+
 def _broker_calls_trace(invocations: list[dict]) -> list[dict]:
     """브로커 호출 이력 → 트레이스 표시용 투영(스펙 130) — **키 화이트리스트 단일 출처**(메인/승인대기/
     재개 세 경로 공유, drift 0). 본문·args 불포함(087/092 원문 누출 0 유지)."""
@@ -852,6 +882,9 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
                 # 일시정지 **이전에 이미 실행된** 선행 브로커 호출 표면화(스펙 130, codex #2).
                 pending_trace["brokerCalls"] = _broker_calls_trace(build_broker_scoped.invocations)
             pending_trace["sentMessages"] = sent_messages  # 승인대기 턴도 전송 전문(스펙 131)
+            ov_trace_p = _overrides_trace(ctx.get("overrides"))
+            if ov_trace_p:
+                pending_trace["overrides"] = ov_trace_p  # 스펙 134
             if ctx["rag_collections"]:
                 pending_trace["ragCollections"] = [c["name"] for c in ctx["rag_collections"]]
             yield f"event: trace\ndata: {json.dumps(pending_trace, ensure_ascii=False)}\n\n"
@@ -880,6 +913,10 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
         )
         trace["contextMessages"] = len(messages)  # 모델에 넣은 메시지 수(historyDepth 적용 결과)
         trace["sentMessages"] = sent_messages  # 전송 프롬프트 전문(스펙 131, 메시지당 2000자 캡)
+        ov_trace = _overrides_trace(ctx.get("overrides"))
+        if ov_trace:
+            # 이 턴에 적용된 오버라이드(스펙 134) — 세션에 설정 다른 턴이 섞여도 턴별 구분 가능.
+            trace["overrides"] = ov_trace
         if build_broker_scoped.invocations:
             # 브로커 호출 상세(스펙 130) — 조율형의 RAG 검색이 인스펙터에 "N건·최고 유사도"로 보이게.
             # 위임 없던 턴은 필드 자체가 없음(무회귀).

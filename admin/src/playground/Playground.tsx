@@ -285,6 +285,12 @@ export function Playground() {
     getSessionMessages(sid)
       .then((msgs) => {
         if (seq !== sessionLoadSeqRef.current) return // 더 최신 선택이 있으면 폐기(레이스).
+        if (overrideActive) {
+          // 스펙 134 — 오버라이드는 세션 속성이 아니라 "지금 적용 중" 상태: 과거 세션에 이어 쓰면 이전
+          // 턴들과 설정이 다를 수 있음을 환기(로드 **성공 시에만** — 실패 시 뜨면 오해 소지).
+          // 턴별 진실은 인스펙터 "오버라이드" 섹션이 영구 기록.
+          message.info('오버라이드 적용 중 — 이 세션의 이전 턴들과 설정이 다를 수 있습니다.')
+        }
         const mapped: ChatMsg[] = msgs.map((m) => ({
           role: m.role === 'assistant' ? 'ai' : 'me',
           text: m.content,
