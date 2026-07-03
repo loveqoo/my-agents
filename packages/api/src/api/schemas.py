@@ -99,6 +99,7 @@ class CollectionOut(BaseModel):
     status: str
     owner_id: str | None = None  # 소유자(스펙 112). None=공유/레거시
     can_manage: bool = True  # 이 요청 주체가 수정/삭제 가능(스펙 114, list/get서 계산·기본 True)
+    published: bool = False  # 사용 공개(스펙 163) — True면 타 작성자 에이전트도 배선 가능. owner와 직교.
 
 
 class DocumentOut(BaseModel):
@@ -322,6 +323,12 @@ class McpServerOut(McpServerIn):
 
 
 class McpPublishIn(BaseModel):
+    published: bool
+
+
+class CollectionPublishIn(BaseModel):
+    """컬렉션 사용 공개 토글(스펙 163) — McpPublishIn 형제."""
+
     published: bool
 
 

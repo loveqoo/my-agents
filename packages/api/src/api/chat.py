@@ -302,7 +302,7 @@ async def _load_context(
                 )
             ).scalars().all()
             for c in cols:
-                if not agent_may_wire(c.owner_id, False, wiring_owner,
+                if not agent_may_wire(c.owner_id, c.published, wiring_owner,
                                       "rag", c.name, owner_privileged=owner_priv):
                     log.warning("rag collection %s skipped: 작성자 배선 권한 없음(스펙 113)", c.name)
                     continue

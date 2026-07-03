@@ -23,7 +23,7 @@ from . import crypto, rag_ingest
 from .auth import current_principal
 from .db import get_session
 from .naming import validate_resource_name
-from .ownership import assert_may_manage, may_manage, owner_of
+from .ownership import assert_may_manage, may_manage, may_use_collection, owner_of
 from .model_registry import _probe
 from .models import RAG_EMBED_DIMS, Chunk, Collection, Document, ModelConfig
 from .references import agents_referencing, referenced_message
@@ -31,6 +31,7 @@ from .schemas import (
     CollectionHealth,
     CollectionIn,
     CollectionOut,
+    CollectionPublishIn,
     CollectionSearchIn,
     CollectionSearchOut,
     CollectionUpdate,
@@ -237,6 +238,26 @@ async def update_collection(
     return collection_to_out(await _load_collection(session, c.id))
 
 
+@router.put("/{cid}/publish", response_model=CollectionOut)
+async def publish_collection(
+    cid: uuid.UUID,
+    body: CollectionPublishIn,
+    session: AsyncSession = Depends(get_session),
+    principal=Depends(current_principal),
+) -> CollectionOut:
+    """사용 공개 토글(스펙 163) — MCP publish 미러. 소유자/특권만(관리 권한). 공개=쓰게 열어주기지
+    남이 편집이 아니다(수정·삭제는 여전히 may_manage). owner_id(관리 축)와 직교."""
+    c = await _load_collection(session, cid)
+    if c is None:
+        raise HTTPException(status_code=404, detail="not found")
+    assert_may_manage(c, principal)  # 소유자/특권만(스펙 112) — 404-fold
+    c.published = body.published
+    await session.commit()
+    out = collection_to_out(await _load_collection(session, c.id))
+    out.can_manage = may_manage(out.owner_id, principal)
+    return out
+
+
 @router.delete("/{cid}", status_code=204)
 async def delete_collection(
     cid: uuid.UUID,
@@ -295,7 +316,10 @@ async def collection_health(
 # ----------------------------- retrieval 시험(스펙 072) -----------------------------
 @router.post("/{cid}/search", response_model=CollectionSearchOut)
 async def search_collection(
-    cid: uuid.UUID, body: CollectionSearchIn, session: AsyncSession = Depends(get_session)
+    cid: uuid.UUID,
+    body: CollectionSearchIn,
+    session: AsyncSession = Depends(get_session),
+    principal=Depends(current_principal),
 ) -> CollectionSearchOut:
     """retrieval 시험 — 단일 컬렉션에 질의를 던져 상위 청크를 받는다(에이전트 채팅 불요).
 
@@ -308,6 +332,13 @@ async def search_collection(
     """
     from . import runtime  # 지연 임포트(런타임 의존 격리)
 
+    # 사용 게이트(스펙 163, codex High): 채팅 배선(agent_may_wire)만 막고 이 직접 엔드포인트가 뚫려
+    # 있으면 타인 비공개 컬렉션 청크 본문이 새어나간다(installed≠covering). 특권/소유자/published만.
+    gate = await _load_collection(session, cid)
+    if gate is None:
+        raise HTTPException(status_code=404, detail="not found")
+    if not may_use_collection(gate, principal):
+        raise HTTPException(status_code=404, detail="not found")  # 404-fold(존재 비노출)
     col = await resolve_search_collection(session, cid)
     try:
         hits = await runtime.search_collections([col], body.query, body.top_k)
@@ -358,13 +389,18 @@ async def list_documents(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0, le=1_000_000),
     session: AsyncSession = Depends(get_session),
+    principal=Depends(current_principal),
 ) -> Any:
     """문서 페이지 목록(스펙 128) — 문서는 증가 축이라 서버 페이지네이션 + 파일명 부분일치(q).
 
     세션(list_sessions)과 동형: LIMIT/OFFSET + count total + ilike(`_like_escape` 재사용 — 단일 출처).
-    스코프(collection_id)는 SQL WHERE. 읽기 개방 모델은 기존 그대로(존재 확인만 — RBAC 무변경)."""
-    if await session.get(Collection, cid) is None:
+    스코프(collection_id)는 SQL WHERE. **사용 게이트**(스펙 163, codex Med): 파일명·상태 등 문서 메타도
+    타인 비공개 컬렉션에선 새면 안 된다 — 검색과 같은 축(특권/소유자/published)으로 막는다(404-fold)."""
+    col = await session.get(Collection, cid)
+    if col is None:
         raise HTTPException(status_code=404, detail="not found")
+    if not may_use_collection(col, principal):
+        raise HTTPException(status_code=404, detail="not found")  # 404-fold(존재 비노출)
     base = select(Document).where(Document.collection_id == cid)
     if q and q.strip():
         base = base.where(Document.filename.ilike(f"%{_like_escape(q.strip())}%", escape="\\"))

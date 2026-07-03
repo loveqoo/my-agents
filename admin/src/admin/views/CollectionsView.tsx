@@ -15,6 +15,7 @@ import {
   Tooltip,
   Upload,
   Popconfirm,
+  Switch,
   message,
 } from 'antd'
 import type { UploadProps } from 'antd'
@@ -29,6 +30,7 @@ import {
   updateCollection,
   deleteCollection,
   collectionHealth,
+  publishCollection,
   listDocuments,
   uploadDocument,
   deleteDocument,
@@ -629,6 +631,16 @@ export default function CollectionsView() {
     }
   }
 
+  // 사용 공개 토글(스펙 163) — MCP publish(BlocksView togglePublish)와 동일 패턴, 목록 재조회로 반영.
+  const togglePublish = async (c: Collection) => {
+    try {
+      await publishCollection(c.id, !c.published)
+      await load()
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '공개 상태 변경에 실패했습니다')
+    }
+  }
+
   const runHealth = async (c: Collection) => {
     if (checkingId) return
     setCheckingId(c.id)
@@ -659,6 +671,19 @@ export default function CollectionsView() {
             <Tag color="geekblue" style={{ marginLeft: 6 }}>엔티티</Tag>
           ) : null}
           <span style={{ marginLeft: 6 }}><OwnerTag ownerId={c.owner_id} canManage={c.can_manage} /></span>
+          {c.published ? <Tag color="green" style={{ marginLeft: 6 }}>공개</Tag> : null}
+          {c.can_manage !== false ? (
+            // 행 클릭(onRowClick=문서 드로어 오픈)으로 전파되지 않도록 stopPropagation(액션 컬럼과 동일 패턴).
+            <span onClick={(e) => e.stopPropagation()} style={{ marginLeft: 6 }}>
+              <Tooltip title="공개하면 다른 사용자의 에이전트도 이 컬렉션을 검색에 쓸 수 있습니다. 수정·삭제는 소유자만.">
+                <Switch
+                  size="small"
+                  checked={!!c.published}
+                  onChange={() => void togglePublish(c)}
+                />
+              </Tooltip>
+            </span>
+          ) : null}
           {c.description ? (
             <div
               style={{
