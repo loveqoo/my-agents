@@ -451,3 +451,87 @@ class AllowedHost(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+
+
+# ----------------------------- 평가 하네스 제품화 (스펙 137) -----------------------------
+class EvalDataset(Base):
+    """평가 문제집(스펙 137) — 케이스 묶음. kind='agent'|'rag'(RAG 컬렉션 평가 확장축, 후속)."""
+
+    __tablename__ = "eval_datasets"
+    id: Mapped[uuid.UUID] = _pk()
+    name: Mapped[str] = mapped_column(String(120), unique=True, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, default=None)
+    kind: Mapped[str] = mapped_column(String(20), default="agent")  # agent|rag
+    owner_id: Mapped[str | None] = mapped_column(String(80), index=True, default=None)  # 스펙 112 스탬프
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    cases: Mapped[list["EvalCase"]] = relationship(
+        back_populates="dataset", cascade="all, delete-orphan"
+    )
+
+
+class EvalCase(Base):
+    """평가 문제 — 입력(질문) + 선언적 asserts(JSONB: [{"type","arg"}]).
+
+    type은 eval_harness의 닫힌 scorer 집합만 허용(미지 type은 API 검증 거부 — fail-closed).
+    필수/금지 도구 채점은 trace_has/trace_lacks + canonical 토큰(mcp:/rag:/memory:used)으로 표현."""
+
+    __tablename__ = "eval_cases"
+    id: Mapped[uuid.UUID] = _pk()
+    dataset_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("eval_datasets.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    input: Mapped[str] = mapped_column(Text, nullable=False)  # 에이전트에 보낼 질문
+    asserts: Mapped[list] = mapped_column(JSONB, default=list)
+    order_idx: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    dataset: Mapped["EvalDataset"] = relationship(back_populates="cases")
+
+
+class EvalRun(Base):
+    """평가 실행 감사(BatchRun 미러) — running|ok|error + 점수. owner=실행자 스탬프."""
+
+    __tablename__ = "eval_runs"
+    id: Mapped[uuid.UUID] = _pk()
+    dataset_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("eval_datasets.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    agent_pk: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("agents.id", ondelete="SET NULL"), default=None
+    )
+    agent_name: Mapped[str | None] = mapped_column(String(120), default=None)  # 삭제 후 성적표 표기용 박제
+    status: Mapped[str] = mapped_column(String(20), default="running")  # running|ok|error
+    score: Mapped[float | None] = mapped_column(default=None)  # passed/total
+    passed: Mapped[int] = mapped_column(Integer, default=0)
+    total: Mapped[int] = mapped_column(Integer, default=0)
+    summary: Mapped[dict | None] = mapped_column(JSONB, default=None)
+    error: Mapped[str | None] = mapped_column(Text, default=None)
+    owner_id: Mapped[str | None] = mapped_column(String(80), index=True, default=None)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+
+    results: Mapped[list["EvalCaseResult"]] = relationship(
+        back_populates="run", cascade="all, delete-orphan"
+    )
+
+
+class EvalCaseResult(Base):
+    """케이스별 채점 결과 — assert별 상세(details)와 관측 요약(obs, 캡 적용)."""
+
+    __tablename__ = "eval_case_results"
+    id: Mapped[uuid.UUID] = _pk()
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("eval_runs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    case_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    case_passed: Mapped[bool] = mapped_column(Boolean, default=False)
+    details: Mapped[list] = mapped_column(JSONB, default=list)  # [[assert_name, bool], ...]
+    obs: Mapped[dict | None] = mapped_column(JSONB, default=None)  # {output(캡), trace_nodes, error}
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    run: Mapped["EvalRun"] = relationship(back_populates="results")

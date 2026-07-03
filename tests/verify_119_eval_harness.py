@@ -11,11 +11,11 @@ import os
 import sys
 import uuid
 
-sys.path.insert(0, os.path.dirname(__file__))  # tests/ — eval_harness 임포트
+# eval_harness는 스펙 137에서 packages/api/src/api/로 승격(제품 코어 단일 출처) — 경로 갱신.
 
 import httpx  # noqa: E402
 
-from eval_harness import (  # noqa: E402
+from api.eval_harness import (  # noqa: E402
     EvalCase,
     no_error,
     output_nonempty,

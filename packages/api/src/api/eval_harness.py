@@ -105,3 +105,35 @@ async def run_eval(
             continue
         results.append(CaseResult(case.name, all(ok for _, ok in details), details, obs))
     return EvalReport(results)
+
+
+# ----------------------------- 선언적 asserts 매핑 (스펙 137) -----------------------------
+# 문제집(DB)의 asserts JSON([{"type","arg"}])을 scorer 팩토리로 변환. **닫힌 집합** — 미지 type은
+# ValueError(평가는 fail-closed: 모르는 채점 기준을 조용히 통과 처리하면 조용한 초록, 회고 100 대죄).
+_ASSERT_TYPES = {
+    "trace_has": (trace_has, True),  # (팩토리, arg 필수 여부)
+    "trace_lacks": (trace_lacks, True),
+    "output_contains": (output_contains, True),
+    "no_error": (no_error, False),
+    "output_nonempty": (output_nonempty, False),
+}
+
+
+def build_asserts(spec_list: list) -> list:
+    """선언 JSON → [(name, fn)] scorer 목록. 형식/type 오류는 ValueError(API 검증 계층에서 400으로)."""
+    out = []
+    for i, item in enumerate(spec_list or []):
+        if not isinstance(item, dict) or "type" not in item:
+            raise ValueError(f"asserts[{i}]: {{'type', 'arg'}} 형식이어야 합니다")
+        t = item["type"]
+        if t not in _ASSERT_TYPES:
+            raise ValueError(f"asserts[{i}]: 알 수 없는 type {t!r} (허용: {sorted(_ASSERT_TYPES)})")
+        factory, needs_arg = _ASSERT_TYPES[t]
+        arg = item.get("arg")
+        if needs_arg:
+            if not isinstance(arg, str) or not arg.strip():
+                raise ValueError(f"asserts[{i}]: type {t!r}는 비어있지 않은 문자열 arg가 필요합니다")
+            out.append(factory(arg))
+        else:
+            out.append(factory())
+    return out

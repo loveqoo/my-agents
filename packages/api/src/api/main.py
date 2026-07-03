@@ -17,6 +17,7 @@ from . import (
     allowed_hosts,
     approvals,
     batch_routes,
+    eval_routes,
     blocks,
     chat,
     memory_routes,
@@ -88,6 +89,7 @@ app.include_router(memory_routes.router, dependencies=_auth)
 app.include_router(rag.router, dependencies=_auth)
 app.include_router(approvals.router, dependencies=_auth)
 app.include_router(batch_routes.router)  # 자체 보호(admin) — user_admin과 동일 패턴
+app.include_router(eval_routes.router)  # 자체 보호(admin) — 평가 하네스 제품화(스펙 137)
 app.include_router(allowed_hosts.router)  # 자체 보호(admin) — SSRF allowlist 관리(스펙 064)
 app.include_router(mock_remote.router)
 # 로컬(ui) 에이전트 A2A 노출(스펙 061) — mock_remote처럼 전역 _auth 미적용(self-fetch 호환).
