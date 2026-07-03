@@ -72,6 +72,8 @@ const TITLES: Record<ViewKey, string> = {
 
 export default function AdminShell({ user, onLogout }: { user: Me; onLogout: () => void }) {
   const [view, setView] = useState<ViewKey>('agents')
+  // 에이전트 "테스트" → 플레이그라운드로 이동+그 에이전트 자동 선택(스펙 144 #2).
+  const [playgroundAgent, setPlaygroundAgent] = useState<string | null>(null)
   const [collapsed, setCollapsed] = useState(false)
   const { token } = theme.useToken()
   // 모바일(<768px)에서는 Sider를 오버레이로 띄우고 기본은 닫는다 — 232px 사이더가
@@ -153,7 +155,14 @@ export default function AdminShell({ user, onLogout }: { user: Me; onLogout: () 
 
   const views: Record<ViewKey, ReactNode> = {
     overview: <OverviewView onGo={(v) => setView(v as ViewKey)} />,
-    agents: <AgentsView />,
+    agents: (
+      <AgentsView
+        onOpenPlayground={(id) => {
+          setPlaygroundAgent(id)
+          setView('debug')
+        }}
+      />
+    ),
     blocks: <BlocksView />,
     models: <ProviderModelView />,
     collections: <CollectionsView />,
@@ -164,7 +173,7 @@ export default function AdminShell({ user, onLogout }: { user: Me; onLogout: () 
     batch: <BatchView />,
     eval: <EvalView />,
     'allowed-hosts': <AllowedHostsView />,
-    debug: <Playground />,
+    debug: <Playground initialAgentId={playgroundAgent} onConsumedInitial={() => setPlaygroundAgent(null)} />,
   }
 
   const doLogout = async () => {

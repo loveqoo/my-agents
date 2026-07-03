@@ -1257,12 +1257,14 @@ function AgentDetail({
 }
 
 /* ---- Main view ---- */
-export default function AgentsView() {
+export default function AgentsView({ onOpenPlayground }: { onOpenPlayground?: (agentRowId: string) => void }) {
   const [agents, setAgents] = useState<Agent[]>([])
   const [blocks, setBlocks] = useState<Record<string, BlockCategory>>({})
   const [models, setModels] = useState<Model[]>([])
   const [collections, setCollections] = useState<Collection[]>([])
   const [detailId, setDetailId] = useState<string | null>(null)
+  const [query, setQuery] = useState('') // 리스트 검색(스펙 144 #3)
+  const [sortKey, setSortKey] = useState<'name' | 'recent'>('name')
   const detail = agents.find((a) => a.id === detailId) || null
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing] = useState<{ agent: Agent; version: string | null } | null>(null)
@@ -1390,8 +1392,11 @@ export default function AgentsView() {
       message.warning('새 초안을 만들 수 없습니다 — 이미 초안이 있는지 확인하세요')
     }
   }
-  const testVersion = (agent: Agent, v: VersionMeta) =>
-    setToast(`${agent.name} ${v.version}(초안 구성) 테스트 — 디버그 콘솔을 열세요`)
+  // 테스트 = 플레이그라운드로 실제 이동(스펙 144 #2 — 토스트만 띄우던 것은 액션 오인 유발).
+  const testVersion = (agent: Agent, _v: VersionMeta) => {
+    setDetailId(null)
+    onOpenPlayground?.(agent.id)
+  }
   const revertToDraft = async (agent: Agent, v: VersionMeta) => {
     try {
       const updated = await apiRevertVersion(agent.id, v.version)
@@ -1423,6 +1428,8 @@ export default function AgentsView() {
         const updated = await updateAgent(editing.agent.id, data.name, config)
         replaceAgent(updated)
         setToast(`초안에 저장됨 — 활성화하면 게시됩니다`)
+        // 편집을 마치면 그 에이전트의 드로워로 복귀(스펙 144 #1 — 이어서 "활성화"를 누르는 동선).
+        setDetailId(editing.agent.id)
       } else {
         const created = await createAgent(data.name, config)
         setAgents((as) => [created, ...as])
@@ -1488,6 +1495,14 @@ export default function AgentsView() {
     }
   }
 
+  const q = query.trim().toLowerCase()
+  const visibleAgents = agents
+    .filter((a) => !q || [a.name, a.model, a.source].some((f) => (f || '').toLowerCase().includes(q)))
+    .slice()
+    .sort((x, y) =>
+      sortKey === 'name' ? x.name.localeCompare(y.name, 'ko') : 0 /* recent=서버 응답 순서(최신 생성이 앞) 보존 */
+    )
+
   const columns: Column<Agent>[] = [
     {
       key: 'name',
@@ -1522,7 +1537,6 @@ export default function AgentsView() {
       key: 'source',
       title: '소스',
       width: 104,
-      hideBelow: 'xl',
       render: (a) => {
         const s = AGENT_SOURCE[a.source || 'ui'] || AGENT_SOURCE.ui
         return (
@@ -1562,7 +1576,6 @@ export default function AgentsView() {
     {
       key: 'mcps',
       title: 'MCP',
-      hideBelow: 'xxl',
       render: (a) => (
         <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 4 }}>
           {a.mcps.map((m) => (
@@ -1577,7 +1590,6 @@ export default function AgentsView() {
       key: 'version',
       title: '버전',
       width: 110,
-      hideBelow: 'xxl',
       render: (a) => {
         if (a.source === 'code')
           return (
@@ -1606,7 +1618,6 @@ export default function AgentsView() {
       key: 'exposed',
       title: '공개',
       width: 130,
-      hideBelow: 'xl',
       render: (a) =>
         // A2A 노출은 로컬(ui) 에이전트만 — 원격(code)·외부(external)는 이미 원격 A2A/프록시라 재노출 불가(스펙 083).
         a.source !== 'ui' ? (
@@ -1673,7 +1684,30 @@ export default function AgentsView() {
         </span>
       }
     >
-      <DataTable columns={columns} rows={agents} onRowClick={(a) => setDetailId(a.id)} />
+      {/* 검색+정렬(스펙 144 #3) — 컬럼은 전부 상시 표시(hideBelow 제거, 좁으면 가로 스크롤). */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+        <Input
+          allowClear
+          prefix={<Icon name="search" size={13} />}
+          placeholder="이름·모델·소스 검색"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          style={{ maxWidth: 260 }}
+        />
+        <Select
+          value={sortKey}
+          onChange={setSortKey}
+          style={{ width: 130 }}
+          options={[
+            { value: 'name', label: '이름순' },
+            { value: 'recent', label: '최근 등록순' },
+          ]}
+        />
+        <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+          {visibleAgents.length}/{agents.length}개
+        </span>
+      </div>
+      <DataTable columns={columns} rows={visibleAgents} onRowClick={(a) => setDetailId(a.id)} />
 
       <AgentDetail
         agent={detail}
@@ -1728,6 +1762,8 @@ export default function AgentsView() {
         }
         onCancel={() => {
           setFormOpen(false)
+          // 편집 취소도 출발점(그 에이전트 드로워)으로 복귀(스펙 144 #1). 신규 생성 취소는 리스트.
+          if (editing) setDetailId(editing.agent.id)
           setEditing(null)
         }}
         onSave={save}

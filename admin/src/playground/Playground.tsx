@@ -14,7 +14,13 @@ import {
 } from '../api'
 import { onAgentsChanged } from '../agentsBus'
 
-export function Playground() {
+export function Playground({
+  initialAgentId = null,
+  onConsumedInitial,
+}: {
+  initialAgentId?: string | null
+  onConsumedInitial?: () => void
+} = {}) {
   const [agents, setAgents] = useState<Agent[]>([])
   const [activeId, setActiveId] = useState('')
   const [convos, setConvos] = useState<Record<string, ChatMsg[]>>({})
@@ -43,6 +49,13 @@ export function Playground() {
   // 헤더 컨트롤(아바타·userId·버튼)이 인스펙터 헤더로 흘러넘쳐 "턴 인스펙터" 타이틀·아이콘과
   // 겹친다(어중간한 폭 버그, #9). 그래서 lg 미만에서는 모바일과 동일하게 전체화면 오버레이로 띄운다.
   const overlayInspector = !screens.lg
+
+  // 에이전트 메뉴 "테스트"로 진입 시 그 에이전트 자동 선택(스펙 144 #2) — 목록 로드 후 1회 소비.
+  useEffect(() => {
+    if (!initialAgentId || agents.length === 0) return
+    if (agents.some((a) => a.id === initialAgentId)) setActiveId(initialAgentId)
+    onConsumedInitial?.()
+  }, [initialAgentId, agents.length])
 
   const activeAgent = agents.find((a) => a.id === activeId) ?? null
   const messages = convos[activeId] || []
