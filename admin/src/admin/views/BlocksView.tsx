@@ -1,7 +1,7 @@
 /* my-agents admin — Building blocks (재료) browser: personas, memory policies,
    permissions, MCP servers. Category tabs → list → detail drawer. */
 import { useState, useEffect } from 'react'
-import { Tag, Button, Tabs, Switch, Modal, Input, Select, Checkbox, Alert, message } from 'antd'
+import { Tag, Button, Tabs, Switch, Modal, Input, Select, Checkbox, Alert, Grid, message } from 'antd'
 import { Page, DataTable, Drawer, Desc, OwnerTag, type Column } from '../shared'
 import { Icon } from '../icons'
 import { MCP_STATUS, VECTOR_STATUS, APPROVER, type BlockItem, type BlockCategory, type StatusMeta } from '../mockData'
@@ -558,6 +558,7 @@ function BlockForm({
 }
 
 export default function BlocksView() {
+  const isMobileTabs = !Grid.useBreakpoint().md // 모바일 탭 축소(스펙 133)
   const [data, setData] = useState<Record<string, BlockCategory>>({})
   const [cat, setCat] = useState('persona')
   const [detail, setDetail] = useState<BlockItem | null>(null)
@@ -895,6 +896,8 @@ export default function BlocksView() {
         )
       }
     >
+      {/* 모바일(스펙 133 점검): 기본 크기·간격이면 셋째 탭이 반쯤 잘림 — size small+간격 축소로
+          390px에 세 탭이 온전히 들어오게. 데스크톱은 기존 그대로. */}
       <Tabs
         activeKey={cat}
         onChange={(k) => {
@@ -902,6 +905,8 @@ export default function BlocksView() {
           setDetail(null)
         }}
         items={tabItems}
+        size={isMobileTabs ? 'small' : undefined}
+        tabBarGutter={isMobileTabs ? 14 : undefined}
       />
       <div style={{ marginTop: 4, marginBottom: 14, color: 'var(--color-text-tertiary)', fontSize: 14 }}>{def?.desc}</div>
       <DataTable columns={colsFor(cat)} rows={def?.items ?? []} onRowClick={setDetail} />

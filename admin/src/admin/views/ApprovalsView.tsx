@@ -69,9 +69,16 @@ function ApprovalCard({
         >
           {JSON.stringify(item.args, null, 2)}
         </pre>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 12, fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-          <Icon name="clock-circle" size={12} />
-          체크포인트 <code style={{ fontFamily: 'var(--font-family-code)', color: 'var(--color-text-secondary)' }}>{item.checkpoint}</code>에서 일시정지됨 — 승인하면 여기서 재개됩니다.
+        {/* flex row → 인라인 흐름(스펙 133 모바일 점검): flex 항목화된 텍스트 조각들이 좁은 폭에서
+            긴 <code>에 밀려 한 글자씩 세로로 짜부라졌다(390px 판독 불가). 일반 텍스트 흐름 + code만
+            줄바꿈 허용으로 어떤 폭에서도 자연스럽게 감긴다. */}
+        <div style={{ marginTop: 12, fontSize: 12, color: 'var(--color-text-tertiary)', lineHeight: 1.7 }}>
+          <Icon name="clock-circle" size={12} style={{ marginRight: 6, verticalAlign: '-2px' }} />
+          체크포인트{' '}
+          <code style={{ fontFamily: 'var(--font-family-code)', color: 'var(--color-text-secondary)', overflowWrap: 'anywhere' }}>
+            {item.checkpoint}
+          </code>
+          에서 일시정지됨 — 승인하면 여기서 재개됩니다.
         </div>
       </div>
 
