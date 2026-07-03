@@ -65,6 +65,12 @@ class Collection(Base):
     id: Mapped[uuid.UUID] = _pk()
     name: Mapped[str] = mapped_column(String(200), unique=True)  # 식별 이름(규칙, 스펙 148)
     alias: Mapped[str | None] = mapped_column(String(200), default=None)  # 별명(자유 표기, 스펙 148)
+    # 종류 축(스펙 149): document=파일 파싱·청킹 | entity=JSONL 행 단위(1행=1청크, meta 동반).
+    # 생성 후 불변(저장 형태가 다름 — 임베딩 모델과 동급). server_default=마이그레이션과 정합
+    # (create_all 폴백 DB와 alembic DB의 스키마 diff 방지, codex 149 Low).
+    kind: Mapped[str] = mapped_column(String(20), default="document", server_default="document")
+    # 엔티티 행 검증용 JSON Schema(선택, 스펙 149) — 등록 시 업로드 행 전수 검증(내용물 드리프트 차단).
+    entity_schema: Mapped[dict | None] = mapped_column(JSONB, default=None)
     # 소유자(스펙 112) — 요청 주체(auth User UUID str). None=레거시/admin-저작=**admin 전용**(fail-closed,
     # learning 070). 브로커 능력 호출 시 소유자 본인 or 특권(admin/superuser)만. 생성 시 1회 스탬프·이전 금지(069).
     owner_id: Mapped[str | None] = mapped_column(String(80), index=True, default=None)
@@ -126,8 +132,11 @@ class Chunk(Base):
     collection_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("collections.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    ordinal: Mapped[int] = mapped_column(Integer, default=0)  # 문서 내 순번
+    ordinal: Mapped[int] = mapped_column(Integer, default=0)  # 문서 내 순번(엔티티=JSONL 행 번호)
     text: Mapped[str] = mapped_column(Text, default="")
+    # 엔티티 메타데이터(스펙 149) — JSONL 행의 metadata 원본(각 테이블 id 등). 문서형은 None.
+    # 검색 hit에 동반 반환되어 유사도 검색 결과로 원본 행을 특정할 수 있게 한다.
+    meta: Mapped[dict | None] = mapped_column(JSONB, default=None)
     embedding: Mapped[list[float]] = mapped_column(Vector(RAG_EMBED_DIMS))
     token_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -16,6 +16,7 @@ const { TextArea } = Input
 export interface RetrievalHit {
   score: number // 내림차순(1.0=가장 관련/동일)
   text: string
+  meta?: Record<string, unknown> | null // 엔티티 metadata(스펙 149) — 있으면 카드 하단에 표시
 }
 
 /** 검색 진단(스펙 125) — "왜 0건/실패인지". 메모리 경로만 채운다(컬렉션은 undefined). */
@@ -220,6 +221,22 @@ export function RetrievalTestPanel<H extends RetrievalHit>({
                   {renderMeta(h)}
                 </div>
                 <div style={{ fontSize: 13, color: 'var(--color-text-secondary)', whiteSpace: 'pre-wrap' }}>{h.text}</div>
+                {h.meta && Object.keys(h.meta).length > 0 ? (
+                  // 엔티티 metadata(스펙 149) — 유사도 검색 결과로 원본 행(각 테이블 id)을 특정하는 축
+                  <code
+                    style={{
+                      fontSize: 12,
+                      fontFamily: 'var(--font-family-code)',
+                      color: 'var(--geekblue-7)',
+                      background: 'var(--geekblue-1)',
+                      padding: '4px 8px',
+                      borderRadius: 'var(--radius-sm)',
+                      overflowWrap: 'anywhere',
+                    }}
+                  >
+                    {JSON.stringify(h.meta)}
+                  </code>
+                ) : null}
               </div>
             ))}
           </div>

@@ -93,6 +93,8 @@ function docStatusTag(status: string) {
 interface CreateFormData {
   name: string // 식별 이름(규칙, 스펙 148)
   alias: string // 별명(자유 표기, 스펙 148)
+  kind: 'document' | 'entity' // 종류 축(스펙 149)
+  schemaText: string // 엔티티 행 검증 JSON Schema 원문(선택, 스펙 149) — 제출 시 파싱
   description: string
   embedding_model_id: string
   chunk_size: number
@@ -102,6 +104,8 @@ interface CreateFormData {
 const blankCreate: CreateFormData = {
   name: '',
   alias: '',
+  kind: 'document',
+  schemaText: '',
   description: '',
   embedding_model_id: '',
   chunk_size: 1000,
@@ -161,6 +165,40 @@ function CreateModal({
           <Input placeholder="예: 사내 위키" value={f.alias} onChange={(e) => set('alias', e.target.value)} />
         </label>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <span style={{ fontSize: 14, fontWeight: 500 }}>종류</span>
+          <Select
+            value={f.kind}
+            onChange={(v) => set('kind', v)}
+            style={{ width: '100%' }}
+            options={[
+              { label: '문서형 — 파일을 잘라(청킹) 의미 검색', value: 'document' },
+              { label: '엔티티형 — JSONL 한 줄=한 엔티티, metadata 동반 검색', value: 'entity' },
+            ]}
+          />
+          <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+            {f.kind === 'entity'
+              ? 'JSONL 형식: {"metadata": {…id들}, "data": {…임베딩 소스}} — data를 임베딩하고 검색 결과에 metadata가 함께 나옵니다. 생성 후 종류는 변경할 수 없습니다.'
+              : 'PDF·텍스트·마크다운을 올려 청킹·임베딩합니다. 생성 후 종류는 변경할 수 없습니다.'}
+          </span>
+        </label>
+        {f.kind === 'entity' ? (
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <span style={{ fontSize: 14, fontWeight: 500 }}>
+              JSON Schema <span style={{ color: 'var(--color-text-tertiary)', fontWeight: 400 }}>(선택 — 업로드 행 검증)</span>
+            </span>
+            <TextArea
+              rows={5}
+              placeholder={'{"type": "object", "required": ["metadata", "data"], …}'}
+              value={f.schemaText}
+              onChange={(e) => set('schemaText', e.target.value)}
+              style={{ fontFamily: 'var(--font-family-code)', fontSize: 12 }}
+            />
+            <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+              등록하면 업로드하는 모든 행을 이 스키마로 검증합니다(위반 시 행 번호와 함께 거부) — SQL 변경으로 필드가 어긋나는 것을 잡아줍니다.
+            </span>
+          </label>
+        ) : null}
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <span style={{ fontSize: 14, fontWeight: 500 }}>
             설명 <span style={{ color: 'var(--color-text-tertiary)', fontWeight: 400 }}>(선택)</span>
           </span>
@@ -187,26 +225,28 @@ function CreateModal({
             생성 후 모델과 차원은 변경할 수 없습니다.
           </span>
         </label>
-        <div style={{ display: 'flex', gap: 16 }}>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1 }}>
-            <span style={{ fontSize: 14, fontWeight: 500 }}>청크 크기</span>
-            <InputNumber
-              min={1}
-              style={{ width: '100%' }}
-              value={f.chunk_size}
-              onChange={(v) => set('chunk_size', v ?? blankCreate.chunk_size)}
-            />
-          </label>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1 }}>
-            <span style={{ fontSize: 14, fontWeight: 500 }}>청크 겹침</span>
-            <InputNumber
-              min={0}
-              style={{ width: '100%' }}
-              value={f.chunk_overlap}
-              onChange={(v) => set('chunk_overlap', v ?? blankCreate.chunk_overlap)}
-            />
-          </label>
-        </div>
+        {f.kind === 'document' ? (
+          <div style={{ display: 'flex', gap: 16 }}>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1 }}>
+              <span style={{ fontSize: 14, fontWeight: 500 }}>청크 크기</span>
+              <InputNumber
+                min={1}
+                style={{ width: '100%' }}
+                value={f.chunk_size}
+                onChange={(v) => set('chunk_size', v ?? blankCreate.chunk_size)}
+              />
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1 }}>
+              <span style={{ fontSize: 14, fontWeight: 500 }}>청크 겹침</span>
+              <InputNumber
+                min={0}
+                style={{ width: '100%' }}
+                value={f.chunk_overlap}
+                onChange={(v) => set('chunk_overlap', v ?? blankCreate.chunk_overlap)}
+              />
+            </label>
+          </div>
+        ) : null}
       </div>
     </Modal>
   )
@@ -288,8 +328,10 @@ function DocsDrawer({
     }
   }
 
+  const isEntity = collection?.kind === 'entity'
   const uploadProps: UploadProps = {
-    accept: '.pdf,.txt,.md',
+    // 엔티티형(스펙 149)은 JSONL만 — 형식 안내는 서버 400(행 번호)이 정밀하게 한다.
+    accept: isEntity ? '.jsonl,.json' : '.pdf,.txt,.md',
     multiple: true,
     showUploadList: false,
     // 직접 처리 — antd 자동 업로드를 막고 uploadDocument로 보낸다.
@@ -369,11 +411,13 @@ function DocsDrawer({
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             <Upload {...uploadProps}>
               <Button type="primary" icon={<Icon name="paper-clip" />} loading={uploading}>
-                문서 업로드
+                {isEntity ? 'JSONL 업로드' : '문서 업로드'}
               </Button>
             </Upload>
             <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-              PDF와 UTF-8 텍스트(.txt, .md)만 지원합니다.
+              {isEntity
+                ? '한 줄 = {"metadata": {…}, "data": {…}} 한 엔티티. 형식이 어긋난 행이 있으면 행 번호와 함께 전체가 거부됩니다.'
+                : 'PDF와 UTF-8 텍스트(.txt, .md)만 지원합니다.'}
             </span>
           </div>
           )}
@@ -407,28 +451,32 @@ function DocsDrawer({
               <span style={{ fontSize: 13, fontWeight: 500 }}>설명</span>
               <TextArea rows={2} value={description} onChange={(e) => setDescription(e.target.value)} />
             </label>
-            <div style={{ display: 'flex', gap: 16 }}>
-              <label style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1 }}>
-                <span style={{ fontSize: 13, fontWeight: 500 }}>청크 크기</span>
-                <InputNumber
-                  min={1}
-                  style={{ width: '100%' }}
-                  value={chunkSize}
-                  onChange={(v) => setChunkSize(v ?? collection.chunk_size)}
-                />
-              </label>
-              <label style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1 }}>
-                <span style={{ fontSize: 13, fontWeight: 500 }}>청크 겹침</span>
-                <InputNumber
-                  min={0}
-                  style={{ width: '100%' }}
-                  value={chunkOverlap}
-                  onChange={(v) => setChunkOverlap(v ?? collection.chunk_overlap)}
-                />
-              </label>
-            </div>
+            {!isEntity ? (
+              <div style={{ display: 'flex', gap: 16 }}>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1 }}>
+                  <span style={{ fontSize: 13, fontWeight: 500 }}>청크 크기</span>
+                  <InputNumber
+                    min={1}
+                    style={{ width: '100%' }}
+                    value={chunkSize}
+                    onChange={(v) => setChunkSize(v ?? collection.chunk_size)}
+                  />
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1 }}>
+                  <span style={{ fontSize: 13, fontWeight: 500 }}>청크 겹침</span>
+                  <InputNumber
+                    min={0}
+                    style={{ width: '100%' }}
+                    value={chunkOverlap}
+                    onChange={(v) => setChunkOverlap(v ?? collection.chunk_overlap)}
+                  />
+                </label>
+              </div>
+            ) : null}
             <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-              청크 정책 변경은 이후 업로드되는 문서에만 적용됩니다. 모델과 차원은 변경할 수 없습니다.
+              {isEntity
+                ? '엔티티 컬렉션은 1행=1청크(분할 없음)라 청크 정책이 없습니다. 모델과 차원은 변경할 수 없습니다.'
+                : '청크 정책 변경은 이후 업로드되는 문서에만 적용됩니다. 모델과 차원은 변경할 수 없습니다.'}
             </span>
             <Button onClick={() => void savePolicy()} loading={savingPolicy} style={{ alignSelf: 'flex-start' }}>
               설정 저장
@@ -541,10 +589,22 @@ export default function CollectionsView() {
       message.warning('임베딩 모델을 선택하세요')
       return
     }
+    // 엔티티 스키마(선택, 스펙 149) — 제출 전 JSON 파싱만 확인(스키마 유효성은 서버 check_schema)
+    let entitySchema: Record<string, unknown> | null = null
+    if (data.kind === 'entity' && data.schemaText.trim()) {
+      try {
+        entitySchema = JSON.parse(data.schemaText)
+      } catch {
+        message.warning('JSON Schema가 올바른 JSON이 아닙니다')
+        return
+      }
+    }
     try {
       await createCollection({
         name: data.name.trim(),
         alias: data.alias.trim() || null,
+        kind: data.kind,
+        entity_schema: entitySchema,
         description: data.description.trim() || undefined,
         embedding_model_id: data.embedding_model_id,
         chunk_size: data.chunk_size,
@@ -594,6 +654,9 @@ export default function CollectionsView() {
             <code style={{ marginLeft: 6, fontSize: 11, color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-family-code)' }}>
               {c.name}
             </code>
+          ) : null}
+          {c.kind === 'entity' ? (
+            <Tag color="geekblue" style={{ marginLeft: 6 }}>엔티티</Tag>
           ) : null}
           <span style={{ marginLeft: 6 }}><OwnerTag ownerId={c.owner_id} canManage={c.can_manage} /></span>
           {c.description ? (

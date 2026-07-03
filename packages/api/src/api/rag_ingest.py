@@ -41,6 +41,96 @@ def extract_text(filename: str, content_type: str | None, data: bytes) -> str:
     return text
 
 
+# ----------------------------- 엔티티 인제스트 (스펙 149) -----------------------------
+# JSONL 행 단위: {"metadata": {...id들}, "data": {...임베딩 소스} | "문자열"} — 1행=1청크(분할 없음).
+ENTITY_MAX_ROWS = 5000  # 파일당 행 수 캡 — 초과 시 400(조용한 축소 금지)
+ENTITY_MAX_TEXT_CHARS = 8000  # 행당 임베딩 텍스트 캡 — 초과 시 400(임베딩 입력 한계)
+ENTITY_MAX_META_CHARS = 2000  # 행당 metadata 직렬화 캡(codex 149 — 검색 응답 비대 방지)
+
+
+class EntityParseError(IngestError):
+    """엔티티 JSONL 형식 위반 — fail-closed(파일 전체 거부). 소스가 SQL 추출물이라 위반=파이프라인
+    버그이며, 부분 스킵은 비즈니스 데이터의 조용한 유실이다. 메시지에 행 번호를 포함한다."""
+
+
+def entity_text(data: object) -> str:
+    """임베딩 텍스트 직렬화 — 문자열은 그대로, 객체는 `key: value` 줄 평탄화(중첩 값은 JSON).
+    키 순서는 입력 순서 보존(사용자의 SELECT 컬럼 순서가 곧 의미 순서). 순수 함수."""
+    import json as _json
+
+    if isinstance(data, str):
+        return data.strip()
+    if isinstance(data, dict):
+        lines = []
+        for k, v in data.items():
+            if isinstance(v, (dict, list)):
+                v = _json.dumps(v, ensure_ascii=False)
+            lines.append(f"{k}: {v}")
+        return "\n".join(lines).strip()
+    return ""
+
+
+def parse_entity_lines(raw: bytes, schema: dict | None = None) -> list[tuple[str, dict]]:
+    """JSONL 바이트 → [(임베딩 텍스트, metadata)] — fail-closed(위반 행=EntityParseError, 행 번호 포함).
+
+    행 계약: JSON 객체 + `metadata`(객체) + `data`(객체|문자열, 직렬화 후 비어있지 않음).
+    schema 지정 시 각 행 전체를 JSON Schema로 검증(내용물 드리프트 차단 — SQL 변경으로 id 누락 등).
+    빈 줄은 무시(후행 개행 허용). 순수 함수(DB/네트워크 없음)."""
+    import json as _json
+
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise EntityParseError("UTF-8 텍스트가 아닙니다 — JSONL(UTF-8) 파일을 올려주세요.") from exc
+
+    validator = None
+    if schema is not None:
+        import jsonschema
+
+        validator = jsonschema.Draft202012Validator(schema)
+
+    rows: list[tuple[str, dict]] = []
+    for lineno, line in enumerate(text.splitlines(), start=1):
+        if not line.strip():
+            continue  # 빈 줄 허용(후행 개행 등)
+        # 캡 검사를 파싱 **앞**에(codex 149 Low) — 5001번째 행의 파싱/스키마 검증 비용도 쓰지 않는다.
+        if len(rows) >= ENTITY_MAX_ROWS:
+            raise EntityParseError(f"행이 {ENTITY_MAX_ROWS}개를 넘습니다 — 파일을 나눠 올려주세요.")
+        try:
+            obj = _json.loads(line)
+        except ValueError as exc:
+            raise EntityParseError(f"{lineno}번째 줄: JSON 파싱 실패 — {exc}") from exc
+        if not isinstance(obj, dict):
+            raise EntityParseError(f"{lineno}번째 줄: JSON 객체가 아닙니다(계약: {{metadata, data}}).")
+        meta = obj.get("metadata")
+        if not isinstance(meta, dict):
+            raise EntityParseError(f"{lineno}번째 줄: metadata가 객체가 아닙니다.")
+        data = obj.get("data")
+        if not isinstance(data, (dict, str)):
+            raise EntityParseError(f"{lineno}번째 줄: data는 객체 또는 문자열이어야 합니다.")
+        if validator is not None:
+            err = next(iter(validator.iter_errors(obj)), None)
+            if err is not None:
+                path = "/".join(str(p) for p in err.absolute_path) or "(루트)"
+                raise EntityParseError(f"{lineno}번째 줄: 스키마 위반 — {path}: {err.message[:200]}")
+        txt = entity_text(data)
+        if not txt:
+            raise EntityParseError(f"{lineno}번째 줄: data에서 임베딩할 텍스트가 없습니다.")
+        if len(txt) > ENTITY_MAX_TEXT_CHARS:
+            raise EntityParseError(
+                f"{lineno}번째 줄: 텍스트가 {len(txt)}자 — 행당 최대 {ENTITY_MAX_TEXT_CHARS}자입니다."
+            )
+        mlen = len(_json.dumps(meta, ensure_ascii=False))
+        if mlen > ENTITY_MAX_META_CHARS:
+            raise EntityParseError(
+                f"{lineno}번째 줄: metadata가 {mlen}자 — 행당 최대 {ENTITY_MAX_META_CHARS}자입니다."
+            )
+        rows.append((txt, meta))
+    if not rows:
+        raise EntityParseError("적재할 행이 없습니다(빈 파일).")
+    return rows
+
+
 def chunk_text(text: str, chunk_size: int, chunk_overlap: int) -> list[str]:
     """RecursiveCharacterTextSplitter로 컬렉션 설정에 따라 분할. 빈 청크 제거."""
     splitter = RecursiveCharacterTextSplitter(

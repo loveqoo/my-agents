@@ -41,6 +41,9 @@ class CollectionIn(BaseModel):
 
     name: str = Field(max_length=200)  # 식별 이름(규칙, 스펙 148) — DB String(200) 정합
     alias: str | None = Field(default=None, max_length=200)  # 별명(자유 표기, 스펙 148)
+    kind: Literal["document", "entity"] = "document"  # 종류 축(스펙 149) — 생성 후 불변
+    # 엔티티 행 검증 JSON Schema(선택, 스펙 149) — 서버가 check_schema로 스키마 자체 유효성 검증
+    entity_schema: dict[str, Any] | None = None
     description: str = ""
     embedding_model_id: uuid.UUID
     chunk_size: int = Field(default=1000, gt=0)  # 0/음수면 1자 청크 폭주 — 422로 거부
@@ -55,12 +58,17 @@ class CollectionUpdate(BaseModel):
     description: str | None = None
     chunk_size: int | None = Field(default=None, gt=0)
     chunk_overlap: int | None = Field(default=None, ge=0)
+    # 엔티티 스키마 갱신(스펙 149) — 이후 업로드부터 적용(기존 행 재검증 없음).
+    # 필드 미포함=미변경, 명시적 null=제거(model_fields_set 판별 — 오등록 스키마 해제 경로, codex 149)
+    entity_schema: dict[str, Any] | None = None
 
 
 class CollectionOut(BaseModel):
     id: uuid.UUID
     name: str
     alias: str | None = None  # 별명(스펙 148)
+    kind: str = "document"  # 종류 축(스펙 149)
+    entity_schema: dict[str, Any] | None = None  # 엔티티 행 검증 스키마(스펙 149)
     description: str
     embedding_model_id: uuid.UUID
     embedding_model_name: str  # denormalized 표시용
@@ -127,6 +135,7 @@ class SearchHit(BaseModel):
     score: float  # 1 - cosine_distance (1.0=동일 벡터). 내림차순.
     filename: str
     text: str
+    meta: dict[str, Any] | None = None  # 엔티티 metadata(스펙 149) — 문서형 hit은 None
 
 
 class CollectionSearchOut(BaseModel):

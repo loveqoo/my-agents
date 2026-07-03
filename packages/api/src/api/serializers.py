@@ -55,6 +55,8 @@ def collection_to_out(c: Collection) -> CollectionOut:
         id=c.id,
         name=c.name,
         alias=c.alias,  # 별명(스펙 148)
+        kind=c.kind,  # 종류 축(스펙 149)
+        entity_schema=c.entity_schema,
         description=c.description,
         embedding_model_id=c.embedding_model_id,
         embedding_model_name=c.embedding_model.name if c.embedding_model else "",

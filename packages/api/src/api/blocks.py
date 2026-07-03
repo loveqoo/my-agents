@@ -540,6 +540,7 @@ async def get_blocks(
             "id": str(row.id),
             "name": row.name,
             "alias": row.alias,  # 별명(스펙 148)
+            "kind": row.kind,  # document|entity(스펙 149)
             "model": row.embedding_model.name if row.embedding_model else "",
             "dims": row.dims,
             "docs": row.doc_count,

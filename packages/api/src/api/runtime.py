@@ -250,8 +250,9 @@ async def search_collections(
 
     `collections`: `_load_context`가 해석한 dict 리스트
     `{id, name, embed_base_url, embed_api_key(복호화됨), embed_model_id}`.
-    반환: score(=1-cosine_distance) 내림차순 hit 리스트 `[{"score","filename","text"}]`(관련 0건이면 []).
-    실패(빈 질의·임베딩 서버 다운·DB 오류)는 `RagSearchError`로 올린다 — 표현은 호출자가 정한다.
+    반환: score(=1-cosine_distance) 내림차순 hit 리스트 `[{"score","filename","text","meta"}]`
+    (관련 0건이면 []). meta=엔티티 metadata(스펙 149, 문서형은 None) — 유사도 검색 결과로
+    원본 행(각 테이블 id)을 특정하는 축. 실패는 `RagSearchError`로 올린다 — 표현은 호출자가 정한다.
     """
     from sqlalchemy import select  # 지연 임포트(모듈 경량 유지)
 
@@ -287,8 +288,8 @@ async def search_collections(
     except Exception as exc:  # noqa: BLE001 — 어떤 실패도 호출자를 죽이지 않는다
         raise RagSearchError("embed", "임베딩 예외", "문서 검색 실패(질의 임베딩 중 오류).") from exc
 
-    # 컬렉션별 cosine 검색 → 통합. 각 행: (dist, filename, text). dist 오름차순 = 가까움.
-    hits: list[tuple[float, str, str]] = []
+    # 컬렉션별 cosine 검색 → 통합. 각 행: (dist, filename, text, meta). dist 오름차순 = 가까움.
+    hits: list[tuple[float, str, str, dict | None]] = []
     try:
         async with SessionLocal() as db:
             for c in collections:
@@ -296,15 +297,15 @@ async def search_collections(
                 dist = Chunk.embedding.cosine_distance(qvec).label("dist")
                 rows = (
                     await db.execute(
-                        select(Chunk.text, Document.filename, dist)
+                        select(Chunk.text, Document.filename, Chunk.meta, dist)
                         .join(Document, Chunk.document_id == Document.id)
                         .where(Chunk.collection_id == c["id"])
                         .order_by(dist)
                         .limit(k)
                     )
                 ).all()
-                for text, filename, d in rows:
-                    hits.append((float(d), filename or "(파일 미상)", text))
+                for text, filename, meta, d in rows:
+                    hits.append((float(d), filename or "(파일 미상)", text, meta))
     except Exception as exc:  # noqa: BLE001 — DB/검색 오류도 RagSearchError로
         raise RagSearchError("db", "검색 예외", "문서 검색 실패(유사도 검색 중 오류).") from exc
 
@@ -317,8 +318,8 @@ async def search_collections(
     # 동시 사용은 비권장이며, 강제 방지/스코어 정규화는 후속 스펙으로 남긴다.)
     relevant.sort(key=lambda h: h[0])
     return [
-        {"score": 1.0 - d, "filename": filename, "text": text}
-        for d, filename, text in relevant[:k]
+        {"score": 1.0 - d, "filename": filename, "text": text, "meta": meta}
+        for d, filename, text, meta in relevant[:k]
     ]
 
 
@@ -336,7 +337,17 @@ def format_rag_hits(results: list[dict]) -> str:
         snippet = h["text"].strip().replace("\n", " ")
         if len(snippet) > 500:
             snippet = snippet[:500] + "…"
-        lines.append(f"{i}. ({h['filename']}, 유사도 {h['score']:.3f}) {snippet}")
+        row = f"{i}. ({h['filename']}, 유사도 {h['score']:.3f}) {snippet}"
+        # 엔티티 hit(스펙 149)은 metadata를 함께 — 에이전트가 원본 행 id를 인용/후속 조회에 쓴다.
+        meta = h.get("meta")
+        if isinstance(meta, dict) and meta:
+            import json as _json
+
+            mtxt = _json.dumps(meta, ensure_ascii=False)
+            if len(mtxt) > 300:
+                mtxt = mtxt[:300] + "…"
+            row += f" [metadata: {mtxt}]"
+        lines.append(row)
     return "\n".join(lines)
 
 

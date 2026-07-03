@@ -198,6 +198,8 @@ export interface Collection {
   id: string
   name: string // 식별 이름(규칙, 스펙 148)
   alias?: string | null // 별명(자유 표기, 스펙 148) — 표시 = alias ?? name
+  kind?: 'document' | 'entity' // 종류 축(스펙 149) — 생성 후 불변
+  entity_schema?: Record<string, unknown> | null // 엔티티 행 검증 JSON Schema(선택, 스펙 149)
   description: string
   embedding_model_id: string
   embedding_model_name: string
@@ -232,6 +234,7 @@ export interface SearchHit {
   score: number // 1 - cosine_distance (1.0=동일 벡터), 내림차순
   filename: string
   text: string
+  meta?: Record<string, unknown> | null // 엔티티 metadata(스펙 149) — 문서형은 null
 }
 export interface CollectionSearchOut {
   query: string
@@ -242,6 +245,8 @@ export const listCollections = () => j<Collection[]>('/collections')
 export const createCollection = (body: {
   name: string
   alias?: string | null // 별명(스펙 148)
+  kind?: 'document' | 'entity' // 종류 축(스펙 149)
+  entity_schema?: Record<string, unknown> | null // 엔티티 행 검증 스키마(스펙 149)
   description?: string
   embedding_model_id: string
   chunk_size?: number
@@ -249,7 +254,13 @@ export const createCollection = (body: {
 }) => post('/collections', body) as Promise<Collection>
 export const updateCollection = (
   id: string,
-  body: { alias?: string | null; description?: string; chunk_size?: number; chunk_overlap?: number },
+  body: {
+    alias?: string | null
+    description?: string
+    chunk_size?: number
+    chunk_overlap?: number
+    entity_schema?: Record<string, unknown> | null
+  },
 ) => put(`/collections/${id}`, body) as Promise<Collection>
 export const deleteCollection = (id: string) => del(`/collections/${id}`)
 export const collectionHealth = (id: string) =>

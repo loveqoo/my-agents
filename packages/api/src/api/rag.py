@@ -43,6 +43,53 @@ from .sessions import _like_escape
 
 router = APIRouter(prefix="/collections", tags=["rag"])
 
+
+_SCHEMA_MAX_CHARS = 20_000  # 스키마 직렬화 캡 — 거대 스키마의 행당 검증 비용 폭주 방지(codex 149)
+_SCHEMA_BANNED_KEYS = ("pattern", "patternProperties")  # 정규식 키워드 금지(v1)
+
+
+def _has_banned_key(node: object) -> str | None:
+    """스키마 트리에서 금지 키워드 탐색 — 병적 정규식(`^(a+)+$` 류)이 행 전수 검증에서 CPU를
+    폭주시키는 ReDoS 표면을 등록 시점에 차단(codex 149 High). v1 경계: 정규식 제약 미지원."""
+    if isinstance(node, dict):
+        for k, v in node.items():
+            if k in _SCHEMA_BANNED_KEYS:
+                return k
+            found = _has_banned_key(v)
+            if found:
+                return found
+    elif isinstance(node, list):
+        for v in node:
+            found = _has_banned_key(v)
+            if found:
+                return found
+    return None
+
+
+def _check_entity_schema(schema: dict | None, kind: str) -> None:
+    """entity_schema 입력 검증(스펙 149) — 스키마 자체가 유효한 JSON Schema인지 등록 시점에 확인
+    (업로드 때 처음 터지면 원인 추적이 어렵다). 문서형에 스키마를 주면 400(의미 없음)."""
+    if schema is None:
+        return
+    if kind != "entity":
+        raise HTTPException(status_code=400, detail="entity_schema는 엔티티 컬렉션에만 설정할 수 있습니다.")
+    import json
+
+    import jsonschema
+
+    if len(json.dumps(schema)) > _SCHEMA_MAX_CHARS:
+        raise HTTPException(status_code=400, detail=f"JSON Schema가 너무 큽니다(최대 {_SCHEMA_MAX_CHARS}자).")
+    banned = _has_banned_key(schema)
+    if banned:
+        raise HTTPException(
+            status_code=400,
+            detail=f"JSON Schema의 '{banned}' 키워드는 지원하지 않습니다(정규식 제약은 v1 미지원 — 검증 비용 경계).",
+        )
+    try:
+        jsonschema.Draft202012Validator.check_schema(schema)
+    except jsonschema.SchemaError as exc:
+        raise HTTPException(status_code=400, detail=f"JSON Schema가 유효하지 않습니다: {exc.message[:200]}")
+
 # 업로드 상한 — `await file.read()`는 전체를 메모리로 올리므로 무제한이면 단일/동시 업로드로 OOM.
 # 기본 25MB, RAG_MAX_UPLOAD_MB로 조정. 초과 시 413(적재 전 차단).
 MAX_UPLOAD_BYTES = int(os.environ.get("RAG_MAX_UPLOAD_MB", "25")) * 1024 * 1024
@@ -111,6 +158,7 @@ async def create_collection(
     err = validate_resource_name(body.name)  # 식별 이름 규칙(스펙 148)
     if err:
         raise HTTPException(status_code=400, detail=err)
+    _check_entity_schema(body.entity_schema, body.kind)  # 스키마 자체 유효성(스펙 149)
     m = await _embedding_model(session, body.embedding_model_id)
     if m is None:
         raise HTTPException(status_code=400, detail="임베딩 모델을 찾을 수 없습니다.")
@@ -125,6 +173,8 @@ async def create_collection(
     c = Collection(
         name=body.name,
         alias=(body.alias or "").strip() or None,  # 별명(자유 표기, 스펙 148)
+        kind=body.kind,  # 종류 축(스펙 149) — 생성 후 불변
+        entity_schema=body.entity_schema if body.kind == "entity" else None,
         description=body.description,
         embedding_model_id=body.embedding_model_id,
         dims=RAG_EMBED_DIMS,
@@ -167,9 +217,16 @@ async def update_collection(
     if c is None:
         raise HTTPException(status_code=404, detail="not found")
     assert_may_manage(c, principal)  # 소유자/특권만(스펙 112)
-    # 임베딩 모델·dims는 불변(차원 고정). 설명·청킹 설정·별명만 갱신.
+    # 임베딩 모델·dims·kind는 불변. 설명·청킹 설정·별명·엔티티 스키마만 갱신.
     if body.alias is not None:
         c.alias = body.alias.strip() or None  # ""=별명 비우기(스펙 148)
+    if "entity_schema" in body.model_fields_set:
+        # 명시적 null=스키마 제거(codex 149 — 오등록 스키마를 API로 해제 못 하면 업로드가 영구 잠김),
+        # 미포함=미변경. 이후 업로드부터 적용(기존 행 재검증 없음 — 스펙 149). 문서형엔 400.
+        if c.kind != "entity":
+            raise HTTPException(status_code=400, detail="entity_schema는 엔티티 컬렉션에만 설정할 수 있습니다.")
+        _check_entity_schema(body.entity_schema, "entity")
+        c.entity_schema = body.entity_schema
     if body.description is not None:
         c.description = body.description
     if body.chunk_size is not None:
@@ -339,6 +396,17 @@ async def ingest_document(
     data = await file.read()
     if len(data) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail=f"파일이 너무 큽니다(최대 {limit_mb}MB).")
+
+    # 엔티티 컬렉션(스펙 149): Document 영속화 **전에** 행 전수 파싱·검증 — 형식 위반은 error 문서를
+    # 남기지 않고 400으로 즉시 거부(fail-closed: 소스=SQL 추출물, 위반=파이프라인 버그. 부분 스킵은
+    # 비즈니스 데이터의 조용한 유실). 행 번호가 detail에 담긴다.
+    entity_rows: list[tuple[str, dict]] | None = None
+    if c.kind == "entity":
+        try:
+            entity_rows = rag_ingest.parse_entity_lines(data, schema=c.entity_schema)
+        except rag_ingest.EntityParseError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
     doc = Document(
         collection_id=c.id,
         filename=file.filename or "untitled",
@@ -352,8 +420,14 @@ async def ingest_document(
     doc_id = doc.id  # rollback 후 doc는 expire되므로 id를 미리 박제(동기 lazy-load 회피)
 
     try:
-        text = rag_ingest.extract_text(doc.filename, doc.content_type, data)
-        chunks = rag_ingest.chunk_text(text, c.chunk_size, c.chunk_overlap)
+        if entity_rows is not None:
+            # 엔티티: 1행=1청크(분할 없음), metadata 동반(스펙 149)
+            chunks = [t for t, _m in entity_rows]
+            metas: list[dict | None] = [m for _t, m in entity_rows]
+        else:
+            text = rag_ingest.extract_text(doc.filename, doc.content_type, data)
+            chunks = rag_ingest.chunk_text(text, c.chunk_size, c.chunk_overlap)
+            metas = [None] * len(chunks)
         if not chunks:
             raise rag_ingest.IngestError("청크가 생성되지 않았습니다(빈 문서).")
         ep = c.embedding_model.provider if c.embedding_model else None
@@ -371,13 +445,14 @@ async def ingest_document(
                 f"임베딩 차원({bad})이 저장소 차원({RAG_EMBED_DIMS})/컬렉션 차원({c.dims})과 "
                 "다릅니다 — 적재 중단(차원 고정)."
             )
-        for i, (t, v) in enumerate(zip(chunks, vectors)):
+        for i, (t, v, m) in enumerate(zip(chunks, vectors, metas)):
             session.add(
                 Chunk(
                     document_id=doc.id,
                     collection_id=c.id,
                     ordinal=i,
                     text=t,
+                    meta=m,  # 엔티티 metadata(스펙 149) — 문서형은 None
                     embedding=v,
                     token_count=len(t.split()),
                 )
