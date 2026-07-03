@@ -189,3 +189,150 @@ async def delete_case(
         raise HTTPException(status_code=404, detail="case not found")
     await session.delete(case)
     await session.commit()
+
+
+# ----------------------------- 실행/성적표 (단계 ②) -----------------------------
+import asyncio  # noqa: E402
+from datetime import datetime, timezone  # noqa: E402
+
+from .db import SessionLocal  # noqa: E402
+from .eval_harness import EvalCase as HarnessCase, run_eval  # noqa: E402
+from .eval_runner import eval_run_agent  # noqa: E402
+from .models import Agent, EvalCaseResult, EvalRun  # noqa: E402
+
+
+class RunStartIn(BaseModel):
+    agent_id: uuid.UUID  # agents.id (pk)
+
+
+class RunOut(BaseModel):
+    id: uuid.UUID
+    dataset_id: uuid.UUID
+    agent_name: str | None
+    status: str
+    score: float | None
+    passed: int
+    total: int
+    error: str | None
+    started_at: datetime
+    finished_at: datetime | None
+    model_config = {"from_attributes": True}
+
+
+class CaseResultOut(BaseModel):
+    case_name: str
+    case_passed: bool
+    details: list
+    obs: dict | None
+    model_config = {"from_attributes": True}
+
+
+class RunDetailOut(RunOut):
+    results: list[CaseResultOut] = []
+
+
+async def _execute_run(run_id: uuid.UUID, dataset_id: uuid.UUID, agent_pk: uuid.UUID, principal) -> None:
+    """백그라운드 실행(batch runner 미러) — 케이스 **순차**(실모델 rate-limit·격리), 상태머신
+    running→ok|error. 케이스/러너 실패는 하네스가 error 관측으로 접어 전체는 계속(조용한 초록 금지)."""
+    try:
+        async with SessionLocal() as s:
+            rows = (
+                await s.execute(
+                    select(EvalCase)
+                    .where(EvalCase.dataset_id == dataset_id)
+                    .order_by(EvalCase.order_idx, EvalCase.created_at)
+                )
+            ).scalars().all()
+            cases = [
+                HarnessCase(name=c.name, input=c.input, asserts=build_asserts(c.asserts))
+                for c in rows
+            ]
+
+        async def run_fn(case: HarnessCase) -> dict:
+            return await eval_run_agent(agent_pk, case.input, principal)
+
+        report = await run_eval(cases, run_fn)
+
+        async with SessionLocal() as s:
+            run = await s.get(EvalRun, run_id)
+            if run is None:
+                return
+            for r in report.results:
+                s.add(EvalCaseResult(
+                    run_id=run_id, case_name=r.name, case_passed=r.passed,
+                    details=[list(d) for d in r.details], obs=r.obs,
+                ))
+            run.status = "ok"
+            run.score = report.score
+            run.passed = report.passed
+            run.total = report.total
+            run.summary = {"summary": report.summary()}
+            run.finished_at = datetime.now(timezone.utc)
+            await s.commit()
+    except Exception as exc:  # noqa: BLE001 — 실행부 자체 실패는 error 상태로 박제(조용한 running 잔류 금지)
+        try:
+            async with SessionLocal() as s:
+                run = await s.get(EvalRun, run_id)
+                if run is not None:
+                    run.status = "error"
+                    run.error = str(exc)[:1000]
+                    run.finished_at = datetime.now(timezone.utc)
+                    await s.commit()
+        except Exception:
+            pass
+
+
+@router.post("/datasets/{dataset_id}/runs", response_model=RunOut, status_code=202)
+async def start_run(
+    dataset_id: uuid.UUID,
+    body: RunStartIn,
+    session: AsyncSession = Depends(get_session),
+    user=_run_dep,
+) -> RunOut:
+    """시험 실행 시작 — EvalRun(running) 즉시 반환, 백그라운드에서 케이스 순차 실행(폴링으로 조회)."""
+    ds = await _dataset_or_404(session, dataset_id)
+    if ds.kind != "agent":
+        raise HTTPException(status_code=400, detail="1탄은 kind=agent 데이터셋만 실행 가능(rag 러너는 후속)")
+    agent = await session.get(Agent, body.agent_id)
+    if agent is None:
+        raise HTTPException(status_code=404, detail="agent not found")
+    n_cases = (
+        await session.execute(select(func.count(EvalCase.id)).where(EvalCase.dataset_id == dataset_id))
+    ).scalar_one()
+    if n_cases == 0:
+        raise HTTPException(status_code=400, detail="케이스가 없는 문제집은 실행할 수 없습니다")
+    run = EvalRun(
+        dataset_id=dataset_id, agent_pk=agent.id, agent_name=agent.name,
+        status="running", total=n_cases, owner_id=owner_of(user),
+    )
+    session.add(run)
+    await session.commit()
+    asyncio.create_task(_execute_run(run.id, dataset_id, agent.id, user))
+    return RunOut.model_validate(run)
+
+
+@router.get("/runs", response_model=list[RunOut])
+async def list_runs(
+    session: AsyncSession = Depends(get_session), user=_manage
+) -> list[RunOut]:
+    rows = (
+        await session.execute(select(EvalRun).order_by(EvalRun.started_at.desc()).limit(50))
+    ).scalars().all()
+    return [RunOut.model_validate(r) for r in rows]
+
+
+@router.get("/runs/{run_id}", response_model=RunDetailOut)
+async def get_run(
+    run_id: uuid.UUID, session: AsyncSession = Depends(get_session), user=_manage
+) -> RunDetailOut:
+    run = await session.get(EvalRun, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="run not found")
+    results = (
+        await session.execute(
+            select(EvalCaseResult).where(EvalCaseResult.run_id == run_id).order_by(EvalCaseResult.created_at)
+        )
+    ).scalars().all()
+    out = RunDetailOut.model_validate(run)
+    out.results = [CaseResultOut.model_validate(r) for r in results]
+    return out
