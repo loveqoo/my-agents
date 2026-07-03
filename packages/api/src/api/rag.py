@@ -244,6 +244,22 @@ async def search_collection(
     """
     from . import runtime  # 지연 임포트(런타임 의존 격리)
 
+    col = await resolve_search_collection(session, cid)
+    try:
+        hits = await runtime.search_collections([col], body.query, body.top_k)
+    except runtime.RagSearchError as exc:
+        # 빈 질의는 스키마(min_length=1)가 먼저 막으므로 여기는 embed/db 실패만 — 502로 표면화.
+        raise HTTPException(status_code=502, detail=exc.tool_msg) from exc
+    return CollectionSearchOut(
+        query=body.query,
+        top_k=body.top_k,
+        results=[SearchHit(**h) for h in hits],
+    )
+
+
+async def resolve_search_collection(session, cid) -> dict:
+    """검색 가능한 컬렉션 해석(시험 엔드포인트·평가 러너 공용 — 스펙 140에서 추출, 시맨틱 불변).
+    완전성/kind 가드 포함, 실패는 HTTPException(404/400). api_key는 백엔드 전용 복호화."""
     c = await _load_collection(session, cid)
     if c is None:
         raise HTTPException(status_code=404, detail="not found")
@@ -261,23 +277,13 @@ async def search_collection(
             status_code=400,
             detail=f"컬렉션의 모델이 임베딩(kind=embedding)이 아닙니다(현재 kind={em.kind}). 검색할 수 없습니다.",
         )
-    col = {
+    return {
         "id": c.id,
         "name": c.name,
         "embed_base_url": ep.base_url,
         "embed_api_key": crypto.decrypt(ep.api_key),  # 백엔드 전용 — 응답 미노출
         "embed_model_id": em.model_id,
     }
-    try:
-        hits = await runtime.search_collections([col], body.query, body.top_k)
-    except runtime.RagSearchError as exc:
-        # 빈 질의는 스키마(min_length=1)가 먼저 막으므로 여기는 embed/db 실패만 — 502로 표면화.
-        raise HTTPException(status_code=502, detail=exc.tool_msg) from exc
-    return CollectionSearchOut(
-        query=body.query,
-        top_k=body.top_k,
-        results=[SearchHit(**h) for h in hits],
-    )
 
 
 # ----------------------------- 문서 인제스트 -----------------------------

@@ -202,7 +202,8 @@ from .models import Agent, EvalCaseResult, EvalRun  # noqa: E402
 
 
 class RunStartIn(BaseModel):
-    agent_id: uuid.UUID  # agents.id (pk)
+    agent_id: uuid.UUID | None = None  # kind=agent: agents.id (pk)
+    collection_id: uuid.UUID | None = None  # kind=rag: 컬렉션 id (스펙 140)
 
 
 class RunOut(BaseModel):
@@ -232,9 +233,11 @@ class RunDetailOut(RunOut):
     results: list[CaseResultOut] = []
 
 
-async def _execute_run(run_id: uuid.UUID, dataset_id: uuid.UUID, agent_pk: uuid.UUID, principal) -> None:
+async def _execute_run(run_id: uuid.UUID, dataset_id: uuid.UUID, agent_pk, principal,
+                       rag_collection: dict | None = None) -> None:
     """백그라운드 실행(batch runner 미러) — 케이스 **순차**(실모델 rate-limit·격리), 상태머신
-    running→ok|error. 케이스/러너 실패는 하네스가 error 관측으로 접어 전체는 계속(조용한 초록 금지)."""
+    running→ok|error. kind=rag면 rag_collection으로 검색 러너(스펙 140), 아니면 agent 러너.
+    케이스/러너 실패는 하네스가 error 관측으로 접어 전체는 계속(조용한 초록 금지)."""
     try:
         async with SessionLocal() as s:
             rows = (
@@ -268,7 +271,11 @@ async def _execute_run(run_id: uuid.UUID, dataset_id: uuid.UUID, agent_pk: uuid.
             }
 
         async def run_fn(case: HarnessCase) -> dict:
-            obs = await eval_run_agent(agent_pk, case.input, principal)
+            if rag_collection is not None:
+                from .eval_runner import eval_run_rag
+                obs = await eval_run_rag(rag_collection, case.input)
+            else:
+                obs = await eval_run_agent(agent_pk, case.input, principal)
             # 이 케이스의 llm_judge 기준만 순차 심판(스펙 139) — 결과를 obs에 주입, scorer는 읽기만.
             criteria = [a.get("arg") for a in case.meta.get("raw_asserts", [])
                         if isinstance(a, dict) and a.get("type") == "llm_judge" and a.get("arg")]
@@ -319,11 +326,26 @@ async def start_run(
 ) -> RunOut:
     """시험 실행 시작 — EvalRun(running) 즉시 반환, 백그라운드에서 케이스 순차 실행(폴링으로 조회)."""
     ds = await _dataset_or_404(session, dataset_id)
-    if ds.kind != "agent":
-        raise HTTPException(status_code=400, detail="1탄은 kind=agent 데이터셋만 실행 가능(rag 러너는 후속)")
-    agent = await session.get(Agent, body.agent_id)
-    if agent is None:
-        raise HTTPException(status_code=404, detail="agent not found")
+    # kind별 대상 해석(스펙 140): agent 시험=agent_id, rag 시험=collection_id.
+    agent = None
+    rag_collection = None
+    target_name = None
+    if body.agent_id is not None and body.collection_id is not None:
+        # 교차 대상 거부(codex 140 #1) — 조용한 무시는 "다른 대상을 시험했다"는 오해를 만든다.
+        raise HTTPException(status_code=400, detail="agent_id와 collection_id는 동시에 줄 수 없습니다")
+    if ds.kind == "rag":
+        if body.collection_id is None:
+            raise HTTPException(status_code=400, detail="RAG 문제집은 collection_id가 필요합니다")
+        from .rag import resolve_search_collection
+        rag_collection = await resolve_search_collection(session, body.collection_id)  # 404/400 자체 처리
+        target_name = f"RAG · {rag_collection['name']}"
+    else:
+        if body.agent_id is None:
+            raise HTTPException(status_code=400, detail="에이전트 문제집은 agent_id가 필요합니다")
+        agent = await session.get(Agent, body.agent_id)
+        if agent is None:
+            raise HTTPException(status_code=404, detail="agent not found")
+        target_name = agent.name
     n_cases = (
         await session.execute(select(func.count(EvalCase.id)).where(EvalCase.dataset_id == dataset_id))
     ).scalar_one()
@@ -341,12 +363,13 @@ async def start_run(
     if running:
         raise HTTPException(status_code=409, detail="이 문제집은 이미 실행 중입니다 — 완료 후 다시 시도하세요")
     run = EvalRun(
-        dataset_id=dataset_id, agent_pk=agent.id, agent_name=agent.name,
+        dataset_id=dataset_id, agent_pk=agent.id if agent else None, agent_name=target_name,
         status="running", total=n_cases, owner_id=owner_of(user),
     )
     session.add(run)
     await session.commit()
-    asyncio.create_task(_execute_run(run.id, dataset_id, agent.id, user))
+    asyncio.create_task(_execute_run(run.id, dataset_id, agent.id if agent else None, user,
+                                     rag_collection=rag_collection))
     return RunOut.model_validate(run)
 
 

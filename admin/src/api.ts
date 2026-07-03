@@ -602,7 +602,7 @@ export interface EvalDataset {
   case_count: number
 }
 export interface EvalAssert {
-  type: 'trace_has' | 'trace_lacks' | 'output_contains' | 'no_error' | 'output_nonempty' | 'llm_judge'
+  type: 'trace_has' | 'trace_lacks' | 'output_contains' | 'no_error' | 'output_nonempty' | 'llm_judge' | 'rag_hits_gte' | 'rag_score_gte' | 'rag_source_contains'
   arg?: string
 }
 export interface EvalCaseT {
@@ -630,7 +630,7 @@ export interface EvalCaseResultT {
   case_name: string
   case_passed: boolean
   details: [string, boolean][]
-  obs: { output?: string; trace_nodes?: string[]; error?: boolean; detail?: string; judge?: Record<string, { pass: boolean; reason: string }> } | null
+  obs: { output?: string; trace_nodes?: string[]; error?: boolean; detail?: string; judge?: Record<string, { pass: boolean; reason: string }>; rag?: { hits: { score: number; filename: string; text: string }[]; top_score: number | null } } | null
 }
 export interface EvalRunDetail extends EvalRunT {
   results: EvalCaseResultT[]
@@ -645,8 +645,11 @@ export const createEvalCase = (datasetId: string, body: { name: string; input: s
 export const updateEvalCase = (caseId: string, body: { name: string; input: string; asserts: EvalAssert[]; order_idx?: number }) =>
   patch(`/eval/cases/${caseId}`, body) as Promise<EvalCaseT>
 export const deleteEvalCase = (caseId: string) => del(`/eval/cases/${caseId}`)
-export const startEvalRun = (datasetId: string, agentId: string) =>
-  post(`/eval/datasets/${datasetId}/runs`, { agent_id: agentId }) as Promise<EvalRunT>
+export const startEvalRun = (datasetId: string, target: { agentId?: string; collectionId?: string }) =>
+  post(`/eval/datasets/${datasetId}/runs`, {
+    agent_id: target.agentId ?? null,
+    collection_id: target.collectionId ?? null,
+  }) as Promise<EvalRunT>
 export const listEvalRuns = (datasetId?: string) =>
   j<EvalRunT[]>(`/eval/runs${datasetId ? `?dataset_id=${datasetId}` : ''}`)
 export const getEvalRun = (runId: string) => j<EvalRunDetail>(`/eval/runs/${runId}`)

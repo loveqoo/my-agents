@@ -125,3 +125,23 @@ async def eval_run_agent(agent_pk, user_text: str, principal) -> dict:
         "error": error,
         **({"detail": detail} if detail else {}),
     }
+
+
+async def eval_run_rag(collection: dict, query: str) -> dict:
+    """RAG 컬렉션 평가 1건(스펙 140) — rag.py 시험 엔드포인트와 같은 공유 코어(search_collections)로
+    검색만 수행(읽기 전용 — 오염 자명 제로). obs["rag"]에 hits/top_score를 실어 rag 전용 assert가
+    채점한다. 실패는 error obs(fail-closed)."""
+    try:
+        hits = await runtime.search_collections([collection], query, top_k=4)
+    except runtime.RagSearchError as exc:
+        return {"output": "", "trace_nodes": [f"rag:{collection.get('name', '')}"],
+                "error": True, "detail": exc.tool_msg, "rag": {"hits": [], "top_score": None}}
+    return {
+        "output": runtime.format_rag_hits(hits)[:_OUTPUT_CAP],
+        "trace_nodes": [f"rag:{collection.get('name', '')}"],
+        "error": False,
+        "rag": {
+            "hits": [{"score": h["score"], "filename": h["filename"], "text": h["text"][:300]} for h in hits],
+            "top_score": hits[0]["score"] if hits else None,
+        },
+    }

@@ -122,6 +122,36 @@ def llm_judge(criterion: str):
     )
 
 
+def _rag_obs(o: dict) -> dict:
+    return o.get("rag") or {}
+
+
+def rag_hits_gte(n: str):
+    """RAG 러너 전용(스펙 140) — 검색 결과가 N건 이상. obs["rag"] 부재(=agent 런)면 False(fail-closed)."""
+    want = int(n)  # 비정수 arg는 여기서 ValueError → build_asserts가 형식 오류로 거부
+    return (f"rag_hits_gte:{n}", lambda o: len(_rag_obs(o).get("hits", [])) >= want)
+
+
+def rag_score_gte(t: str):
+    """RAG 러너 전용 — 최고 유사도(top_score)가 임계 이상. NaN/inf/범위 밖은 선언 오류(codex 140 #2)."""
+    import math
+    want = float(t)
+    if not math.isfinite(want) or not (0.0 <= want <= 1.0):
+        raise ValueError(f"rag_score_gte arg는 0~1 유한 실수여야 합니다 (got {t!r})")
+    return (
+        f"rag_score_gte:{t}",
+        lambda o: (_rag_obs(o).get("top_score") is not None and _rag_obs(o)["top_score"] >= want),
+    )
+
+
+def rag_source_contains(frag: str):
+    """RAG 러너 전용 — 근거 파일명 중 하나에 frag 포함(특정 문서가 근거로 나와야 함)."""
+    return (
+        f"rag_source_contains:{frag}",
+        lambda o: any(frag in (h.get("filename") or "") for h in _rag_obs(o).get("hits", [])),
+    )
+
+
 _ASSERT_TYPES = {
     "trace_has": (trace_has, True),  # (팩토리, arg 필수 여부)
     "trace_lacks": (trace_lacks, True),
@@ -129,6 +159,9 @@ _ASSERT_TYPES = {
     "no_error": (no_error, False),
     "output_nonempty": (output_nonempty, False),
     "llm_judge": (llm_judge, True),  # 스펙 139 — 비결정 축(러너가 judge 주입)
+    "rag_hits_gte": (rag_hits_gte, True),  # 스펙 140 — RAG 러너 전용 3종(obs["rag"] 부재=False)
+    "rag_score_gte": (rag_score_gte, True),
+    "rag_source_contains": (rag_source_contains, True),
 }
 
 
@@ -152,7 +185,11 @@ def build_asserts(spec_list: list) -> list:
                 raise ValueError(f"asserts[{i}]: type {t!r}는 비어있지 않은 문자열 arg가 필요합니다")
             if len(arg) > 500:
                 raise ValueError(f"asserts[{i}]: arg는 500자 이하여야 합니다 (got {len(arg)}자)")
-            out.append(factory(arg))
+            try:
+                out.append(factory(arg))
+            except ValueError as exc:
+                # rag_hits_gte 비정수 등 — 팩토리의 arg 파싱 실패도 선언 형식 오류(400)로.
+                raise ValueError(f"asserts[{i}]: arg 형식 오류 — {exc}")
         else:
             out.append(factory())
     return out

@@ -10,8 +10,8 @@ import { TrendChart, CompareDrawer } from './EvalTrend'
 import {
   listEvalDatasets, createEvalDataset, deleteEvalDataset,
   listEvalCases, createEvalCase, updateEvalCase, deleteEvalCase,
-  startEvalRun, listEvalRuns, getEvalRun, listAgents,
-  type EvalDataset, type EvalCaseT, type EvalAssert, type EvalRunT, type EvalRunDetail, type Agent,
+  startEvalRun, listEvalRuns, getEvalRun, listAgents, listCollections,
+  type EvalDataset, type EvalCaseT, type EvalAssert, type EvalRunT, type EvalRunDetail, type Agent, type Collection,
 } from '../../api'
 
 const { TextArea } = Input
@@ -22,11 +22,19 @@ const ASSERT_TYPES: { value: EvalAssert['type']; label: string; needsArg: boolea
   { value: 'trace_lacks', label: '금지 도구/노드', needsArg: true, hint: '예: mcp:danger/ — 이 흔적이 있으면 실패' },
   { value: 'output_contains', label: '답변에 포함', needsArg: true, hint: '답변에 이 문구가 있어야 통과' },
   { value: 'llm_judge', label: 'AI 판정 (비결정)', needsArg: true, hint: '예: 답변이 정중한 존댓말로 작성되었는가 — 심판 모델이 PASS/FAIL 판정' },
+  { value: 'rag_hits_gte', label: 'RAG: 결과 N건 이상', needsArg: true, hint: '예: 2 — 검색 결과가 이 건수 이상(RAG 문제집 전용)' },
+  { value: 'rag_score_gte', label: 'RAG: 유사도 임계', needsArg: true, hint: '예: 0.4 — 최고 유사도가 이 값 이상(RAG 문제집 전용)' },
+  { value: 'rag_source_contains', label: 'RAG: 근거 파일명', needsArg: true, hint: '예: AB테스트.md — 이 파일이 근거로 나와야 함(RAG 문제집 전용)' },
   { value: 'no_error', label: '오류 없음', needsArg: false, hint: '실행 오류가 없어야 통과' },
   { value: 'output_nonempty', label: '답변 비어있지 않음', needsArg: false, hint: '' },
 ]
 
-function AssertEditor({ value, onChange }: { value: EvalAssert[]; onChange: (v: EvalAssert[]) => void }) {
+function AssertEditor({ value, onChange, kind }: { value: EvalAssert[]; onChange: (v: EvalAssert[]) => void; kind: 'agent' | 'rag' }) {
+  // kind별 유형 필터(codex 140 #3) — rag 전용 기준을 agent 문제집에 넣으면 fail-closed로 항상
+  // 실패해 혼란만 준다. rag 문제집에선 도구 흔적 기준(trace_*)이 무의미해 숨긴다.
+  const types = ASSERT_TYPES.filter((t) =>
+    kind === 'rag' ? !t.value.startsWith('trace_') : !t.value.startsWith('rag_')
+  )
   const set = (i: number, patch: Partial<EvalAssert>) =>
     onChange(value.map((a, j) => (j === i ? { ...a, ...patch } : a)))
   return (
@@ -40,7 +48,7 @@ function AssertEditor({ value, onChange }: { value: EvalAssert[]; onChange: (v: 
               style={{ width: 170 }}
               value={a.type}
               onChange={(v) => set(i, { type: v, ...(ASSERT_TYPES.find((t) => t.value === v)?.needsArg ? {} : { arg: undefined }) })}
-              options={ASSERT_TYPES.map((t) => ({ value: t.value, label: t.label }))}
+              options={types.map((t) => ({ value: t.value, label: t.label }))}
             />
             {meta?.needsArg ? (
               <Input
@@ -57,7 +65,7 @@ function AssertEditor({ value, onChange }: { value: EvalAssert[]; onChange: (v: 
           </div>
         )
       })}
-      <Button size="small" icon={<Icon name="plus" />} onClick={() => onChange([...value, { type: 'trace_has', arg: '' }])} style={{ alignSelf: 'flex-start' }}>
+      <Button size="small" icon={<Icon name="plus" />} onClick={() => onChange([...value, { type: types[0].value, arg: '' }])} style={{ alignSelf: 'flex-start' }}>
         채점 기준 추가
       </Button>
     </div>
@@ -66,12 +74,13 @@ function AssertEditor({ value, onChange }: { value: EvalAssert[]; onChange: (v: 
 
 /* 케이스 편집 폼 — 신규/수정 겸용. */
 function CaseForm({
-  initial, onSave, onCancel, busy,
+  initial, onSave, onCancel, busy, kind,
 }: {
   initial?: EvalCaseT
   onSave: (body: { name: string; input: string; asserts: EvalAssert[] }) => void
   onCancel?: () => void
   busy: boolean
+  kind: 'agent' | 'rag'
 }) {
   const [name, setName] = useState(initial?.name ?? '')
   const [input, setInput] = useState(initial?.input ?? '')
@@ -81,7 +90,7 @@ function CaseForm({
       <Input placeholder="문제 이름 (예: RAG 필수 회귀)" value={name} onChange={(e) => setName(e.target.value)} />
       <TextArea rows={2} placeholder="에이전트에게 보낼 질문" value={input} onChange={(e) => setInput(e.target.value)} />
       <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>채점 기준 (전부 통과해야 그 문제 통과 · 기준 0개는 자동 실패)</div>
-      <AssertEditor value={asserts} onChange={setAsserts} />
+      <AssertEditor value={asserts} onChange={setAsserts} kind={kind} />
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
         {onCancel ? <Button size="small" onClick={onCancel}>취소</Button> : null}
         <Button size="small" type="primary" loading={busy} disabled={!name.trim() || !input.trim()} onClick={() => onSave({ name: name.trim(), input: input.trim(), asserts })}>
@@ -94,10 +103,11 @@ function CaseForm({
 
 /* 문제집 상세 드로어 — 케이스 목록/편집 + 시험 실행. */
 function DatasetDrawer({
-  dataset, agents, onClose, onChanged, onRunStarted, onOpenRun,
+  dataset, agents, collections, onClose, onChanged, onRunStarted, onOpenRun,
 }: {
   dataset: EvalDataset | null
   agents: Agent[]
+  collections: Collection[]
   onClose: () => void
   onChanged: () => void
   onRunStarted: () => void
@@ -123,6 +133,7 @@ function DatasetDrawer({
   useEffect(() => {
     setEditing(null)
     setAdding(false)
+    setRunAgent(undefined) // 문제집 전환 시 대상 리셋(codex 140 #4 — kind 다른 stale id로 실행 방지)
     void load()
     if (dataset) listEvalRuns(dataset.id).then(setDsRuns).catch(() => setDsRuns([]))
     else setDsRuns([])
@@ -146,11 +157,12 @@ function DatasetDrawer({
   }
 
   const localAgents = agents.filter((a) => a.source === 'ui')
+  const isRag = dataset?.kind === 'rag'
   const start = async () => {
     if (!dataset || !runAgent) return
     setStarting(true)
     try {
-      await startEvalRun(dataset.id, runAgent)
+      await startEvalRun(dataset.id, isRag ? { collectionId: runAgent } : { agentId: runAgent })
       message.success('시험 실행 시작 — "실행 이력" 탭에서 확인하세요')
       onRunStarted()
     } catch (e) {
@@ -168,10 +180,14 @@ function DatasetDrawer({
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <Select
               style={{ minWidth: 220, flex: 1 }}
-              placeholder="시험 칠 에이전트 선택 (로컬 ui 에이전트만)"
+              placeholder={isRag ? '시험 칠 RAG 컬렉션 선택' : '시험 칠 에이전트 선택 (로컬 ui 에이전트만)'}
               value={runAgent}
               onChange={setRunAgent}
-              options={localAgents.map((a) => ({ value: a.id, label: a.name }))}
+              options={
+                isRag
+                  ? collections.map((c) => ({ value: c.id, label: c.name }))
+                  : localAgents.map((a) => ({ value: a.id, label: a.name }))
+              }
             />
             <Button type="primary" icon={<Icon name="thunderbolt" />} loading={starting} disabled={!runAgent || cases.length === 0} onClick={() => void start()}>
               시험 실행
@@ -215,7 +231,7 @@ function DatasetDrawer({
 
           {cases.map((c) =>
             editing === c.id ? (
-              <CaseForm key={c.id} initial={c} busy={busy} onSave={(b) => void save(b, c.id)} onCancel={() => setEditing(null)} />
+              <CaseForm key={c.id} initial={c} busy={busy} kind={dataset.kind} onSave={(b) => void save(b, c.id)} onCancel={() => setEditing(null)} />
             ) : (
               <div key={c.id} style={{ padding: 12, border: '1px solid var(--color-border-secondary)', borderRadius: 8 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -240,7 +256,7 @@ function DatasetDrawer({
           )}
 
           {adding ? (
-            <CaseForm busy={busy} onSave={(b) => void save(b)} onCancel={() => setAdding(false)} />
+            <CaseForm busy={busy} kind={dataset.kind} onSave={(b) => void save(b)} onCancel={() => setAdding(false)} />
           ) : (
             <Button icon={<Icon name="plus" />} onClick={() => setAdding(true)} style={{ alignSelf: 'flex-start' }}>
               문제 추가
@@ -299,6 +315,17 @@ function RunDrawer({ runId, onClose }: { runId: string | null; onClose: () => vo
                     children: (
                       <div style={{ fontSize: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
                         {r.obs.detail ? <Alert type="warning" showIcon message={r.obs.detail} /> : null}
+                        {/* RAG 근거(스펙 140) — 파일·유사도 실값(요약보다 실값+상한 원칙). */}
+                        {r.obs.rag && r.obs.rag.hits.length > 0 ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                            {r.obs.rag.hits.map((h, k) => (
+                              <div key={k} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                                <Tag color="geekblue" style={{ margin: 0 }}>{h.score.toFixed(3)}</Tag>
+                                <span style={{ fontFamily: 'var(--font-family-code)', overflowWrap: 'anywhere' }}>{h.filename}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
                         {/* AI 판정 이유(스펙 139) — 비결정 축임을 라벨로 명시. */}
                         {r.obs.judge
                           ? Object.entries(r.obs.judge).map(([crit, v]) => (
@@ -344,6 +371,8 @@ export default function EvalView() {
   const [compare, setCompare] = useState<string[]>([]) // 비교 드로어에 넘길 확정 쌍
   const [newName, setNewName] = useState('')
   const [newDesc, setNewDesc] = useState('')
+  const [newKind, setNewKind] = useState<'agent' | 'rag'>('agent')
+  const [collections, setCollections] = useState<Collection[]>([])
 
   const loadDatasets = useCallback(() => {
     listEvalDatasets().then(setDatasets).catch((e) => message.error((e as Error).message))
@@ -362,6 +391,7 @@ export default function EvalView() {
     loadDatasets()
     loadRuns()
     listAgents().then(setAgents).catch(() => {})
+    listCollections().then(setCollections).catch(() => {})
   }, [loadDatasets, loadRuns])
 
   // 실행 중인 런이 있으면 5초 폴링(성적 반영) — 없으면 중지.
@@ -410,7 +440,7 @@ export default function EvalView() {
       ),
     },
     { key: 'dataset_name', title: '문제집', render: (r) => r.dataset_name ?? '—' },
-    { key: 'agent_name', title: '에이전트', render: (r) => r.agent_name ?? '—' },
+    { key: 'agent_name', title: '대상', render: (r) => r.agent_name ?? '—' },
     {
       key: 'status', title: '상태', width: 100,
       render: (r) =>
@@ -490,17 +520,26 @@ export default function EvalView() {
         okButtonProps={{ disabled: !newName.trim() }}
         onCancel={() => setCreating(false)}
         onOk={() =>
-          void createEvalDataset({ name: newName.trim(), description: newDesc.trim() || null })
+          void createEvalDataset({ name: newName.trim(), description: newDesc.trim() || null, kind: newKind })
             .then(() => {
               setCreating(false)
               setNewName('')
               setNewDesc('')
+              setNewKind('agent')
               loadDatasets()
             })
             .catch((e) => message.error((e as Error).message))
         }
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <Select
+            value={newKind}
+            onChange={setNewKind}
+            options={[
+              { value: 'agent', label: '에이전트 시험 — 에이전트에게 질문하고 답변·도구 사용을 채점' },
+              { value: 'rag', label: 'RAG 컬렉션 시험 — 컬렉션 검색 품질(결과 수·유사도·근거 문서)을 채점' },
+            ]}
+          />
           <Input placeholder="이름 (예: 옵시디언 매니저 회귀 시험)" value={newName} onChange={(e) => setNewName(e.target.value)} />
           <Input placeholder="설명 (선택)" value={newDesc} onChange={(e) => setNewDesc(e.target.value)} />
         </div>
@@ -509,6 +548,7 @@ export default function EvalView() {
       <DatasetDrawer
         dataset={detail}
         agents={agents}
+        collections={collections}
         onClose={() => setDetail(null)}
         onChanged={loadDatasets}
         onRunStarted={() => { loadRuns(); setTab('runs') }}
