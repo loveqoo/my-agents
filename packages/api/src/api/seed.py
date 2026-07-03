@@ -33,11 +33,12 @@ from .models import (
 # admin Provider UI에서 추가하고 기본 전환한다. 가상 모델명(claude-*/gpt-*) 금지.
 CHAT_MODEL_NAME = "mock-llm"
 
+# (name=식별 이름·규칙 준수, alias=별명, tone, body) — 스펙 148. name은 config.persona 참조 키.
 PERSONAS = [
-    ("Methodical Researcher", "전문적, 차분함", "Rigorous, source-driven, neutral. Prefer primary sources. Always cite. Lead with a one-line answer."),
-    ("Strict Senior Engineer", "단호함, 공감적", "Direct, specific, kind. Flag correctness and security first, style last. Cite exact line numbers."),
-    ("Calm SRE", "차분함", "Unflappable. Quantify before acting. Smallest safe step first. Confirm blast radius."),
-    ("Warm Secretary", "친근함, 열정적", "Friendly, concise, proactive. Protect the user's time and focus. Confirm before sending."),
+    ("methodical-researcher", "Methodical Researcher", "전문적, 차분함", "Rigorous, source-driven, neutral. Prefer primary sources. Always cite. Lead with a one-line answer."),
+    ("strict-senior-engineer", "Strict Senior Engineer", "단호함, 공감적", "Direct, specific, kind. Flag correctness and security first, style last. Cite exact line numbers."),
+    ("calm-sre", "Calm SRE", "차분함", "Unflappable. Quantify before acting. Smallest safe step first. Confirm blast radius."),
+    ("warm-secretary", "Warm Secretary", "친근함, 열정적", "Friendly, concise, proactive. Protect the user's time and focus. Confirm before sending."),
 ]
 
 # 카탈로그는 실제 동작과 1:1로 맞춘다(스펙 020). 인지과학 분류(의미/일화/절차)는 mem0 기능이 아니라
@@ -59,10 +60,11 @@ MEMORY_TYPES = [
 # None이면 기본 임베딩 모델(mock-embed, 스펙 059). docs_kb를 mock-embed에 묶어 라이브 모델 없이
 # 결정적으로 샘플을 적재·검색하는 *대표 데모* 컬렉션으로 쓴다(스펙 048 #9). 나머지 3개는 실데이터 대기.
 COLLECTIONS = [
-    ("docs_kb", "헬프센터 문서 본문 지식베이스 — RAG 답변에 사용(샘플 적재됨, 스펙 048).", "mock-embed"),
-    ("product_titles", "상품 title 임베딩 — 상품 의미 검색·추천. 문서를 업로드해 채웁니다.", None),
-    ("support_tickets", "과거 지원 티켓 요약 — 유사 사례 검색. 문서를 업로드해 채웁니다.", None),
-    ("team_notes", "팀 노션 노트 — 내부 지식 의미 검색. 문서를 업로드해 채웁니다.", None),
+    # 이름은 규칙 준수(스펙 148 — `_` 금지→`-`). AGENTS vectorTables 참조와 일치 유지.
+    ("docs-kb", "헬프센터 문서 본문 지식베이스 — RAG 답변에 사용(샘플 적재됨, 스펙 048).", "mock-embed"),
+    ("product-titles", "상품 title 임베딩 — 상품 의미 검색·추천. 문서를 업로드해 채웁니다.", None),
+    ("support-tickets", "과거 지원 티켓 요약 — 유사 사례 검색. 문서를 업로드해 채웁니다.", None),
+    ("team-notes", "팀 노션 노트 — 내부 지식 의미 검색. 문서를 업로드해 채웁니다.", None),
 ]
 
 
@@ -102,16 +104,16 @@ MCP_SERVERS = [
      list(MOCK_MCP_TOOLS), "connected", True, None),
 ]
 
-# agent_id, name, source, model, persona, memories, historyDepth, vectorTables, permissions, mcps, a2a, status, activeVersion, versions[(version,status,createdAt,note)]
+# agent_id, name(식별·규칙), alias(별명), source, model, persona, memories, historyDepth, vectorTables, permissions, mcps, a2a, status, activeVersion, versions[(version,status,createdAt,note)]
 AGENTS = [
     # 코드/인프라 권한·MCP 제거(스펙 046)에 맞춰 web.search/tavily만 유지.
-    ("agt_rsch_7f3a91", "Research Assistant", "ui", CHAT_MODEL_NAME, "Methodical Researcher",
-     ["단기(세션)", "장기 기억 (mem0)"], 20, ["docs_kb", "product_titles"], ["web.search"], [MOCK_MCP_SERVER_NAME],
+    ("agt_rsch_7f3a91", "research-assistant", "Research Assistant", "ui", CHAT_MODEL_NAME, "methodical-researcher",
+     ["단기(세션)", "장기 기억 (mem0)"], 20, ["docs-kb", "product-titles"], ["web.search"], [MOCK_MCP_SERVER_NAME],
      True, "online", "v3",
      [("v3", "active", "2026-06-12", "Tightened citation rules"), ("v2", "archived", "2026-06-04", "Web search tuning"), ("v1", "archived", "2026-05-30", "Initial")]),
     # Code Reviewer·Ops Copilot(코드/인프라 권한 전용 데모)는 에이전트째 제거(스펙 046, UI 피드백 #4).
-    ("agt_sec_9d4417", "Personal Secretary", "ui", CHAT_MODEL_NAME, "Warm Secretary",
-     ["단기(세션)", "장기 기억 (mem0)"], 40, ["team_notes"], ["calendar.rw", "mail.send"], [MOCK_MCP_SERVER_NAME],
+    ("agt_sec_9d4417", "personal-secretary", "Personal Secretary", "ui", CHAT_MODEL_NAME, "warm-secretary",
+     ["단기(세션)", "장기 기억 (mem0)"], 40, ["team-notes"], ["calendar.rw", "mail.send"], [MOCK_MCP_SERVER_NAME],
      False, "online", "v2",
      [("v2", "active", "2026-06-16", "Warmer tone"), ("v1", "archived", "2026-06-15", "Initial")]),
 ]
@@ -141,10 +143,10 @@ async def _empty(session: AsyncSession, model) -> bool:
 
 async def seed_if_empty(session: AsyncSession) -> None:
     """각 카탈로그가 비어있으면 시드. 부분 시드 가능(독립적)."""
-    persona_body = {name: body for name, _tone, body in PERSONAS}
+    persona_body = {name: body for name, _alias, _tone, body in PERSONAS}
 
     if await _empty(session, Persona):
-        session.add_all([Persona(name=n, tone=t, body=b) for n, t, b in PERSONAS])
+        session.add_all([Persona(name=n, alias=al, tone=t, body=b) for n, al, t, b in PERSONAS])
     if await _empty(session, MemoryType):
         session.add_all([MemoryType(key=k, name=n, scope=s, body=b) for k, n, s, b in MEMORY_TYPES])
     if await _empty(session, Permission):
@@ -200,14 +202,14 @@ async def seed_if_empty(session: AsyncSession) -> None:
         ])
 
     if await _empty(session, Agent):
-        for (aid, name, source, model, persona, mems, hist, vts, perms, mcps, a2a, status, active, versions) in AGENTS:
+        for (aid, name, alias, source, model, persona, mems, hist, vts, perms, mcps, a2a, status, active, versions) in AGENTS:
             cfg = {
                 "model": model, "persona": persona, "memories": list(mems),
                 "vectorTables": list(vts), "permissions": list(perms), "mcps": list(mcps),
                 "historyDepth": hist,
             }
             agent = Agent(
-                agent_id=aid, name=name, source=source, model=model,
+                agent_id=aid, name=name, alias=alias, source=source, model=model,
                 persona=persona_body.get(persona, persona), history_depth=hist,
                 config=cfg, exposed={"a2a": a2a}, status=status, active_version=active,
             )
@@ -222,14 +224,14 @@ async def seed_if_empty(session: AsyncSession) -> None:
         # 다노드 그래프라, 플레이그라운드 추적에 실 노드열([plan, execute])이 뜨고 오버라이드 주입도
         # 동일하게 받는다(인터페이스가 create_agent에 과적합되지 않았음을 화면으로 증명).
         pe_cfg = {
-            "model": CHAT_MODEL_NAME, "persona": "Methodical Researcher",
+            "model": CHAT_MODEL_NAME, "persona": "methodical-researcher",
             "memories": ["단기(세션)"], "vectorTables": [], "permissions": [],
             "mcps": [], "historyDepth": 20, "impl": "plan_execute",
         }
         plan_execute = Agent(
-            agent_id="agt_plex_b5e207", name="Plan-Execute Demo", source="ui",
+            agent_id="agt_plex_b5e207", name="plan-execute-demo", alias="Plan-Execute Demo", source="ui",
             model=CHAT_MODEL_NAME,
-            persona=persona_body.get("Methodical Researcher", "Methodical Researcher"),
+            persona=persona_body.get("methodical-researcher", "methodical-researcher"),
             history_depth=20, config=pe_cfg, exposed={"a2a": False},
             status="online", active_version="v1",
         )
@@ -278,7 +280,7 @@ async def seed_if_empty(session: AsyncSession) -> None:
             "historyDepth": 10, "card": code_card,
         }
         translator = Agent(
-            agent_id="agt_xlt_a17c33", name="Doc Translator", source="code", model=CHAT_MODEL_NAME,
+            agent_id="agt_xlt_a17c33", name="doc-translator", alias="Doc Translator", source="code", model=CHAT_MODEL_NAME,
             persona="코드 정의 (SDK)", history_depth=10, config=code_cfg, exposed={"a2a": False},
             status="online", active_version="f3a91c2",
             endpoint=code_endpoint,
@@ -312,7 +314,8 @@ async def seed_if_empty(session: AsyncSession) -> None:
             ],
         }
         external = Agent(
-            agent_id="agt_ext_ac2e01", name=ext_card["name"], source="external", model="",
+            # 원격 유래 카드명은 자동 변환 + 원문 별명(스펙 148 — connect 경로와 동형)
+            agent_id="agt_ext_ac2e01", name="acme-translate-a2a", alias=ext_card["name"], source="external", model="",
             persona="", history_depth=10,
             config={"model": "", "persona": "", "memories": [], "vectorTables": [],
                     "permissions": [], "mcps": [], "historyDepth": 10, "card": ext_card},

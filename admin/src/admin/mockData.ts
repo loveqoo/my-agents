@@ -32,7 +32,8 @@ export interface VersionMeta {
 }
 export interface BlockItem {
   id: string
-  name: string
+  name: string // 식별 이름(규칙, 스펙 148)
+  alias?: string | null // 별명(자유 표기, 스펙 148) — 표시 = alias ?? name
   usedBy: number
   updated: string
   body?: string
@@ -66,7 +67,8 @@ export interface BlockCategory {
 }
 export interface Agent {
   id: string
-  name: string
+  name: string // 식별 이름(규칙, 스펙 148)
+  alias?: string | null // 별명(자유 표기, 스펙 148) — 표시 = alias ?? name
   agentId: string
   environments: string[]
   model: string

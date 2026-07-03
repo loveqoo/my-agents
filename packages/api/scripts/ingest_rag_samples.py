@@ -1,12 +1,12 @@
-"""RAG 대표 컬렉션(docs_kb) 샘플 적재 — 멱등(스펙 048 #9).
+"""RAG 대표 컬렉션(docs-kb) 샘플 적재 — 멱등(스펙 048 #9).
 
 #9: 어드민 테스트에서 컬렉션이 전부 비어 "고장처럼" 보였다. 대표 컬렉션 하나를 *결정적으로*
-채워 검색 동작까지 보이게 한다. 라이브 MLX에 의존하지 않도록 docs_kb를 mock-embed(스펙 024,
+채워 검색 동작까지 보이게 한다. 라이브 MLX에 의존하지 않도록 docs-kb를 mock-embed(스펙 024,
 `/_remote/v1/embeddings`가 RAG_EMBED_DIMS=1024 결정적 벡터 반환)에 바인딩해 적재한다.
 
 동작:
   1. (게이트) embedding 모델 mock-embed가 없으면 스킵 — "임베딩 모델 설정이 있는 경우만 적재".
-  2. docs_kb가 mock-embed에 안 묶여 있고 아직 비었으면 재바인딩(차원 동일 1024 → 안전).
+  2. docs-kb가 mock-embed에 안 묶여 있고 아직 비었으면 재바인딩(차원 동일 1024 → 안전).
   3. (멱등) doc_count>0이면 이미 적재됨 → 스킵.
   4. data/rag_samples/*.md를 실 인제스트 엔드포인트로 적재(extract→chunk→embed→pgvector 전 경로).
   5. 검색 1회(runtime.build_rag_tool)로 동작 확인 — 샘플 청크 텍스트 질의 → 1위 유사도≈1.000.
@@ -33,7 +33,7 @@ from api.main import app  # noqa: E402
 from api.models import Chunk, Collection, ModelConfig  # noqa: E402,F401
 
 _AUTH = {"Authorization": f"Bearer {_token()}"}
-TARGET = os.environ.get("RAG_SAMPLE_COLLECTION", "docs_kb")
+TARGET = os.environ.get("RAG_SAMPLE_COLLECTION", "docs-kb")
 EMBED_MODEL = "mock-embed"  # 라이브 비의존·결정적
 # populated 상태를 정직하게 반영하는 설명(seed.py와 동일 문구) — 적재됐는데 "업로드해 채우세요"라
 # 말하면 #9 정직화 취지에 어긋난다. 어느 경로든 이 문구로 자가치유한다.
@@ -53,7 +53,7 @@ def _load_samples() -> list[tuple[str, bytes]]:
 
 
 async def _ensure_binding() -> tuple[str | None, str]:
-    """docs_kb를 mock-embed에 바인딩 보장. 반환 (collection_id|None, 사유).
+    """docs-kb를 mock-embed에 바인딩 보장. 반환 (collection_id|None, 사유).
 
     col_id를 돌려주면 main()이 *파일명 단위 멱등*으로 적재한다(doc_count 게이트 아님 — 적대 리뷰
     048: doc_count는 성공분만 세는 캐시라 부분 실패를 'populated'로 오인한다). None이면 적재 스킵.
@@ -139,7 +139,9 @@ async def main() -> int:
     async with httpx.AsyncClient(transport=transport, base_url="http://t", headers=_AUTH, timeout=120) as c:
         # 파일명 단위 멱등(적대 리뷰 048): ready면 스킵, error면 삭제 후 재적재, 없으면 적재.
         # doc_count 게이트가 아니라 *실제 ready 파일명 집합*으로 완전성을 판단 → 부분 실패 자가치유.
-        existing = (await c.get(f"/collections/{col_id}/documents")).json()
+        # 스펙 128에서 문서 목록이 페이지 형태({items,total})로 바뀜 — 구 list 응답도 방어적 수용.
+        resp = (await c.get(f"/collections/{col_id}/documents", params={"limit": 100})).json()
+        existing = resp.get("items", []) if isinstance(resp, dict) else resp
         by_name = {d["filename"]: d for d in existing}
         skipped = ingested = 0
         for fn, data in samples:

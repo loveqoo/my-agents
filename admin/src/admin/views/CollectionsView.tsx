@@ -19,6 +19,7 @@ import {
 } from 'antd'
 import type { UploadProps } from 'antd'
 import { Page, DataTable, OwnerTag, type Column } from '../shared'
+import { validateName, NAME_HINT } from '../naming'
 import { PagedListShell, type ListController } from './PagedListShell'
 import { Icon } from '../icons'
 import { RetrievalTestDrawer } from './RetrievalTestDrawer'
@@ -90,7 +91,8 @@ function docStatusTag(status: string) {
 
 /* ---- 컬렉션 생성 모달 ---- */
 interface CreateFormData {
-  name: string
+  name: string // 식별 이름(규칙, 스펙 148)
+  alias: string // 별명(자유 표기, 스펙 148)
   description: string
   embedding_model_id: string
   chunk_size: number
@@ -99,6 +101,7 @@ interface CreateFormData {
 
 const blankCreate: CreateFormData = {
   name: '',
+  alias: '',
   description: '',
   embedding_model_id: '',
   chunk_size: 1000,
@@ -140,8 +143,22 @@ function CreateModal({
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxHeight: '60vh', overflow: 'auto' }}>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <span style={{ fontSize: 14, fontWeight: 500 }}>이름</span>
-          <Input placeholder="예: 사내 위키" value={f.name} onChange={(e) => set('name', e.target.value)} />
+          <span style={{ fontSize: 14, fontWeight: 500 }}>식별 이름</span>
+          <Input
+            placeholder="예: docs-kb"
+            value={f.name}
+            status={f.name.trim() && validateName(f.name.trim()) ? 'error' : undefined}
+            onChange={(e) => set('name', e.target.value)}
+          />
+          <span style={{ fontSize: 12, color: f.name.trim() && validateName(f.name.trim()) ? 'var(--red-6)' : 'var(--color-text-tertiary)' }}>
+            {(f.name.trim() && validateName(f.name.trim())) || NAME_HINT}
+          </span>
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <span style={{ fontSize: 14, fontWeight: 500 }}>
+            별명 <span style={{ color: 'var(--color-text-tertiary)', fontWeight: 400 }}>(선택 — 화면 표시용 자유 표기)</span>
+          </span>
+          <Input placeholder="예: 사내 위키" value={f.alias} onChange={(e) => set('alias', e.target.value)} />
         </label>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <span style={{ fontSize: 14, fontWeight: 500 }}>
@@ -515,8 +532,9 @@ export default function CollectionsView() {
   }
 
   const submitCreate = async (data: CreateFormData) => {
-    if (!data.name.trim()) {
-      message.warning('이름을 입력하세요')
+    const nameErr = validateName(data.name.trim())
+    if (nameErr) {
+      message.warning(nameErr) // 식별 이름 규칙(스펙 148) — 진실원은 서버 400
       return
     }
     if (!data.embedding_model_id) {
@@ -526,6 +544,7 @@ export default function CollectionsView() {
     try {
       await createCollection({
         name: data.name.trim(),
+        alias: data.alias.trim() || null,
         description: data.description.trim() || undefined,
         embedding_model_id: data.embedding_model_id,
         chunk_size: data.chunk_size,
@@ -570,7 +589,12 @@ export default function CollectionsView() {
         // description을 줄임표로 제한 — 긴 설명이 테이블 max-content 폭을 키워 우측
         // 액션 컬럼(점검·삭제)이 가로 스크롤 뒤로 잘리던 것을 억제한다.
         <div style={{ maxWidth: 260 }}>
-          <span style={{ fontWeight: 500, color: 'var(--color-text-heading)' }}>{c.name}</span>
+          <span style={{ fontWeight: 500, color: 'var(--color-text-heading)' }}>{c.alias || c.name}</span>
+          {c.alias ? (
+            <code style={{ marginLeft: 6, fontSize: 11, color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-family-code)' }}>
+              {c.name}
+            </code>
+          ) : null}
           <span style={{ marginLeft: 6 }}><OwnerTag ownerId={c.owner_id} canManage={c.can_manage} /></span>
           {c.description ? (
             <div

@@ -22,6 +22,7 @@ from sqlalchemy.orm import selectinload
 from . import crypto, rag_ingest
 from .auth import current_principal
 from .db import get_session
+from .naming import validate_resource_name
 from .ownership import assert_may_manage, may_manage, owner_of
 from .model_registry import _probe
 from .models import RAG_EMBED_DIMS, Chunk, Collection, Document, ModelConfig
@@ -107,6 +108,9 @@ async def create_collection(
     session: AsyncSession = Depends(get_session),
     principal=Depends(current_principal),
 ) -> CollectionOut:
+    err = validate_resource_name(body.name)  # 식별 이름 규칙(스펙 148)
+    if err:
+        raise HTTPException(status_code=400, detail=err)
     m = await _embedding_model(session, body.embedding_model_id)
     if m is None:
         raise HTTPException(status_code=400, detail="임베딩 모델을 찾을 수 없습니다.")
@@ -120,6 +124,7 @@ async def create_collection(
             raise HTTPException(status_code=409, detail=msg)
     c = Collection(
         name=body.name,
+        alias=(body.alias or "").strip() or None,  # 별명(자유 표기, 스펙 148)
         description=body.description,
         embedding_model_id=body.embedding_model_id,
         dims=RAG_EMBED_DIMS,
@@ -162,7 +167,9 @@ async def update_collection(
     if c is None:
         raise HTTPException(status_code=404, detail="not found")
     assert_may_manage(c, principal)  # 소유자/특권만(스펙 112)
-    # 임베딩 모델·dims는 불변(차원 고정). 설명·청킹 설정만 갱신.
+    # 임베딩 모델·dims는 불변(차원 고정). 설명·청킹 설정·별명만 갱신.
+    if body.alias is not None:
+        c.alias = body.alias.strip() or None  # ""=별명 비우기(스펙 148)
     if body.description is not None:
         c.description = body.description
     if body.chunk_size is not None:

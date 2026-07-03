@@ -37,10 +37,12 @@ import {
   type Collection,
 } from '../../api'
 import { PickerGroups, type PickerGroup } from '../../PickerGroups'
+import { validateName, NAME_HINT, displayName } from '../naming'
 
 /* 폼 데이터 shape — 생성/편집에서 공유. */
 interface AgentFormData {
-  name: string
+  name: string // 식별 이름(규칙, 스펙 148)
+  alias: string // 별명(자유 표기, 스펙 148) — ''=없음
   model: string
   persona: string
   temperature: number | null // null=자동(모델 등록값), 수동이면 0–2(스펙 077)
@@ -59,6 +61,7 @@ interface AgentFormData {
 function blankForm(blocks: Record<string, BlockCategory>, models: Model[]): AgentFormData {
   return {
     name: '',
+    alias: '',
     model: models.find((m) => m.kind === 'chat')?.name ?? '',
     persona: blocks.persona?.items?.[0]?.name ?? '',
     temperature: null,
@@ -254,6 +257,8 @@ function AgentForm({
     },
   ]
   const orchestratorSelected = isOrchestratorImpl(form.impl)
+  // 식별 이름 규칙(스펙 148) — 서버 400의 프론트 힌트. 빈 값은 입력 전이라 조용히(제출만 막음).
+  const nameErr = form.name.trim() ? validateName(form.name.trim()) : null
 
   return (
     <Modal
@@ -263,7 +268,8 @@ function AgentForm({
       okText={isEdit ? '초안 저장' : '에이전트 생성'}
       cancelText="취소"
       onCancel={onCancel}
-      onOk={() => onSave({ ...form, name: form.name.trim() || '이름 없는 에이전트' })}
+      okButtonProps={{ disabled: !form.name.trim() || !!nameErr }}
+      onOk={() => onSave({ ...form, name: form.name.trim(), alias: form.alias.trim() })}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxHeight: '60vh', overflow: 'auto' }}>
         <Alert
@@ -278,9 +284,23 @@ function AgentForm({
         />
         {/* ── 1단계: 기본(필수) — 이름·모델·페르소나·종류(스펙 109) ── */}
         <SectionHeader first>기본</SectionHeader>
-        <Field label="이름">
-          <Input placeholder="예: 리서치 어시스턴트" value={form.name} onChange={(e) => set('name', e.target.value)} />
-        </Field>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))', gap: 16 }}>
+          <Field label="식별 이름">
+            <Input
+              placeholder="예: research-assistant"
+              value={form.name}
+              status={nameErr ? 'error' : undefined}
+              onChange={(e) => set('name', e.target.value)}
+            />
+            <span style={{ fontSize: 12, color: nameErr ? 'var(--red-6)' : 'var(--color-text-tertiary)' }}>
+              {nameErr ?? NAME_HINT}
+            </span>
+          </Field>
+          <Field label="별명 (선택)">
+            <Input placeholder="예: 리서치 어시스턴트" value={form.alias} onChange={(e) => set('alias', e.target.value)} />
+            <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>화면 표시용 자유 표기</span>
+          </Field>
+        </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))', gap: 16 }}>
           <Field label="모델">
             <Select
@@ -626,7 +646,7 @@ function CodeAgentDetail({
   return (
     <Drawer
       open={!!agent}
-      title={agent.name}
+      title={displayName(agent)}
       width={480}
       onClose={onClose}
       footer={
@@ -651,7 +671,7 @@ function CodeAgentDetail({
         </Avatar>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 16, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
-            {agent.name}
+            {displayName(agent)}
             <Tag color="geekblue">
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                 <Icon name="code" size={11} />
@@ -826,7 +846,7 @@ function ExternalAgentDetail({
   return (
     <Drawer
       open={!!agent}
-      title={agent.name}
+      title={displayName(agent)}
       width={480}
       onClose={onClose}
       footer={
@@ -851,7 +871,7 @@ function ExternalAgentDetail({
         </Avatar>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 16, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
-            {agent.name}
+            {displayName(agent)}
             <Tag color="purple">
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                 <Icon name="robot" size={11} />
@@ -1005,7 +1025,7 @@ function AgentDetail({
   return (
     <Drawer
       open={!!agent}
-      title={agent.name}
+      title={displayName(agent)}
       width={480}
       onClose={onClose}
       footer={
@@ -1034,7 +1054,7 @@ function AgentDetail({
           <Icon name="robot" />
         </Avatar>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 16, fontWeight: 600 }}>{agent.name}</div>
+          <div style={{ fontSize: 16, fontWeight: 600 }}>{displayName(agent)}</div>
           <code style={{ fontSize: 11, color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-family-code)' }}>
             {agent.agentId}
           </code>
@@ -1429,16 +1449,17 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
     }
     try {
       if (editing) {
-        const updated = await updateAgent(editing.agent.id, data.name, config)
+        // alias는 항상 현재 폼 값을 전송('' = 비우기, 스펙 148)
+        const updated = await updateAgent(editing.agent.id, data.name, config, data.alias)
         replaceAgent(updated)
         setToast(`초안에 저장됨 — 활성화하면 게시됩니다`)
         // 편집을 마치면 그 에이전트의 드로워로 복귀(스펙 144 #1 — 이어서 "활성화"를 누르는 동선).
         setDetailId(editing.agent.id)
       } else {
-        const created = await createAgent(data.name, config)
+        const created = await createAgent(data.name, config, data.alias || null)
         setAgents((as) => [created, ...as])
         notifyAgentsChanged()
-        setToast(`"${data.name}" 생성됨 — v1 초안, 테스트 후 활성화`)
+        setToast(`"${data.alias || data.name}" 생성됨 — v1 초안, 테스트 후 활성화`)
       }
       setFormOpen(false)
       setEditing(null)
@@ -1504,7 +1525,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
   const ownerKind = (a: Agent) =>
     a.owner_id == null ? 'shared' : meId !== undefined ? (a.owner_id === meId ? 'mine' : 'others') : a.can_manage === false ? 'others' : 'mine'
   const visibleAgents = agents
-    .filter((a) => !q || [a.name, a.model, a.source].some((f) => (f || '').toLowerCase().includes(q)))
+    .filter((a) => !q || [a.name, a.alias, a.model, a.source].some((f) => (f || '').toLowerCase().includes(q)))
     // 타인 private는 기본 숨김(스펙 147 — 소유자에게만 보임): admin도 '소유: private · 타인'을
     // 명시 선택해야 표시(정리·지원용 opt-in). 일반 사용자는 백엔드가 애초에 안 준다.
     .filter((a) => (ownerFilter === 'all' ? ownerKind(a) !== 'others' : ownerKind(a) === ownerFilter))
@@ -1583,9 +1604,10 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
               <Icon name={isCode ? 'code' : 'robot'} size={14} />
             </Avatar>
             <div>
-              <div style={{ fontWeight: 500, color: 'var(--color-text-heading)' }}>{a.name}</div>
+              <div style={{ fontWeight: 500, color: 'var(--color-text-heading)' }}>{displayName(a)}</div>
               <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-family-code)' }}>
-                {a.model}
+                {/* 별명이 있으면 식별 이름을 보조 표기(스펙 148 — 참조 키가 늘 보이게) */}
+                {a.alias ? `${a.name} · ${a.model}` : a.model}
               </div>
             </div>
           </div>
@@ -1819,6 +1841,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
                 const c: AgentConfig = d ? d.config || configOf(a) : configOf(a)
                 return {
                   name: a.name,
+                  alias: a.alias ?? '',
                   model: c.model || a.model,
                   persona: c.persona || a.persona,
                   temperature: c.temperature ?? a.temperature ?? null,

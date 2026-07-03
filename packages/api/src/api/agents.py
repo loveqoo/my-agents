@@ -13,6 +13,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -38,6 +39,7 @@ from .schemas import (
 )
 from . import agent_card, crypto, net_guard
 from .auth import current_principal
+from .naming import slugify_name, validate_resource_name
 from .ownership import may_use_agent, assert_may_manage, may_manage, owner_of
 from .serializers import agent_to_out
 
@@ -65,6 +67,41 @@ def _today() -> str:
 
 def _new_agent_id() -> str:
     return "agt_" + secrets.token_hex(3)
+
+
+def _assert_valid_name(name: str) -> None:
+    """식별 이름 규칙(스펙 148) — 위반이면 400. UI 입력 경로 전용(원격 유래는 slugify 자동 변환)."""
+    err = validate_resource_name(name)
+    if err:
+        raise HTTPException(status_code=400, detail=err)
+
+
+async def _dedupe_agent_name(session: AsyncSession, base: str) -> str:
+    """자동 생성 식별 이름(복제·원격 유래)의 유니크 확보 — base, base-2, base-3…(스펙 148)."""
+    rows = (await session.execute(select(Agent.name).where(Agent.name.like(f"{base}%")))).scalars().all()
+    taken = set(rows)
+    cand, i = base, 2
+    while cand in taken:
+        cand, i = f"{base}-{i}", i + 1
+    return cand
+
+
+async def _slugify_remote_agent(session: AsyncSession, agent: Agent) -> None:
+    """원격 유래(A2A 카드·SDK 등록) 이름 자동 변환 — 원문은 별명으로 보존, 식별 이름은
+    slugify+유니크(스펙 148). 우리가 짓는 이름이 아니므로 거부하지 않는다."""
+    raw = agent.name
+    agent.alias = (agent.alias or raw)[:200]  # DB String(200) 정합(codex 148 — 원격 문자열 무clip)
+    # base를 180자로 캡 — dedupe 접미(-N)가 붙어도 String(200)을 넘지 않게.
+    agent.name = await _dedupe_agent_name(session, slugify_name(raw)[:180])
+
+
+async def _commit_or_409(session: AsyncSession, detail: str) -> None:
+    """이름 유니크 경합(동시 생성 레이스)을 500 대신 409로 접는다(스펙 148)."""
+    try:
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        raise HTTPException(status_code=409, detail=detail)
 
 
 def next_version(versions: list[AgentVersion]) -> str:
@@ -147,10 +184,12 @@ async def create_agent(
     session: AsyncSession = Depends(get_session),
     principal=Depends(current_principal),
 ) -> AgentOut:
+    _assert_valid_name(body.name)  # 식별 이름 규칙(스펙 148) — 서버가 진실원
     cfg = body.config.model_dump()
     agent = Agent(
         agent_id=_new_agent_id(),
         name=body.name,
+        alias=(body.alias or "").strip() or None,  # 별명(자유 표기, 스펙 148)
         source="ui",
         model=body.config.model,
         persona=await resolve_persona(session, body.config.persona),
@@ -165,7 +204,7 @@ async def create_agent(
         AgentVersion(version="v1", status="draft", note="초기 초안", config=cfg)
     )
     session.add(agent)
-    await session.commit()
+    await _commit_or_409(session, "같은 식별 이름의 에이전트가 이미 있습니다.")
     return await _reload_out(session, agent.id)
 
 
@@ -188,7 +227,9 @@ async def clone_agent(
     cfg.pop("card", None)  # 외부 등록 스냅샷은 복사 안 함(ui 복제=행위 설정만; endpoint/token은 Agent 컬럼이라 애초 미복사)
     clone = Agent(
         agent_id=_new_agent_id(),
-        name=f"{src.name} (복사본)",
+        # 식별 이름은 규칙 준수+유니크로 자동 생성, 사람용 표기는 별명에(스펙 148). base 캡=접미 여유.
+        name=await _dedupe_agent_name(session, f"{src.name[:180]}-복사본"),
+        alias=f"{src.alias or src.name} (복사본)"[:200],
         source="ui",
         model=cfg.get("model") or src.model,
         persona=await resolve_persona(session, cfg.get("persona") or ""),
@@ -203,7 +244,7 @@ async def clone_agent(
         AgentVersion(version="v1", status="draft", note=f"복제: {src.name}", config=cfg)
     )
     session.add(clone)
-    await session.commit()
+    await _commit_or_409(session, "같은 식별 이름의 에이전트가 이미 있습니다.")
     return await _reload_out(session, clone.id)
 
 
@@ -241,10 +282,13 @@ async def update_agent(
                 config=cfg,
             )
         )
-    if body.name is not None:
+    if body.name is not None and body.name != agent.name:
+        _assert_valid_name(body.name)  # 식별 이름 변경도 규칙(스펙 148)
         agent.name = body.name
+    if body.alias is not None:
+        agent.alias = body.alias.strip() or None  # ""=별명 비우기
     # 서빙 config/active_version 은 건드리지 않음.
-    await session.commit()
+    await _commit_or_409(session, "같은 식별 이름의 에이전트가 이미 있습니다.")
     return await _reload_out(session, agent.id)
 
 
@@ -425,9 +469,12 @@ async def register_code_agent(
         "mcps": body.mcps,
         "historyDepth": body.historyDepth,
     }
+    raw_name = (body.name or body.repo or "코드 에이전트")[:200]
     agent = Agent(
         agent_id=_new_agent_id(),
-        name=body.name or body.repo or "코드 에이전트",
+        # 원격 유래(SDK 등록명) — 거부 대신 자동 변환, 원문은 별명으로(스펙 148). base 180자 캡=접미 여유.
+        name=await _dedupe_agent_name(session, slugify_name(raw_name)[:180]),
+        alias=raw_name,
         source="code",
         model=body.model,
         persona=body.persona,
@@ -455,7 +502,7 @@ async def register_code_agent(
             )
         )
     session.add(agent)
-    await session.commit()
+    await _commit_or_409(session, "같은 식별 이름의 에이전트가 이미 있습니다.")
     return await _reload_out(session, agent.id)
 
 
@@ -629,8 +676,9 @@ async def connect_agent(
     else:
         agent = _build_external_agent(card, body.token, live, body.url)
     agent.owner_id = owner_of(principal)  # 생성 시 1회 스탬프(스펙 112)
+    await _slugify_remote_agent(session, agent)  # 카드명은 원격 유래 — 자동 변환(스펙 148)
     session.add(agent)
-    await session.commit()
+    await _commit_or_409(session, "같은 식별 이름의 에이전트가 이미 있습니다.")
     return await _reload_out(session, agent.id)
 
 
@@ -654,8 +702,9 @@ async def register_external_agent(
     live = await agent_card.probe_endpoint(card.get("url"))
     agent = _build_external_agent(card, body.token, live, body.cardUrl)
     agent.owner_id = owner_of(principal)  # 생성 시 1회 스탬프(스펙 112)
+    await _slugify_remote_agent(session, agent)  # 카드명은 원격 유래 — 자동 변환(스펙 148)
     session.add(agent)
-    await session.commit()
+    await _commit_or_409(session, "같은 식별 이름의 에이전트가 이미 있습니다.")
     return await _reload_out(session, agent.id)
 
 

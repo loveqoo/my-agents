@@ -32,7 +32,8 @@ def _pk() -> Mapped[uuid.UUID]:
 class Persona(Base):
     __tablename__ = "personas"
     id: Mapped[uuid.UUID] = _pk()
-    name: Mapped[str] = mapped_column(String(200), unique=True)
+    name: Mapped[str] = mapped_column(String(200), unique=True)  # 식별 이름(규칙, 스펙 148)
+    alias: Mapped[str | None] = mapped_column(String(200), default=None)  # 별명(자유 표기, 스펙 148)
     tone: Mapped[str | None] = mapped_column(String(200), default=None)
     body: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -62,7 +63,8 @@ class Collection(Base):
 
     __tablename__ = "collections"
     id: Mapped[uuid.UUID] = _pk()
-    name: Mapped[str] = mapped_column(String(200), unique=True)
+    name: Mapped[str] = mapped_column(String(200), unique=True)  # 식별 이름(규칙, 스펙 148)
+    alias: Mapped[str | None] = mapped_column(String(200), default=None)  # 별명(자유 표기, 스펙 148)
     # 소유자(스펙 112) — 요청 주체(auth User UUID str). None=레거시/admin-저작=**admin 전용**(fail-closed,
     # learning 070). 브로커 능력 호출 시 소유자 본인 or 특권(admin/superuser)만. 생성 시 1회 스탬프·이전 금지(069).
     owner_id: Mapped[str | None] = mapped_column(String(80), index=True, default=None)
@@ -136,7 +138,8 @@ class Chunk(Base):
 class Permission(Base):
     __tablename__ = "permissions"
     id: Mapped[uuid.UUID] = _pk()
-    name: Mapped[str] = mapped_column(String(120), unique=True)
+    name: Mapped[str] = mapped_column(String(120), unique=True)  # 식별 이름(규칙, 스펙 148)
+    alias: Mapped[str | None] = mapped_column(String(200), default=None)  # 별명(자유 표기, 스펙 148)
     scope: Mapped[str | None] = mapped_column(String(80), default=None)
     approver: Mapped[str] = mapped_column(String(20), default="user")  # user | admin
     body: Mapped[str] = mapped_column(Text, default="")
@@ -190,7 +193,8 @@ class ModelConfig(Base):
 class McpServer(Base):
     __tablename__ = "mcp_servers"
     id: Mapped[uuid.UUID] = _pk()
-    name: Mapped[str] = mapped_column(String(120), unique=True)
+    name: Mapped[str] = mapped_column(String(120), unique=True)  # 식별 이름(규칙, 스펙 148)
+    alias: Mapped[str | None] = mapped_column(String(200), default=None)  # 별명(자유 표기, 스펙 148)
     source: Mapped[str] = mapped_column(String(20), default="local")  # local | external
     transport: Mapped[str] = mapped_column(String(20), default="stdio")  # stdio | http
     url: Mapped[str | None] = mapped_column(String(400), default=None)
@@ -209,7 +213,8 @@ class Agent(Base):
     __tablename__ = "agents"
     id: Mapped[uuid.UUID] = _pk()
     agent_id: Mapped[str] = mapped_column(String(80), unique=True)  # 외부 식별자 agt_...
-    name: Mapped[str] = mapped_column(String(200))
+    name: Mapped[str] = mapped_column(String(200), unique=True)  # 식별 이름(규칙+유니크, 스펙 148)
+    alias: Mapped[str | None] = mapped_column(String(200), default=None)  # 별명(자유 표기, 스펙 148)
     source: Mapped[str] = mapped_column(String(20), default="ui")  # ui | code | external(A2A 카드)
     model: Mapped[str] = mapped_column(String(120), default="mock-llm")  # 미지정 시 기본 모델(스펙 059)
     persona: Mapped[str] = mapped_column(Text, default="")  # 해석된 페르소나 본문(서빙용)

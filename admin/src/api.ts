@@ -196,7 +196,8 @@ export const deleteBlockItem = (resource: string, id: string) => del(`/${resourc
 /* ---------- RAG 컬렉션 + 문서 인제스트 (스펙 036) ---------- */
 export interface Collection {
   id: string
-  name: string
+  name: string // 식별 이름(규칙, 스펙 148)
+  alias?: string | null // 별명(자유 표기, 스펙 148) — 표시 = alias ?? name
   description: string
   embedding_model_id: string
   embedding_model_name: string
@@ -240,6 +241,7 @@ export interface CollectionSearchOut {
 export const listCollections = () => j<Collection[]>('/collections')
 export const createCollection = (body: {
   name: string
+  alias?: string | null // 별명(스펙 148)
   description?: string
   embedding_model_id: string
   chunk_size?: number
@@ -247,7 +249,7 @@ export const createCollection = (body: {
 }) => post('/collections', body) as Promise<Collection>
 export const updateCollection = (
   id: string,
-  body: { description?: string; chunk_size?: number; chunk_overlap?: number },
+  body: { alias?: string | null; description?: string; chunk_size?: number; chunk_overlap?: number },
 ) => put(`/collections/${id}`, body) as Promise<Collection>
 export const deleteCollection = (id: string) => del(`/collections/${id}`)
 export const collectionHealth = (id: string) =>
@@ -287,10 +289,11 @@ export const listAgents = () => j<Agent[]>('/agents')
 export const getAgent = (id: string) => j<Agent>(`/agents/${id}`)
 /* 등록된 실행 방식(impl) 키 목록 — 편집 폼 impl Select(스펙 106). 신뢰 레지스트리 단일 출처(drift 0). */
 export const listAgentImpls = () => j<string[]>('/agent-impls')
-export const createAgent = (name: string, config: unknown) =>
-  post('/agents', { name, config }) as Promise<Agent>
-export const updateAgent = (id: string, name: string, config: unknown) =>
-  put(`/agents/${id}`, { name, config }) as Promise<Agent>
+export const createAgent = (name: string, config: unknown, alias?: string | null) =>
+  post('/agents', { name, alias: alias ?? null, config }) as Promise<Agent>
+export const updateAgent = (id: string, name: string, config: unknown, alias?: string | null) =>
+  // alias: undefined=미변경(백엔드 None), ''=비우기 — 폼은 항상 현재값을 보낸다(스펙 148)
+  put(`/agents/${id}`, { name, alias: alias === undefined ? null : alias, config }) as Promise<Agent>
 export const deleteAgent = (id: string) => del(`/agents/${id}`)
 /* 복제 — 기존 설정을 새 ui 초안으로 복사(저마찰 재사용, 스펙 120). 복제자가 소유. */
 export const cloneAgent = (id: string) => post(`/agents/${id}/clone`) as Promise<Agent>

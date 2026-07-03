@@ -11,7 +11,8 @@ ORM = {"from_attributes": True}
 
 # ----------------------------- 빌딩 블록 -----------------------------
 class PersonaIn(BaseModel):
-    name: str
+    name: str = Field(max_length=200)  # 식별 이름(규칙, 스펙 148) — DB String(200) 정합(codex 148)
+    alias: str | None = Field(default=None, max_length=200)  # 별명(자유 표기, 스펙 148) — 표시 = alias ?? name
     tone: str | None = None
     body: str = ""
 
@@ -38,7 +39,8 @@ class MemoryTypeOut(MemoryTypeIn):
 class CollectionIn(BaseModel):
     """컬렉션 생성 — 임베딩 모델 1개로 묶임. dims는 서버가 probe 실측으로 박제(클라이언트 미지정)."""
 
-    name: str
+    name: str = Field(max_length=200)  # 식별 이름(규칙, 스펙 148) — DB String(200) 정합
+    alias: str | None = Field(default=None, max_length=200)  # 별명(자유 표기, 스펙 148)
     description: str = ""
     embedding_model_id: uuid.UUID
     chunk_size: int = Field(default=1000, gt=0)  # 0/음수면 1자 청크 폭주 — 422로 거부
@@ -46,8 +48,10 @@ class CollectionIn(BaseModel):
 
 
 class CollectionUpdate(BaseModel):
-    """수정 — 임베딩 모델·dims는 생성 후 불변(차원 고정). 청킹 설정·설명만 수정 가능."""
+    """수정 — 임베딩 모델·dims는 생성 후 불변(차원 고정). 청킹 설정·설명·별명만 수정 가능
+    (식별 이름은 참조 키라 v1 불변)."""
 
+    alias: str | None = Field(default=None, max_length=200)  # 별명(스펙 148)
     description: str | None = None
     chunk_size: int | None = Field(default=None, gt=0)
     chunk_overlap: int | None = Field(default=None, ge=0)
@@ -56,6 +60,7 @@ class CollectionUpdate(BaseModel):
 class CollectionOut(BaseModel):
     id: uuid.UUID
     name: str
+    alias: str | None = None  # 별명(스펙 148)
     description: str
     embedding_model_id: uuid.UUID
     embedding_model_name: str  # denormalized 표시용
@@ -204,7 +209,8 @@ class MemorySearchOut(BaseModel):
 
 
 class PermissionIn(BaseModel):
-    name: str
+    name: str = Field(max_length=120)  # 식별 이름(규칙, 스펙 148) — DB String(120) 정합
+    alias: str | None = Field(default=None, max_length=200)  # 별명(자유 표기, 스펙 148)
     scope: str | None = None
     approver: Literal["user", "admin"] = "user"
     body: str = ""
@@ -216,7 +222,8 @@ class PermissionOut(PermissionIn):
 
 
 class McpServerIn(BaseModel):
-    name: str
+    name: str = Field(max_length=120)  # 식별 이름(규칙, 스펙 148) — DB String(120) 정합
+    alias: str | None = Field(default=None, max_length=200)  # 별명(자유 표기, 스펙 148)
     source: Literal["local", "external"] = "local"
     transport: Literal["stdio", "http"] = "stdio"
     url: str | None = None
@@ -361,14 +368,16 @@ class AgentConfig(BaseModel):
 
 
 class AgentCreate(BaseModel):
-    name: str
+    name: str = Field(max_length=200)  # 식별 이름(규칙, 스펙 148) — DB String(200) 정합
+    alias: str | None = Field(default=None, max_length=200)  # 별명(자유 표기, 스펙 148)
     config: AgentConfig = Field(default_factory=AgentConfig)
 
 
 class AgentUpdate(BaseModel):
     """편집 = 초안(draft) 버전에 저장."""
 
-    name: str | None = None
+    name: str | None = Field(default=None, max_length=200)  # 식별 이름(규칙, 스펙 148)
+    alias: str | None = Field(default=None, max_length=200)  # 별명(자유 표기, 스펙 148) — None=미변경("" = 비우기)
     config: AgentConfig
 
 
@@ -383,7 +392,8 @@ class VersionOut(BaseModel):
 class AgentOut(BaseModel):
     id: uuid.UUID
     agentId: str
-    name: str
+    name: str  # 식별 이름(규칙, 스펙 148)
+    alias: str | None = None  # 별명(자유 표기, 스펙 148) — 표시 = alias ?? name
     source: str
     model: str
     persona: str  # 페르소나 이름(블록 참조, UI 표시용)

@@ -10,12 +10,14 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from . import crypto
 from .auth import current_principal
 from .db import get_session
+from .naming import validate_resource_name
 from .ownership import assert_may_manage, may_manage, owner_of
 from .models import Agent, Collection, McpServer, MemoryType, Permission, Persona
 from .references import _config_has, agents_referencing, referenced_message
@@ -36,6 +38,29 @@ from .schemas import (
 router = APIRouter(tags=["blocks"])
 
 
+def _assert_valid_name(name: str) -> None:
+    """식별 이름 규칙(스펙 148) — 위반이면 400. 생성·이름 변경 시에만(기존은 grandfather)."""
+    err = validate_resource_name(name)
+    if err:
+        raise HTTPException(status_code=400, detail=err)
+
+
+def _norm_alias(data: dict) -> dict:
+    """별명 정규화 — 공백뿐이면 None(스펙 148)."""
+    if "alias" in data:
+        data["alias"] = (data["alias"] or "").strip() or None
+    return data
+
+
+async def _commit_or_409(session: AsyncSession, detail: str) -> None:
+    """이름 유니크 충돌을 500 대신 409로(스펙 148 — name unique 테이블 공용)."""
+    try:
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        raise HTTPException(status_code=409, detail=detail)
+
+
 # ----------------------------- 페르소나 -----------------------------
 @router.get("/personas", response_model=list[PersonaOut])
 async def list_personas(session: AsyncSession = Depends(get_session)) -> Any:
@@ -45,9 +70,10 @@ async def list_personas(session: AsyncSession = Depends(get_session)) -> Any:
 
 @router.post("/personas", response_model=PersonaOut, status_code=201)
 async def create_persona(body: PersonaIn, session: AsyncSession = Depends(get_session)) -> Any:
-    obj = Persona(**body.model_dump())
+    _assert_valid_name(body.name)  # 식별 이름 규칙(스펙 148)
+    obj = Persona(**_norm_alias(body.model_dump()))
     session.add(obj)
-    await session.commit()
+    await _commit_or_409(session, "같은 식별 이름의 페르소나가 이미 있습니다.")
     await session.refresh(obj)
     return obj
 
@@ -67,9 +93,15 @@ async def update_persona(
     obj = await session.get(Persona, id)
     if obj is None:
         raise HTTPException(status_code=404, detail="not found")
-    for key, value in body.model_dump().items():
+    if body.name != obj.name:
+        _assert_valid_name(body.name)  # 이름 변경 시에만 규칙(기존은 grandfather, 스펙 148)
+        # rename도 config["persona"] 참조를 깬다 — MCP(093)와 동일 가드(codex 148 High)
+        refs = await agents_referencing(session, "persona", obj.name)
+        if refs:
+            raise HTTPException(status_code=409, detail=referenced_message(refs, "페르소나", action="이름 변경"))
+    for key, value in _norm_alias(body.model_dump()).items():
         setattr(obj, key, value)
-    await session.commit()
+    await _commit_or_409(session, "같은 식별 이름의 페르소나가 이미 있습니다.")
     await session.refresh(obj)
     return obj
 
@@ -79,6 +111,11 @@ async def delete_persona(id: uuid.UUID, session: AsyncSession = Depends(get_sess
     obj = await session.get(Persona, id)
     if obj is None:
         raise HTTPException(status_code=404, detail="not found")
+    # 참조 중 삭제 차단(093 operation-symmetry를 페르소나에도 — codex 148 High): 지우면
+    # resolve_persona가 name 문자열 자체를 시스템 프롬프트로 쓰는 조용한 degrade가 생긴다.
+    refs = await agents_referencing(session, "persona", obj.name)
+    if refs:
+        raise HTTPException(status_code=409, detail=referenced_message(refs, "페르소나"))
     await session.delete(obj)
     await session.commit()
 
@@ -147,9 +184,10 @@ async def list_permissions(session: AsyncSession = Depends(get_session)) -> Any:
 async def create_permission(
     body: PermissionIn, session: AsyncSession = Depends(get_session)
 ) -> Any:
-    obj = Permission(**body.model_dump())
+    _assert_valid_name(body.name)  # 식별 이름 규칙(스펙 148)
+    obj = Permission(**_norm_alias(body.model_dump()))
     session.add(obj)
-    await session.commit()
+    await _commit_or_409(session, "같은 식별 이름의 권한이 이미 있습니다.")
     await session.refresh(obj)
     return obj
 
@@ -169,9 +207,15 @@ async def update_permission(
     obj = await session.get(Permission, id)
     if obj is None:
         raise HTTPException(status_code=404, detail="not found")
-    for key, value in body.model_dump().items():
+    if body.name != obj.name:
+        _assert_valid_name(body.name)  # 이름 변경 시에만 규칙(기존은 grandfather, 스펙 148)
+        # rename도 config["permissions"] 참조를 깬다(codex 148 High)
+        refs = await agents_referencing(session, "permissions", obj.name)
+        if refs:
+            raise HTTPException(status_code=409, detail=referenced_message(refs, "권한", action="이름 변경"))
+    for key, value in _norm_alias(body.model_dump()).items():
         setattr(obj, key, value)
-    await session.commit()
+    await _commit_or_409(session, "같은 식별 이름의 권한이 이미 있습니다.")
     await session.refresh(obj)
     return obj
 
@@ -181,6 +225,10 @@ async def delete_permission(id: uuid.UUID, session: AsyncSession = Depends(get_s
     obj = await session.get(Permission, id)
     if obj is None:
         raise HTTPException(status_code=404, detail="not found")
+    # 참조 중 삭제 차단(093 operation-symmetry를 권한에도 — codex 148 High)
+    refs = await agents_referencing(session, "permissions", obj.name)
+    if refs:
+        raise HTTPException(status_code=409, detail=referenced_message(refs, "권한"))
     await session.delete(obj)
     await session.commit()
 
@@ -196,6 +244,7 @@ def mcp_to_out(obj: McpServer) -> McpServerOut:
     return McpServerOut(
         id=obj.id,
         name=obj.name,
+        alias=obj.alias,  # 별명(스펙 148)
         source=obj.source,
         transport=obj.transport,
         url=obj.url,
@@ -227,14 +276,15 @@ async def create_mcp_server(
     session: AsyncSession = Depends(get_session),
     principal=Depends(current_principal),
 ) -> Any:
-    data = body.model_dump()
+    _assert_valid_name(body.name)  # 식별 이름 규칙(스펙 148) — 서버 등록명은 사용자가 짓는다
+    data = _norm_alias(body.model_dump())
     data["enabled_tools"] = body.enabled_tools or body.tools
     # auth는 평문 입력 → Fernet 암호화 저장. 마스킹값이 들어오면(신규엔 없어야 함) 비워둔다.
     data["auth"] = None if (body.auth and crypto.is_masked(body.auth)) else crypto.encrypt(body.auth)
     data["owner_id"] = owner_of(principal)  # 생성 시 1회 스탬프(스펙 112)
     obj = McpServer(**data)
     session.add(obj)
-    await session.commit()
+    await _commit_or_409(session, "같은 식별 이름의 MCP 서버가 이미 있습니다.")
     await session.refresh(obj)
     return mcp_to_out(obj)
 
@@ -310,12 +360,13 @@ async def update_mcp_server(
     if obj is None:
         raise HTTPException(status_code=404, detail="not found")
     assert_may_manage(obj, principal)  # 소유자/특권만(스펙 112)
-    data = body.model_dump()
+    data = _norm_alias(body.model_dump())
     # 참조 무결성(스펙 093, operation-symmetry): rename도 삭제와 똑같이 config의 name 링크를 끊는다.
     # 런타임은 McpServer.name.in_(config["mcps"])로 해석하므로 참조 중인 서버 name을 바꾸면 옛 name이
     # dangling 되어 도구가 조용히 사라진다 → 참조가 있으면 rename을 409로 막는다(값은 옛 name 기준).
     new_name = data.get("name")
     if new_name is not None and new_name != obj.name:
+        _assert_valid_name(new_name)  # 이름 변경 시에만 규칙(기존은 grandfather, 스펙 148)
         refs = await agents_referencing(session, "mcps", obj.name)
         if refs:
             raise HTTPException(
@@ -332,7 +383,7 @@ async def update_mcp_server(
         obj.auth = None
     else:
         obj.auth = crypto.encrypt(auth_in)
-    await session.commit()
+    await _commit_or_409(session, "같은 식별 이름의 MCP 서버가 이미 있습니다.")
     await session.refresh(obj)
     return mcp_to_out(obj)
 
@@ -464,6 +515,7 @@ async def get_blocks(
         {
             "id": str(row.id),
             "name": row.name,
+            "alias": row.alias,  # 별명(스펙 148)
             "tone": row.tone,
             "body": row.body,
             "usedBy": _count_by(agents, "persona", row.name, scalar=True),
@@ -487,6 +539,7 @@ async def get_blocks(
         {
             "id": str(row.id),
             "name": row.name,
+            "alias": row.alias,  # 별명(스펙 148)
             "model": row.embedding_model.name if row.embedding_model else "",
             "dims": row.dims,
             "docs": row.doc_count,
@@ -504,6 +557,7 @@ async def get_blocks(
         {
             "id": str(row.id),
             "name": row.name,
+            "alias": row.alias,  # 별명(스펙 148)
             "scope": row.scope,
             "approver": row.approver,
             "body": row.body,
@@ -516,6 +570,7 @@ async def get_blocks(
         {
             "id": str(row.id),
             "name": row.name,
+            "alias": row.alias,  # 별명(스펙 148)
             "source": row.source,
             "transport": row.transport,
             "url": row.url,

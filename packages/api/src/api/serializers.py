@@ -54,6 +54,7 @@ def collection_to_out(c: Collection) -> CollectionOut:
     return CollectionOut(
         id=c.id,
         name=c.name,
+        alias=c.alias,  # 별명(스펙 148)
         description=c.description,
         embedding_model_id=c.embedding_model_id,
         embedding_model_name=c.embedding_model.name if c.embedding_model else "",
@@ -77,6 +78,7 @@ def agent_to_out(a: Agent) -> AgentOut:
         id=a.id,
         agentId=a.agent_id,
         name=a.name,
+        alias=a.alias,  # 별명(스펙 148)
         source=a.source,
         model=cfg.get("model", a.model),
         persona=cfg.get("persona", a.persona),
