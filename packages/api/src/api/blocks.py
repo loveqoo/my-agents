@@ -325,6 +325,9 @@ async def create_mcp_server(
     principal=Depends(current_principal),
 ) -> Any:
     _assert_valid_name(body.name)  # 식별 이름 규칙(스펙 148) — 서버 등록명은 사용자가 짓는다
+    if body.published and body.source == "external":
+        # 재공개 금지(스펙 152) — 외부에서 가져온 MCP를 다시 외부로 여는 생성 경로 봉인.
+        raise HTTPException(status_code=400, detail="외부에서 가져온 MCP는 다시 외부로 공개할 수 없습니다.")
     data = _norm_alias(body.model_dump())
     data["enabled_tools"] = body.enabled_tools or body.tools
     # auth는 평문 입력 → Fernet 암호화 저장. 마스킹값이 들어오면(신규엔 없어야 함) 비워둔다.
@@ -460,6 +463,13 @@ async def update_mcp_server(
         raise HTTPException(status_code=404, detail="not found")
     assert_may_manage(obj, principal)  # 소유자/특권만(스펙 112)
     data = _norm_alias(body.model_dump())
+    # source(유래)는 생성 후 불변(스펙 152, codex High) — external→local 세탁 후 publish하는
+    # 재공개 우회를 봉인. provenance는 등록 시점의 사실이지 편집 대상이 아니다.
+    if data.get("source") and data["source"] != obj.source:
+        raise HTTPException(status_code=400, detail="source(유래)는 생성 후 변경할 수 없습니다.")
+    # 재공개 금지(스펙 152) — 끄기는 항상 허용.
+    if data.get("published") and obj.source == "external":
+        raise HTTPException(status_code=400, detail="외부에서 가져온 MCP는 다시 외부로 공개할 수 없습니다.")
     if data.get("tools_meta") is None:
         data.pop("tools_meta", None)  # None=미변경(스펙 151 — 편집 폼이 메타를 안 들고 있어도 보존)
     # 참조 무결성(스펙 093, operation-symmetry): rename도 삭제와 똑같이 config의 name 링크를 끊는다.
@@ -521,6 +531,10 @@ async def publish_mcp_server(
     if obj is None:
         raise HTTPException(status_code=404, detail="not found")
     assert_may_manage(obj, principal)  # 소유자/특권만(스펙 112)
+    if body.published and obj.source == "external":
+        # 재공개 금지(스펙 152) — UI는 스위치를 숨기지만 API 봉인이 진실원(installed≠covering).
+        # 끄기는 항상 허용(stale 플래그 멱등 청소, 083 관례).
+        raise HTTPException(status_code=400, detail="외부에서 가져온 MCP는 다시 외부로 공개할 수 없습니다.")
     obj.published = body.published
     await session.commit()
     await session.refresh(obj)

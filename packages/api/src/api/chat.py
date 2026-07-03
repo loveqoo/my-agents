@@ -265,7 +265,10 @@ async def _load_context(
                     auth_owner, auth_priv = wiring_owner, owner_priv
                 else:
                     auth_owner, auth_priv = own, (own is None)  # own=None(admin/내부)=특권
-                if not agent_may_wire(r.owner_id, bool(r.published), auth_owner,
+                # published는 external이면 무효 취급(스펙 152 fail-closed) — 쓰기 게이트가 막아도
+                # 오염 행(세탁·구버전 데이터)이 다른 사용자 에이전트에 배선되지 않게 소비 지점서 재확인.
+                effective_pub = bool(r.published) and r.source != "external"
+                if not agent_may_wire(r.owner_id, effective_pub, auth_owner,
                                       "mcp", r.name, owner_privileged=auth_priv):
                     log.warning("mcp %s skipped: 배선 권한 없음(스펙 113)", r.name)
                     continue
