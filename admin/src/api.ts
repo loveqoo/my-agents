@@ -203,6 +203,26 @@ export const updateBlockItem = (resource: string, id: string, body: unknown) =>
   put(`/${resource}/${id}`, body)
 export const deleteBlockItem = (resource: string, id: string) => del(`/${resource}/${id}`)
 
+/* 페르소나 스냅샷 동기화 (스펙 161) — 복사본 유지 + 명시적 반영. */
+export interface PersonaUsageAgent {
+  id: string
+  agentId: string
+  name: string
+  alias?: string | null
+  stale: boolean // 이 에이전트 스냅샷이 현재 페르소나 본문과 다름
+  canManage: boolean // 요청 주체가 이 에이전트를 갱신 가능
+}
+// 에이전트 쪽: 자기 페르소나 스냅샷을 현재 원본으로 갱신.
+export const refreshAgentPersona = (id: string) =>
+  post(`/agents/${id}/persona/refresh`) as Promise<Agent>
+// 페르소나 쪽: 이 페르소나를 쓰는 에이전트 + 오래됨 상태.
+export const listPersonaAgents = (personaId: string) =>
+  j<PersonaUsageAgent[]>(`/personas/${personaId}/agents`)
+// 페르소나 쪽: 선택 에이전트들에 최신 본문 반영.
+export const applyPersona = (personaId: string, agentIds: string[]) =>
+  post(`/personas/${personaId}/apply`, { agentIds }) as Promise<{ applied: string[]; skipped: string[] }>
+
+
 /* ---------- RAG 컬렉션 + 문서 인제스트 (스펙 036) ---------- */
 export interface Collection {
   id: string

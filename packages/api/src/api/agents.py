@@ -121,6 +121,12 @@ async def resolve_persona(session: AsyncSession, name: str) -> str:
     return persona.body if persona is not None else name
 
 
+async def _persona_bodies(session: AsyncSession) -> dict[str, str]:
+    """{페르소나 이름: 현재 본문} 맵(스펙 161) — agent_to_out의 personaStale 계산용. 라우트가 1회 조회."""
+    rows = (await session.execute(select(Persona))).scalars().all()
+    return {p.name: p.body for p in rows}
+
+
 async def _load_agent(session: AsyncSession, agent_pk: uuid.UUID) -> Agent | None:
     result = await session.execute(
         select(Agent).where(Agent.id == agent_pk).options(selectinload(Agent.versions))
@@ -133,7 +139,7 @@ async def _reload_out(session: AsyncSession, agent_pk: uuid.UUID) -> AgentOut:
     agent = await _load_agent(session, agent_pk)
     if agent is None:
         raise HTTPException(status_code=404, detail="agent not found")
-    return agent_to_out(agent)
+    return agent_to_out(agent, await _persona_bodies(session))
 
 
 # 코드 에이전트 토큰은 암호화 저장(출력은 serializer가 마스킹). 원격 인증 시 복호화 사용.
@@ -155,7 +161,8 @@ async def list_agents(
     # 플레이그라운드도 이 목록을 쓰므로 자동 적용. admin/machine은 전부(관리 시야).
     from .ownership import may_use_agent
     rows = [a for a in rows if may_use_agent(a, principal)]
-    outs = [agent_to_out(a) for a in rows]
+    pbodies = await _persona_bodies(session)  # 스펙 161 — personaStale 계산용(1회 조회)
+    outs = [agent_to_out(a, pbodies) for a in rows]
     for o in outs:  # 스펙 114 — 관리 가능 여부를 각 객체에 실어 UI가 버튼 표시를 파생
         o.can_manage = may_manage(o.owner_id, principal)
     return outs
@@ -172,7 +179,7 @@ async def get_agent(
         # 사용 게이트(스펙 147, codex High#1) — 타인 private는 UUID를 알아도 미존재와 동일(404-fold,
         # 068: systemPrompt·config가 단건 응답에 실리므로 목록만 막으면 열람 우회).
         raise HTTPException(status_code=404, detail="agent not found")
-    out = agent_to_out(agent)
+    out = agent_to_out(agent, await _persona_bodies(session))
     out.can_manage = may_manage(out.owner_id, principal)  # 스펙 114
     return out
 
@@ -368,6 +375,29 @@ async def activate_version(
     agent.active_version = body.version
     agent.status = "online"
 
+    await session.commit()
+    return await _reload_out(session, agent.id)
+
+
+# ----------------------------- 페르소나 스냅샷 갱신(스펙 161) -----------------------------
+@router.post("/{agent_id}/persona/refresh", response_model=AgentOut)
+async def refresh_persona(
+    agent_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    principal=Depends(current_principal),
+) -> AgentOut:
+    """에이전트의 페르소나 스냅샷을 현재 원본으로 재해석(스펙 161). config.persona 이름은 그대로,
+    `agent.persona`(서빙 본문)만 in-place 갱신 → 새 버전 안 만듦(활성화 재해석 경로와 동일 동사).
+    스냅샷 복사는 유지(영향도 격리)하되 사용자가 명시적으로 눌러야 반영 = 통제된 전파."""
+    agent = await _load_agent(session, agent_id)
+    if agent is None:
+        raise HTTPException(status_code=404, detail="agent not found")
+    assert_may_manage(agent, principal, not_found_detail="agent not found")  # 소유자/특권만(스펙 112)
+    if agent.source not in ("ui", "code"):
+        # 외부/A2A는 로컬 페르소나가 없다(카드 스냅샷) — 갱신 대상 아님.
+        raise HTTPException(status_code=400, detail="외부 에이전트는 페르소나 갱신 대상이 아닙니다")
+    cfg = dict(agent.config or {})
+    agent.persona = await resolve_persona(session, cfg.get("persona") or "")
     await session.commit()
     return await _reload_out(session, agent.id)
 

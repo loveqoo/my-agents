@@ -18,7 +18,7 @@ from . import crypto
 from .auth import current_principal
 from .db import get_session
 from .naming import validate_resource_name
-from .ownership import assert_may_manage, may_manage, owner_of
+from .ownership import assert_may_manage, may_manage, may_use_agent, owner_of
 from .models import Agent, Collection, McpServer, MemoryType, Permission, Persona
 from .references import _config_has, agents_referencing, referenced_message
 from .schemas import (
@@ -31,8 +31,11 @@ from .schemas import (
     MemoryTypeOut,
     PermissionIn,
     PermissionOut,
+    PersonaApplyIn,
+    PersonaApplyOut,
     PersonaIn,
     PersonaOut,
+    PersonaUsageAgentOut,
 )
 
 router = APIRouter(tags=["blocks"])
@@ -104,6 +107,67 @@ async def update_persona(
     await _commit_or_409(session, "같은 식별 이름의 페르소나가 이미 있습니다.")
     await session.refresh(obj)
     return obj
+
+
+@router.get("/personas/{id}/agents", response_model=list[PersonaUsageAgentOut])
+async def persona_agents(
+    id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    principal=Depends(current_principal),
+) -> Any:
+    """이 페르소나를 쓰는 에이전트 + 각 오래됨(stale) 상태(스펙 161). 편집 화면이 "N개 사용·M개
+    오래됨"과 선택 반영 대상을 그린다. stale = 에이전트 스냅샷(agent.persona) != 현재 본문(obj.body)."""
+    obj = await session.get(Persona, id)
+    if obj is None:
+        raise HTTPException(status_code=404, detail="not found")
+    agents = (await session.execute(select(Agent))).scalars().all()
+    return [
+        PersonaUsageAgentOut(
+            id=a.id, agentId=a.agent_id, name=a.name, alias=a.alias,
+            stale=(a.persona != obj.body),
+            canManage=may_manage(a.owner_id, principal),
+        )
+        for a in agents
+        # may_use_agent 가시성 필터(스펙 147, codex 161 High) — 타인 private 에이전트의 식별자·stale를
+        # 누출하지 않는다(일반 list/get/chat과 동일 게이트). admin/machine은 전부, member는 본인+public.
+        if a.source in ("ui", "code")
+        and may_use_agent(a, principal)
+        and _config_has(a.config, "persona", obj.name)
+    ]
+
+
+@router.post("/personas/{id}/apply", response_model=PersonaApplyOut)
+async def persona_apply(
+    id: uuid.UUID,
+    body: PersonaApplyIn,
+    session: AsyncSession = Depends(get_session),
+    principal=Depends(current_principal),
+) -> Any:
+    """선택 에이전트들의 페르소나 스냅샷을 이 페르소나 최신 본문으로 반영(스펙 161). **각 에이전트
+    can_manage 게이트** — 관리 불가/이 페르소나 미참조 대상은 건너뛴다(남의 에이전트 무단 변경 금지)."""
+    obj = await session.get(Persona, id)
+    if obj is None:
+        raise HTTPException(status_code=404, detail="not found")
+    want = set(body.agentIds)
+    agents = (await session.execute(select(Agent).where(Agent.id.in_(want)))).scalars().all()
+    applied: list[uuid.UUID] = []
+    skipped: list[uuid.UUID] = []
+    found = {a.id for a in agents}
+    for a in agents:
+        # 이 페르소나를 실제 참조하고(활성 config) 관리 권한이 있어야 반영. 아니면 skip.
+        if (
+            a.source in ("ui", "code")
+            and _config_has(a.config, "persona", obj.name)
+            and may_manage(a.owner_id, principal)
+        ):
+            a.persona = obj.body  # 스냅샷 = 현재 본문(in-place, 이름 불변이라 새 버전 없음)
+            applied.append(a.id)
+        else:
+            skipped.append(a.id)
+    skipped.extend(aid for aid in want if aid not in found)  # 미존재도 skip으로 정직 보고
+    if applied:
+        await session.commit()
+    return PersonaApplyOut(applied=applied, skipped=skipped)
 
 
 @router.delete("/personas/{id}", status_code=204)

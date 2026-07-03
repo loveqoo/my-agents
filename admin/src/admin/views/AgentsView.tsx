@@ -32,6 +32,7 @@ import {
   exposeAgent,
   connectAgent as apiConnectAgent,
   resyncAgent,
+  refreshAgentPersona,
   listModels,
   listCollections,
   type Model,
@@ -587,14 +588,43 @@ function ConnectAgentModal({
   )
 }
 
+/* ---- 페르소나 스냅샷 오래됨 안내 + 갱신(스펙 161) — 원본 블록이 수정된 뒤 이 에이전트가 저장 시점
+   본문을 계속 쓰고 있음을 가시화하고, can_manage인 경우에만 명시적 갱신을 허용. ---- */
+function PersonaStaleNote({ agent, onRefresh }: { agent: Agent; onRefresh: (a: Agent) => Promise<void> }) {
+  const [loading, setLoading] = useState(false)
+  if (!agent.personaStale) return null
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', margin: '4px 0 10px' }}>
+      <Tag color="warning">원본 페르소나가 수정됨 — 이전 내용 사용 중</Tag>
+      {agent.can_manage !== false ? (
+        <Button
+          size="small"
+          loading={loading}
+          onClick={async () => {
+            setLoading(true)
+            try {
+              await onRefresh(agent)
+            } finally {
+              setLoading(false)
+            }
+          }}
+        >
+          최신 페르소나로 갱신
+        </Button>
+      ) : null}
+    </div>
+  )
+}
+
 /* ---- 읽기 전용 구성 행(코드 에이전트 상세에서 사용) ---- */
-function ReadonlyConfig({ agent }: { agent: Agent }) {
+function ReadonlyConfig({ agent, onRefreshPersona }: { agent: Agent; onRefreshPersona: (a: Agent) => Promise<void> }) {
   return (
     <>
       <Desc label="모델">
         <span style={{ fontFamily: 'var(--font-family-code)' }}>{agent.model}</span>
       </Desc>
       <Desc label="페르소나">{agent.persona}</Desc>
+      <PersonaStaleNote agent={agent} onRefresh={onRefreshPersona} />
       <Desc label="메모리">
         {(agent.memories || []).length ? (
           <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6 }}>
@@ -639,6 +669,7 @@ function CodeAgentDetail({
   onResync,
   onToggleExpose,
   onSetVisibility,
+  onRefreshPersona,
 }: {
   agent: Agent
   onClose: () => void
@@ -647,6 +678,7 @@ function CodeAgentDetail({
   onResync: (a: Agent) => void
   onToggleExpose: (a: Agent) => void
   onSetVisibility: (a: Agent, pub: boolean) => void
+  onRefreshPersona: (a: Agent) => Promise<void>
 }) {
   return (
     <Drawer
@@ -702,7 +734,7 @@ function CodeAgentDetail({
         message="SDK로 코드 정의해 원격 엔드포인트에서 실행되는 에이전트입니다. 구성은 코드가 소유하므로 콘솔에서는 읽기 전용입니다 — 변경하려면 코드를 수정해 다시 배포한 뒤 동기화하세요."
       />
 
-      <ReadonlyConfig agent={agent} />
+      <ReadonlyConfig agent={agent} onRefreshPersona={onRefreshPersona} />
 
       <div
         style={{
@@ -1039,6 +1071,7 @@ function AgentDetail({
   onRevert,
   onResync,
   onNewDraft,
+  onRefreshPersona,
 }: {
   agent: Agent | null
   onClose: () => void
@@ -1052,6 +1085,7 @@ function AgentDetail({
   onRevert: (a: Agent, v: VersionMeta) => void
   onResync: (a: Agent) => void
   onNewDraft: (a: Agent) => void
+  onRefreshPersona: (a: Agent) => Promise<void>
 }) {
   if (!agent) return null
   if (agent.source === 'code')
@@ -1064,6 +1098,7 @@ function AgentDetail({
         onResync={onResync}
         onToggleExpose={onToggleExpose}
         onSetVisibility={onSetVisibility}
+        onRefreshPersona={onRefreshPersona}
       />
     )
   if (agent.source === 'external')
@@ -1153,6 +1188,7 @@ function AgentDetail({
         <span style={{ fontFamily: 'var(--font-family-code)' }}>{agent.model}</span>
       </Desc>
       <Desc label="페르소나">{agent.persona}</Desc>
+      <PersonaStaleNote agent={agent} onRefresh={onRefreshPersona} />
       <Desc label="메모리">
         {(agent.memories || []).length ? (
           <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6 }}>
@@ -1620,6 +1656,16 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
       message.error(String(e))
     }
   }
+  // 페르소나 스냅샷을 현재 원본으로 갱신(스펙 161) — 저장 시점 복사본이 오래됐을 때 명시적 반영.
+  const refreshPersona = async (agent: Agent) => {
+    try {
+      const updated = await refreshAgentPersona(agent.id)
+      replaceAgent(updated)
+      setToast(`${agent.name} 페르소나 갱신됨`)
+    } catch (e) {
+      message.error(String(e))
+    }
+  }
 
   const q = query.trim().toLowerCase()
   // '타인' 판정은 meId 비교(admin은 can_manage가 늘 true — e2e 147 실측 결함 교정)
@@ -1920,6 +1966,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
         onRevert={revertToDraft}
         onResync={resync}
         onNewDraft={newDraft}
+        onRefreshPersona={refreshPersona}
       />
       <ConnectAgentModal open={connectOpen} onCancel={() => setConnectOpen(false)} onConnect={connectAgent} />
       <AgentForm

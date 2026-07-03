@@ -18,6 +18,9 @@ import {
   createBlockItem,
   updateBlockItem,
   deleteBlockItem,
+  listPersonaAgents,
+  applyPersona,
+  type PersonaUsageAgent,
 } from '../../api'
 
 const { TextArea } = Input
@@ -377,6 +380,11 @@ function PersonaForm({
   const [alias, setAlias] = useState('')
   const [tones, setTones] = useState<string[]>([])
   const [body, setBody] = useState('')
+  // 이 페르소나를 쓰는 에이전트(스펙 161) — 편집 모드에서만 로드·표시.
+  const [usage, setUsage] = useState<PersonaUsageAgent[]>([])
+  const [usageLoading, setUsageLoading] = useState(false)
+  const [selected, setSelected] = useState<string[]>([])
+  const [applying, setApplying] = useState(false)
   useEffect(() => {
     if (!form) return
     if (form.mode === 'edit' && form.item) {
@@ -391,6 +399,27 @@ function PersonaForm({
       setBody('')
     }
   }, [form])
+  // 편집 대상 페르소나 id 기준으로 사용 에이전트 목록 로드. 기본 선택 = stale && canManage.
+  const loadUsage = async (id: string) => {
+    setUsageLoading(true)
+    try {
+      const list = await listPersonaAgents(id)
+      setUsage(list)
+      setSelected(list.filter((u) => u.stale && u.canManage).map((u) => u.id))
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '사용 에이전트 목록을 불러오지 못했습니다')
+    } finally {
+      setUsageLoading(false)
+    }
+  }
+  useEffect(() => {
+    if (form && form.mode === 'edit' && form.item?.id) {
+      void loadUsage(form.item.id)
+    } else {
+      setUsage([])
+      setSelected([])
+    }
+  }, [form])
   if (!form) return null
   const isEdit = form.mode === 'edit'
   const submit = () => {
@@ -400,6 +429,20 @@ function PersonaForm({
       return
     }
     onSave({ id: isEdit ? form.item?.id : undefined, name: name.trim(), alias: alias.trim(), tone: joinTones(tones), body })
+  }
+  const staleCount = usage.filter((u) => u.stale).length
+  const applySelected = async () => {
+    if (!form.item?.id || selected.length === 0) return
+    setApplying(true)
+    try {
+      const result = await applyPersona(form.item.id, selected)
+      await loadUsage(form.item.id)
+      message.success(`${result.applied.length}개 반영, ${result.skipped.length}개 건너뜀`)
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '반영에 실패했습니다')
+    } finally {
+      setApplying(false)
+    }
   }
   return (
     <Modal
@@ -460,6 +503,42 @@ function PersonaForm({
             style={{ fontFamily: 'var(--font-family-code)', fontSize: 13 }}
           />
         </label>
+        {isEdit ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, borderTop: '1px solid var(--color-border-secondary)', paddingTop: 12 }}>
+            <span style={{ fontSize: 14, fontWeight: 500 }}>이 페르소나를 쓰는 에이전트</span>
+            <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+              이 페르소나 사용 {usage.length}개 · 오래됨 {staleCount}개
+            </span>
+            {usageLoading ? (
+              <span style={{ fontSize: 13, color: 'var(--color-text-tertiary)' }}>불러오는 중…</span>
+            ) : usage.length ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {usage.map((u) => (
+                  <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Checkbox
+                      checked={selected.includes(u.id)}
+                      disabled={!u.canManage}
+                      onChange={(e) =>
+                        setSelected((s) => (e.target.checked ? [...s, u.id] : s.filter((id) => id !== u.id)))
+                      }
+                    >
+                      {u.alias ?? u.name}
+                    </Checkbox>
+                    {u.stale ? <Tag color="warning">오래됨</Tag> : null}
+                    {!u.canManage ? (
+                      <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>권한 없음</span>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <span style={{ fontSize: 13, color: 'var(--color-text-tertiary)' }}>이 페르소나를 쓰는 에이전트가 없습니다</span>
+            )}
+            <Button size="small" loading={applying} disabled={selected.length === 0} onClick={applySelected} style={{ alignSelf: 'flex-start' }}>
+              선택 에이전트에 반영
+            </Button>
+          </div>
+        ) : null}
       </div>
     </Modal>
   )

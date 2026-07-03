@@ -91,7 +91,8 @@ export interface Agent {
   exposed: { a2a: boolean }
   sessions: number
   created: string
-  systemPrompt?: string
+  systemPrompt?: string // 해석된 페르소나 본문(저장 시점 스냅샷)
+  personaStale?: boolean // 스냅샷이 현재 원본 페르소나와 다름(스펙 161)
   activeVersion: string
   versions: VersionMeta[]
   /* 공통 인터페이스 준수 분류(스펙 089) — 백엔드가 resolve와 같은 게이트로 파생.
