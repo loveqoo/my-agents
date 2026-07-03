@@ -7,11 +7,12 @@ import { Tabs, Button, Input, Select, Tag, Modal, Popconfirm, Alert, Collapse, C
 import { Page, DataTable, Drawer, Desc, type Column } from '../shared'
 import { Icon } from '../icons'
 import { TrendChart, CompareDrawer } from './EvalTrend'
+import { MatrixView } from './EvalMatrix'
 import {
   listEvalDatasets, createEvalDataset, deleteEvalDataset,
   listEvalCases, createEvalCase, updateEvalCase, deleteEvalCase,
-  startEvalRun, listEvalRuns, getEvalRun, listAgents, listCollections,
-  type EvalDataset, type EvalCaseT, type EvalAssert, type EvalRunT, type EvalRunDetail, type Agent, type Collection,
+  startEvalRun, listEvalRuns, getEvalRun, listAgents, listCollections, listModels,
+  type EvalDataset, type EvalCaseT, type EvalAssert, type EvalRunT, type EvalRunDetail, type Agent, type Collection, type Model,
 } from '../../api'
 
 const { TextArea } = Input
@@ -103,11 +104,12 @@ function CaseForm({
 
 /* 문제집 상세 드로어 — 케이스 목록/편집 + 시험 실행. */
 function DatasetDrawer({
-  dataset, agents, collections, onClose, onChanged, onRunStarted, onOpenRun,
+  dataset, agents, collections, chatModels, onClose, onChanged, onRunStarted, onOpenRun,
 }: {
   dataset: EvalDataset | null
   agents: Agent[]
   collections: Collection[]
+  chatModels: Model[]
   onClose: () => void
   onChanged: () => void
   onRunStarted: () => void
@@ -119,6 +121,7 @@ function DatasetDrawer({
   const [adding, setAdding] = useState(false)
   const [busy, setBusy] = useState(false)
   const [runAgent, setRunAgent] = useState<string | undefined>()
+  const [runModels, setRunModels] = useState<string[]>([]) // 모델 비교(스펙 141, 빈 배열=기본 모델 1회)
   const [starting, setStarting] = useState(false)
 
   const load = useCallback(async () => {
@@ -134,6 +137,7 @@ function DatasetDrawer({
     setEditing(null)
     setAdding(false)
     setRunAgent(undefined) // 문제집 전환 시 대상 리셋(codex 140 #4 — kind 다른 stale id로 실행 방지)
+    setRunModels([])
     void load()
     if (dataset) listEvalRuns(dataset.id).then(setDsRuns).catch(() => setDsRuns([]))
     else setDsRuns([])
@@ -162,8 +166,15 @@ function DatasetDrawer({
     if (!dataset || !runAgent) return
     setStarting(true)
     try {
-      await startEvalRun(dataset.id, isRag ? { collectionId: runAgent } : { agentId: runAgent })
-      message.success('시험 실행 시작 — "실행 이력" 탭에서 확인하세요')
+      await startEvalRun(
+        dataset.id,
+        isRag ? { collectionId: runAgent } : { agentId: runAgent, models: runModels }
+      )
+      message.success(
+        runModels.length > 1
+          ? `모델 ${runModels.length}개 비교 실행 시작 — "모델 격자" 탭에서 확인하세요`
+          : '시험 실행 시작 — "실행 이력" 탭에서 확인하세요'
+      )
       onRunStarted()
     } catch (e) {
       message.error('실행 실패: ' + (e as Error).message)
@@ -190,9 +201,20 @@ function DatasetDrawer({
               }
             />
             <Button type="primary" icon={<Icon name="thunderbolt" />} loading={starting} disabled={!runAgent || cases.length === 0} onClick={() => void start()}>
-              시험 실행
+              {runModels.length > 1 ? `${runModels.length}개 모델 비교 실행` : '시험 실행'}
             </Button>
           </div>
+          {!isRag ? (
+            <Select
+              mode="multiple"
+              allowClear
+              maxCount={6}
+              placeholder="모델 비교 (선택) — 고르지 않으면 에이전트 기본 모델로 1회 실행. 조율형은 메인(분석·종합) 모델만 교체되고 위임받는 에이전트의 모델은 그대로입니다."
+              value={runModels}
+              onChange={setRunModels}
+              options={chatModels.map((m) => ({ value: m.name, label: m.name }))}
+            />
+          ) : null}
           {/* 성적 추이(스펙 138) — 이 문제집의 완료 런들. 최근 런 목록이 표 뷰 역할(클릭→성적표). */}
           {dsRuns.length > 0 ? (
             <div style={{ padding: 12, border: '1px solid var(--color-border-secondary)', borderRadius: 8 }}>
@@ -373,6 +395,7 @@ export default function EvalView() {
   const [newDesc, setNewDesc] = useState('')
   const [newKind, setNewKind] = useState<'agent' | 'rag'>('agent')
   const [collections, setCollections] = useState<Collection[]>([])
+  const [chatModels, setChatModels] = useState<Model[]>([])
 
   const loadDatasets = useCallback(() => {
     listEvalDatasets().then(setDatasets).catch((e) => message.error((e as Error).message))
@@ -392,6 +415,7 @@ export default function EvalView() {
     loadRuns()
     listAgents().then(setAgents).catch(() => {})
     listCollections().then(setCollections).catch(() => {})
+    listModels('chat').then(setChatModels).catch(() => {})
   }, [loadDatasets, loadRuns])
 
   // 실행 중인 런이 있으면 5초 폴링(성적 반영) — 없으면 중지.
@@ -441,6 +465,7 @@ export default function EvalView() {
     },
     { key: 'dataset_name', title: '문제집', render: (r) => r.dataset_name ?? '—' },
     { key: 'agent_name', title: '대상', render: (r) => r.agent_name ?? '—' },
+    { key: 'model_name', title: '모델', width: 140, hideBelow: 'md', render: (r) => (r.model_name ? <Tag style={{ margin: 0 }}>{r.model_name}</Tag> : '—') },
     {
       key: 'status', title: '상태', width: 100,
       render: (r) =>
@@ -475,6 +500,10 @@ export default function EvalView() {
                 <DataTable<EvalDataset> columns={dsCols} rows={datasets} onRowClick={setDetail} empty="문제집이 없습니다 — 첫 문제집을 만들어 보세요." />
               </div>
             ),
+          },
+          {
+            key: 'matrix', label: '모델 격자',
+            children: <MatrixView runs={runs} onOpenRun={(id) => setRunDetail(id)} />,
           },
           {
             key: 'runs', label: '실행 이력',
@@ -549,6 +578,7 @@ export default function EvalView() {
         dataset={detail}
         agents={agents}
         collections={collections}
+        chatModels={chatModels}
         onClose={() => setDetail(null)}
         onChanged={loadDatasets}
         onRunStarted={() => { loadRuns(); setTab('runs') }}

@@ -45,13 +45,15 @@ def _canonical_tokens(observed_nodes: list[str], calls_sink: list[dict], broker_
     return tokens
 
 
-async def eval_run_agent(agent_pk, user_text: str, principal) -> dict:
+async def eval_run_agent(agent_pk, user_text: str, principal, overrides: dict | None = None) -> dict:
     """케이스 1건 실행 → obs {"output", "trace_nodes", "error", "detail"?}.
 
+    overrides(스펙 141): 모델 비교 실행용 — 기존 화이트리스트 경로(_load_context)를 그대로 태워
+    {"model": 레지스트리 이름}만 주입한다(admin 내부 호출이라 own=None 특권 경로).
     실패(설정 오류·모델 예외·HIL interrupt)는 예외를 던지지 않고 error=True obs로 접는다 —
     run_eval이 no_error assert로 채점하고 전체 평가는 계속(하네스 계약)."""
     try:
-        ctx = await _load_context(agent_pk, None)
+        ctx = await _load_context(agent_pk, None, overrides)
     except Exception as exc:  # noqa: BLE001 — 미존재 에이전트 등
         return {"output": "", "trace_nodes": [], "error": True, "detail": f"컨텍스트 로드 실패: {exc}"}
     try:

@@ -204,6 +204,7 @@ from .models import Agent, EvalCaseResult, EvalRun  # noqa: E402
 class RunStartIn(BaseModel):
     agent_id: uuid.UUID | None = None  # kind=agent: agents.id (pk)
     collection_id: uuid.UUID | None = None  # kind=rag: 컬렉션 id (스펙 140)
+    models: list[str] = Field(default_factory=list, max_length=6)  # 모델 비교(스펙 141, agent 전용)
 
 
 class RunOut(BaseModel):
@@ -211,6 +212,8 @@ class RunOut(BaseModel):
     dataset_id: uuid.UUID
     dataset_name: str | None = None  # 목록 표시용(조인 채움)
     agent_name: str | None
+    model_name: str | None = None  # 모델 오버라이드 박제(스펙 141)
+    group_id: uuid.UUID | None = None  # 모델 비교 그룹(스펙 141)
     status: str
     score: float | None
     passed: int
@@ -234,7 +237,7 @@ class RunDetailOut(RunOut):
 
 
 async def _execute_run(run_id: uuid.UUID, dataset_id: uuid.UUID, agent_pk, principal,
-                       rag_collection: dict | None = None) -> None:
+                       rag_collection: dict | None = None, overrides: dict | None = None) -> None:
     """백그라운드 실행(batch runner 미러) — 케이스 **순차**(실모델 rate-limit·격리), 상태머신
     running→ok|error. kind=rag면 rag_collection으로 검색 러너(스펙 140), 아니면 agent 러너.
     케이스/러너 실패는 하네스가 error 관측으로 접어 전체는 계속(조용한 초록 금지)."""
@@ -275,7 +278,7 @@ async def _execute_run(run_id: uuid.UUID, dataset_id: uuid.UUID, agent_pk, princ
                 from .eval_runner import eval_run_rag
                 obs = await eval_run_rag(rag_collection, case.input)
             else:
-                obs = await eval_run_agent(agent_pk, case.input, principal)
+                obs = await eval_run_agent(agent_pk, case.input, principal, overrides)
             # 이 케이스의 llm_judge 기준만 순차 심판(스펙 139) — 결과를 obs에 주입, scorer는 읽기만.
             criteria = [a.get("arg") for a in case.meta.get("raw_asserts", [])
                         if isinstance(a, dict) and a.get("type") == "llm_judge" and a.get("arg")]
@@ -315,6 +318,14 @@ async def _execute_run(run_id: uuid.UUID, dataset_id: uuid.UUID, agent_pk, princ
                     await s.commit()
         except Exception:
             pass
+
+
+async def _execute_group(specs: list[tuple], dataset_id: uuid.UUID, agent_pk, principal) -> None:
+    """모델 비교 그룹 실행(스펙 141) — (run_id, model_name)들을 **순차**로(로컬 LLM 과점유 방지).
+    개별 런 실패는 _execute_run이 error로 박제하고 다음 모델은 계속."""
+    for run_id, model_name in specs:
+        await _execute_run(run_id, dataset_id, agent_pk, principal,
+                           overrides={"model": model_name} if model_name else None)
 
 
 @router.post("/datasets/{dataset_id}/runs", response_model=RunOut, status_code=202)
@@ -362,6 +373,51 @@ async def start_run(
     ).scalar_one()
     if running:
         raise HTTPException(status_code=409, detail="이 문제집은 이미 실행 중입니다 — 완료 후 다시 시도하세요")
+    # 모델 비교(스펙 141) — kind=agent 전용. 이름은 레지스트리 chat 모델로 **사전 검증**:
+    # _load_context는 미존재 이름을 기본 모델로 만회하므로(설정 만회 함정 — 스펙 089와 동류)
+    # 여기서 안 막으면 "다른 모델로 조용히 시험"이 된다.
+    models: list[str] = [m.strip() for m in body.models if m and m.strip()]
+    if models:
+        if ds.kind != "agent":
+            raise HTTPException(status_code=400, detail="모델 비교는 에이전트 문제집에서만 가능합니다")
+        if len(set(models)) != len(models):
+            raise HTTPException(status_code=400, detail="모델 이름이 중복되었습니다")
+        from .models import ModelConfig
+        rows = (
+            await session.execute(
+                select(ModelConfig.name).where(
+                    ModelConfig.kind == "chat", ModelConfig.name.in_(models)
+                )
+            )
+        ).scalars().all()
+        missing = sorted(set(models) - set(rows))
+        if missing:
+            raise HTTPException(status_code=400, detail=f"레지스트리에 없는 chat 모델: {', '.join(missing)}")
+
+    if len(models) == 1:
+        # 1개 선택=비교가 아니라 단순 모델 오버라이드 런(codex 141 #3 — 1열 그룹은 격자 의미 없음).
+        run = EvalRun(dataset_id=dataset_id, agent_pk=agent.id, agent_name=target_name,
+                      model_name=models[0], status="running", total=n_cases, owner_id=owner_of(user))
+        session.add(run)
+        await session.commit()
+        asyncio.create_task(_execute_run(run.id, dataset_id, agent.id, user,
+                                         overrides={"model": models[0]}))
+        return RunOut.model_validate(run)
+
+    if models:
+        group_id = uuid.uuid4()
+        runs = [
+            EvalRun(dataset_id=dataset_id, agent_pk=agent.id, agent_name=target_name,
+                    model_name=m, group_id=group_id, status="running", total=n_cases,
+                    owner_id=owner_of(user))
+            for m in models
+        ]
+        session.add_all(runs)
+        await session.commit()
+        asyncio.create_task(_execute_group([(r.id, r.model_name) for r in runs],
+                                           dataset_id, agent.id, user))
+        return RunOut.model_validate(runs[0])
+
     run = EvalRun(
         dataset_id=dataset_id, agent_pk=agent.id if agent else None, agent_name=target_name,
         status="running", total=n_cases, owner_id=owner_of(user),
@@ -376,14 +432,18 @@ async def start_run(
 @router.get("/runs", response_model=list[RunOut])
 async def list_runs(
     dataset_id: uuid.UUID | None = None,  # 문제집 필터(스펙 138 — 추이/비교용)
+    group_id: uuid.UUID | None = None,  # 비교 그룹 전량 조회(스펙 141 — 최근 50 컷에 그룹이 잘리면 부분 격자, codex #1)
     session: AsyncSession = Depends(get_session), user=_manage
 ) -> list[RunOut]:
     q = (
         select(EvalRun, EvalDataset.name)
         .join(EvalDataset, EvalDataset.id == EvalRun.dataset_id)
         .order_by(EvalRun.started_at.desc())
-        .limit(50)
     )
+    if group_id is not None:
+        q = q.where(EvalRun.group_id == group_id)  # 그룹은 최대 6건 — limit 불요
+    else:
+        q = q.limit(50)
     if dataset_id is not None:
         q = q.where(EvalRun.dataset_id == dataset_id)
     rows = (await session.execute(q)).all()

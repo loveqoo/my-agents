@@ -618,6 +618,8 @@ export interface EvalRunT {
   dataset_id: string
   dataset_name?: string | null
   agent_name: string | null
+  model_name?: string | null
+  group_id?: string | null
   status: 'running' | 'ok' | 'error'
   score: number | null
   passed: number
@@ -645,11 +647,17 @@ export const createEvalCase = (datasetId: string, body: { name: string; input: s
 export const updateEvalCase = (caseId: string, body: { name: string; input: string; asserts: EvalAssert[]; order_idx?: number }) =>
   patch(`/eval/cases/${caseId}`, body) as Promise<EvalCaseT>
 export const deleteEvalCase = (caseId: string) => del(`/eval/cases/${caseId}`)
-export const startEvalRun = (datasetId: string, target: { agentId?: string; collectionId?: string }) =>
+export const startEvalRun = (
+  datasetId: string,
+  target: { agentId?: string; collectionId?: string; models?: string[] }
+) =>
   post(`/eval/datasets/${datasetId}/runs`, {
     agent_id: target.agentId ?? null,
     collection_id: target.collectionId ?? null,
+    models: target.models ?? [],
   }) as Promise<EvalRunT>
+export const listEvalRunsByGroup = (groupId: string) =>
+  j<EvalRunT[]>(`/eval/runs?group_id=${groupId}`)
 export const listEvalRuns = (datasetId?: string) =>
   j<EvalRunT[]>(`/eval/runs${datasetId ? `?dataset_id=${datasetId}` : ''}`)
 export const getEvalRun = (runId: string) => j<EvalRunDetail>(`/eval/runs/${runId}`)

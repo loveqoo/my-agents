@@ -505,6 +505,8 @@ class EvalRun(Base):
         ForeignKey("agents.id", ondelete="SET NULL"), default=None
     )
     agent_name: Mapped[str | None] = mapped_column(String(120), default=None)  # 삭제 후 성적표 표기용 박제
+    model_name: Mapped[str | None] = mapped_column(String(120), default=None)  # 모델 오버라이드 박제(스펙 141)
+    group_id: Mapped[uuid.UUID | None] = mapped_column(default=None, index=True)  # 모델 비교 그룹(스펙 141)
     status: Mapped[str] = mapped_column(String(20), default="running")  # running|ok|error
     score: Mapped[float | None] = mapped_column(default=None)  # passed/total
     passed: Mapped[int] = mapped_column(Integer, default=0)
