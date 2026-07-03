@@ -29,6 +29,7 @@ from . import (
     net_guard,
     providers,
     rag,
+    served_mcp,
     sessions,
     user_admin,
     users,
@@ -57,7 +58,13 @@ async def lifespan(app: FastAPI):
         logging.getLogger("api.eval").info("죽은 골든 생성 %d건을 중단 박제(재시작 잔류)", swept_ds)
     # self-host mock MCP(스펙 054)의 세션 매니저 lifespan을 직접 연다 — 마운트된 서브앱 lifespan은
     # Starlette가 자동 호출하지 않으므로 부모가 진입해야 streamable-HTTP 핸들러가 동작한다.
-    async with mock_mcp.mcp.session_manager.run():
+    # 서빙 커스텀 MCP(스펙 156)도 동일 — 각 FastMCP의 session_manager를 스택으로 함께 연다.
+    from contextlib import AsyncExitStack
+
+    async with AsyncExitStack() as stack:
+        await stack.enter_async_context(mock_mcp.mcp.session_manager.run())
+        for _mcp in served_mcp.SERVED_MCPS.values():
+            await stack.enter_async_context(_mcp.session_manager.run())
         yield
     await checkpointer.close_checkpointer()
 
@@ -108,6 +115,15 @@ app.include_router(mock_remote.router)
 app.include_router(a2a_server.router)
 # self-host 실 mock MCP 서버(스펙 054) — streamable-HTTP. mock_remote와 같이 인증 비적용(dev 스탠드인).
 app.mount("/_remote/mcp", mock_mcp.mcp_app)
+
+# 내부(커스텀) MCP 외부 서빙(스펙 156, 실사용 #4) — 우리가 코드로 정의한 도구를 진짜 MCP 엔드포인트로
+# 노출해 외부 MCP 클라이언트가 붙게 한다(에이전트 A2A 서빙의 MCP판). 각 이름을 `/_served/mcp/{name}`에
+# 공개 게이트(published+source=custom, 요청마다 DB 확인)와 함께 마운트. external은 서빙 불가(152 봉인).
+for _name, _served in served_mcp.SERVED_MCPS.items():
+    app.mount(
+        f"{served_mcp.SERVED_MCP_PREFIX}/{_name}",
+        served_mcp.guarded_app(_name, _served.streamable_http_app()),
+    )
 
 # 인증·권한 라우터 (스펙 031). register_router는 마운트하지 않는다(공개 등록 금지) — 유저 생성은
 # user_admin(/admin/users, admin 보호)으로만.

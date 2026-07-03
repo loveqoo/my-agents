@@ -53,6 +53,7 @@ export interface BlockItem {
   toolsMeta?: Record<string, { description?: string; params?: { name: string; type?: string; required?: boolean }[] }> | null
   published?: boolean
   endpoint?: string
+  served_url?: string | null // 서빙 URL(스펙 156) — source=custom일 때만, 외부가 이 URL로 등록·접속
   url?: string
   auth?: string
   activeVersion?: string

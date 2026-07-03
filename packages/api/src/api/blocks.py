@@ -286,9 +286,23 @@ def _mcp_auth_masked(obj: McpServer) -> str | None:
     return crypto.SECRET_MASK if obj.auth else None
 
 
+def _mcp_served_url(obj: McpServer) -> str | None:
+    """서빙 URL(스펙 156) — source=custom이고 레지스트리에 실 정의가 있는 이름만. 그 외 None
+    (등록만 있고 서빙 정의 없는 custom 이름은 URL을 광고하지 않는다). base는 A2A_SELF_BASE_URL 재사용."""
+    from . import served_mcp
+
+    if obj.source != served_mcp.SERVABLE_SOURCE or obj.name not in served_mcp.SERVED_MCPS:
+        return None
+    import os
+
+    base = (os.environ.get("A2A_SELF_BASE_URL") or "http://127.0.0.1:8000").strip()
+    return served_mcp.served_url(obj.name, base)
+
+
 def mcp_to_out(obj: McpServer) -> McpServerOut:
     """ORM → 응답 DTO. auth는 마스킹해 평문 토큰을 절대 흘리지 않는다."""
     return McpServerOut(
+        served_url=_mcp_served_url(obj),
         id=obj.id,
         name=obj.name,
         alias=obj.alias,  # 별명(스펙 148)
@@ -325,6 +339,17 @@ async def create_mcp_server(
     principal=Depends(current_principal),
 ) -> Any:
     _assert_valid_name(body.name)  # 식별 이름 규칙(스펙 148) — 서버 등록명은 사용자가 짓는다
+    from . import served_mcp
+
+    if body.name in served_mcp.SERVED_MCPS:
+        # 서빙 예약 이름(스펙 156) — 사용자가 서빙 레지스트리 이름(calc-tools 등)을 어떤 source로도
+        # 선점하지 못하게 한다(선점 시 시스템 reconcile이 그 이름을 못 만들어 서빙이 막히는 스쿼팅 차단).
+        raise HTTPException(status_code=400, detail="예약된 서빙 MCP 이름입니다 — 다른 이름을 쓰세요.")
+    if body.source == "custom":
+        # 커스텀(내부 코드 정의) MCP는 **시스템 전용**(스펙 156, codex High) — provenance를 자가선언해
+        # 내부 레지스트리 이름(calc-tools 등)을 선점·공개하는 우회를 봉인한다. custom 행은 오직 seed의
+        # 멱등 reconcile만 만든다(owner_id=None). 사용자는 local/external만 등록. (152 유래-불변 계열)
+        raise HTTPException(status_code=400, detail="커스텀(내부 정의) MCP는 시스템 전용입니다 — 사용자가 생성할 수 없습니다.")
     if body.published and body.source == "external":
         # 재공개 금지(스펙 152) — 외부에서 가져온 MCP를 다시 외부로 여는 생성 경로 봉인.
         raise HTTPException(status_code=400, detail="외부에서 가져온 MCP는 다시 외부로 공개할 수 없습니다.")
@@ -696,6 +721,7 @@ async def get_blocks(
             "toolsMeta": row.tools_meta,  # 도구 메타(스펙 151) — 상세 드로어 카드용
             "status": row.status,
             "published": row.published,
+            "served_url": _mcp_served_url(row),  # 서빙 URL(스펙 156) — custom+정의보유만, 그 외 None
             "auth": _mcp_auth_masked(row),
             "usedBy": _count_by(agents, "mcps", row.name),
             "updated": "—",

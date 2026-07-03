@@ -173,7 +173,8 @@ function McpForm({
       id,
       name: f.name.trim(),
       alias: f.alias.trim() || null,
-      source: isExternal ? 'external' : 'local',
+      // source(유래)는 생성 후 불변(스펙 152) — 편집 시 원본 보존(custom도 그대로). 신규만 external/local.
+      source: isEdit ? (form.item?.source ?? 'local') : (isExternal ? 'external' : 'local'),
       transport: f.transport,
       tools,
       enabledTools,
@@ -766,7 +767,7 @@ export default function BlocksView() {
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <code style={{ fontFamily: 'var(--font-family-code)', color: 'var(--cyan-7)', fontSize: 13 }}>{r.name}</code>
               {r.alias ? <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>{r.alias}</span> : null}
-              {r.source === 'external' ? <Tag color="purple">외부</Tag> : <Tag>로컬</Tag>}
+              {r.source === 'external' ? <Tag color="purple">외부</Tag> : r.source === 'custom' ? <Tag color="cyan">커스텀</Tag> : <Tag>로컬</Tag>}
               <OwnerTag ownerId={r.owner_id} canManage={r.can_manage} />
             </span>
           ),
@@ -1225,29 +1226,39 @@ export default function BlocksView() {
                   </div>
                   <Switch checked={detail.published} disabled={detail.can_manage === false} onChange={() => void togglePublish(detail.id)} />
                 </div>
-                {detail.published ? (
-                  <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <Tag color="green">public</Tag>
-                    <code
-                      style={{
-                        fontFamily: 'var(--font-family-code)',
-                        fontSize: 12,
-                        color: 'var(--color-text-secondary)',
-                        flex: 1,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                      }}
-                    >
-                      {detail.endpoint}
-                    </code>
-                    <Button
-                      type="text"
-                      size="small"
-                      icon={<Icon name="copy" />}
-                      onClick={() => {
-                        if (navigator.clipboard && detail.endpoint) navigator.clipboard.writeText(detail.endpoint)
-                      }}
-                    />
+                {/* 서빙 URL(스펙 156): custom은 실제 서빙 URL(served_url), 그 외는 기존 endpoint. */}
+                {(() => {
+                  const url = detail.served_url ?? detail.endpoint
+                  return detail.published && url ? (
+                    <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <Tag color="green">public</Tag>
+                      <code
+                        style={{
+                          fontFamily: 'var(--font-family-code)',
+                          fontSize: 12,
+                          color: 'var(--color-text-secondary)',
+                          flex: 1,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                        }}
+                      >
+                        {url}
+                      </code>
+                      <Button
+                        type="text"
+                        size="small"
+                        icon={<Icon name="copy" />}
+                        onClick={() => {
+                          if (navigator.clipboard && url) navigator.clipboard.writeText(url)
+                        }}
+                      />
+                    </div>
+                  ) : null
+                })()}
+                {/* custom 미공개 안내(스펙 156): 켜면 이 URL로 외부에 서빙된다. */}
+                {!detail.published && detail.served_url ? (
+                  <div style={{ marginTop: 12, fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+                    공개하면 외부가 이 URL로 등록·접속합니다: <code style={{ fontFamily: 'var(--font-family-code)' }}>{detail.served_url}</code>
                   </div>
                 ) : null}
               </div>

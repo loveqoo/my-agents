@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from . import crypto
 from .mock_mcp import MOCK_MCP_SERVER_NAME, MOCK_MCP_TOOLS, MOCK_MCP_TOOLS_META, MOCK_MCP_URL
+from .served_mcp import SERVED_MCP_TOOLS, SERVED_MCP_TOOLS_META, served_url
 
 from .models import (
     RAG_EMBED_DIMS,
@@ -102,6 +103,12 @@ PERMISSIONS = [
 MCP_SERVERS = [
     (MOCK_MCP_SERVER_NAME, "local", "http", MOCK_MCP_URL, None,
      list(MOCK_MCP_TOOLS), "connected", True, None),
+    # 커스텀(SDK) MCP(스펙 156, 실사용 #4) — 우리가 코드로 정의·호스팅해 서빙 가능한 MCP. 시드는
+    # published=False(관리자가 드로어에서 켜면 /_served/mcp/calc-tools/로 외부 공개). source=custom이라
+    # 서빙 게이트 통과 대상이고 external 봉인(152)과 구분된다. plan-execute-demo가 커스텀 에이전트
+    # 실증인 것과 동형(커스텀 MCP 실증 시드 1행).
+    ("calc-tools", "custom", "http", served_url("calc-tools"), None,
+     list(SERVED_MCP_TOOLS["calc-tools"]), "connected", False, None),
 ]
 
 # agent_id, name(식별·규칙), alias(별명), source, model, persona, memories, historyDepth, vectorTables, permissions, mcps, a2a, status, activeVersion, versions[(version,status,createdAt,note)]
@@ -155,8 +162,9 @@ async def seed_if_empty(session: AsyncSession) -> None:
         session.add_all([
             McpServer(name=n, source=src, transport=tr, url=url, endpoint=ep,
                       tools=list(tools), enabled_tools=list(tools), status=st, published=pub, auth=auth,
-                      # 도구 메타(스펙 151) — local-tools만 정의 존재(단일 시드 행)
-                      tools_meta=MOCK_MCP_TOOLS_META if n == MOCK_MCP_SERVER_NAME else None)
+                      # 도구 메타(스펙 151·156) — local-tools + 서빙 커스텀 MCP(calc-tools)가 정의 보유.
+                      tools_meta=(MOCK_MCP_TOOLS_META if n == MOCK_MCP_SERVER_NAME
+                                  else SERVED_MCP_TOOLS_META.get(n)))
             for n, src, tr, url, ep, tools, st, pub, auth in MCP_SERVERS
         ])
 
@@ -358,6 +366,19 @@ async def seed_if_empty(session: AsyncSession) -> None:
                 approval_id=apid, session_id=sid, agent_pk=a.id if a else None,
                 agent_name=aname, permission=perm, action=action, args=args,
                 summary=summary, checkpoint=ckpt, status="pending",
+            ))
+
+    # 서빙 커스텀 MCP 행 멱등 reconcile(스펙 156, codex Medium/High) — _empty 게이트와 무관하게 매
+    # 부팅 실행. 이유 둘: (1) 기존 설치(테이블 비지 않음)에도 기능이 나타나게 한다(Medium), (2) custom
+    # 행은 오직 여기서만(owner_id=None, 시스템 소유) 생성 → create 라우트의 source=custom 차단(High)과
+    # 합쳐 "사용자가 custom을 자가선언해 선점·공개"하는 우회를 원천 봉인. 이름 존재하면 건드리지 않음.
+    have = set((await session.execute(select(McpServer.name))).scalars().all())
+    for _sname, _stools in SERVED_MCP_TOOLS.items():
+        if _sname not in have:
+            session.add(McpServer(
+                name=_sname, source="custom", transport="http", url=served_url(_sname),
+                tools=list(_stools), enabled_tools=list(_stools), status="connected",
+                published=False, tools_meta=SERVED_MCP_TOOLS_META.get(_sname), owner_id=None,
             ))
 
     await session.commit()

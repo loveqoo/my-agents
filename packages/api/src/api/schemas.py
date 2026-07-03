@@ -249,7 +249,9 @@ class McpToolInfo(BaseModel):
 class McpServerIn(BaseModel):
     name: str = Field(max_length=120)  # 식별 이름(규칙, 스펙 148) — DB String(120) 정합
     alias: str | None = Field(default=None, max_length=200)  # 별명(자유 표기, 스펙 148)
-    source: Literal["local", "external"] = "local"
+    # local=외부/self-host 등록분 · external=남의 A2A/MCP(재공개 봉인 152) · custom=우리가 코드로
+    # 정의·호스팅해 서빙 가능(스펙 156). source는 생성 후 불변(152) — 세탁 봉인.
+    source: Literal["local", "external", "custom"] = "local"
     transport: Literal["stdio", "http"] = "stdio"
     url: str | None = None
     endpoint: str | None = None
@@ -293,6 +295,9 @@ class McpServerOut(McpServerIn):
     id: uuid.UUID
     owner_id: str | None = None  # 소유자(스펙 112). None=공유/레거시
     can_manage: bool = True  # 요청 주체 수정/삭제 가능(스펙 114, list/get서 계산·기본 True)
+    # 서빙 URL(스펙 156) — source=custom이고 레지스트리에 정의가 있을 때만. 외부가 이 URL로 등록·접속.
+    # published=False면 아직 서빙 안 되지만(404) UI가 "공개하면 여기로 서빙" 안내에 쓴다. 그 외 None.
+    served_url: str | None = None
     model_config = ORM
 
 
