@@ -203,7 +203,7 @@ export function DataTable<T>({
       <div ref={wrapRef} style={{ overflowX: 'auto' }}>
       {/* 반응형(스펙 145): tableLayout fixed — 컬럼이 컨테이너 폭을 나눠 갖고(내용의 min-content가
           표를 못 늘림) 셀 내용은 overflowWrap으로 줄바꿈. 래퍼 overflowX는 안전망으로만. */}
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14, tableLayout: 'fixed' }}>
+      <table className="dt-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14, tableLayout: 'fixed' }}>
         <thead>
           <tr style={{ color: 'var(--color-text-secondary)', textAlign: 'left', background: 'var(--gray-2)' }}>
             {visibleColumns.map((c, i) => (

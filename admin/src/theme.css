@@ -115,3 +115,11 @@ body {
   margin: 0;
   background: var(--color-bg-layout);
 }
+
+/* 반응형 표 셀(스펙 145 후속) — antd Tag는 기본 nowrap이라 fixed 레이아웃 셀을 삐져나간다.
+   표 셀 안에서만 줄바꿈을 허용해 이웃 컬럼 침범을 막는다(사용자 스크린샷 보고). */
+.dt-table td .ant-tag {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  height: auto;
+}
