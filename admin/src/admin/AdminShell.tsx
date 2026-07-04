@@ -117,7 +117,6 @@ export default function AdminShell({ user, onLogout }: { user: Me; onLogout: () 
     { key: 'overview', icon: <DashboardOutlined />, label: '개요' },
     { key: 'agents', icon: <RobotOutlined />, label: '에이전트' },
     { key: 'blocks', icon: <AppstoreOutlined />, label: '빌딩 블록' },
-    { key: 'models', icon: <ApiOutlined />, label: '프로바이더·모델' },
     { key: 'collections', icon: <FolderOpenOutlined />, label: 'RAG 컬렉션' },
     { key: 'sessions', icon: <CommentOutlined />, label: '세션' },
     { key: 'memory', icon: <ReadOutlined />, label: '메모리' },
@@ -133,15 +132,17 @@ export default function AdminShell({ user, onLogout }: { user: Me; onLogout: () 
         </span>
       ),
     },
-    // 유저 관리·배치·허용 호스트는 admin 보호 라우트 — 슈퍼유저에게만 노출하고
+    // 프로바이더·모델·유저·배치·허용 호스트·설정은 admin 보호 라우트 — 슈퍼유저에게만 노출하고
     // "관리자" 그룹 헤더로 일반 작업 메뉴와 시각 구분(spec 065; "도구" 그룹과 동일 패턴).
-    // 노출 게이트는 UX 편의일 뿐, 서버 라우터가 require(...,"manage")로 독립 강제(064 §D5).
+    // 노출 게이트는 UX 편의일 뿐, 서버 라우터가 require(...,"manage")로 독립 강제(064 §D5, 174).
+    // 프로바이더·모델은 변이만 _manage — GET /models는 _auth라 에이전트/RAG 폼 모델 선택은 무영향.
     ...(user.is_superuser
       ? [
           {
             type: 'group' as const,
             label: collapsed ? '' : '관리자',
             children: [
+              { key: 'models', icon: <ApiOutlined />, label: '프로바이더·모델' },
               { key: 'users', icon: <TeamOutlined />, label: '유저' },
               { key: 'batch', icon: <ScheduleOutlined />, label: '배치' },
               { key: 'eval', icon: <CheckCircleOutlined />, label: '평가' },
