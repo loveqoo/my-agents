@@ -180,7 +180,12 @@ export const createMcp = (body: unknown) => post('/mcp-servers', body)
 export const updateMcp = (id: string, body: unknown) => put(`/mcp-servers/${id}`, body)
 /* 저장 전 라이브 도구 탐색(스펙 054 E) — url에 실제로 붙어 도구목록만 읽음(부작용 0). */
 export type McpToolParam = { name: string; type?: string; required?: boolean }
-export type McpToolInfo = { name: string; description?: string; params?: McpToolParam[] }
+export type McpToolInfo = {
+  name: string
+  description?: string
+  params?: McpToolParam[]
+  approval?: { required?: boolean } // 도구 승인 정책(스펙 177 P1) — 켜면 호출 전 승인
+}
 export type McpDiscoverResult = {
   ok: boolean
   reachable: boolean

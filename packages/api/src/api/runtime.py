@@ -47,6 +47,22 @@ _APPROVAL_ACTIONS: dict[tuple[str, str], str] = {
     ("local-tools", "delete_record"): "data.delete",
 }
 
+
+def resolve_tool_approval(server: str, tool: str, tools_meta: dict | None) -> str | None:
+    """도구 승인 정책 리졸버(스펙 177 P1) — 승인이 필요한 도구면 permission 문자열, 아니면 None.
+
+    **단일 진실원**: 그래프-tools 경로(`_wrap_mcp_tool`)와 브로커 경로
+    (`broker.McpProvider.approval_for`)가 이 함수 하나를 공유한다(드리프트 0 — 어느 경로로 도구가
+    도달하든 승인 정책이 일관). 우선순위:
+      1. `tools_meta[tool].approval.required` = **관리자가 데이터로 설정**(스펙 177) → `mcp.{server}.{tool}`.
+      2. 미설정이면 레거시 `_APPROVAL_ACTIONS`로 폴백(무회귀 — delete_record 등 기존 게이트 보존).
+    """
+    meta = tools_meta.get(tool) if isinstance(tools_meta, dict) else None
+    appr = meta.get("approval") if isinstance(meta, dict) else None
+    if isinstance(appr, dict) and appr.get("required"):
+        return f"mcp.{server}.{tool}"
+    return _APPROVAL_ACTIONS.get((server, tool))
+
 # 실 도구 호출 전체 deadline(초). per-read 타임아웃은 전체 데드라인이 아니므로(learning 046)
 # asyncio.timeout으로 호출 전체를 감싼다 — 느린/멈춘 서버가 에이전트를 무한 대기시키지 않게.
 _TOOL_TIMEOUT_S = 30
@@ -75,15 +91,17 @@ def _content_text(result: Any) -> str:
     return str(result)
 
 
-def _wrap_mcp_tool(server: str, rt: BaseTool, calls_sink: list[dict]) -> StructuredTool:
+def _wrap_mcp_tool(
+    server: str, rt: BaseTool, calls_sink: list[dict], permission: str | None
+) -> StructuredTool:
     """실 MCP 도구(rt)를 트레이스·HIL 게이트·graceful 래퍼로 감싼다.
 
     rt.args_schema(JSON 스키마 dict)를 그대로 보존해 LLM이 원 도구 시그니처대로 호출하게 한다.
-    `_APPROVAL_ACTIONS`에 걸리는 위험 도구는 **rt.ainvoke(부수효과) 이전에 interrupt()** 로 그래프를
-    멈춰 admin 승인을 받는다(스펙 041 불변식, 실 도구 위에서 재성립). 도구 실행 실패(서버 다운·
-    프로토콜 오류·타임아웃)는 잡아 graceful 문자열 + calls_sink status="error"로 — 에이전트 크래시 금지.
+    `permission`(호출부 `resolve_tool_approval`가 해석, 스펙 177)이 non-None인 도구는 **rt.ainvoke
+    (부수효과) 이전에 interrupt()** 로 그래프를 멈춰 승인을 받는다(스펙 041 불변식, 실 도구 위에서
+    재성립). 도구 실행 실패(서버 다운·프로토콜 오류·타임아웃)는 잡아 graceful 문자열 + calls_sink
+    status="error"로 — 에이전트 크래시 금지.
     """
-    permission = _APPROVAL_ACTIONS.get((server, rt.name))
 
     async def _execute(kwargs: dict, t0: float) -> str:
         # 실 부수효과: 실제 MCP 서버 도구를 호출한다. 승인됐거나 비위험 도구일 때만 도달.
@@ -212,7 +230,8 @@ async def build_mcp_tools(
         for rt in raw_tools:
             if enabled and rt.name not in enabled:
                 continue  # enabled_tools 밖 도구는 노출 안 함(서버측 강제)
-            tools.append(_wrap_mcp_tool(name, rt, calls_sink))
+            perm = resolve_tool_approval(name, rt.name, s.get("tools_meta"))  # 스펙 177 단일 리졸버
+            tools.append(_wrap_mcp_tool(name, rt, calls_sink, perm))
     return tools
 
 

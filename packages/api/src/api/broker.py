@@ -305,12 +305,13 @@ class _McpBacking:
     """McpProvider.load가 돌려주는 backing — 서버명·툴명 + **연결로 실제 가져온 BaseTool**.
     describe(스키마)·invoke(ainvoke)·node_label이 이 tool을 그대로 쓴다."""
 
-    __slots__ = ("server", "tool_name", "tool")
+    __slots__ = ("server", "tool_name", "tool", "tools_meta")
 
-    def __init__(self, server: str, tool_name: str, tool):
+    def __init__(self, server: str, tool_name: str, tool, tools_meta: dict | None = None):
         self.server = server
         self.tool_name = tool_name
         self.tool = tool
+        self.tools_meta = tools_meta  # 도구 승인 정책 리졸버용(스펙 177)
 
 
 class McpProvider:
@@ -358,6 +359,7 @@ class McpProvider:
                     "transport": r.transport or "http",
                     "enabled_tools": list(r.enabled_tools or []),
                     "auth_token": token,
+                    "tools_meta": r.tools_meta or {},  # 도구 승인 정책 리졸버용(스펙 177)
                 }
             )
         return out
@@ -425,7 +427,7 @@ class McpProvider:
         match = next((t for t in tools if t.name == tool), None)
         if match is None:
             return None
-        return _McpBacking(server, tool, match)
+        return _McpBacking(server, tool, match, s.get("tools_meta"))
 
     def describe(self, row: _McpBacking) -> Capability:
         return Capability(
@@ -459,12 +461,13 @@ class McpProvider:
         return f"broker_invoke:{CAP_KIND_MCP}:{row.server}/{row.tool_name}"
 
     def approval_for(self, row, cap_id: str, args: dict) -> dict | None:
-        """MCP 승인 정책 = 그래프-tools 경로와 **동일 소스**(`_APPROVAL_ACTIONS`) 재사용(드리프트 0).
-        payload 마스킹도 기존 `_redact_args` 재사용. 걸리지 않는 툴은 None(즉시 실행)."""
-        from .runtime import _APPROVAL_ACTIONS, _redact_args
+        """MCP 승인 정책 = 그래프-tools 경로와 **동일 리졸버**(`resolve_tool_approval`, 스펙 177) 공유
+        (드리프트 0 — 관리자가 tools_meta로 설정한 정책이 두 경로 일관 적용). 마스킹은 `_redact_args`
+        재사용. 걸리지 않는 툴은 None(즉시 실행)."""
+        from .runtime import _redact_args, resolve_tool_approval
 
         server, tool = _parse_mcp(cap_id)
-        permission = _APPROVAL_ACTIONS.get((server, tool))
+        permission = resolve_tool_approval(server, tool, getattr(row, "tools_meta", None))
         if permission is None:
             return None
         return {

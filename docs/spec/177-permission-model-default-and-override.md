@@ -60,8 +60,13 @@ resolve_tool_approval(server, tool, agent_config) -> {permission, approver} | No
 **승인 리졸버는 두 경로 공통 적용**(3)이라 "승인은 어느 경로든 일관". RBAC 수렴은 후속.
 
 ## 단계 (구현 순서 — 각 단계 = 별도 스펙, per-spec 커밋)
-- **P1**: (3) 리졸버 통합 + (1) 도구 기본 승인 정책(tools_meta) + admin 편집 UI. → "관리자가 데이터로
-  승인 설정" 실현(하드코딩 제거). 검증: 리졸버 단위 매트릭스 + 라이브 승인 발화(learning 144 재현).
+- **P1 ✅ 완료(2026-07-04)**: (3) 리졸버 통합 + (1) 도구 기본 승인 정책(tools_meta) + admin 편집 UI. →
+  "관리자가 데이터로 승인 설정" 실현. `resolve_tool_approval`(runtime) 하나를 그래프-tools·브로커 두
+  경로가 공유(drift 0), tools_meta 우선·레거시 `_APPROVAL_ACTIONS` 폴백(delete_record 무회귀). schemas
+  검증기가 approval 키 보존, BlocksView 편집 폼에 도구별 "승인 필요" 토글. 검증: verify_177(리졸버×reconcile
+  왕복 13/13)·브라우저 3/3·종단 UI→DB→리졸버·회귀(041·092·151). **적대 검토(deep-reasoner)가 P0 발견**:
+  rediscover가 `_tools_meta_from_details`로 tools_meta 통째 교체 시 admin approval 소멸 → `prior` 이월
+  보존으로 봉합(회고 155). approver(admin/self) 선택 UI·완전 연결은 P2.
 - **P2**: (2) 에이전트 오버라이드 + (4) 승인자 연결. → "매핑 시 편하게 오버라이드" 실현.
 - **P3**: (5) 능력 부여 UI + 죽은 설정 정리(permissions[]/approver) + (6) 문서화.
 

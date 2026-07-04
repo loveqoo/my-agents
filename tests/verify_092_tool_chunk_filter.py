@@ -101,7 +101,7 @@ async def integration() -> None:
     calls_sink: list[dict] = []
     base = StructuredTool.from_function(func=_weather, name="get_weather", description="날씨")
     # 제품과 동일하게 _wrap_mcp_tool로 감싸 calls_sink 적재 경로를 실제로 탄다(관측성 보존 단언용).
-    wrapped = runtime._wrap_mcp_tool("memserver", base, calls_sink)
+    wrapped = runtime._wrap_mcp_tool("memserver", base, calls_sink, None)
     tool_name = wrapped.name  # _safe_name("memserver","get_weather") == "memserver__get_weather"
 
     ai_call = AIMessage(
@@ -144,7 +144,7 @@ async def integration_content_blocks() -> None:
     도구 필터 후에도 본문 합치기(`"".join`)가 크래시 없이 텍스트를 보존하는지."""
     calls_sink: list[dict] = []
     base = StructuredTool.from_function(func=_weather, name="get_weather", description="날씨")
-    wrapped = runtime._wrap_mcp_tool("memserver", base, calls_sink)
+    wrapped = runtime._wrap_mcp_tool("memserver", base, calls_sink, None)
     ai_call = AIMessage(
         content="", tool_calls=[{"name": wrapped.name, "args": {"query": "서울"}, "id": "c1"}]
     )

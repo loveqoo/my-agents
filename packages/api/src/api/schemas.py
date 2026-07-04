@@ -304,10 +304,16 @@ class McpServerIn(BaseModel):
                 )
             except Exception as exc:  # noqa: BLE001 — pydantic 상세를 422 메시지로
                 raise ValueError(f"tools_meta[{k[:40]!r}] 형식 위반: {str(exc)[:200]}")
-            out[info.name] = {
+            entry: dict[str, Any] = {
                 "description": info.description,
                 "params": [p.model_dump() for p in info.params],
             }
+            # 도구 승인 정책(스펙 177 P1) — 관리자가 도구별로 "승인 필요"를 데이터로 설정.
+            # required=true만 정규화 보존(그 외 폐기). 승인자(approver)는 P2에서 추가.
+            appr = item.get("approval")
+            if isinstance(appr, dict) and bool(appr.get("required")):
+                entry["approval"] = {"required": True}
+            out[info.name] = entry
         return out
 
 

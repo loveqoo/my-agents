@@ -280,6 +280,7 @@ async def _load_context(
                         "transport": r.transport or "http",
                         "enabled_tools": list(r.enabled_tools or []),
                         "auth_token": token,
+                        "tools_meta": r.tools_meta or {},  # 도구 승인 정책 리졸버용(스펙 177)
                     }
                 )
         ctx["mcp_servers"] = mcp_servers

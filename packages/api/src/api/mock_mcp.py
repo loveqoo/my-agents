@@ -37,6 +37,7 @@ MOCK_MCP_TOOLS_META = {
     "delete_record": {
         "description": "레코드를 삭제한다(위험 작업 — HIL 승인 게이트 대상, 스펙 041). 부수효과를 흉내내는 mock.",
         "params": [{"name": "record_id", "type": "string", "required": True}],
+        "approval": {"required": True},  # 도구 기본 승인 정책(스펙 177 P1) — 관리자 편집 가능
     },
 }
 

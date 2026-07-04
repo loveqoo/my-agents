@@ -1,7 +1,7 @@
 /* my-agents admin — Building blocks (재료) browser: personas, memory policies,
    permissions, MCP servers. Category tabs → list → detail drawer. */
 import { useState, useEffect } from 'react'
-import { Tag, Button, Tabs, Switch, Modal, Input, Select, Checkbox, Alert, Grid, message } from 'antd'
+import { Tag, Button, Tabs, Switch, Modal, Input, Select, Checkbox, Tooltip, Alert, Grid, message } from 'antd'
 import { Page, DataTable, Drawer, Desc, OwnerTag, type Column } from '../shared'
 import { validateName, NAME_HINT } from '../naming'
 import { Icon } from '../icons'
@@ -15,6 +15,7 @@ import {
   discoverMcpTools,
   rediscoverMcp,
   type McpToolInfo,
+  type McpToolParam,
   createBlockItem,
   updateBlockItem,
   deleteBlockItem,
@@ -115,6 +116,12 @@ function McpForm({
         auth: m.auth && m.auth.includes('•') ? m.auth : '',
         tools: [...(m.tools || [])],
         enabledTools: [...(m.enabledTools || m.tools || [])],
+        // 도구별 메타(설명·파라미터·승인 정책, 스펙 177)를 편집 상태로 로드 — 저장 시 tools_meta로 되씀.
+        toolsDetail: m.toolsMeta
+          ? Object.entries(m.toolsMeta as Record<string, { description?: string; params?: McpToolParam[]; approval?: { required?: boolean } }>).map(
+              ([name, v]) => ({ name, description: v?.description ?? '', params: v?.params ?? [], approval: v?.approval }),
+            )
+          : [],
         usedBy: m.usedBy,
         published: m.published,
         endpoint: m.endpoint,
@@ -131,6 +138,16 @@ function McpForm({
       ...s,
       enabledTools: s.enabledTools.includes(t) ? s.enabledTools.filter((x) => x !== t) : [...s.enabledTools, t],
     }))
+  // 도구별 "승인 필요" 토글(스펙 177 P1) — toolsDetail[t].approval.required를 켜고 끈다(저장 시 tools_meta로).
+  const toggleApproval = (t: string) =>
+    setF((s) => {
+      const detail = s.toolsDetail ?? []
+      const idx = detail.findIndex((d) => d.name === t)
+      const cur = idx >= 0 ? detail[idx] : { name: t }
+      const on = !cur.approval?.required
+      const next = { ...cur, approval: on ? { required: true } : undefined }
+      return { ...s, toolsDetail: idx >= 0 ? detail.map((d, i) => (i === idx ? next : d)) : [...detail, next] }
+    })
   const isExternal = external
   const isEdit = form.mode === 'edit'
   // 라이브 탐색은 http URL이 있는 외부 MCP에서만(로컬은 자체 운영 — 도구를 운영자가 안다, stdio는 유예).
@@ -187,7 +204,17 @@ function McpForm({
       published: isEdit ? !!f.published : false,
       // 도구 메타(스펙 151): 이번 폼에서 탐색했으면 그 결과로, 아니면 기존 스냅샷 보존
       toolsMeta: f.toolsDetail && f.toolsDetail.length
-        ? Object.fromEntries(f.toolsDetail.map((d) => [d.name, { description: d.description ?? '', params: d.params ?? [] }]))
+        ? Object.fromEntries(
+            f.toolsDetail.map((d) => [
+              d.name,
+              {
+                description: d.description ?? '',
+                params: d.params ?? [],
+                // 승인 정책(스펙 177) — required=true만 실어 보냄(백엔드 검증기가 동일 정규화).
+                ...(d.approval?.required ? { approval: { required: true } } : {}),
+              },
+            ]),
+          )
         : (isEdit ? form.item?.toolsMeta ?? null : null),
       url: isExternal ? (f.url || 'mcp://remote/endpoint') : undefined,
       // bearer면 토큰(평문 또는 마스킹 sentinel=보존), 없음이면 빈 문자열=제거. 로컬은 미전송.
@@ -308,12 +335,25 @@ function McpForm({
               />
             )}
             {f.tools.length > 0 ? (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 16px' }}>
-                {f.tools.map((t) => (
-                  <Checkbox key={t} checked={f.enabledTools.includes(t)} onChange={() => toggleTool(t)}>
-                    {t}
-                  </Checkbox>
-                ))}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {f.tools.map((t) => {
+                  const detail = f.toolsDetail?.find((d) => d.name === t)
+                  return (
+                    <div
+                      key={t}
+                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '2px 0' }}
+                    >
+                      <Checkbox checked={f.enabledTools.includes(t)} onChange={() => toggleTool(t)}>
+                        {t}
+                      </Checkbox>
+                      <Tooltip title="켜면 이 도구를 호출하기 전에 승인을 받습니다(스펙 177)">
+                        <Checkbox checked={!!detail?.approval?.required} onChange={() => toggleApproval(t)}>
+                          <span style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>승인 필요</span>
+                        </Checkbox>
+                      </Tooltip>
+                    </div>
+                  )
+                })}
               </div>
             ) : (
               <span style={{ color: 'var(--color-text-tertiary)', fontSize: 13 }}>

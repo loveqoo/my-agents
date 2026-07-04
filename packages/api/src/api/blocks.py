@@ -336,13 +336,26 @@ def _tool_info(t) -> dict:
     }
 
 
-def _tools_meta_from_details(details: list[dict]) -> dict:
-    """toolsDetail 리스트 → 저장용 dict(name→{description, params}). 서버당 상한 적용."""
-    return {
-        d["name"]: {"description": d.get("description", ""), "params": d.get("params", [])}
-        for d in details[:_TOOLS_META_CAP]
-        if d.get("name")
-    }
+def _tools_meta_from_details(details: list[dict], prior: dict | None = None) -> dict:
+    """toolsDetail 리스트 → 저장용 dict(name→{description, params[, approval]}). 서버당 상한 적용.
+
+    approval(도구 승인 정책, 스펙 177)은 **라이브 탐색이 보고하지 않는 관리자 데이터**다. 재탐색 시
+    이 함수가 tools_meta를 통째 교체하므로, `prior`(기존 tools_meta)에서 도구별 approval을 **이월
+    보존**하지 않으면 재탐색 한 번에 관리자가 켠 승인 게이트가 소멸한다(적대 검토 P0 — 단위는 초록,
+    reconcile 왕복만 잡는 결함). 도구명이 재탐색으로 사라지면 그 approval도 함께 사라진다(정상)."""
+    prior = prior or {}
+    out: dict = {}
+    for d in details[:_TOOLS_META_CAP]:
+        name = d.get("name")
+        if not name:
+            continue
+        entry = {"description": d.get("description", ""), "params": d.get("params", [])}
+        prev = prior.get(name)
+        pa = prev.get("approval") if isinstance(prev, dict) else None
+        if isinstance(pa, dict) and pa.get("required"):
+            entry["approval"] = {"required": True}  # 관리자 정책 이월(탐색 결과엔 없음)
+        out[name] = entry
+    return out
 
 
 def _mcp_auth_masked(obj: McpServer) -> str | None:
@@ -524,7 +537,8 @@ async def rediscover_mcp_server(
                 detail=referenced_message(refs, f"MCP 도구({', '.join(removed[:5])})", action="재탐색(도구 제거)"),
             )
     obj.tools = r.tools
-    obj.tools_meta = _tools_meta_from_details([d.model_dump() for d in r.toolsDetail])
+    # 기존 tools_meta를 넘겨 관리자 승인 정책(approval, 스펙 177)을 이월 보존 — 재탐색이 게이트를 지우지 않게.
+    obj.tools_meta = _tools_meta_from_details([d.model_dump() for d in r.toolsDetail], obj.tools_meta)
     obj.enabled_tools = [t for t in (obj.enabled_tools or []) if t in r.tools]
     obj.status = "connected"
     await session.commit()
