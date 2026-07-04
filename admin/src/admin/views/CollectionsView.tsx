@@ -523,7 +523,7 @@ function SearchDrawer({
             type="info"
             showIcon
             title="아직 검색할 청크가 없습니다"
-            description="이 컬렉션은 ready 상태가 아닙니다. 먼저 문서를 업로드해 인제스트를 완료하세요."
+            description="이 컬렉션은 아직 준비되지 않았습니다. 먼저 문서를 올려 처리를 완료하세요."
           />
         ) : null
       }
@@ -812,7 +812,7 @@ export default function CollectionsView() {
           showIcon
           style={{ marginBottom: 16 }}
           title="임베딩 모델이 없어 RAG 기능을 사용할 수 없습니다"
-          description="컬렉션 생성·문서 적재·검색은 모두 임베딩 모델이 필요합니다. 프로바이더·모델 메뉴에서 임베딩 종류(kind=embedding) 모델을 먼저 등록하세요."
+          description="컬렉션 생성·문서 적재·검색은 모두 임베딩 모델이 필요합니다. 프로바이더·모델 메뉴에서 '임베딩용' 모델을 먼저 등록하세요."
         />
       ) : null}
 

@@ -93,7 +93,7 @@ function ExternalCardInfo({ agent }: { agent: Agent }) {
         type="info"
         showIcon
         message="외부(A2A) 에이전트 — 오버라이드 미적용"
-        description="이 에이전트는 외부 A2A 서비스가 소유합니다. 모델·도구·메모리는 원격이 관장하므로 로컬 설정을 덮어쓸 수 없습니다. 실제 호출은 준비 중(런타임은 2차 스펙)."
+        description="이 에이전트는 외부 A2A 서비스가 소유합니다. 모델·도구·메모리는 원격이 관장하므로 로컬 설정을 덮어쓸 수 없습니다. 실제 호출 기능은 준비 중입니다."
       />
       {!card ? (
         <span style={{ fontSize: 13, color: 'var(--color-text-tertiary)' }}>등록된 카드 정보가 없습니다.</span>

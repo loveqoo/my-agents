@@ -399,7 +399,7 @@ function AgentForm({
                       <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
                         {form.persistHistory
                           ? '대화를 DB에 저장 (세션·인스펙터·재개)'
-                          : '윈도우 모드 — 저장 안 함 (가벼움·프라이버시, 사후 기록 없음)'}
+                          : '대화를 저장하지 않음 (가볍고 기록이 남지 않음)'}
                       </span>
                     </div>
                   </Field>
@@ -635,7 +635,7 @@ function ReadonlyConfig({ agent, onRefreshPersona }: { agent: Agent; onRefreshPe
             ))}
           </span>
         ) : (
-          <span style={{ color: 'var(--color-text-tertiary)' }}>메모리 없음 (스테이트리스)</span>
+          <span style={{ color: 'var(--color-text-tertiary)' }}>메모리 없음</span>
         )}
       </Desc>
       <Desc label="채팅 히스토리">{agent.historyDepth ? `최근 ${agent.historyDepth}개 메시지` : '기억 안 함'}</Desc>
@@ -972,7 +972,7 @@ function ExternalAgentDetail({
         type="info"
         showIcon
         style={{ marginBottom: 14 }}
-        message="A2A 카드로 등록한 외부 에이전트입니다. 구성은 원격 서비스가 소유하므로 콘솔에서는 읽기 전용입니다. 실제 호출은 준비 중(런타임은 2차 스펙) — 지금은 카드 확인까지 지원합니다."
+        message="A2A 카드로 등록한 외부 에이전트입니다. 구성은 원격 서비스가 소유하므로 콘솔에서는 읽기 전용입니다. 실제 호출 기능은 준비 중 — 지금은 등록 정보 확인만 가능합니다."
       />
 
       {card?.description ? (
@@ -1168,7 +1168,7 @@ function AgentDetail({
           showIcon
           style={{ marginBottom: 12 }}
           title="에이전트 설정 실패 — 런타임이 서빙을 거부합니다"
-          description="지정한 커스텀 런타임(impl)이 신뢰 레지스트리에서 미해결입니다(미등록 또는 공통 인터페이스 부적합). 기본 에이전트로 만회·폴백하지 않습니다(스펙 089). 구현을 등록·수정하거나 impl 설정을 비우세요."
+          description="이 에이전트는 실행 방식 설정에 문제가 있어 실행할 수 없습니다(등록되지 않았거나 형식이 맞지 않음). 담당자에게 문의하거나, 실행 방식을 기본값으로 되돌린 뒤 다시 시도하세요."
         />
       ) : null}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
@@ -1199,7 +1199,7 @@ function AgentDetail({
             ))}
           </span>
         ) : (
-          <span style={{ color: 'var(--color-text-tertiary)' }}>메모리 없음 (스테이트리스)</span>
+          <span style={{ color: 'var(--color-text-tertiary)' }}>메모리 없음</span>
         )}
       </Desc>
       <Desc label="채팅 히스토리">{agent.historyDepth ? `최근 ${agent.historyDepth}개 메시지` : '기억 안 함'}</Desc>

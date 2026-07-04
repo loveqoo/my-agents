@@ -693,7 +693,7 @@ export default function ProviderModelView() {
                     void loadAvail(selected.id)
                   }}
                 >
-                  GET /models
+                  모델 불러오기
                 </Button>
                 <div style={{ flex: 1 }} />
                 <Button size="small" type="dashed" icon={<Icon name="plus" />} onClick={() => setModelModal({ prefill: null })}>
@@ -771,7 +771,7 @@ export default function ProviderModelView() {
                 </div>
               ) : (
                 <div style={{ color: 'var(--color-text-tertiary)', fontSize: 13 }}>
-                  표시할 모델이 없습니다. [GET /models]로 실모델을 조회하거나 [직접 추가]로 등록하세요.
+                  표시할 모델이 없습니다. [모델 불러오기] 또는 [직접 추가]로 등록하세요.
                 </div>
               )}
             </div>
@@ -806,7 +806,7 @@ export default function ProviderModelView() {
             <b>{confirmProvDel.name}</b>을(를) 삭제합니다.
             {confirmProvDel.modelCount > 0 ? (
               <div style={{ marginTop: 8, color: 'var(--color-error)' }}>
-                매달린 모델 {confirmProvDel.modelCount}개가 있어 삭제가 차단됩니다. 먼저 모델을 제거하세요.
+                연결된 모델 {confirmProvDel.modelCount}개가 남아 있어 삭제할 수 없습니다. 먼저 모델을 제거하세요.
               </div>
             ) : null}
           </div>

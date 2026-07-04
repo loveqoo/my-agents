@@ -214,7 +214,7 @@ function McpForm({
           style={{ marginBottom: 0 }}
           message={
             isExternal
-              ? '다른 곳에서 프로토콜로 공개한 MCP 서버에 연결합니다. 그 도구를 소비합니다.'
+              ? '다른 곳에서 프로토콜로 공개한 MCP 서버에 연결해, 그 도구를 가져와 씁니다.'
               : '직접 운영하는 서버를 등록합니다. 나중에 MCP로 외부 공개할 수 있습니다.'
           }
         />
@@ -269,7 +269,7 @@ function McpForm({
                   autoComplete="new-password"
                 />
                 <span style={{ fontSize: 12, color: 'var(--gray-7)' }}>
-                  토큰은 Fernet로 암호화 저장되며 응답에 평문으로 노출되지 않습니다.
+                  토큰은 암호화되어 저장되며, 화면에 원문이 다시 표시되지 않습니다.
                 </span>
               </label>
             )}
@@ -1344,7 +1344,7 @@ export default function BlocksView() {
             ) : null}
             {cat === 'mcp' && detail.source === 'external' ? (
               <div style={{ marginTop: 18 }}>
-                <Alert type="info" showIcon message="외부 MCP — 다른 곳에서 호스팅·공개한 서버의 도구를 소비합니다." />
+                <Alert type="info" showIcon message="외부 MCP — 다른 곳에서 호스팅·공개한 서버의 도구를 가져와 씁니다." />
               </div>
             ) : null}
             {detail.body ? (
