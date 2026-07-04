@@ -264,7 +264,8 @@ function DocsDrawer({
 }) {
   const [uploading, setUploading] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0) // 업로드 후 문서 목록 재조회(셸 트리거)
-  // 청크 정책·설명 편집 폼.
+  // 별명·청크 정책·설명 편집 폼(별명 편집=스펙 173, 소유자만 백엔드 게이트).
+  const [alias, setAlias] = useState('')
   const [description, setDescription] = useState('')
   const [chunkSize, setChunkSize] = useState(1000)
   const [chunkOverlap, setChunkOverlap] = useState(200)
@@ -274,6 +275,7 @@ function DocsDrawer({
 
   useEffect(() => {
     if (collection) {
+      setAlias(collection.alias ?? '')
       setDescription(collection.description ?? '')
       setChunkSize(collection.chunk_size)
       setChunkOverlap(collection.chunk_overlap)
@@ -315,6 +317,7 @@ function DocsDrawer({
     setSavingPolicy(true)
     try {
       await updateCollection(id, {
+        alias: alias.trim(), // ""=별명 비우기(백엔드 "".strip() or None). null은 미변경이라 안 됨.
         description,
         chunk_size: chunkSize,
         chunk_overlap: chunkOverlap,
@@ -447,6 +450,12 @@ function DocsDrawer({
             }}
           >
             <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-heading)' }}>컬렉션 설정</div>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <span style={{ fontSize: 13, fontWeight: 500 }}>
+                별명 <span style={{ color: 'var(--color-text-tertiary)', fontWeight: 400 }}>(화면 표시용 — 비우면 식별 이름으로 표시)</span>
+              </span>
+              <Input placeholder="예: 사내 위키" value={alias} onChange={(e) => setAlias(e.target.value)} />
+            </label>
             <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               <span style={{ fontSize: 13, fontWeight: 500 }}>설명</span>
               <TextArea rows={2} value={description} onChange={(e) => setDescription(e.target.value)} />
