@@ -1001,6 +1001,9 @@ async def _create_approval(
                 args=payload.get("args", {}),
                 summary=payload.get("summary", ""),
                 checkpoint=thread_id,
+                # 위상 정체 스냅샷(스펙 171) — 재개 시 impl이 바뀌었으면 stale checkpoint에
+                # 다른 그래프를 resume하지 않도록 대조 기준. "" = 기본(DefaultUiAgent).
+                impl=ctx.get("impl") or "",
                 status="pending",
             )
         )
@@ -1037,6 +1040,18 @@ async def _build_resume_broker(user_id: str | None, capabilities) -> PolicyScope
     return PolicyScopedBroker(capabilities, rbac_allows, user_id=user_id)
 
 
+def _impl_drifted(snap_impl: str | None, cur_impl: str | None) -> bool:
+    """스펙 171 — 재개 시 impl(그래프 위상)이 생성 시점과 달라졌나. 순수 함수(단위 검증 가능).
+
+    - snap None = 스펙 171 마이그레이션 이전에 만든 행 = 스냅샷 부재 = 대조 불가 → False(스킵, 하위호환).
+    - "" = 기본(DefaultUiAgent). cur도 None/""면 기본이므로 `cur or ""`로 정규화해 대조.
+    - snap이 있고 현재와 다르면 True → 재개는 미정의 동작(다른 그래프를 stale checkpoint에 resume)이라 거부.
+    """
+    if snap_impl is None:
+        return False
+    return snap_impl != (cur_impl or "")
+
+
 async def resume_approval(approval: Approval, decision: str) -> None:
     """admin 결정(approve/reject)으로 멈춘 그래프를 재개하고 최종 메시지를 원 세션에 영속.
 
@@ -1068,12 +1083,26 @@ async def resume_approval(approval: Approval, decision: str) -> None:
     if impl is None or ctx["model_cfg"] is None:
         log.warning("resume 불가: 비로컬/모델없음 소스 (approval %s)", approval.approval_id)
         return
-    # config drift 가드(codex 적대 리뷰 F2): approval은 어떤 그래프 topology로 checkpoint를
-    # 만들었는데, 그 사이 admin이 impl을 HIL 미지원 구현(예: plan_execute, supports_hil=False)으로
-    # 바꿔 활성화했다면, 그 그래프는 애초에 interrupt/checkpoint를 만들 수 없으므로 stale
-    # checkpoint에 resume하면 안 된다 → graceful 거부(approval은 이미 결재됨, 세션 무파손).
-    # 잔여 경계: impl-A→impl-B(둘 다 HIL) 교체는 이 가드로 못 잡는다 — Approval에 런타임 키
-    # 스냅샷을 박아 그걸로 재개해야 완전(후속 스펙). 현 출하엔 HIL 커스텀 구현이 없어 미발생.
+    # impl-drift 명시 가드(스펙 171): approval은 생성 시점 impl의 그래프 topology로 checkpoint를
+    # 만들었다. 그 사이 admin이 `config.impl`을 **다른 impl**로 바꾸면(HIL→non-HIL이든 HIL→다른 HIL이든)
+    # 그 checkpoint는 현 그래프와 위상이 어긋난다 — 다른 그래프를 stale checkpoint에 resume하는 건
+    # LangGraph 미정의 동작이다. 생성 시 박은 impl 스냅샷과 현재를 대조해 다르면 **graceful 거부**
+    # (approval은 이미 결재됨·세션 무파손·approved-but-not-executed=안전방향). 미정의 동작에 의존하지
+    # 않는다. 단, impl 스냅샷이 None인 행(스펙 171 마이그레이션 이전 생성)은 대조 불가라 스킵하고
+    # 아래 supports_hil 가드로만 넘긴다(하위호환).
+    #
+    # 다중 HIL impl 출하 중(DefaultUiAgent·orchestrate·orchestrate_ranked, 전부 supports_hil=True)이라
+    # 이 스왑은 실제 도달 가능하다(deep-reasoner 적대 검토, 스펙 171). 방아쇠는 admin의 impl 교체
+    # (agents:manage)에 갇혀 권한상승은 아니나, 미정의 동작 의존을 명시 가드로 닫는다.
+    if _impl_drifted(approval.impl, ctx.get("impl")):
+        log.warning(
+            "resume 불가: impl drift — 생성 '%s' vs 현재 '%s' (checkpoint 위상 불일치, approval %s)",
+            approval.impl or "(기본)", ctx.get("impl") or "(기본)", approval.approval_id,
+        )
+        return
+    # 잔여 방어(codex F2 원본): 현 런타임이 HIL 미지원이면 애초 interrupt/checkpoint를 만들 수 없으므로
+    # 재개 불가. impl-drift 가드가 impl 변경을 이미 잡으므로 대개 이 지점 도달 = impl 불변 + 원래
+    # HIL 지원이나, 방어적으로 유지(예: 마이그레이션 이전 None-snap 행이 non-HIL로 바뀐 경우).
     if not impl.describe().supports_hil:
         log.warning(
             "resume 불가: 현 런타임(%s)이 HIL 미지원 — checkpoint 생성 그래프와 drift (approval %s)",

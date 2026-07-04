@@ -350,6 +350,10 @@ class Approval(Base):
     args: Mapped[dict] = mapped_column(JSONB, default=dict)
     summary: Mapped[str] = mapped_column(Text, default="")
     checkpoint: Mapped[str | None] = mapped_column(String(80), default=None)
+    # 생성 시점 impl 키 스냅샷(위상 정체, 스펙 171). "" = 기본(DefaultUiAgent), "key" = 커스텀,
+    # None = 마이그레이션 이전 행(대조 스킵). 재개가 다른 impl(다른 그래프 위상)로 stale checkpoint에
+    # resume하는 미정의 동작을 명시 가드로 막는 대조 기준.
+    impl: Mapped[str | None] = mapped_column(String(120), default=None)
     status: Mapped[str] = mapped_column(String(20), default="pending")  # pending|approved|rejected
     requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
