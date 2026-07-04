@@ -127,8 +127,10 @@ function CreateModal({
 
   useEffect(() => {
     if (open) {
-      // 임베딩 모델이 하나면 기본 선택 — 입력 한 번 덜기.
-      setF({ ...blankCreate, embedding_model_id: models.length === 1 ? models[0].id : '' })
+      // 기본 임베딩 모델을 프리셀렉트(is_default) — 없으면 모델이 하나일 때만 그걸로(스펙 175).
+      // 임베딩은 생성 후 불변이라, 흔한 선택을 미리 채워 실수 여지를 줄인다.
+      const def = models.find((m) => m.is_default) ?? (models.length === 1 ? models[0] : undefined)
+      setF({ ...blankCreate, embedding_model_id: def?.id ?? '' })
     }
   }, [open, models])
 
@@ -146,6 +148,7 @@ function CreateModal({
       onOk={() => onSubmit(f)}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxHeight: '60vh', overflow: 'auto' }}>
+        {/* 불변 결정 3인방(이름·종류·임베딩)을 상위에 — 생성 후 못 바꾸니 먼저 정한다(스펙 175). */}
         <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <span style={{ fontSize: 14, fontWeight: 500 }}>식별 이름</span>
           <Input
@@ -157,12 +160,6 @@ function CreateModal({
           <span style={{ fontSize: 12, color: f.name.trim() && validateName(f.name.trim()) ? 'var(--red-6)' : 'var(--color-text-tertiary)' }}>
             {(f.name.trim() && validateName(f.name.trim())) || NAME_HINT}
           </span>
-        </label>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <span style={{ fontSize: 14, fontWeight: 500 }}>
-            별명 <span style={{ color: 'var(--color-text-tertiary)', fontWeight: 400 }}>(선택 — 화면 표시용 자유 표기)</span>
-          </span>
-          <Input placeholder="예: 사내 위키" value={f.alias} onChange={(e) => set('alias', e.target.value)} />
         </label>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <span style={{ fontSize: 14, fontWeight: 500 }}>종류</span>
@@ -179,6 +176,24 @@ function CreateModal({
             {f.kind === 'entity'
               ? 'JSONL 형식: {"metadata": {…id들}, "data": {…임베딩 소스}} — data를 임베딩하고 검색 결과에 metadata가 함께 나옵니다. 생성 후 종류는 변경할 수 없습니다.'
               : 'PDF·텍스트·마크다운을 올려 청킹·임베딩합니다. 생성 후 종류는 변경할 수 없습니다.'}
+          </span>
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <span style={{ fontSize: 14, fontWeight: 500 }}>
+            임베딩 모델 <span style={{ color: 'var(--red-6)', fontWeight: 400 }}>(생성 후 변경 불가)</span>
+          </span>
+          <Select
+            value={f.embedding_model_id || undefined}
+            onChange={(v) => set('embedding_model_id', v)}
+            style={{ width: '100%' }}
+            placeholder={models.length ? '임베딩 모델 선택' : '먼저 임베딩 모델을 등록하세요'}
+            options={models.map((m) => ({
+              label: `${m.name} — ${m.model_id}${m.is_default ? ' · 기본' : ''}`,
+              value: m.id,
+            }))}
+          />
+          <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+            문서를 벡터로 바꾸는 모델입니다. 차원이 고정되므로 생성 후 모델과 차원은 변경할 수 없습니다.
           </span>
         </label>
         {f.kind === 'entity' ? (
@@ -198,6 +213,13 @@ function CreateModal({
             </span>
           </label>
         ) : null}
+        {/* 편집 가능 항목(별명·설명)은 아래로 — 언제든 바꿀 수 있음(스펙 173 별명 편집). */}
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <span style={{ fontSize: 14, fontWeight: 500 }}>
+            별명 <span style={{ color: 'var(--color-text-tertiary)', fontWeight: 400 }}>(선택 — 화면 표시용 자유 표기)</span>
+          </span>
+          <Input placeholder="예: 사내 위키" value={f.alias} onChange={(e) => set('alias', e.target.value)} />
+        </label>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <span style={{ fontSize: 14, fontWeight: 500 }}>
             설명 <span style={{ color: 'var(--color-text-tertiary)', fontWeight: 400 }}>(선택)</span>
@@ -208,22 +230,6 @@ function CreateModal({
             value={f.description}
             onChange={(e) => set('description', e.target.value)}
           />
-        </label>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <span style={{ fontSize: 14, fontWeight: 500 }}>임베딩 모델</span>
-          <Select
-            value={f.embedding_model_id || undefined}
-            onChange={(v) => set('embedding_model_id', v)}
-            style={{ width: '100%' }}
-            placeholder={models.length ? '임베딩 모델 선택' : '먼저 임베딩 모델을 등록하세요'}
-            options={models.map((m) => ({
-              label: `${m.name} — ${m.model_id}`,
-              value: m.id,
-            }))}
-          />
-          <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-            생성 후 모델과 차원은 변경할 수 없습니다.
-          </span>
         </label>
         {f.kind === 'document' ? (
           <div style={{ display: 'flex', gap: 16 }}>
