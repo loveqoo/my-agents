@@ -30,12 +30,21 @@ const ASSERT_TYPES: { value: EvalAssert['type']; label: string; needsArg: boolea
   { value: 'output_nonempty', label: '답변 비어있지 않음', needsArg: false, hint: '' },
 ]
 
+/* 도구 정직성(스펙 170) — trace_nodes 중 실제 호출된 도구 흔적(rag/mcp/memory)이 하나라도 있나.
+   그래프 노드(원형)는 도구가 아니므로 접두로만 판정(trace_has와 동일 어휘). */
+const TOOL_TRACE_PREFIXES = ['rag:', 'mcp:', 'memory:']
+const firedTool = (nodes?: string[] | null) =>
+  (nodes ?? []).some((n) => TOOL_TRACE_PREFIXES.some((p) => String(n).startsWith(p)))
+
 function AssertEditor({ value, onChange, kind }: { value: EvalAssert[]; onChange: (v: EvalAssert[]) => void; kind: 'agent' | 'rag' }) {
   // kind별 유형 필터(codex 140 #3) — rag 전용 기준을 agent 문제집에 넣으면 fail-closed로 항상
   // 실패해 혼란만 준다. rag 문제집에선 도구 흔적 기준(trace_*)이 무의미해 숨긴다.
   const types = ASSERT_TYPES.filter((t) =>
     kind === 'rag' ? !t.value.startsWith('trace_') : !t.value.startsWith('rag_')
   )
+  // 도구 정직성 안내(스펙 170) — agent 케이스에 도구 검사(trace_*)가 하나도 없으면 조용히 찔러준다.
+  // 막지 않음: 모든 케이스가 도구를 써야 하는 건 아니므로(과잉 강제는 독). 거짓 초록은 출제 시 태어남.
+  const lacksToolCheck = kind === 'agent' && !value.some((a) => a.type === 'trace_has' || a.type === 'trace_lacks')
   const set = (i: number, patch: Partial<EvalAssert>) =>
     onChange(value.map((a, j) => (j === i ? { ...a, ...patch } : a)))
   return (
@@ -69,6 +78,12 @@ function AssertEditor({ value, onChange, kind }: { value: EvalAssert[]; onChange
       <Button size="small" icon={<Icon name="plus" />} onClick={() => onChange([...value, { type: types[0].value, arg: '' }])} style={{ alignSelf: 'flex-start' }}>
         채점 기준 추가
       </Button>
+      {lacksToolCheck ? (
+        <div style={{ fontSize: 12, color: 'var(--color-warning-text, #d46b08)', display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+          <Icon name="info" size={12} style={{ marginTop: 2 }} />
+          <span>도구 호출을 검사하는 기준이 없습니다. RAG·MCP가 <b>꼭 불려야 하는</b> 질문이면 <b>'필수 도구/노드'</b>를 추가하세요 — 안 그러면 도구를 안 불러도 통과할 수 있어요.</span>
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -338,6 +353,15 @@ function RunDrawer({ runId, onClose }: { runId: string | null; onClose: () => vo
             <span style={{ fontSize: 28, fontWeight: 700 }}>{detail.score != null ? Math.round(detail.score * 100) + '%' : '—'}</span>
             <span style={{ color: 'var(--color-text-secondary)' }}>{detail.passed}/{detail.total} 통과</span>
             <Tag color={detail.status === 'ok' ? 'green' : detail.status === 'error' ? 'red' : 'blue'}>{detail.status}</Tag>
+            {/* 도구 정직성 집계(스펙 170) — 통과 중 도구 미호출 건수를 한눈에(거짓 초록 규모). */}
+            {(() => {
+              const toolless = detail.results.filter((r) => r.case_passed && r.obs && !firedTool(r.obs.trace_nodes)).length
+              return toolless > 0 ? (
+                <Tooltip title="통과했지만 RAG·MCP·메모리를 하나도 호출하지 않은 케이스 수. 도구가 필요한 질문이라면 '필수 도구/노드' 기준을 추가해 실제 호출을 보증하세요.">
+                  <Tag color="orange">도구 미사용 {toolless}건</Tag>
+                </Tooltip>
+              ) : null
+            })()}
           </div>
           <Desc label="에이전트">{detail.agent_name ?? '—'}</Desc>
           {detail.error ? <Alert type="error" showIcon message="실행 오류" description={detail.error} /> : null}
@@ -346,6 +370,12 @@ function RunDrawer({ runId, onClose }: { runId: string | null; onClose: () => vo
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 <Tag color={r.case_passed ? 'green' : 'red'}>{r.case_passed ? '통과' : '실패'}</Tag>
                 <span style={{ fontWeight: 600 }}>{r.case_name}</span>
+                {/* 도구 정직성(스펙 170) — 통과했지만 도구를 하나도 안 부른 케이스 = 거짓 초록 후보. */}
+                {r.case_passed && r.obs && !firedTool(r.obs.trace_nodes) ? (
+                  <Tooltip title="이 케이스는 통과했지만 RAG·MCP·메모리를 하나도 호출하지 않았습니다. 도구가 꼭 필요한 질문이면 '필수 도구/노드' 기준을 추가하세요.">
+                    <Tag color="orange" style={{ margin: 0 }}>도구 미사용</Tag>
+                  </Tooltip>
+                ) : null}
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 3, marginTop: 8, fontSize: 12 }}>
                 {r.details.map(([name, ok], j) => (
