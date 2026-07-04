@@ -302,10 +302,8 @@ async def _load_context(
                 )
             ).scalars().all()
             for c in cols:
-                if not agent_may_wire(c.owner_id, c.published, wiring_owner,
-                                      "rag", c.name, owner_privileged=owner_priv):
-                    log.warning("rag collection %s skipped: 작성자 배선 권한 없음(스펙 113)", c.name)
-                    continue
+                # 컬렉션은 전부 공용(스펙 172) — 어느 에이전트든 배선 가능(가시성 축 제거).
+                # 관리(수정·삭제)는 여전히 소유자만. 완전성(embedding) 검사만 남긴다.
                 em = c.embedding_model
                 ep = em.provider if em else None
                 if em is None or ep is None or not ep.base_url or not em.model_id:

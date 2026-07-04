@@ -67,7 +67,6 @@ def collection_to_out(c: Collection) -> CollectionOut:
         chunk_count=c.chunk_count,
         status=c.status,
         owner_id=c.owner_id,  # 스펙 112(can_manage는 list/get 라우트서 세팅)
-        published=c.published,  # 사용 공개(스펙 163)
     )
 
 

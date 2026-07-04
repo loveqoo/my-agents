@@ -74,9 +74,6 @@ class Collection(Base):
     # 소유자(스펙 112) — 요청 주체(auth User UUID str). None=레거시/admin-저작=**admin 전용**(fail-closed,
     # learning 070). 브로커 능력 호출 시 소유자 본인 or 특권(admin/superuser)만. 생성 시 1회 스탬프·이전 금지(069).
     owner_id: Mapped[str | None] = mapped_column(String(80), index=True, default=None)
-    # 사용 공개(스펙 163) — True면 타 작성자 에이전트도 배선 가능(agent_may_wire rule 4).
-    # owner_id(관리 축)와 직교: 소유는 그대로 두고 "사용만" 공개. MCP published 미러(McpServer).
-    published: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     description: Mapped[str] = mapped_column(Text, default="")
     # 이 컬렉션을 만들 때 쓴 임베딩 모델 — 037 질의 시 같은 모델로 임베딩해야 정합. 모델 삭제 차단(RESTRICT).
     embedding_model_id: Mapped[uuid.UUID] = mapped_column(

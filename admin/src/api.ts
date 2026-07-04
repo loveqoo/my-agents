@@ -241,7 +241,6 @@ export interface Collection {
   status: string // empty|ingesting|ready|error
   owner_id?: string | null // 소유자(스펙 112). null=공유/레거시
   can_manage?: boolean // 관리 가능(스펙 114) — false면 편집/삭제 숨김
-  published?: boolean // 사용 공개(스펙 163) — true면 타 작성자 에이전트도 배선 가능. owner_id(관리)와 직교.
 }
 export interface RagDocument {
   id: string
@@ -294,9 +293,6 @@ export const updateCollection = (
   },
 ) => put(`/collections/${id}`, body) as Promise<Collection>
 export const deleteCollection = (id: string) => del(`/collections/${id}`)
-/** 사용 공개 토글(스펙 163) — published=true면 타 작성자 에이전트도 RAG 검색에 사용 가능. 수정·삭제 권한(can_manage)과 직교. */
-export const publishCollection = (id: string, published: boolean) =>
-  put(`/collections/${id}/publish`, { published }) as Promise<Collection>
 export const collectionHealth = (id: string) =>
   j<CollectionHealth>(`/collections/${id}/health`)
 /** retrieval 시험(스펙 072) — 인-챗 도구와 같은 코어를 타는 검색. 등록 직후 품질 즉석 확인. */

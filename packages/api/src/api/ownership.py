@@ -32,16 +32,6 @@ def may_use(owner_id: str | None, user_id: str | None, is_privileged: bool) -> b
     return bool(user_id) and owner_id == user_id
 
 
-def may_use_collection(collection, principal) -> bool:
-    """직접 retrieval(검색·문서 목록)에서 이 컬렉션을 쓸 수 있나(스펙 163). 특권/소유자/published.
-    채팅 배선(agent_may_wire)과 **같은 '사용' 축**을 직접 엔드포인트에도 적용 — 게이트 커버리지 정합
-    (installed≠covering, codex 163 High). 컬렉션 *존재/메타*는 list/get서 전역 노출이지만, 문서
-    *내용·목록*은 이 게이트를 통과해야 한다. 비통과는 404-fold(존재 비노출, 068)."""
-    return may_use(collection.owner_id, owner_of(principal), is_privileged(principal)) or bool(
-        getattr(collection, "published", False)
-    )
-
-
 def is_privileged(principal, enforcer=None) -> bool:
     """관리(수정/삭제) 특권 — 소유자 아니어도 카탈로그를 만질 수 있나(스펙 112).
     - **머신 토큰(str principal) = 특권**: 신뢰 서비스/CI 자격(오늘 전권), 위협 모델 밖 → 무회귀.
