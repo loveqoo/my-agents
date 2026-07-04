@@ -258,6 +258,112 @@ function CreateModal({
   )
 }
 
+/* ---- 컬렉션 편집 모달(별명·설명·청크) — 행의 편집 버튼에서 열림(스펙 176). ----
+   식별이름·모델·차원은 불변이라 노출하지 않는다. 편집 진입은 소유자만(행 버튼 can_manage 게이트)이고
+   백엔드도 assert_may_manage로 이중 방어. */
+function EditModal({
+  collection,
+  onCancel,
+  onSaved,
+}: {
+  collection: Collection | null
+  onCancel: () => void
+  onSaved: () => void
+}) {
+  const [alias, setAlias] = useState('')
+  const [description, setDescription] = useState('')
+  const [chunkSize, setChunkSize] = useState(1000)
+  const [chunkOverlap, setChunkOverlap] = useState(200)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (collection) {
+      setAlias(collection.alias ?? '')
+      setDescription(collection.description ?? '')
+      setChunkSize(collection.chunk_size)
+      setChunkOverlap(collection.chunk_overlap)
+    }
+    /* eslint-disable-next-line */
+  }, [collection?.id])
+
+  const isEntity = collection?.kind === 'entity'
+
+  const save = async () => {
+    if (!collection) return
+    setSaving(true)
+    try {
+      await updateCollection(collection.id, {
+        alias: alias.trim(), // ""=별명 비우기(백엔드 "".strip() or None). null은 미변경이라 안 됨.
+        description,
+        chunk_size: chunkSize,
+        chunk_overlap: chunkOverlap,
+      })
+      message.success('컬렉션을 수정했습니다')
+      onSaved()
+      onCancel()
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '수정에 실패했습니다')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Modal
+      open={!!collection}
+      width={480}
+      title={collection ? `컬렉션 편집 · ${collection.name}` : ''}
+      okText="저장"
+      cancelText="취소"
+      confirmLoading={saving}
+      onCancel={onCancel}
+      onOk={() => void save()}
+    >
+      {collection ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <span style={{ fontSize: 14, fontWeight: 500 }}>
+              별명 <span style={{ color: 'var(--color-text-tertiary)', fontWeight: 400 }}>(화면 표시용 — 비우면 식별 이름으로 표시)</span>
+            </span>
+            <Input placeholder="예: 사내 위키" value={alias} onChange={(e) => setAlias(e.target.value)} />
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <span style={{ fontSize: 14, fontWeight: 500 }}>설명</span>
+            <TextArea rows={3} value={description} onChange={(e) => setDescription(e.target.value)} />
+          </label>
+          {!isEntity ? (
+            <div style={{ display: 'flex', gap: 16 }}>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1 }}>
+                <span style={{ fontSize: 14, fontWeight: 500 }}>청크 크기</span>
+                <InputNumber
+                  min={1}
+                  style={{ width: '100%' }}
+                  value={chunkSize}
+                  onChange={(v) => setChunkSize(v ?? collection.chunk_size)}
+                />
+              </label>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1 }}>
+                <span style={{ fontSize: 14, fontWeight: 500 }}>청크 겹침</span>
+                <InputNumber
+                  min={0}
+                  style={{ width: '100%' }}
+                  value={chunkOverlap}
+                  onChange={(v) => setChunkOverlap(v ?? collection.chunk_overlap)}
+                />
+              </label>
+            </div>
+          ) : null}
+          <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+            {isEntity
+              ? '엔티티 컬렉션은 청크 정책이 없습니다. 식별 이름·모델·차원은 변경할 수 없습니다.'
+              : '청크 정책 변경은 이후 업로드되는 문서에만 적용됩니다. 식별 이름·모델·차원은 변경할 수 없습니다.'}
+          </span>
+        </div>
+      ) : null}
+    </Modal>
+  )
+}
+
 /* ---- 문서 관리 드로어 ---- */
 function DocsDrawer({
   collection,
@@ -270,24 +376,9 @@ function DocsDrawer({
 }) {
   const [uploading, setUploading] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0) // 업로드 후 문서 목록 재조회(셸 트리거)
-  // 별명·청크 정책·설명 편집 폼(별명 편집=스펙 173, 소유자만 백엔드 게이트).
-  const [alias, setAlias] = useState('')
-  const [description, setDescription] = useState('')
-  const [chunkSize, setChunkSize] = useState(1000)
-  const [chunkOverlap, setChunkOverlap] = useState(200)
-  const [savingPolicy, setSavingPolicy] = useState(false)
+  // 설정 편집(별명·설명·청크)은 스펙 176에서 EditModal(행 편집 버튼)로 이관 — 드로어는 문서만.
 
   const id = collection?.id ?? null
-
-  useEffect(() => {
-    if (collection) {
-      setAlias(collection.alias ?? '')
-      setDescription(collection.description ?? '')
-      setChunkSize(collection.chunk_size)
-      setChunkOverlap(collection.chunk_overlap)
-    }
-    /* eslint-disable-next-line */
-  }, [collection?.id])
 
   const doUpload = async (file: File) => {
     if (!id) return
@@ -315,25 +406,6 @@ function DocsDrawer({
       onChanged()
     } catch (e) {
       message.error(e instanceof Error ? e.message : '문서 삭제에 실패했습니다')
-    }
-  }
-
-  const savePolicy = async () => {
-    if (!id) return
-    setSavingPolicy(true)
-    try {
-      await updateCollection(id, {
-        alias: alias.trim(), // ""=별명 비우기(백엔드 "".strip() or None). null은 미변경이라 안 됨.
-        description,
-        chunk_size: chunkSize,
-        chunk_overlap: chunkOverlap,
-      })
-      message.success('컬렉션 설정을 저장했습니다')
-      onChanged()
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : '설정 저장에 실패했습니다')
-    } finally {
-      setSavingPolicy(false)
     }
   }
 
@@ -442,61 +514,6 @@ function DocsDrawer({
             emptyText={(q) => (q ? '일치하는 문서가 없습니다.' : '문서 없음')}
             errorTitle="문서를 불러오지 못했습니다"
           />
-
-          {/* 청크 정책·설명 편집 */}
-          <div
-            style={{
-              padding: 16,
-              border: '1px solid var(--color-border-secondary)',
-              borderRadius: 'var(--radius-lg)',
-              background: 'var(--gray-2)',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 14,
-            }}
-          >
-            <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-heading)' }}>컬렉션 설정</div>
-            <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <span style={{ fontSize: 13, fontWeight: 500 }}>
-                별명 <span style={{ color: 'var(--color-text-tertiary)', fontWeight: 400 }}>(화면 표시용 — 비우면 식별 이름으로 표시)</span>
-              </span>
-              <Input placeholder="예: 사내 위키" value={alias} onChange={(e) => setAlias(e.target.value)} />
-            </label>
-            <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <span style={{ fontSize: 13, fontWeight: 500 }}>설명</span>
-              <TextArea rows={2} value={description} onChange={(e) => setDescription(e.target.value)} />
-            </label>
-            {!isEntity ? (
-              <div style={{ display: 'flex', gap: 16 }}>
-                <label style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1 }}>
-                  <span style={{ fontSize: 13, fontWeight: 500 }}>청크 크기</span>
-                  <InputNumber
-                    min={1}
-                    style={{ width: '100%' }}
-                    value={chunkSize}
-                    onChange={(v) => setChunkSize(v ?? collection.chunk_size)}
-                  />
-                </label>
-                <label style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1 }}>
-                  <span style={{ fontSize: 13, fontWeight: 500 }}>청크 겹침</span>
-                  <InputNumber
-                    min={0}
-                    style={{ width: '100%' }}
-                    value={chunkOverlap}
-                    onChange={(v) => setChunkOverlap(v ?? collection.chunk_overlap)}
-                  />
-                </label>
-              </div>
-            ) : null}
-            <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-              {isEntity
-                ? '엔티티 컬렉션은 1행=1청크(분할 없음)라 청크 정책이 없습니다. 모델과 차원은 변경할 수 없습니다.'
-                : '청크 정책 변경은 이후 업로드되는 문서에만 적용됩니다. 모델과 차원은 변경할 수 없습니다.'}
-            </span>
-            <Button onClick={() => void savePolicy()} loading={savingPolicy} style={{ alignSelf: 'flex-start' }}>
-              설정 저장
-            </Button>
-          </div>
         </div>
       ) : null}
     </Drawer>
@@ -562,6 +579,7 @@ export default function CollectionsView() {
   const [loaded, setLoaded] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
   const [docsFor, setDocsFor] = useState<Collection | null>(null)
+  const [editFor, setEditFor] = useState<Collection | null>(null)
   const [searchFor, setSearchFor] = useState<Collection | null>(null)
   const [confirmDel, setConfirmDel] = useState<Collection | null>(null)
   const [healthFor, setHealthFor] = useState<CollectionHealth | null>(null)
@@ -762,6 +780,11 @@ export default function CollectionsView() {
             />
           </Tooltip>
           {c.can_manage !== false && (
+            <Tooltip title="편집">
+              <Button type="text" size="small" icon={<Icon name="edit" />} onClick={() => setEditFor(c)} />
+            </Tooltip>
+          )}
+          {c.can_manage !== false && (
             <Tooltip title="삭제">
               <Button type="text" size="small" danger icon={<Icon name="delete" />} onClick={() => setConfirmDel(c)} />
             </Tooltip>
@@ -815,6 +838,8 @@ export default function CollectionsView() {
       />
 
       <DocsDrawer collection={docsFor} onClose={() => setDocsFor(null)} onChanged={load} />
+
+      <EditModal collection={editFor} onCancel={() => setEditFor(null)} onSaved={load} />
 
       <SearchDrawer collection={searchFor} onClose={() => setSearchFor(null)} />
 
