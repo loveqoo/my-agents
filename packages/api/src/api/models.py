@@ -144,16 +144,6 @@ class Chunk(Base):
     document: Mapped["Document"] = relationship(back_populates="chunks")
 
 
-class Permission(Base):
-    __tablename__ = "permissions"
-    id: Mapped[uuid.UUID] = _pk()
-    name: Mapped[str] = mapped_column(String(120), unique=True)  # 식별 이름(규칙, 스펙 148)
-    alias: Mapped[str | None] = mapped_column(String(200), default=None)  # 별명(자유 표기, 스펙 148)
-    scope: Mapped[str | None] = mapped_column(String(80), default=None)
-    approver: Mapped[str] = mapped_column(String(20), default="user")  # user | admin
-    body: Mapped[str] = mapped_column(Text, default="")
-
-
 class Provider(Base):
     """LLM provider = 엔드포인트 + 자격증명 (스펙 035). 모델 1:N로 매달림.
 
@@ -244,7 +234,7 @@ class Agent(Base):
     model: Mapped[str] = mapped_column(String(120), default="mock-llm")  # 미지정 시 기본 모델(스펙 059)
     persona: Mapped[str] = mapped_column(Text, default="")  # 해석된 페르소나 본문(서빙용)
     history_depth: Mapped[int] = mapped_column(Integer, default=20)
-    # config = {model, persona, memories[], vectorTables[], permissions[], mcps[], historyDepth}
+    # config = {model, persona, memories[], vectorTables[], mcps[], historyDepth}
     config: Mapped[dict] = mapped_column(JSONB, default=dict)
     exposed: Mapped[dict] = mapped_column(JSONB, default=lambda: {"a2a": False})
     status: Mapped[str] = mapped_column(String(20), default="idle")  # online | idle | offline

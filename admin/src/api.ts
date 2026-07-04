@@ -122,6 +122,20 @@ export const grantRole = (id: string, role: string) =>
 export const revokeRole = (id: string, role: string) =>
   j<AdminUser>(`/admin/users/${id}/roles/${encodeURIComponent(role)}`, { method: 'DELETE' })
 
+/* 능력 부여(정책) — 스펙 177 P3. subject=역할명/유저id, object=`capability:{kind}[:{name}]`.
+   백엔드가 capability: 경계·invoke 고정을 강제(임의 권한 상승 차단). */
+export interface Policy {
+  subject: string
+  object: string
+  action: string
+}
+export const listPolicies = () => j<Policy[]>('/admin/policies')
+export const grantPolicy = (body: Policy) => post('/admin/policies', body) as Promise<Policy>
+export const revokePolicy = (subject: string, object: string, action: string) =>
+  del(
+    `/admin/policies?subject=${encodeURIComponent(subject)}&object=${encodeURIComponent(object)}&action=${encodeURIComponent(action)}`,
+  )
+
 /* ---------- 배치(격리 배치 서비스, 스펙 038) — admin 보호 ---------- */
 export interface BatchConfig {
   session_retention_days: number | null
@@ -202,7 +216,7 @@ export const rediscoverMcp = (id: string) => post(`/mcp-servers/${id}/rediscover
 export const publishMcp = (id: string, published: boolean) =>
   put(`/mcp-servers/${id}/publish`, { published })
 
-/* 카테고리별 생성/수정/삭제 (BlocksView). resource: personas|memory-types|vector-tables|permissions */
+/* 카테고리별 생성/수정/삭제 (BlocksView). resource: personas|memory-types|vector-tables */
 export const createBlockItem = (resource: string, body: unknown) => post(`/${resource}`, body)
 export const updateBlockItem = (resource: string, id: string, body: unknown) =>
   put(`/${resource}/${id}`, body)

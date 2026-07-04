@@ -570,7 +570,6 @@ async def register_code_agent(
         "persona": body.persona,
         "memories": body.memories,
         "vectorTables": [],
-        "permissions": body.permissions,
         "mcps": body.mcps,
         "historyDepth": body.historyDepth,
     }
@@ -654,7 +653,6 @@ def _build_external_agent(card: dict, token: str | None, live: bool, card_url: s
         "persona": "",
         "memories": [],
         "vectorTables": [],
-        "permissions": [],
         "mcps": [],
         "historyDepth": 10,
         "card": card,  # 등록 시점 카드 스냅샷(표시·검증 단일 소스)
@@ -694,7 +692,6 @@ def _build_code_agent_from_card(card: dict, ext: dict, token: str | None, live: 
         "persona": manifest.get("persona") or "",
         "memories": manifest.get("memories") if isinstance(manifest.get("memories"), list) else [],
         "vectorTables": [],
-        "permissions": manifest.get("permissions") if isinstance(manifest.get("permissions"), list) else [],
         "mcps": manifest.get("mcps") if isinstance(manifest.get("mcps"), list) else [],
         "historyDepth": history_depth,
         "card": card,  # 카드 스냅샷 — external과 동일하게 표시·검증 단일 소스

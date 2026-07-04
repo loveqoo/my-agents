@@ -104,6 +104,30 @@ async def get_roles(user_sub: str) -> list[str]:
     return await get_enforcer().get_roles_for_user(user_sub)
 
 
+# ----------------------------- 능력 정책 부여 (스펙 177 P3) -----------------------------
+async def add_policy(sub: str, obj: str, act: str) -> bool:
+    """정책 `p, sub, obj, act` 추가(멱등). 이미 있으면 False. 부여 UI가 능력을 역할/유저에 연다.
+    호출부(user_admin)가 obj=`capability:*`·act=invoke로 제한 — 여긴 저수준 래퍼."""
+    e = get_enforcer()
+    if e.has_policy(sub, obj, act):
+        return False
+    await e.add_policy(sub, obj, act)
+    return True
+
+
+async def remove_policy(sub: str, obj: str, act: str) -> bool:
+    e = get_enforcer()
+    if not e.has_policy(sub, obj, act):
+        return False
+    await e.remove_policy(sub, obj, act)
+    return True
+
+
+def get_policies() -> list[tuple[str, str, str]]:
+    """현재 p-정책 전량(sub, obj, act). grouping(g, 역할할당)은 제외 — get_roles가 담당."""
+    return [(p[0], p[1], p[2]) for p in get_enforcer().get_policy()]
+
+
 # ----------------------------- self-승인 인가 (스펙 066) -----------------------------
 def can_self_approve(user_sub: str, permission: str) -> bool:
     """owner가 *자기* 승인 행을 직접 결정할 수 있는가 — 그 permission이 self_approve로 열린 경우만.

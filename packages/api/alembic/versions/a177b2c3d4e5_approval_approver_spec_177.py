@@ -4,7 +4,7 @@
 NULL = 레거시·메모리·A2A 승인(이 마이그레이션 이전 행 포함) → _may_resolve가 Casbin
 can_self_approve 폴백(무회귀). MCP 도구 승인만 리졸버가 값을 박는다.
 
-Revision ID: a1b2c3d4e5f7
+Revision ID: a177b2c3d4e5
 Revises: f6a7b8c9d1e2
 Create Date: 2026-07-04
 """
@@ -13,7 +13,7 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "a1b2c3d4e5f7"
+revision: str = "a177b2c3d4e5"
 down_revision: Union[str, Sequence[str], None] = "f6a7b8c9d1e2"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None

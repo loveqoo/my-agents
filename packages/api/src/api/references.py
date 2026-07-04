@@ -25,9 +25,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .models import Agent
 
 # config에서 name을 담는 필드(닫힌 집합). 삭제 자원별 field 매핑은 호출측이 고정.
-# persona는 스칼라(config["persona"] == name), 나머지는 name 배열(codex 148 High — 페르소나·권한
+# persona는 스칼라(config["persona"] == name), 나머지는 name 배열(codex 148 High — 페르소나
 # rename/삭제도 참조를 깨므로 같은 가드 아래 둔다).
-_FIELDS = ("mcps", "vectorTables", "permissions", "persona")
+_FIELDS = ("mcps", "vectorTables", "persona")
 
 # 배열 필드 외에 조율형 capabilities(`{kind}:{name}` 또는 `{kind}:{name}/{tool}`)로도 참조된다
 # (codex 148 Medium — mcps가 비고 capabilities만 있는 조율형이 가드를 우회하던 구멍).

@@ -73,7 +73,18 @@ resolve_tool_approval(server, tool, agent_config) -> {permission, approver} | No
   반영). approver 필드가 Casbin보다 우선(이스케이프 무력화). 에이전트 편집기에 도구별 승인 오버라이드 UI.
   검증: verify_177(리졸버20+게이트G1-G6+reconcile)·verify_066(approver 연결 M5)·회귀(041/092/171)·serializer
   라운드트립·브라우저 렌더. 회고 156. `Permission.approver` 제거는 P3.
-- **P3**: (5) 능력 부여 UI + 죽은 설정 정리(permissions[]/approver) + (6) 문서화.
+- **P3 ✅ 완료(2026-07-05)**: (5) 능력 부여 UI + 죽은 설정 완전 제거 + (6) 문서화.
+  - **죽은 개념 제거**: `config.permissions[]`(런타임 미강제)·"권한" 빌딩블록(Permission 모델/CRUD/탭)·
+    `Permission.approver` 전면 제거. 백엔드(models/schemas/serializers/seed/agents/blocks/references)+
+    프론트(mockData/AgentsView 피커/BlocksView 탭/DebugChat)+테스트(046 권한 arm 폐기·148 권한 케이스
+    제거·cleanup_046 삭제). `permissions` 테이블 DROP 마이그레이션. "능력/역할/승인" 3개념으로 수렴.
+  - **능력 부여 UI**: `authz.add_policy/remove_policy/get_policies` + `/admin/policies` GET·POST·DELETE
+    (require users/manage). **보안 경계**: object는 `capability:*`만·와일드카드 금지·action=invoke 고정
+    → 이 표면으로 임의 리소스 권한·(*,*) 상승 불가. UsersView에 부여/회수 패널. member deny-by-default 해소.
+  - **적대 검토(deep-reasoner)**: 마이그레이션 리비전 ID **중복 H2건** 발견(P2·P3가 spec150/151 ID 재사용
+    →alembic warn+silent overwrite) → 고유 ID(a177b2c3d4e5/a177b3c4d5e6) 재발급·체인 정정으로 봉합.
+    앱 코드 제거는 클린(런타임 참조 0). 검증: verify_177_p3(경계4+라운드트립3+subject2)·046·148·회귀·
+    마이그레이션 그래프 단일 head·브라우저(권한 탭 부재+능력부여 패널). 회고 157.
 
 ## 검증 접근
 - 리졸버는 **단위 매트릭스**(기본×오버라이드×approver)로 결정성 핀. 라이브는 조율형+도구로 승인 발화

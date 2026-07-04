@@ -1,6 +1,6 @@
 /* Admin 콘솔 데모 데이터.
    handoff 번들 ui_kits/admin/adminData.js를 타입 포함해 그대로 이식.
-   빌딩 블록(페르소나·메모리·벡터테이블·권한·MCP), 그 블록으로 조립한 에이전트,
+   빌딩 블록(페르소나·메모리·벡터테이블·MCP), 그 블록으로 조립한 에이전트,
    라이브 세션, 승인 큐, 각종 상태맵. 모두 mock(데모 데이터)이며 뷰에서 useState로
    복제해 조작한다. 실제 백엔드 연결은 이후 루프에서 점진적으로. */
 
@@ -13,7 +13,6 @@ export interface AgentConfig {
   historyDepth?: number
   persistHistory?: boolean
   vectorTables?: string[]
-  permissions?: string[]
   mcps?: string[]
   impl?: string // 실행 방식(런타임 키, 스펙 085/106). 빈값/미지정=기본 UI 에이전트.
   capabilities?: string[] // 능력 브로커 allowlist(스펙 106). 오케스트레이터 impl에서 위임 대상.
@@ -40,13 +39,12 @@ export interface BlockItem {
   body?: string
   /* persona */ tone?: string
   /* memory */ key?: string
-  /* memory/permission */ scope?: string
+  /* memory */ scope?: string
   /* embedding */ model?: string
   source?: string
   dims?: number
   rows?: number
   status?: string
-  /* permission */ approver?: string
   /* mcp */ transport?: string
   tools?: string[]
   enabledTools?: string[]
@@ -88,7 +86,6 @@ export interface Agent {
   historyDepth: number
   persistHistory?: boolean
   vectorTables: string[]
-  permissions: string[]
   mcps: string[]
   impl?: string // 실행 방식 런타임 키(스펙 085/106) — 폼 재로드/라운드트립 보존
   capabilities?: string[] // 능력 브로커 allowlist(스펙 106)
@@ -195,15 +192,6 @@ export const BLOCKS: Record<string, BlockCategory> = {
       { id: 'vt-notes', name: 'team_notes', model: 'nomic-embed-text', source: 'notion.pages', dims: 768, rows: 941, status: 'stale', usedBy: 1, updated: '6d ago', body: '팀 노션 노트를 로컬 임베딩. 원본 변경분 미반영(stale) — 재동기화 필요.' },
     ],
   },
-  permission: {
-    label: '권한', icon: 'global', color: 'var(--geekblue-6)',
-    desc: "에이전트에 부여되는 범위 한정 권한. 각 권한엔 승인자가 반드시 있습니다 — 사용자는 대화 중 인라인 확인, 관리자는 승인 큐로 라우팅(체크포인트에서 일시정지). 승인자를 지정하지 않으면 기본값은 '사용자' 승인입니다.",
-    items: [
-      { id: 'pm-web', name: 'web.search', scope: 'Network', approver: 'user', usedBy: 1, updated: '2w ago', body: 'Outbound web search via the configured provider.' },
-      { id: 'pm-cal-rw', name: 'calendar.rw', scope: 'Productivity', approver: 'user', usedBy: 1, updated: '3d ago', body: 'Read & write calendar events. Writes are confirmed inline by the user.' },
-      { id: 'pm-mail-send', name: 'mail.send', scope: 'Productivity', approver: 'user', usedBy: 1, updated: '4d ago', body: "Send email on the user's behalf. Each send is confirmed inline by the user." },
-    ],
-  },
   mcp: {
     label: 'MCP 서버', icon: 'thunderbolt', color: 'var(--cyan-7)',
     desc: 'Model Context Protocol 서버. 직접 운영하는 로컬 서버는 프로토콜로 공개할 수 있고, 외부에서 공개된 MCP는 URL로 등록할 수 있습니다.',
@@ -220,7 +208,7 @@ export const BLOCKS: Record<string, BlockCategory> = {
 export const ADMIN_AGENTS: Agent[] = [
   { id: 'research', name: 'Research Assistant', source: 'ui', agentId: 'agt_rsch_7f3a91', environments: ['sandbox', 'production'], model: 'qwen3.6-35b', status: 'online',
     persona: 'Methodical Researcher', memories: ['단기(세션)', '장기 기억 (mem0)'], historyDepth: 20, vectorTables: ['docs_kb', 'product_titles'],
-    permissions: ['web.search'], mcps: ['tavily'],
+    mcps: ['tavily'],
     exposed: { a2a: true }, sessions: 2, created: '2026-05-30',
     activeVersion: 'v3', versions: [
       { version: 'v3', status: 'active', createdAt: '2026-06-12', note: 'Tightened citation rules' },
@@ -230,7 +218,7 @@ export const ADMIN_AGENTS: Agent[] = [
   /* Code Reviewer·Ops Copilot은 코드/인프라 권한 전용 데모라 제거(스펙 046). */
   { id: 'secretary', name: 'Personal Secretary', source: 'ui', agentId: 'agt_sec_9d4417', environments: ['sandbox', 'production'], model: 'qwen3.6-35b', status: 'online',
     persona: 'Warm Secretary', memories: ['단기(세션)', '장기 기억 (mem0)'], historyDepth: 40, vectorTables: ['team_notes'],
-    permissions: ['calendar.rw', 'mail.send'], mcps: ['gcal', 'gmail', 'notion'],
+    mcps: ['gcal', 'gmail', 'notion'],
     exposed: { a2a: false }, sessions: 1, created: '2026-06-15',
     activeVersion: 'v2', versions: [
       { version: 'v2', status: 'active', createdAt: '2026-06-16', note: 'Warmer tone' },
@@ -241,7 +229,7 @@ export const ADMIN_AGENTS: Agent[] = [
      버전은 git 배포(commit)다. */
   { id: 'translator', name: 'Doc Translator', source: 'code', agentId: 'agt_xlt_a17c33', environments: ['production'], model: 'qwen3.6-35b', status: 'online',
     persona: '코드 정의 (SDK)', memories: ['단기(세션)'], historyDepth: 10, vectorTables: [],
-    permissions: ['web.search'], mcps: ['tavily'],
+    mcps: ['tavily'],
     exposed: { a2a: false }, sessions: 1, created: '2026-06-18', // 원격(code)은 A2A 재노출 불가 — 스펙 083
     endpoint: 'https://agents.acme.dev/doc-translator', token: 'sk_live_a3f••••••••91c2',
     runtime: 'my-agents-sdk · Python 2.4.1', repo: 'acme/doc-translator', commit: 'f3a91c2',
@@ -277,11 +265,6 @@ export const VECTOR_STATUS: Record<string, StatusMeta> = {
   indexing: { label: '재색인 중', tag: 'blue' },
   stale: { label: '갱신 필요', tag: 'gold' },
 }
-export const APPROVER: Record<string, StatusMeta> = {
-  user: { label: '사용자', tag: 'blue', icon: 'user', desc: '대화 중 사용자가 인라인 확인' },
-  admin: { label: '관리자', tag: 'purple', icon: 'team', desc: '관리자 승인 큐로 라우팅' },
-}
-export const DEFAULT_APPROVER = 'user'
 export const AGENT_STATUS: Record<string, StatusMeta> = {
   online: { label: '온라인', color: 'var(--color-success)', tag: 'green' },
   idle: { label: '유휴', color: 'var(--gold-6)', tag: 'gold' },
@@ -326,10 +309,10 @@ ADMIN_AGENTS.forEach((a) => {
 ADMIN_AGENTS.forEach((a) => {
   const snap: AgentConfig = {
     model: a.model, persona: a.persona, memories: [...a.memories], historyDepth: a.historyDepth,
-    vectorTables: [...(a.vectorTables || [])], permissions: [...a.permissions], mcps: [...a.mcps],
+    vectorTables: [...(a.vectorTables || [])], mcps: [...a.mcps],
   }
   a.versions.forEach((v) => {
-    if (!v.config) v.config = { ...snap, permissions: [...(snap.permissions || [])], mcps: [...(snap.mcps || [])] }
+    if (!v.config) v.config = { ...snap, mcps: [...(snap.mcps || [])] }
   })
 })
 /* MCP 서버는 draft/activate 아티팩트가 아니라 외부 연결 — enabledTools/source 기본값 부여. */
@@ -341,9 +324,4 @@ BLOCKS.mcp.items.push(
   { id: 'mcp-ext-weather', name: 'acme-weather', source: 'external', transport: 'http', url: 'mcp://acme.io/weather', tools: ['forecast', 'current'], enabledTools: ['forecast', 'current'], usedBy: 0, status: 'connected', updated: '4h ago', auth: 'Bearer ****', published: false },
   { id: 'mcp-ext-crm', name: 'partner-crm', source: 'external', transport: 'http', url: 'mcp://partner.example.com/crm', tools: ['lookup', 'create_lead'], enabledTools: ['lookup'], usedBy: 1, status: 'degraded', updated: '1d ago', auth: 'OAuth', published: false },
 )
-
-/* 승인자 기본값 보정. */
-BLOCKS.permission.items.forEach((p) => {
-  if (!p.approver) p.approver = DEFAULT_APPROVER
-})
 

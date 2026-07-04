@@ -26,9 +26,9 @@ from api.db import SessionLocal as async_session  # noqa: E402
 from api import agents as AG  # noqa: E402
 from api import blocks as BL  # noqa: E402
 from api import rag as RG  # noqa: E402
-from api.models import Agent, Collection, McpServer, Permission, Persona  # noqa: E402
+from api.models import Agent, Collection, McpServer, Persona  # noqa: E402
 from api.naming import NAME_RE, slugify_name, validate_resource_name  # noqa: E402
-from api.schemas import AgentCreate, AgentConfig, AgentUpdate, CollectionIn, McpServerIn, PermissionIn, PersonaIn, RegisterCodeAgentIn  # noqa: E402
+from api.schemas import AgentCreate, AgentConfig, AgentUpdate, CollectionIn, McpServerIn, PersonaIn, RegisterCodeAgentIn  # noqa: E402
 
 _fails = []
 passed = 0
@@ -54,7 +54,7 @@ async def main():
     await init_authz()
     admin = _P(_uuid.uuid4())
     tag = f"v148-{_uuid.uuid4().hex[:6]}"
-    made = {"agents": [], "personas": [], "permissions": [], "collections": [], "mcp": []}
+    made = {"agents": [], "personas": [], "collections": [], "mcp": []}
 
     # ---- V1 순수 함수 ----
     check(validate_resource_name("obsidian-manager") is None, "V1a 영소문자+대시 허용")
@@ -119,7 +119,7 @@ async def main():
         async with async_session() as s:
             out = await AG.register_code_agent(
                 RegisterCodeAgentIn(name=f"{tag.upper()} SDK Agent", endpoint="http://127.0.0.1:9",
-                                    token="tk", model="", persona="", memories=[], permissions=[], mcps=[],
+                                    token="tk", model="", persona="", memories=[], mcps=[],
                                     historyDepth=10, runtime="", repo="", commit=""),
                 session=s, principal=admin)
             made["agents"].append(out.id)
@@ -156,16 +156,6 @@ async def main():
             check(p2.body == "b2", "V5e 이름 유지 편집은 통과(grandfather)")
         async with async_session() as s:
             try:
-                await BL.create_permission(PermissionIn(name="Bad Perm"), session=s)
-                check(False, "V5f 권한 위반 → 400이어야")
-            except HTTPException as e:
-                check(e.status_code == 400, f"V5f 권한 위반 400 (got {e.status_code})")
-        async with async_session() as s:
-            pm = await BL.create_permission(PermissionIn(name=f"{tag}.perm", alias="검증 권한"), session=s)
-            made["permissions"].append(pm.id)
-            check(pm.alias == "검증 권한", "V5g 권한 정상+별명")
-        async with async_session() as s:
-            try:
                 await BL.create_mcp_server(McpServerIn(name="Bad MCP"), session=s, principal=admin)
                 check(False, "V5h MCP 위반 → 400이어야")
             except HTTPException as e:
@@ -179,7 +169,7 @@ async def main():
         async with async_session() as s:
             ref_agent = Agent(
                 agent_id=f"{tag}-ref", name=f"{tag}-ref",
-                config={"persona": f"{tag}-persona", "permissions": [f"{tag}.perm"],
+                config={"persona": f"{tag}-persona",
                         "mcps": [], "vectorTables": [], "capabilities": [f"mcp:{tag}-mcp/some-tool"]},
             )
             s.add(ref_agent)
@@ -197,18 +187,6 @@ async def main():
                 check(False, "V7b 참조 중 페르소나 삭제 → 409이어야")
             except HTTPException as e:
                 check(e.status_code == 409, f"V7b 참조 중 페르소나 삭제 409 (got {e.status_code})")
-        async with async_session() as s:
-            try:
-                await BL.update_permission(made["permissions"][0], PermissionIn(name=f"{tag}.perm2"), session=s)
-                check(False, "V7c 참조 중 권한 rename → 409이어야")
-            except HTTPException as e:
-                check(e.status_code == 409, f"V7c 참조 중 권한 rename 409 (got {e.status_code})")
-        async with async_session() as s:
-            try:
-                await BL.delete_permission(made["permissions"][0], session=s)
-                check(False, "V7d 참조 중 권한 삭제 → 409이어야")
-            except HTTPException as e:
-                check(e.status_code == 409, f"V7d 참조 중 권한 삭제 409 (got {e.status_code})")
         async with async_session() as s:
             # mcps는 비고 capabilities("mcp:{서버}/{툴}")로만 참조 — 가드가 이 축도 봐야 한다
             try:
@@ -229,7 +207,7 @@ async def main():
 
         # ---- V6 마이그레이션 후 불변식(실 DB 전량) ----
         async with async_session() as s:
-            for model, label in ((Persona, "personas"), (Permission, "permissions"), (Collection, "collections"),
+            for model, label in ((Persona, "personas"), (Collection, "collections"),
                                  (McpServer, "mcp_servers"), (Agent, "agents")):
                 names = (await s.execute(select(model.name))).scalars().all()
                 bad = [n for n in names if not NAME_RE.match(n or "")]
@@ -260,10 +238,6 @@ async def main():
                     await s.delete(a)
             for pid in made["personas"]:
                 p = await s.get(Persona, pid)
-                if p is not None:
-                    await s.delete(p)
-            for pid in made["permissions"]:
-                p = await s.get(Permission, pid)
                 if p is not None:
                     await s.delete(p)
             for mid in made["mcp"]:

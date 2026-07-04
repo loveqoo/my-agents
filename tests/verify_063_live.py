@@ -106,7 +106,7 @@ async def _insert_stale(conn) -> str:
         TEST_AGENT_ID,
         "063 stale 테스트",
         json.dumps({"card": card, "model": "", "persona": "", "memories": [],
-                    "vectorTables": [], "permissions": [], "mcps": [], "historyDepth": 10}),
+                    "vectorTables": [], "mcps": [], "historyDepth": 10}),
         json.dumps({"a2a": False}),
         STALE_EP,
     )

@@ -146,7 +146,7 @@ async def main():
             s.add(polluted)
             member_agent = Agent(agent_id=f"{tag}-ma", name=f"{tag}-ma", owner_id=member_id,
                                  config={"model": "", "persona": "", "mcps": [f"{tag}-dirty"],
-                                         "memories": [], "vectorTables": [], "permissions": [],
+                                         "memories": [], "vectorTables": [],
                                          "historyDepth": 5})
             s.add(member_agent)
             await s.commit()

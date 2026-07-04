@@ -1,11 +1,11 @@
 /* my-agents admin — Building blocks (재료) browser: personas, memory policies,
-   permissions, MCP servers. Category tabs → list → detail drawer. */
+   MCP servers. Category tabs → list → detail drawer. */
 import { useState, useEffect } from 'react'
 import { Tag, Button, Tabs, Switch, Modal, Input, Select, Checkbox, Tooltip, Alert, Grid, message } from 'antd'
 import { Page, DataTable, Drawer, Desc, OwnerTag, type Column } from '../shared'
 import { validateName, NAME_HINT } from '../naming'
 import { Icon } from '../icons'
-import { MCP_STATUS, VECTOR_STATUS, APPROVER, type BlockItem, type BlockCategory, type StatusMeta } from '../mockData'
+import { MCP_STATUS, VECTOR_STATUS, type BlockItem, type BlockCategory, type StatusMeta } from '../mockData'
 import {
   getBlocks,
   createMcp,
@@ -59,7 +59,6 @@ interface McpServerIn {
 const RESOURCE_BY_CAT: Record<string, string> = {
   persona: 'personas',
   memory: 'memory-types',
-  permission: 'permissions',
 }
 
 type McpFormState = {
@@ -584,7 +583,7 @@ function PersonaForm({
   )
 }
 
-/* ---- memory / embedding / permission 공용 작성·편집 폼 (필드 스펙 기반) ---- */
+/* ---- memory / embedding 공용 작성·편집 폼 (필드 스펙 기반) ---- */
 type BlockField =
   | { kind: 'text'; key: string; label: string; required?: boolean; placeholder?: string; hint?: string }
   | { kind: 'number'; key: string; label: string; placeholder?: string; hint?: string }
@@ -596,29 +595,9 @@ type BlockField =
 type BlockFormConfig = { resource: string; title: string; intro: string; fields: BlockField[]; preserve?: string[] }
 
 /* memory는 의도적으로 제외 — 시스템 정의 enum(런타임이 이름 문자열에 의존)이라
-   빌딩 블록에서 읽기 전용으로 다룬다. (spec 016) */
-const BLOCK_FORMS: Record<string, BlockFormConfig> = {
-  permission: {
-    resource: 'permissions',
-    title: '권한',
-    intro: '에이전트에 부여되는 범위 한정 권한입니다. 승인자를 지정하지 않으면 기본값은 사용자 승인입니다.',
-    fields: [
-      { kind: 'text', key: 'name', label: '식별 이름', required: true, placeholder: '예: mail.send', hint: NAME_HINT },
-      { kind: 'text', key: 'alias', label: '별명', placeholder: '예: 메일 발송 (화면 표시용)' },
-      { kind: 'text', key: 'scope', label: '범위', placeholder: '예: fs:write' },
-      {
-        kind: 'select',
-        key: 'approver',
-        label: '승인자',
-        options: [
-          { label: '사용자 (인라인 확인)', value: 'user' },
-          { label: '관리자 (승인 큐)', value: 'admin' },
-        ],
-      },
-      { kind: 'textarea', key: 'body', label: '설명', rows: 4, placeholder: '이 권한의 용도·범위' },
-    ],
-  },
-}
+   빌딩 블록에서 읽기 전용으로 다룬다. (spec 016) 권한(permission) 카테고리는 스펙 177 P3에서 제거 —
+   현재 공용 폼 카테고리 없음(향후 카테고리 추가 시 이 자리에). */
+const BLOCK_FORMS: Record<string, BlockFormConfig> = {}
 
 type BlockFormState = { cat: string; mode: 'create' | 'edit'; item?: BlockItem }
 
@@ -981,44 +960,6 @@ export default function BlocksView() {
           render: (r) => <span style={{ color: 'var(--color-text-secondary)' }}>{r.usedBy}</span>,
         },
       ]
-    if (key === 'permission')
-      return [
-        {
-          key: 'name',
-          title: '권한',
-          render: (r) => (
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <code style={{ fontFamily: 'var(--font-family-code)', color: 'var(--geekblue-7)', fontSize: 13 }}>{r.name}</code>
-              {r.alias ? <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>{r.alias}</span> : null}
-            </span>
-          ),
-        },
-        { key: 'scope', title: '범위', width: 130, render: (r) => <Tag>{r.scope}</Tag> },
-        {
-          key: 'approver',
-          title: '승인자',
-          width: 120,
-          render: (r) => {
-            const a = APPROVER[r.approver!]
-            return (
-              <Tag color={a.tag}>
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                  <Icon name={a.icon!} size={11} />
-                  {a.label}
-                </span>
-              </Tag>
-            )
-          },
-        },
-        { key: 'body', title: '설명', render: (r) => <span style={{ color: 'var(--color-text-secondary)' }}>{r.body}</span> },
-        {
-          key: 'usedBy',
-          title: '사용',
-          width: 80,
-          align: 'right',
-          render: (r) => <span style={{ color: 'var(--color-text-secondary)' }}>{r.usedBy}</span>,
-        },
-      ]
     // persona + memory
     return [
       {
@@ -1207,24 +1148,6 @@ export default function BlocksView() {
             {detail.scope ? (
               <Desc label="범위">{cat === 'memory' ? <Tag color="purple">{detail.scope}</Tag> : <Tag>{detail.scope}</Tag>}</Desc>
             ) : null}
-            {detail.approver
-              ? (() => {
-                  const a = APPROVER[detail.approver!]
-                  return (
-                    <Desc label="승인자">
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                        <Tag color={a.tag}>
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                            <Icon name={a.icon!} size={11} />
-                            {a.label}
-                          </span>
-                        </Tag>
-                        <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>{a.desc}</span>
-                      </span>
-                    </Desc>
-                  )
-                })()
-              : null}
             {detail.transport ? (
               <Desc label="전송">
                 <Tag>{detail.transport}</Tag>

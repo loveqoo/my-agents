@@ -7,11 +7,9 @@ import { notifyAgentsChanged } from '../../agentsBus'
 import { Icon } from '../icons'
 import { AgentMemoryPanel } from './AgentMemoryPanel'
 import {
-  BLOCKS,
   AGENT_STATUS,
   AGENT_SOURCE,
   AGENT_CONFORMANCE,
-  APPROVER,
   isOrchestratorImpl,
   type Agent,
   type AgentConfig,
@@ -53,7 +51,6 @@ interface AgentFormData {
   historyDepth: number
   persistHistory: boolean
   vectorTables: string[]
-  permissions: string[]
   mcps: string[]
   impl: string // 실행 방식(런타임 키). ''=기본 UI 에이전트(스펙 106).
   capabilities: string[] // 능력 브로커 allowlist(cap id 목록, 스펙 106).
@@ -73,7 +70,6 @@ function blankForm(blocks: Record<string, BlockCategory>, models: Model[]): Agen
     historyDepth: 20,
     persistHistory: true,
     vectorTables: [],
-    permissions: [],
     mcps: [],
     impl: '',
     capabilities: [],
@@ -148,7 +144,7 @@ function AgentForm({
         ? f.capabilities.filter((x) => x !== id)
         : [...f.capabilities, id],
     }))
-  const toggle = (k: 'memories' | 'vectorTables' | 'permissions' | 'mcps', v: string) =>
+  const toggle = (k: 'memories' | 'vectorTables' | 'mcps', v: string) =>
     setForm((f) => ({
       ...f,
       [k]: f[k].includes(v) ? f[k].filter((x) => x !== v) : [...f[k], v],
@@ -199,19 +195,17 @@ function AgentForm({
     },
   ]
 
-  // 직접 응답 "하는 일" 그룹 — 4개 form 배열(memories/vectorTables/permissions/mcps)을 PickerGroups
+  // 직접 응답 "하는 일" 그룹 — 3개 form 배열(memories/vectorTables/mcps)을 PickerGroups
   // 하나로 묶으려 id를 카테고리 prefix로 네임스페이스(스펙 109). 저장은 기존 배열 그대로, prefix는
-  // UI 라우팅용. 리치 렌더 보존: 권한→extra(승인자 태그), 메모리/컬렉션→hint(설명).
-  const DIRECT_FIELD: Record<string, 'memories' | 'vectorTables' | 'permissions' | 'mcps'> = {
+  // UI 라우팅용. 리치 렌더 보존: 메모리/컬렉션→hint(설명).
+  const DIRECT_FIELD: Record<string, 'memories' | 'vectorTables' | 'mcps'> = {
     mem: 'memories',
     col: 'vectorTables',
-    perm: 'permissions',
     tool: 'mcps',
   }
   const directSelected = [
     ...form.memories.map((x) => `mem:${x}`),
     ...form.vectorTables.map((x) => `col:${x}`),
-    ...form.permissions.map((x) => `perm:${x}`),
     ...form.mcps.map((x) => `tool:${x}`),
   ]
   const toggleDirect = (id: string) => {
@@ -240,25 +234,6 @@ function AgentForm({
       key: '기억',
       title: '기억',
       items: (blocks.memory?.items ?? []).map((m) => ({ id: `mem:${m.name}`, label: m.name, hint: m.body })),
-    },
-    {
-      key: '권한',
-      title: '권한',
-      items: (blocks.permission?.items ?? []).map((p) => {
-        const a = p.approver ? APPROVER[p.approver] : APPROVER.user
-        return {
-          id: `perm:${p.name}`,
-          label: p.name,
-          extra: (
-            <Tag color={a.tag}>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                {a.icon ? <Icon name={a.icon} size={10} /> : null}
-                {a.label}
-              </span>
-            </Tag>
-          ),
-        }
-      }),
     },
   ]
   const orchestratorSelected = isOrchestratorImpl(form.impl)
@@ -520,24 +495,6 @@ function SectionHeader({ children, first }: { children: React.ReactNode; first?:
   )
 }
 
-/* Resolve a permission name to its approver meta. */
-function permApprover(name: string) {
-  const p = (BLOCKS.permission.items || []).find((x) => x.name === name)
-  return p && p.approver ? APPROVER[p.approver] : null
-}
-function PermTag({ name }: { name: string }) {
-  const a = permApprover(name)
-  if (!a) return <Tag color="geekblue">{name}</Tag>
-  return (
-    <Tag color={a.tag}>
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-        {name}
-        {a.icon ? <Icon name={a.icon} size={10} /> : null}
-      </span>
-    </Tag>
-  )
-}
-
 /* ---- Detail drawer ---- */
 function IdRow({ label, value }: { label: React.ReactNode; value: string }) {
   return (
@@ -717,13 +674,6 @@ function ReadonlyConfig({ agent, onRefreshPersona }: { agent: Agent; onRefreshPe
         )}
       </Desc>
       <Desc label="채팅 히스토리">{agent.historyDepth ? `최근 ${agent.historyDepth}개 메시지` : '기억 안 함'}</Desc>
-      <Desc label="권한">
-        <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6 }}>
-          {(agent.permissions || []).map((p) => (
-            <PermTag key={p} name={p} />
-          ))}
-        </span>
-      </Desc>
       <Desc label="MCP">
         <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6 }}>
           {(agent.mcps || []).map((m) => (
@@ -1299,13 +1249,6 @@ function AgentDetail({
           <AgentMemoryPanel agentId={agent.id} />
         </Desc>
       ) : null}
-      <Desc label="권한">
-        <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6 }}>
-          {agent.permissions.map((p) => (
-            <PermTag key={p} name={p} />
-          ))}
-        </span>
-      </Desc>
       <Desc label="MCP">
         <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6 }}>
           {agent.mcps.map((m) => (
@@ -1342,9 +1285,6 @@ function AgentDetail({
                   if (cfg.historyDepth !== agent.historyDepth) diffs.push('채팅 히스토리 → ' + (cfg.historyDepth || 0))
                   if ((cfg.vectorTables || []).join() !== (agent.vectorTables || []).join())
                     diffs.push('벡터 테이블 변경됨')
-                  const pa = (cfg.permissions || []).join(),
-                    pb = agent.permissions.join()
-                  if (pa !== pb) diffs.push('권한 변경됨')
                   const ma = (cfg.mcps || []).join(),
                     mb = agent.mcps.join()
                   if (ma !== mb) diffs.push('MCP 변경됨')
@@ -1541,7 +1481,6 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
     historyDepth: a.historyDepth,
     persistHistory: a.persistHistory ?? true,
     vectorTables: [...(a.vectorTables || [])],
-    permissions: [...a.permissions],
     mcps: [...a.mcps],
     impl: a.impl,
     capabilities: [...(a.capabilities || [])],
@@ -1657,7 +1596,6 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
       historyDepth: data.historyDepth,
       persistHistory: data.persistHistory,
       vectorTables: data.vectorTables,
-      permissions: data.permissions,
       mcps: data.mcps,
       // 빈 impl은 config에서 생략(기본 UI 에이전트 동작 보존 — undefined면 백엔드가 default 경로).
       ...(data.impl ? { impl: data.impl } : {}),
@@ -2079,7 +2017,6 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
                   historyDepth: c.historyDepth != null ? c.historyDepth : a.historyDepth,
                   persistHistory: c.persistHistory ?? a.persistHistory ?? true,
                   vectorTables: [...(c.vectorTables || [])],
-                  permissions: [...(c.permissions || [])],
                   mcps: [...(c.mcps || [])],
                   impl: c.impl ?? a.impl ?? '',
                   capabilities: [...(c.capabilities || a.capabilities || [])],

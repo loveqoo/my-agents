@@ -222,7 +222,6 @@ async def remote_sdk_agent_card():
                 "persona": "정확한 기술 번역가 (SDK)",
                 "memories": ["용어집 일관성 유지"],
                 "mcps": [],
-                "permissions": ["read"],
                 "historyDepth": 10,
             },
             "deploy": {

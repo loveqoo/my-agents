@@ -686,11 +686,6 @@ function ChatHeader({
                 {m}
               </Tag>
             ))}
-            {agent.permissions.map((p) => (
-              <Tag key={p} color="geekblue">
-                {p}
-              </Tag>
-            ))}
             {agent.mcps.map((m) => (
               <Tag key={m} color="cyan">
                 {m}

@@ -1,6 +1,6 @@
 """빌딩 블록 카탈로그 CRUD + 관리자 UI 집계 (REST).
 
-페르소나·메모리타입·권한·MCP 서버의 전체 CRUD와, 관리자 콘솔이 한 번에 읽는 5개
+페르소나·메모리타입·MCP 서버의 전체 CRUD와, 관리자 콘솔이 한 번에 읽는 4개
 카테고리 집계(`GET /blocks`)를 제공한다. embedding 카테고리는 RAG 컬렉션(스펙 036)을
 읽기 전용으로 비춘다 — 컬렉션 CRUD/인제스트는 `rag.py`(`/collections`)가 담당한다.
 """
@@ -19,7 +19,7 @@ from .auth import current_principal
 from .db import get_session
 from .naming import validate_resource_name
 from .ownership import assert_may_manage, may_manage, may_use_agent, owner_of
-from .models import Agent, Collection, McpServer, MemoryType, Permission, Persona
+from .models import Agent, Collection, McpServer, MemoryType, Persona
 from .references import _config_has, agents_referencing, referenced_message
 from .schemas import (
     McpDiscoverIn,
@@ -29,8 +29,6 @@ from .schemas import (
     McpServerOut,
     MemoryTypeIn,
     MemoryTypeOut,
-    PermissionIn,
-    PermissionOut,
     PersonaApplyIn,
     PersonaApplyOut,
     PersonaIn,
@@ -238,63 +236,6 @@ async def delete_memory_type(id: uuid.UUID, session: AsyncSession = Depends(get_
 
 
 # ----------------------------- 권한 -----------------------------
-@router.get("/permissions", response_model=list[PermissionOut])
-async def list_permissions(session: AsyncSession = Depends(get_session)) -> Any:
-    result = await session.execute(select(Permission))
-    return result.scalars().all()
-
-
-@router.post("/permissions", response_model=PermissionOut, status_code=201)
-async def create_permission(
-    body: PermissionIn, session: AsyncSession = Depends(get_session)
-) -> Any:
-    _assert_valid_name(body.name)  # 식별 이름 규칙(스펙 148)
-    obj = Permission(**_norm_alias(body.model_dump()))
-    session.add(obj)
-    await _commit_or_409(session, "같은 식별 이름의 권한이 이미 있습니다.")
-    await session.refresh(obj)
-    return obj
-
-
-@router.get("/permissions/{id}", response_model=PermissionOut)
-async def get_permission(id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> Any:
-    obj = await session.get(Permission, id)
-    if obj is None:
-        raise HTTPException(status_code=404, detail="not found")
-    return obj
-
-
-@router.put("/permissions/{id}", response_model=PermissionOut)
-async def update_permission(
-    id: uuid.UUID, body: PermissionIn, session: AsyncSession = Depends(get_session)
-) -> Any:
-    obj = await session.get(Permission, id)
-    if obj is None:
-        raise HTTPException(status_code=404, detail="not found")
-    if body.name != obj.name:
-        _assert_valid_name(body.name)  # 이름 변경 시에만 규칙(기존은 grandfather, 스펙 148)
-        # rename도 config["permissions"] 참조를 깬다(codex 148 High)
-        refs = await agents_referencing(session, "permissions", obj.name)
-        if refs:
-            raise HTTPException(status_code=409, detail=referenced_message(refs, "권한", action="이름 변경"))
-    for key, value in _norm_alias(body.model_dump()).items():
-        setattr(obj, key, value)
-    await _commit_or_409(session, "같은 식별 이름의 권한이 이미 있습니다.")
-    await session.refresh(obj)
-    return obj
-
-
-@router.delete("/permissions/{id}", status_code=204)
-async def delete_permission(id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> None:
-    obj = await session.get(Permission, id)
-    if obj is None:
-        raise HTTPException(status_code=404, detail="not found")
-    # 참조 중 삭제 차단(093 operation-symmetry를 권한에도 — codex 148 High)
-    refs = await agents_referencing(session, "permissions", obj.name)
-    if refs:
-        raise HTTPException(status_code=409, detail=referenced_message(refs, "권한"))
-    await session.delete(obj)
-    await session.commit()
 
 
 # ----------------------------- MCP 서버 -----------------------------
@@ -671,16 +612,6 @@ _CATEGORY_META: dict[str, dict[str, str]] = {
             "맞춰 생성 시 고정됩니다. 에이전트마다 0개 이상 연결할 수 있습니다."
         ),
     },
-    "permission": {
-        "label": "권한",
-        "icon": "global",
-        "color": "var(--geekblue-6)",
-        "desc": (
-            "에이전트에 부여되는 범위 한정 권한. 각 권한엔 승인자가 반드시 있습니다 — "
-            "사용자는 대화 중 인라인 확인, 관리자는 승인 큐로 라우팅(체크포인트에서 일시정지). "
-            "승인자를 지정하지 않으면 기본값은 '사용자' 승인입니다."
-        ),
-    },
     "mcp": {
         "label": "MCP 서버",
         "icon": "thunderbolt",
@@ -726,7 +657,6 @@ async def get_blocks(
             )
         ).scalars().all()
     )
-    permissions = list((await session.execute(select(Permission))).scalars().all())
     mcp_servers = list((await session.execute(select(McpServer))).scalars().all())
 
     persona_items = [
@@ -772,19 +702,6 @@ async def get_blocks(
         }
         for row in collections
     ]
-    permission_items = [
-        {
-            "id": str(row.id),
-            "name": row.name,
-            "alias": row.alias,  # 별명(스펙 148)
-            "scope": row.scope,
-            "approver": row.approver,
-            "body": row.body,
-            "usedBy": _count_by(agents, "permissions", row.name),
-            "updated": "—",
-        }
-        for row in permissions
-    ]
     mcp_items = [
         {
             "id": str(row.id),
@@ -813,6 +730,5 @@ async def get_blocks(
         "persona": {**_CATEGORY_META["persona"], "items": persona_items},
         "memory": {**_CATEGORY_META["memory"], "items": memory_items},
         "embedding": {**_CATEGORY_META["embedding"], "items": embedding_items},
-        "permission": {**_CATEGORY_META["permission"], "items": permission_items},
         "mcp": {**_CATEGORY_META["mcp"], "items": mcp_items},
     }

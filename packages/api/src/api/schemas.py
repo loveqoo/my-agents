@@ -237,19 +237,6 @@ class MemorySearchOut(BaseModel):
     diag: MemorySearchDiag | None = None  # 진단(스펙 125) — 선택. 컬렉션 검색 등 비-메모리 경로는 None
 
 
-class PermissionIn(BaseModel):
-    name: str = Field(max_length=120)  # 식별 이름(규칙, 스펙 148) — DB String(120) 정합
-    alias: str | None = Field(default=None, max_length=200)  # 별명(자유 표기, 스펙 148)
-    scope: str | None = None
-    approver: Literal["user", "admin"] = "user"
-    body: str = ""
-
-
-class PermissionOut(PermissionIn):
-    id: uuid.UUID
-    model_config = ORM
-
-
 class McpToolParam(BaseModel):
     """도구 파라미터 요약(스펙 151) — args 스키마에서 파생한 표시용. 길이 캡=원격 유래 방어."""
 
@@ -437,7 +424,6 @@ class AgentConfig(BaseModel):
     temperature: float | None = None  # 에이전트 영속 온도(스펙 077). None=자동(모델 등록 params 적용)
     memories: list[str] = Field(default_factory=list)
     vectorTables: list[str] = Field(default_factory=list)
-    permissions: list[str] = Field(default_factory=list)
     mcps: list[str] = Field(default_factory=list)
     # 능력 브로커 allowlist(스펙 100 §69·101) — 오케스트레이터가 서브스텝 위임할 수 있는 능력 id.
     # 규약: bare=agent cap, `mcp:<server>`=서버 전체, `mcp:<server>/<tool>`=툴 단위. 없으면 []=deny-by-
@@ -527,7 +513,6 @@ class AgentOut(BaseModel):
     conformance: str = "conforming"
     memories: list[str] = Field(default_factory=list)
     vectorTables: list[str] = Field(default_factory=list)
-    permissions: list[str] = Field(default_factory=list)
     mcps: list[str] = Field(default_factory=list)
     capabilities: list[str] = Field(default_factory=list)  # 능력 브로커 allowlist(스펙 106, 폼 재로드용)
     toolPolicy: dict[str, Any] = Field(default_factory=dict)  # 도구 승인 오버라이드(스펙 177 P2, 폼 재로드용)
@@ -585,7 +570,6 @@ class RegisterCodeAgentIn(BaseModel):
     commit: str | None = None
     memories: list[str] = Field(default_factory=list)
     historyDepth: int = 10
-    permissions: list[str] = Field(default_factory=list)
     mcps: list[str] = Field(default_factory=list)
 
 
@@ -678,6 +662,23 @@ class RoleOut(BaseModel):
     name: str
     description: str = ""
     model_config = ORM
+
+
+class PolicyIn(BaseModel):
+    """능력 부여/회수 입력(스펙 177 P3). subject=역할명 또는 유저 id, object=`capability:...`.
+
+    보안 경계는 라우트(user_admin.grant_policy)가 강제 — object는 `capability:`로 시작하고
+    와일드카드(*) 불가, action은 invoke 고정. 이 UI로 임의 리소스 권한·(*,*) 상승을 못 준다."""
+
+    subject: str = Field(min_length=1, max_length=200)  # 역할명(member 등) 또는 유저 UUID 문자열
+    object: str = Field(min_length=1, max_length=200)  # capability:{kind}[:{name}]
+    action: str = Field(default="invoke", max_length=40)
+
+
+class PolicyOut(BaseModel):
+    subject: str
+    object: str
+    action: str
 
 
 class AdminUserOut(BaseModel):

@@ -101,7 +101,6 @@ def agent_to_out(a: Agent, persona_bodies: dict[str, str] | None = None) -> Agen
         conformance=classify_runtime(a.source, cfg.get("impl")),
         memories=cfg.get("memories", []),
         vectorTables=cfg.get("vectorTables", []),
-        permissions=cfg.get("permissions", []),
         mcps=cfg.get("mcps", []),
         capabilities=cfg.get("capabilities", []),  # 능력 브로커 allowlist(스펙 106, 폼 재로드용)
         toolPolicy=cfg.get("toolPolicy", {}),  # 도구 승인 오버라이드(스펙 177 P2, 폼 재로드용)

@@ -82,7 +82,7 @@ async def integration_checks() -> None:
             return Agent(agent_id=f"agt_113_{uuid.uuid4().hex[:6]}", name="t113", source="ui",
                          model="mock-llm", persona="", history_depth=6,
                          config={"model": "mock-llm", "persona": "", "memories": [],
-                                 "vectorTables": vts, "permissions": [], "mcps": mcps,
+                                 "vectorTables": vts, "mcps": mcps,
                                  "historyDepth": 6},
                          exposed={"a2a": False}, status="idle", owner_id=owner)
 

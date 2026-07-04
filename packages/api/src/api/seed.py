@@ -23,7 +23,6 @@ from .models import (
     McpServer,
     MemoryType,
     ModelConfig,
-    Permission,
     Persona,
     Provider,
     Session,
@@ -88,12 +87,6 @@ def _collection_seed_specs(embs, collections=COLLECTIONS):
 
 # 순수 웹 에이전트 플랫폼 — 파일/터미널/repo/k8s 권한은 쓰지 않으므로 카탈로그에서 제외(스펙 046).
 # 코드 에이전트가 아니라 웹에서 동작하는 에이전트이기 때문(UI 피드백 #4).
-PERMISSIONS = [
-    ("web.search", "Network", "user", "Outbound web search via the configured provider."),
-    ("calendar.rw", "Productivity", "user", "Read & write calendar events. Writes are confirmed inline by the user."),
-    ("mail.send", "Productivity", "user", "Send email on the user's behalf. Each send is confirmed inline by the user."),
-]
-
 # name, source, transport, url, endpoint, tools, status, published, auth
 # 이전엔 mcp:// 가짜 6행(tavily/gcal/gmail/notion/acme-weather/partner-crm)을 시드했는데, 그 URL은
 # 연결 대상이 없어 런타임이 실제로 붙지 못했다(스펙 054 — 하드코딩/가짜 제거). 지금은 self-host
@@ -111,16 +104,16 @@ MCP_SERVERS = [
      list(SERVED_MCP_TOOLS["calc-tools"]), "connected", False, None),
 ]
 
-# agent_id, name(식별·규칙), alias(별명), source, model, persona, memories, historyDepth, vectorTables, permissions, mcps, a2a, status, activeVersion, versions[(version,status,createdAt,note)]
+# agent_id, name(식별·규칙), alias(별명), source, model, persona, memories, historyDepth, vectorTables, mcps, a2a, status, activeVersion, versions[(version,status,createdAt,note)]
 AGENTS = [
     # 코드/인프라 권한·MCP 제거(스펙 046)에 맞춰 web.search/tavily만 유지.
     ("agt_rsch_7f3a91", "research-assistant", "Research Assistant", "ui", CHAT_MODEL_NAME, "methodical-researcher",
-     ["단기(세션)", "장기 기억 (mem0)"], 20, ["docs-kb", "product-titles"], ["web.search"], [MOCK_MCP_SERVER_NAME],
+     ["단기(세션)", "장기 기억 (mem0)"], 20, ["docs-kb", "product-titles"], [MOCK_MCP_SERVER_NAME],
      True, "online", "v3",
      [("v3", "active", "2026-06-12", "Tightened citation rules"), ("v2", "archived", "2026-06-04", "Web search tuning"), ("v1", "archived", "2026-05-30", "Initial")]),
     # Code Reviewer·Ops Copilot(코드/인프라 권한 전용 데모)는 에이전트째 제거(스펙 046, UI 피드백 #4).
     ("agt_sec_9d4417", "personal-secretary", "Personal Secretary", "ui", CHAT_MODEL_NAME, "warm-secretary",
-     ["단기(세션)", "장기 기억 (mem0)"], 40, ["team-notes"], ["calendar.rw", "mail.send"], [MOCK_MCP_SERVER_NAME],
+     ["단기(세션)", "장기 기억 (mem0)"], 40, ["team-notes"], [MOCK_MCP_SERVER_NAME],
      False, "online", "v2",
      [("v2", "active", "2026-06-16", "Warmer tone"), ("v1", "archived", "2026-06-15", "Initial")]),
 ]
@@ -156,8 +149,6 @@ async def seed_if_empty(session: AsyncSession) -> None:
         session.add_all([Persona(name=n, alias=al, tone=t, body=b) for n, al, t, b in PERSONAS])
     if await _empty(session, MemoryType):
         session.add_all([MemoryType(key=k, name=n, scope=s, body=b) for k, n, s, b in MEMORY_TYPES])
-    if await _empty(session, Permission):
-        session.add_all([Permission(name=n, scope=sc, approver=ap, body=b) for n, sc, ap, b in PERMISSIONS])
     if await _empty(session, McpServer):
         session.add_all([
             McpServer(name=n, source=src, transport=tr, url=url, endpoint=ep,
@@ -212,10 +203,10 @@ async def seed_if_empty(session: AsyncSession) -> None:
         ])
 
     if await _empty(session, Agent):
-        for (aid, name, alias, source, model, persona, mems, hist, vts, perms, mcps, a2a, status, active, versions) in AGENTS:
+        for (aid, name, alias, source, model, persona, mems, hist, vts, mcps, a2a, status, active, versions) in AGENTS:
             cfg = {
                 "model": model, "persona": persona, "memories": list(mems),
-                "vectorTables": list(vts), "permissions": list(perms), "mcps": list(mcps),
+                "vectorTables": list(vts), "mcps": list(mcps),
                 "historyDepth": hist,
             }
             agent = Agent(
@@ -235,7 +226,7 @@ async def seed_if_empty(session: AsyncSession) -> None:
         # 동일하게 받는다(인터페이스가 create_agent에 과적합되지 않았음을 화면으로 증명).
         pe_cfg = {
             "model": CHAT_MODEL_NAME, "persona": "methodical-researcher",
-            "memories": ["단기(세션)"], "vectorTables": [], "permissions": [],
+            "memories": ["단기(세션)"], "vectorTables": [],
             "mcps": [], "historyDepth": 20, "impl": "plan_execute",
         }
         plan_execute = Agent(
@@ -272,7 +263,7 @@ async def seed_if_empty(session: AsyncSession) -> None:
             "x-my-agents": {
                 "manifest": {
                     "model": CHAT_MODEL_NAME, "persona": "코드 정의 (SDK)", "memories": ["단기(세션)"],
-                    "mcps": [MOCK_MCP_SERVER_NAME], "permissions": ["web.search"], "historyDepth": 10,
+                    "mcps": [MOCK_MCP_SERVER_NAME], "historyDepth": 10,
                 },
                 "deploy": {
                     "repo": "acme/doc-translator", "commit": "f3a91c2",
@@ -286,7 +277,7 @@ async def seed_if_empty(session: AsyncSession) -> None:
         }
         code_cfg = {
             "model": CHAT_MODEL_NAME, "persona": "코드 정의 (SDK)", "memories": ["단기(세션)"],
-            "vectorTables": [], "permissions": ["web.search"], "mcps": [MOCK_MCP_SERVER_NAME],
+            "vectorTables": [], "mcps": [MOCK_MCP_SERVER_NAME],
             "historyDepth": 10, "card": code_card,
         }
         translator = Agent(
@@ -328,7 +319,7 @@ async def seed_if_empty(session: AsyncSession) -> None:
             agent_id="agt_ext_ac2e01", name="acme-translate-a2a", alias=ext_card["name"], source="external", model="",
             persona="", history_depth=10,
             config={"model": "", "persona": "", "memories": [], "vectorTables": [],
-                    "permissions": [], "mcps": [], "historyDepth": 10, "card": ext_card},
+                    "mcps": [], "historyDepth": 10, "card": ext_card},
             exposed={"a2a": False}, status="online",
             endpoint=ext_card["url"], token=None,
             registered_at="2026-06-26", last_sync="방금",
