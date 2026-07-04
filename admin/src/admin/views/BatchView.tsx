@@ -363,7 +363,7 @@ export default function BatchView() {
           </span>
         </Desc>
         <div style={{ marginTop: 16 }}>
-          <Space>
+          <Space wrap>
             <Button
               type="primary"
               onClick={() => void save('session')}
@@ -435,7 +435,7 @@ export default function BatchView() {
           </span>
         </Desc>
         <div style={{ marginTop: 16 }}>
-          <Space>
+          <Space wrap>
             <Button
               type="primary"
               onClick={() => void save('memory')}
@@ -481,7 +481,7 @@ export default function BatchView() {
           실 A2A 파트너와 UI/코드 데모 에이전트는 절대 대상이 아닙니다. 삭제 시 그 에이전트의 세션도 함께
           정리됩니다(dry-run에 함께 표시). 설정은 없으며, 먼저 dry-run으로 대상을 확인하세요.
         </div>
-        <Space>
+        <Space wrap>
           <Button
             onClick={() => void trigger('a2a-cleanup', true)}
             loading={busy === 'a2a-cleanup:dry'}
@@ -527,7 +527,7 @@ export default function BatchView() {
           </span>
         </Desc>
         <div style={{ marginTop: 16 }}>
-          <Space>
+          <Space wrap>
             <Button
               type="primary"
               onClick={() => void save('user')}
