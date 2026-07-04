@@ -48,20 +48,47 @@ _APPROVAL_ACTIONS: dict[tuple[str, str], str] = {
 }
 
 
-def resolve_tool_approval(server: str, tool: str, tools_meta: dict | None) -> str | None:
-    """도구 승인 정책 리졸버(스펙 177 P1) — 승인이 필요한 도구면 permission 문자열, 아니면 None.
+def resolve_tool_approval(
+    server: str,
+    tool: str,
+    tools_meta: dict | None = None,
+    tool_policy: dict | None = None,
+) -> dict | None:
+    """도구 승인 정책 리졸버(스펙 177) — 승인이 필요하면 `{"permission", "approver"}`, 아니면 None.
 
     **단일 진실원**: 그래프-tools 경로(`_wrap_mcp_tool`)와 브로커 경로
-    (`broker.McpProvider.approval_for`)가 이 함수 하나를 공유한다(드리프트 0 — 어느 경로로 도구가
-    도달하든 승인 정책이 일관). 우선순위:
-      1. `tools_meta[tool].approval.required` = **관리자가 데이터로 설정**(스펙 177) → `mcp.{server}.{tool}`.
-      2. 미설정이면 레거시 `_APPROVAL_ACTIONS`로 폴백(무회귀 — delete_record 등 기존 게이트 보존).
+    (`broker.McpProvider.approval_for`)가 이 함수 하나를 공유한다(드리프트 0). 우선순위:
+      1. **도구 기본**(P1) = `tools_meta[tool].approval` = 관리자가 데이터로 설정
+         (`{required, approver?}`, approver 기본 admin). 없으면 레거시 `_APPROVAL_ACTIONS` 폴백(무회귀).
+      2. **에이전트 오버라이드**(P2) = `tool_policy["mcp:{server}/{tool}"].approval`의 required/approver로
+         덮음(있는 키만). 강화(끔→켬)·완화(켬→끔)·approver 변경 모두 여기서. 완화 권한 게이트는 저장
+         시점(agents CRUD)에서 강제 — 리졸버는 순수 해석만.
+    approver는 승인 인가에 쓰인다(`approvals._may_resolve`): admin=관리자만, self=요청 소유자 본인.
+    permission 문자열은 표시·감사·레거시 하위호환용(인가는 approver 필드로 — 세그먼트 이스케이프 무관).
     """
     meta = tools_meta.get(tool) if isinstance(tools_meta, dict) else None
-    appr = meta.get("approval") if isinstance(meta, dict) else None
-    if isinstance(appr, dict) and appr.get("required"):
-        return f"mcp.{server}.{tool}"
-    return _APPROVAL_ACTIONS.get((server, tool))
+    base = meta.get("approval") if isinstance(meta, dict) else None
+    if isinstance(base, dict):
+        required = bool(base.get("required"))
+        approver = base.get("approver") or "admin"
+        permission = f"mcp.{server}.{tool}"
+    else:  # 레거시 폴백(tools_meta에 approval 없을 때만) — delete_record 등 기존 게이트 보존.
+        legacy = _APPROVAL_ACTIONS.get((server, tool))
+        required = legacy is not None
+        approver = "admin"
+        permission = legacy or f"mcp.{server}.{tool}"
+    # 에이전트 오버라이드(cap_id 규약 = capabilities와 동일 `mcp:{server}/{tool}`).
+    if isinstance(tool_policy, dict):
+        entry = tool_policy.get(f"mcp:{server}/{tool}")
+        ov = entry.get("approval") if isinstance(entry, dict) else None
+        if isinstance(ov, dict):
+            if "required" in ov:
+                required = bool(ov["required"])
+            if ov.get("approver"):
+                approver = ov["approver"]
+    if not required:
+        return None
+    return {"permission": permission, "approver": approver if approver in ("admin", "self") else "admin"}
 
 # 실 도구 호출 전체 deadline(초). per-read 타임아웃은 전체 데드라인이 아니므로(learning 046)
 # asyncio.timeout으로 호출 전체를 감싼다 — 느린/멈춘 서버가 에이전트를 무한 대기시키지 않게.
@@ -92,16 +119,19 @@ def _content_text(result: Any) -> str:
 
 
 def _wrap_mcp_tool(
-    server: str, rt: BaseTool, calls_sink: list[dict], permission: str | None
+    server: str, rt: BaseTool, calls_sink: list[dict], approval: dict | None
 ) -> StructuredTool:
     """실 MCP 도구(rt)를 트레이스·HIL 게이트·graceful 래퍼로 감싼다.
 
     rt.args_schema(JSON 스키마 dict)를 그대로 보존해 LLM이 원 도구 시그니처대로 호출하게 한다.
-    `permission`(호출부 `resolve_tool_approval`가 해석, 스펙 177)이 non-None인 도구는 **rt.ainvoke
-    (부수효과) 이전에 interrupt()** 로 그래프를 멈춰 승인을 받는다(스펙 041 불변식, 실 도구 위에서
-    재성립). 도구 실행 실패(서버 다운·프로토콜 오류·타임아웃)는 잡아 graceful 문자열 + calls_sink
-    status="error"로 — 에이전트 크래시 금지.
+    `approval`(호출부 `resolve_tool_approval`가 해석, 스펙 177 = `{permission, approver}` 또는 None)이
+    non-None인 도구는 **rt.ainvoke(부수효과) 이전에 interrupt()** 로 그래프를 멈춰 승인을 받는다(스펙 041
+    불변식, 실 도구 위에서 재성립). approver(admin/self)는 interrupt 페이로드로 실려 Approval에 스탬프됨
+    → `approvals._may_resolve` 인가에 쓰인다. 도구 실행 실패(서버 다운·프로토콜·타임아웃)는 잡아 graceful
+    문자열 + calls_sink status="error"로 — 에이전트 크래시 금지.
     """
+    permission = approval["permission"] if approval else None
+    approver = (approval.get("approver") or "admin") if approval else "admin"
 
     async def _execute(kwargs: dict, t0: float) -> str:
         # 실 부수효과: 실제 MCP 서버 도구를 호출한다. 승인됐거나 비위험 도구일 때만 도달.
@@ -135,11 +165,12 @@ def _wrap_mcp_tool(
         decision = interrupt(
             {
                 "permission": permission,
+                "approver": approver,  # 스펙 177 P2 — Approval에 스탬프돼 _may_resolve 인가에 쓰임
                 "server": server,
                 "tool": rt.name,
                 "action": f"{server}.{rt.name}",
                 "args": _redact_args(kwargs),  # 스펙 087: Approval.args(DB 영속)·ApprovalsView로 새기 전 마스킹
-                "summary": f"{server}.{rt.name} 실행 — 관리자 승인 필요",
+                "summary": f"{server}.{rt.name} 실행 — {'본인' if approver == 'self' else '관리자'} 승인 필요",
             }
         )
         approved = isinstance(decision, dict) and decision.get("decision") == "approve"
@@ -190,7 +221,7 @@ def mcp_connection(server: dict) -> dict | None:
 
 
 async def build_mcp_tools(
-    servers: list[dict], calls_sink: list[dict]
+    servers: list[dict], calls_sink: list[dict], tool_policy: dict | None = None
 ) -> list[StructuredTool]:
     """등록 MCP 서버에 **실제로 연결**(MultiServerMCPClient)해 활성 도구를 LangChain 툴로 만든다.
 
@@ -230,8 +261,9 @@ async def build_mcp_tools(
         for rt in raw_tools:
             if enabled and rt.name not in enabled:
                 continue  # enabled_tools 밖 도구는 노출 안 함(서버측 강제)
-            perm = resolve_tool_approval(name, rt.name, s.get("tools_meta"))  # 스펙 177 단일 리졸버
-            tools.append(_wrap_mcp_tool(name, rt, calls_sink, perm))
+            # 스펙 177 단일 리졸버 — 도구 기본(tools_meta) ◁덮음◁ 에이전트 오버라이드(tool_policy).
+            appr = resolve_tool_approval(name, rt.name, s.get("tools_meta"), tool_policy)
+            tools.append(_wrap_mcp_tool(name, rt, calls_sink, appr))
     return tools
 
 

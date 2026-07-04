@@ -29,22 +29,27 @@ def _is_admin(principal) -> bool:
 
 
 def _may_resolve(approval: Approval, principal) -> bool:
-    """resolve 인가 3-way(스펙 066). admin/머신=무엇이든, owner+self_approve=자기 것, 그 외 거부.
+    """resolve 인가(스펙 066 + 177 P2). admin/머신=무엇이든, 그 외는 승인자 정책에 따라.
 
     - 머신/admin → True(전체).
-    - owner(요청 주체 본인) AND 그 permission이 self_approve로 열림 → True(자기 것만).
-      매칭은 *DB의* approval.user_id/permission 대 *서버가 쥔* principal로만(요청 본문 무관, T3/T6).
-      user_id가 None(머신/레거시 발)이면 owner 분기 자체가 닫힌다(T2 fail-closed).
-    - 그 외(민감 permission, 정책 부재) → False → 403(T7).
+    - **approver 스탬프 有(스펙 177 P2, MCP 도구 승인)**: 진실원은 도구 정책이 박은 `approval.approver`.
+        · "self" → owner(요청 주체 본인)면 True(자기 것만), 아니면 False.
+        · "admin" → False(비-admin은 거부, admin 분기서 이미 처리).
+      인가를 approver *필드*로 판정하므로 permission 문자열 매칭 불필요 → 세그먼트 이스케이프 무관.
+    - **approver 스탬프 無(None — 레거시·메모리·A2A)**: 기존 Casbin `can_self_approve` 폴백(무회귀).
+        owner AND 그 permission이 self_approve로 열림 → True. member `memory.write` 등 기존 동작 보존.
+    - 어느 경우든 owner 대조는 *DB의* approval.user_id 대 *서버가 쥔* principal로만(요청 본문 무관,
+      T3/T6). user_id가 None(머신/레거시 발)이면 owner 분기가 닫힌다(T2 fail-closed).
     """
     if _is_admin(principal):
         return True
-    # 여기 도달 = 비-admin 유저. owner + self_approve 정책만 허용.
-    return (
-        approval.user_id is not None
-        and approval.user_id == str(principal.id)
-        and authz.can_self_approve(str(principal.id), approval.permission)
-    )
+    # 여기 도달 = 비-admin 유저. owner 대조는 공통 전제.
+    is_owner = approval.user_id is not None and approval.user_id == str(principal.id)
+    approver = getattr(approval, "approver", None)  # pre-migration/스텁 객체 방어 → None=폴백
+    if approver is not None:  # 스펙 177 P2 — 도구 정책이 박은 승인자로 판정(Casbin 우회).
+        return is_owner and approver == "self"
+    # approver 미스탬프(레거시·메모리·A2A) → Casbin self_approve 폴백(무회귀).
+    return is_owner and authz.can_self_approve(str(principal.id), approval.permission)
 
 
 def _own_scope(principal) -> str | None:

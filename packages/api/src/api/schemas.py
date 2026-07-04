@@ -443,6 +443,10 @@ class AgentConfig(BaseModel):
     # 규약: bare=agent cap, `mcp:<server>`=서버 전체, `mcp:<server>/<tool>`=툴 단위. 없으면 []=deny-by-
     # default. 실제 인가는 요청 시 RBAC와 교집합(build_broker). UI 편집은 Phase 2-d로 이연(스펙 101).
     capabilities: list[str] = Field(default_factory=list)
+    # 도구 승인 오버라이드(스펙 177 P2) — cap_id(`mcp:{server}/{tool}`)→{approval:{required?, approver?}}.
+    # 도구 기본 정책(tools_meta)을 에이전트별로 강화(끔→켬)·완화(켬→끔)·승인자 변경. 리졸버가 덮어씀
+    # (runtime.resolve_tool_approval). **완화는 저장 시 admin 게이트**(agents CRUD) — 스키마는 구조만 강제.
+    toolPolicy: dict[str, Any] = Field(default_factory=dict)
     historyDepth: int = 20
     persistHistory: bool = True  # 대화를 DB에 저장할지(끄면 윈도우 모드)
     # A2A 위임 승인 opt-in(스펙 117) — 이 에이전트에게 위임(A2A 전송)할 때 승인 게이트를 걸지. 기본 False=
@@ -451,6 +455,35 @@ class AgentConfig(BaseModel):
     requires_approval: bool = False
     impl: str | None = None  # in-process 커스텀 런타임 키(스펙 085). None=기본 DefaultUiAgent.
     # 신뢰 레지스트리의 *키*일 뿐 코드 아님 — 미지/미등록 키는 조용히 기본으로 폴백(eval 없음).
+
+    @field_validator("toolPolicy")
+    @classmethod
+    def _check_tool_policy(cls, v: dict[str, Any]) -> dict[str, Any]:
+        """도구 승인 오버라이드 구조·크기 강제(스펙 177 P2). 위반=422, 정규화 반환.
+        키=cap_id, 값={approval:{required?:bool, approver?:"admin"|"self"}}. approval만 인식(그 외 폐기).
+        의미 없는 빈 항목은 정규화 시 제거. **완화 권한 판정은 여기서 안 함**(agents CRUD가 admin 게이트)."""
+        if not isinstance(v, dict):
+            raise ValueError("toolPolicy는 객체여야 합니다.")
+        if len(v) > 200:
+            raise ValueError("toolPolicy는 항목 200개 이하여야 합니다.")
+        out: dict[str, Any] = {}
+        for cap, entry in v.items():
+            if not isinstance(cap, str) or len(cap) > 200 or not isinstance(entry, dict):
+                raise ValueError("toolPolicy 항목은 {cap_id: {approval:{...}}} 형식이어야 합니다.")
+            appr = entry.get("approval")
+            if not isinstance(appr, dict):
+                continue  # approval 없는 항목은 무의미 → 폐기(정규화)
+            norm: dict[str, Any] = {}
+            if "required" in appr:
+                norm["required"] = bool(appr["required"])
+            av = appr.get("approver")
+            if av in ("admin", "self"):
+                norm["approver"] = av
+            elif av is not None:
+                raise ValueError("approver는 'admin' 또는 'self'여야 합니다.")
+            if norm:
+                out[cap] = {"approval": norm}
+        return out
 
 
 class AgentCreate(BaseModel):
@@ -497,6 +530,7 @@ class AgentOut(BaseModel):
     permissions: list[str] = Field(default_factory=list)
     mcps: list[str] = Field(default_factory=list)
     capabilities: list[str] = Field(default_factory=list)  # 능력 브로커 allowlist(스펙 106, 폼 재로드용)
+    toolPolicy: dict[str, Any] = Field(default_factory=dict)  # 도구 승인 오버라이드(스펙 177 P2, 폼 재로드용)
     owner_id: str | None = None  # 소유자(스펙 112). None=공유/레거시
     can_manage: bool = True  # 요청 주체 수정/삭제 가능(스펙 114, list/get서 계산·기본 True)
     exposed: dict[str, Any] = Field(default_factory=lambda: {"a2a": False})

@@ -16,6 +16,7 @@ import {
   type Agent,
   type AgentConfig,
   type BlockCategory,
+  type ToolPolicy,
   type VersionMeta,
 } from '../mockData'
 import {
@@ -56,6 +57,7 @@ interface AgentFormData {
   mcps: string[]
   impl: string // 실행 방식(런타임 키). ''=기본 UI 에이전트(스펙 106).
   capabilities: string[] // 능력 브로커 allowlist(cap id 목록, 스펙 106).
+  toolPolicy: ToolPolicy // 도구 승인 오버라이드(스펙 177 P2) — cap_id→{approval:{required?,approver?}}.
 }
 
 /* 빈 폼 기본값 — persona는 로드된 blocks에서, model은 등록된 첫 chat 모델에서
@@ -75,6 +77,7 @@ function blankForm(blocks: Record<string, BlockCategory>, models: Model[]): Agen
     mcps: [],
     impl: '',
     capabilities: [],
+    toolPolicy: {},
   }
 }
 
@@ -341,6 +344,81 @@ function AgentForm({
         ) : (
           <PickerGroups groups={doGroups} selected={directSelected} onToggle={toggleDirect} />
         )}
+
+        {/* 도구 승인 오버라이드(스펙 177 P2) — 배선된 MCP 도구별로 승인 정책을 이 에이전트에 한해 덮어씀.
+            완화(본인 승인·승인 없음)는 백엔드 완화 게이트가 admin만 저장 허용(비-admin 저장 시 403). */}
+        {(() => {
+          const wired = new Set<string>(form.mcps)
+          form.capabilities.forEach((c) => {
+            if (c.startsWith('mcp:') && !c.includes('/')) wired.add(c.slice(4))
+          })
+          const rows: { server: string; tool: string }[] = []
+          ;[...wired].forEach((srv) => {
+            const item = blocks.mcp?.items?.find((m) => m.name === srv)
+            ;(item?.tools ?? []).forEach((t) => rows.push({ server: srv, tool: t }))
+          })
+          if (!rows.length) return null
+          const valOf = (capId: string): string => {
+            const a = form.toolPolicy[capId]?.approval
+            if (!a) return ''
+            if (a.required === false) return 'off'
+            if (a.approver === 'self') return 'self'
+            if (a.required === true) return 'admin'
+            return ''
+          }
+          const setVal = (capId: string, v: string) =>
+            setForm((f) => {
+              const tp: ToolPolicy = { ...f.toolPolicy }
+              if (v === 'admin') tp[capId] = { approval: { required: true, approver: 'admin' } }
+              else if (v === 'self') tp[capId] = { approval: { required: true, approver: 'self' } }
+              else if (v === 'off') tp[capId] = { approval: { required: false } }
+              else delete tp[capId]
+              return { ...f, toolPolicy: tp }
+            })
+          return (
+            <Collapse
+              size="small"
+              items={[
+                {
+                  key: 'toolpolicy',
+                  label: `도구 승인 오버라이드 (${rows.length}개 · 선택)`,
+                  children: (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+                        도구 호출 전 승인을 이 에이전트에 한해 덮어씁니다. 완화(본인 승인·승인 없음)는 관리자만 저장됩니다.
+                      </span>
+                      {rows.map(({ server, tool }) => {
+                        const capId = `mcp:${server}/${tool}`
+                        return (
+                          <div
+                            key={capId}
+                            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}
+                          >
+                            <span style={{ fontSize: 13 }}>
+                              <code>{server}</code> · {tool}
+                            </span>
+                            <Select
+                              size="small"
+                              style={{ width: 190 }}
+                              value={valOf(capId)}
+                              onChange={(v) => setVal(capId, v)}
+                              options={[
+                                { value: '', label: '기본값 사용' },
+                                { value: 'admin', label: '승인 필요 · 관리자' },
+                                { value: 'self', label: '승인 필요 · 본인' },
+                                { value: 'off', label: '승인 없음' },
+                              ]}
+                            />
+                          </div>
+                        )
+                      })}
+                    </div>
+                  ),
+                },
+              ]}
+            />
+          )
+        })()}
 
         {/* ── 3단계: 세부 설정(선택·기본 접힘) — 기본값 있어 평소 접어둠. Temperature·히스토리·대화저장. ── */}
         <Collapse
@@ -1467,6 +1545,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
     mcps: [...a.mcps],
     impl: a.impl,
     capabilities: [...(a.capabilities || [])],
+    toolPolicy: { ...(a.toolPolicy || {}) },
   })
   const draftOf = (a: Agent) => (a.versions || []).find((v) => v.status === 'draft')
   const openCreate = () => {
@@ -1583,6 +1662,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
       // 빈 impl은 config에서 생략(기본 UI 에이전트 동작 보존 — undefined면 백엔드가 default 경로).
       ...(data.impl ? { impl: data.impl } : {}),
       capabilities: data.capabilities,
+      toolPolicy: data.toolPolicy, // 도구 승인 오버라이드(스펙 177 P2) — 백엔드 완화 게이트가 admin 강제
     }
     try {
       if (editing) {
@@ -2003,6 +2083,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
                   mcps: [...(c.mcps || [])],
                   impl: c.impl ?? a.impl ?? '',
                   capabilities: [...(c.capabilities || a.capabilities || [])],
+                  toolPolicy: { ...(c.toolPolicy || a.toolPolicy || {}) }, // 승인 오버라이드(스펙 177 P2)
                 }
               })()
             : null

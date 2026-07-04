@@ -343,6 +343,9 @@ class Approval(Base):
     )
     agent_name: Mapped[str] = mapped_column(String(200), default="")
     permission: Mapped[str] = mapped_column(String(120), default="")
+    # 승인자(스펙 177 P2) — "admin"=관리자만 resolve, "self"=요청 소유자 본인. None=레거시·메모리·A2A
+    # → _may_resolve가 Casbin can_self_approve 폴백(무회귀). MCP 도구 승인만 리졸버가 이 값을 스탬프.
+    approver: Mapped[str | None] = mapped_column(String(20), default=None)
     action: Mapped[str] = mapped_column(String(120), default="")
     args: Mapped[dict] = mapped_column(JSONB, default=dict)
     summary: Mapped[str] = mapped_column(Text, default="")

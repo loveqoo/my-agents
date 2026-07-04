@@ -67,7 +67,12 @@ resolve_tool_approval(server, tool, agent_config) -> {permission, approver} | No
   왕복 13/13)·브라우저 3/3·종단 UI→DB→리졸버·회귀(041·092·151). **적대 검토(deep-reasoner)가 P0 발견**:
   rediscover가 `_tools_meta_from_details`로 tools_meta 통째 교체 시 admin approval 소멸 → `prior` 이월
   보존으로 봉합(회고 155). approver(admin/self) 선택 UI·완전 연결은 P2.
-- **P2**: (2) 에이전트 오버라이드 + (4) 승인자 연결. → "매핑 시 편하게 오버라이드" 실현.
+- **P2 ✅ 완료(2026-07-04)**: (2) 에이전트 오버라이드(`config.toolPolicy`) + (4) 승인자 연결
+  (`Approval.approver`→`_may_resolve`). 리졸버가 `{permission, approver}` 반환·도구 기본 ◁덮음◁ 에이전트
+  오버라이드, 두 경로(그래프-tools·브로커)·resume 배선. 완화 게이트=**값 기반**(TOCTOU-free, 적대 검토 M
+  반영). approver 필드가 Casbin보다 우선(이스케이프 무력화). 에이전트 편집기에 도구별 승인 오버라이드 UI.
+  검증: verify_177(리졸버20+게이트G1-G6+reconcile)·verify_066(approver 연결 M5)·회귀(041/092/171)·serializer
+  라운드트립·브라우저 렌더. 회고 156. `Permission.approver` 제거는 P3.
 - **P3**: (5) 능력 부여 UI + 죽은 설정 정리(permissions[]/approver) + (6) 문서화.
 
 ## 검증 접근
@@ -85,6 +90,37 @@ resolve_tool_approval(server, tool, agent_config) -> {permission, approver} | No
     로그에 오버라이드 방향 기록.
 - **D3 approver 소스 = 도구 정책(approval.approver)으로 일원화.** `Permission.approver` 컬럼은 제거
   (P3, 개념 중복 해소). 승인자 진실원은 도구 기본 정책 ◁덮음◁ 에이전트 오버라이드 하나뿐.
+
+## P2 확정 설계 (2026-07-04, 완화=관리자만)
+
+> **D4(추가 결정): 완화는 관리자만.** 관리자가 건 승인은 하한선 — 소유자는 *강화*(승인 추가·approver를
+> admin으로)만 자유, *완화*(required 끄기·approver를 self로 낮추기)는 admin만. 팀원이 관리자 보안 정책을
+> 에이전트 편집으로 우회하는 것 차단.
+
+**RBAC 체크리스트 적용**(승인=유저별 데이터, `_may_resolve`가 소유권 판정 — 트리거 발동).
+
+1. **approver 연결(D3·D4)** — `Approval.approver`(nullable "admin"|"self") 컬럼 추가. MCP 도구 승인
+   생성 시 리졸버가 준 approver를 스탬프. `_may_resolve`: admin→전체 · `approver=="self"` AND owner
+   (`user_id==principal.id`)→자기 것 · `approver=="admin"`→admin만 · `approver is None`(레거시·메모리·
+   A2A)→기존 `can_self_approve` 폴백(**무회귀**, 단일 헬퍼 유지). **이스케이프 해소**: 인가가 approver
+   *필드*로 판정하므로 permission 문자열은 표시·감사용만(deep-reasoner P2 경고 자동 무력화).
+2. **리졸버 확장** — `resolve_tool_approval(server, tool, tools_meta, tool_policy=None) -> {permission,
+   approver}|None`. 기본(tools_meta.approval) ◁덮음◁ 오버라이드(tool_policy[cap].approval)의 required/
+   approver(있는 키만). 두 소비처(build_mcp_tools·broker.approval_for)에 tool_policy 급전.
+3. **config.toolPolicy(D1)** — AgentConfig에 `toolPolicy: dict[cap_id, {approval:{required?, approver?}}]`
+   (cap_id=`mcp:{server}/{tool}`). 검증기로 구조·크기 캡.
+4. **완화 게이트(D4) — 값 기반(TOCTOU-free)** — 에이전트 저장 시(agents CRUD) toolPolicy 오버라이드가
+   **완화 의도**(`required=false` 또는 `approver="self"`)를 표현하면 **admin(is_privileged)만** 허용,
+   아니면 403. 판정은 **오버라이드 값 자체로**(현재 도구 기본과 *무관*). ⚠️ **적대 검토(deep-reasoner) M
+   결함 반영**: "현재 기본 대비 완화 여부" 비교 기반이면, member가 아직 승인 없는 도구에 required:false를
+   심어두고(그 순간 no-op이라 통과) admin이 나중에 그 도구를 승인 필요로 조이면 stale override가 런타임에
+   승인을 끄는 **TOCTOU 우회**가 생긴다. 값 기반이면 완화 *의도의 저장 자체*가 비-admin에 막혀 어떤
+   버전·시점에도 비-admin 저작 완화가 존재 불가(activate/revert가 재적용해도 안전 — Low 결함도 무력화).
+   **감사 로그**: 완화 저장 시 구조화 로그(주체·cap). 전용 테이블은 후순위(현 인프라 없음).
+5. **UI** — 에이전트 편집기 도구 배선에서 도구별 승인 오버라이드(강화 자유·완화는 admin에게만 노출/허용).
+6. **검증** — 리졸버 매트릭스(기본×오버라이드×approver)·`_may_resolve` 단위(self/admin/None)·완화 게이트
+   RBAC(비-admin 거부·admin 허용, self-lock 핀)·적대 검토(이스케이프 해소·완화 우회·fail-closed)·브라우저.
+   `Permission.approver` 제거는 P3(죽은 설정 정리와 함께).
 
 ## OUT
 - ABAC(추후). Cedar(폐기). 승인 후 라이브 재개(개선 B, 별도). member fine-grained RBAC 정책 언어.

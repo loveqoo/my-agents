@@ -202,7 +202,7 @@ class _CapabilityProvider(Protocol):
     def node_label(self, row) -> str:  # 관측 프레임 노드명 broker_invoke:<kind>:<...>
         ...
 
-    def approval_for(self, row, cap_id: str, args: dict) -> dict | None:  # HIL 승인 payload | None
+    def approval_for(self, row, cap_id: str, args: dict, tool_policy: dict | None = None) -> dict | None:  # HIL 승인 payload | None
         ...
 
 
@@ -284,7 +284,7 @@ class AgentProvider:
     def node_label(self, row: Agent) -> str:
         return f"broker_invoke:{CAP_KIND_AGENT}:{row.name}"
 
-    def approval_for(self, row, cap_id: str, args: dict) -> dict | None:
+    def approval_for(self, row, cap_id: str, args: dict, tool_policy: dict | None = None) -> dict | None:
         """A2A 위임 승인 = **대상 Agent의 opt-in 플래그**(스펙 117). config.requires_approval가 참일 때만
         게이트(부재/거짓 = 게이트 없음 = **현동작 보존·무회귀**). MCP `_APPROVAL_ACTIONS` 옵트인의
         에이전트 단위 형제. approval_for와 invoke가 `_a2a_text`로 동일 정규화 → **승인한 것 == 전송되는 것**."""
@@ -460,23 +460,25 @@ class McpProvider:
     def node_label(self, row: _McpBacking) -> str:
         return f"broker_invoke:{CAP_KIND_MCP}:{row.server}/{row.tool_name}"
 
-    def approval_for(self, row, cap_id: str, args: dict) -> dict | None:
+    def approval_for(self, row, cap_id: str, args: dict, tool_policy: dict | None = None) -> dict | None:
         """MCP 승인 정책 = 그래프-tools 경로와 **동일 리졸버**(`resolve_tool_approval`, 스펙 177) 공유
         (드리프트 0 — 관리자가 tools_meta로 설정한 정책이 두 경로 일관 적용). 마스킹은 `_redact_args`
         재사용. 걸리지 않는 툴은 None(즉시 실행)."""
         from .runtime import _redact_args, resolve_tool_approval
 
         server, tool = _parse_mcp(cap_id)
-        permission = resolve_tool_approval(server, tool, getattr(row, "tools_meta", None))
-        if permission is None:
+        appr = resolve_tool_approval(server, tool, getattr(row, "tools_meta", None), tool_policy)
+        if appr is None:
             return None
+        approver = appr.get("approver", "admin")
         return {
-            "permission": permission,
+            "permission": appr["permission"],
+            "approver": approver,  # 스펙 177 P2 — Approval 스탬프 → _may_resolve 인가
             "server": server,
             "tool": tool,
             "action": f"{server}.{tool}",
             "args": _redact_args(args if isinstance(args, dict) else {"text": args}),
-            "summary": f"{server}.{tool} 실행 — 관리자 승인 필요",
+            "summary": f"{server}.{tool} 실행 — {'본인' if approver == 'self' else '관리자'} 승인 필요",
         }
 
 
@@ -617,7 +619,7 @@ class RagProvider:
     def node_label(self, row: _RagBacking) -> str:
         return f"broker_invoke:{CAP_KIND_RAG}:{row.name}"
 
-    def approval_for(self, row, cap_id: str, args: dict) -> dict | None:
+    def approval_for(self, row, cap_id: str, args: dict, tool_policy: dict | None = None) -> dict | None:
         return None  # RAG=읽기 전용(부수효과 없음) → 승인 게이트 불요.
 
 
@@ -726,7 +728,7 @@ class MemoryProvider:
     def node_label(self, row: _MemBacking) -> str:
         return f"broker_invoke:{CAP_KIND_MEMORY}:user"
 
-    def approval_for(self, row, cap_id: str, args: dict) -> dict | None:
+    def approval_for(self, row, cap_id: str, args: dict, tool_policy: dict | None = None) -> dict | None:
         return None  # 메모리 읽기=부수효과 없음 → 승인 게이트 불요(memory write는 스펙 105).
 
 
@@ -825,7 +827,7 @@ class MemoryWriteProvider:
     def node_label(self, row: _MemBacking) -> str:
         return f"broker_invoke:{CAP_KIND_MEMORY_WRITE}:user"
 
-    def approval_for(self, row, cap_id: str, args: dict) -> dict | None:
+    def approval_for(self, row, cap_id: str, args: dict, tool_policy: dict | None = None) -> dict | None:
         # 쓰기=부수효과 → **항상 승인**(None 절대 안 돌림). 저장될 사실을 마스킹 없이 노출(승인 가시성).
         text = _memwrite_text(args)  # invoke와 동일 헬퍼(길이 상한 일치) → 승인한 것 == 저장되는 것
         preview = text[:_MEMWRITE_PREVIEW] + ("…" if len(text) > _MEMWRITE_PREVIEW else "")
@@ -958,7 +960,7 @@ class MemEditProvider:
     def node_label(self, row: _MemBacking) -> str:
         return f"broker_invoke:{CAP_KIND_MEMORY_EDIT}:user"
 
-    def approval_for(self, row, cap_id: str, args: dict) -> dict | None:
+    def approval_for(self, row, cap_id: str, args: dict, tool_policy: dict | None = None) -> dict | None:
         # 수정/삭제=부수효과 → **항상 승인**(None 절대 안 돌림). 마스킹 없이 노출(승인 가시성).
         op, mem_id, text = _memedit_args(args)  # invoke와 동일 정규화 → 승인한 것 == 실행되는 것
         if op == "delete":
@@ -995,10 +997,12 @@ class PolicyScopedBroker:
         *,
         session_factory=SessionLocal,
         user_id: str | None = None,
+        tool_policy: dict | None = None,
     ):
         self._allow: set[str] = set(allowlist or [])
         self._rbac_allows = rbac_allows
         self._session_factory = session_factory
+        self._tool_policy = tool_policy  # 에이전트 config.toolPolicy(스펙 177 P2) — McpProvider 승인 오버라이드
         # user_id = 실행 주체(principal) 도출값 — MemoryProvider가 per-user 스코프에 씀(스펙 104).
         # cap_id·args가 아니라 여기서만 주입돼, 능력 이름으로 남을 가리킬 방법이 없다(anti-leak).
         self._providers: list[_CapabilityProvider] = [
@@ -1082,7 +1086,7 @@ class PolicyScopedBroker:
             return InvokeResult(error="capability not found", trust="untrusted")  # 존재 비노출
         # 서브스텝 HIL(§3.5): 승인 요구 cap이면 전송(부수효과) **이전** interrupt로 부모 그래프 pause.
         # interrupt는 재개 시 delegate 재실행에도 이 지점 이전 부수효과 0 = 전송 1회(멱등, 체크리스트 §7).
-        payload = provider.approval_for(row, cap_id, args)
+        payload = provider.approval_for(row, cap_id, args, self._tool_policy)
         if payload is not None:
             from langgraph.types import interrupt  # 지연 임포트(그래프 밖 호출 시 부담 0)
 
@@ -1151,7 +1155,7 @@ def _rbac_check(enforcer, subject: str, kind: str, name: str | None) -> bool:
     )
 
 
-def build_broker(principal, allowlist) -> PolicyScopedBroker:
+def build_broker(principal, allowlist, tool_policy: dict | None = None) -> PolicyScopedBroker:
     """chat.py 배선용 — principal(유저/머신)에서 RBAC 판정 클로저를 만들어 스코프된 브로커 구성.
 
     RBAC: `is_superuser` 우회(authz 패턴) 아니면 `enforce(str(id), f"capability:{kind}", "invoke")`.
@@ -1172,4 +1176,4 @@ def build_broker(principal, allowlist) -> PolicyScopedBroker:
     # user_id = 주체 도출값(스펙 104 MemoryProvider self-scope). 머신 토큰(str)은 id 없음 → None →
     # 메모리 능력 없음(rbac_allows도 deny). 어드민이어도 자기 id라 타인 기억 위임 접근 불가(에스컬레이션 X).
     uid = None if isinstance(principal, str) else str(principal.id)
-    return PolicyScopedBroker(allowlist, rbac_allows, user_id=uid)
+    return PolicyScopedBroker(allowlist, rbac_allows, user_id=uid, tool_policy=tool_policy)

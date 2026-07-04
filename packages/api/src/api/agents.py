@@ -6,6 +6,7 @@ agent.versions 는 lazy 관계라 async 세션 밖에서 로드하면 실패하�
 """
 
 import asyncio
+import logging
 import re
 import secrets
 import uuid
@@ -40,10 +41,44 @@ from .schemas import (
 from . import agent_card, crypto, net_guard
 from .auth import current_principal
 from .naming import slugify_name, validate_resource_name
-from .ownership import may_use_agent, assert_may_manage, may_manage, owner_of
+from .ownership import may_use_agent, assert_may_manage, may_manage, owner_of, is_privileged
 from .serializers import agent_to_out
 
+log = logging.getLogger("api.agents")
+
 router = APIRouter(prefix="/agents", tags=["agents"])
+
+
+def _enforce_tool_policy_gate(config: dict, principal) -> None:
+    """스펙 177 P2 D4 — `toolPolicy` **완화 의도는 관리자만**. 강화(required:true·approver:admin)는 자유.
+
+    완화 의도 = 오버라이드가 `required=false`(승인 끄기) 또는 `approver="self"`(본인 승인으로 약화). 이
+    판정은 **오버라이드 값 자체로**(현재 도구 기본과 *무관*) 한다 — 그래야 **TOCTOU가 없다**(적대 검토 M):
+    비교 기반(기본 대비 완화 여부)이면, member가 아직 승인 없는 도구에 `required:false`를 심어두고(그 순간
+    엔 no-op이라 게이트 통과) admin이 나중에 그 도구를 승인 필요로 조이면, 저장 시점엔 안 걸렸던 override가
+    런타임에 승인을 끄는 우회가 생긴다. 값 기반이면 **완화 의도를 표현하는 저장 자체가 비-admin에 막혀**
+    어떤 버전·시점에도 비-admin이 저작한 완화 override가 존재할 수 없다(promote/activate가 재적용해도 안전).
+    admin이 완화를 저장하면 감사 로그(전용 테이블 없음 — 구조화 로그로 주체·cap 기록)."""
+    tp = (config or {}).get("toolPolicy") or {}
+    if not tp:
+        return
+    relaxing: list[str] = []
+    for cap, entry in tp.items():
+        appr = entry.get("approval") if isinstance(entry, dict) else None
+        if not isinstance(appr, dict):
+            continue
+        # 검증기가 required→bool, approver→{admin,self} 정규화. required=false 또는 approver=self = 완화 의도.
+        if appr.get("required") is False or appr.get("approver") == "self":
+            relaxing.append(cap)
+    if not relaxing:
+        return
+    if not is_privileged(principal):
+        raise HTTPException(
+            status_code=403,
+            detail=f"도구 승인 완화(끄기·본인승인)는 관리자만 가능합니다: {', '.join(relaxing[:5])}",
+        )
+    log.info("audit tool-policy 완화(스펙 177 P2): user=%s relaxing=%s", owner_of(principal) or "machine", relaxing)
+
 
 # 능력 브로커 UI(스펙 106)용 메타 라우터 — `/agents/{id}`(uuid) 경로와 충돌 않게 top-level에 둔다.
 meta_router = APIRouter(tags=["agents"])
@@ -193,6 +228,7 @@ async def create_agent(
 ) -> AgentOut:
     _assert_valid_name(body.name)  # 식별 이름 규칙(스펙 148) — 서버가 진실원
     cfg = body.config.model_dump()
+    _enforce_tool_policy_gate(cfg, principal)  # 완화는 admin만(스펙 177 P2 D4)
     agent = Agent(
         agent_id=_new_agent_id(),
         name=body.name,
@@ -232,6 +268,7 @@ async def clone_agent(
         raise HTTPException(status_code=404, detail="agent not found")
     cfg = dict(src.config or {})
     cfg.pop("card", None)  # 외부 등록 스냅샷은 복사 안 함(ui 복제=행위 설정만; endpoint/token은 Agent 컬럼이라 애초 미복사)
+    _enforce_tool_policy_gate(cfg, principal)  # 완화 정책 복제도 admin만(스펙 177 P2 D4)
     clone = Agent(
         agent_id=_new_agent_id(),
         # 식별 이름은 규칙 준수+유니크로 자동 생성, 사람용 표기는 별명에(스펙 148). base 캡=접미 여유.
@@ -269,6 +306,7 @@ async def update_agent(
     assert_may_manage(agent, principal, not_found_detail="agent not found")  # 소유자/특권만(스펙 112)
 
     cfg = body.config.model_dump()
+    _enforce_tool_policy_gate(cfg, principal)  # 완화는 admin만(스펙 177 P2 D4)
     draft = next((v for v in agent.versions if v.status == "draft"), None)
     # impl(스펙 085 SDK 런타임 키)은 편집 폼이 아직 안 보내므로(SPA 미배선), 요청에 명시되지
     # 않으면 기존 값을 보존한다 — 안 그러면 Pydantic 기본 None이 덮어써 편집→활성화가 커스텀

@@ -17,6 +17,7 @@ export interface AgentConfig {
   mcps?: string[]
   impl?: string // 실행 방식(런타임 키, 스펙 085/106). 빈값/미지정=기본 UI 에이전트.
   capabilities?: string[] // 능력 브로커 allowlist(스펙 106). 오케스트레이터 impl에서 위임 대상.
+  toolPolicy?: ToolPolicy // 도구 승인 오버라이드(스펙 177 P2).
 }
 
 /* 조율형(다른 곳에 위임하는 런타임) 판정 — orchestrate/orchestrate_ranked 둘 다(구 저장분 호환).
@@ -68,6 +69,11 @@ export interface BlockCategory {
   desc: string
   items: BlockItem[]
 }
+/** 도구 승인 오버라이드(스펙 177 P2) — cap_id(`mcp:{server}/{tool}`)→승인 정책 덮어쓰기.
+ *  required 미지정=도구 기본 따름 / true·false=강화·완화. approver=admin(관리자)·self(본인). */
+export type ToolApprovalOverride = { required?: boolean; approver?: 'admin' | 'self' }
+export type ToolPolicy = Record<string, { approval?: ToolApprovalOverride }>
+
 export interface Agent {
   id: string
   name: string // 식별 이름(규칙, 스펙 148)
@@ -86,6 +92,7 @@ export interface Agent {
   mcps: string[]
   impl?: string // 실행 방식 런타임 키(스펙 085/106) — 폼 재로드/라운드트립 보존
   capabilities?: string[] // 능력 브로커 allowlist(스펙 106)
+  toolPolicy?: ToolPolicy // 도구 승인 오버라이드(스펙 177 P2) — cap_id→{approval:{required?,approver?}}
   owner_id?: string | null // 소유자(스펙 112). null=공유/레거시
   can_manage?: boolean // 관리 가능(스펙 114) — false면 편집/삭제 숨김
   exposed: { a2a: boolean }

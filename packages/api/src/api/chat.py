@@ -167,6 +167,10 @@ async def _load_context(
             # 능력 브로커 allowlist(스펙 100) — 이 에이전트가 오케스트레이션 허용된 cap id 목록.
             # 없으면 [] = deny-by-default(브로커가 발견 공집합). RBAC과 교집합해 최종 스코프.
             "capabilities": cfg.get("capabilities", []),
+            # 도구 승인 오버라이드(스펙 177 P2) — cap_id→{approval:{required?,approver?}}. 그래프-tools·
+            # 브로커 두 경로 리졸버에 급전. **요청 오버라이드 허용키(위 allowed)엔 불포함** — 요청으로
+            # 승인을 완화(우회)하지 못하게 config-only(완화 권한은 저장 시 admin 게이트로 강제).
+            "toolPolicy": cfg.get("toolPolicy") or {},
             # 에이전트가 명시한 temperature만 전달(없으면 None) → 모델 등록 params가 적용되게.
             "temperature": cfg.get("temperature"),
             "history_depth": cfg.get("historyDepth", 20),
@@ -667,7 +671,7 @@ async def stream_local_reply(agent_id: uuid.UUID, user_text: str):
     if impl is None or ctx["model_cfg"] is None:
         raise ValueError("로컬(ui) 에이전트가 아니거나 채팅 모델이 없습니다(A2A 노출 불가)")
     calls_sink: list[dict] = []
-    tools = await runtime.build_mcp_tools(ctx["mcp_servers"], calls_sink)
+    tools = await runtime.build_mcp_tools(ctx["mcp_servers"], calls_sink, ctx.get("toolPolicy"))
     if ctx["rag_collections"]:
         tools.append(runtime.build_rag_tool(ctx["rag_collections"], calls_sink))
     run_params = {} if ctx["temperature"] is None else {"temperature": ctx["temperature"]}
@@ -750,7 +754,7 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
     )
 
     calls_sink: list[dict] = []
-    tools = await runtime.build_mcp_tools(ctx["mcp_servers"], calls_sink)
+    tools = await runtime.build_mcp_tools(ctx["mcp_servers"], calls_sink, ctx.get("toolPolicy"))
     # 채팅 자가기록 도구는 제거됨(스펙 051) — agent_id 메모리는 어드민 저작 전용. 회상은 아래 유지.
     # RAG 검색 도구 — vectorTables가 실 컬렉션으로 해석됐을 때만 주입(스펙 037). mem0 비종속.
     if ctx["rag_collections"]:
@@ -771,7 +775,7 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
     # 능력 브로커(스펙 100) — 정책(에이전트 allowlist ∩ 유저 RBAC)으로 **미리 스코프**해 주입.
     # 로컬(ui) 실행 경로에만 준다: 원격 통째 프록시(_a2a_stream)는 broker 미주입(bypass 보존).
     # broker를 쓰는 flow(예: orchestrate)만 소비하고, 안 쓰면 무해(deny-by-default).
-    build_broker_scoped = build_broker(principal, ctx["capabilities"])
+    build_broker_scoped = build_broker(principal, ctx["capabilities"], ctx.get("toolPolicy"))
     build_ctx = AgentBuildContext(
         persona=persona_prompt,
         model_cfg=ctx["model_cfg"],
@@ -996,6 +1000,7 @@ async def _create_approval(
                 agent_pk=ctx["agent_pk"],
                 agent_name=ctx["agent_name"],
                 permission=payload.get("permission", ""),
+                approver=payload.get("approver"),  # 스펙 177 P2 — MCP 도구만 값 有, 그 외 None→Casbin 폴백
                 action=payload.get("action", ""),
                 args=payload.get("args", {}),
                 summary=payload.get("summary", ""),
@@ -1010,7 +1015,7 @@ async def _create_approval(
     return apid
 
 
-async def _build_resume_broker(user_id: str | None, capabilities) -> PolicyScopedBroker:
+async def _build_resume_broker(user_id: str | None, capabilities, tool_policy: dict | None = None) -> PolicyScopedBroker:
     """재개용 스코프 브로커 — 원 요청자(user_id)의 RBAC를 재구성해 request-time 게이트를 그대로 복원.
 
     build_broker(principal, ...)와 **동일 술어**를 principal 객체 없이 재현한다: superuser면 우회(원
@@ -1036,7 +1041,7 @@ async def _build_resume_broker(user_id: str | None, capabilities) -> PolicyScope
 
     # user_id 주입(스펙 104) — MemoryProvider가 재개 경로에서도 원 요청자 스코프를 복원한다. 없으면
     # 재개 시 `memory:user`가 사라져 자기 기억 접근이 깨진다(fail-closed지만 기능 회귀, 적대 리뷰 104 P2).
-    return PolicyScopedBroker(capabilities, rbac_allows, user_id=user_id)
+    return PolicyScopedBroker(capabilities, rbac_allows, user_id=user_id, tool_policy=tool_policy)
 
 
 def _impl_drifted(snap_impl: str | None, cur_impl: str | None) -> bool:
@@ -1120,7 +1125,7 @@ async def resume_approval(approval: Approval, decision: str) -> None:
     )
 
     calls_sink: list[dict] = []
-    tools = await runtime.build_mcp_tools(ctx["mcp_servers"], calls_sink)
+    tools = await runtime.build_mcp_tools(ctx["mcp_servers"], calls_sink, ctx.get("toolPolicy"))
     # 채팅 자가기록 도구 제거됨(스펙 051) — agent_id 메모리는 어드민 저작 전용. 회상(recall_scope)은 유지.
     if ctx["rag_collections"]:
         tools.append(runtime.build_rag_tool(ctx["rag_collections"], calls_sink))
@@ -1137,7 +1142,7 @@ async def resume_approval(approval: Approval, decision: str) -> None:
     # config(결정적). RBAC 축은 **원 요청자**(approval.user_id)로 재확인 — 요청 시 이미 통과했고 유저
     # 축은 재개 사이 불변. user_id None(머신 발)은 요청 시 build_broker가 이미 거부해 브로커 interrupt
     # 자체가 안 생기므로 여기 도달 시 항상 존재(그 경우만 deny로 안전측). superuser 우회도 원 요청과 동일 보존.
-    resume_broker = await _build_resume_broker(approval.user_id, ctx["capabilities"])
+    resume_broker = await _build_resume_broker(approval.user_id, ctx["capabilities"], ctx.get("toolPolicy"))
     build_ctx = AgentBuildContext(
         persona=persona_prompt,
         model_cfg=ctx["model_cfg"],

@@ -47,11 +47,12 @@ class P:
 
 
 class A:
-    """Approval 모사 — 인가에 쓰는 필드(user_id·permission)만."""
+    """Approval 모사 — 인가에 쓰는 필드(user_id·permission·approver)만."""
 
-    def __init__(self, user_id, permission):
+    def __init__(self, user_id, permission, approver=None):
         self.user_id = user_id
         self.permission = permission
+        self.approver = approver  # 스펙 177 P2 — None=Casbin 폴백, "admin"/"self"=필드 판정
 
 
 class FakeEnforcer:
@@ -111,6 +112,27 @@ check(
     AP._may_resolve(A(str(member2.id), "data.read"), member2) is False,
     "M2(T7): 정책 없는 member가 자기 data.read → 거부(정책 부재=fail-closed)",
 )
+
+# ---- M5. approver 연결(스펙 177 P2) — approver 스탬프가 Casbin보다 우선(도구 정책 일원화) ----
+# approver="self" + owner → True(자기 것). 정책 부재 perm이어도 approver 필드가 권위(이스케이프 무관).
+check(AP._may_resolve(A(m1, "mcp.local-tools.delete_record", approver="self"), member) is True,
+      "M5: approver=self + owner → 허용(정책 없는 perm이어도 필드가 권위)")
+# approver="self" + 타인 → False(교차유저 차단).
+check(AP._may_resolve(A(m1, "mcp.x.y", approver="self"), member2) is False,
+      "M5: approver=self + 비-owner → 거부")
+# approver="self" + NULL-owner → False(fail-closed).
+check(AP._may_resolve(A(None, "mcp.x.y", approver="self"), member) is False,
+      "M5: approver=self + NULL-owner → 거부(fail-closed)")
+# approver="admin" + owner(member) → False(관리자만).
+check(AP._may_resolve(A(m1, "mcp.x.y", approver="admin"), member) is False,
+      "M5: approver=admin + 비-admin owner → 거부(관리자만)")
+# approver="admin" + casbin-admin → True(admin 우회).
+check(AP._may_resolve(A(m1, "mcp.x.y", approver="admin"), admin) is True,
+      "M5: approver=admin + admin → 허용")
+# approver="admin"이 Casbin self_approve보다 **우선** — data.read는 member self_approve 정책이 있으나
+# approver=admin으로 스탬프되면 admin만(도구 정책이 진실원, 스펙 177 D3).
+check(AP._may_resolve(A(m1, "data.read", approver="admin"), member) is False,
+      "M5: approver=admin이 Casbin self_approve를 덮음(도구 정책 우선)")
 
 # ---- M3. _own_scope ----
 check(AP._own_scope(machine) is None, "M3: 머신 → 전체(스코프 None)")
