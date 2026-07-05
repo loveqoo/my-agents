@@ -154,6 +154,8 @@ export interface Approval {
   checkpoint: string
   status?: string
   approver?: 'admin' | 'self' | null // 승인자(스펙 177 P2) — 태그 표기(본인/관리자 승인)
+  resolvedAt?: string | null // 처리 시각(스펙 181, 감사) — 미처리면 없음
+  resolvedBySelf?: boolean | null // 처리자=요청자면 true(본인), 다르면 false(관리자), 미처리 null
 }
 export interface StatusMeta {
   label: string

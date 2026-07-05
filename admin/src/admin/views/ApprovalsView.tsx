@@ -2,7 +2,7 @@
    LangGraph run is paused at a checkpoint (interrupt) awaiting an admin decision.
    Approve → resume from checkpoint; Reject → abort the run. */
 import { useState, useEffect } from 'react'
-import { Tag, Button, Avatar, Alert, message } from 'antd'
+import { Tag, Button, Avatar, Alert, message, Segmented } from 'antd'
 import { Page, Panel } from '../shared'
 import { Icon } from '../icons'
 import { type Approval } from '../mockData'
@@ -95,8 +95,57 @@ function ApprovalCard({
   )
 }
 
+// 처리됨(감사) 카드 — 읽기 전용. 결과·처리 시각·처리자(본인/관리자)를 보여준다(스펙 181).
+function HistoryCard({ item }: { item: Approval }) {
+  const approved = item.status === 'approved'
+  return (
+    <Panel style={{ padding: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 18px', borderBottom: '1px solid var(--color-border-secondary)' }}>
+        <Avatar size="small" style={{ background: 'var(--gray-12)' }}>
+          <Icon name="robot" size={13} />
+        </Avatar>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 500, color: 'var(--color-text-heading)' }}>{item.agent}</div>
+          <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+            <code style={{ fontFamily: 'var(--font-family-code)' }}>{item.sessionId}</code>
+          </div>
+        </div>
+        <Tag color={approved ? 'green' : 'red'}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <Icon name={approved ? 'check' : 'close'} size={11} />
+            {approved ? '승인됨' : '거부됨'}
+          </span>
+        </Tag>
+      </div>
+      <div style={{ padding: '14px 18px' }}>
+        <div style={{ fontSize: 14, color: 'var(--color-text-heading)', marginBottom: 10 }}>{item.summary}</div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+          <Tag color="geekblue">{item.permission}</Tag>
+          <Tag color="cyan">
+            <code style={{ fontFamily: 'var(--font-family-code)' }}>{item.action}</code>
+          </Tag>
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', lineHeight: 1.8 }}>
+          <div>
+            <Icon name={item.resolvedBySelf ? 'user' : 'lock'} size={12} style={{ marginRight: 6, verticalAlign: '-2px' }} />
+            {item.resolvedBySelf ? '본인 처리' : '관리자 처리'}
+          </div>
+          <div>
+            <Icon name="clock-circle" size={12} style={{ marginRight: 6, verticalAlign: '-2px' }} />
+            처리 시각 {item.resolvedAt ?? '—'}
+          </div>
+          <div style={{ color: 'var(--color-text-quaternary)' }}>요청 {item.requestedAt}</div>
+        </div>
+      </div>
+    </Panel>
+  )
+}
+
 export default function ApprovalsView({ onPendingChange }: { onPendingChange?: (n: number) => void } = {}) {
   const [queue, setQueue] = useState<Approval[]>([])
+  const [tab, setTab] = useState<'pending' | 'resolved'>('pending') // 대기 중 / 처리됨(스펙 181)
+  const [history, setHistory] = useState<Approval[]>([])
+  const [historyLoaded, setHistoryLoaded] = useState(false)
   const [toast, setToast] = useState<{ type: 'success' | 'warning'; msg: string } | null>(null)
   useEffect(() => {
     if (!toast) return
@@ -122,9 +171,30 @@ export default function ApprovalsView({ onPendingChange }: { onPendingChange?: (
     }
   }, [])
 
+  // 처리됨 탭 진입 시(또는 처리 후 무효화되면) 이력 로드 — 전체 조회에서 pending 제외, 처리 시각 최근순.
+  // listApprovals는 소유 스코프(일반 유저=자기 것)라 이력도 자동으로 자기 것만.
+  useEffect(() => {
+    if (tab !== 'resolved' || historyLoaded) return
+    let alive = true
+    listApprovals()
+      .then((items) => {
+        if (!alive) return
+        const done = items
+          .filter((a) => a.status && a.status !== 'pending')
+          .sort((a, b) => (b.resolvedAt ?? '').localeCompare(a.resolvedAt ?? ''))
+        setHistory(done)
+        setHistoryLoaded(true)
+      })
+      .catch((e: unknown) => alive && message.error(e instanceof Error ? e.message : '승인 내역을 불러오지 못했습니다.'))
+    return () => {
+      alive = false
+    }
+  }, [tab, historyLoaded])
+
   const resolve = async (item: Approval, decision: 'approve' | 'reject') => {
     try {
       await resolveApproval(item.id, decision)
+      setHistoryLoaded(false) // 처리됨 목록 무효화 — 다음 진입 시 이 건 포함해 재조회
       // 함수형 updater로 최신 큐에서 제거(연속 resolve 시 stale 클로저가 항목을 되살리지
       // 않게) + 외부 콜백 onPendingChange는 리듀서 밖에서 1회 호출(StrictMode 이중 호출
       // 노출 방지). 길이는 멱등한 로컬 캡처로 전달(적대 리뷰 045).
@@ -146,16 +216,40 @@ export default function ApprovalsView({ onPendingChange }: { onPendingChange?: (
   }
 
   return (
-    <Page title="승인" subtitle="체크포인트에서 일시정지된 승인 작업 — 관리자/본인 결정을 기다립니다">
-      {queue.length === 0 ? (
+    <Page title="승인" subtitle="체크포인트에서 일시정지된 승인 작업 — 대기 중 결정 + 처리 내역">
+      <div style={{ marginBottom: 16 }}>
+        <Segmented
+          value={tab}
+          onChange={(v) => setTab(v as 'pending' | 'resolved')}
+          options={[
+            { label: `대기 중${queue.length ? ` (${queue.length})` : ''}`, value: 'pending' },
+            { label: '처리됨', value: 'resolved' },
+          ]}
+        />
+      </div>
+
+      {tab === 'pending' ? (
+        queue.length === 0 ? (
+          <Panel style={{ padding: '56px 24px', textAlign: 'center', color: 'var(--color-text-tertiary)' }}>
+            <Icon name="check-circle" size={30} style={{ color: 'var(--color-success)' }} />
+            <div style={{ marginTop: 10, fontSize: 14 }}>대기 중인 승인이 없습니다. 모두 처리됐어요.</div>
+          </Panel>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: 16, alignItems: 'start' }}>
+            {queue.map((item) => (
+              <ApprovalCard key={item.id} item={item} onResolve={resolve} />
+            ))}
+          </div>
+        )
+      ) : history.length === 0 ? (
         <Panel style={{ padding: '56px 24px', textAlign: 'center', color: 'var(--color-text-tertiary)' }}>
-          <Icon name="check-circle" size={30} style={{ color: 'var(--color-success)' }} />
-          <div style={{ marginTop: 10, fontSize: 14 }}>대기 중인 승인이 없습니다. 모두 처리됐어요.</div>
+          <Icon name="clock-circle" size={30} />
+          <div style={{ marginTop: 10, fontSize: 14 }}>처리된 승인 내역이 아직 없습니다.</div>
         </Panel>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: 16, alignItems: 'start' }}>
-          {queue.map((item) => (
-            <ApprovalCard key={item.id} item={item} onResolve={resolve} />
+          {history.map((item) => (
+            <HistoryCard key={item.id} item={item} />
           ))}
         </div>
       )}

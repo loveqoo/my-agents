@@ -160,4 +160,7 @@ def approval_to_out(p: Approval, agent_external_id: str | None = None) -> Approv
         status=p.status,
         requestedAt=_iso(p.requested_at),
         approver=p.approver,
+        resolvedAt=_iso(p.resolved_at),  # 스펙 181(감사)
+        # 처리자==요청자면 본인 승인. 미처리(resolved_by None)면 None. 원 UUID는 노출 안 함.
+        resolvedBySelf=(p.resolved_by == p.user_id) if p.resolved_by is not None else None,
     )

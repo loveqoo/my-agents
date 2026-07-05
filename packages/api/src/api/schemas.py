@@ -614,6 +614,8 @@ class ApprovalOut(BaseModel):
     status: str
     requestedAt: str | None = None
     approver: str | None = None  # 승인자(스펙 177 P2) — "admin"=관리자·"self"=본인. UI 태그 표기용.
+    resolvedAt: str | None = None  # 처리 시각(스펙 181, 감사) — 미처리면 None
+    resolvedBySelf: bool | None = None  # 처리자=요청자면 True(본인), 다르면 False(관리자), 미처리 None
 
 
 class ResolveIn(BaseModel):

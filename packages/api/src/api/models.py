@@ -346,6 +346,10 @@ class Approval(Base):
     impl: Mapped[str | None] = mapped_column(String(120), default=None)
     status: Mapped[str] = mapped_column(String(20), default="pending")  # pending|approved|rejected
     requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # 처리 감사(스펙 181) — resolve 시 스탬프. NULL=미처리 또는 레거시(마이그레이션 이전 행).
+    # resolved_by=처리자 user_id str. user_id(요청자)와 같으면 본인 승인, 다르면 관리자 처리.
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    resolved_by: Mapped[str | None] = mapped_column(String(80), default=None)
 
 
 # ----------------------------- 인증·권한 (스펙 031) -----------------------------

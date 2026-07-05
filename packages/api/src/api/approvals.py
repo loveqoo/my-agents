@@ -5,7 +5,7 @@ approve면 위험 도구 실행 후 마무리, reject면 미실행 마무리. �
 """
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import case, select, update
+from sqlalchemy import case, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from . import authz
@@ -123,7 +123,9 @@ async def resolve_approval(
     res = await session.execute(
         update(Approval)
         .where(Approval.approval_id == approval_id, Approval.status == "pending")
-        .values(status=new_status)
+        # 처리 감사(스펙 181) — status와 같은 원자 UPDATE에 처리 시각·처리자를 함께 박는다
+        # (별도 write 입구 안 늘림). resolved_by가 user_id(요청자)와 같으면 본인 승인.
+        .values(status=new_status, resolved_at=func.now(), resolved_by=str(principal.id))
     )
     if res.rowcount == 0:
         raise HTTPException(
