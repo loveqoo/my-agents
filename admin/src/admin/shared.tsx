@@ -1,8 +1,8 @@
 /* Admin 콘솔 공유 UI 헬퍼 — 여러 뷰에서 재사용.
    handoff 번들 ui_kits/admin/adminShared.jsx를 진짜 antd 6/React+TS로 재현.
    토큰은 theme.css의 CSS 변수를 그대로 참조한다. */
-import { type ReactNode, type CSSProperties, useRef, useState, useEffect } from 'react'
-import { Tag, Button, Switch, Grid, Drawer as AntDrawer } from 'antd'
+import { type ReactNode, type CSSProperties } from 'react'
+import { Tag, Button, Switch, Grid, Drawer as AntDrawer, Table as AntTable, type TableColumnsType } from 'antd'
 import { Icon } from './icons'
 import { VERSION_STATUS, type VersionMeta } from './mockData'
 
@@ -126,24 +126,9 @@ export function DataTable<T>({
 }) {
   const cell = (r: T, k: string) => (r as Record<string, unknown>)[k]
   const screens = Grid.useBreakpoint()
-  // 데스크톱 표에서만 저우선 컬럼을 좁은 폭에서 숨겨 가로 overflow를 완화한다(스펙 095).
-  // 훅은 모바일 early-return보다 앞에서 무조건 호출(순서 고정).
-  const wrapRef = useRef<HTMLDivElement>(null)
-  const [overflowing, setOverflowing] = useState(false)
+  // 저우선 컬럼은 좁은 폭에서 숨겨 가로 overflow 완화(스펙 095) — antd responsive 대신 기존
+  // hideBelow 시맨틱을 여기서 그대로 적용(호출부 무변경).
   const visibleColumns = columns.filter((c) => !c.hideBelow || screens[c.hideBelow])
-  const lastIdx = visibleColumns.length - 1
-  // 마지막 컬럼이 title 없으면(=액션) 자동 오른쪽 고정. 명시 fixed:'right'도 존중.
-  const isStickyRight = (c: Column<T>, i: number) => c.fixed === 'right' || (!c.title && i === lastIdx)
-  // 래퍼가 실제로 가로로 넘칠 때만 sticky 셀에 왼쪽 그림자("더 있음")를 켠다.
-  useEffect(() => {
-    const el = wrapRef.current
-    if (!el) return
-    const check = () => setOverflowing(el.scrollWidth > el.clientWidth + 1)
-    check()
-    const ro = new ResizeObserver(check)
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [visibleColumns.length, rows])
 
   // 모바일: 가로 스크롤 표 대신 행을 카드로 — 1열은 헤더, 나머지는 라벨:값, 빈 title(액션)은 라벨 없이.
   // 카드 스택 전환점 lg(992) — 컬럼 많은 표는 768~992 태블릿 구간에서도 비좁다(스펙 145 실측:
@@ -199,108 +184,52 @@ export function DataTable<T>({
     )
   }
 
-  // 오른쪽 고정 셀 공통 스타일 — 불투명 배경으로 스크롤된 셀이 비치지 않게, overflow일 때만 왼쪽 그림자.
-  const stickyStyle = (bg: string): CSSProperties => ({
-    position: 'sticky',
-    right: 0,
-    zIndex: 1,
-    background: bg,
-    boxShadow: overflowing ? 'inset 8px 0 8px -8px rgba(0,0,0,0.16)' : undefined,
-  })
+  // 데스크톱: antd Table 채택(스펙 187 Phase 2) — hover·헤더 스타일·a11y·빈 상태를 antd가 제공,
+  // 커스텀 sticky·ResizeObserver 재구현 제거. prop API는 그대로(호출부 무변경).
+  // subRow(스펙 146)는 expandable로 매핑: 전 행 강제 확장 + 확장 컬럼 숨김 = 상시 2줄 행.
+  // theme.css의 .dt-antd-sub 규칙이 본행-보조행 경계를 지워 "두 줄이 한 몸" 룩을 보존한다.
+  type Row = Record<string, unknown>
+  const data = rows as unknown as Row[]
+  const antdColumns: TableColumnsType<Row> = visibleColumns.map((c) => ({
+    key: c.key,
+    title: c.title,
+    dataIndex: c.key,
+    width: c.width,
+    align: c.align,
+    render: c.render ? (_: unknown, r: Row) => c.render!(r as unknown as T) : undefined,
+  }))
   return (
     <Panel>
-      <div ref={wrapRef} style={{ overflowX: 'auto' }}>
-      {/* 반응형(스펙 145): tableLayout fixed — 컬럼이 컨테이너 폭을 나눠 갖고(내용의 min-content가
-          표를 못 늘림) 셀 내용은 overflowWrap으로 줄바꿈. 래퍼 overflowX는 안전망으로만. */}
-      <table className="dt-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14, tableLayout: 'fixed' }}>
-        <thead>
-          <tr style={{ color: 'var(--color-text-secondary)', textAlign: 'left', background: 'var(--gray-2)' }}>
-            {visibleColumns.map((c, i) => (
-              <th
-                key={c.key}
-                style={{
-                  padding: '11px 16px', fontWeight: 500, width: c.width, textAlign: c.align || 'left', whiteSpace: 'nowrap',
-                  ...(isStickyRight(c, i) ? stickyStyle('var(--gray-2)') : null),
-                }}
-              >
-                {c.title}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        {rows.length === 0 ? (
-          <tbody>
-            <tr>
-              <td
-                colSpan={visibleColumns.length}
-                style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--color-text-tertiary)' }}
-              >
-                {empty}
-              </td>
-            </tr>
-          </tbody>
-        ) : (
-          rows.map((r) => (
-              // 행 단위 tbody(스펙 146) — subRow가 있으면 두 tr이 한 몸(hover·클릭·경계 공유).
-              <tbody
-                key={String(cell(r, rowKey))}
-                onClick={onRowClick ? () => onRowClick(r) : undefined}
-                style={{ borderTop: '1px solid var(--color-border-secondary)', cursor: onRowClick ? 'pointer' : 'default' }}
-                onMouseEnter={(e) => {
-                  if (!onRowClick) return
-                  e.currentTarget.querySelectorAll<HTMLElement>('tr').forEach((tr) => {
-                    tr.style.background = 'var(--color-fill-quaternary)'
-                  })
-                  // sticky 셀은 불투명 배경이라 hover색이 안 비침 → 직접 맞춘다.
-                  e.currentTarget.querySelectorAll<HTMLElement>('td[data-sticky]').forEach((td) => {
-                    td.style.background = 'var(--color-fill-quaternary)'
-                  })
-                }}
-                onMouseLeave={(e) => {
-                  if (!onRowClick) return
-                  e.currentTarget.querySelectorAll<HTMLElement>('tr').forEach((tr) => {
-                    tr.style.background = 'transparent'
-                  })
-                  e.currentTarget.querySelectorAll<HTMLElement>('td[data-sticky]').forEach((td) => {
-                    td.style.background = 'var(--color-bg-container)'
-                  })
-                }}
-              >
-              <tr>
-                {visibleColumns.map((c, i) => (
-                  <td
-                    key={c.key}
-                    data-sticky={isStickyRight(c, i) ? '' : undefined}
-                    rowSpan={subRow && isStickyRight(c, i) ? 2 : undefined}
-                    style={{
-                      padding: subRow ? '13px 16px 4px' : '13px 16px', textAlign: c.align || 'left', color: 'var(--color-text)',
-                      overflowWrap: 'anywhere', // 반응형(스펙 145) — 좁은 폭에선 내용이 줄바꿈
-                      ...(subRow && !isStickyRight(c, i) ? { borderBottom: 'none' } : null),
-                      ...(isStickyRight(c, i) ? { ...stickyStyle('var(--color-bg-container)'), verticalAlign: 'middle', padding: '13px 16px' } : null),
-                    }}
+      <AntTable<Row>
+        className={subRow ? 'dt-antd dt-antd-sub' : 'dt-antd'}
+        dataSource={data}
+        columns={antdColumns}
+        rowKey={(r) => String(r[rowKey])}
+        pagination={false}
+        tableLayout="fixed"
+        locale={{ emptyText: empty }}
+        onRow={(r) => ({
+          onClick: onRowClick ? () => onRowClick(r as unknown as T) : undefined,
+          style: onRowClick ? { cursor: 'pointer' } : undefined,
+        })}
+        expandable={
+          subRow
+            ? {
+                expandedRowRender: (r) => (
+                  <div
+                    onClick={onRowClick ? () => onRowClick(r as unknown as T) : undefined}
+                    style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center', cursor: onRowClick ? 'pointer' : 'default' }}
                   >
-                    {c.render ? c.render(r) : (cell(r, c.key) as ReactNode)}
-                  </td>
-                ))}
-              </tr>
-              {subRow ? (
-                <tr>
-                  {/* 보조 줄(스펙 146) — 액션(마지막 sticky) 컬럼을 뺀 전체 폭. */}
-                  <td
-                    colSpan={visibleColumns.length - 1}
-                    style={{ padding: '0 16px 13px', overflowWrap: 'anywhere' }}
-                  >
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-                      {subRow(r)}
-                    </div>
-                  </td>
-                </tr>
-              ) : null}
-              </tbody>
-          ))
-        )}
-      </table>
-      </div>
+                    {subRow(r as unknown as T)}
+                  </div>
+                ),
+                // defaultExpandAllRows는 최초 렌더만 반영 — 생성으로 추가된 행도 펼치려면 controlled.
+                expandedRowKeys: data.map((r) => String(r[rowKey])),
+                showExpandColumn: false,
+              }
+            : undefined
+        }
+      />
     </Panel>
   )
 }

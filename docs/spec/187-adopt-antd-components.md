@@ -25,9 +25,20 @@
   ALL PASS) + 컬렉션·세션·블록(`verify-antd-drawer-187` ALL PASS) 열림·내용·pageerror 0 · 스샷 시각 확인
   (antd 표준 크롬·footer 우측정렬). 부수효과: 166 회고의 "커스텀 Drawer 셀렉터 함정"도 해소(이제 표준 `.ant-drawer`).
 
-## Phase 2 — DataTable → antd Table (예정)
-2줄 subRow(스펙 146)=antd `expandable`+defaultExpandAll 또는 셀 내 렌더, 커스텀 `Column`→antd 컬럼 매핑,
-`onRowClick`→`onRow`. 난이도 높음 — 별도 단계·전수 검증.
+## Phase 2 — DataTable → antd Table · 완료·검증
+데스크톱 표 분기(커스텀 ~110줄: sticky·ResizeObserver·수동 hover·행별 tbody)를 antd `Table`로 교체.
+**모바일 카드 분기(<lg)는 유지** — 표가 아니라 카드 레이아웃(스펙 145의 의도된 설계)이라 antd Table
+대상이 아님. prop API(columns/rows/onRowClick/rowKey/empty/subRow) 유지 → 호출부 8파일 무변경.
+- 매핑: `Column<T>`→antd columns(key/title/width/align/render 래핑) · `hideBelow`→기존 필터 유지(호출부
+  무변경) · `onRowClick`→`onRow` · `empty`→`locale.emptyText` · **subRow(스펙 146)→`expandable`**
+  (controlled `expandedRowKeys`=전 행 — defaultExpandAllRows는 최초 렌더만이라 생성 행 누락,
+  `showExpandColumn:false`, 보조줄 클릭도 onRowClick 배선).
+- theme.css: `.dt-table`→`.dt-antd` 셀렉터 갱신(Tag 줄바꿈, 스펙 145) + `.dt-antd-sub` 규칙(본행
+  하단 경계 제거·확장행 배경/패딩 본행과 통일)으로 "두 줄이 한 몸" 룩 보존.
+- 제거: sticky/overflow ResizeObserver·수동 hover 로직. shared.tsx 480→409줄(누적 575→409).
+  antd가 제공: hover·헤더 스타일·빈 상태(Empty)·a11y.
+- **검증**: tsc 0 · 브라우저 3종 전수 ALL PASS(에이전트 리스트+드로어3+폼 / 생성→삭제 왕복+토스트 /
+  컬렉션·세션·블록 행클릭→드로어) · 스샷 시각(에이전트 2줄 행 한 몸 유지·컬렉션 표·모바일 카드 분기 렌더).
 
 ## Phase 3 — Desc → antd Descriptions (예정, 선택)
 호출부 50곳이 per-row `<Desc>`라 antd `Descriptions`(그리드 컨테이너)로는 그룹 재구성 필요. 이득 대비

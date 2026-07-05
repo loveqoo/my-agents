@@ -117,9 +117,20 @@ body {
 }
 
 /* 반응형 표 셀(스펙 145 후속) — antd Tag는 기본 nowrap이라 fixed 레이아웃 셀을 삐져나간다.
-   표 셀 안에서만 줄바꿈을 허용해 이웃 컬럼 침범을 막는다(사용자 스크린샷 보고). */
-.dt-table td .ant-tag {
+   표 셀 안에서만 줄바꿈을 허용해 이웃 컬럼 침범을 막는다(사용자 스크린샷 보고).
+   (스펙 187 Phase 2: 커스텀 .dt-table → antd Table(.dt-antd) 채택에 맞춰 셀렉터 갱신) */
+.dt-antd .ant-table-cell .ant-tag {
   white-space: normal;
   overflow-wrap: anywhere;
   height: auto;
+}
+
+/* subRow 2줄 행(스펙 146)을 antd expandable로 매핑(스펙 187 Phase 2) — 본행과 보조행(확장행)이
+   "한 몸"으로 보이도록: 본행 하단 경계 제거(경계는 보조행이 담당), 보조행 배경·패딩을 본행에 맞춤. */
+.dt-antd-sub .ant-table-tbody > tr.ant-table-row > td {
+  border-bottom: none;
+}
+.dt-antd-sub .ant-table-tbody > tr.ant-table-expanded-row > td {
+  background: var(--color-bg-container);
+  padding-top: 4px;
 }
