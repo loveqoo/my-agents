@@ -759,6 +759,7 @@ export interface EvalDataset {
   description: string | null
   kind: 'agent' | 'rag'
   case_count: number
+  can_manage?: boolean
 }
 export interface EvalAssert {
   type: 'trace_has' | 'trace_lacks' | 'output_contains' | 'no_error' | 'output_nonempty' | 'llm_judge' | 'rag_hits_gte' | 'rag_score_gte' | 'rag_source_contains'
@@ -786,6 +787,7 @@ export interface EvalRunT {
   error: string | null
   started_at: string
   finished_at: string | null
+  can_manage?: boolean
 }
 export interface EvalCaseResultT {
   case_name: string

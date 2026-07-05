@@ -1,27 +1,30 @@
-"""평가 하네스 제품화 라우터 — 문제집/케이스 CRUD + 실행/성적표 (스펙 137, admin 보호).
+"""평가 하네스 제품화 라우터 — 문제집/케이스 CRUD + 실행/성적표 (스펙 137·178).
 
-authz는 admin(*,*)이 ("eval",*)을 커버(batch_routes 미러 — 1탄은 admin 전용이 안전 기본값,
-member 개방은 후속 논의). asserts는 선언적 JSON → `eval_harness.build_asserts`가 **닫힌 type
-집합**으로 검증(미지 type=400, 조용한 통과 금지 — 평가는 fail-closed).
+**인가(스펙 178)**: 컬렉션 패턴 = **읽기 공개·관리 소유자**. require("eval",*) admin 게이트를 제거하고
+current_principal + ownership.py 술어로 전환 — 멤버가 본인 문제집·본인 쓸 수 있는 에이전트를 자율 평가.
+읽기(list/get)는 전 유저 공개(D1), 관리(생성/수정/삭제/실행/출제)는 소유자만(비소유 404-fold). 실행·출제
+대상 에이전트는 may_use_agent 게이트(남의 private 평가 차단). asserts는 선언적 JSON →
+`eval_harness.build_asserts`가 **닫힌 type 집합**으로 검증(미지 type=400 — 평가는 fail-closed).
 """
 
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from . import authz
+from .auth import current_principal
 from .db import get_session
 from .eval_harness import build_asserts
 from .models import EvalCase, EvalDataset
-from .ownership import owner_of
+from .ownership import assert_may_manage, is_privileged, may_manage, may_use_agent, owner_of
 
 router = APIRouter(prefix="/eval", tags=["eval"])
 
-_manage = Depends(authz.require("eval", "manage"))
-_run_dep = Depends(authz.require("eval", "run"))
+# 스펙 178: 평가는 소유 기반(컬렉션 패턴 = 읽기 공개·관리 소유자). require("eval",*) admin 게이트를
+# 제거하고 current_principal + ownership.py 술어로 전환 — 멤버가 본인 문제집·본인 쓸 수 있는 에이전트를
+# 자율 평가. 읽기(list/get)는 전 유저 공개(D1), 관리(생성/수정/삭제/실행)는 소유자만(비소유 404-fold).
 
 
 # ----------------------------- 스키마 -----------------------------
@@ -37,6 +40,7 @@ class DatasetOut(BaseModel):
     description: str | None
     kind: str
     case_count: int = 0
+    can_manage: bool = True  # 스펙 178 — 이 유저가 수정/삭제/실행 가능(소유자·특권). UI 버튼 게이트
 
 
 class CaseIn(BaseModel):
@@ -74,7 +78,7 @@ async def _dataset_or_404(session: AsyncSession, dataset_id: uuid.UUID) -> EvalD
 # ----------------------------- 데이터셋 CRUD -----------------------------
 @router.get("/datasets", response_model=list[DatasetOut])
 async def list_datasets(
-    session: AsyncSession = Depends(get_session), user=_manage
+    session: AsyncSession = Depends(get_session), user=Depends(current_principal)
 ) -> list[DatasetOut]:
     rows = (
         await session.execute(
@@ -85,14 +89,15 @@ async def list_datasets(
         )
     ).all()
     return [
-        DatasetOut(id=d.id, name=d.name, description=d.description, kind=d.kind, case_count=n)
+        DatasetOut(id=d.id, name=d.name, description=d.description, kind=d.kind, case_count=n,
+                   can_manage=may_manage(d.owner_id, user))  # 읽기는 전원, 관리 버튼은 소유자만
         for d, n in rows
     ]
 
 
 @router.post("/datasets", response_model=DatasetOut, status_code=201)
 async def create_dataset(
-    body: DatasetIn, session: AsyncSession = Depends(get_session), user=_manage
+    body: DatasetIn, session: AsyncSession = Depends(get_session), user=Depends(current_principal)
 ) -> DatasetOut:
     ds = EvalDataset(
         name=body.name, description=body.description, kind=body.kind, owner_id=owner_of(user)
@@ -111,9 +116,10 @@ async def update_dataset(
     dataset_id: uuid.UUID,
     body: DatasetIn,
     session: AsyncSession = Depends(get_session),
-    user=_manage,
+    user=Depends(current_principal),
 ) -> DatasetOut:
     ds = await _dataset_or_404(session, dataset_id)
+    assert_may_manage(ds, user, not_found_detail="dataset not found")  # 소유자만(비소유 404-fold)
     ds.name, ds.description, ds.kind = body.name, body.description, body.kind
     await session.commit()
     n = (
@@ -124,9 +130,10 @@ async def update_dataset(
 
 @router.delete("/datasets/{dataset_id}", status_code=204)
 async def delete_dataset(
-    dataset_id: uuid.UUID, session: AsyncSession = Depends(get_session), user=_manage
+    dataset_id: uuid.UUID, session: AsyncSession = Depends(get_session), user=Depends(current_principal)
 ) -> None:
     ds = await _dataset_or_404(session, dataset_id)
+    assert_may_manage(ds, user, not_found_detail="dataset not found")  # 소유자만(비소유 404-fold)
     await session.delete(ds)  # cases·runs CASCADE
     await session.commit()
 
@@ -134,7 +141,7 @@ async def delete_dataset(
 # ----------------------------- 케이스 CRUD -----------------------------
 @router.get("/datasets/{dataset_id}/cases", response_model=list[CaseOut])
 async def list_cases(
-    dataset_id: uuid.UUID, session: AsyncSession = Depends(get_session), user=_manage
+    dataset_id: uuid.UUID, session: AsyncSession = Depends(get_session), user=Depends(current_principal)
 ) -> list[CaseOut]:
     await _dataset_or_404(session, dataset_id)
     rows = (
@@ -152,9 +159,10 @@ async def create_case(
     dataset_id: uuid.UUID,
     body: CaseIn,
     session: AsyncSession = Depends(get_session),
-    user=_manage,
+    user=Depends(current_principal),
 ) -> CaseOut:
-    await _dataset_or_404(session, dataset_id)
+    ds = await _dataset_or_404(session, dataset_id)
+    assert_may_manage(ds, user, not_found_detail="dataset not found")  # 문제집 소유자만 케이스 추가
     _validate_asserts(body.asserts)
     case = EvalCase(
         dataset_id=dataset_id, name=body.name, input=body.input,
@@ -167,11 +175,15 @@ async def create_case(
 
 @router.patch("/cases/{case_id}", response_model=CaseOut)
 async def update_case(
-    case_id: uuid.UUID, body: CaseIn, session: AsyncSession = Depends(get_session), user=_manage
+    case_id: uuid.UUID, body: CaseIn, session: AsyncSession = Depends(get_session), user=Depends(current_principal)
 ) -> CaseOut:
     case = await session.get(EvalCase, case_id)
     if case is None:
         raise HTTPException(status_code=404, detail="case not found")
+    ds = await session.get(EvalDataset, case.dataset_id)  # 케이스는 owner 없음 — 부모 문제집으로 판정
+    if ds is None:
+        raise HTTPException(status_code=404, detail="case not found")
+    assert_may_manage(ds, user, not_found_detail="case not found")  # 소유자만(비소유 404-fold)
     _validate_asserts(body.asserts)
     case.name, case.input, case.asserts, case.order_idx = (
         body.name, body.input, body.asserts, body.order_idx,
@@ -182,11 +194,15 @@ async def update_case(
 
 @router.delete("/cases/{case_id}", status_code=204)
 async def delete_case(
-    case_id: uuid.UUID, session: AsyncSession = Depends(get_session), user=_manage
+    case_id: uuid.UUID, session: AsyncSession = Depends(get_session), user=Depends(current_principal)
 ) -> None:
     case = await session.get(EvalCase, case_id)
     if case is None:
         raise HTTPException(status_code=404, detail="case not found")
+    ds = await session.get(EvalDataset, case.dataset_id)  # 부모 문제집으로 소유 판정
+    if ds is None:
+        raise HTTPException(status_code=404, detail="case not found")
+    assert_may_manage(ds, user, not_found_detail="case not found")  # 소유자만(비소유 404-fold)
     await session.delete(case)
     await session.commit()
 
@@ -199,6 +215,64 @@ from .db import SessionLocal  # noqa: E402
 from .eval_harness import EvalCase as HarnessCase, run_eval  # noqa: E402
 from .eval_runner import eval_run_agent  # noqa: E402
 from .models import Agent, EvalCaseResult, EvalRun  # noqa: E402
+
+# 스펙 178 비용 가드 — 비특권(멤버) 자율 실행이 실모델을 폭주시키지 않게. 특권(admin)은 무제한.
+_MEMBER_MAX_CONCURRENT_RUNS = 2  # 유저당 동시 running run 상한(전 문제집 합산)
+_MEMBER_MAX_RUN_WORK = 60  # 1회 실행 LLM 호출 상한 = models × (cases + llm_judge 기준 수)(codex 178)
+_MEMBER_MAX_CONCURRENT_JOBS = 2  # 유저당 동시 배경 LLM 작업(생성/출제) 상한(codex 178: generate/suggest flood 차단)
+
+
+async def _member_run_guard(session: AsyncSession, user, dataset_id: uuid.UUID, n_models: int) -> None:
+    """비특권 실행 비용 가드(스펙 178, codex 반영). 특권은 호출 전 단락. per-user advisory 락으로
+    동시성 확인+삽입 사이 TOCTOU를 직렬화(codex #3), work는 judge 호출까지 포함(codex #5)."""
+    owner = owner_of(user)
+    # per-user 직렬화 — 병렬 요청이 my_running<2를 동시에 보고 상한을 넘기는 race 차단. xact 종료 시 해제.
+    await session.execute(text("SELECT pg_advisory_xact_lock(hashtext(:k))"), {"k": f"eval-run:{owner}"})
+    my_running = (
+        await session.execute(
+            select(func.count(EvalRun.id)).where(EvalRun.owner_id == owner, EvalRun.status == "running")
+        )
+    ).scalar_one()
+    if my_running >= _MEMBER_MAX_CONCURRENT_RUNS:
+        raise HTTPException(
+            status_code=429,
+            detail=f"동시 실행 한도({_MEMBER_MAX_CONCURRENT_RUNS})에 도달했습니다 — 진행 중 실행이 끝나면 다시 시도하세요",
+        )
+    # work = 실 LLM 호출량 ≈ models × (케이스 + 케이스별 llm_judge 기준 수). judge 누락 보정(codex #5).
+    asserts_rows = (
+        await session.execute(select(EvalCase.asserts).where(EvalCase.dataset_id == dataset_id))
+    ).scalars().all()
+    n_cases = len(asserts_rows)
+    judge_count = sum(
+        1 for row in asserts_rows for a in (row or [])
+        if isinstance(a, dict) and a.get("type") == "llm_judge"
+    )
+    work = max(1, n_models) * (n_cases + judge_count)
+    if work > _MEMBER_MAX_RUN_WORK:
+        raise HTTPException(
+            status_code=422,
+            detail=f"실행 규모(모델 {max(1, n_models)} × [케이스 {n_cases} + 판정 {judge_count}] = {work})가 한도 {_MEMBER_MAX_RUN_WORK}를 넘습니다 — 케이스·판정·모델 수를 줄이세요",
+        )
+
+
+async def _member_job_guard(session: AsyncSession, user, exclude_id: uuid.UUID | None = None) -> None:
+    """비특권 배경 LLM 작업(문제집 생성·AI 출제) 동시 상한(스펙 178, codex #1·#2). 특권은 호출 전 단락.
+    진실원은 `_active_jobs`(동기 등록) — exclude_id는 이미 락을 잡은 현재 작업(세지 않음). 소유자별 합산."""
+    active = {j for j in _active_jobs if j != exclude_id}
+    if not active:
+        return
+    mine = (
+        await session.execute(
+            select(func.count(EvalDataset.id)).where(
+                EvalDataset.owner_id == owner_of(user), EvalDataset.id.in_(active)
+            )
+        )
+    ).scalar_one()
+    if mine >= _MEMBER_MAX_CONCURRENT_JOBS:
+        raise HTTPException(
+            status_code=429,
+            detail=f"동시 생성·출제 한도({_MEMBER_MAX_CONCURRENT_JOBS})에 도달했습니다 — 진행 중 작업이 끝나면 다시 시도하세요",
+        )
 
 
 class RunStartIn(BaseModel):
@@ -221,6 +295,7 @@ class RunOut(BaseModel):
     error: str | None
     started_at: datetime
     finished_at: datetime | None
+    can_manage: bool = True  # 스펙 178 — 이 유저가 이 실행(성적표)을 관리 가능(소유자·특권)
     model_config = {"from_attributes": True}
 
 
@@ -333,10 +408,11 @@ async def start_run(
     dataset_id: uuid.UUID,
     body: RunStartIn,
     session: AsyncSession = Depends(get_session),
-    user=_run_dep,
+    user=Depends(current_principal),
 ) -> RunOut:
     """시험 실행 시작 — EvalRun(running) 즉시 반환, 백그라운드에서 케이스 순차 실행(폴링으로 조회)."""
     ds = await _dataset_or_404(session, dataset_id)
+    assert_may_manage(ds, user, not_found_detail="dataset not found")  # 본인 문제집만 실행(비소유 404-fold)
     # kind별 대상 해석(스펙 140): agent 시험=agent_id, rag 시험=collection_id.
     agent = None
     rag_collection = None
@@ -354,7 +430,8 @@ async def start_run(
         if body.agent_id is None:
             raise HTTPException(status_code=400, detail="에이전트 문제집은 agent_id가 필요합니다")
         agent = await session.get(Agent, body.agent_id)
-        if agent is None:
+        # 스펙 178 구멍#1 봉합: 쓸 수 있는 에이전트만 평가 대상(남의 private을 UUID로 지정해도 404-fold).
+        if agent is None or not may_use_agent(agent, user):
             raise HTTPException(status_code=404, detail="agent not found")
         target_name = agent.name
     if dataset_id in _active_jobs or (ds.description or "").startswith("생성 중"):
@@ -397,6 +474,10 @@ async def start_run(
         if missing:
             raise HTTPException(status_code=400, detail=f"레지스트리에 없는 chat 모델: {', '.join(missing)}")
 
+    # 스펙 178 비용 가드(비특권 자율 실행) — 특권은 무제한. advisory 락+judge 포함 work(codex 반영).
+    if not is_privileged(user):
+        await _member_run_guard(session, user, dataset_id, len(models))
+
     if len(models) == 1:
         # 1개 선택=비교가 아니라 단순 모델 오버라이드 런(codex 141 #3 — 1열 그룹은 격자 의미 없음).
         run = EvalRun(dataset_id=dataset_id, agent_pk=agent.id, agent_name=target_name,
@@ -436,7 +517,7 @@ async def start_run(
 async def list_runs(
     dataset_id: uuid.UUID | None = None,  # 문제집 필터(스펙 138 — 추이/비교용)
     group_id: uuid.UUID | None = None,  # 비교 그룹 전량 조회(스펙 141 — 최근 50 컷에 그룹이 잘리면 부분 격자, codex #1)
-    session: AsyncSession = Depends(get_session), user=_manage
+    session: AsyncSession = Depends(get_session), user=Depends(current_principal)
 ) -> list[RunOut]:
     q = (
         select(EvalRun, EvalDataset.name)
@@ -454,13 +535,14 @@ async def list_runs(
     for r, ds_name in rows:
         o = RunOut.model_validate(r)
         o.dataset_name = ds_name
+        o.can_manage = may_manage(r.owner_id, user)
         out.append(o)
     return out
 
 
 @router.get("/runs/{run_id}", response_model=RunDetailOut)
 async def get_run(
-    run_id: uuid.UUID, session: AsyncSession = Depends(get_session), user=_manage
+    run_id: uuid.UUID, session: AsyncSession = Depends(get_session), user=Depends(current_principal)
 ) -> RunDetailOut:
     run = await session.get(EvalRun, run_id)
     if run is None:
@@ -478,7 +560,8 @@ async def get_run(
     return RunDetailOut(
         **base.model_dump(),
         results=[CaseResultOut.model_validate(r) for r in results],
-    ).model_copy(update={"dataset_name": ds.name if ds else None})
+    ).model_copy(update={"dataset_name": ds.name if ds else None,
+                         "can_manage": may_manage(run.owner_id, user)})
 
 
 async def sweep_zombie_datasets() -> int:
@@ -584,13 +667,16 @@ async def _execute_generation(dataset_id: uuid.UUID, collection_id: uuid.UUID, c
 
 @router.post("/generate-dataset", response_model=DatasetOut, status_code=202)
 async def generate_dataset(
-    body: GenerateIn, session: AsyncSession = Depends(get_session), user=_manage
+    body: GenerateIn, session: AsyncSession = Depends(get_session), user=Depends(current_principal)
 ) -> DatasetOut:
     """컬렉션에서 RAG 문제집 자동 생성(스펙 142) — 문제집 즉시 반환, 케이스는 백그라운드 생성
     (완료/실패는 description으로 확인). 컬렉션 완전성은 검색 해석기로 사전 검증."""
     from .rag import resolve_search_collection
 
     await resolve_search_collection(session, body.collection_id)  # 404/400 사전 검증
+    # 스펙 178 비용 가드 — 비특권 유저의 배경 생성 flood 차단(codex #1). 특권 무제한.
+    if not is_privileged(user):
+        await _member_job_guard(session, user)  # 생성 전 기존 in-flight만 카운트
     ds = EvalDataset(name=body.name, description="생성 중… (문제가 곧 채워집니다)",
                      kind="rag", owner_id=owner_of(user))
     session.add(ds)
@@ -599,6 +685,7 @@ async def generate_dataset(
     except Exception:
         await session.rollback()
         raise HTTPException(status_code=409, detail="같은 이름의 문제집이 이미 있습니다")
+    _active_jobs.add(ds.id)  # 동기 등록 — create_task 전 창을 닫아 flood 카운트 누락 방지(codex #1)
     asyncio.create_task(_execute_generation(ds.id, body.collection_id, body.count))
     return DatasetOut(id=ds.id, name=ds.name, description=ds.description, kind=ds.kind, case_count=0)
 
@@ -639,7 +726,7 @@ async def _helper_llm(session: AsyncSession) -> tuple[dict | None, str | None]:
 
 @router.get("/helper-status", response_model=HelperStatusOut)
 async def helper_status(
-    session: AsyncSession = Depends(get_session), user=_manage
+    session: AsyncSession = Depends(get_session), user=Depends(current_principal)
 ) -> HelperStatusOut:
     """도우미 가용성 — UI가 버튼 활성/비활성+사유 툴팁에 사용(정직 비활성)."""
     _llm, reason = await _helper_llm(session)
@@ -652,7 +739,7 @@ async def _execute_suggestion(dataset_id: uuid.UUID, agent_pk: uuid.UUID, count:
     order_idx는 기존 최대값 뒤로 이어붙인다. 게이트는 _active_jobs(메모리 락)."""
     from .eval_suggest import suggest_agent_cases
 
-    _active_jobs.add(dataset_id)
+    # 락(_active_jobs)은 엔드포인트가 동기 획득(codex #2). 여기선 완료 시 finally에서 해제만.
     try:
         result = await suggest_agent_cases(agent_pk, count, llm_cfg)
         async with SessionLocal() as s:
@@ -705,24 +792,34 @@ async def suggest_cases(
     dataset_id: uuid.UUID,
     body: SuggestIn,
     session: AsyncSession = Depends(get_session),
-    user=_manage,
+    user=Depends(current_principal),
 ) -> DatasetOut:
     """에이전트 문제집 AI 출제(스펙 143) — 기존 문제 보존+추가, 백그라운드(상태=description)."""
     ds = await _dataset_or_404(session, dataset_id)
+    assert_may_manage(ds, user, not_found_detail="dataset not found")  # 소유자만 출제(비소유 404-fold)
     if ds.kind != "agent":
         raise HTTPException(status_code=400, detail="AI 출제는 에이전트 문제집 전용입니다(RAG는 '컬렉션에서 생성')")
     if dataset_id in _active_jobs:
         raise HTTPException(status_code=409, detail="이미 출제가 진행 중입니다")
-    agent = await session.get(Agent, body.agent_id)
-    if agent is None:
-        raise HTTPException(status_code=404, detail="agent not found")
-    llm_cfg, reason = await _helper_llm(session)
-    if llm_cfg is None:
-        raise HTTPException(status_code=400, detail=f"도우미 사용 불가: {reason}")
-    prior = ds.description
-    ds.description = f"{prior + ' · ' if prior else ''}AI 출제 중…"
-    await session.commit()
-    asyncio.create_task(_execute_suggestion(dataset_id, agent.id, body.count, llm_cfg, prior))
+    _active_jobs.add(dataset_id)  # 동기 락 — 배경 태스크로 미루면 중복 출제 TOCTOU(codex #2). L778 check와 사이에 await 없음.
+    try:
+        agent = await session.get(Agent, body.agent_id)
+        # 스펙 178 구멍#1: 쓸 수 있는 에이전트만 출제 대상(남의 private 미노출).
+        if agent is None or not may_use_agent(agent, user):
+            raise HTTPException(status_code=404, detail="agent not found")
+        # 스펙 178 비용 가드 — 비특권 배경 작업 동시 상한(codex #1·#2). 현재 락은 제외 카운트.
+        if not is_privileged(user):
+            await _member_job_guard(session, user, exclude_id=dataset_id)
+        llm_cfg, reason = await _helper_llm(session)
+        if llm_cfg is None:
+            raise HTTPException(status_code=400, detail=f"도우미 사용 불가: {reason}")
+        prior = ds.description
+        ds.description = f"{prior + ' · ' if prior else ''}AI 출제 중…"
+        await session.commit()
+        asyncio.create_task(_execute_suggestion(dataset_id, agent.id, body.count, llm_cfg, prior))
+    except Exception:
+        _active_jobs.discard(dataset_id)  # create_task까지 못 가면 배경 finally가 안 돌아 락이 샌다
+        raise
     n = (
         await session.execute(select(func.count(EvalCase.id)).where(EvalCase.dataset_id == ds.id))
     ).scalar_one()

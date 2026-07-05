@@ -145,7 +145,6 @@ export default function AdminShell({ user, onLogout }: { user: Me; onLogout: () 
               { key: 'models', icon: <ApiOutlined />, label: '프로바이더·모델' },
               { key: 'users', icon: <TeamOutlined />, label: '유저' },
               { key: 'batch', icon: <ScheduleOutlined />, label: '배치' },
-              { key: 'eval', icon: <CheckCircleOutlined />, label: '평가' },
               { key: 'allowed-hosts', icon: <SafetyCertificateOutlined />, label: '허용 호스트' },
               { key: 'settings', icon: <SettingOutlined />, label: '설정' },
             ],
@@ -155,7 +154,10 @@ export default function AdminShell({ user, onLogout }: { user: Me; onLogout: () 
     {
       type: 'group' as const,
       label: collapsed ? '' : '도구',
-      children: [{ key: 'debug', icon: <ThunderboltOutlined />, label: 'Playground' }],
+      children: [
+        { key: 'debug', icon: <ThunderboltOutlined />, label: 'Playground' },
+        { key: 'eval', icon: <CheckCircleOutlined />, label: '평가' },
+      ],
     },
   ]
 

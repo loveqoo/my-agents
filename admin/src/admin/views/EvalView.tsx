@@ -179,6 +179,8 @@ function DatasetDrawer({
 
   const localAgents = agents.filter((a) => a.source === 'ui')
   const isRag = dataset?.kind === 'rag'
+  // 관리 액션(실행·케이스 편집) 게이트(스펙 178 P3) — can_manage 미실림(구버전 응답)은 보이게.
+  const canManage = dataset?.can_manage !== false
   const start = async () => {
     if (!dataset || !runAgent) return
     setStarting(true)
@@ -204,7 +206,8 @@ function DatasetDrawer({
     <Drawer open={!!dataset} width={640} title={dataset ? `문제집 · ${dataset.name}` : ''} onClose={onClose}>
       {dataset ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          {/* 시험 실행 — 로컬(ui) 에이전트만(러너 제약). */}
+          {/* 시험 실행 — 소유자·관리자만(스펙 178 P3, 읽기는 공개). 로컬(ui) 에이전트만(러너 제약). */}
+          {canManage ? (
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <Select
               style={{ minWidth: 220, flex: 1 }}
@@ -221,7 +224,8 @@ function DatasetDrawer({
               {runModels.length > 1 ? `${runModels.length}개 모델 비교 실행` : '시험 실행'}
             </Button>
           </div>
-          {!isRag ? (
+          ) : null}
+          {canManage && !isRag ? (
             <Select
               mode="multiple"
               allowClear
@@ -277,10 +281,14 @@ function DatasetDrawer({
                   <span style={{ fontWeight: 600 }}>{c.name}</span>
                   <Tag>{c.asserts.length}개 기준</Tag>
                   <div style={{ flex: 1 }} />
-                  <Button size="small" type="text" icon={<Icon name="edit" />} onClick={() => setEditing(c.id)} />
-                  <Popconfirm title="이 문제를 삭제할까요?" okText="삭제" cancelText="취소" onConfirm={() => void deleteEvalCase(c.id).then(load).then(onChanged)}>
-                    <Button size="small" type="text" danger icon={<Icon name="delete" />} />
-                  </Popconfirm>
+                  {canManage ? (
+                    <>
+                      <Button size="small" type="text" icon={<Icon name="edit" />} onClick={() => setEditing(c.id)} />
+                      <Popconfirm title="이 문제를 삭제할까요?" okText="삭제" cancelText="취소" onConfirm={() => void deleteEvalCase(c.id).then(load).then(onChanged)}>
+                        <Button size="small" type="text" danger icon={<Icon name="delete" />} />
+                      </Popconfirm>
+                    </>
+                  ) : null}
                 </div>
                 <div style={{ fontSize: 13, color: 'var(--color-text-secondary)', marginTop: 6 }}>{c.input}</div>
                 <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 6 }}>
@@ -294,39 +302,41 @@ function DatasetDrawer({
             )
           )}
 
-          {adding ? (
-            <CaseForm busy={busy} kind={dataset.kind} onSave={(b) => void save(b)} onCancel={() => setAdding(false)} />
-          ) : (
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <Button icon={<Icon name="plus" />} onClick={() => setAdding(true)}>
-                문제 추가
-              </Button>
-              {!isRag ? (
-                /* AI 출제(스펙 143) — 대상 에이전트의 구성(RAG 능력·역할)에 맞춰 문제를 채워준다.
-                   도우미는 기본 chat이 실모델일 때만(사용자 원칙 — mock이면 사유 툴팁+비활성). */
-                <Tooltip title={!helper.available ? helper.reason : !runAgent ? '위에서 시험 칠 에이전트를 먼저 선택하세요' : 'AI가 이 에이전트에 맞는 문제 10개를 추가합니다(기존 문제 보존) — 생성 후 수정하세요'}>
-                  <Button
-                    icon={<Icon name="experiment" />}
-                    loading={suggesting}
-                    disabled={!helper.available || !runAgent}
-                    onClick={() => {
-                      if (!dataset || !runAgent) return
-                      setSuggesting(true)
-                      suggestEvalCases(dataset.id, { agent_id: runAgent, count: 10 })
-                        .then(() => {
-                          message.success('AI 출제 시작 — 잠시 후 문제가 채워집니다(문제집을 다시 열면 갱신)')
-                          onChanged()
-                        })
-                        .catch((e) => message.error((e as Error).message))
-                        .finally(() => setSuggesting(false))
-                    }}
-                  >
-                    AI로 문제 채우기
-                  </Button>
-                </Tooltip>
-              ) : null}
-            </div>
-          )}
+          {canManage ? (
+            adding ? (
+              <CaseForm busy={busy} kind={dataset.kind} onSave={(b) => void save(b)} onCancel={() => setAdding(false)} />
+            ) : (
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <Button icon={<Icon name="plus" />} onClick={() => setAdding(true)}>
+                  문제 추가
+                </Button>
+                {!isRag ? (
+                  /* AI 출제(스펙 143) — 대상 에이전트의 구성(RAG 능력·역할)에 맞춰 문제를 채워준다.
+                     도우미는 기본 chat이 실모델일 때만(사용자 원칙 — mock이면 사유 툴팁+비활성). */
+                  <Tooltip title={!helper.available ? helper.reason : !runAgent ? '위에서 시험 칠 에이전트를 먼저 선택하세요' : 'AI가 이 에이전트에 맞는 문제 10개를 추가합니다(기존 문제 보존) — 생성 후 수정하세요'}>
+                    <Button
+                      icon={<Icon name="experiment" />}
+                      loading={suggesting}
+                      disabled={!helper.available || !runAgent}
+                      onClick={() => {
+                        if (!dataset || !runAgent) return
+                        setSuggesting(true)
+                        suggestEvalCases(dataset.id, { agent_id: runAgent, count: 10 })
+                          .then(() => {
+                            message.success('AI 출제 시작 — 잠시 후 문제가 채워집니다(문제집을 다시 열면 갱신)')
+                            onChanged()
+                          })
+                          .catch((e) => message.error((e as Error).message))
+                          .finally(() => setSuggesting(false))
+                      }}
+                    >
+                      AI로 문제 채우기
+                    </Button>
+                  </Tooltip>
+                ) : null}
+              </div>
+            )
+          ) : null}
         </div>
       ) : null}
     </Drawer>
@@ -506,13 +516,15 @@ export default function EvalView() {
     { key: 'case_count', title: '문제 수', width: 90, align: 'right', render: (d) => d.case_count },
     {
       key: 'actions', title: '', width: 60,
-      render: (d) => (
-        <span onClick={(e) => e.stopPropagation()}>
-          <Popconfirm title="문제집과 모든 문제·성적을 삭제할까요?" okText="삭제" cancelText="취소" onConfirm={() => void deleteEvalDataset(d.id).then(loadDatasets)}>
-            <Button size="small" type="text" danger icon={<Icon name="delete" />} />
-          </Popconfirm>
-        </span>
-      ),
+      render: (d) =>
+        // 삭제는 소유자·관리자만(읽기는 공개, 스펙 178 P3) — can_manage 미실림(구버전 응답)은 보이게.
+        d.can_manage !== false ? (
+          <span onClick={(e) => e.stopPropagation()}>
+            <Popconfirm title="문제집과 모든 문제·성적을 삭제할까요?" okText="삭제" cancelText="취소" onConfirm={() => void deleteEvalDataset(d.id).then(loadDatasets)}>
+              <Button size="small" type="text" danger icon={<Icon name="delete" />} />
+            </Popconfirm>
+          </span>
+        ) : null,
     },
   ]
 
@@ -569,6 +581,8 @@ export default function EvalView() {
             key: 'datasets', label: '문제집',
             children: (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {/* 소유 기반 공개(스펙 178 P3) — 읽기는 모든 사용자, 편집·실행은 소유자·관리자만. */}
+                <Alert type="info" showIcon message="평가 결과는 모든 사용자에게 공개됩니다" />
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   <Button type="primary" icon={<Icon name="plus" />} onClick={() => setCreating(true)}>
                     새 문제집
