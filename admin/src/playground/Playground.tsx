@@ -266,6 +266,9 @@ export function Playground({
     if (streaming) return
     const id = activeId
     if (!id) return
+    // 승인 대기 중엔 새 입력 차단(스펙 179 P3) — 그래프가 그 턴에서 멈춰 있어, 새 턴을 끼우면
+    // 저장시각(created_at) 순서가 어긋나(대기 턴이 나중 저장) 대화가 뒤바뀐다. 승인/거부 후 이어간다.
+    if (pendingApproval && pendingApproval.convoId === id) return
 
     // 직전 대화로 백엔드 메시지 배열 구성 — me→user, ai→assistant, 빈 텍스트 제외.
     const prior = convos[id] || []
@@ -459,6 +462,7 @@ export function Playground({
         onReloadSessions={refreshSessions}
         messages={messages}
         streaming={streaming}
+        awaitingApproval={!!pendingApproval && pendingApproval.convoId === activeId}
         selectedTurn={inspectorOpen ? selectedTurn : null}
         onSelectTurn={openInspector}
         onSend={send}

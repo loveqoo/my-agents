@@ -65,3 +65,8 @@ tool 실행 → tool 결과가 messages에 → 모델 재호출(role=tool 존재
 
 **검증**: `tests/browser/verify-approval-resume-visibility.mjs` — 2컨텍스트로 브1 요청→브2 승인→
 브1이 폴링으로 완료 턴 자동 표시(승인 대기·빈세션 사라지고 재개 응답+도구 실행 1 mcp 노출).
+
+**추가 버그(실사용 제보) — 승인 대기 중 입력 순서 뒤바뀜**: 대기 중 사용자가 새 턴을 입력하면, 그
+턴이 **먼저 완료·저장**되고 대기 턴은 승인 후 저장돼(저장시각 순 재로드) 대화가 뒤바뀐다. 그래프는
+그 턴에서 멈춰 있으므로 **승인 대기 중엔 입력을 차단**(Sender disabled + "승인 대기 중 — 승인/거부 후
+이어서 입력하세요" 안내, `send`도 가드). 검증 `verify-approval-input-blocked.mjs`.

@@ -114,6 +114,7 @@ interface DebugChatProps {
   onReloadSessions: () => void
   messages: ChatMsg[]
   streaming: boolean
+  awaitingApproval: boolean // 승인 대기 중(스펙 179 P3) — 입력 차단(그래프가 그 턴에서 멈춤)
   selectedTurn: number | null
   onSelectTurn: (i: number) => void
   onSend: (text: string) => void
@@ -774,6 +775,7 @@ export function DebugChat({
   onReloadSessions,
   messages,
   streaming,
+  awaitingApproval,
   selectedTurn,
   onSelectTurn,
   onSend,
@@ -981,9 +983,11 @@ export function DebugChat({
               setDraft(v)
             }}
             onKeyDown={onHistKey}
-            placeholder={`${agent.name}에게 메시지…`}
+            placeholder={awaitingApproval ? '승인 대기 중 — 승인/거부 후 이어서 입력하세요' : `${agent.name}에게 메시지…`}
             loading={streaming}
+            disabled={awaitingApproval}
             onSubmit={(text) => {
+              if (awaitingApproval) return // 승인 대기 중 입력 차단(스펙 179 P3)
               histRef.current = resetHist()
               setDraft('')
               onSend(text)
