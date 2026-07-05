@@ -74,7 +74,15 @@ setVisibility/expose/activate/fork/revert/resync/refreshPersona }`. 뮤테이션
 - **테스트 주의(learning)**: `shared.Drawer`는 antd 아닌 커스텀(className·role 없음, 닫힘=translateX off-screen)
   이라 `.ant-drawer-*`·`:visible` 셀렉터가 안 먹음 → 각 드로어 고유 라벨을 Playwright 가시성으로 판정해 해결.
 
-### Phase B — 보류(사용자 판단 대기)
-deep-reasoner 분석상 payoff가 예상보다 작음(runWithToast 부적합·agents는 useAsyncData 불가·커스텀 토스트
-보존·notify 비대칭)이고 런타임 위험은 큼. Phase A가 god-component 해소의 실질을 이미 달성(2128→747, 8 파일).
-Phase B는 데이터 로직 그룹핑의 구조 이득 대비 위험이 커 별도 go/no-go 필요.
+### Phase B — 완료·검증(사용자 "진행" 선택)
+- **`useAgents()` 훅 추출**(`views/agents/useAgents.ts`, 120줄): 목록(agents useState — 로컬 뮤테이션)·
+  레퍼런스(blocks/models/collections useAsyncData)·12개 뮤테이션(데이터만: API+배열+notify, Agent 반환/throw).
+  AgentsView **747→684줄**, 12개 핸들러는 `A.x()` + toast/nav/error만 남김(데이터 로직 소멸).
+- **위험 지점 전부 보존**(deep-reasoner 설계 준수): (1) 성공 토스트=컴포넌트의 커스텀 플로팅 Alert 유지
+  (훅은 토스트 없음, runWithToast 미채택), (2) notify 비대칭=초기 로드 setAgents 직접(신호 X)·뮤테이션만
+  notify, (3) 폼시드(editing/configOf/draftOf/nextVersion)=컴포넌트 잔류, (4) 실패는 훅이 throw→호출부가
+  message.error/warning 지점별 결정.
+- **검증(실 뮤테이션 왕복 — 로직 수술이라 tsc 불충분)**: `verify-useagents-185b.mjs` ALL PASS —
+  생성→삭제 왕복, **커스텀 플로팅 토스트 보존**(.ant-alert-success, antd message 아님 — 최고위험 통과),
+  list 반영(생성 증가·삭제 복원), 행 존재/제거, pageerror 0. Phase A 회귀도 무회귀 재확인. tsc 0.
+  (replace 경로 뮤테이션은 prepend/filter와 동일 패턴·토스트 보존 입증됐으므로 by-inspection 동치.)

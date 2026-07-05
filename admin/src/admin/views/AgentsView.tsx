@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react'
 import { Tag, Button, Avatar, Select, Input, Switch, Tooltip, Popover, Modal, Alert, message } from 'antd'
 import { Page, StatusPill, DataTable, OwnerTag, type Column } from '../shared'
-import { notifyAgentsChanged } from '../../agentsBus'
 import { Icon } from '../icons'
 import {
   AGENT_STATUS,
@@ -11,41 +10,21 @@ import {
   AGENT_CONFORMANCE,
   type Agent,
   type AgentConfig,
-  type BlockCategory,
   type VersionMeta,
 } from '../mockData'
-import {
-  getBlocks,
-  listAgents,
-  createAgent,
-  updateAgent,
-  deleteAgent,
-  cloneAgent,
-  setAgentVisibility,
-  activateVersion as apiActivateVersion,
-  revertVersion as apiRevertVersion,
-  forkVersion as apiForkVersion,
-  exposeAgent,
-  connectAgent as apiConnectAgent,
-  resyncAgent,
-  refreshAgentPersona,
-  listModels,
-  listCollections,
-  type Model,
-  type Collection,
-} from '../../api'
 import { displayName } from '../naming'
 import type { AgentFormData } from './agents/types'
 import { AgentForm } from './agents/AgentForm'
 import { AgentDetail } from './agents/AgentDetail'
 import { ConnectAgentModal } from './agents/ConnectAgentModal'
+import { useAgents } from './agents/useAgents'
 
 /* ---- Main view ---- */
 export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlayground?: (agentRowId: string) => void; meId?: string }) {
-  const [agents, setAgents] = useState<Agent[]>([])
-  const [blocks, setBlocks] = useState<Record<string, BlockCategory>>({})
-  const [models, setModels] = useState<Model[]>([])
-  const [collections, setCollections] = useState<Collection[]>([])
+  // 데이터 오케스트레이션(목록·레퍼런스·12 뮤테이션)은 훅으로(스펙 185 Phase B). 컴포넌트는 UI +
+  // 성공 토스트·네비게이션만 소유. 뮤테이션은 A.x()가 데이터(Agent 반환/throw), 여기서 toast/nav/error.
+  const A = useAgents()
+  const { agents, blocks, models, collections } = A
   const [detailId, setDetailId] = useState<string | null>(null)
   const [query, setQuery] = useState('') // 리스트 검색(스펙 144 #3)
   const [sortKey, setSortKey] = useState<'name' | 'recent'>('name')
@@ -66,31 +45,6 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
     const t = setTimeout(() => setToast(null), 2400)
     return () => clearTimeout(t)
   }, [toast])
-
-  // 마운트 시 백엔드에서 에이전트 목록 + 빌딩 블록을 로드.
-  useEffect(() => {
-    listAgents()
-      .then(setAgents)
-      .catch((e) => message.error(String(e)))
-    getBlocks()
-      .then(setBlocks)
-      .catch((e) => message.error(String(e)))
-    listModels('chat')
-      .then(setModels)
-      .catch((e) => message.error(String(e)))
-    // RAG 컬렉션(지식 소스 피커용, 스펙 037). 비어 있어도 폼은 안내 문구를 띄운다.
-    listCollections()
-      .then(setCollections)
-      .catch((e) => message.error(String(e)))
-  }, [])
-
-  // 단일 에이전트를 반환값(전체 AgentOut)으로 교체. 활성화·편집·되돌리기·새초안·재동기 등
-  // 단일 변경의 공통 종점 — 여기서 탭 간 변경 신호를 쏜다(스펙 080). 초기 로드는 setAgents 직접
-  // 사용이라 신호가 안 나가 불필요한 재페치를 안 만든다.
-  const replaceAgent = (updated: Agent) => {
-    setAgents((as) => as.map((a) => (a.id === updated.id ? updated : a)))
-    notifyAgentsChanged()
-  }
 
   const configOf = (a: Agent): AgentConfig => ({
     model: a.model,
@@ -129,8 +83,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
   // 공개/비공개 전환(스펙 154) — 강등 시 서버가 A2A 자동 off.
   const setVisibility = async (agent: Agent, pub: boolean) => {
     try {
-      const updated = await setAgentVisibility(agent.id, pub)
-      replaceAgent(updated)
+      await A.setVisibility(agent.id, pub)
       setToast(pub ? `${displayName(agent)} — 공개(public)로 전환됨` : `${displayName(agent)} — 비공개(private)로 전환됨`)
     } catch (e) {
       message.error(String(e))
@@ -146,8 +99,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
     }
     if (!agent.exposed.a2a) {
       try {
-        const updated = await exposeAgent(agent.id, true)
-        replaceAgent(updated)
+        await A.expose(agent.id, true)
         setToast(`${agent.name} — A2A 공개됨`)
       } catch (e) {
         message.error(String(e))
@@ -161,8 +113,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
     if (!exposeOff) return
     const { agent } = exposeOff
     try {
-      const updated = await exposeAgent(agent.id, false)
-      replaceAgent(updated)
+      await A.expose(agent.id, false)
       setToast(mode === 'drain' ? `${agent.name} 사용 중단 — A2A 비공개로 전환` : `${agent.name} — A2A 철회됨`)
     } catch (e) {
       message.error(String(e))
@@ -173,8 +124,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
   const revokeNow = () => exposeOffApply('revoke')
   const activateVersion = async (agent: Agent, v: VersionMeta) => {
     try {
-      const updated = await apiActivateVersion(agent.id, v.version)
-      replaceAgent(updated)
+      await A.activate(agent.id, v.version)
       setToast(`${agent.name} ${v.version} 활성화됨 — 서빙 시작`)
     } catch (e) {
       message.error(String(e))
@@ -182,8 +132,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
   }
   const newDraft = async (agent: Agent) => {
     try {
-      const updated = await apiForkVersion(agent.id)
-      replaceAgent(updated)
+      await A.fork(agent.id)
       setToast(`${agent.name} 새 초안 생성됨`)
     } catch {
       // 400: 이미 초안이 있음 등 — 서버 가드.
@@ -197,8 +146,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
   }
   const revertToDraft = async (agent: Agent, v: VersionMeta) => {
     try {
-      const updated = await apiRevertVersion(agent.id, v.version)
-      replaceAgent(updated)
+      await A.revert(agent.id, v.version)
       setToast(`${v.version} 초안으로 되돌림${v.status === 'active' ? ' — 이전 버전으로 롤백' : ''}`)
     } catch {
       // 서버가 가드를 강제(400 + 한국어 detail). api.ts 에러는 status만 담으므로 일반 메시지로 안내.
@@ -224,15 +172,12 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
     try {
       if (editing) {
         // alias는 항상 현재 폼 값을 전송('' = 비우기, 스펙 148)
-        const updated = await updateAgent(editing.agent.id, data.name, config, data.alias)
-        replaceAgent(updated)
+        await A.update(editing.agent.id, data.name, config, data.alias)
         setToast(`초안에 저장됨 — 활성화하면 게시됩니다`)
         // 편집을 마치면 그 에이전트의 드로워로 복귀(스펙 144 #1 — 이어서 "활성화"를 누르는 동선).
         setDetailId(editing.agent.id)
       } else {
-        const created = await createAgent(data.name, config, data.alias || null)
-        setAgents((as) => [created, ...as])
-        notifyAgentsChanged()
+        await A.create(data.name, config, data.alias || null)
         setToast(`"${data.alias || data.name}" 생성됨 — v1 초안, 테스트 후 활성화`)
       }
       setFormOpen(false)
@@ -246,9 +191,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
     if (!confirmDel) return
     const target = confirmDel
     try {
-      await deleteAgent(target.id)
-      setAgents((as) => as.filter((a) => a.id !== target.id))
-      notifyAgentsChanged()
+      await A.remove(target.id)
       setToast(`"${target.name}" ${target.source !== 'ui' ? '등록 해제됨' : '삭제됨'}`)
       setConfirmDel(null)
       setDetailId(null)
@@ -260,9 +203,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
   // 복제(스펙 120) — 기존 설정을 새 ui 초안으로 복사(저마찰 재사용). 관리 권한 불요(가시하면 복제 가능).
   const onClone = async (a: Agent) => {
     try {
-      const created = await cloneAgent(a.id)
-      setAgents((as) => [created, ...as])
-      notifyAgentsChanged()
+      const created = await A.clone(a.id)
       setToast(`"${a.name}" 복제됨 → "${created.name}"`)
       setDetailId(null)
     } catch (e) {
@@ -274,9 +215,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
   // 프론트는 매니페스트를 날조하지 않는다 — 토큰 마스킹·분류는 모두 서버. 반환 source로 토스트를 도출.
   const connectAgent = async (data: { url: string; token: string }) => {
     try {
-      const created = await apiConnectAgent(data.url, data.token || undefined)
-      setAgents((as) => [created, ...as])
-      notifyAgentsChanged()
+      const created = await A.connect(data.url, data.token || undefined)
       const kind = created.source === 'code' ? 'SDK 에이전트 (코드)' : '외부 A2A'
       setToast(`"${created.name || '원격 에이전트'}" 연결됨 — ${kind}, 읽기 전용`)
       setConnectOpen(false)
@@ -286,8 +225,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
   }
   const resync = async (agent: Agent) => {
     try {
-      const updated = await resyncAgent(agent.id)
-      replaceAgent(updated)
+      await A.resync(agent.id)
       setToast(`${agent.name} 재동기화됨 — 최신 배포(commit) 반영`)
     } catch (e) {
       message.error(String(e))
@@ -296,8 +234,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
   // 페르소나 스냅샷을 현재 원본으로 갱신(스펙 161) — 저장 시점 복사본이 오래됐을 때 명시적 반영.
   const refreshPersona = async (agent: Agent) => {
     try {
-      const updated = await refreshAgentPersona(agent.id)
-      replaceAgent(updated)
+      await A.refreshPersona(agent.id)
       setToast(`${agent.name} 페르소나 갱신됨`)
     } catch (e) {
       message.error(String(e))
