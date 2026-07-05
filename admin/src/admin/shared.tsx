@@ -2,8 +2,7 @@
    handoff 번들 ui_kits/admin/adminShared.jsx를 진짜 antd 6/React+TS로 재현.
    토큰은 theme.css의 CSS 변수를 그대로 참조한다. */
 import { type ReactNode, type CSSProperties, useRef, useState, useEffect } from 'react'
-import { Tag, Button, Switch, Grid } from 'antd'
-import { CloseOutlined } from '@ant-design/icons'
+import { Tag, Button, Switch, Grid, Drawer as AntDrawer } from 'antd'
 import { Icon } from './icons'
 import { VERSION_STATUS, type VersionMeta } from './mockData'
 
@@ -324,80 +323,24 @@ export function Drawer({
 }) {
   const screens = Grid.useBreakpoint()
   const isMobile = screens.md === false
-  const bodyPad = isMobile ? 16 : 24
-  // Escape 닫기(스펙 135) — antd Drawer와 거동 통일. 모바일은 패널이 100% 폭이라 마스크 탭이
-  // 불가해(구조상) X 하나에 의존하던 것을 보완.
-  useEffect(() => {
-    if (!open) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose?.()
-    }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [open, onClose])
-  // 래퍼 overflow:hidden — 닫힘 시 패널이 translateX(100%)로 화면 밖 오른쪽에 머물며
-  // 가로 스크롤을 만들던 문제 차단. 열림 시 패널은 경계 안.
-  // position **fixed**(128 중 사용자 신고 수정) — 이전 absolute는 스크롤 컨테이너(Content) 좌표계라,
-  // 목록을 아래로 스크롤한 채 열면 오버레이가 위로 밀려 하단 행이 드로어 밖으로 노출됐다(마지막
-  // 세션 클릭 시 화면 깨짐). fixed는 스크롤 위치와 무관하게 뷰포트 전체를 덮는다(antd Drawer 동일 거동).
+  // antd Drawer 채택(스펙 187) — 포커스 트랩·Escape(keyboard)·스크롤락·마스크·슬라이드 애니메이션을
+  // antd가 제공하므로 커스텀 95줄 재구현을 제거. prop API는 그대로 유지(호출부 무변경). 모바일 100% 폭·
+  // footer 우측 정렬만 보존. destroyOnHidden=닫힘 시 body 언마운트(구 `{open && ...}` 시맨틱 동치).
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 1000, overflow: 'hidden', pointerEvents: open ? 'auto' : 'none' }}>
-      <div
-        onClick={onClose}
-        style={{ position: 'absolute', inset: 0, background: 'var(--color-bg-mask)', opacity: open ? 1 : 0, transition: 'opacity .25s' }}
-      />
-      <div
-        style={{
-          position: 'absolute',
-          top: 0,
-          right: 0,
-          bottom: 0,
-          width,
-          maxWidth: isMobile ? '100%' : '92%',
-          background: '#fff',
-          boxShadow: 'var(--box-shadow)',
-          display: 'flex',
-          flexDirection: 'column',
-          transform: open ? 'translateX(0)' : 'translateX(100%)',
-          transition: 'transform .25s cubic-bezier(.08,.82,.17,1)',
-        }}
-      >
-        {open && (
-          <>
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                padding: isMobile ? '14px 16px' : '16px 24px',
-                borderBottom: '1px solid var(--color-border-secondary)',
-                flex: 'none',
-              }}
-            >
-              <span style={{ fontSize: 16, fontWeight: 600 }}>{title}</span>
-              <span onClick={onClose} style={{ cursor: 'pointer', color: 'var(--color-text-tertiary)' }}>
-                <CloseOutlined />
-              </span>
-            </div>
-            <div style={{ flex: 1, overflow: 'auto', padding: bodyPad }}>{children}</div>
-            {footer && (
-              <div
-                style={{
-                  flex: 'none',
-                  display: 'flex',
-                  justifyContent: 'flex-end',
-                  gap: 8,
-                  padding: 16,
-                  borderTop: '1px solid var(--color-border-secondary)',
-                }}
-              >
-                {footer}
-              </div>
-            )}
-          </>
-        )}
-      </div>
-    </div>
+    <AntDrawer
+      open={open}
+      title={title}
+      width={isMobile ? '100%' : width}
+      onClose={onClose}
+      destroyOnHidden
+      footer={
+        footer ? (
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>{footer}</div>
+        ) : undefined
+      }
+    >
+      {children}
+    </AntDrawer>
   )
 }
 
