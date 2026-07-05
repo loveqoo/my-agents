@@ -263,3 +263,14 @@
 
 ## 지속 검증 체계 (사용자 제기 2026-07-04 — 자가검증이 관대함)
 - ✅**축2 다디바이스 UI 오버플로 감사=스펙 165 완료**(회고 143) — `tests/browser/ui-audit.mjs` 하네스(전수 순회+수치판정+스크린샷). 원리=도구가 좁히고 육안이 확정. 파일럿으로 batch 버튼잘림 1건 발견·수정. ✅축1(사용 시나리오 감사)=스펙 166 완료(회고 144, J1·J2 7단계 ok·막힘0, 핵심경로 건전·초안 대화 잘 처리). ✅축3(문구·평이함 감사)=스펙 167 완료(회고 145, 내부 산출물 누출 12건 수정). **3축 파일럿 완료.** ✅드로어/모달 오버플로=스펙168·✅감사 커맨드화+스킬=스펙169(`/ui-audit`·audit-all.mjs, 회고147) 완료. **검증 아크(165~169) 마감.** **다음 후보**: 자율 감사 cron 실제 등록, 카피 축 기계화(LLM judge), 감사 커버리지 확장(세로잘림·중첩드로어), 또는 새 기능 방향(C시리즈 buddy agent·피드백 수확). ✅**RAG 공개/비공개 제거=스펙 172 완료**(회고 150·163 되돌림): 사용자 교정—public/private·공개/비공개 개념 RAG서 전면 제거, 사용=전부 공용(익명 401)·관리 소유자만. 별명 편집(실제 의도)=스펙 173 완료(회고 151, 편집 드로어 노출). ✅**메뉴 감사=스펙 174 완료**(회고 152): 관리자 그룹 5개 서버 강제 확인·프로바이더·모델(상단이나 변이 관리전용)을 관리자 그룹으로 이동. RAG 임베딩 UX=스펙 175 완료(회고 153). RAG 별명 편집 발견성=스펙 176 완료(회고 154, 행 편집 연필 버튼+전용 모달, 문서 드로어 설정패널 제거). ✅**승인 재개 impl-drift 가드=스펙 171 완료**(회고 149): deep-reasoner 적대 검토로 승인 로직 점검→유일 Low(stale 주석·impl 교체 재개)를 명시 가드로 닫음. 잔여(pre-migration pending 행·완전 런타임키 스냅샷)는 문서화. ✅**평가 도구 정직성=스펙 170 완료**(회고 148): 평가 통과≠도구 호출을 성적표 배지+출제 안내로 표면화. 후속: 메모리 vs 히스토리 의문①=**조사 완료**(learning 143)—mock이 추출 무너뜨려 안 보임(실 모델서 demo-mem-vs-history.mjs로 크로스세션 1 mem 실증 가능)·info-circle 아이콘 잔존 버그(AgentsView:1950, 맵키 info). ✅**드로어·모달 오버플로 감사=스펙 168 완료**(회고 146, 14/14·FAIL0 오버레이 반응형 건전, learning142 부산물). 후속 씨앗: 모바일서 현재 메뉴 재탭 시 사이더 백드롭 안 닫힘(controlled Menu onSelect 같은key 재발화 안 함, 실동작 경계). **축3 후속(백로그)**: mem0 라이브러리명 노출(백엔드 시드 memory type 이름)·`차원` 글로스·배치/프로바이더 admin jargon(SQL LIKE·grant·keep-list)·영어 enum 태그(kind·transport)·용어 사전 상시화.
+
+## 구조 리뷰 후보 (스펙 182/183 발견, 2026-07-05 — deep-reasoner 2병렬 OCP/HoC 점검)
+> 사용자 신념("당장 구현보다 구조") 점검. 백엔드 OCP·프론트 HoC. 결론: 소스 대체로 건강(메모리 백엔드·에이전트 런타임·서빙 MCP·remote축=진짜 레지스트리 OCP, DIP/LSP 준수). 정리감은 아래.
+- ✅**source 제1자/제3자 축 술어=스펙 183 완료**(회고 164) — is_remote_source 자매 축 미적용 봉합(리터럴 7곳→술어).
+- **브로커 kind 파싱 부분 OCP**: provider 라우팅은 레지스트리(`_by_kind`)인데 `_kind_of`(broker.py:57)·`_cap_resource`(broker.py:101)가 하드코딩 if-체인. 새 kind 시 함께 수정—`_cap_resource` 누락하면 per-cap RBAC 리소스 추출 오동작(인가 게이트 조용한 오류, 스펙 112 경계). → provider 계약에 흡수(`matches(cap_id)`/`resource_of`)해 순회 파생. **중간 우선**.
+- **broker.py 1180줄 단일 모듈** → provider들을 `broker/` 패키지로 분할(응집도 높으나 파일 격리 개선). 낮음.
+- **프론트 useAsyncData 훅**: PagedListShell 안 쓰는 ~14개 뷰가 `listX().then/catch(message.error)` 복붙(.catch 34곳·message.error 83곳·alive 가드 수기 4곳). 상태·부수효과 공유라 **HoC 아니라 훅**. onError는 소비자 위임(에러 표면 계약 다양성 보존—토스트 vs 지속 Alert).
+- **프론트 useApiAction/runWithToast**: mutation try/catch 토스트 51곳 반복.
+- **AgentsView.tsx 2128줄 분해**: 로드+버전+expose+mutation 오케스트레이션→`useAgents()` 훅, detail 서브컴포넌트 개별 파일. 위 훅의 첫 소비자.
+- **HoC는 불필요**(리뷰 결론): AuthGate(render-prop)·PagedListShell(제네릭)이 HoC 니치 이미 덮음. 권한 게이트는 표현 분기(인라인/조각). 넣으면 과설계=신념 배신.
+- **테스트 부채(183서 발견)**: verify_152 V4 "code→400" stale(154가 code 노출 허용, 단언 갱신 필요)·verify_083 노출게이트 5건 404(라이브 인프라/시드 의존).
