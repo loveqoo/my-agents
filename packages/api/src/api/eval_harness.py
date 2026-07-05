@@ -73,9 +73,6 @@ class EvalReport:
     def summary(self) -> str:
         return f"score={self.score:.3f} ({self.passed}/{self.total} cases)"
 
-    def failures(self) -> list:
-        return [r for r in self.results if not r.passed]
-
 
 async def run_eval(
     cases: list,

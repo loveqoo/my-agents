@@ -535,24 +535,3 @@ export function ExposeSwitch({
   )
 }
 
-/* mock 뷰 상단에 붙이는 "데모 데이터" 표기 배너. */
-export function DemoBanner({ note }: { note?: ReactNode }) {
-  return (
-    <div
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 8,
-        fontSize: 12,
-        color: 'var(--color-warning)',
-        background: 'var(--color-warning-bg)',
-        border: '1px solid var(--color-warning)',
-        borderRadius: 100,
-        padding: '2px 12px',
-        marginBottom: 16,
-      }}
-    >
-      ● 데모 데이터 {note}
-    </div>
-  )
-}

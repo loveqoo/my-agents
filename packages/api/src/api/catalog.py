@@ -74,9 +74,3 @@ def lookup(model_id: str | None) -> dict[str, Any] | None:
         return by_full[model_id]
     bare = model_id.split("/")[-1]
     return by_bare.get(bare)
-
-
-def stats() -> dict[str, int]:
-    """진단용 — 색인 크기."""
-    by_full, by_bare = _index()
-    return {"full_ids": len(by_full), "bare_ids": len(by_bare)}

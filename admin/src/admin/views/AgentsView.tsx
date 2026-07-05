@@ -1,7 +1,7 @@
 /* my-agents admin — Agents view: list created agents, view detail, and
    create / edit / delete (composing building blocks). */
-import { useState, useEffect, useRef } from 'react'
-import { Tag, Button, Avatar, Select, Input, Checkbox, Switch, Slider, Tooltip, Popover, Modal, Alert, Collapse, message } from 'antd'
+import { useState, useEffect } from 'react'
+import { Tag, Button, Avatar, Select, Input, Switch, Slider, Tooltip, Popover, Modal, Alert, Collapse, message } from 'antd'
 import { Page, StatusPill, DataTable, Drawer, Desc, VersionHistory, ExposeSwitch, OwnerTag, type Column } from '../shared'
 import { notifyAgentsChanged } from '../../agentsBus'
 import { Icon } from '../icons'

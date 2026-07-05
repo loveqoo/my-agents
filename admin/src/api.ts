@@ -155,7 +155,6 @@ export interface BatchRun {
   started_at: string | null
   finished_at: string | null
 }
-export const listBatchJobs = () => j<{ jobs: string[] }>('/admin/batch/jobs')
 export const getBatchConfig = () => j<BatchConfig>('/admin/batch/config')
 export const updateBatchConfig = (body: Partial<BatchConfig>) =>
   patch('/admin/batch/config', body) as Promise<BatchConfig>
@@ -346,9 +345,6 @@ export async function uploadDocument(id: string, file: File): Promise<RagDocumen
 
 /* ---------- 에이전트 ---------- */
 export const listAgents = () => j<Agent[]>('/agents')
-export const getAgent = (id: string) => j<Agent>(`/agents/${id}`)
-/* 등록된 실행 방식(impl) 키 목록 — 편집 폼 impl Select(스펙 106). 신뢰 레지스트리 단일 출처(drift 0). */
-export const listAgentImpls = () => j<string[]>('/agent-impls')
 export const createAgent = (name: string, config: unknown, alias?: string | null) =>
   post('/agents', { name, alias: alias ?? null, config }) as Promise<Agent>
 export const updateAgent = (id: string, name: string, config: unknown, alias?: string | null) =>
@@ -392,11 +388,6 @@ export const connectAgent = (url: string, token?: string) =>
 export const resyncAgent = (id: string) => post(`/agents/${id}/resync`) as Promise<Agent>
 
 /* ---------- 에이전트 전용 메모리 큐레이션 (스펙 029) ---------- */
-export interface AgentMemory {
-  id: string
-  text: string
-}
-export const listAgentMemory = (id: string) => j<AgentMemory[]>(`/agents/${id}/memory`)
 export const addAgentMemory = (id: string, text: string) =>
   post(`/agents/${id}/memory`, { text })
 export const updateAgentMemory = (id: string, memId: string, text: string) =>
@@ -405,8 +396,6 @@ export const deleteAgentMemory = (id: string, memId: string) =>
   del(`/agents/${id}/memory/${memId}`)
 
 /* ---------- 유저 메모리 큐레이션 (스펙 030) — user_id 축, 교정 전용(add 없음) ---------- */
-export const listUserMemory = (userId: string) =>
-  j<AgentMemory[]>(`/memory/user/${encodeURIComponent(userId)}`)
 export const updateUserMemory = (userId: string, memId: string, text: string) =>
   patch(`/memory/user/${encodeURIComponent(userId)}/${encodeURIComponent(memId)}`, { text })
 export const deleteUserMemory = (userId: string, memId: string) =>
@@ -499,7 +488,6 @@ export interface Model {
 export const listModels = (kind?: 'chat' | 'embedding') =>
   j<Model[]>(`/models${kind ? `?kind=${kind}` : ''}`)
 export const createModel = (body: unknown) => post('/models', body) as Promise<Model>
-export const updateModel = (id: string, body: unknown) => put(`/models/${id}`, body) as Promise<Model>
 /** 기본 모델 지정(스펙 150) — 같은 kind의 기존 기본은 서버가 자동 해제. */
 export const setDefaultModel = (id: string) => put(`/models/${id}/default`, {}) as Promise<Model>
 export const deleteModel = (id: string) => del(`/models/${id}`)
@@ -550,7 +538,6 @@ export const testModelConfig = (body: {
   model_id: string
   kind?: 'chat' | 'embedding'
 }) => post('/models/test', body) as Promise<ModelProbeResult>
-export const testSavedModel = (id: string) => post(`/models/${id}/test`) as Promise<ModelProbeResult>
 
 /* ---------- 세션 / 승인 ---------- */
 export interface SessionPage {
@@ -579,9 +566,6 @@ export const listSessions = (params?: {
   const qs = qp.toString()
   return j<SessionPage>(`/sessions${qs ? `?${qs}` : ''}`)
 }
-// 대화에 쓰인 distinct user_id(이제 로그인 유저 UUID — 스펙 032), 최근 사용순.
-// Playground 헤더 입력은 제거됐지만(032), 어드민 "유저 메모리" 조회(MemoryView)가 소비한다.
-export const listUserIds = () => j<string[]>('/sessions/users')
 // 유저 메모리 큐레이션용 — distinct user_id에 등록 유저 신원(email·display_name)을 보강(스펙 052).
 // raw UUID만으론 누구인지 식별 불가라 별도 엔드포인트(users:manage 불요 — 메모리 화면 전용).
 export interface MemoryUser {

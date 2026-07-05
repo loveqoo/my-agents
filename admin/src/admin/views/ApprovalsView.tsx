@@ -1,12 +1,46 @@
 /* my-agents admin — Approvals queue: admin-approver permission requests where a
    LangGraph run is paused at a checkpoint (interrupt) awaiting an admin decision.
    Approve → resume from checkpoint; Reject → abort the run. */
-import { useState, useEffect } from 'react'
+import { useState, useEffect, type ReactNode } from 'react'
 import { Tag, Button, Avatar, Alert, message, Segmented } from 'antd'
 import { Page, Panel } from '../shared'
 import { Icon } from '../icons'
 import { type Approval } from '../mockData'
 import { listApprovals, resolveApproval } from '../../api'
+
+// 두 카드(ApprovalCard·HistoryCard) 공통 조각(스펙 182 중복 추출).
+// 헤더: 아바타+에이전트명+세션id + 우측 태그 슬롯. 카드별 상단 패딩(14/12)·부제(요청시각 유무)·태그가
+// 달라 파라미터로 픽셀 보존.
+function CardHeaderRow({ agent, sessionId, extra, pad, rightTag }: {
+  agent: string; sessionId: string; extra?: ReactNode; pad: string; rightTag: ReactNode
+}) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: pad, borderBottom: '1px solid var(--color-border-secondary)' }}>
+      <Avatar size="small" style={{ background: 'var(--gray-12)' }}>
+        <Icon name="robot" size={13} />
+      </Avatar>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontWeight: 500, color: 'var(--color-text-heading)' }}>{agent}</div>
+        <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+          <code style={{ fontFamily: 'var(--font-family-code)' }}>{sessionId}</code>{extra}
+        </div>
+      </div>
+      {rightTag}
+    </div>
+  )
+}
+
+// 권한·액션 태그 쌍(두 카드 완전 동일).
+function PermActionTags({ permission, action }: { permission: string; action: string }) {
+  return (
+    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+      <Tag color="geekblue">{permission}</Tag>
+      <Tag color="cyan">
+        <code style={{ fontFamily: 'var(--font-family-code)' }}>{action}</code>
+      </Tag>
+    </div>
+  )
+}
 
 function ApprovalCard({
   item,
@@ -27,32 +61,24 @@ function ApprovalCard({
   }
   return (
     <Panel style={{ padding: 0 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', borderBottom: '1px solid var(--color-border-secondary)' }}>
-        <Avatar size="small" style={{ background: 'var(--gray-12)' }}>
-          <Icon name="robot" size={13} />
-        </Avatar>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 500, color: 'var(--color-text-heading)' }}>{item.agent}</div>
-          <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-            <code style={{ fontFamily: 'var(--font-family-code)' }}>{item.sessionId}</code> · {item.requestedAt}
-          </div>
-        </div>
-        <Tag color={item.approver === 'self' ? 'blue' : 'purple'}>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-            <Icon name={item.approver === 'self' ? 'user' : 'lock'} size={11} />
-            {item.approver === 'self' ? '본인 승인' : '관리자 승인'}
-          </span>
-        </Tag>
-      </div>
+      <CardHeaderRow
+        agent={item.agent}
+        sessionId={item.sessionId}
+        extra={<> · {item.requestedAt}</>}
+        pad="14px 18px"
+        rightTag={
+          <Tag color={item.approver === 'self' ? 'blue' : 'purple'}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <Icon name={item.approver === 'self' ? 'user' : 'lock'} size={11} />
+              {item.approver === 'self' ? '본인 승인' : '관리자 승인'}
+            </span>
+          </Tag>
+        }
+      />
 
       <div style={{ padding: '16px 18px' }}>
         <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--color-text-heading)', marginBottom: 10 }}>{item.summary}</div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-          <Tag color="geekblue">{item.permission}</Tag>
-          <Tag color="cyan">
-            <code style={{ fontFamily: 'var(--font-family-code)' }}>{item.action}</code>
-          </Tag>
-        </div>
+        <PermActionTags permission={item.permission} action={item.action} />
         <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginBottom: 4 }}>인자</div>
         <pre
           style={{
@@ -100,31 +126,22 @@ function HistoryCard({ item }: { item: Approval }) {
   const approved = item.status === 'approved'
   return (
     <Panel style={{ padding: 0 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 18px', borderBottom: '1px solid var(--color-border-secondary)' }}>
-        <Avatar size="small" style={{ background: 'var(--gray-12)' }}>
-          <Icon name="robot" size={13} />
-        </Avatar>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 500, color: 'var(--color-text-heading)' }}>{item.agent}</div>
-          <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-            <code style={{ fontFamily: 'var(--font-family-code)' }}>{item.sessionId}</code>
-          </div>
-        </div>
-        <Tag color={approved ? 'green' : 'red'}>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-            <Icon name={approved ? 'check' : 'close'} size={11} />
-            {approved ? '승인됨' : '거부됨'}
-          </span>
-        </Tag>
-      </div>
+      <CardHeaderRow
+        agent={item.agent}
+        sessionId={item.sessionId}
+        pad="12px 18px"
+        rightTag={
+          <Tag color={approved ? 'green' : 'red'}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <Icon name={approved ? 'check' : 'close'} size={11} />
+              {approved ? '승인됨' : '거부됨'}
+            </span>
+          </Tag>
+        }
+      />
       <div style={{ padding: '14px 18px' }}>
         <div style={{ fontSize: 14, color: 'var(--color-text-heading)', marginBottom: 10 }}>{item.summary}</div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-          <Tag color="geekblue">{item.permission}</Tag>
-          <Tag color="cyan">
-            <code style={{ fontFamily: 'var(--font-family-code)' }}>{item.action}</code>
-          </Tag>
-        </div>
+        <PermActionTags permission={item.permission} action={item.action} />
         <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', lineHeight: 1.8 }}>
           <div>
             <Icon name={item.resolvedBySelf ? 'user' : 'lock'} size={12} style={{ marginRight: 6, verticalAlign: '-2px' }} />

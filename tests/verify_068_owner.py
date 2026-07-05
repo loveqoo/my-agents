@@ -1,6 +1,6 @@
 """스펙 068 검증(단위 시맨틱) — chat 세션 소유권 무덮어쓰기 불변식 (인프라 불요).
 
-`_next_owner(current, incoming)`가 소유권을 *생성 시 1회*만 부여하고, 기존 non-null 소유자를
+`ownership.next_owner(current, incoming)`(스펙 182 통합)가 소유권을 *생성 시 1회*만 부여하고, 기존 non-null 소유자를
 *다른* 유저로 덮어쓰지 않는지(이전 거부) 격리 검증한다. 이게 D1(resume 소유자 스코프)과 함께
 chat resume의 소유권 탈취를 봉인하는 두 번째 방어선이다(learning 069). 실 DB/HTTP는
 verify_068_live.py(통합 rung)에서 별도 확인.
@@ -20,7 +20,8 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "packages", "api", "src"))
 
-from api.chat import _next_owner  # noqa: E402
+# 스펙 182: chat._next_owner를 ownership.next_owner로 통합(단일 출처). 별칭으로 본문 불변식 보존.
+from api.ownership import next_owner as _next_owner  # noqa: E402
 
 _fails: list[str] = []
 

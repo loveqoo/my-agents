@@ -4,8 +4,8 @@
 **소유자 단위**로 좁힌다. 규칙(learning 069·070):
 - **생성 시 1회 스탬프**(`owner_of`), **소유권 이전 기본 금지**(`next_owner` — 기존 보존).
 - **NULL-owned = admin/superuser 전용(fail-closed)** — 레거시 행이 일반 유저에게 열리면 안 된다(070).
-- 읽기/발견은 **owner 스코프를 SELECT WHERE에 밀어**(`owner_scope_filter`) 거부행을 로드조차 안 함
-  (존재 비노출, 체크리스트 §2a).
+- 읽기/발견은 **owner 스코프를 SELECT WHERE에 밀어** 거부행을 로드조차 안 함(각 라우터가 `_own_scope`
+  로 직접 조건화 — 존재 비노출, 체크리스트 §2a).
 """
 from __future__ import annotations
 
@@ -18,10 +18,19 @@ def owner_of(principal) -> str | None:
     return str(pid) if pid is not None else None
 
 
-def next_owner(existing: str | None, new: str | None) -> str | None:
-    """소유권 이전 금지(069) — 기존 소유자가 있으면 보존, 없을 때만 새 값. 수정/버전/활성화가 owner를
-    덮어쓰지 않게 하는 단일 규칙."""
-    return existing if existing else new
+def next_owner(current: str | None, incoming: str | None) -> str | None:
+    """소유권 무덮어쓰기 불변식(스펙 068, learning 069) — **단일 출처**. 소유권은 *생성 시 1회*만
+    부여하고, 기존 non-null 소유자를 *다른* 유저로 덮어쓰지 않는다(소유권 탈취 → 탈취 후 전사 누출 방지).
+    chat resume·수정·버전·활성화가 이 규칙을 공유한다(스펙 182서 chat 사본 _next_owner를 여기로 통합).
+    - incoming 빈 값(머신/빈 userId) → current 보존(빈칸 대화가 소유자를 지우지 않음).
+    - current 미소유(None) 또는 동일 유저 → incoming 부여(생성 시 1회).
+    - 그 외(다른 유저) → current 유지(이전 거부). current==""(빈 문자열)도 기존 소유자로 보존(fail-closed —
+      미소유로 취급해 새 소유자를 얹지 않는다)."""
+    if not incoming:
+        return current
+    if current is None or current == incoming:
+        return incoming
+    return current
 
 
 def may_use(owner_id: str | None, user_id: str | None, is_privileged: bool) -> bool:
@@ -119,18 +128,6 @@ def agent_may_wire(
         return False  # authz 미초기화 → RBAC 판정 불가 → 거부(안전측)
     from .broker import _rbac_check
     return _rbac_check(enforcer, agent_owner, kind, name)
-
-
-def owner_scope_filter(column, user_id: str | None, is_privileged: bool):
-    """SELECT WHERE에 밀 owner 스코프 조건(체크리스트 §2a — 거부행 미로드). 특권=None(제약 없음),
-    소유자=`column == user_id`(NULL·타인 제외), user_id 없음(머신)=거짓(아무것도 안 봄).
-    반환 None이면 호출자는 WHERE를 추가하지 않는다."""
-    if is_privileged:
-        return None
-    if not user_id:
-        from sqlalchemy import false
-        return false()
-    return column == user_id
 
 
 def may_use_agent(agent, principal) -> bool:

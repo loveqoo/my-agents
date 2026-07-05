@@ -63,6 +63,10 @@ def unit_checks() -> None:
     s = Stub()
     check(owner_of(s) == str(s.id), "U1 owner_of(유저)=str(id)")
     check(next_owner("a", "b") == "a" and next_owner(None, "b") == "b", "U1 next_owner=기존 보존(이전 금지)")
+    # 스펙 182 통합 경계: 빈 incoming은 current 보존, 동일 유저는 부여, current==""도 기존으로 보존(fail-closed).
+    check(next_owner("a", "") == "a" and next_owner("a", None) == "a" and next_owner("a", "a") == "a"
+          and next_owner("", "b") == "" and next_owner(None, None) is None,
+          "U1 next_owner 경계: 빈 incoming 보존·동일 부여·빈 문자열 current fail-closed")
     check(may_use("bob", "bob", False) and not may_use("x", "bob", False)
           and not may_use(None, "bob", False) and may_use(None, "bob", True),
           "U1 may_use: 소유자 OK·타인 X·NULL은 특권만")

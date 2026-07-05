@@ -42,7 +42,7 @@ from .models import (
     Session,
     User,
 )
-from .ownership import agent_may_wire
+from .ownership import agent_may_wire, next_owner
 from .references import config_names
 from .schemas import ChatRequest
 from .sessions import _own_scope
@@ -440,21 +440,6 @@ async def _resolve_session_for_persist(db, ctx: dict) -> Session | None:
     return sess
 
 
-def _next_owner(current: str | None, incoming: str | None) -> str | None:
-    """세션 소유권 무덮어쓰기 불변식(스펙 068, learning 069).
-
-    소유권은 *생성 시 1회*만 부여한다 — 기존 non-null 소유자를 *다른* 유저로 덮어쓰지 않는다.
-    이게 없으면 chat resume 입구가 `if user_id: sess.user_id = user_id`로 소유자를 무조건 갈아끼워
-    067 읽기 게이트의 전제(소유권 진실성)를 깬다(소유권 탈취 → 탈취 후 전사 누출).
-    - incoming 빈 값(머신/빈 userId) → current 보존(기존 동작 — 빈칸 대화가 소유자를 지우지 않음).
-    - current 미소유(None) 또는 동일 유저 → incoming 부여(생성 시 1회).
-    - 그 외(다른 유저) → current 유지(**이전 거부** — D1로 애초 바인딩도 안 되지만 방어 다중화).
-    """
-    if not incoming:
-        return current
-    if current is None or current == incoming:
-        return incoming
-    return current
 
 
 # 전송 프롬프트 캡처 상한(스펙 131) — 메시지당 자수 캡 + **개수 캡**(codex 131 #3: historyDepth
@@ -528,7 +513,7 @@ async def _persist(
     """세션 카운터는 항상 갱신. 메시지(user/assistant+트레이스)는 store_messages일 때만 저장.
 
     0턴 미영속(스펙 049): session_pk가 None이면 이 첫 실 턴에서 행을 lazy-create한다.
-    소유권(스펙 068): _next_owner 불변식으로 기존 non-null 소유자를 다른 유저로 덮어쓰지 않는다.
+    소유권(스펙 068): next_owner 불변식으로 기존 non-null 소유자를 다른 유저로 덮어쓰지 않는다.
     """
     async with SessionLocal() as db:
         sess = await _resolve_session_for_persist(db, ctx)
@@ -540,7 +525,7 @@ async def _persist(
             db.add(Message(session_pk=session_pk, role="user", content=user_text))
             db.add(Message(session_pk=session_pk, role="assistant", content=reply, trace=trace))
         # 소유권 부여는 생성 시 1회(스펙 068) — 기존 다른 소유자는 보존(이전 거부), 빈 값도 보존.
-        sess.user_id = _next_owner(sess.user_id, user_id)
+        sess.user_id = next_owner(sess.user_id, user_id)
         sess.turns = (sess.turns or 0) + 1
         sess.tokens = (sess.tokens or 0) + int(tokens.get("in", 0)) + int(tokens.get("out", 0))
         sess.status = "active"
@@ -993,8 +978,8 @@ async def _create_approval(
             ctx["session_pending"] = None
             # 스펙 068 D6: 승인 게이트에 도달한 턴은 실 상호작용이므로 *생성 시점*에 소유자를 박는다.
             # 이게 없으면 세션이 NULL-owned로 남아, D1(소유자 스코프 resume) 도입 후 그 턴을 시작한
-            # member가 *자기 세션을* 이어가지 못한다(무회귀 깨짐). _next_owner라 기존 소유자 보존·안전.
-            sess.user_id = _next_owner(sess.user_id, user_id)
+            # member가 *자기 세션을* 이어가지 못한다(무회귀 깨짐). next_owner라 기존 소유자 보존·안전.
+            sess.user_id = next_owner(sess.user_id, user_id)
         db.add(
             Approval(
                 approval_id=apid,
