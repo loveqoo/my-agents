@@ -4,8 +4,8 @@
    (기존 사라지는 토스트 오류도 지속 Alert로 교정됨). counts 배지는 응답 extra로 받아 Radio에 반영,
    status 필터는 pageResetKey로 page만 리셋(검색어 보존 — 기존 UX 유지). */
 import { useEffect, useState } from 'react'
-import { Tag, Button, Avatar, Alert, Radio, Popconfirm, message } from 'antd'
-import { Page, StatusPill, Drawer, Desc, type Column } from '../shared'
+import { Tag, Button, Avatar, Alert, Radio, Popconfirm, message, Descriptions } from 'antd'
+import { Page, StatusPill, Drawer, type Column } from '../shared'
 import { PagedListShell } from './PagedListShell'
 import { Icon } from '../icons'
 import { SESSION_STATUS, type Session } from '../mockData'
@@ -210,12 +210,18 @@ export default function SessionsView() {
                 />
               </div>
             ) : null}
-            <Desc label="에이전트">{detail.agent}</Desc>
-            <Desc label="채널">{detail.channel}</Desc>
-            <Desc label="턴">{detail.turns}</Desc>
-            <Desc label="토큰">{detail.tokens.toLocaleString()}</Desc>
-            <Desc label="시작">{fmtTime(detail.started)}</Desc>
-            <Desc label="마지막 활동">{fmtTime(detail.lastActivity)}</Desc>
+            <Descriptions
+              column={1}
+              size="small"
+              items={[
+                { key: 'agent', label: '에이전트', children: detail.agent },
+                { key: 'channel', label: '채널', children: detail.channel },
+                { key: 'turns', label: '턴', children: detail.turns },
+                { key: 'tokens', label: '토큰', children: detail.tokens.toLocaleString() },
+                { key: 'started', label: '시작', children: fmtTime(detail.started) },
+                { key: 'last', label: '마지막 활동', children: fmtTime(detail.lastActivity) },
+              ]}
+            />
             <div style={{ marginTop: 16 }}>
               <Alert type="info" showIcon message="디버그 콘솔에서 이 세션을 열면 턴별 프롬프트·메모리·MCP 호출을 확인할 수 있습니다." />
             </div>

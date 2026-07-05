@@ -273,31 +273,6 @@ export function Drawer({
   )
 }
 
-/* key/value 디스크립터 행. 모바일에선 라벨을 윗줄로 쌓아 값 영역을 넓힌다. */
-export function Desc({ label, width = 120, children }: { label: ReactNode; width?: number; children?: ReactNode }) {
-  const screens = Grid.useBreakpoint()
-  const stack = screens.md === false
-  return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: stack ? 'column' : 'row',
-        alignItems: 'flex-start',
-        gap: stack ? 4 : 0,
-        padding: '10px 0',
-        borderBottom: '1px solid var(--color-border-secondary)',
-        fontSize: 14,
-      }}
-    >
-      <div style={{ width: stack ? '100%' : width, color: 'var(--color-text-tertiary)', flex: 'none', paddingTop: 1 }}>{label}</div>
-      <div
-        style={{ color: 'var(--color-text)', flex: 1, minWidth: 0, display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}
-      >
-        {children}
-      </div>
-    </div>
-  )
-}
 
 /* 버전 이력 목록 + 라이프사이클 액션. 에이전트(·MCP 서버)에서 공유.
    onActivate(v): 초안/보관 버전을 활성으로 승격, onTest(v): 초안 테스트,

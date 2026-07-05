@@ -1,5 +1,5 @@
-import { Tag, Button, Avatar, Alert, Modal } from 'antd'
-import { Drawer, Desc, ExposeSwitch } from '../../../shared'
+import { Tag, Button, Avatar, Alert, Modal, Descriptions } from 'antd'
+import { Drawer, ExposeSwitch } from '../../../shared'
 import { Icon } from '../../../icons'
 import type { Agent } from '../../../mockData'
 import { displayName } from '../../../naming'
@@ -10,35 +10,59 @@ import { PersonaStaleNote } from '../PersonaStaleNote'
 export function ReadonlyConfig({ agent, onRefreshPersona }: { agent: Agent; onRefreshPersona: (a: Agent) => Promise<void> }) {
   return (
     <>
-      <Desc label="모델">
-        <span style={{ fontFamily: 'var(--font-family-code)' }}>{agent.model}</span>
-      </Desc>
-      <Desc label="페르소나">{agent.persona}</Desc>
+      <Descriptions
+        column={1}
+        size="small"
+        items={[
+          {
+            key: 'model',
+            label: '모델',
+            children: <span style={{ fontFamily: 'var(--font-family-code)' }}>{agent.model}</span>,
+          },
+          { key: 'persona', label: '페르소나', children: agent.persona },
+        ]}
+      />
       <PersonaStaleNote agent={agent} onRefresh={onRefreshPersona} />
-      <Desc label="메모리">
-        {(agent.memories || []).length ? (
-          <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6 }}>
-            {agent.memories.map((m) => (
-              <Tag key={m} color="purple">
-                {m}
-              </Tag>
-            ))}
-          </span>
-        ) : (
-          <span style={{ color: 'var(--color-text-tertiary)' }}>메모리 없음</span>
-        )}
-      </Desc>
-      <Desc label="채팅 히스토리">{agent.historyDepth ? `최근 ${agent.historyDepth}개 메시지` : '기억 안 함'}</Desc>
-      <Desc label="MCP">
-        <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6 }}>
-          {(agent.mcps || []).map((m) => (
-            <Tag key={m} color="cyan">
-              {m}
-            </Tag>
-          ))}
-        </span>
-      </Desc>
-      <Desc label="세션">활성 {agent.sessions}개</Desc>
+      <Descriptions
+        column={1}
+        size="small"
+        items={[
+          {
+            key: 'memories',
+            label: '메모리',
+            children: (agent.memories || []).length ? (
+              <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6 }}>
+                {agent.memories.map((m) => (
+                  <Tag key={m} color="purple">
+                    {m}
+                  </Tag>
+                ))}
+              </span>
+            ) : (
+              <span style={{ color: 'var(--color-text-tertiary)' }}>메모리 없음</span>
+            ),
+          },
+          {
+            key: 'history',
+            label: '채팅 히스토리',
+            children: agent.historyDepth ? `최근 ${agent.historyDepth}개 메시지` : '기억 안 함',
+          },
+          {
+            key: 'mcps',
+            label: 'MCP',
+            children: (
+              <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6 }}>
+                {(agent.mcps || []).map((m) => (
+                  <Tag key={m} color="cyan">
+                    {m}
+                  </Tag>
+                ))}
+              </span>
+            ),
+          },
+          { key: 'sessions', label: '세션', children: <>활성 {agent.sessions}개</> },
+        ]}
+      />
     </>
   )
 }
@@ -165,18 +189,28 @@ export function CodeAgentDetail({
         <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', margin: '2px 0 8px 84px' }}>
           마스킹 표시 · 콘솔에 평문 저장 안 함
         </div>
-        <Desc label="런타임" width={84}>
-          <span style={{ fontFamily: 'var(--font-family-code)', fontSize: 13 }}>{agent.runtime || '—'}</span>
-        </Desc>
-        <Desc label="소스" width={84}>
-          <code style={{ fontFamily: 'var(--font-family-code)', fontSize: 13 }}>
-            {agent.repo}
-            {agent.commit ? '@' + agent.commit : ''}
-          </code>
-        </Desc>
-        <Desc label="등록일" width={84}>
-          {agent.registeredAt || '—'}
-        </Desc>
+        <Descriptions
+          column={1}
+          size="small"
+          items={[
+            {
+              key: 'runtime',
+              label: '런타임',
+              children: <span style={{ fontFamily: 'var(--font-family-code)', fontSize: 13 }}>{agent.runtime || '—'}</span>,
+            },
+            {
+              key: 'source',
+              label: '소스',
+              children: (
+                <code style={{ fontFamily: 'var(--font-family-code)', fontSize: 13 }}>
+                  {agent.repo}
+                  {agent.commit ? '@' + agent.commit : ''}
+                </code>
+              ),
+            },
+            { key: 'registered', label: '등록일', children: agent.registeredAt || '—' },
+          ]}
+        />
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12 }}>
           <span style={{ flex: 1, fontSize: 12, color: 'var(--color-text-tertiary)' }}>
             마지막 동기화 · {agent.lastSync || '—'}

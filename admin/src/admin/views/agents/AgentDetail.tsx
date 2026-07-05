@@ -1,5 +1,5 @@
-import { Tag, Button, Avatar, Alert, Modal } from 'antd'
-import { Drawer, Desc, VersionHistory, ExposeSwitch } from '../../shared'
+import { Tag, Button, Avatar, Alert, Modal, Descriptions } from 'antd'
+import { Drawer, VersionHistory, ExposeSwitch } from '../../shared'
 import { Icon } from '../../icons'
 import { AgentMemoryPanel } from '../AgentMemoryPanel'
 import type { Agent, VersionMeta } from '../../mockData'
@@ -146,53 +146,81 @@ export function AgentDetail({
           )
         )}
       </div>
-      <Desc label="모델">
-        <span style={{ fontFamily: 'var(--font-family-code)' }}>{agent.model}</span>
-      </Desc>
-      <Desc label="페르소나">{agent.persona}</Desc>
+      <Descriptions
+        column={1}
+        size="small"
+        items={[
+          {
+            key: 'model',
+            label: '모델',
+            children: <span style={{ fontFamily: 'var(--font-family-code)' }}>{agent.model}</span>,
+          },
+          { key: 'persona', label: '페르소나', children: agent.persona },
+        ]}
+      />
       <PersonaStaleNote agent={agent} onRefresh={onRefreshPersona} />
-      <Desc label="메모리">
-        {(agent.memories || []).length ? (
-          <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6 }}>
-            {agent.memories.map((m) => (
-              <Tag key={m} color="purple">
-                {m}
-              </Tag>
-            ))}
-          </span>
-        ) : (
-          <span style={{ color: 'var(--color-text-tertiary)' }}>메모리 없음</span>
-        )}
-      </Desc>
-      <Desc label="채팅 히스토리">{agent.historyDepth ? `최근 ${agent.historyDepth}개 메시지` : '기억 안 함'}</Desc>
-      {(agent.memories || []).includes('장기 기억 (mem0)') ? (
-        <Desc label="벡터 테이블">
-          {(agent.vectorTables || []).length ? (
-            agent.vectorTables.map((t) => (
-              <Tag key={t} color="cyan">
-                <code style={{ fontFamily: 'var(--font-family-code)' }}>{t}</code>
-              </Tag>
-            ))
-          ) : (
-            <span style={{ color: 'var(--color-text-tertiary)' }}>연결 안 함 (외부 지식 없음)</span>
-          )}
-        </Desc>
-      ) : null}
-      {(agent.memories || []).includes('장기 기억 (mem0)') && agent.source === 'ui' ? (
-        <Desc label="에이전트 지식 (mem0)">
-          <AgentMemoryPanel agentId={agent.id} />
-        </Desc>
-      ) : null}
-      <Desc label="MCP">
-        <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6 }}>
-          {agent.mcps.map((m) => (
-            <Tag key={m} color="cyan">
-              {m}
-            </Tag>
-          ))}
-        </span>
-      </Desc>
-      <Desc label="세션">활성 {agent.sessions}개</Desc>
+      <Descriptions
+        column={1}
+        size="small"
+        items={[
+          {
+            key: 'memories',
+            label: '메모리',
+            children: (agent.memories || []).length ? (
+              <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6 }}>
+                {agent.memories.map((m) => (
+                  <Tag key={m} color="purple">
+                    {m}
+                  </Tag>
+                ))}
+              </span>
+            ) : (
+              <span style={{ color: 'var(--color-text-tertiary)' }}>메모리 없음</span>
+            ),
+          },
+          {
+            key: 'history',
+            label: '채팅 히스토리',
+            children: agent.historyDepth ? `최근 ${agent.historyDepth}개 메시지` : '기억 안 함',
+          },
+          ...((agent.memories || []).includes('장기 기억 (mem0)')
+            ? [
+                {
+                  key: 'vectors',
+                  label: '벡터 테이블',
+                  children: (agent.vectorTables || []).length ? (
+                    <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6 }}>
+                      {agent.vectorTables.map((t) => (
+                        <Tag key={t} color="cyan">
+                          <code style={{ fontFamily: 'var(--font-family-code)' }}>{t}</code>
+                        </Tag>
+                      ))}
+                    </span>
+                  ) : (
+                    <span style={{ color: 'var(--color-text-tertiary)' }}>연결 안 함 (외부 지식 없음)</span>
+                  ),
+                },
+              ]
+            : []),
+          ...((agent.memories || []).includes('장기 기억 (mem0)') && agent.source === 'ui'
+            ? [{ key: 'mem0', label: '에이전트 지식 (mem0)', children: <AgentMemoryPanel agentId={agent.id} /> }]
+            : []),
+          {
+            key: 'mcps',
+            label: 'MCP',
+            children: (
+              <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6 }}>
+                {agent.mcps.map((m) => (
+                  <Tag key={m} color="cyan">
+                    {m}
+                  </Tag>
+                ))}
+              </span>
+            ),
+          },
+          { key: 'sessions', label: '세션', children: <>활성 {agent.sessions}개</> },
+        ]}
+      />
 
       {draft ? (
         <div

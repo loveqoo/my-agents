@@ -1,8 +1,8 @@
 /* my-agents admin — Building blocks (재료) browser: personas, memory policies,
    MCP servers. Category tabs → list → detail drawer. */
 import { useState, useEffect } from 'react'
-import { Tag, Button, Tabs, Switch, Modal, Input, Select, Checkbox, Tooltip, Alert, Grid, message } from 'antd'
-import { Page, DataTable, Drawer, Desc, OwnerTag, type Column } from '../shared'
+import { Tag, Button, Tabs, Switch, Modal, Input, Select, Checkbox, Tooltip, Alert, Grid, message, Descriptions } from 'antd'
+import { Page, DataTable, Drawer, OwnerTag, type Column } from '../shared'
 import { validateName, NAME_HINT } from '../naming'
 import { Icon } from '../icons'
 import { MCP_STATUS, VECTOR_STATUS, type BlockItem, type BlockCategory, type StatusMeta } from '../mockData'
@@ -1121,57 +1121,90 @@ export default function BlocksView() {
               </span>
               <div style={{ fontSize: 16, fontWeight: 600 }}>{detail.name}</div>
             </div>
-            {detail.model ? (
-              <Desc label="임베딩 모델">
-                <Tag color="geekblue">{detail.model}</Tag>
-              </Desc>
-            ) : null}
-            {detail.source ? (
-              <Desc label="출처">
-                <code style={{ fontFamily: 'var(--font-family-code)', fontSize: 12 }}>{detail.source}</code>
-              </Desc>
-            ) : null}
-            {detail.dims ? <Desc label="차원">{detail.dims.toLocaleString()}차원</Desc> : null}
-            {detail.rows != null ? <Desc label="행 수">{detail.rows.toLocaleString()}개 벡터</Desc> : null}
-            {cat === 'embedding' && detail.status ? (
-              <Desc label="상태">{statusTag(VECTOR_STATUS, detail.status)}</Desc>
-            ) : null}
-            {splitTones(detail.tone).length ? (
-              <Desc label="톤">
-                {splitTones(detail.tone).map((t) => (
-                  <Tag key={t} color="magenta">
-                    {t}
-                  </Tag>
-                ))}
-              </Desc>
-            ) : null}
-            {detail.scope ? (
-              <Desc label="범위">{cat === 'memory' ? <Tag color="purple">{detail.scope}</Tag> : <Tag>{detail.scope}</Tag>}</Desc>
-            ) : null}
-            {detail.transport ? (
-              <Desc label="전송">
-                <Tag>{detail.transport}</Tag>
-              </Desc>
-            ) : null}
-            {cat === 'mcp' && detail.source ? (
-              <Desc label="소스">
-                {detail.source === 'external' ? (
-                  <Tag color="purple">외부 · URL로 등록</Tag>
-                ) : (
-                  <Tag>로컬 · 자체 운영</Tag>
-                )}
-              </Desc>
-            ) : null}
-            {detail.url ? (
-              <Desc label="URL">
-                <code style={{ fontFamily: 'var(--font-family-code)', fontSize: 12, wordBreak: 'break-all' }}>{detail.url}</code>
-              </Desc>
-            ) : null}
-            {detail.auth ? (
-              <Desc label="인증">
-                <Tag>{detail.auth}</Tag>
-              </Desc>
-            ) : null}
+            <Descriptions
+              column={1}
+              size="small"
+              items={[
+                ...(detail.model
+                  ? [{ key: 'model', label: '임베딩 모델', children: <Tag color="geekblue">{detail.model}</Tag> }]
+                  : []),
+                ...(detail.source
+                  ? [
+                      {
+                        key: 'origin',
+                        label: '출처',
+                        children: (
+                          <code style={{ fontFamily: 'var(--font-family-code)', fontSize: 12 }}>{detail.source}</code>
+                        ),
+                      },
+                    ]
+                  : []),
+                ...(detail.dims ? [{ key: 'dims', label: '차원', children: `${detail.dims.toLocaleString()}차원` }] : []),
+                ...(detail.rows != null
+                  ? [{ key: 'rows', label: '행 수', children: `${detail.rows.toLocaleString()}개 벡터` }]
+                  : []),
+                ...(cat === 'embedding' && detail.status
+                  ? [{ key: 'status', label: '상태', children: statusTag(VECTOR_STATUS, detail.status) }]
+                  : []),
+                ...(splitTones(detail.tone).length
+                  ? [
+                      {
+                        key: 'tone',
+                        label: '톤',
+                        children: (
+                          <>
+                            {splitTones(detail.tone).map((t) => (
+                              <Tag key={t} color="magenta">
+                                {t}
+                              </Tag>
+                            ))}
+                          </>
+                        ),
+                      },
+                    ]
+                  : []),
+                ...(detail.scope
+                  ? [
+                      {
+                        key: 'scope',
+                        label: '범위',
+                        children: cat === 'memory' ? <Tag color="purple">{detail.scope}</Tag> : <Tag>{detail.scope}</Tag>,
+                      },
+                    ]
+                  : []),
+                ...(detail.transport
+                  ? [{ key: 'transport', label: '전송', children: <Tag>{detail.transport}</Tag> }]
+                  : []),
+                ...(cat === 'mcp' && detail.source
+                  ? [
+                      {
+                        key: 'mcpSource',
+                        label: '소스',
+                        children:
+                          detail.source === 'external' ? (
+                            <Tag color="purple">외부 · URL로 등록</Tag>
+                          ) : (
+                            <Tag>로컬 · 자체 운영</Tag>
+                          ),
+                      },
+                    ]
+                  : []),
+                ...(detail.url
+                  ? [
+                      {
+                        key: 'url',
+                        label: 'URL',
+                        children: (
+                          <code style={{ fontFamily: 'var(--font-family-code)', fontSize: 12, wordBreak: 'break-all' }}>
+                            {detail.url}
+                          </code>
+                        ),
+                      },
+                    ]
+                  : []),
+                ...(detail.auth ? [{ key: 'auth', label: '인증', children: <Tag>{detail.auth}</Tag> }] : []),
+              ]}
+            />
             {cat === 'mcp' && detail.tools ? (
               /* 도구 카드(스펙 151) — 이름·활성·설명·파라미터 표. 메타 없는 기존 행은 이름만(grandfather). */
               <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -1237,17 +1270,35 @@ export default function BlocksView() {
                 })}
               </div>
             ) : detail.tools ? (
-              <Desc label="도구">
-                <span style={{ display: 'inline-flex', gap: 4, flexWrap: 'wrap' }}>
-                  {detail.tools.map((t) => (
-                    <Tag key={t}>{t}</Tag>
-                  ))}
-                </span>
-              </Desc>
+              <Descriptions
+                column={1}
+                size="small"
+                items={[
+                  {
+                    key: 'tools',
+                    label: '도구',
+                    children: (
+                      <span style={{ display: 'inline-flex', gap: 4, flexWrap: 'wrap' }}>
+                        {detail.tools.map((t) => (
+                          <Tag key={t}>{t}</Tag>
+                        ))}
+                      </span>
+                    ),
+                  },
+                ]}
+              />
             ) : null}
-            {cat === 'mcp' && detail.status ? <Desc label="상태">{statusTag(MCP_STATUS, detail.status)}</Desc> : null}
-            <Desc label="사용">{detail.usedBy}개 에이전트</Desc>
-            <Desc label="수정">{detail.updated}</Desc>
+            <Descriptions
+              column={1}
+              size="small"
+              items={[
+                ...(cat === 'mcp' && detail.status
+                  ? [{ key: 'status', label: '상태', children: statusTag(MCP_STATUS, detail.status) }]
+                  : []),
+                { key: 'usedBy', label: '사용', children: `${detail.usedBy}개 에이전트` },
+                { key: 'updated', label: '수정', children: detail.updated },
+              ]}
+            />
             {cat === 'mcp' && detail.source !== 'external' ? (
               <div
                 style={{

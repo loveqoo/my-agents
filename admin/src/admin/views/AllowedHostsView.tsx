@@ -3,8 +3,8 @@
    여기에 등록한 host는 그 예외로 통과한다 — A2A 클라이언트·Agent Card fetch/probe·MCP 연결 공용.
    추가/삭제는 **무재시작**(최대 ~10초 내 반영). 백엔드: GET/POST/DELETE /admin/allowed-hosts. */
 import { useState } from 'react'
-import { Button, Input, Popconfirm, Space, Alert, message } from 'antd'
-import { Page, Panel, DataTable, Desc, type Column } from '../shared'
+import { Button, Input, Popconfirm, Space, Alert, message, Form } from 'antd'
+import { Page, Panel, DataTable, type Column } from '../shared'
 import { useAsyncData, runWithToast } from '../../hooks'
 import {
   listAllowedHosts,
@@ -121,35 +121,33 @@ export default function AllowedHostsView() {
 
       <Panel style={{ padding: 20, marginBottom: 20 }}>
         <h4 style={{ margin: '0 0 16px', fontSize: 16 }}>호스트 추가</h4>
-        <Desc label="호스트">
-          <Input
-            value={host}
-            onChange={(e) => setHost(e.target.value)}
-            onPressEnter={() => void add()}
-            placeholder="예: 127.0.0.1 또는 agent.internal"
-            style={{ maxWidth: 320, fontFamily: 'var(--font-family-code, monospace)' }}
-          />
-          <span style={{ marginInlineStart: 12, color: 'var(--color-text-tertiary)', fontSize: 13 }}>
-            정확 host(이름 또는 IP)만 — 와일드카드/CIDR/포트/스킴 불가
-          </span>
-        </Desc>
-        <Desc label="메모(선택)">
-          <Input
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            onPressEnter={() => void add()}
-            placeholder="왜 열었는지 — 예: dev mock A2A"
-            maxLength={200}
-            style={{ maxWidth: 320 }}
-          />
-        </Desc>
-        <div style={{ marginTop: 16 }}>
+        {/* antd Form은 레이아웃 전용(스펙 187 Phase 3) — 입력 상태는 기존 controlled 그대로(name 미지정). */}
+        <Form layout="vertical" component="div">
+          <Form.Item label="호스트" extra="정확 host(이름 또는 IP)만 — 와일드카드/CIDR/포트/스킴 불가">
+            <Input
+              value={host}
+              onChange={(e) => setHost(e.target.value)}
+              onPressEnter={() => void add()}
+              placeholder="예: 127.0.0.1 또는 agent.internal"
+              style={{ maxWidth: 320, fontFamily: 'var(--font-family-code, monospace)' }}
+            />
+          </Form.Item>
+          <Form.Item label="메모(선택)">
+            <Input
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              onPressEnter={() => void add()}
+              placeholder="왜 열었는지 — 예: dev mock A2A"
+              maxLength={200}
+              style={{ maxWidth: 320 }}
+            />
+          </Form.Item>
           <Space>
             <Button type="primary" onClick={() => void add()} loading={adding} disabled={!host.trim()}>
               추가
             </Button>
           </Space>
-        </div>
+        </Form>
       </Panel>
 
       <h4 style={{ margin: '0 0 12px', fontSize: 16 }}>등록된 허용 호스트</h4>

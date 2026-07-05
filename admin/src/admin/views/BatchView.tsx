@@ -3,8 +3,8 @@
    각 패널: 설정(임계치/일수 + cron) 편집 + dry-run/실행 트리거. 하단에 공용 실행 이력.
    백엔드: GET/PATCH /admin/batch/config, POST /admin/batch/{job}/run, GET /admin/batch/runs. */
 import { useState, useEffect, useCallback } from 'react'
-import { Button, InputNumber, Input, Tag, Tooltip, Popconfirm, Space, message } from 'antd'
-import { Page, Panel, DataTable, StatusPill, Desc, type Column } from '../shared'
+import { Button, InputNumber, Input, Tag, Tooltip, Popconfirm, Space, message, Form } from 'antd'
+import { Page, Panel, DataTable, StatusPill, type Column } from '../shared'
 import {
   getBatchConfig,
   updateBatchConfig,
@@ -321,47 +321,50 @@ export default function BatchView() {
           장기기억(mem0)은 건드리지 않습니다. 두 기준 모두 비우면 비활성(삭제 안 함)입니다.
           (진행 중인 대화는 보호됩니다 — 최근 1시간 내 활동 세션은 턴 수와 무관하게 정리하지 않습니다.)
         </div>
-        <Desc label="보존일수">
-          <InputNumber
-            min={1}
-            max={3650}
-            value={days ?? undefined}
-            onChange={(v) => setDays(v ?? null)}
-            placeholder="비활성"
-            addonAfter="일"
-            style={{ width: 160 }}
-          />
-          <span style={{ marginInlineStart: 12, color: 'var(--color-text-tertiary)', fontSize: 13 }}>
-            {days == null ? '비활성 — 삭제하지 않음' : `${days}일 이전 세션 정리`}
-          </span>
-        </Desc>
-        <Desc label="최소 턴 수">
-          <InputNumber
-            min={1}
-            max={10000}
-            value={minTurns ?? undefined}
-            onChange={(v) => setMinTurns(v ?? null)}
-            placeholder="비활성"
-            addonAfter="턴"
-            style={{ width: 160 }}
-          />
-          <span style={{ marginInlineStart: 12, color: 'var(--color-text-tertiary)', fontSize: 13 }}>
-            {minTurns == null
-              ? '비활성 — 턴 수로 삭제하지 않음'
-              : `${minTurns}턴 미만 이탈 세션 정리(활성 보호)`}
-          </span>
-        </Desc>
-        <Desc label="스케줄(cron)">
-          <Input
-            value={cron}
-            onChange={(e) => setCron(e.target.value)}
-            placeholder="예: 0 4 * * *  (비우면 자동 실행 안 함)"
-            style={{ maxWidth: 280, fontFamily: 'var(--font-mono, monospace)' }}
-          />
-          <span style={{ marginInlineStart: 12, color: 'var(--color-text-tertiary)', fontSize: 13 }}>
-            격리 배치 서비스(batch serve)가 이 cron으로 자동 실행합니다.
-          </span>
-        </Desc>
+        {/* antd Form은 레이아웃 전용(스펙 187 Phase 3) — 입력 상태는 기존 controlled 그대로(name 미지정). */}
+        <Form layout="vertical" component="div">
+          <Form.Item label="보존일수" style={{ marginBottom: 12 }}>
+            <InputNumber
+              min={1}
+              max={3650}
+              value={days ?? undefined}
+              onChange={(v) => setDays(v ?? null)}
+              placeholder="비활성"
+              addonAfter="일"
+              style={{ width: 160 }}
+            />
+            <span style={{ marginInlineStart: 12, color: 'var(--color-text-tertiary)', fontSize: 13 }}>
+              {days == null ? '비활성 — 삭제하지 않음' : `${days}일 이전 세션 정리`}
+            </span>
+          </Form.Item>
+          <Form.Item label="최소 턴 수" style={{ marginBottom: 12 }}>
+            <InputNumber
+              min={1}
+              max={10000}
+              value={minTurns ?? undefined}
+              onChange={(v) => setMinTurns(v ?? null)}
+              placeholder="비활성"
+              addonAfter="턴"
+              style={{ width: 160 }}
+            />
+            <span style={{ marginInlineStart: 12, color: 'var(--color-text-tertiary)', fontSize: 13 }}>
+              {minTurns == null
+                ? '비활성 — 턴 수로 삭제하지 않음'
+                : `${minTurns}턴 미만 이탈 세션 정리(활성 보호)`}
+            </span>
+          </Form.Item>
+          <Form.Item label="스케줄(cron)" style={{ marginBottom: 12 }}>
+            <Input
+              value={cron}
+              onChange={(e) => setCron(e.target.value)}
+              placeholder="예: 0 4 * * *  (비우면 자동 실행 안 함)"
+              style={{ maxWidth: 280, fontFamily: 'var(--font-mono, monospace)' }}
+            />
+            <span style={{ marginInlineStart: 12, color: 'var(--color-text-tertiary)', fontSize: 13 }}>
+              격리 배치 서비스(batch serve)가 이 cron으로 자동 실행합니다.
+            </span>
+          </Form.Item>
+        </Form>
         <div style={{ marginTop: 16 }}>
           <Space wrap>
             <Button
@@ -407,33 +410,35 @@ export default function BatchView() {
           장기기억(mem0 user_id 축)이 임계치를 넘은 유저의 기억을 LLM으로 더 적고 일관된 사실로 통합합니다.
           원본은 삭제 전 스냅샷에 백업합니다(롤백 가능). 임계치를 비우면 비활성입니다.
         </div>
-        <Desc label="통합 임계치">
-          <InputNumber
-            min={2}
-            max={10000}
-            value={threshold ?? undefined}
-            onChange={(v) => setThreshold(v ?? null)}
-            placeholder="비활성"
-            addonAfter="개"
-            style={{ width: 160 }}
-          />
-          <span style={{ marginInlineStart: 12, color: 'var(--color-text-tertiary)', fontSize: 13 }}>
-            {threshold == null
-              ? '비활성 — 통합하지 않음'
-              : `기억이 ${threshold}개를 넘은 유저만 통합 (최소 2)`}
-          </span>
-        </Desc>
-        <Desc label="스케줄(cron)">
-          <Input
-            value={memCron}
-            onChange={(e) => setMemCron(e.target.value)}
-            placeholder="예: 0 5 * * 0  (비우면 자동 실행 안 함)"
-            style={{ maxWidth: 280, fontFamily: 'var(--font-mono, monospace)' }}
-          />
-          <span style={{ marginInlineStart: 12, color: 'var(--color-text-tertiary)', fontSize: 13 }}>
-            격리 배치 서비스(batch serve)가 이 cron으로 자동 실행합니다.
-          </span>
-        </Desc>
+        <Form layout="vertical" component="div">
+          <Form.Item label="통합 임계치" style={{ marginBottom: 12 }}>
+            <InputNumber
+              min={2}
+              max={10000}
+              value={threshold ?? undefined}
+              onChange={(v) => setThreshold(v ?? null)}
+              placeholder="비활성"
+              addonAfter="개"
+              style={{ width: 160 }}
+            />
+            <span style={{ marginInlineStart: 12, color: 'var(--color-text-tertiary)', fontSize: 13 }}>
+              {threshold == null
+                ? '비활성 — 통합하지 않음'
+                : `기억이 ${threshold}개를 넘은 유저만 통합 (최소 2)`}
+            </span>
+          </Form.Item>
+          <Form.Item label="스케줄(cron)" style={{ marginBottom: 12 }}>
+            <Input
+              value={memCron}
+              onChange={(e) => setMemCron(e.target.value)}
+              placeholder="예: 0 5 * * 0  (비우면 자동 실행 안 함)"
+              style={{ maxWidth: 280, fontFamily: 'var(--font-mono, monospace)' }}
+            />
+            <span style={{ marginInlineStart: 12, color: 'var(--color-text-tertiary)', fontSize: 13 }}>
+              격리 배치 서비스(batch serve)가 이 cron으로 자동 실행합니다.
+            </span>
+          </Form.Item>
+        </Form>
         <div style={{ marginTop: 16 }}>
           <Space wrap>
             <Button
@@ -513,19 +518,21 @@ export default function BatchView() {
           위험 패턴은 거부, 부트스트랩/데모 계정(admin@·alice@)과 마지막 슈퍼유저는 패턴과 무관하게 보존합니다.
           반드시 먼저 dry-run으로 대상을 확인하세요.
         </div>
-        <Desc label="이메일 패턴">
-          <Input
-            value={userPattern}
-            onChange={(e) => setUserPattern(e.target.value)}
-            placeholder="예: verify%@example.com  (비우면 비활성)"
-            style={{ maxWidth: 320, fontFamily: 'var(--font-mono, monospace)' }}
-          />
-          <span style={{ marginInlineStart: 12, color: 'var(--color-text-tertiary)', fontSize: 13 }}>
-            {userPattern.trim() === ''
-              ? '비활성 — 삭제하지 않음'
-              : `${userPattern.trim()} 에 일치하는 유저 정리(keep-list·마지막 super 제외)`}
-          </span>
-        </Desc>
+        <Form layout="vertical" component="div">
+          <Form.Item label="이메일 패턴" style={{ marginBottom: 12 }}>
+            <Input
+              value={userPattern}
+              onChange={(e) => setUserPattern(e.target.value)}
+              placeholder="예: verify%@example.com  (비우면 비활성)"
+              style={{ maxWidth: 320, fontFamily: 'var(--font-mono, monospace)' }}
+            />
+            <span style={{ marginInlineStart: 12, color: 'var(--color-text-tertiary)', fontSize: 13 }}>
+              {userPattern.trim() === ''
+                ? '비활성 — 삭제하지 않음'
+                : `${userPattern.trim()} 에 일치하는 유저 정리(keep-list·마지막 super 제외)`}
+            </span>
+          </Form.Item>
+        </Form>
         <div style={{ marginTop: 16 }}>
           <Space wrap>
             <Button

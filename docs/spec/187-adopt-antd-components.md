@@ -40,9 +40,21 @@
 - **검증**: tsc 0 · 브라우저 3종 전수 ALL PASS(에이전트 리스트+드로어3+폼 / 생성→삭제 왕복+토스트 /
   컬렉션·세션·블록 행클릭→드로어) · 스샷 시각(에이전트 2줄 행 한 몸 유지·컬렉션 표·모바일 카드 분기 렌더).
 
-## Phase 3 — Desc → antd Descriptions (예정, 선택)
-호출부 50곳이 per-row `<Desc>`라 antd `Descriptions`(그리드 컨테이너)로는 그룹 재구성 필요. 이득 대비
-부담 커 마지막·선택.
+## Phase 3 — Desc → antd Descriptions/Form · 완료·검증(사용자 "전환" 선택)
+50곳 전수 조사에서 Desc가 **두 용도**로 쓰임을 발견 — 용도별로 옳은 antd 컴포넌트가 다름:
+- **표시용 42곳**(세션 6·평가 1·AgentDetail 8·CodeAgentDetail 9·ExternalAgentDetail 3·블록 15) →
+  antd `Descriptions`(column=1·size=small·items 배열). 연속 그룹=하나의 Descriptions, 조건부 행=items
+  스프레드(`...(cond ? [{...}] : [])`), `width={84}` 커스텀은 제거(Descriptions는 내부가 표라 라벨
+  정렬 자동). PersonaStaleNote 등 비-Desc 요소가 낀 그룹은 그 지점에서 분할.
+- **폼 행 8곳**(허용호스트 2·배치 6 — 라벨+Input/InputNumber) → antd `Form`/`Form.Item`
+  **레이아웃 전용**(layout=vertical·component="div"·name 미지정 — 입력 상태는 기존 controlled 그대로,
+  로직 무변경). Descriptions에 입력을 넣는 건 의미론 위반이라 배제.
+- `shared.Desc`(28줄)+고아 주석 삭제. shared.tsx **384줄**(스펙 187 누적 575→384, −191줄).
+- **검증**: tsc 0 · 브라우저 3종 전수 ALL PASS · 스샷 시각(코드 드로어 Descriptions 콜론 라벨·배치
+  Form 수직 레이아웃·힌트 인라인 보존).
 
 ## 실행 결과
-- Phase 1 완료·커밋. Phase 2·3은 단계별 진행(사용자 확인).
+- **Phase 1·2·3 전부 완료·커밋** — shared.tsx의 from-scratch 재구현(Drawer 95줄·DataTable 데스크톱
+  분기·Desc 28줄)이 antd(Drawer·Table·Descriptions/Form)로 통일. 남은 커스텀은 전부 정당:
+  모바일 카드 분기(antd 대응물 없는 레이아웃)·Page/Panel/StatusPill/OwnerTag(도메인·토큰 래퍼)·
+  VersionHistory/ExposeSwitch(도메인 컴포넌트).

@@ -1,5 +1,5 @@
-import { Tag, Button, Avatar, Alert } from 'antd'
-import { Drawer, Desc } from '../../../shared'
+import { Tag, Button, Avatar, Alert, Descriptions } from 'antd'
+import { Drawer } from '../../../shared'
 import { Icon } from '../../../icons'
 import type { Agent } from '../../../mockData'
 import { displayName } from '../../../naming'
@@ -97,21 +97,29 @@ export function ExternalAgentDetail({
           A2A 카드
         </div>
         <IdRow label="Endpoint" value={card?.url || agent.endpoint || '—'} />
-        <Desc label="제공자" width={84}>
-          {card?.provider?.organization || '—'}
-        </Desc>
-        {caps.length ? (
-          <Desc label="기능" width={84}>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              {caps.map((c) => (
-                <Tag key={c} color="blue">{c}</Tag>
-              ))}
-            </div>
-          </Desc>
-        ) : null}
-        <Desc label="등록일" width={84}>
-          {agent.registeredAt || '—'}
-        </Desc>
+        <Descriptions
+          column={1}
+          size="small"
+          items={[
+            { key: 'provider', label: '제공자', children: card?.provider?.organization || '—' },
+            ...(caps.length
+              ? [
+                  {
+                    key: 'caps',
+                    label: '기능',
+                    children: (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                        {caps.map((c) => (
+                          <Tag key={c} color="blue">{c}</Tag>
+                        ))}
+                      </div>
+                    ),
+                  },
+                ]
+              : []),
+            { key: 'registered', label: '등록일', children: agent.registeredAt || '—' },
+          ]}
+        />
       </div>
 
       {card?.skills?.length ? (

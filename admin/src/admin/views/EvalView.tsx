@@ -3,8 +3,8 @@
    수치 검증→자율 반복(Ralph) 로드맵의 제품 표면. 러너는 오염 제로(백엔드 eval_runner) —
    실행해도 세션/메모리에 흔적이 남지 않는다. */
 import { useState, useEffect, useCallback } from 'react'
-import { Tabs, Button, Input, Select, Tag, Modal, Popconfirm, Alert, Collapse, Checkbox, Tooltip, message } from 'antd'
-import { Page, DataTable, Drawer, Desc, type Column } from '../shared'
+import { Tabs, Button, Input, Select, Tag, Modal, Popconfirm, Alert, Collapse, Checkbox, Tooltip, message, Descriptions } from 'antd'
+import { Page, DataTable, Drawer, type Column } from '../shared'
 import { Icon } from '../icons'
 import { TrendChart, CompareDrawer } from './EvalTrend'
 import { MatrixView } from './EvalMatrix'
@@ -373,7 +373,7 @@ function RunDrawer({ runId, onClose }: { runId: string | null; onClose: () => vo
               ) : null
             })()}
           </div>
-          <Desc label="에이전트">{detail.agent_name ?? '—'}</Desc>
+          <Descriptions column={1} size="small" items={[{ key: 'agent', label: '에이전트', children: detail.agent_name ?? '—' }]} />
           {detail.error ? <Alert type="error" showIcon message="실행 오류" description={detail.error} /> : null}
           {detail.results.map((r, i) => (
             <div key={i} style={{ padding: 12, border: '1px solid var(--color-border-secondary)', borderRadius: 8 }}>
