@@ -613,6 +613,7 @@ class ApprovalOut(BaseModel):
     checkpoint: str | None = None
     status: str
     requestedAt: str | None = None
+    approver: str | None = None  # 승인자(스펙 177 P2) — "admin"=관리자·"self"=본인. UI 태그 표기용.
 
 
 class ResolveIn(BaseModel):

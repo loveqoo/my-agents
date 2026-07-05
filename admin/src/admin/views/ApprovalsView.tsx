@@ -37,9 +37,10 @@ function ApprovalCard({
             <code style={{ fontFamily: 'var(--font-family-code)' }}>{item.sessionId}</code> · {item.requestedAt}
           </div>
         </div>
-        <Tag color="purple">
+        <Tag color={item.approver === 'self' ? 'blue' : 'purple'}>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-            <Icon name="lock" size={11} />관리자 승인
+            <Icon name={item.approver === 'self' ? 'user' : 'lock'} size={11} />
+            {item.approver === 'self' ? '본인 승인' : '관리자 승인'}
           </span>
         </Tag>
       </div>
@@ -145,7 +146,7 @@ export default function ApprovalsView({ onPendingChange }: { onPendingChange?: (
   }
 
   return (
-    <Page title="승인" subtitle="체크포인트에서 일시정지된 관리자 승인 작업 — 결정을 기다립니다">
+    <Page title="승인" subtitle="체크포인트에서 일시정지된 승인 작업 — 관리자/본인 결정을 기다립니다">
       {queue.length === 0 ? (
         <Panel style={{ padding: '56px 24px', textAlign: 'center', color: 'var(--color-text-tertiary)' }}>
           <Icon name="check-circle" size={30} style={{ color: 'var(--color-success)' }} />

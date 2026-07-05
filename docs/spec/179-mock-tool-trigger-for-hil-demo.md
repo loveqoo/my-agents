@@ -28,6 +28,17 @@ mock 챗 모델(`mock_remote.py`)은 **도구 호출을 미지원**(평문만) �
 delete_record는 approval.required라 **실행 전 interrupt**(승인 대기, 부수효과 0). 승인·재개 →
 tool 실행 → tool 결과가 messages에 → 모델 재호출(role=tool 존재 → 평문 요약).
 
+## 본인(self) 승인 실습 — 검증 완료
+member 계정(`shotfix_selfdemo@example.com`) + 데모 에이전트(`self-approval-demo`, public,
+`config.toolPolicy` = delete_record approver=self)로 e2e 검증(`verify-self-approval.mjs`): member
+로그인→"레코드 삭제"→승인 대기→승인 페이지에 **본인 것**이 "👤 본인 승인" 태그로 뜨고→본인이 승인
+(403 아님)→서버 재개. 슈퍼유저는 is_privileged라 self 분기를 안 타므로 member 계정이 필수.
+
+**부수 버그 수정(태그 하드코딩)**: 승인 태그가 approver 무관하게 "관리자 승인" 하드코딩이었다(모델엔
+`approver` 있으나 ApprovalOut·서러라이저·프론트 Approval 타입에 미배선). approver를 끝까지 배선해
+태그를 데이터 기반으로(self=파랑 "본인 승인", admin=보라 "관리자 승인"). 페이지 부제도 "관리자 승인
+작업"→"승인 작업 — 관리자/본인" 중립화.
+
 ## 승인 두 종류 실습
 - **어드민 승인**: `delete_record` 기본 approver=admin(mock_mcp 메타). local-tools 물린 에이전트로
   "레코드 삭제" → 승인 페이지(관리자)에서 승인.

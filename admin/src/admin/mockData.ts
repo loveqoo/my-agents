@@ -153,6 +153,7 @@ export interface Approval {
   requestedAt: string
   checkpoint: string
   status?: string
+  approver?: 'admin' | 'self' | null // 승인자(스펙 177 P2) — 태그 표기(본인/관리자 승인)
 }
 export interface StatusMeta {
   label: string

@@ -159,4 +159,5 @@ def approval_to_out(p: Approval, agent_external_id: str | None = None) -> Approv
         checkpoint=p.checkpoint,
         status=p.status,
         requestedAt=_iso(p.requested_at),
+        approver=p.approver,
     )
