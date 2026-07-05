@@ -206,12 +206,24 @@ try {
         m = await page.evaluate(MEASURE, THRESHOLD)
       } catch { /* 측정 실패 — pageScroll -1로 표시 */ }
       await page.screenshot({ path: `${OUT}/${vp}/${ov.key}.png`, fullPage: true }).catch(() => {})
-      // 닫기: Escape(antd Modal/Drawer 기본 keyboard=true, 커스텀 Drawer·Inspector도 Escape 리스너 보유).
-      await page.keyboard.press('Escape').catch(() => {})
-      await page.waitForTimeout(300)
-      // 화면 전환 전 잔여 오버레이(예: persona-edit의 상세 드로어) 정리 — 한 번 더 Escape.
-      await page.keyboard.press('Escape').catch(() => {})
-      await page.waitForTimeout(200)
+      // 닫기(스펙 187 후속): Escape 연타는 antd Drawer에서 취약 — antd는 패널 포커스 기준 keydown이라
+      // 모달 닫힘 애니메이션·포커스 복원과 경합하면 두 번째 Escape가 body로 새서 드로어가 살아남는다
+      // (구 커스텀 Drawer는 document 리스너라 무관했음 = 하네스가 구 구현에 결합돼 있던 가정).
+      // 포커스 무관한 **닫기 버튼 클릭 루프**로 잔여 오버레이가 0이 될 때까지 정리(최대 5회).
+      for (let i = 0; i < 5; i++) {
+        const openOverlays = await page
+          .locator('.ant-modal-wrap:visible, .ant-drawer-open')
+          .count()
+          .catch(() => 0)
+        if (openOverlays === 0) break
+        const closeBtn = page.locator('.ant-modal-wrap:visible .ant-modal-close, .ant-drawer-open .ant-drawer-close').last()
+        if (await closeBtn.count()) {
+          await closeBtn.click({ timeout: 1500 }).catch(() => page.keyboard.press('Escape').catch(() => {}))
+        } else {
+          await page.keyboard.press('Escape').catch(() => {}) // 커스텀 오버레이(Inspector 등) 폴백
+        }
+        await page.waitForTimeout(400) // 닫힘 애니메이션 대기
+      }
 
       const fail = navOk && (m.pageScroll > THRESHOLD || m.offenders.length > 0)
       if (fail) failCount++
