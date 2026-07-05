@@ -56,6 +56,55 @@ def _mock_reply(messages: list) -> str:
     )
 
 
+# ---------- 개발용 도구 트리거(스펙 179) ----------
+# mock은 원래 툴콜을 못 낸다(평문만) → HIL 승인(delete_record) 등을 대화로 실습 불가. 바인딩된
+# 도구가 있고 마지막 user 메시지가 트리거 키워드에 맞으면 그 도구의 tool_call을 결정적으로 낸다.
+# 평상 채팅(트리거 무매치·도구 미바인딩)은 기존 평문 그대로 — 무회귀.
+import re  # noqa: E402
+
+
+def _extract_record_id(text: str) -> str:
+    """user 텍스트에서 레코드 식별자 추출(r1·rec-001·42 등). 없으면 기본값."""
+    m = re.search(r"[A-Za-z]+[-_]?\d+|\d+", text or "")  # rec-001·r1 우선, 없으면 숫자(한글 접미 무관)
+    return m.group(0) if m else "rec-001"
+
+
+# 도구명 → (트리거 키워드들, 인자 빌더). 등록된 도구만, 결정적 규칙.
+_TOOL_TRIGGERS: dict = {
+    "delete_record": (("삭제", "지워", "제거", "delete"), lambda t: {"record_id": _extract_record_id(t)}),
+}
+
+
+def _bound_tool_names(body: dict) -> set:
+    names = set()
+    for t in body.get("tools") or []:
+        fn = t.get("function") if isinstance(t, dict) else None
+        name = fn.get("name") if isinstance(fn, dict) else None
+        if name:
+            names.add(name)
+    return names
+
+
+def _pick_tool_call(body: dict) -> tuple[str, dict] | None:
+    """트리거 매치면 (tool_name, args), 아니면 None(평문). messages에 tool 결과가 있으면(재개 후
+    요약 턴) None — 무한 tool_call 루프 차단."""
+    messages = body.get("messages") or []
+    if any(isinstance(m, dict) and m.get("role") == "tool" for m in messages):
+        return None
+    bound = _bound_tool_names(body)
+    if not bound:
+        return None
+    raw = _last_user_text(messages)
+    low = raw.lower()
+    for tool, (keywords, argfn) in _TOOL_TRIGGERS.items():
+        # 그래프가 바인딩하는 실제 도구명은 네임스페이스가 붙는다(예: local-tools__delete_record) →
+        # 정확명 또는 `__{tool}` suffix로 찾고, tool_call은 **실제 바인딩명**으로 emit(라우팅 정합).
+        bound_name = next((b for b in bound if b == tool or b.endswith("__" + tool)), None)
+        if bound_name and any(k.lower() in low for k in keywords):
+            return bound_name, argfn(raw)
+    return None
+
+
 @router.get("/v1/models")
 async def remote_v1_models():
     """OpenAI 호환 모델 목록(mock-llm 연결 테스트 대상). probe가 `{base_url}/models`를 GET."""
@@ -66,15 +115,59 @@ async def remote_v1_models():
 async def remote_v1_chat_completions(body: dict):
     """OpenAI 호환 chat completions(mock). `ChatOpenAI`가 치는 계약.
 
-    툴 호출은 미지원(평문 응답만) → 툴 가진 에이전트도 create_agent가 1턴 종료.
+    기본은 평문 응답(결정적). 단, **개발용 도구 트리거**(스펙 179) — 바인딩된 도구가 있고 마지막
+    user 메시지가 트리거 키워드에 맞으면 그 도구의 `tool_call`을 낸다(HIL 승인 실습용).
     `stream:true`면 OpenAI chunk SSE, 아니면 단건 JSON.
     """
     messages = body.get("messages") or []
     model = body.get("model") or "mock-chat"
-    reply = _mock_reply(messages)
     cid = "chatcmpl-mock-" + uuid.uuid4().hex[:24]
     created = int(time.time())
 
+    def _chunk(delta: dict, finish: str | None) -> str:
+        payload = {
+            "id": cid,
+            "object": "chat.completion.chunk",
+            "created": created,
+            "model": model,
+            "choices": [{"index": 0, "delta": delta, "finish_reason": finish}],
+        }
+        return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+    # 개발용 도구 트리거(스펙 179) — 매치되면 평문 대신 tool_call.
+    picked = _pick_tool_call(body)
+    if picked is not None:
+        tool_name, tool_args = picked
+        tcid = "call_" + uuid.uuid4().hex[:20]
+        args_json = json.dumps(tool_args, ensure_ascii=False)
+        if not body.get("stream"):
+            return {
+                "id": cid, "object": "chat.completion", "created": created, "model": model,
+                "choices": [{
+                    "index": 0,
+                    "message": {"role": "assistant", "content": None, "tool_calls": [
+                        {"id": tcid, "type": "function",
+                         "function": {"name": tool_name, "arguments": args_json}}
+                    ]},
+                    "finish_reason": "tool_calls",
+                }],
+                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            }
+
+        async def tool_stream():
+            yield _chunk({"role": "assistant"}, None)
+            yield _chunk({"tool_calls": [{"index": 0, "id": tcid, "type": "function",
+                                          "function": {"name": tool_name, "arguments": ""}}]}, None)
+            step = 12
+            for i in range(0, len(args_json), step):
+                yield _chunk({"tool_calls": [{"index": 0,
+                              "function": {"arguments": args_json[i : i + step]}}]}, None)
+            yield _chunk({}, "tool_calls")
+            yield "data: [DONE]\n\n"
+
+        return StreamingResponse(tool_stream(), media_type="text/event-stream")
+
+    reply = _mock_reply(messages)
     if not body.get("stream"):
         return {
             "id": cid,
@@ -90,16 +183,6 @@ async def remote_v1_chat_completions(body: dict):
             ],
             "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
         }
-
-    def _chunk(delta: dict, finish: str | None) -> str:
-        payload = {
-            "id": cid,
-            "object": "chat.completion.chunk",
-            "created": created,
-            "model": model,
-            "choices": [{"index": 0, "delta": delta, "finish_reason": finish}],
-        }
-        return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
     async def event_stream():
         yield _chunk({"role": "assistant"}, None)  # 첫 프레임에 role

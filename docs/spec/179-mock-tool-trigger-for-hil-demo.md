@@ -1,0 +1,49 @@
+# 179 — mock 모델 도구 트리거(HIL 승인 대화 실습)
+
+## 배경·목표
+mock 챗 모델(`mock_remote.py`)은 **도구 호출을 미지원**(평문만) — 그래서 승인 게이트 대상 도구
+(`local-tools.delete_record`, approval.required)를 **플레이그라운드 대화로 트리거할 수 없었다**.
+실모델(외부 키) 없이 HIL 승인 흐름을 대화로 실습할 방법이 없다.
+
+**목표**: mock에 **개발용 도구 트리거**를 달아, 바인딩된 도구가 있고 마지막 user 메시지가 트리거
+문구에 맞으면 그 도구의 `tool_call`을 결정적으로 내게 한다. 그러면 플레이그라운드에서 실제로
+`delete_record` 호출→interrupt→승인 대기가 뜨고, **어드민 승인·본인(self) 승인**을 대화로 경험한다.
+
+## 비목표
+- mock을 범용 도구 추론기로 만들지 않는다(트리거 맵에 등록된 도구만, 결정적 규칙).
+- 실 LLM 툴콜 품질 재현 아님(데모/실습용 스텁).
+
+## 설계
+`mock_remote.py`의 `remote_v1_chat_completions`(스트림·비스트림 모두):
+1. **재개 후 턴 감지**: messages에 `role=="tool"`가 있으면 → 평문(요약)으로 응답(도구 실행 뒤 마무리
+   턴). 이게 없어야 무한 tool_call 루프를 막는다.
+2. **트리거 매치**: 요청 `tools`(바인딩된 도구)에 트리거 맵의 도구가 있고, 마지막 user 텍스트가 그
+   도구의 키워드에 맞으면 → 그 도구의 `tool_call` emit(OpenAI 계약: 비스트림=message.tool_calls +
+   finish_reason "tool_calls", 스트림=index 기반 delta 청크).
+   - `_TOOL_TRIGGERS = {"delete_record": (키워드["삭제","지워","제거","delete"], record_id 추출)}`.
+   - 인자 추출 실패 시 기본값("rec-001").
+3. **그 외**: 기존 평문(`_mock_reply`) 그대로 — 평상 채팅 무영향(트리거 무매치·도구 미바인딩).
+
+**대화 흐름(그래프)**: 턴1 messages=[system,user] → 트리거 → tool_call → 그래프가 tool 노드로 가나
+delete_record는 approval.required라 **실행 전 interrupt**(승인 대기, 부수효과 0). 승인·재개 →
+tool 실행 → tool 결과가 messages에 → 모델 재호출(role=tool 존재 → 평문 요약).
+
+## 승인 두 종류 실습
+- **어드민 승인**: `delete_record` 기본 approver=admin(mock_mcp 메타). local-tools 물린 에이전트로
+  "레코드 삭제" → 승인 페이지(관리자)에서 승인.
+- **본인(self) 승인**: 에이전트 편집기에서 `delete_record` 오버라이드 approver=self(177 P2) → 같은
+  대화가 요청 소유자 본인 승인 대상. 같은 승인 페이지에 뜨고 본인이 승인(`_may_resolve` self).
+  (두 종류가 같은 큐에 뜨되 approver로 인가 분기 — 별 UI 불요.)
+
+## 검증(완료 조건)
+- **단위**: mock에 tools=[delete_record]+user "r1 삭제" → 응답이 tool_call(name=delete_record,
+  args.record_id 채워짐). tools 없거나 트리거 무매치 → 평문(무회귀). messages에 role=tool 있으면 →
+  평문(재개 요약). 스트림·비스트림 둘 다.
+- **회귀**: 기존 mock 평문 계약(스펙 024) 무회귀 — 트리거 무매치 채팅은 기존과 동일.
+- **e2e(브라우저, 타자 검증)**: 플레이그라운드에서 local-tools 에이전트에 "레코드 삭제" → "승인 대기"
+  프레임 + 승인 페이지에 pending 1건(자물쇠 아이콘) → 승인 → 도구 실행/최종 답변. approver=self로
+  바꿔 본인 승인도 동일 확인.
+
+## 단계
+- **P1**: mock 트리거 구현(mock_remote.py) + 단위 검증.
+- **P2**: 플레이그라운드 e2e(어드민 승인) + self 오버라이드 e2e. 실습 에이전트 준비(없으면 생성).
