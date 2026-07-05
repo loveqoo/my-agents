@@ -1,9 +1,10 @@
 /* my-agents admin — 메모리 관리 화면 (스펙 030).
    에이전트 전용 메모리(agent_id)와 유저 메모리(user_id)를 한 화면 두 탭에서
    조회·필터·교정한다. 에이전트 탭은 029 AgentMemoryPanel을 재사용한다. */
-import { useEffect, useState } from 'react'
-import { Tabs, Select, message } from 'antd'
+import { useState } from 'react'
+import { Tabs, Select } from 'antd'
 import { Page } from '../shared'
+import { useAsyncData } from '../../hooks'
 import { listAgents, listMemoryUsers, type Agent, type MemoryUser, type MemoryUserList } from '../../api'
 import { AgentMemoryPanel } from './AgentMemoryPanel'
 import { UserMemoryPanel } from './UserMemoryPanel'
@@ -18,16 +19,13 @@ function userLabel(u: MemoryUser): string {
 const LONG_TERM = '장기 기억 (mem0)'
 
 function AgentMemoryTab() {
-  const [agents, setAgents] = useState<Agent[]>([])
+  // 장기기억(mem0)을 쓰는 UI 에이전트만 — 페치+파생을 fetcher에서(공용 훅, 스펙 182).
+  const { data: agents = [] } = useAsyncData<Agent[]>(
+    () => listAgents().then((all) => all.filter((a) => a.source === 'ui' && (a.memories || []).includes(LONG_TERM))),
+    [],
+    { errorMsg: '에이전트를 불러오지 못했습니다' },
+  )
   const [sel, setSel] = useState<string | undefined>()
-
-  useEffect(() => {
-    listAgents()
-      .then((all) =>
-        setAgents(all.filter((a) => a.source === 'ui' && (a.memories || []).includes(LONG_TERM)))
-      )
-      .catch(() => message.error('에이전트를 불러오지 못했습니다'))
-  }, [])
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxWidth: 720 }}>
@@ -47,14 +45,10 @@ function AgentMemoryTab() {
 }
 
 function UserMemoryTab() {
-  const [data, setData] = useState<MemoryUserList | null>(null)
+  const { data = null } = useAsyncData<MemoryUserList>(listMemoryUsers, [], {
+    errorMsg: '유저 목록을 불러오지 못했습니다',
+  })
   const [sel, setSel] = useState<string | undefined>()
-
-  useEffect(() => {
-    listMemoryUsers()
-      .then(setData)
-      .catch(() => message.error('유저 목록을 불러오지 못했습니다'))
-  }, [])
 
   if (!data) {
     return <span style={{ fontSize: 13, color: 'var(--color-text-tertiary)' }}>불러오는 중…</span>

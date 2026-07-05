@@ -2,9 +2,10 @@
    net_guard.guard_url(스펙 042)은 사설/루프백/메타데이터 대역으로의 outbound를 기본 차단한다.
    여기에 등록한 host는 그 예외로 통과한다 — A2A 클라이언트·Agent Card fetch/probe·MCP 연결 공용.
    추가/삭제는 **무재시작**(최대 ~10초 내 반영). 백엔드: GET/POST/DELETE /admin/allowed-hosts. */
-import { useState, useEffect, useCallback } from 'react'
+import { useState } from 'react'
 import { Button, Input, Popconfirm, Space, Alert, message } from 'antd'
 import { Page, Panel, DataTable, Desc, type Column } from '../shared'
+import { useAsyncData, runWithToast } from '../../hooks'
 import {
   listAllowedHosts,
   addAllowedHost,
@@ -13,27 +14,14 @@ import {
 } from '../../api'
 
 export default function AllowedHostsView() {
-  const [rows, setRows] = useState<AllowedHost[]>([])
-  const [loading, setLoading] = useState(true)
+  // 페치+로딩+에러+stale 가드는 공용 훅으로(스펙 182). mutation 후 reload()로 갱신.
+  const { data: rows = [], loading, reload } = useAsyncData(listAllowedHosts, [], {
+    errorMsg: '허용 호스트 목록을 불러오지 못했습니다',
+  })
   const [host, setHost] = useState('')
   const [note, setNote] = useState('')
   const [adding, setAdding] = useState(false)
   const [deleting, setDeleting] = useState<string | null>(null)
-
-  const load = useCallback(async () => {
-    setLoading(true)
-    try {
-      setRows(await listAllowedHosts())
-    } catch {
-      message.error('허용 호스트 목록을 불러오지 못했습니다')
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    void load()
-  }, [load])
 
   const add = async () => {
     const h = host.trim()
@@ -42,31 +30,26 @@ export default function AllowedHostsView() {
       return
     }
     setAdding(true)
-    try {
-      await addAllowedHost(h, note.trim() || null)
-      message.success(`허용 호스트 추가: ${h} (무재시작, 최대 ~10초 내 반영)`)
+    // 422(정확 host 아님)·409(중복) detail은 runWithToast가 예외 메시지로 그대로 노출.
+    const ok = await runWithToast(() => addAllowedHost(h, note.trim() || null), {
+      success: `허용 호스트 추가: ${h} (무재시작, 최대 ~10초 내 반영)`,
+    })
+    setAdding(false)
+    if (ok) {
       setHost('')
       setNote('')
-      await load()
-    } catch (e) {
-      // 백엔드 422(정확 host 아님: 와일드카드/CIDR/포트/스킴 등)·409(중복)의 detail을 그대로 노출.
-      message.error(e instanceof Error ? e.message : '추가 실패')
-    } finally {
-      setAdding(false)
+      reload()
     }
   }
 
   const remove = async (r: AllowedHost) => {
     setDeleting(r.id)
-    try {
-      await deleteAllowedHost(r.id)
-      message.success(`허용 호스트 삭제: ${r.host}`)
-      await load()
-    } catch {
-      message.error('삭제 실패')
-    } finally {
-      setDeleting(null)
-    }
+    const ok = await runWithToast(() => deleteAllowedHost(r.id), {
+      success: `허용 호스트 삭제: ${r.host}`,
+      error: '삭제 실패',
+    })
+    setDeleting(null)
+    if (ok) reload()
   }
 
   const columns: Column<AllowedHost>[] = [
@@ -123,7 +106,7 @@ export default function AllowedHostsView() {
       title="허용 호스트"
       subtitle="SSRF 가드가 기본 차단하는 사설/루프백 대역 중, 의도적으로 통과시킬 host의 allowlist입니다(무재시작)."
       actions={
-        <Button onClick={() => void load()} loading={loading}>
+        <Button onClick={reload} loading={loading}>
           새로고침
         </Button>
       }
