@@ -94,7 +94,7 @@ export default function OverviewView({ onGo }: { onGo: (v: string) => void }) {
   }
 
   return (
-    <Page title="개요" subtitle="에이전트 워크스페이스 한눈에 보기">
+    <Page title="개요" subtitle="에이전트 현황 한눈에 보기">
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 160px), 1fr))', gap: 16, marginBottom: 24 }}>
         <StatTile icon="robot" color="var(--color-primary)" label="에이전트" value={agents.length} onClick={() => onGo('agents')} />
         <StatTile icon="appstore" color="var(--magenta-6)" label="빌딩 블록" value={blockCount} onClick={() => onGo('blocks')} />
