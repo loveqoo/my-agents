@@ -269,8 +269,7 @@
 - ✅**source 제1자/제3자 축 술어=스펙 183 완료**(회고 164) — is_remote_source 자매 축 미적용 봉합(리터럴 7곳→술어).
 - **브로커 kind 파싱 부분 OCP**: provider 라우팅은 레지스트리(`_by_kind`)인데 `_kind_of`(broker.py:57)·`_cap_resource`(broker.py:101)가 하드코딩 if-체인. 새 kind 시 함께 수정—`_cap_resource` 누락하면 per-cap RBAC 리소스 추출 오동작(인가 게이트 조용한 오류, 스펙 112 경계). → provider 계약에 흡수(`matches(cap_id)`/`resource_of`)해 순회 파생. **중간 우선**.
 - **broker.py 1180줄 단일 모듈** → provider들을 `broker/` 패키지로 분할(응집도 높으나 파일 격리 개선). 낮음.
-- **프론트 useAsyncData 훅**: PagedListShell 안 쓰는 ~14개 뷰가 `listX().then/catch(message.error)` 복붙(.catch 34곳·message.error 83곳·alive 가드 수기 4곳). 상태·부수효과 공유라 **HoC 아니라 훅**. onError는 소비자 위임(에러 표면 계약 다양성 보존—토스트 vs 지속 Alert).
-- **프론트 useApiAction/runWithToast**: mutation try/catch 토스트 51곳 반복.
-- **AgentsView.tsx 2128줄 분해**: 로드+버전+expose+mutation 오케스트레이션→`useAgents()` 훅, detail 서브컴포넌트 개별 파일. 위 훅의 첫 소비자.
+- ✅**프론트 useAsyncData/runWithToast 훅=스펙 184 완료**(회고 165) — `admin/src/hooks.ts`. 소비자 3곳 변환(AllowedHosts·Memory 2탭). **남은 것**: 나머지 ~11개 뷰 점진 이관(기계적, fast-worker 위임 후보). 폼시드 패턴(SettingsView류)은 훅 부적합—제외.
+- **AgentsView.tsx 2128줄 분해**(step 3 잔여, 대형·고위험 → 전용 패스 권장): 로드+버전+expose+mutation 오케스트레이션→`useAgents()` 훅(=useAsyncData 첫 대형 소비자), detail 서브컴포넌트 개별 파일. 드로어·폼·버전관리 많아 시각 회귀 촘촘히 필요(긴 세션 끝 급조 금물).
 - **HoC는 불필요**(리뷰 결론): AuthGate(render-prop)·PagedListShell(제네릭)이 HoC 니치 이미 덮음. 권한 게이트는 표현 분기(인라인/조각). 넣으면 과설계=신념 배신.
 - **테스트 부채(183서 발견)**: verify_152 V4 "code→400" stale(154가 code 노출 허용, 단언 갱신 필요)·verify_083 노출게이트 5건 404(라이브 인프라/시드 의존).
