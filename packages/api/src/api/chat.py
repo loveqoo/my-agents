@@ -50,6 +50,12 @@ from .sessions import _own_scope
 router = APIRouter(prefix="/agents", tags=["chat"])
 log = logging.getLogger("api.chat")
 
+# 산출물형 ask/form 대기 포인터(스펙 188) — session_id → {"thread_id"}. thread_id가 턴별 고유라
+# ask interrupt가 걸린 체크포인트는 이전 턴 thread에 남는다(승인은 Approval.checkpoint가 이 역할).
+# 다음 사용자 입력이 오면 이 thread를 Command(resume=)로 재개한다. 프로세스 메모리(P1 경계) —
+# 재시작 시 소실되면 다음 입력이 새 produce 실행으로 폴백(영속화는 후속 스펙).
+_PENDING_ARTIFACT: dict[str, dict] = {}
+
 
 # 원격 소스 판정 단일 술어는 agent.runtime로 내렸다(스펙 089) — resolve·classify·직렬화가 공유.
 _is_remote = is_remote_source
@@ -775,7 +781,15 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
     # thread_id는 **턴별 고유**(세션-안정 아님): 세션-안정으로 두고 매 턴 전체 히스토리를 넘기면
     # 체크포인트의 add_messages 리듀서가 메시지를 중복 누적한다(무상태 윈도잉과 충돌). 턴마다 새
     # thread를 만들어 그 턴의 일시정지/재개에만 쓰고, Approval.checkpoint에 박아 재개 키로 삼는다.
-    thread_id = f"{ctx['ext_agent_id']}:{ctx['session_id']}:{secrets.token_hex(4)}"
+    # 산출물형 ask 대기(스펙 188)면 **그 thread를 이어** Command(resume=)로 재개한다(새 실행 금지 —
+    # produce의 기록된 답 리플레이가 그 체크포인트에 있다). pop = 재개 시도는 1회(실패 시 새 실행 폴백).
+    pending_artifact = _PENDING_ARTIFACT.pop(ctx["session_id"], None)
+    if pending_artifact:
+        thread_id = pending_artifact["thread_id"]
+        graph_input = Command(resume={"type": "text", "message": user_text})
+    else:
+        thread_id = f"{ctx['ext_agent_id']}:{ctx['session_id']}:{secrets.token_hex(4)}"
+        graph_input = None  # 아래에서 {"messages": messages}로 채움(messages는 이후 계산)
     config = {"configurable": {"thread_id": thread_id}}
     # 관측(스펙 118) — Langfuse가 설정됐을 때만 콜백 부착(미설정=무동작). 핵심 채팅 경로 무영향.
     config = observability.with_trace(
@@ -805,7 +819,8 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
             # 감지(위험 도구가 그래프를 멈춘 신호). probe로 검증한 형태. 한 업데이트가 다중 interrupt를
             # 담을 수 있어(한 턴에 위험 도구 여러 개) 모두 모은다 — [0]만 보면 나머지가 조용히 샌다.
             async for stream_mode, chunk in graph.astream(
-                {"messages": messages}, config=config, stream_mode=["messages", "updates"]
+                graph_input if graph_input is not None else {"messages": messages},
+                config=config, stream_mode=["messages", "updates"]
             ):
                 if stream_mode == "messages":
                     msg_chunk, _meta = chunk
@@ -840,6 +855,16 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
                         if is_parallel:
                             rec["parallel"] = True
                         observed.append(rec)
+                        # 산출물형(스펙 188): produce가 커밋한 artifact + 요약 메시지를 프레임으로.
+                        # 노드가 직접 반환한 AIMessage는 "messages" 스트림(LLM 토큰)에 안 잡히므로
+                        # 여기 updates 델타에서 꺼낸다. artifact 키가 있을 때만 — 타 에이전트 무영향.
+                        if isinstance(delta, dict) and delta.get("artifact"):
+                            for _m in delta.get("messages") or []:
+                                _t = runtime._content_text(getattr(_m, "content", "") or "")
+                                if _t:
+                                    acc.append(_t)
+                                    yield f"data: {json.dumps({'text': _t}, ensure_ascii=False)}\n\n"
+                            yield f"data: {json.dumps({'artifact': delta['artifact']}, ensure_ascii=False)}\n\n"
                     if fired:
                         t_prev = now
         except Exception as exc:  # 모델/툴 오류도 프레임으로 전달
@@ -861,6 +886,33 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
             return
 
         interrupted = interrupts[0] if interrupts else None
+        # 산출물형 ask(스펙 188) — kind로 엄격 게이트(승인 interrupt에는 kind가 없음 → 기존 경로
+        # 무접촉). 질문을 텍스트 프레임으로 내보내고, 이 thread를 세션 pending에 등록해 다음 사용자
+        # 입력이 Command(resume=)로 재개하게 한다. ask 턴은 정상 대화 교환 — 질문을 assistant
+        # 메시지로 영속(승인 턴의 "영속 안 함"과 다름: 질문·답이 대화 이력에 남아야 한다).
+        if interrupted and not errored and interrupted.get("kind") == "ask":
+            question = str(interrupted.get("text") or "").strip() or "(질문)"
+            _PENDING_ARTIFACT[ctx["session_id"]] = {"thread_id": thread_id}
+            yield f"data: {json.dumps({'text': question}, ensure_ascii=False)}\n\n"
+            ask_tokens = runtime.estimate_tokens(
+                sum(len(m["content"]) for m in messages), len(question)
+            )
+            ask_trace = {
+                "latencyMs": int((time.perf_counter() - t0) * 1000),
+                "tokens": ask_tokens, "promptRef": ctx["ext_agent_id"],
+                "memories": mem_hits, "mcp": calls_sink, "graph": observed,
+                "artifact": {"awaiting": "ask"},  # 인스펙터: 산출물 진행 중 표기
+                "sentMessages": sent_messages,
+            }
+            if not errored:
+                await _persist(
+                    ctx, user_text, question, ask_trace, ask_tokens, ctx["persist_history"],
+                    user_id=user_id,
+                )
+            yield f"event: trace\ndata: {json.dumps(ask_trace, ensure_ascii=False)}\n\n"
+            yield "event: done\ndata: [DONE]\n\n"
+            return
+
         # 위험 도구가 그래프를 멈췄다 → 런타임 Approval 생성 + "대기" 프레임 후 종료(정상 턴 영속 안 함).
         # 부수효과(canned·calls_sink)는 interrupt 이전이라 0 — 승인 전 무실행 불변식(스펙 041 §3.3).
         if interrupted and not errored:
