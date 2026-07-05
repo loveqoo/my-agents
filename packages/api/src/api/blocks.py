@@ -19,6 +19,7 @@ from .auth import current_principal
 from .db import get_session
 from .naming import validate_resource_name
 from .ownership import assert_may_manage, may_manage, may_use_agent, owner_of
+from agent.runtime import is_first_party
 from .models import Agent, Collection, McpServer, MemoryType, Persona
 from .references import _config_has, agents_referencing, referenced_message
 from .schemas import (
@@ -128,7 +129,7 @@ async def persona_agents(
         for a in agents
         # may_use_agent 가시성 필터(스펙 147, codex 161 High) — 타인 private 에이전트의 식별자·stale를
         # 누출하지 않는다(일반 list/get/chat과 동일 게이트). admin/machine은 전부, member는 본인+public.
-        if a.source in ("ui", "code")
+        if is_first_party(a.source)
         and may_use_agent(a, principal)
         and _config_has(a.config, "persona", obj.name)
     ]
@@ -154,7 +155,7 @@ async def persona_apply(
     for a in agents:
         # 이 페르소나를 실제 참조하고(활성 config) 관리 권한이 있어야 반영. 아니면 skip.
         if (
-            a.source in ("ui", "code")
+            is_first_party(a.source)
             and _config_has(a.config, "persona", obj.name)
             and may_manage(a.owner_id, principal)
         ):

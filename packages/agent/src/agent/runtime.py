@@ -35,6 +35,23 @@ def is_remote_source(source: str) -> bool:
     return source in ("code", "external")
 
 
+def is_first_party(source: str) -> bool:
+    """제1자 에이전트 소스인가 — ui(로컬 빌더)·code(제1자 SDK 배포). 우리가 저작·제어하며 로컬
+    페르소나·설정을 갖고, A2A 노출·페르소나 갱신의 대상이다. external(제3자 A2A 카드)만 제외.
+
+    **단일 술어**(스펙 183) — is_remote_source의 자매 축. 제1자/제3자 판정 리터럴 드리프트를 0으로
+    (a2a 노출·재공개 차단 등 보안 게이트가 이 축에 걸려, 흩어진 리터럴은 새 source 추가 시 조용한
+    오동작 위험이었다). **Agent.source 축 한정** — McpServer.source는 어휘가 달라(local/custom/external)
+    이 술어 대상이 아니다."""
+    return source in ("ui", "code")
+
+
+def is_third_party(source: str) -> bool:
+    """제3자(밖에서 가져온) 에이전트 소스 — 오늘은 external(A2A 카드)만. `is_first_party`의 여집합.
+    재공개 금지(스펙 152)·사용 항상 허용(147) 등 '가져다 쓰는 것' 취급의 단일 기준(스펙 183)."""
+    return not is_first_party(source)
+
+
 @dataclass
 class AgentBuildContext:
     """플랫폼이 커스텀 에이전트에 *주입*하는 모든 것. 오버라이드는 이미 병합된 상태로 도착한다

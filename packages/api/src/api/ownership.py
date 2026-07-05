@@ -9,6 +9,8 @@
 """
 from __future__ import annotations
 
+from agent.runtime import is_third_party
+
 
 def owner_of(principal) -> str | None:
     """생성 주체의 owner_id(auth User UUID str). 머신 토큰(str principal)·익명 → None(=admin 전용)."""
@@ -134,8 +136,8 @@ def may_use_agent(agent, principal) -> bool:
     """에이전트 **사용**(채팅·목록 노출) 게이트 — 스펙 147 트리:
     public(owner 없음)=모두, private(owner 있음)=소유자·특권만, external=항상(가져다 쓰는 것).
     관리(may_manage)와 축이 다르다 — public은 모두 사용하지만 관리는 특권만."""
-    if getattr(agent, "source", "ui") == "external":
-        return True
+    if is_third_party(getattr(agent, "source", "ui")):
+        return True  # 가져다 쓰는 것(external) — 사용 항상 허용(스펙 147)
     owner = getattr(agent, "owner_id", None)
     if owner is None:
         return True  # public

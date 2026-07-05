@@ -67,6 +67,13 @@ def unit_checks() -> None:
     check(next_owner("a", "") == "a" and next_owner("a", None) == "a" and next_owner("a", "a") == "a"
           and next_owner("", "b") == "" and next_owner(None, None) is None,
           "U1 next_owner 경계: 빈 incoming 보존·동일 부여·빈 문자열 current fail-closed")
+    # 스펙 183: source 제1자/제3자 축 술어(is_remote_source 자매). ui/code=제1자, external=제3자, 여집합 관계.
+    from agent.runtime import is_first_party, is_third_party
+    check(is_first_party("ui") and is_first_party("code")
+          and not is_first_party("external")
+          and is_third_party("external") and not is_third_party("ui") and not is_third_party("code")
+          and all(is_first_party(x) != is_third_party(x) for x in ("ui", "code", "external")),
+          "U1 source 축: ui/code=제1자·external=제3자·여집합")
     check(may_use("bob", "bob", False) and not may_use("x", "bob", False)
           and not may_use(None, "bob", False) and may_use(None, "bob", True),
           "U1 may_use: 소유자 OK·타인 X·NULL은 특권만")

@@ -43,6 +43,7 @@ from .auth import current_principal
 from .naming import slugify_name, validate_resource_name
 from .ownership import may_use_agent, assert_may_manage, may_manage, owner_of, is_privileged
 from .serializers import agent_to_out
+from agent.runtime import is_first_party, is_third_party
 
 log = logging.getLogger("api.agents")
 
@@ -431,7 +432,7 @@ async def refresh_persona(
     if agent is None:
         raise HTTPException(status_code=404, detail="agent not found")
     assert_may_manage(agent, principal, not_found_detail="agent not found")  # 소유자/특권만(스펙 112)
-    if agent.source not in ("ui", "code"):
+    if not is_first_party(agent.source):
         # 외부/A2A는 로컬 페르소나가 없다(카드 스냅샷) — 갱신 대상 아님.
         raise HTTPException(status_code=400, detail="외부 에이전트는 페르소나 갱신 대상이 아닙니다")
     cfg = dict(agent.config or {})
@@ -501,7 +502,7 @@ async def expose_agent(
         # 트리 불변식(스펙 147): private(소유자 전용) 에이전트는 A2A 공유가 성립하지 않는다 —
         # 소유자만 쓰는 걸 다른 에이전트가 호출하게 열면 사용 게이트가 뚫린다. 끄기는 항상 허용.
         raise HTTPException(status_code=400, detail="private 에이전트는 A2A를 켤 수 없습니다 (public만 가능)")
-    if body.a2a and agent.source == "external":
+    if body.a2a and is_third_party(agent.source):
         # 재공개 금지(스펙 152) — 외부에서 받아온 에이전트만 차단. code(제1자 SDK 배포)는 스펙 154에서
         # 1홉 중계로 노출 허용(직접 코딩 에이전트도 우리 A2A 주소로 공개). 끄기는 source 무관 항상 허용.
         raise HTTPException(

@@ -1,6 +1,6 @@
 """ORM 모델 → API 출력(dict) 직렬화. 여러 라우터가 공유."""
 
-from agent.runtime import classify_runtime
+from agent.runtime import classify_runtime, is_first_party
 
 from .crypto import SECRET_MASK
 from .models import Agent, Approval, Collection, ModelConfig, Provider, Session
@@ -80,7 +80,7 @@ def agent_to_out(a: Agent, persona_bodies: dict[str, str] | None = None) -> Agen
     # persona_bodies 맵({name: body})을 주입한 라우트만 계산 — 로컬(ui/code)·이름이 실제 블록(맵에
     # 존재)·본문 상이일 때만 True. 외부/A2A·literal 이름(맵에 없음)·동일 본문 → False.
     persona_stale = False
-    if persona_bodies is not None and a.source in ("ui", "code"):
+    if persona_bodies is not None and is_first_party(a.source):
         cur = persona_bodies.get(cfg.get("persona", a.persona))
         persona_stale = cur is not None and cur != a.persona
     return AgentOut(

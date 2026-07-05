@@ -22,7 +22,7 @@ from fastapi.responses import StreamingResponse
 
 from sqlalchemy import select
 
-from agent.runtime import is_remote_source
+from agent.runtime import is_first_party, is_remote_source
 
 from . import a2a_client, broker, chat, net_guard
 from .auth import current_principal
@@ -38,7 +38,7 @@ async def _load_exposed_agent(agent_id: uuid.UUID) -> Agent:
     금지(152) — expose 입구에서 이미 400이지만 여기서도 404로 접는다(이중 게이트)."""
     async with SessionLocal() as db:
         agent = await db.get(Agent, agent_id)
-    if agent is None or agent.source not in ("ui", "code") or not (agent.exposed or {}).get("a2a"):
+    if agent is None or not is_first_party(agent.source) or not (agent.exposed or {}).get("a2a"):
         raise HTTPException(status_code=404, detail="노출된 로컬 에이전트가 아닙니다")
     return agent
 
@@ -245,7 +245,8 @@ async def exposed_agent_a2a(
     params = body.get("params") or {}
     user_text = _a2a_user_text(params)
 
-    if agent.source == "code":
+    # 노출 집합{ui,code} 안에서 원격(code=SDK 배포)만 릴레이·로컬(ui)은 직접 — remote 축 재사용(스펙 183).
+    if is_remote_source(agent.source):
         if request.headers.get(RELAY_HEADER):
             # 루프 가드(스펙 154): 중계 표식이 달린 요청을 다시 중계하면 자기/상호 참조 사이클 —
             # 2번째 홉에서 절단. 직접 소비자(플레이그라운드·외부)는 표식이 없어 정상.
