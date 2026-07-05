@@ -781,12 +781,28 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
     # thread_id는 **턴별 고유**(세션-안정 아님): 세션-안정으로 두고 매 턴 전체 히스토리를 넘기면
     # 체크포인트의 add_messages 리듀서가 메시지를 중복 누적한다(무상태 윈도잉과 충돌). 턴마다 새
     # thread를 만들어 그 턴의 일시정지/재개에만 쓰고, Approval.checkpoint에 박아 재개 키로 삼는다.
-    # 산출물형 ask 대기(스펙 188)면 **그 thread를 이어** Command(resume=)로 재개한다(새 실행 금지 —
-    # produce의 기록된 답 리플레이가 그 체크포인트에 있다). pop = 재개 시도는 1회(실패 시 새 실행 폴백).
+    # 산출물형 ask/form 대기(스펙 188)면 **그 thread를 이어** Command(resume=union 봉투)로 재개한다
+    # (새 실행 금지 — produce의 기록된 답 리플레이가 그 체크포인트에 있다). pop = 재개 시도는 1회.
+    # 이중 입력 일급: 폼 대기 중이라도 텍스트가 오면 {"type":"text"}로 재개(병합은 뼈대 ctx.form 소유).
     pending_artifact = _PENDING_ARTIFACT.pop(ctx["session_id"], None)
+    if body.form is not None and (
+        pending_artifact is None or body.form.formId != pending_artifact.get("form_id")
+    ):
+        # 폼 제출인데 대응 pending이 없거나 formId 불일치(스테일/위조/재시작 소실) — 조용히 텍스트로
+        # 오인하지 않고 명시적으로 거절(fail-closed). pending은 원복(유효한 폼이 남아 있으면 재사용).
+        if pending_artifact is not None:
+            _PENDING_ARTIFACT[ctx["session_id"]] = pending_artifact
+        raise HTTPException(status_code=409, detail="폼이 만료되었거나 일치하지 않습니다 — 다시 시도해 주세요.")
     if pending_artifact:
         thread_id = pending_artifact["thread_id"]
-        graph_input = Command(resume={"type": "text", "message": user_text})
+        if body.form is not None and pending_artifact.get("kind") == "form":
+            # 서버측 1차 검증(값∈후보·알려진 key만) — 뼈대 ctx.form이 같은 함수로 재검증(이중 게이트).
+            from agent.flows.artifact import validate_form_values
+
+            vals = validate_form_values(pending_artifact.get("fields") or [], body.form.values)
+            graph_input = Command(resume={"type": "form", "values": vals})
+        else:
+            graph_input = Command(resume={"type": "text", "message": user_text})
     else:
         thread_id = f"{ctx['ext_agent_id']}:{ctx['session_id']}:{secrets.token_hex(4)}"
         graph_input = None  # 아래에서 {"messages": messages}로 채움(messages는 이후 계산)
@@ -855,20 +871,21 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
                         if is_parallel:
                             rec["parallel"] = True
                         observed.append(rec)
-                        # 산출물형(스펙 188): produce가 커밋한 artifact + 요약 메시지를 프레임으로.
-                        # 노드가 직접 반환한 AIMessage는 "messages" 스트림(LLM 토큰)에 안 잡히므로
-                        # 여기 updates 델타에서 꺼낸다. artifact 키가 있을 때만 — 타 에이전트 무영향.
+                        # 산출물형(스펙 188): produce가 커밋한 artifact를 프레임으로 노출. 요약
+                        # 텍스트(AIMessage)는 "messages" 스트림이 이미 흘린다(노드 반환 메시지도
+                        # 스트림됨 — 실측) → 여기선 artifact 프레임만(중복 방지). 타 에이전트 무영향.
                         if isinstance(delta, dict) and delta.get("artifact"):
-                            for _m in delta.get("messages") or []:
-                                _t = runtime._content_text(getattr(_m, "content", "") or "")
-                                if _t:
-                                    acc.append(_t)
-                                    yield f"data: {json.dumps({'text': _t}, ensure_ascii=False)}\n\n"
                             yield f"data: {json.dumps({'artifact': delta['artifact']}, ensure_ascii=False)}\n\n"
                     if fired:
                         t_prev = now
         except Exception as exc:  # 모델/툴 오류도 프레임으로 전달
             errored = True
+            # 산출물형 재개 중 크래시면 pending을 **원복**한다(적대 검증 P1-3). pop은 재개 진입 시
+            # 1회였고(라인 787), 체크포인트(interrupt 상태)는 재개 실패로 그대로 남아 있으므로,
+            # 포인터를 되살려야 다음 요청이 같은 thread로 재시도할 수 있다(안 하면 in-flight 폼/질문이
+            # 고아가 돼 새 스레드로 시작 — 진행 소실). 새 interrupt를 낸 정상 경로는 이 except에 안 옴.
+            if pending_artifact is not None:
+                _PENDING_ARTIFACT[ctx["session_id"]] = pending_artifact
             # 연결 실패로 보이면 'Mock LLM' 전환 힌트를 덧붙인다(스펙 058 G4). 그 외 오류는 원문 유지.
             hint = _model_error_hint(exc, ctx.get("model_cfg"))
             msg = f"{exc}\n{hint}" if hint else str(exc)
@@ -910,6 +927,48 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
                     user_id=user_id,
                 )
             yield f"event: trace\ndata: {json.dumps(ask_trace, ensure_ascii=False)}\n\n"
+            yield "event: done\ndata: [DONE]\n\n"
+            return
+
+        # 산출물형 form(스펙 188 P2) — 승인 프레임의 일반화. 필드 명세+프리필을 프레임으로 내보내고
+        # pending에 (thread, formId, fields)를 등록: 제출(body.form)이든 텍스트든 다음 입력이 재개한다.
+        if interrupted and not errored and interrupted.get("kind") == "form":
+            form_id = "frm-" + secrets.token_hex(4)
+            form_fields = interrupted.get("fields") or []
+            _PENDING_ARTIFACT[ctx["session_id"]] = {
+                "thread_id": thread_id, "kind": "form", "form_id": form_id, "fields": form_fields,
+            }
+            form_frame = {
+                "form": {
+                    "fields": form_fields,
+                    "prefill": interrupted.get("prefill") or {},
+                    **({"note": interrupted["note"]} if interrupted.get("note") else {}),
+                },
+                "formId": form_id,
+            }
+            # 이력에는 폼 요약 한 줄(프레임 자체는 휘발) — 질문·답 흐름이 대화 기록에 남게.
+            # 라이브 버블에도 같은 텍스트를 흘린다(세션 재로드 표시와 일치 — 빈 버블 방지).
+            form_msg = "📋 입력이 필요합니다: " + ", ".join(
+                str(f.get("label") or f.get("key") or "?") for f in form_fields
+            )
+            yield f"data: {json.dumps({'text': form_msg}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps(form_frame, ensure_ascii=False)}\n\n"
+            form_tokens = runtime.estimate_tokens(
+                sum(len(m["content"]) for m in messages), len(form_msg)
+            )
+            form_trace = {
+                "latencyMs": int((time.perf_counter() - t0) * 1000),
+                "tokens": form_tokens, "promptRef": ctx["ext_agent_id"],
+                "memories": mem_hits, "mcp": calls_sink, "graph": observed,
+                "artifact": {"awaiting": "form", "formId": form_id},
+                "sentMessages": sent_messages,
+            }
+            if not errored:
+                await _persist(
+                    ctx, user_text, form_msg, form_trace, form_tokens, ctx["persist_history"],
+                    user_id=user_id,
+                )
+            yield f"event: trace\ndata: {json.dumps(form_trace, ensure_ascii=False)}\n\n"
             yield "event: done\ndata: [DONE]\n\n"
             return
 

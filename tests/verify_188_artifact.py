@@ -133,6 +133,154 @@ def graph_checks() -> None:
     check(art is not None and art["data"]["destination"] == "서울", "B2 재질문 후 값 채움")
     check(art is not None and art["data"]["budget"] == "(미입력)", "B3 3회 빈 답 → (미입력)")
 
+    print("[F] 폼 순수함수")
+    from agent.flows.artifact import (
+        entity_ids_from_rag_text,
+        match_entities,
+        merge_text_into_fields,
+        missing_required,
+        validate_form_values,
+    )
+
+    FIELDS = [
+        {"key": "gender", "label": "성별", "candidates": ["남성", "여성"], "required": True},
+        {"key": "memo", "label": "메모", "required": False},
+        {"key": "city", "label": "도시", "candidates": ["서울", "부산"], "required": True},
+    ]
+    v = validate_form_values(FIELDS, {"gender": "남성", "city": "화성", "unknown": "x", "memo": ""})
+    check(v == {"gender": "남성"}, "F1 검증: 후보밖·미지키·빈값 제거")
+    check(missing_required(FIELDS, {"gender": "남성"}) == ["city"], "F2 필수 미충족 목록")
+    m = merge_text_into_fields(FIELDS, {"gender": "여성"}, "서울 사는 남성")
+    check(m == {"gender": "여성", "city": "서울"}, "F3 텍스트 병합: 빈 필드만·기존값 보존")
+    check(entity_ids_from_rag_text("... [entity:age_band] x [entity:gender] [entity:age_band]") == ["age_band", "gender"], "F4 rag 마커 추출(순서·중복제거)")
+    cat = [{"id": "a", "label": "나이", "synonyms": ["30대"]}, {"id": "g", "label": "성별", "synonyms": ["남성"]}]
+    check([e["id"] for e in match_entities("30대 남성", cat)] == ["a", "g"], "F5 엔티티 동의어 매칭")
+    # P2-1: candidates가 리스트가 아니면(문자열 등) enum 게이트를 하지 않는다 — 안 그러면
+    # `"xyz" in "abc..."` substring 오판정으로 후보 밖 값이 통과/탈락한다(적대 검증 하드닝).
+    vbad = validate_form_values([{"key": "code", "candidates": "abc"}], {"code": "xyz"})
+    check(vbad == {"code": "xyz"}, "F6 문자열 candidates는 enum 게이트 무시(substring 오판정 제거)")
+
+    print("[FM] ctx.form 이중 입력 — 제출·텍스트 병합·재제시")
+
+    class FormDemoAgent(ArtifactAgentBase):
+        NAME = "artifact_test_form"
+
+        async def produce(self, ctx: ProduceContext) -> Artifact:
+            vals = await ctx.form(
+                [
+                    {"key": "gender", "label": "성별", "candidates": ["남성", "여성"], "required": True},
+                    {"key": "city", "label": "도시", "candidates": ["서울", "부산"], "required": True},
+                ]
+            )
+            return Artifact(kind="form-demo", data=vals)
+
+    graph = FormDemoAgent().build_graph(
+        AgentBuildContext(persona="p", model_cfg=None, checkpointer=InMemorySaver())
+    )
+    r = asyncio.run(graph.ainvoke({"messages": [{"role": "user", "content": "시작"}]}, config=_cfg("t-form")))
+    p0 = r["__interrupt__"][0].value
+    check(p0.get("kind") == "form" and len(p0["fields"]) == 2, "FM1 form interrupt(필드 2)")
+    # 제출: 후보 밖 값(city=화성)은 뼈대 재검증서 탈락 → 재제시(note 포함)
+    r = asyncio.run(graph.ainvoke(
+        Command(resume={"type": "form", "values": {"gender": "남성", "city": "화성"}}), config=_cfg("t-form")))
+    p1 = r["__interrupt__"][0].value
+    check(p1.get("kind") == "form" and p1["prefill"] == {"gender": "남성"} and "note" in p1,
+          "FM2 후보밖 값 탈락→갱신 프리필로 재제시+note")
+    # 이중 입력: 폼 대기 중 텍스트 → 후보 매칭 병합 → 전부 참 → 완료
+    r = asyncio.run(graph.ainvoke(Command(resume={"type": "text", "message": "부산이야"}), config=_cfg("t-form")))
+    check(r.get("artifact", {}).get("data") == {"gender": "남성", "city": "부산"},
+          "FM3 텍스트 병합으로 완성(이중 입력, confirm=False → 직접 확정)")
+
+    print("[FC] confirm=True — 텍스트 병합 후 무확인 확정 안 함(적대 검증 P2-2)")
+
+    class ConfirmFormAgent(ArtifactAgentBase):
+        NAME = "artifact_test_confirm"
+
+        async def produce(self, ctx: ProduceContext) -> Artifact:
+            vals = await ctx.form(
+                [{"key": "city", "label": "도시", "candidates": ["서울", "부산"], "required": True}],
+                confirm=True,
+            )
+            return Artifact(kind="cf", data=vals)
+
+    g2 = ConfirmFormAgent().build_graph(
+        AgentBuildContext(persona="p", model_cfg=None, checkpointer=InMemorySaver())
+    )
+    r = asyncio.run(g2.ainvoke({"messages": [{"role": "user", "content": "부산 살아"}]}, config=_cfg("t-cf")))
+    check(r["__interrupt__"][0].value.get("kind") == "form", "FC1 confirm 폼 제시")
+    # 텍스트로 부산을 채워 필수가 전부 차더라도 confirm이면 **재제시**(무확인 확정 봉인).
+    r = asyncio.run(g2.ainvoke(Command(resume={"type": "text", "message": "부산으로 해줘"}), config=_cfg("t-cf")))
+    check("__interrupt__" in r and "artifact" not in r, "FC2 텍스트 병합 후 재제시(무확인 확정 안 함)")
+    check(r["__interrupt__"][0].value.get("prefill") == {"city": "부산"}, "FC3 재제시 프리필=병합값")
+    # 폼 제출(명시 확정)로만 최종 확정.
+    r = asyncio.run(g2.ainvoke(Command(resume={"type": "form", "values": {"city": "부산"}}), config=_cfg("t-cf")))
+    check(r.get("artifact", {}).get("data") == {"city": "부산"}, "FC4 폼 제출로 확정")
+
+    print("[T] targeting 데모 — 동적 폼 합성(가짜 브로커)")
+    import json as _json
+    from types import SimpleNamespace
+
+    from agent.flows.artifact import TargetingDemoAgent
+
+    CATALOG = {"entities": [
+        {"id": "purchase_history", "label": "구매이력", "synonyms": ["구매 이력", "구매"]},
+        {"id": "age_band", "label": "나이", "synonyms": ["30대", "20대"]},
+        {"id": "region", "label": "거주지(시)", "synonyms": ["서울", "거주"]},
+        {"id": "gender", "label": "성별", "synonyms": ["남성", "여성"]},
+    ]}
+    DETAILS = {
+        "purchase_history": {"label": "구매이력", "candidates": ["최근", "7일 전", "최근 한 달"]},
+        "age_band": {"label": "나이", "candidates": ["20대", "30대", "40대"]},
+        "region": {"label": "거주지(시)", "candidates": ["서울", "부산"]},
+        "gender": {"label": "성별", "candidates": ["남성", "여성"]},
+    }
+
+    class CatalogBroker:
+        def __init__(self):
+            self.rag_calls = 0
+
+        async def invoke(self, cap_id, args):
+            if cap_id.startswith("rag:"):
+                self.rag_calls += 1
+                # rag 경로도 검증: 히트 텍스트에 entity 마커(실 임베딩 환경 시뮬레이션)
+                return SimpleNamespace(text="문서: 성별 항목 [entity:gender]", error=None)
+            if cap_id.endswith("list_entities"):
+                return SimpleNamespace(text=_json.dumps(CATALOG, ensure_ascii=False), error=None)
+            if cap_id.endswith("get_entity"):
+                return SimpleNamespace(
+                    text=_json.dumps(DETAILS[args["entity_id"]], ensure_ascii=False), error=None)
+            return SimpleNamespace(text="", error="unknown")
+
+    tb = CatalogBroker()
+    tgraph = TargetingDemoAgent().build_graph(
+        AgentBuildContext(persona="p", model_cfg=None, checkpointer=InMemorySaver(), broker=tb)
+    )
+    # 발화에 성별 없음 — rag 마커([entity:gender])가 합류시켜 4필드가 떠야(합집합 검증)
+    r = asyncio.run(tgraph.ainvoke(
+        {"messages": [{"role": "user", "content": "최근 구매 이력이 있는 30대 서울 거주"}]},
+        config=_cfg("t-tgt")))
+    pf = r["__interrupt__"][0].value
+    keys = [f["key"] for f in pf.get("fields", [])]
+    check(pf.get("kind") == "form" and set(keys) == {"purchase_history", "age_band", "region", "gender"},
+          f"T1 rag∪동의어 매칭 4필드 (got {keys})")
+    check(pf["prefill"] == {"purchase_history": "최근", "age_band": "30대", "region": "서울"},
+          f"T2 발화 프리필 3건(성별 제외) (got {pf['prefill']})")
+    # 폼 대기 중 텍스트로 성별 보완(이중 입력). confirm=True라 필수가 전부 차더라도 곧장 확정하지
+    # 않고 **갱신 프리필(4건)로 재제시**한다(무확인 확정 봉인 — 적대 검증 P2-2).
+    r = asyncio.run(tgraph.ainvoke(Command(resume={"type": "text", "message": "성별은 남성이야"}), config=_cfg("t-tgt")))
+    check("__interrupt__" in r and "artifact" not in r, "T3a 텍스트 보완 후 재제시(무확인 확정 안 함)")
+    pf2 = r["__interrupt__"][0].value
+    check(pf2.get("prefill") == {"purchase_history": "최근", "age_band": "30대", "region": "서울", "gender": "남성"},
+          f"T3b 재제시 프리필 4건(성별 병합 반영) (got {pf2.get('prefill')})")
+    # 폼 제출(명시 확정)로 산출물 완성.
+    r = asyncio.run(tgraph.ainvoke(
+        Command(resume={"type": "form", "values": pf2["prefill"]}), config=_cfg("t-tgt")))
+    art = r.get("artifact")
+    check(art is not None and art["kind"] == "targeting", "T3 targeting artifact 완성")
+    conds = {c["entity_id"]: c["value"] for c in (art or {}).get("data", {}).get("conditions", [])}
+    check(conds == {"purchase_history": "최근", "age_band": "30대", "region": "서울", "gender": "남성"},
+          f"T4 conditions 값 4건 정확 (got {conds})")
+
     print("[G] 구조 검증 — 잘못된 produce 반환은 명시적 실패")
 
     class BadAgent(ArtifactAgentBase):

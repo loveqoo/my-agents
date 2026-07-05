@@ -628,6 +628,14 @@ class ChatMessage(BaseModel):
     content: str
 
 
+class ChatFormSubmission(BaseModel):
+    """산출물형 폼 제출(스펙 188 P2) — 대기 중 폼 프레임(formId)에 대한 값. 서버가 pending의
+    필드 명세로 검증(값∈후보) 후 Command(resume={"type":"form",...})로 그래프를 재개한다."""
+
+    formId: str
+    values: dict
+
+
 class ChatRequest(BaseModel):
     messages: list[ChatMessage]
     sessionId: str | None = None  # 이어서 대화할 세션(없으면 새로 생성)
@@ -637,6 +645,8 @@ class ChatRequest(BaseModel):
     # 키만 의미(model/temperature/systemPrompt/mcps/memories/historyDepth). 저장된 에이전트는 불변.
     # 코드 에이전트는 원격 실행이라 무시(bypass).
     overrides: dict | None = None
+    # 산출물형 폼 제출(스펙 188 P2) — 이중 입력의 폼 입구. 텍스트 입구는 messages 그대로.
+    form: ChatFormSubmission | None = None
 
 
 # ----------------------------- 인증·권한 (스펙 031) -----------------------------

@@ -13,11 +13,11 @@ import {
   dedupeConsecutive,
   type HistState,
 } from './inputHistory'
-import { Avatar, Button, Tag, Grid, Tooltip, Segmented } from 'antd'
+import { Avatar, Button, Tag, Grid, Tooltip, Segmented, Select, Input } from 'antd'
 import { Icon } from '../admin/icons'
 import { fmtTime } from '../admin/format'
 import { MessageContent } from './MessageContent'
-import { getA2ASkills, type A2ASkill } from '../api'
+import { getA2ASkills, type A2ASkill, type ChatFormFrame } from '../api'
 import type { ChatMsg, Trace } from './agentData'
 import type { Agent, Session } from '../admin/mockData'
 
@@ -118,6 +118,10 @@ interface DebugChatProps {
   approvalCanResolve?: boolean // 인라인 승인(스펙 180) — 현재 사용자가 이 승인을 그 자리서 처리 가능
   approvalKind?: 'self' | 'admin' // 승인 종류(라벨용)
   onResolveApproval?: (decision: 'approve' | 'reject') => Promise<void> | void
+  // 산출물형 폼(스펙 188) — 폼 프레임이 오면 입력 위에 렌더. 제출은 onSubmitForm, 텍스트 입력도
+  // 계속 열려 있다(이중 입력 일급 — 승인 대기와 달리 입력을 잠그지 않는다).
+  pendingForm?: { formId: string; form: ChatFormFrame } | null
+  onSubmitForm?: (values: Record<string, string>) => Promise<void> | void
   selectedTurn: number | null
   onSelectTurn: (i: number) => void
   onSend: (text: string) => void
@@ -730,6 +734,89 @@ function Chip({ icon, color, n, label }: { icon: string; color: string; n?: numb
   )
 }
 
+/* 산출물형 폼 패널(스펙 188) — form 프레임을 antd 컨트롤로 렌더. 채팅 입력은 계속 열려 있어
+   말로 답해도 된다(이중 입력 — 서버가 병합 후 재제시). formId가 바뀌면 key로 state 리셋. */
+function InlineFormPanel({
+  form,
+  onSubmit,
+  disabled,
+}: {
+  form: ChatFormFrame
+  onSubmit: (values: Record<string, string>) => void
+  disabled?: boolean
+}) {
+  const [vals, setVals] = useState<Record<string, string>>(() => ({ ...form.prefill }))
+  const set = (k: string, v: string) => setVals((s) => ({ ...s, [k]: v }))
+  const missing = form.fields.filter((f) => (f.required ?? true) && !vals[f.key])
+  return (
+    <div
+      style={{
+        maxWidth: 680, margin: '0 auto 8px', padding: '12px 14px',
+        border: '1px solid var(--color-border)', borderRadius: 10, background: 'var(--gray-2)',
+        display: 'flex', flexDirection: 'column', gap: 8,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--color-text-secondary)' }}>
+        <Icon name="edit" size={14} />
+        입력이 필요합니다 — 폼으로 고르거나 채팅으로 말씀하셔도 됩니다.
+      </div>
+      {form.note ? (
+        <div style={{ fontSize: 12, color: 'var(--gold-7, #ad6800)' }}>{form.note}</div>
+      ) : null}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+        {form.fields.map((f) => (
+          <label
+            key={f.key}
+            style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: 'var(--color-text-tertiary)', minWidth: 150 }}
+          >
+            {f.label || f.key}
+            {f.candidates && f.candidates.length ? (
+              <Select
+                size="small"
+                value={vals[f.key] || undefined}
+                onChange={(v) => set(f.key, v)}
+                options={f.candidates.map((c) => ({ value: c, label: c }))}
+                placeholder="선택"
+                style={{ minWidth: 150 }}
+              />
+            ) : (
+              <Input size="small" value={vals[f.key] || ''} onChange={(e) => set(f.key, e.target.value)} />
+            )}
+          </label>
+        ))}
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <Button size="small" type="primary" disabled={disabled || missing.length > 0} onClick={() => onSubmit(vals)}>
+          제출
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+/* 산출물 카드(스펙 188) — 완성 payload를 그대로 표시. 임베드 시 JS 콜백이 받는 JSON과 동일. */
+function ArtifactCard({ artifact }: { artifact: NonNullable<ChatMsg['artifact']> }) {
+  return (
+    <div
+      style={{
+        border: '1px solid var(--green-3, #b7eb8f)', background: 'var(--green-1, #f6ffed)',
+        borderRadius: 10, padding: '10px 14px', fontSize: 13, maxWidth: 560,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+        <Tag color="green" style={{ margin: 0 }}>산출물</Tag>
+        <code style={{ fontFamily: 'var(--font-family-code)' }}>{artifact.kind}</code>
+      </div>
+      <pre style={{ margin: 0, fontSize: 12, fontFamily: 'var(--font-family-code)', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
+        {JSON.stringify(artifact.data, null, 2)}
+      </pre>
+      <div style={{ marginTop: 6, fontSize: 11, color: 'var(--color-text-tertiary)' }}>
+        임베드 시 이 JSON이 호스트 페이지의 JS 콜백(ui-callback)으로 전달됩니다.
+      </div>
+    </div>
+  )
+}
+
 function TraceChips({ trace, active, onClick }: { trace?: Trace; active: boolean; onClick: () => void }) {
   if (!trace) return null
   return (
@@ -779,6 +866,8 @@ export function DebugChat({
   messages,
   streaming,
   awaitingApproval,
+  pendingForm = null,
+  onSubmitForm,
   approvalCanResolve = false,
   approvalKind = 'admin',
   onResolveApproval,
@@ -961,23 +1050,26 @@ export function DebugChat({
                       <TraceChips trace={m.trace} active={selectedTurn === i} onClick={() => onSelectTurn(i)} />
                     ) : null
                   return (
-                    <Bubble
-                      key={i}
-                      placement="start"
-                      avatar={agentAvatar}
-                      header={agent.name}
-                      content={m.text}
-                      // 평문 대신 markdown/JSON 렌더(스펙 088). contentRender는 full content를
-                      // 받고(부분 아님) 노드 반환 시 typing 애니메이션은 비적용 — 토큰마다 m.text가
-                      // 커지며 재렌더돼 점진 markdown이 일어난다. 형식 추론은 스트림 완료에서만 도므로
-                      // 스트리밍 여부를 넘긴다(부분 버퍼로 JSON 트리 깜빡임 방지).
-                      contentRender={(t) => <MessageContent text={t} streaming={isStreaming} />}
-                      // 첫 토큰 도착 전(빈 content)에는 typing이 보일 게 없어 말풍선이 멈춘 듯
-                      // 보인다 — 그 구간엔 loading 점 애니메이션을 띄운다(사용자 피드백).
-                      loading={isStreaming && !m.text}
-                      typing={isStreaming}
-                      footer={footer}
-                    />
+                    <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <Bubble
+                        placement="start"
+                        avatar={agentAvatar}
+                        header={agent.name}
+                        content={m.text}
+                        // 평문 대신 markdown/JSON 렌더(스펙 088). contentRender는 full content를
+                        // 받고(부분 아님) 노드 반환 시 typing 애니메이션은 비적용 — 토큰마다 m.text가
+                        // 커지며 재렌더돼 점진 markdown이 일어난다. 형식 추론은 스트림 완료에서만 도므로
+                        // 스트리밍 여부를 넘긴다(부분 버퍼로 JSON 트리 깜빡임 방지).
+                        contentRender={(t) => <MessageContent text={t} streaming={isStreaming} />}
+                        // 첫 토큰 도착 전(빈 content)에는 typing이 보일 게 없어 말풍선이 멈춘 듯
+                        // 보인다 — 그 구간엔 loading 점 애니메이션을 띄운다(사용자 피드백).
+                        loading={isStreaming && !m.text}
+                        typing={isStreaming}
+                        footer={footer}
+                      />
+                      {/* 산출물 카드(스펙 188) — 완성 payload를 그 턴 아래 표시. */}
+                      {m.artifact ? <ArtifactCard artifact={m.artifact} /> : null}
+                    </div>
                   )
                 }
                 return <Bubble key={i} placement="end" variant="filled" avatar={userAvatar} content={m.text} />
@@ -1009,6 +1101,14 @@ export function DebugChat({
               승인 및 재개
             </Button>
           </div>
+        )}
+        {/* 산출물형 폼(스펙 188) — 폼으로 고르거나 아래 입력으로 말해도 된다(이중 입력, 입력 안 잠금). */}
+        {pendingForm && !streaming && (
+          <InlineFormPanel
+            key={pendingForm.formId}
+            form={pendingForm.form}
+            onSubmit={(v) => void onSubmitForm?.(v)}
+          />
         )}
         <div style={{ maxWidth: 680, margin: '0 auto' }}>
           <Sender

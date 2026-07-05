@@ -68,4 +68,10 @@ export interface Trace {
   overrides?: Record<string, unknown>
 }
 
-export type ChatMsg = { role: 'me' | 'ai'; text: string; trace?: Trace }
+// artifact: 산출물형(스펙 188) 완성 페이로드 — 임베드 시 JS 콜백(ui-callback)이 받는 JSON 그대로.
+export type ChatMsg = {
+  role: 'me' | 'ai'
+  text: string
+  trace?: Trace
+  artifact?: { kind: string; data: Record<string, unknown>; raw?: string | null }
+}

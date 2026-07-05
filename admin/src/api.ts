@@ -594,6 +594,25 @@ export const resolveApproval = (id: string, decision: 'approve' | 'reject') =>
   post(`/approvals/${id}/resolve`, { decision }) as Promise<Approval>
 
 /* ---------- 채팅 SSE ---------- */
+export interface ChatFormField {
+  key: string
+  label?: string
+  candidates?: string[]
+  required?: boolean
+}
+
+export interface ChatFormFrame {
+  fields: ChatFormField[]
+  prefill: Record<string, string>
+  note?: string
+}
+
+export interface ChatArtifact {
+  kind: string
+  data: Record<string, unknown>
+  raw?: string | null
+}
+
 export interface ChatCallbacks {
   onToken: (t: string) => void
   onSession?: (sessionId: string) => void
@@ -602,6 +621,10 @@ export interface ChatCallbacks {
   // 요청자 UI가 이 id로 승인 상태를 폴링해, 해소되면 재개 결과를 세션에서 불러온다(라이브 push 부재 보완).
   // approver(admin/self, 스펙 180)로 대화 내 인라인 승인 가능 여부를 판정한다.
   onApproval?: (approvalId: string, approver?: string) => void
+  // 산출물형 폼 프레임(스펙 188) — 채팅에 폼을 렌더하고, 제출은 streamChat의 form 파라미터로.
+  onForm?: (formId: string, form: ChatFormFrame) => void
+  // 산출물 완성 프레임(스펙 188) — 임베드 시 JS 콜백이 받을 페이로드 그대로.
+  onArtifact?: (artifact: ChatArtifact) => void
 }
 
 function handleFrame(frame: string, cb: ChatCallbacks): boolean {
@@ -621,6 +644,9 @@ function handleFrame(frame: string, cb: ChatCallbacks): boolean {
     // approval id는 별도로 표면화(else-if 아님)해 요청자 폴링을 트리거한다(스펙 179).
     if (typeof parsed.approval === 'string')
       cb.onApproval?.(parsed.approval, typeof parsed.approver === 'string' ? parsed.approver : undefined)
+    // 산출물형 프레임(스펙 188) — form(입력 요청)·artifact(완성 페이로드).
+    if (parsed.form && typeof parsed.formId === 'string') cb.onForm?.(parsed.formId, parsed.form)
+    if (parsed.artifact && typeof parsed.artifact.kind === 'string') cb.onArtifact?.(parsed.artifact)
   } catch {
     /* 비-JSON 프레임 무시 */
   }
@@ -710,6 +736,8 @@ export async function streamChat(
   // Playground "Proxy" 세션 한정 오버라이드(스펙 025). 변경된 키만 담긴 부분 객체 →
   // 비었으면 보내지 않아 서버는 저장된 에이전트 설정 그대로 실행(무회귀). 코드 에이전트는 서버가 무시.
   overrides?: Record<string, unknown>,
+  // 산출물형 폼 제출(스펙 188) — 대기 중 폼 프레임(formId)의 값. 텍스트 입력은 messages 그대로(이중 입력).
+  form?: { formId: string; values: Record<string, string> },
 ): Promise<void> {
   const callbacks: ChatCallbacks = typeof cb === 'function' ? { onToken: cb } : cb
   const hasOverrides = overrides != null && Object.keys(overrides).length > 0
@@ -722,6 +750,7 @@ export async function streamChat(
       messages,
       sessionId,
       overrides: hasOverrides ? overrides : undefined,
+      form,
     }),
     signal,
   })

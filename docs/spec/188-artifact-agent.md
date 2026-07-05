@@ -127,3 +127,44 @@ P4 artifact 프레임+플그 카드+e2e+적대검증.
 - **경계(정직)**: pending 포인터는 프로세스 메모리(재시작 시 진행 중 produce 소실→새 실행 폴백),
   extract의 실모델 경로는 mock 미검증(P3 targeting에서 실검증), artifact 프레임은 emit만(플그 카드
   렌더는 P4).
+
+### P2~P4 — 완료·검증 (2026-07-06)
+- **P2 폼 프레임 + 이중 입력 일급**: `ProduceContext.form(fields, prefill, *, confirm=False)` —
+  interrupt `{"kind":"form",...}`로 필드 명세+프리필을 띄우고 union 봉투로 재개. 제출
+  `{"type":"form","values"}`은 뼈대가 `validate_form_values`로 재검증(서버 1차 + 뼈대 2차 = 이중 게이트),
+  텍스트 `{"type":"text","message"}`는 `merge_text_into_fields`(결정적 후보 substring) + LLM `extract`(2차)로
+  병합. chat.py에 form kind 분기(`_PENDING_ARTIFACT`에 formId+fields 등록, 제출/텍스트 둘 다 재개).
+  `ChatRequest.form={formId,values}` 추가, formId 불일치=409 fail-closed(pending 원복).
+- **P3 targeting 데모**: `TargetingDemoAgent`(둘째 구현 — produce만 다름, 뼈대 무변경). 발화→요소분리→
+  `tool(list_entities)`→rag∪동의어 매칭→`tool(get_entity)`로 후보 조회→**동적 폼 합성**→발화 프리필→
+  `form(confirm=True)`→conditions. served MCP `targeting-catalog`(list_entities/get_entity, 부수효과無
+  게이트 등록) + 시드 reconcile. **누수 0 측정**: 뼈대 파일 변경 없이 둘째 구현이 붙음.
+- **P4 artifact 프레임 + 플그 카드**: api `{artifact:...}` 프레임 → admin `onArtifact`→`ArtifactCard`
+  (conditions JSON + "임베드 시 JS 콜백(ui-callback) 전달" 주석). 폼은 `InlineFormPanel`(후보=antd Select,
+  자유=Input, 필수 미충족 시 제출 비활성; **입력 잠그지 않음**=이중 입력).
+
+### 적대 검토 (codex challenge, 2026-07-06)
+5×[P1]·2×[P2]. 실제 코드 대조 판정 — **여집합 공격 성공≠코드결함**(안전위반 아니면 미문서 경계로 정직화):
+- **[P2-2 고침] 텍스트 병합 무확인 확정**: `merge_text_into_fields`가 "서울 말고 부산"에서 '서울'을
+  채우고 필수 충족 시 곧장 확정. `confirm=True`면 텍스트로 값이 바뀐 뒤 **갱신 프리필로 재제시**(폼 제출만
+  최종 확정 경로) — 부정어/오후보 무확인 확정 봉인. (verify_188 FC1-4·T3a/b, targeting e2e B3b/B3c)
+- **[P1-3 고침] resume 전 pop → 크래시 시 pending 소실**: chat.py `except`에서 `pending_artifact` 원복
+  (체크포인트는 재개 실패로 남아 있어 다음 요청이 같은 thread 재시도 가능; 안 하면 in-flight 폼 고아화).
+- **[P2-1 하드닝] candidates 문자열 substring 오판정**: `validate_form_values`가 리스트형만 enum 게이트
+  (`"a" in "abc"` 오판정 제거). (verify_188 F6)
+- **[P1-1/P1-2 경계·정직화] override/broker capabilities**: `build_broker(principal=호출자)`가
+  allowlist ∩ **호출자 RBAC** — 완화가 아니라 더 제약(fail-closed, confused-deputy 무관, chat.py:149-151
+  주석). 서빙 MCP publication은 e2e로 강제 확인(카탈로그 미발행 시 도구 미도달=`published=True` 필수).
+- **[P1-4 경계·정직화] 스텝 캐시 인메모리 재실행**: `_STEP_CACHE` 주석에 **멱등성 계약** 명시 — 재시작/
+  256 evict 시 재호출되므로 프리미티브(특히 tool/rag)는 부수효과無여야(서빙 MCP `_SIDE_EFFECT_FREE_TOOLS`가
+  강제). 체크포인트 영속화는 향후 과제.
+- **[P1-5 경계·정직화] 닫힌 집합≠샌드박스**: produce는 `register_agent` 신뢰 1급 코드(source=code). 닫힌
+  집합은 미신뢰 코드 방어가 아니라 **저작 규율**(ArtifactAgentBase docstring 명시). 미신뢰 produce 실행 시
+  별도 프로세스/샌드박스 필요=범위 밖.
+
+### 검증 사다리(3단 전부 초록)
+- **단위 시맨틱**: `verify_188_artifact.py` ALL PASS(순수함수 U/F·ask 멀티턴 A·리플레이 캐시 R(tool 1회)·
+  되물음 B·폼 이중입력 FM·**무확인확정봉인 FC·후보게이트 F6**·targeting 동적합성 T·구조 G).
+- **실인프라 통합**: `verify-artifact-188.mjs`(slot-fill) + `verify-artifact-targeting-188.mjs`(targeting
+  A 전체조건→폼→제출→artifact / B 부분→텍스트보완→**재제시→제출**) 둘 다 ALL PASS·pageerror 0.
+- **적대**: codex challenge(상기). 무회귀: verify_041(HIL 게이팅)·verify_117(a2a+승인)·admin tsc 0.

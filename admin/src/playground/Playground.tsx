@@ -11,7 +11,7 @@ import type { Agent, BlockCategory, Session } from '../admin/mockData'
 import {
   listAgents, streamChat, streamChatA2A, getBlocks, listModels, listSessions, getSessionMessages, listCollections,
   listApprovals, resolveApproval,
-  type ChatMessage, type Model, type Collection,
+  type ChatMessage, type Model, type Collection, type ChatFormFrame,
 } from '../api'
 import { onAgentsChanged } from '../agentsBus'
 import { isA2AExposed } from './DebugChat'
@@ -53,6 +53,9 @@ export function Playground({
   // 서버사이드로 재개해 결과를 세션에 영속하나 대기 중 채팅엔 라이브 push가 없다(§7 빚). 요청자
   // UI가 승인 상태를 폴링해, 해소되면 세션 메시지를 다시 불러 완료 턴을 표시한다.
   const [pendingApproval, setPendingApproval] = useState<{ id: string; convoId: string; approver?: string } | null>(null)
+  // 산출물형 폼 대기(스펙 188) — form 프레임이 오면 채팅에 폼을 렌더. 제출이든 텍스트든(이중 입력)
+  // 다음 전송이 재개하며, 서버가 재제시하면 새 프레임이 이 상태를 덮는다.
+  const [pendingForm, setPendingForm] = useState<{ formId: string; convoId: string; form: ChatFormFrame } | null>(null)
 
   const screens = Grid.useBreakpoint()
   // 인스펙터를 채팅과 나란히(side-by-side) 두려면 사이드바 + 채팅 + 인스펙터(384px)가
@@ -269,6 +272,18 @@ export function Playground({
     // approve → 화면 이동이 없어 폴링(위 useEffect)이 유지되며 완료 턴을 반영·해제한다.
   }
 
+  // 산출물형 폼 제출(스펙 188) — 표시용 사용자 메시지("[폼 제출] …")와 함께 form 페이로드로 재개.
+  const submitForm = async (values: Record<string, string>) => {
+    const pf = pendingForm
+    if (!pf || pf.convoId !== activeId || streaming) return
+    const labelOf = (k: string) => pf.form.fields.find((f) => f.key === k)?.label || k
+    const summary = Object.entries(values)
+      .filter(([, v]) => v)
+      .map(([k, v]) => `${labelOf(k)}=${v}`)
+      .join(', ')
+    await send(`[폼 제출] ${summary || '(빈 값)'}`, { formId: pf.formId, values })
+  }
+
   // 오버라이드 패널용 카탈로그(등록 chat 모델 + 빌딩 블록). 실패는 조용히 무시 — 패널만 빈 옵션.
   useEffect(() => {
     let cancelled = false
@@ -293,13 +308,16 @@ export function Playground({
     setStreaming(false)
   }
 
-  const send = async (text: string) => {
+  const send = async (text: string, form?: { formId: string; values: Record<string, string> }) => {
     if (streaming) return
     const id = activeId
     if (!id) return
     // 승인 대기 중엔 새 입력 차단(스펙 179 P3) — 그래프가 그 턴에서 멈춰 있어, 새 턴을 끼우면
     // 저장시각(created_at) 순서가 어긋나(대기 턴이 나중 저장) 대화가 뒤바뀐다. 승인/거부 후 이어간다.
     if (pendingApproval && pendingApproval.convoId === id) return
+    // 폼 대기는 입력을 잠그지 않는다(이중 입력 일급, 스펙 188) — 전송 시작 시 이 대화의 폼을 내리고,
+    // 서버가 재제시(form 프레임)하면 콜백이 다시 세운다.
+    setPendingForm((p) => (p && p.convoId === id ? null : p))
 
     // 직전 대화로 백엔드 메시지 배열 구성 — me→user, ai→assistant, 빈 텍스트 제외.
     const prior = convos[id] || []
@@ -352,6 +370,9 @@ export function Playground({
           onSession: (sid) => setSessions((s) => ({ ...s, [id]: sid })),
           // 승인 대기 프레임(스펙 179) — 이 턴의 승인 id를 잡아 폴링 시작(아래 useEffect).
           onApproval: (apid, approver) => setPendingApproval({ id: apid, convoId: id, approver }),
+          // 산출물형(스펙 188) — 폼 프레임은 입력 위 폼 렌더, artifact는 그 턴 메시지에 카드로.
+          onForm: (formId, f) => setPendingForm({ formId, convoId: id, form: f }),
+          onArtifact: (artifact) => appendToLastAi((prev) => ({ ...prev, artifact })),
           onTrace: (tr) => {
             const trace = tr as unknown as Trace
             setConvos((c) => {
@@ -373,6 +394,7 @@ export function Playground({
         controller.signal,
         sessions[id],
         ovPayload, // 세션 한정 오버라이드(변경된 키만; 빈 객체면 streamChat이 보내지 않음)
+        form, // 산출물형 폼 제출(스펙 188) — 텍스트 입력이면 undefined
       )
     } catch (e) {
       if (e instanceof DOMException && e.name === 'AbortError') {
@@ -497,6 +519,8 @@ export function Playground({
         approvalCanResolve={canResolvePending && pendingApproval?.convoId === activeId}
         approvalKind={pendingApproval?.approver === 'self' ? 'self' : 'admin'}
         onResolveApproval={resolvePending}
+        pendingForm={pendingForm && pendingForm.convoId === activeId ? pendingForm : null}
+        onSubmitForm={submitForm}
         selectedTurn={inspectorOpen ? selectedTurn : null}
         onSelectTurn={openInspector}
         onSend={send}
