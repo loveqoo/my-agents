@@ -39,7 +39,7 @@ function ApprovalCard({
         </div>
         <Tag color="purple">
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-            <Icon name="team" size={11} />관리자 승인
+            <Icon name="lock" size={11} />관리자 승인
           </span>
         </Tag>
       </div>
