@@ -1,7 +1,7 @@
 /* my-agents admin — Agents view: list created agents, view detail, and
    create / edit / delete (composing building blocks). */
-import { useState, useEffect } from 'react'
-import { Tag, Button, Avatar, Select, Input, Switch, Tooltip, Popover, Modal, Alert, message } from 'antd'
+import { useState } from 'react'
+import { Tag, Button, Avatar, Select, Input, Switch, Tooltip, Popover, Modal, message } from 'antd'
 import { Page, StatusPill, DataTable, OwnerTag, type Column } from '../shared'
 import { Icon } from '../icons'
 import {
@@ -38,13 +38,6 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
   const [confirmDel, setConfirmDel] = useState<Agent | null>(null)
   const [exposeOff, setExposeOff] = useState<{ agent: Agent; count: number } | null>(null) // agent pending expose-off confirm
   const [connectOpen, setConnectOpen] = useState(false)
-  const [toast, setToast] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!toast) return
-    const t = setTimeout(() => setToast(null), 2400)
-    return () => clearTimeout(t)
-  }, [toast])
 
   const configOf = (a: Agent): AgentConfig => ({
     model: a.model,
@@ -84,7 +77,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
   const setVisibility = async (agent: Agent, pub: boolean) => {
     try {
       await A.setVisibility(agent.id, pub)
-      setToast(pub ? `${displayName(agent)} — 공개(public)로 전환됨` : `${displayName(agent)} — 비공개(private)로 전환됨`)
+      message.success(pub ? `${displayName(agent)} — 공개(public)로 전환됨` : `${displayName(agent)} — 비공개(private)로 전환됨`)
     } catch (e) {
       message.error(String(e))
     }
@@ -100,7 +93,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
     if (!agent.exposed.a2a) {
       try {
         await A.expose(agent.id, true)
-        setToast(`${agent.name} — A2A 공개됨`)
+        message.success(`${agent.name} — A2A 공개됨`)
       } catch (e) {
         message.error(String(e))
       }
@@ -114,7 +107,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
     const { agent } = exposeOff
     try {
       await A.expose(agent.id, false)
-      setToast(mode === 'drain' ? `${agent.name} 사용 중단 — A2A 비공개로 전환` : `${agent.name} — A2A 철회됨`)
+      message.success(mode === 'drain' ? `${agent.name} 사용 중단 — A2A 비공개로 전환` : `${agent.name} — A2A 철회됨`)
     } catch (e) {
       message.error(String(e))
     }
@@ -125,7 +118,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
   const activateVersion = async (agent: Agent, v: VersionMeta) => {
     try {
       await A.activate(agent.id, v.version)
-      setToast(`${agent.name} ${v.version} 활성화됨 — 서빙 시작`)
+      message.success(`${agent.name} ${v.version} 활성화됨 — 서빙 시작`)
     } catch (e) {
       message.error(String(e))
     }
@@ -133,7 +126,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
   const newDraft = async (agent: Agent) => {
     try {
       await A.fork(agent.id)
-      setToast(`${agent.name} 새 초안 생성됨`)
+      message.success(`${agent.name} 새 초안 생성됨`)
     } catch {
       // 400: 이미 초안이 있음 등 — 서버 가드.
       message.warning('새 초안을 만들 수 없습니다 — 이미 초안이 있는지 확인하세요')
@@ -147,7 +140,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
   const revertToDraft = async (agent: Agent, v: VersionMeta) => {
     try {
       await A.revert(agent.id, v.version)
-      setToast(`${v.version} 초안으로 되돌림${v.status === 'active' ? ' — 이전 버전으로 롤백' : ''}`)
+      message.success(`${v.version} 초안으로 되돌림${v.status === 'active' ? ' — 이전 버전으로 롤백' : ''}`)
     } catch {
       // 서버가 가드를 강제(400 + 한국어 detail). api.ts 에러는 status만 담으므로 일반 메시지로 안내.
       message.warning('되돌릴 수 없습니다 — 조건을 확인하세요')
@@ -173,12 +166,12 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
       if (editing) {
         // alias는 항상 현재 폼 값을 전송('' = 비우기, 스펙 148)
         await A.update(editing.agent.id, data.name, config, data.alias)
-        setToast(`초안에 저장됨 — 활성화하면 게시됩니다`)
+        message.success(`초안에 저장됨 — 활성화하면 게시됩니다`)
         // 편집을 마치면 그 에이전트의 드로워로 복귀(스펙 144 #1 — 이어서 "활성화"를 누르는 동선).
         setDetailId(editing.agent.id)
       } else {
         await A.create(data.name, config, data.alias || null)
-        setToast(`"${data.alias || data.name}" 생성됨 — v1 초안, 테스트 후 활성화`)
+        message.success(`"${data.alias || data.name}" 생성됨 — v1 초안, 테스트 후 활성화`)
       }
       setFormOpen(false)
       setEditing(null)
@@ -192,7 +185,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
     const target = confirmDel
     try {
       await A.remove(target.id)
-      setToast(`"${target.name}" ${target.source !== 'ui' ? '등록 해제됨' : '삭제됨'}`)
+      message.success(`"${target.name}" ${target.source !== 'ui' ? '등록 해제됨' : '삭제됨'}`)
       setConfirmDel(null)
       setDetailId(null)
     } catch (e) {
@@ -204,7 +197,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
   const onClone = async (a: Agent) => {
     try {
       const created = await A.clone(a.id)
-      setToast(`"${a.name}" 복제됨 → "${created.name}"`)
+      message.success(`"${a.name}" 복제됨 → "${created.name}"`)
       setDetailId(null)
     } catch (e) {
       message.error(String(e))
@@ -217,7 +210,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
     try {
       const created = await A.connect(data.url, data.token || undefined)
       const kind = created.source === 'code' ? 'SDK 에이전트 (코드)' : '외부 A2A'
-      setToast(`"${created.name || '원격 에이전트'}" 연결됨 — ${kind}, 읽기 전용`)
+      message.success(`"${created.name || '원격 에이전트'}" 연결됨 — ${kind}, 읽기 전용`)
       setConnectOpen(false)
     } catch (e) {
       message.error(`연결 실패 — ${String(e)}`)
@@ -226,7 +219,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
   const resync = async (agent: Agent) => {
     try {
       await A.resync(agent.id)
-      setToast(`${agent.name} 재동기화됨 — 최신 배포(commit) 반영`)
+      message.success(`${agent.name} 재동기화됨 — 최신 배포(commit) 반영`)
     } catch (e) {
       message.error(String(e))
     }
@@ -235,7 +228,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
   const refreshPersona = async (agent: Agent) => {
     try {
       await A.refreshPersona(agent.id)
-      setToast(`${agent.name} 페르소나 갱신됨`)
+      message.success(`${agent.name} 페르소나 갱신됨`)
     } catch (e) {
       message.error(String(e))
     }
@@ -660,25 +653,6 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
           </div>
         ) : null}
       </Modal>
-
-      {toast ? (
-        <div
-          style={{
-            position: 'absolute',
-            top: 16,
-            left: 0,
-            right: 0,
-            display: 'flex',
-            justifyContent: 'center',
-            zIndex: 1100,
-            pointerEvents: 'none',
-          }}
-        >
-          <div style={{ pointerEvents: 'auto' }}>
-            <Alert type="success" showIcon message={toast} />
-          </div>
-        </div>
-      ) : null}
     </Page>
   )
 }

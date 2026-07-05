@@ -2,7 +2,7 @@
    LangGraph run is paused at a checkpoint (interrupt) awaiting an admin decision.
    Approve → resume from checkpoint; Reject → abort the run. */
 import { useState, useEffect, type ReactNode } from 'react'
-import { Tag, Button, Avatar, Alert, message, Segmented } from 'antd'
+import { Tag, Button, Avatar, message, Segmented } from 'antd'
 import { Page, Panel } from '../shared'
 import { Icon } from '../icons'
 import { type Approval } from '../mockData'
@@ -163,13 +163,6 @@ export default function ApprovalsView({ onPendingChange }: { onPendingChange?: (
   const [tab, setTab] = useState<'pending' | 'resolved'>('pending') // 대기 중 / 처리됨(스펙 181)
   const [history, setHistory] = useState<Approval[]>([])
   const [historyLoaded, setHistoryLoaded] = useState(false)
-  const [toast, setToast] = useState<{ type: 'success' | 'warning'; msg: string } | null>(null)
-  useEffect(() => {
-    if (!toast) return
-    const t = setTimeout(() => setToast(null), 2600)
-    return () => clearTimeout(t)
-  }, [toast])
-
   useEffect(() => {
     let alive = true
     // 승인 큐는 pending만 — resolved 항목이 재로드 시 재등장하지 않도록 서버에서 필터(045).
@@ -222,11 +215,8 @@ export default function ApprovalsView({ onPendingChange }: { onPendingChange?: (
         return next
       })
       onPendingChange?.(nextLen)
-      setToast(
-        decision === 'approve'
-          ? { type: 'success', msg: `승인됨 — ${item.checkpoint}에서 ${item.agent} 재개 중` }
-          : { type: 'warning', msg: `거부됨 — ${item.agent} 실행 중단` },
-      )
+      if (decision === 'approve') message.success(`승인됨 — ${item.checkpoint}에서 ${item.agent} 재개 중`)
+      else message.warning(`거부됨 — ${item.agent} 실행 중단`)
     } catch (e: unknown) {
       message.error(e instanceof Error ? e.message : '결정을 처리하지 못했습니다.')
     }
@@ -270,14 +260,6 @@ export default function ApprovalsView({ onPendingChange }: { onPendingChange?: (
           ))}
         </div>
       )}
-
-      {toast ? (
-        <div style={{ position: 'absolute', top: 16, left: 0, right: 0, display: 'flex', justifyContent: 'center', zIndex: 1100, pointerEvents: 'none' }}>
-          <div style={{ pointerEvents: 'auto' }}>
-            <Alert type={toast.type} showIcon message={toast.msg} />
-          </div>
-        </div>
-      ) : null}
     </Page>
   )
 }

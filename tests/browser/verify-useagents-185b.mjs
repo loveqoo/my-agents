@@ -20,9 +20,9 @@ page.on('pageerror', (e) => pageErrors.push(String(e)))
 const log = (...a) => console.log(...a)
 let fail = 0
 const check = (ok, name) => { log(`${ok ? ' ok ' : 'FAIL'} ${name}`); if (!ok) fail++ }
-// 커스텀 플로팅 토스트(성공)만 잡는다 — .ant-alert-success (antd message=.ant-message는 에러용).
+// 성공 토스트 = 표준 antd message(.ant-message-notice-content). 스펙 186서 커스텀 플로팅 Alert→표준 통일.
 const toastText = async () => {
-  const a = page.locator('.ant-alert-success').last()
+  const a = page.locator('.ant-message').last()
   return (await a.count()) ? (await a.textContent()) ?? '' : ''
 }
 
@@ -42,7 +42,7 @@ try {
   await page.getByRole('button', { name: '에이전트 생성' }).click()
   await page.waitForTimeout(1500)
   const createToast = await toastText()
-  check(/생성됨/.test(createToast), `B1 생성 토스트 = 커스텀 플로팅 Alert ("${createToast.slice(0, 30)}")`)
+  check(/생성됨/.test(createToast), `B1 생성 토스트 = 표준 message.success ("${createToast.slice(0, 30)}")`)
   // tr 카운트는 subRow(2줄 행, 스펙 146) 때문에 에이전트 수와 불일치 → "증가"만 판정, 정확 행은 B3.
   const rowsAfterCreate = await page.locator('table tbody tr').count()
   check(rowsAfterCreate > rows0, `B2 생성 후 list 증가 (${rows0}→${rowsAfterCreate})`)
@@ -60,7 +60,7 @@ try {
   const confirmBtn = page.getByRole('button', { name: /삭제|등록 해제|확인/ }).last()
   if (await confirmBtn.count()) { await confirmBtn.click(); await page.waitForTimeout(1400) }
   const delToast = await toastText()
-  check(/삭제됨|등록 해제됨/.test(delToast), `B4 삭제 토스트 = 커스텀 플로팅 Alert ("${delToast.slice(0, 30)}")`)
+  check(/삭제됨|등록 해제됨/.test(delToast), `B4 삭제 토스트 = 표준 message.success ("${delToast.slice(0, 30)}")`)
   const rowsAfterDel = await page.locator('table tbody tr').count()
   check(rowsAfterDel === rows0, `B5 삭제 후 list 복원 (${rowsAfterCreate}→${rowsAfterDel})`)
   check(await page.locator('table tbody tr', { hasText: NAME }).count() === 0, `B6 '${NAME}' 행 제거됨`)
