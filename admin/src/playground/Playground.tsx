@@ -10,6 +10,7 @@ import type { ChatMsg, Trace } from './agentData'
 import type { Agent, BlockCategory, Session } from '../admin/mockData'
 import {
   listAgents, streamChat, streamChatA2A, getBlocks, listModels, listSessions, getSessionMessages, listCollections,
+  listApprovals,
   type ChatMessage, type Model, type Collection,
 } from '../api'
 import { onAgentsChanged } from '../agentsBus'
@@ -46,6 +47,10 @@ export function Playground({
   const controllerRef = useRef<AbortController | null>(null)
   // 세션 로드 레이스 가드(스펙 055): 늦게 도착한 응답이 최신 선택을 덮어쓰지 않게 하는 시퀀스.
   const sessionLoadSeqRef = useRef(0)
+  // 승인 대기 폴링(스펙 179): 위험 도구가 그래프를 멈추면 승인 프레임이 온다. 백엔드는 승인 시
+  // 서버사이드로 재개해 결과를 세션에 영속하나 대기 중 채팅엔 라이브 push가 없다(§7 빚). 요청자
+  // UI가 승인 상태를 폴링해, 해소되면 세션 메시지를 다시 불러 완료 턴을 표시한다.
+  const [pendingApproval, setPendingApproval] = useState<{ id: string; convoId: string } | null>(null)
 
   const screens = Grid.useBreakpoint()
   // 인스펙터를 채팅과 나란히(side-by-side) 두려면 사이드바 + 채팅 + 인스펙터(384px)가
@@ -167,6 +172,72 @@ export function Playground({
     }
   }, [])
 
+  // 승인 대기 폴링(스펙 179) — pendingApproval이 설정되면 승인 상태를 주기 조회. 해소(pending 아님)되면
+  // 재개 결과가 세션에 영속됐으므로 그 세션 메시지를 다시 불러 완료 턴을 채팅에 반영하고 종료.
+  // 최대 시도 후 조용히 포기(대기 표시 유지 — 사용자가 세션 재열람으로 확인 가능). 라이브 push 빚(§7) 보완.
+  useEffect(() => {
+    if (!pendingApproval) return
+    const { id: apid, convoId } = pendingApproval
+    let cancelled = false
+    let timer: number | undefined
+    let tries = 0
+    // 재개 persist 완료를 "세션 메시지 수 증가"로 감지하기 위한 기준값(이 턴 완료 전 영속 메시지 수).
+    // resolve는 status를 먼저 approved로 커밋한 뒤 서버사이드로 재개·persist하므로, status만 보면
+    // persist 전(레이스)에 빈 세션을 그릴 수 있다 — count 증가를 함께 확인해 완료 시점에만 반영.
+    let baseline: number | null = null
+    const MAX = 60 // ~2.5s × 60 ≈ 2.5분
+    const tick = async () => {
+      if (cancelled) return
+      tries += 1
+      try {
+        const list = await listApprovals()
+        const found = list.find((a) => a.id === apid)
+        if (found) {
+          const sid = found.sessionId
+          if (baseline === null) {
+            try {
+              baseline = (await getSessionMessages(sid)).length
+            } catch {
+              baseline = 0
+            }
+          }
+          if (found.status && found.status !== 'pending') {
+            const msgs = await getSessionMessages(sid)
+            if (cancelled) return
+            if (msgs.length > (baseline ?? 0)) {
+              // 재개 결과가 영속됨(count 증가) → 완료 턴을 채팅에 반영하고 종료.
+              setSessions((s) => ({ ...s, [convoId]: sid }))
+              setConvos((c) => ({
+                ...c,
+                [convoId]: msgs.map((m) => ({
+                  role: m.role === 'assistant' ? 'ai' : 'me',
+                  text: m.content,
+                  trace: (m.trace as unknown as Trace) ?? undefined,
+                })),
+              }))
+              setPendingApproval(null)
+              return
+            }
+            // resolved이나 아직 persist 전(레이스) → 계속 폴링.
+          }
+        }
+      } catch {
+        /* 조용히 재시도 */
+      }
+      if (cancelled) return
+      if (tries >= MAX) {
+        setPendingApproval(null)
+        return
+      }
+      timer = window.setTimeout(tick, 2500)
+    }
+    timer = window.setTimeout(tick, 2500)
+    return () => {
+      cancelled = true
+      if (timer) window.clearTimeout(timer)
+    }
+  }, [pendingApproval])
+
   // 오버라이드 패널용 카탈로그(등록 chat 모델 + 빌딩 블록). 실패는 조용히 무시 — 패널만 빈 옵션.
   useEffect(() => {
     let cancelled = false
@@ -245,6 +316,8 @@ export function Playground({
         {
           onToken: (t) => appendToLastAi((prev) => ({ ...prev, text: prev.text + t })),
           onSession: (sid) => setSessions((s) => ({ ...s, [id]: sid })),
+          // 승인 대기 프레임(스펙 179) — 이 턴의 승인 id를 잡아 폴링 시작(아래 useEffect).
+          onApproval: (apid) => setPendingApproval({ id: apid, convoId: id }),
           onTrace: (tr) => {
             const trace = tr as unknown as Trace
             setConvos((c) => {
