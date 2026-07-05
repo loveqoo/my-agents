@@ -10,7 +10,7 @@ import type { ChatMsg, Trace } from './agentData'
 import type { Agent, BlockCategory, Session } from '../admin/mockData'
 import {
   listAgents, streamChat, streamChatA2A, getBlocks, listModels, listSessions, getSessionMessages, listCollections,
-  listApprovals,
+  listApprovals, resolveApproval,
   type ChatMessage, type Model, type Collection,
 } from '../api'
 import { onAgentsChanged } from '../agentsBus'
@@ -19,9 +19,11 @@ import { isA2AExposed } from './DebugChat'
 export function Playground({
   initialAgentId = null,
   onConsumedInitial,
+  meIsSuperuser = false,
 }: {
   initialAgentId?: string | null
   onConsumedInitial?: () => void
+  meIsSuperuser?: boolean // 인라인 승인(스펙 180) — admin 승인 대기를 그 자리서 처리 가능한지 판정
 } = {}) {
   const [agents, setAgents] = useState<Agent[]>([])
   const [activeId, setActiveId] = useState('')
@@ -50,7 +52,7 @@ export function Playground({
   // 승인 대기 폴링(스펙 179): 위험 도구가 그래프를 멈추면 승인 프레임이 온다. 백엔드는 승인 시
   // 서버사이드로 재개해 결과를 세션에 영속하나 대기 중 채팅엔 라이브 push가 없다(§7 빚). 요청자
   // UI가 승인 상태를 폴링해, 해소되면 세션 메시지를 다시 불러 완료 턴을 표시한다.
-  const [pendingApproval, setPendingApproval] = useState<{ id: string; convoId: string } | null>(null)
+  const [pendingApproval, setPendingApproval] = useState<{ id: string; convoId: string; approver?: string } | null>(null)
 
   const screens = Grid.useBreakpoint()
   // 인스펙터를 채팅과 나란히(side-by-side) 두려면 사이드바 + 채팅 + 인스펙터(384px)가
@@ -184,6 +186,9 @@ export function Playground({
     // 재개 persist 완료를 "세션 메시지 수 증가"로 감지하기 위한 기준값(이 턴 완료 전 영속 메시지 수).
     // resolve는 status를 먼저 approved로 커밋한 뒤 서버사이드로 재개·persist하므로, status만 보면
     // persist 전(레이스)에 빈 세션을 그릴 수 있다 — count 증가를 함께 확인해 완료 시점에만 반영.
+    // ⚠ 스펙 180: baseline은 반드시 *완료 전*에 포착해야 한다. 인라인 승인은 프레임 도착 직후 바로
+    // 승인하므로, 첫 틱을 2.5s 뒤로 미루면 그 사이 완료돼 baseline이 완료-후 카운트를 잡아 영영
+    // `msgs>baseline`이 거짓이 된다 → 첫 틱을 즉시(0ms) 발화해 대기 시점의 카운트를 포착.
     let baseline: number | null = null
     const MAX = 60 // ~2.5s × 60 ≈ 2.5분
     const tick = async () => {
@@ -231,12 +236,38 @@ export function Playground({
       }
       timer = window.setTimeout(tick, 2500)
     }
-    timer = window.setTimeout(tick, 2500)
+    timer = window.setTimeout(tick, 0) // 첫 틱 즉시 — baseline을 완료 전에 포착(빠른 인라인 승인 레이스 방지)
     return () => {
       cancelled = true
       if (timer) window.clearTimeout(timer)
     }
   }, [pendingApproval])
+
+  // 대화 내 인라인 승인(스펙 180) — 현재 사용자가 처리 가능한 승인 대기를 그 자리서 승인/거부.
+  // canResolve: self는 요청자 본인이 항상, admin은 슈퍼유저만(서버 _may_resolve가 진짜 경계 — 여긴 표시용).
+  const canResolvePending = !!pendingApproval && (pendingApproval.approver === 'self' || meIsSuperuser)
+  const resolvePending = async (decision: 'approve' | 'reject') => {
+    const pa = pendingApproval
+    if (!pa) return
+    try {
+      await resolveApproval(pa.id, decision)
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '승인 처리에 실패했습니다.')
+      return
+    }
+    if (decision === 'reject') {
+      // 거부는 재개가 없어(새 메시지 무) 폴링이 안 잡는다 — 대기 버블을 거부로 갱신하고 즉시 해제.
+      setConvos((c) => {
+        const arr = (c[pa.convoId] || []).slice()
+        const li = arr.length - 1
+        if (li >= 0 && arr[li].role === 'ai')
+          arr[li] = { ...arr[li], text: arr[li].text + '\n\n🚫 거부됨 — 실행이 중단되었습니다.' }
+        return { ...c, [pa.convoId]: arr }
+      })
+      setPendingApproval(null)
+    }
+    // approve → 화면 이동이 없어 폴링(위 useEffect)이 유지되며 완료 턴을 반영·해제한다.
+  }
 
   // 오버라이드 패널용 카탈로그(등록 chat 모델 + 빌딩 블록). 실패는 조용히 무시 — 패널만 빈 옵션.
   useEffect(() => {
@@ -320,7 +351,7 @@ export function Playground({
           onToken: (t) => appendToLastAi((prev) => ({ ...prev, text: prev.text + t })),
           onSession: (sid) => setSessions((s) => ({ ...s, [id]: sid })),
           // 승인 대기 프레임(스펙 179) — 이 턴의 승인 id를 잡아 폴링 시작(아래 useEffect).
-          onApproval: (apid) => setPendingApproval({ id: apid, convoId: id }),
+          onApproval: (apid, approver) => setPendingApproval({ id: apid, convoId: id, approver }),
           onTrace: (tr) => {
             const trace = tr as unknown as Trace
             setConvos((c) => {
@@ -463,6 +494,9 @@ export function Playground({
         messages={messages}
         streaming={streaming}
         awaitingApproval={!!pendingApproval && pendingApproval.convoId === activeId}
+        approvalCanResolve={canResolvePending && pendingApproval?.convoId === activeId}
+        approvalKind={pendingApproval?.approver === 'self' ? 'self' : 'admin'}
+        onResolveApproval={resolvePending}
         selectedTurn={inspectorOpen ? selectedTurn : null}
         onSelectTurn={openInspector}
         onSend={send}

@@ -183,7 +183,7 @@ export default function AdminShell({ user, onLogout }: { user: Me; onLogout: () 
     eval: <EvalView />,
     'allowed-hosts': <AllowedHostsView />,
     settings: <SettingsView />,
-    debug: <Playground initialAgentId={playgroundAgent} onConsumedInitial={() => setPlaygroundAgent(null)} />,
+    debug: <Playground initialAgentId={playgroundAgent} onConsumedInitial={() => setPlaygroundAgent(null)} meIsSuperuser={user.is_superuser} />,
   }
 
   const doLogout = async () => {

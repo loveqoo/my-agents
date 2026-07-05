@@ -881,8 +881,11 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
         if interrupted and not errored:
             apid = await _create_approval(ctx, thread_id, interrupted, user_id)
             action = interrupted.get("action", "(작업)")
-            wait_msg = f"⏸ 승인 대기: {action} — 관리자 승인이 필요합니다. (승인 큐 {apid})"
-            yield f"data: {json.dumps({'text': wait_msg, 'approval': apid}, ensure_ascii=False)}\n\n"
+            # approver 반영(스펙 180) — self면 요청자 본인이 승인. 하드코딩 "관리자 승인"은 오표기였다.
+            approver = interrupted.get("approver")
+            kind_label = "본인 승인" if approver == "self" else "관리자 승인"
+            wait_msg = f"⏸ 승인 대기: {action} — {kind_label}이 필요합니다. (승인 큐 {apid})"
+            yield f"data: {json.dumps({'text': wait_msg, 'approval': apid, 'approver': approver}, ensure_ascii=False)}\n\n"
             pending_trace = {
                 "latencyMs": int((time.perf_counter() - t0) * 1000),
                 "tokens": {"in": 0, "out": 0}, "promptRef": ctx["ext_agent_id"],

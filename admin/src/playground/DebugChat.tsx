@@ -115,6 +115,9 @@ interface DebugChatProps {
   messages: ChatMsg[]
   streaming: boolean
   awaitingApproval: boolean // 승인 대기 중(스펙 179 P3) — 입력 차단(그래프가 그 턴에서 멈춤)
+  approvalCanResolve?: boolean // 인라인 승인(스펙 180) — 현재 사용자가 이 승인을 그 자리서 처리 가능
+  approvalKind?: 'self' | 'admin' // 승인 종류(라벨용)
+  onResolveApproval?: (decision: 'approve' | 'reject') => Promise<void> | void
   selectedTurn: number | null
   onSelectTurn: (i: number) => void
   onSend: (text: string) => void
@@ -776,6 +779,9 @@ export function DebugChat({
   messages,
   streaming,
   awaitingApproval,
+  approvalCanResolve = false,
+  approvalKind = 'admin',
+  onResolveApproval,
   selectedTurn,
   onSelectTurn,
   onSend,
@@ -796,6 +802,16 @@ export function DebugChat({
   // Sender는 submit 시 스스로 입력을 비우지 않는다(@ant-design/x 2.8 — triggerSend가
   // onSubmit만 호출, clear는 클리어 버튼에서만). 그래서 controlled로 두고 직접 비운다.
   const [draft, setDraft] = useState('')
+  const [resolving, setResolving] = useState<'approve' | 'reject' | null>(null) // 인라인 승인 처리 중(스펙 180)
+  const doResolve = async (decision: 'approve' | 'reject') => {
+    if (!onResolveApproval) return
+    setResolving(decision)
+    try {
+      await onResolveApproval(decision)
+    } finally {
+      setResolving(null)
+    }
+  }
   useEffect(() => {
     if (scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight
   }, [messages, streaming, showPrompt])
@@ -972,6 +988,28 @@ export function DebugChat({
       </div>
 
       <div style={{ flex: 'none', padding: '8px 24px 18px' }}>
+        {/* 인라인 승인 바(스펙 180) — 현재 사용자가 처리 가능한 승인 대기면 그 자리서 승인/거부.
+            불가(일반 유저의 admin 승인 대기)면 바 없이 아래 입력이 "관리자 승인 대기"로 잠긴다. */}
+        {awaitingApproval && approvalCanResolve && (
+          <div
+            style={{
+              maxWidth: 680, margin: '0 auto 8px', display: 'flex', alignItems: 'center', gap: 10,
+              padding: '10px 14px', border: '1px solid var(--color-border)', borderRadius: 10,
+              background: 'var(--gray-2)',
+            }}
+          >
+            <Icon name={approvalKind === 'self' ? 'user' : 'lock'} size={14} style={{ color: 'var(--color-text-secondary)' }} />
+            <span style={{ flex: 1, minWidth: 0, fontSize: 13, color: 'var(--color-text-secondary)' }}>
+              {approvalKind === 'self' ? '본인 승인' : '관리자 승인'} 대기 — 이 도구 실행을 승인할까요?
+            </span>
+            <Button size="small" danger icon={<Icon name="close" />} loading={resolving === 'reject'} disabled={!!resolving} onClick={() => doResolve('reject')}>
+              거부
+            </Button>
+            <Button size="small" type="primary" icon={<Icon name="check" />} loading={resolving === 'approve'} disabled={!!resolving} onClick={() => doResolve('approve')}>
+              승인 및 재개
+            </Button>
+          </div>
+        )}
         <div style={{ maxWidth: 680, margin: '0 auto' }}>
           <Sender
             ref={senderRef}
@@ -983,7 +1021,13 @@ export function DebugChat({
               setDraft(v)
             }}
             onKeyDown={onHistKey}
-            placeholder={awaitingApproval ? '승인 대기 중 — 승인/거부 후 이어서 입력하세요' : `${agent.name}에게 메시지…`}
+            placeholder={
+              awaitingApproval
+                ? approvalCanResolve
+                  ? '위 승인/거부를 선택하세요'
+                  : '승인 대기 중 — 관리자 승인 후 이어서 입력하세요'
+                : `${agent.name}에게 메시지…`
+            }
             loading={streaming}
             disabled={awaitingApproval}
             onSubmit={(text) => {

@@ -614,9 +614,10 @@ export interface ChatCallbacks {
   onToken: (t: string) => void
   onSession?: (sessionId: string) => void
   onTrace?: (trace: Record<string, unknown>) => void
-  // 위험 도구가 그래프를 멈춰 승인 대기 프레임({text, approval})이 오면 승인 id를 넘긴다(스펙 179).
+  // 위험 도구가 그래프를 멈춰 승인 대기 프레임({text, approval, approver})이 오면 승인 id를 넘긴다(179).
   // 요청자 UI가 이 id로 승인 상태를 폴링해, 해소되면 재개 결과를 세션에서 불러온다(라이브 push 부재 보완).
-  onApproval?: (approvalId: string) => void
+  // approver(admin/self, 스펙 180)로 대화 내 인라인 승인 가능 여부를 판정한다.
+  onApproval?: (approvalId: string, approver?: string) => void
 }
 
 function handleFrame(frame: string, cb: ChatCallbacks): boolean {
@@ -634,7 +635,8 @@ function handleFrame(frame: string, cb: ChatCallbacks): boolean {
     else if (typeof parsed.error === 'string') cb.onToken(`\n[오류] ${parsed.error}`)
     // 승인 대기 프레임은 text와 approval을 함께 실어 온다 — text는 위에서 토큰으로 표시하고,
     // approval id는 별도로 표면화(else-if 아님)해 요청자 폴링을 트리거한다(스펙 179).
-    if (typeof parsed.approval === 'string') cb.onApproval?.(parsed.approval)
+    if (typeof parsed.approval === 'string')
+      cb.onApproval?.(parsed.approval, typeof parsed.approver === 'string' ? parsed.approver : undefined)
   } catch {
     /* 비-JSON 프레임 무시 */
   }
