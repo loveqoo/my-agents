@@ -826,9 +826,9 @@ export const createEvalDataset = (body: { name: string; description?: string | n
   post('/eval/datasets', body) as Promise<EvalDataset>
 export const deleteEvalDataset = (id: string) => del(`/eval/datasets/${id}`)
 export const listEvalCases = (datasetId: string) => j<EvalCaseT[]>(`/eval/datasets/${datasetId}/cases`)
-export const createEvalCase = (datasetId: string, body: { name: string; input: string; asserts: EvalAssert[]; order_idx?: number }) =>
+export const createEvalCase = (datasetId: string, body: { name?: string; input: string; asserts: EvalAssert[]; order_idx?: number }) =>
   post(`/eval/datasets/${datasetId}/cases`, body) as Promise<EvalCaseT>
-export const updateEvalCase = (caseId: string, body: { name: string; input: string; asserts: EvalAssert[]; order_idx?: number }) =>
+export const updateEvalCase = (caseId: string, body: { name?: string; input: string; asserts: EvalAssert[]; order_idx?: number }) =>
   patch(`/eval/cases/${caseId}`, body) as Promise<EvalCaseT>
 export const deleteEvalCase = (caseId: string) => del(`/eval/cases/${caseId}`)
 export const startEvalRun = (
@@ -842,7 +842,7 @@ export const startEvalRun = (
   }) as Promise<EvalRunT>
 export const getEvalHelperStatus = () =>
   j<{ available: boolean; reason: string | null }>('/eval/helper-status')
-export const suggestEvalCases = (datasetId: string, body: { agent_id: string; count: number }) =>
+export const suggestEvalCases = (datasetId: string, body: { agent_id?: string; count: number }) =>
   post(`/eval/datasets/${datasetId}/suggest-cases`, body) as Promise<EvalDataset>
 export const generateEvalDataset = (body: { collection_id: string; name: string; count: number }) =>
   post('/eval/generate-dataset', body) as Promise<EvalDataset>

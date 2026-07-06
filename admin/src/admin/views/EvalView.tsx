@@ -3,7 +3,7 @@
    수치 검증→자율 반복(Ralph) 로드맵의 제품 표면. 러너는 오염 제로(백엔드 eval_runner) —
    실행해도 세션/메모리에 흔적이 남지 않는다. */
 import { useState, useEffect, useCallback, type CSSProperties } from 'react'
-import { Tabs, Button, Input, InputNumber, Select, Tag, Modal, Popconfirm, Alert, Collapse, Checkbox, Tooltip, message, Descriptions, Skeleton } from 'antd'
+import { Tabs, Button, Input, InputNumber, AutoComplete, Select, Tag, Modal, Popconfirm, Alert, Collapse, Checkbox, Tooltip, message, Descriptions, Skeleton } from 'antd'
 import { Page, DataTable, Drawer, type Column } from '../shared'
 import { Icon } from '../icons'
 import { TrendChart, CompareDrawer } from './EvalTrend'
@@ -11,7 +11,7 @@ import { MatrixView } from './EvalMatrix'
 import {
   listEvalDatasets, createEvalDataset, deleteEvalDataset,
   listEvalCases, createEvalCase, updateEvalCase, deleteEvalCase,
-  startEvalRun, listEvalRuns, getEvalRun, listAgents, listCollections, listModels, generateEvalDataset, suggestEvalCases, getEvalHelperStatus,
+  startEvalRun, listEvalRuns, getEvalRun, listAgents, listCollections, listModels, generateEvalDataset, suggestEvalCases, getEvalHelperStatus, listDocuments,
   type EvalDataset, type EvalCaseT, type EvalAssert, type EvalRunT, type EvalRunDetail, type Agent, type Collection, type Model,
 } from '../../api'
 
@@ -66,7 +66,7 @@ const TOOL_TRACE_PREFIXES = ['rag:', 'mcp:', 'memory:']
 const firedTool = (nodes?: string[] | null) =>
   (nodes ?? []).some((n) => TOOL_TRACE_PREFIXES.some((p) => String(n).startsWith(p)))
 
-function AssertEditor({ value, onChange, kind }: { value: EvalAssert[]; onChange: (v: EvalAssert[]) => void; kind: 'agent' | 'rag' }) {
+function AssertEditor({ value, onChange, kind, filenames }: { value: EvalAssert[]; onChange: (v: EvalAssert[]) => void; kind: 'agent' | 'rag'; filenames?: string[] }) {
   // kind별 유형 필터(codex 140 #3): rag 문제집엔 trace_*, agent엔 rag_* 숨김(fail-closed 혼란 방지).
   // lte는 유형 select에서 숨기고 연산자 select(이상/이하)로 gte↔lte 전환(스펙 194 — 사람이 읽는 문장형).
   const pool = ASSERT_TYPES.filter((t) =>
@@ -119,7 +119,21 @@ function AssertEditor({ value, onChange, kind }: { value: EvalAssert[]; onChange
           </>
         )
       case 'rag_source_contains':
-        return <><span style={txt}>근거 파일명에</span><Input size="small" style={{ flex: 1, minWidth: 130 }} placeholder="예: AB테스트.md" value={a.arg ?? ''} onChange={(e) => set(i, { arg: e.target.value })} /><span style={txt}>이 있어야 통과</span></>
+        return (
+          <>
+            <span style={txt}>근거 파일명에</span>
+            {filenames && filenames.length ? (
+              /* 스펙 195: 등록된 파일에서 고르기(오타 방지). contains 매칭이라 자유입력도 허용(AutoComplete). */
+              <AutoComplete size="small" style={{ flex: 1, minWidth: 130 }} placeholder="파일 선택 또는 입력"
+                options={filenames.map((f) => ({ value: f }))} value={a.arg ?? ''}
+                onChange={(v) => set(i, { arg: v })}
+                filterOption={(inp, opt) => String(opt?.value ?? '').toLowerCase().includes(inp.toLowerCase())} />
+            ) : (
+              <Input size="small" style={{ flex: 1, minWidth: 130 }} placeholder="예: AB테스트.md" value={a.arg ?? ''} onChange={(e) => set(i, { arg: e.target.value })} />
+            )}
+            <span style={txt}>이 있어야 통과</span>
+          </>
+        )
       case 'llm_judge':
         return <><span style={txt}>AI 판정:</span><TextArea autoSize={{ minRows: 1 }} style={{ flex: 1, minWidth: 170 }} placeholder="예: 답변이 정중한 존댓말로 작성되었는가 — 심판 모델이 PASS/FAIL" value={a.arg ?? ''} onChange={(e) => set(i, { arg: e.target.value })} /></>
       default: return null
@@ -163,31 +177,30 @@ function AssertEditor({ value, onChange, kind }: { value: EvalAssert[]; onChange
   )
 }
 
-/* 케이스 편집 폼 — 신규/수정 겸용. */
+/* 케이스 편집 폼 — 신규/수정 겸용. 스펙 195: '문제 이름' 입력 제거(내부 해시로 관리) → 질문 하나만. */
 function CaseForm({
-  initial, onSave, onCancel, busy, kind,
+  initial, onSave, onCancel, busy, kind, filenames,
 }: {
   initial?: EvalCaseT
-  onSave: (body: { name: string; input: string; asserts: EvalAssert[] }) => void
+  onSave: (body: { input: string; asserts: EvalAssert[] }) => void
   onCancel?: () => void
   busy: boolean
   kind: 'agent' | 'rag'
+  filenames?: string[]  // 스펙 195: rag 근거 파일명 AutoComplete 옵션(컬렉션 문서)
 }) {
-  const [name, setName] = useState(initial?.name ?? '')
   const [input, setInput] = useState(initial?.input ?? '')
   const [asserts, setAsserts] = useState<EvalAssert[]>(initial?.asserts ?? [{ type: 'no_error' }, { type: 'output_nonempty' }])
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: 12, border: '1px solid var(--color-border-secondary)', borderRadius: 8 }}>
-      <Input placeholder="문제 이름 (예: RAG 필수 회귀)" value={name} onChange={(e) => setName(e.target.value)} />
-      <TextArea rows={2} placeholder="에이전트에게 보낼 질문" value={input} onChange={(e) => setInput(e.target.value)} />
+      <TextArea rows={2} placeholder="에이전트에게 보낼 질문 (이 질문이 문제 제목이 됩니다)" value={input} onChange={(e) => setInput(e.target.value)} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '5px 9px', background: 'var(--geekblue-1)', border: '1px solid var(--geekblue-3)', borderRadius: 6, color: 'var(--color-text-secondary)' }}>
         <Icon name="check-circle" size={13} style={{ color: 'var(--geekblue-6)', flex: 'none' }} />
         <span>아래 <b>모든</b> 기준을 만족해야 이 문제가 통과합니다 (AND) · 기준 0개는 자동 실패</span>
       </div>
-      <AssertEditor value={asserts} onChange={setAsserts} kind={kind} />
+      <AssertEditor value={asserts} onChange={setAsserts} kind={kind} filenames={filenames} />
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
         {onCancel ? <Button size="small" onClick={onCancel}>취소</Button> : null}
-        <Button size="small" type="primary" loading={busy} disabled={!name.trim() || !input.trim()} onClick={() => onSave({ name: name.trim(), input: input.trim(), asserts })}>
+        <Button size="small" type="primary" loading={busy} disabled={!input.trim()} onClick={() => onSave({ input: input.trim(), asserts })}>
           저장
         </Button>
       </div>
@@ -218,6 +231,7 @@ function DatasetDrawer({
   const [runModels, setRunModels] = useState<string[]>([]) // 모델 비교(스펙 141, 빈 배열=기본 모델 1회)
   const [starting, setStarting] = useState(false)
   const [suggesting, setSuggesting] = useState(false)
+  const [filenames, setFilenames] = useState<string[]>([])  // 스펙 195: rag 근거 파일명 AutoComplete용
 
   const load = useCallback(async () => {
     if (!dataset) return
@@ -245,7 +259,16 @@ function DatasetDrawer({
     return () => clearInterval(t)
   }, [dataset?.generating, dataset?.id, load, onChanged])
 
-  const save = async (body: { name: string; input: string; asserts: EvalAssert[] }, caseId?: string) => {
+  // 스펙 195: rag 문제집의 고정 컬렉션 문서 파일명 → 근거 파일명 AutoComplete 옵션(오타 방지).
+  useEffect(() => {
+    const cid = dataset?.collection_id
+    if (!cid) { setFilenames([]); return }
+    listDocuments(cid, '', 100)
+      .then((p) => setFilenames(Array.from(new Set((p.items ?? []).map((d) => d.filename)))))
+      .catch(() => setFilenames([]))
+  }, [dataset?.collection_id])
+
+  const save = async (body: { input: string; asserts: EvalAssert[] }, caseId?: string) => {
     if (!dataset) return
     setBusy(true)
     try {
@@ -321,6 +344,27 @@ function DatasetDrawer({
               disabled={(isRag ? !ragTarget : !runAgent) || cases.length === 0} onClick={() => void start()}>
               {runModels.length > 1 ? `${runModels.length}개 모델 비교 실행` : '시험 실행'}
             </Button>
+            {/* 스펙 195: AI 출제를 상단으로 — 빈 문제집을 만든 뒤 원할 때만 눌러 AI가 문제를 채운다(agent·rag 공통).
+               도우미는 기본 chat이 실모델일 때만(mock이면 비활성+사유). rag는 고정 컬렉션 필요. */}
+            <Tooltip title={
+              !helper.available ? helper.reason
+                : isRag ? (dataset.collection_id ? 'AI가 이 컬렉션 문서로 문제 10개를 추가합니다(기존 문제 보존)' : '먼저 시험 실행으로 컬렉션을 고정하세요')
+                  : !runAgent ? '시험 칠 에이전트를 먼저 선택하세요'
+                    : 'AI가 이 에이전트에 맞는 문제 10개를 추가합니다(기존 문제 보존)'
+            }>
+              <Button icon={<Icon name="experiment" />} loading={suggesting}
+                disabled={!helper.available || (isRag ? !dataset.collection_id : !runAgent)}
+                onClick={() => {
+                  if (!dataset) return
+                  setSuggesting(true)
+                  suggestEvalCases(dataset.id, isRag ? { count: 10 } : { agent_id: runAgent, count: 10 })
+                    .then(() => { message.success('AI 출제 시작 — 잠시 후 문제가 채워집니다(문제집을 다시 열면 갱신)'); onChanged() })
+                    .catch((e) => message.error((e as Error).message))
+                    .finally(() => setSuggesting(false))
+                }}>
+                AI 출제
+              </Button>
+            </Tooltip>
           </div>
           ) : null}
           {canManage && !isRag ? (
@@ -387,23 +431,21 @@ function DatasetDrawer({
 
           {cases.map((c) =>
             editing === c.id ? (
-              <CaseForm key={c.id} initial={c} busy={busy} kind={dataset.kind} onSave={(b) => void save(b, c.id)} onCancel={() => setEditing(null)} />
+              <CaseForm key={c.id} initial={c} busy={busy} kind={dataset.kind} filenames={filenames} onSave={(b) => void save(b, c.id)} onCancel={() => setEditing(null)} />
             ) : (
               <div key={c.id} style={{ padding: 12, border: '1px solid var(--color-border-secondary)', borderRadius: 8 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontWeight: 600 }}>{c.name}</span>
-                  <Tag>{c.asserts.length}개 기준</Tag>
-                  <div style={{ flex: 1 }} />
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                  {/* 스펙 195: '문제 이름' 제거 → 질문을 제목으로(내부 name은 해시, 유저 비노출). */}
+                  <span style={{ fontWeight: 600, flex: 1, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{c.input}</span>
                   {canManage ? (
-                    <>
+                    <span style={{ display: 'inline-flex', flex: 'none' }}>
                       <Button size="small" type="text" icon={<Icon name="edit" />} onClick={() => setEditing(c.id)} />
                       <Popconfirm title="이 문제를 삭제할까요?" okText="삭제" cancelText="취소" onConfirm={() => void deleteEvalCase(c.id).then(load).then(onChanged)}>
                         <Button size="small" type="text" danger icon={<Icon name="delete" />} />
                       </Popconfirm>
-                    </>
+                    </span>
                   ) : null}
                 </div>
-                <div style={{ fontSize: 13, color: 'var(--color-text-secondary)', marginTop: 6 }}>{c.input}</div>
                 <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 6 }}>
                   {/* 스펙 194: raw type 대신 사람이 읽는 문장(assertLabel) — 편집 폼과 같은 어휘(드리프트 0). */}
                   {c.asserts.map((a, i) => (
@@ -416,37 +458,11 @@ function DatasetDrawer({
 
           {canManage ? (
             adding ? (
-              <CaseForm busy={busy} kind={dataset.kind} onSave={(b) => void save(b)} onCancel={() => setAdding(false)} />
+              <CaseForm busy={busy} kind={dataset.kind} filenames={filenames} onSave={(b) => void save(b)} onCancel={() => setAdding(false)} />
             ) : (
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <Button icon={<Icon name="plus" />} onClick={() => setAdding(true)}>
-                  문제 추가
-                </Button>
-                {!isRag ? (
-                  /* AI 출제(스펙 143) — 대상 에이전트의 구성(RAG 능력·역할)에 맞춰 문제를 채워준다.
-                     도우미는 기본 chat이 실모델일 때만(사용자 원칙 — mock이면 사유 툴팁+비활성). */
-                  <Tooltip title={!helper.available ? helper.reason : !runAgent ? '위에서 시험 칠 에이전트를 먼저 선택하세요' : 'AI가 이 에이전트에 맞는 문제 10개를 추가합니다(기존 문제 보존) — 생성 후 수정하세요'}>
-                    <Button
-                      icon={<Icon name="experiment" />}
-                      loading={suggesting}
-                      disabled={!helper.available || !runAgent}
-                      onClick={() => {
-                        if (!dataset || !runAgent) return
-                        setSuggesting(true)
-                        suggestEvalCases(dataset.id, { agent_id: runAgent, count: 10 })
-                          .then(() => {
-                            message.success('AI 출제 시작 — 잠시 후 문제가 채워집니다(문제집을 다시 열면 갱신)')
-                            onChanged()
-                          })
-                          .catch((e) => message.error((e as Error).message))
-                          .finally(() => setSuggesting(false))
-                      }}
-                    >
-                      AI로 문제 채우기
-                    </Button>
-                  </Tooltip>
-                ) : null}
-              </div>
+              <Button icon={<Icon name="plus" />} onClick={() => setAdding(true)} style={{ alignSelf: 'flex-start' }}>
+                문제 추가
+              </Button>
             )
           ) : null}
         </div>

@@ -58,7 +58,9 @@ def _dataset_out(d: EvalDataset, case_count: int, user) -> DatasetOut:
 
 
 class CaseIn(BaseModel):
-    name: str = Field(min_length=1, max_length=200)
+    # 스펙 195: 이름은 UI서 제거 — 없으면 서버가 해시(case-xxxxxxxx) 생성(유저 비노출·내부 관리).
+    # 성적표엔 질문(input)이 뜨므로 유저는 이름을 볼 일이 없다. update 시 미전송이면 기존 보존.
+    name: str | None = Field(default=None, max_length=200)
     input: str = Field(min_length=1, max_length=4000)  # 모델 프롬프트로 들어감 — 폭주 상한(codex 137 #3)
     asserts: list = Field(default_factory=list, max_length=20)  # 채점 기준 개수 상한
     order_idx: int = Field(default=0, ge=0, le=10_000)
@@ -179,9 +181,10 @@ async def create_case(
     ds = await _dataset_or_404(session, dataset_id)
     assert_may_manage(ds, user, not_found_detail="dataset not found")  # 문제집 소유자만 케이스 추가
     _validate_asserts(body.asserts)
+    import secrets
     case = EvalCase(
-        dataset_id=dataset_id, name=body.name, input=body.input,
-        asserts=body.asserts, order_idx=body.order_idx,
+        dataset_id=dataset_id, name=body.name or f"case-{secrets.token_hex(4)}",  # 스펙 195: 없으면 해시
+        input=body.input, asserts=body.asserts, order_idx=body.order_idx,
     )
     session.add(case)
     await session.commit()
@@ -200,9 +203,9 @@ async def update_case(
         raise HTTPException(status_code=404, detail="case not found")
     assert_may_manage(ds, user, not_found_detail="case not found")  # 소유자만(비소유 404-fold)
     _validate_asserts(body.asserts)
-    case.name, case.input, case.asserts, case.order_idx = (
-        body.name, body.input, body.asserts, body.order_idx,
-    )
+    if body.name is not None:  # 스펙 195: 미전송이면 기존 해시 이름 보존(덮어쓰기 금지)
+        case.name = body.name
+    case.input, case.asserts, case.order_idx = body.input, body.asserts, body.order_idx
     await session.commit()
     return CaseOut.model_validate(case)
 
@@ -341,7 +344,9 @@ async def _execute_run(run_id: uuid.UUID, dataset_id: uuid.UUID, agent_pk, princ
                 )
             ).scalars().all()
             cases = [
-                HarnessCase(name=c.name, input=c.input, asserts=build_asserts(c.asserts),
+                # 스펙 195: 성적표 식별자(case_name)에 **질문**을 넣는다 — DB name은 내부 해시라
+                # 성적표에 뜨면 유저가 못 알아본다. 표시 상한 200자.
+                HarnessCase(name=(c.input or c.name)[:200], input=c.input, asserts=build_asserts(c.asserts),
                             meta={"raw_asserts": c.asserts})
                 for c in rows
             ]
@@ -717,7 +722,7 @@ _active_jobs: set = set()
 
 
 class SuggestIn(BaseModel):
-    agent_id: uuid.UUID
+    agent_id: uuid.UUID | None = None  # 스펙 195: rag 문제집은 불필요(고정 컬렉션 사용)
     count: int = Field(default=10, ge=1, le=10)
 
 
@@ -807,6 +812,63 @@ async def _execute_suggestion(dataset_id: uuid.UUID, agent_pk: uuid.UUID, count:
         _active_jobs.discard(dataset_id)
 
 
+async def _execute_generation_append(dataset_id: uuid.UUID, collection_id: uuid.UUID, count: int,
+                                     llm_cfg: dict, prior_desc: str | None) -> None:
+    """RAG 문제집 AI 출제(스펙 195) — 골든 생성을 **기존 문제집에 추가**(order_idx 이어붙임).
+    generate_dataset(신규 문제집)과 달리 append + suggest 패턴 description(기존 보존). name은 해시
+    (스펙 195 — 유저 비노출, 성적표엔 input이 뜬다). 락 해제는 finally."""
+    from .eval_golden import generate_golden_cases
+    import secrets
+
+    try:
+        result = await generate_golden_cases(collection_id, count, llm_cfg)
+        async with SessionLocal() as s:
+            ds = await s.get(EvalDataset, dataset_id)
+            if ds is None:
+                return
+            base_idx = (
+                await s.execute(
+                    select(func.coalesce(func.max(EvalCase.order_idx), -1)).where(
+                        EvalCase.dataset_id == dataset_id
+                    )
+                )
+            ).scalar_one() + 1
+            for i, c in enumerate(result["cases"]):
+                s.add(EvalCase(
+                    dataset_id=dataset_id, name=f"case-{secrets.token_hex(4)}",
+                    input=c["question"], order_idx=base_idx + i,
+                    asserts=[
+                        {"type": "rag_source_contains", "arg": c["filename"][:500]},
+                        {"type": "rag_hits_gte", "arg": "1"},
+                        {"type": "no_error"},
+                    ],
+                ))
+            made = len(result["cases"])
+            tail = (
+                f"AI 출제 {made}건 추가 (요청 {count}"
+                + (f", 건너뜀 {result['skipped']}" if result["skipped"] else "") + ")"
+                if made else f"AI 출제 실패: 0건 (요청 {count}, 건너뜀 {result['skipped']})"
+            )
+            cur = ds.description or ""
+            if cur.endswith("AI 출제 중…"):
+                ds.description = cur[: -len("AI 출제 중…")].rstrip(" ·") or None
+                ds.description = f"{ds.description} · {tail}" if ds.description else tail
+            else:
+                ds.description = f"{cur} · {tail}" if cur else tail
+            await s.commit()
+    except Exception as exc:  # noqa: BLE001 — 실패도 정직 박제
+        try:
+            async with SessionLocal() as s:
+                ds = await s.get(EvalDataset, dataset_id)
+                if ds is not None:
+                    ds.description = f"{prior_desc + ' · ' if prior_desc else ''}AI 출제 실패: {str(exc)[:150]}"
+                    await s.commit()
+        except Exception:
+            pass
+    finally:
+        _active_jobs.discard(dataset_id)
+
+
 @router.post("/datasets/{dataset_id}/suggest-cases", response_model=DatasetOut, status_code=202)
 async def suggest_cases(
     dataset_id: uuid.UUID,
@@ -814,19 +876,22 @@ async def suggest_cases(
     session: AsyncSession = Depends(get_session),
     user=Depends(current_principal),
 ) -> DatasetOut:
-    """에이전트 문제집 AI 출제(스펙 143) — 기존 문제 보존+추가, 백그라운드(상태=description)."""
+    """문제집 AI 출제 — 기존 문제 보존+추가, 백그라운드(상태=description). agent=에이전트 구성 기반(143),
+    rag=고정 컬렉션 골든 생성 append(195). 둘 다 소유자만·비용가드·도우미 실모델 필요."""
     ds = await _dataset_or_404(session, dataset_id)
     assert_may_manage(ds, user, not_found_detail="dataset not found")  # 소유자만 출제(비소유 404-fold)
-    if ds.kind != "agent":
-        raise HTTPException(status_code=400, detail="AI 출제는 에이전트 문제집 전용입니다(RAG는 '컬렉션에서 생성')")
+    if ds.kind == "rag" and ds.collection_id is None:  # 스펙 195: rag는 고정 컬렉션 필요
+        raise HTTPException(status_code=400, detail="이 RAG 문제집에 고정된 컬렉션이 없습니다 — 먼저 시험 실행으로 컬렉션을 고정하세요")
     if dataset_id in _active_jobs:
         raise HTTPException(status_code=409, detail="이미 출제가 진행 중입니다")
-    _active_jobs.add(dataset_id)  # 동기 락 — 배경 태스크로 미루면 중복 출제 TOCTOU(codex #2). L778 check와 사이에 await 없음.
+    _active_jobs.add(dataset_id)  # 동기 락 — 배경 태스크로 미루면 중복 출제 TOCTOU(codex #2). check와 사이에 await 없음.
     try:
-        agent = await session.get(Agent, body.agent_id)
-        # 스펙 178 구멍#1: 쓸 수 있는 에이전트만 출제 대상(남의 private 미노출).
-        if agent is None or not may_use_agent(agent, user):
-            raise HTTPException(status_code=404, detail="agent not found")
+        agent_pk = None
+        if ds.kind == "agent":  # 스펙 178 구멍#1: 쓸 수 있는 에이전트만 출제 대상(남의 private 미노출).
+            agent = await session.get(Agent, body.agent_id) if body.agent_id else None
+            if agent is None or not may_use_agent(agent, user):
+                raise HTTPException(status_code=404, detail="agent not found")
+            agent_pk = agent.id
         # 스펙 178 비용 가드 — 비특권 배경 작업 동시 상한(codex #1·#2). 현재 락은 제외 카운트.
         if not is_privileged(user):
             await _member_job_guard(session, user, exclude_id=dataset_id)
@@ -836,7 +901,10 @@ async def suggest_cases(
         prior = ds.description
         ds.description = f"{prior + ' · ' if prior else ''}AI 출제 중…"
         await session.commit()
-        asyncio.create_task(_execute_suggestion(dataset_id, agent.id, body.count, llm_cfg, prior))
+        if ds.kind == "rag":  # 스펙 195: 고정 컬렉션 골든을 기존 문제집에 append
+            asyncio.create_task(_execute_generation_append(dataset_id, ds.collection_id, body.count, llm_cfg, prior))
+        else:
+            asyncio.create_task(_execute_suggestion(dataset_id, agent_pk, body.count, llm_cfg, prior))
     except Exception:
         _active_jobs.discard(dataset_id)  # create_task까지 못 가면 배경 finally가 안 돌아 락이 샌다
         raise
