@@ -141,6 +141,32 @@ def rag_score_gte(t: str):
     )
 
 
+def rag_hits_lte(n: str):
+    """RAG 러너 전용(스펙 194) — 검색 결과가 N건 이하. **rag 관측 부재(agent 런)면 False**(fail-closed):
+    빈 관측에 `0 <= want`는 항상 참이라 부재를 통과로 위장한다 → 명시적 부재 체크로 막는다(gte와 대칭)."""
+    want = int(n)
+
+    def _f(o: dict) -> bool:
+        rag = _rag_obs(o)
+        if "hits" not in rag:  # rag 관측 없음(agent 런/미실행) → fail-closed
+            return False
+        return len(rag.get("hits", [])) <= want
+
+    return (f"rag_hits_lte:{n}", _f)
+
+
+def rag_score_lte(t: str):
+    """RAG 러너 전용 — 최고 유사도가 임계 이하. top_score None(부재/무결과)이면 False(fail-closed)."""
+    import math
+    want = float(t)
+    if not math.isfinite(want) or not (0.0 <= want <= 1.0):
+        raise ValueError(f"rag_score_lte arg는 0~1 유한 실수여야 합니다 (got {t!r})")
+    return (
+        f"rag_score_lte:{t}",
+        lambda o: (_rag_obs(o).get("top_score") is not None and _rag_obs(o)["top_score"] <= want),
+    )
+
+
 def rag_source_contains(frag: str):
     """RAG 러너 전용 — 근거 파일명 중 하나에 frag 포함(특정 문서가 근거로 나와야 함)."""
     return (
@@ -156,8 +182,10 @@ _ASSERT_TYPES = {
     "no_error": (no_error, False),
     "output_nonempty": (output_nonempty, False),
     "llm_judge": (llm_judge, True),  # 스펙 139 — 비결정 축(러너가 judge 주입)
-    "rag_hits_gte": (rag_hits_gte, True),  # 스펙 140 — RAG 러너 전용 3종(obs["rag"] 부재=False)
+    "rag_hits_gte": (rag_hits_gte, True),  # 스펙 140 — RAG 러너 전용(obs["rag"] 부재=False)
+    "rag_hits_lte": (rag_hits_lte, True),  # 스펙 194 — 이하(연산자 select)
     "rag_score_gte": (rag_score_gte, True),
+    "rag_score_lte": (rag_score_lte, True),  # 스펙 194
     "rag_source_contains": (rag_source_contains, True),
 }
 

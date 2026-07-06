@@ -2,8 +2,8 @@
    문제집(데이터셋) CRUD·케이스 편집(선언적 asserts: 필수/금지 도구 채점 포함)·시험 실행·성적표.
    수치 검증→자율 반복(Ralph) 로드맵의 제품 표면. 러너는 오염 제로(백엔드 eval_runner) —
    실행해도 세션/메모리에 흔적이 남지 않는다. */
-import { useState, useEffect, useCallback } from 'react'
-import { Tabs, Button, Input, Select, Tag, Modal, Popconfirm, Alert, Collapse, Checkbox, Tooltip, message, Descriptions, Skeleton } from 'antd'
+import { useState, useEffect, useCallback, type CSSProperties } from 'react'
+import { Tabs, Button, Input, InputNumber, Select, Tag, Modal, Popconfirm, Alert, Collapse, Checkbox, Tooltip, message, Descriptions, Skeleton } from 'antd'
 import { Page, DataTable, Drawer, type Column } from '../shared'
 import { Icon } from '../icons'
 import { TrendChart, CompareDrawer } from './EvalTrend'
@@ -17,18 +17,48 @@ import {
 
 const { TextArea } = Input
 
-/* assert 유형 — 백엔드 build_asserts의 닫힌 집합과 동일(드리프트 시 400으로 드러남). */
-const ASSERT_TYPES: { value: EvalAssert['type']; label: string; needsArg: boolean; hint: string }[] = [
-  { value: 'trace_has', label: '필수 도구/노드', needsArg: true, hint: '예: rag: (RAG 필수) · mcp:local-tools/ · memory:used' },
-  { value: 'trace_lacks', label: '금지 도구/노드', needsArg: true, hint: '예: mcp:danger/ — 이 흔적이 있으면 실패' },
-  { value: 'output_contains', label: '답변에 포함', needsArg: true, hint: '답변에 이 문구가 있어야 통과' },
-  { value: 'llm_judge', label: 'AI 판정 (비결정)', needsArg: true, hint: '예: 답변이 정중한 존댓말로 작성되었는가 — 심판 모델이 PASS/FAIL 판정' },
-  { value: 'rag_hits_gte', label: 'RAG: 결과 N건 이상', needsArg: true, hint: '예: 2 — 검색 결과가 이 건수 이상(RAG 문제집 전용)' },
-  { value: 'rag_score_gte', label: 'RAG: 유사도 임계', needsArg: true, hint: '예: 0.4 — 최고 유사도가 이 값 이상(RAG 문제집 전용)' },
-  { value: 'rag_source_contains', label: 'RAG: 근거 파일명', needsArg: true, hint: '예: AB테스트.md — 이 파일이 근거로 나와야 함(RAG 문제집 전용)' },
-  { value: 'no_error', label: '오류 없음', needsArg: false, hint: '실행 오류가 없어야 통과' },
-  { value: 'output_nonempty', label: '답변 비어있지 않음', needsArg: false, hint: '' },
+/* assert 유형 — 백엔드 build_asserts의 닫힌 집합과 동일(드리프트 시 400으로 드러남).
+   cat=카테고리(스캔·그룹·색). 숫자 비교형은 gte/lte 쌍(연산자 select로 왕복, 스펙 194). */
+type AssertCat = '답변' | '도구' | 'RAG' | 'AI'
+const CAT_META: Record<AssertCat, { color: string; icon: string }> = {
+  답변: { color: 'blue', icon: 'message' },
+  도구: { color: 'geekblue', icon: 'thunderbolt' },
+  RAG: { color: 'purple', icon: 'search' },
+  AI: { color: 'gold', icon: 'experiment' },
+}
+const ASSERT_TYPES: { value: EvalAssert['type']; label: string; needsArg: boolean; hint: string; cat: AssertCat }[] = [
+  { value: 'output_contains', label: '답변에 포함', needsArg: true, hint: '답변에 이 문구가 있어야 통과', cat: '답변' },
+  { value: 'output_nonempty', label: '답변 비어있지 않음', needsArg: false, hint: '', cat: '답변' },
+  { value: 'no_error', label: '오류 없음', needsArg: false, hint: '실행 오류가 없어야 통과', cat: '답변' },
+  { value: 'trace_has', label: '필수 도구/노드', needsArg: true, hint: '예: rag: (RAG 필수) · mcp:local-tools/ · memory:used', cat: '도구' },
+  { value: 'trace_lacks', label: '금지 도구/노드', needsArg: true, hint: '예: mcp:danger/ — 이 흔적이 있으면 실패', cat: '도구' },
+  { value: 'rag_hits_gte', label: 'RAG: 검색 결과 건수', needsArg: true, hint: '2', cat: 'RAG' },
+  { value: 'rag_hits_lte', label: 'RAG: 검색 결과 건수', needsArg: true, hint: '2', cat: 'RAG' },
+  { value: 'rag_score_gte', label: 'RAG: 최고 유사도', needsArg: true, hint: '0.4', cat: 'RAG' },
+  { value: 'rag_score_lte', label: 'RAG: 최고 유사도', needsArg: true, hint: '0.4', cat: 'RAG' },
+  { value: 'rag_source_contains', label: 'RAG: 근거 파일명', needsArg: true, hint: '예: AB테스트.md — 이 파일이 근거로 나와야 함', cat: 'RAG' },
+  { value: 'llm_judge', label: 'AI 판정 (비결정)', needsArg: true, hint: '예: 답변이 정중한 존댓말로 작성되었는가', cat: 'AI' },
 ]
+const catOf = (t: EvalAssert['type']): AssertCat => ASSERT_TYPES.find((x) => x.value === t)?.cat ?? '답변'
+
+/* assert → 사람이 읽는 한 줄 문장(순수). 편집 폼·저장된 케이스 카드가 **공유**(드리프트 0, 스펙 194 E). */
+export function assertLabel(a: EvalAssert): string {
+  const arg = (a.arg ?? '').trim()
+  switch (a.type) {
+    case 'no_error': return '오류 없음'
+    case 'output_nonempty': return '답변 비어있지 않음'
+    case 'output_contains': return `답변에 "${arg}" 포함`
+    case 'trace_has': return `${arg} 호출됨`
+    case 'trace_lacks': return `${arg} 호출 안 됨`
+    case 'rag_hits_gte': return `검색 결과 ${arg}건 이상`
+    case 'rag_hits_lte': return `검색 결과 ${arg}건 이하`
+    case 'rag_score_gte': return `유사도 ${arg} 이상`
+    case 'rag_score_lte': return `유사도 ${arg} 이하`
+    case 'rag_source_contains': return `근거 파일 "${arg}"`
+    case 'llm_judge': return `AI 판정: ${arg}`
+    default: return a.type
+  }
+}
 
 /* 도구 정직성(스펙 170) — trace_nodes 중 실제 호출된 도구 흔적(rag/mcp/memory)이 하나라도 있나.
    그래프 노드(원형)는 도구가 아니므로 접두로만 판정(trace_has와 동일 어휘). */
@@ -37,45 +67,90 @@ const firedTool = (nodes?: string[] | null) =>
   (nodes ?? []).some((n) => TOOL_TRACE_PREFIXES.some((p) => String(n).startsWith(p)))
 
 function AssertEditor({ value, onChange, kind }: { value: EvalAssert[]; onChange: (v: EvalAssert[]) => void; kind: 'agent' | 'rag' }) {
-  // kind별 유형 필터(codex 140 #3) — rag 전용 기준을 agent 문제집에 넣으면 fail-closed로 항상
-  // 실패해 혼란만 준다. rag 문제집에선 도구 흔적 기준(trace_*)이 무의미해 숨긴다.
-  const types = ASSERT_TYPES.filter((t) =>
-    kind === 'rag' ? !t.value.startsWith('trace_') : !t.value.startsWith('rag_')
+  // kind별 유형 필터(codex 140 #3): rag 문제집엔 trace_*, agent엔 rag_* 숨김(fail-closed 혼란 방지).
+  // lte는 유형 select에서 숨기고 연산자 select(이상/이하)로 gte↔lte 전환(스펙 194 — 사람이 읽는 문장형).
+  const pool = ASSERT_TYPES.filter((t) =>
+    (kind === 'rag' ? !t.value.startsWith('trace_') : !t.value.startsWith('rag_')) && !t.value.endsWith('_lte')
   )
-  // 도구 정직성 안내(스펙 170) — agent 케이스에 도구 검사(trace_*)가 하나도 없으면 조용히 찔러준다.
-  // 막지 않음: 모든 케이스가 도구를 써야 하는 건 아니므로(과잉 강제는 독). 거짓 초록은 출제 시 태어남.
+  const grouped = (['답변', '도구', 'RAG', 'AI'] as AssertCat[])
+    .map((c) => ({ label: c, options: pool.filter((t) => t.cat === c).map((t) => ({ value: t.value, label: t.label.replace(/^RAG: /, '') })) }))
+    .filter((g) => g.options.length)
+  // 유형 select 표시값: lte는 gte로 정규화(연산자 select가 실제 gte/lte 담당).
+  const repType = (t: EvalAssert['type']) => (t === 'rag_hits_lte' ? 'rag_hits_gte' : t === 'rag_score_lte' ? 'rag_score_gte' : t)
+  // 도구 정직성 안내(스펙 170) — agent 케이스에 도구 검사가 하나도 없으면 조용히 찔러준다(막진 않음).
   const lacksToolCheck = kind === 'agent' && !value.some((a) => a.type === 'trace_has' || a.type === 'trace_lacks')
-  const set = (i: number, patch: Partial<EvalAssert>) =>
-    onChange(value.map((a, j) => (j === i ? { ...a, ...patch } : a)))
+  const set = (i: number, patch: Partial<EvalAssert>) => onChange(value.map((a, j) => (j === i ? { ...a, ...patch } : a)))
+  const txt: CSSProperties = { fontSize: 13, color: 'var(--color-text-secondary)' }
+
+  // 유형별 "문장 안의 입력 요소"(mad-libs) — 읽으면 그대로 자연어가 된다.
+  const inline = (a: EvalAssert, i: number) => {
+    const fam = a.type.startsWith('rag_hits') ? 'hits' : a.type.startsWith('rag_score') ? 'score' : null
+    if (fam) {
+      const op = a.type.endsWith('_lte') ? 'lte' : 'gte'
+      return (
+        <>
+          <span style={txt}>{fam === 'hits' ? '검색 결과가' : '최고 유사도가'}</span>
+          <InputNumber size="small" style={{ width: 82 }} min={0} max={fam === 'score' ? 1 : undefined} step={fam === 'score' ? 0.05 : 1}
+            value={a.arg ? Number(a.arg) : null} onChange={(v) => set(i, { arg: v == null ? '' : String(v) })} />
+          {fam === 'hits' ? <span style={txt}>건</span> : null}
+          <Select size="small" style={{ width: 76 }} value={op}
+            onChange={(o) => set(i, { type: `rag_${fam}_${o}` as EvalAssert['type'] })}
+            options={[{ value: 'gte', label: '이상' }, { value: 'lte', label: '이하' }]} />
+          <span style={txt}>여야 통과</span>
+        </>
+      )
+    }
+    switch (a.type) {
+      case 'no_error': return <span style={txt}>실행 오류가 없어야 통과</span>
+      case 'output_nonempty': return <span style={txt}>답변이 비어있지 않아야 통과</span>
+      case 'output_contains':
+        return <><span style={txt}>답변에</span><Input size="small" style={{ flex: 1, minWidth: 130 }} placeholder="예: 환불 정책" value={a.arg ?? ''} onChange={(e) => set(i, { arg: e.target.value })} /><span style={txt}>가 포함되어야 통과</span></>
+      case 'trace_has':
+      case 'trace_lacks':
+        return (
+          <>
+            <Input size="small" style={{ flex: 1, minWidth: 130 }} placeholder="예: rag: / mcp:local-tools/ / memory:used" value={a.arg ?? ''} onChange={(e) => set(i, { arg: e.target.value })} />
+            <span style={txt}>가 {a.type === 'trace_has' ? '호출되어야' : '호출되지 않아야'} 통과</span>
+            <span style={{ display: 'inline-flex', gap: 4 }}>
+              {['rag:', 'mcp:', 'memory:used'].map((p) => (
+                <Button key={p} size="small" style={{ fontSize: 11, padding: '0 6px', height: 22 }} onClick={() => set(i, { arg: p })}>{p}</Button>
+              ))}
+            </span>
+          </>
+        )
+      case 'rag_source_contains':
+        return <><span style={txt}>근거 파일명에</span><Input size="small" style={{ flex: 1, minWidth: 130 }} placeholder="예: AB테스트.md" value={a.arg ?? ''} onChange={(e) => set(i, { arg: e.target.value })} /><span style={txt}>이 있어야 통과</span></>
+      case 'llm_judge':
+        return <><span style={txt}>AI 판정:</span><TextArea autoSize={{ minRows: 1 }} style={{ flex: 1, minWidth: 170 }} placeholder="예: 답변이 정중한 존댓말로 작성되었는가 — 심판 모델이 PASS/FAIL" value={a.arg ?? ''} onChange={(e) => set(i, { arg: e.target.value })} /></>
+      default: return null
+    }
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       {value.map((a, i) => {
-        const meta = ASSERT_TYPES.find((t) => t.value === a.type)
+        const cm = CAT_META[catOf(a.type)]
         return (
-          <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-            <Select
-              size="small"
-              style={{ width: 170 }}
-              value={a.type}
-              onChange={(v) => set(i, { type: v, ...(ASSERT_TYPES.find((t) => t.value === v)?.needsArg ? {} : { arg: undefined }) })}
-              options={types.map((t) => ({ value: t.value, label: t.label }))}
-            />
-            {meta?.needsArg ? (
-              <Input
-                size="small"
-                style={{ flex: 1, minWidth: 160 }}
-                placeholder={meta.hint}
-                value={a.arg ?? ''}
-                onChange={(e) => set(i, { arg: e.target.value })}
-              />
-            ) : (
-              <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>{meta?.hint}</span>
-            )}
-            <Button size="small" type="text" danger icon={<Icon name="delete" />} onClick={() => onChange(value.filter((_, j) => j !== i))} />
+          <div key={i}>
+            {i > 0 ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '3px 0 3px 4px' }}>
+                <div style={{ height: 1, width: 14, background: 'var(--color-border)' }} />
+                <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)', fontWeight: 600 }}>그리고</span>
+              </div>
+            ) : null}
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', padding: '8px 10px', border: '1px solid var(--color-border-secondary)', borderRadius: 8 }}>
+              <Icon name={cm.icon} size={14} style={{ color: `var(--${cm.color}-6)`, flex: 'none' }} />
+              <Select size="small" style={{ width: 148, flex: 'none' }} value={repType(a.type)}
+                onChange={(v) => set(i, { type: v, arg: ASSERT_TYPES.find((t) => t.value === v)?.needsArg ? '' : undefined })}
+                options={grouped} />
+              {inline(a, i)}
+              <div style={{ flex: 1 }} />
+              <Button size="small" type="text" danger icon={<Icon name="delete" />} onClick={() => onChange(value.filter((_, j) => j !== i))} />
+            </div>
           </div>
         )
       })}
-      <Button size="small" icon={<Icon name="plus" />} onClick={() => onChange([...value, { type: types[0].value, arg: '' }])} style={{ alignSelf: 'flex-start' }}>
+      <Button size="small" icon={<Icon name="plus" />} onClick={() => onChange([...value, { type: pool[0].value, arg: pool[0].needsArg ? '' : undefined }])} style={{ alignSelf: 'flex-start' }}>
         채점 기준 추가
       </Button>
       {lacksToolCheck ? (
@@ -105,7 +180,10 @@ function CaseForm({
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: 12, border: '1px solid var(--color-border-secondary)', borderRadius: 8 }}>
       <Input placeholder="문제 이름 (예: RAG 필수 회귀)" value={name} onChange={(e) => setName(e.target.value)} />
       <TextArea rows={2} placeholder="에이전트에게 보낼 질문" value={input} onChange={(e) => setInput(e.target.value)} />
-      <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>채점 기준 (전부 통과해야 그 문제 통과 · 기준 0개는 자동 실패)</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '5px 9px', background: 'var(--geekblue-1)', border: '1px solid var(--geekblue-3)', borderRadius: 6, color: 'var(--color-text-secondary)' }}>
+        <Icon name="check-circle" size={13} style={{ color: 'var(--geekblue-6)', flex: 'none' }} />
+        <span>아래 <b>모든</b> 기준을 만족해야 이 문제가 통과합니다 (AND) · 기준 0개는 자동 실패</span>
+      </div>
       <AssertEditor value={asserts} onChange={setAsserts} kind={kind} />
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
         {onCancel ? <Button size="small" onClick={onCancel}>취소</Button> : null}
@@ -327,10 +405,9 @@ function DatasetDrawer({
                 </div>
                 <div style={{ fontSize: 13, color: 'var(--color-text-secondary)', marginTop: 6 }}>{c.input}</div>
                 <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 6 }}>
+                  {/* 스펙 194: raw type 대신 사람이 읽는 문장(assertLabel) — 편집 폼과 같은 어휘(드리프트 0). */}
                   {c.asserts.map((a, i) => (
-                    <Tag key={i} color={a.type === 'trace_lacks' ? 'red' : a.type === 'trace_has' ? 'geekblue' : a.type === 'llm_judge' ? 'purple' : 'default'}>
-                      {a.type}{a.arg ? `: ${a.arg}` : ''}
-                    </Tag>
+                    <Tag key={i} color={CAT_META[catOf(a.type)].color}>{assertLabel(a)}</Tag>
                   ))}
                 </div>
               </div>
