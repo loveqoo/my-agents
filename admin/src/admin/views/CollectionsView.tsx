@@ -272,16 +272,12 @@ function EditModal({
 }) {
   const [alias, setAlias] = useState('')
   const [description, setDescription] = useState('')
-  const [chunkSize, setChunkSize] = useState(1000)
-  const [chunkOverlap, setChunkOverlap] = useState(200)
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     if (collection) {
       setAlias(collection.alias ?? '')
       setDescription(collection.description ?? '')
-      setChunkSize(collection.chunk_size)
-      setChunkOverlap(collection.chunk_overlap)
     }
     /* eslint-disable-next-line */
   }, [collection?.id])
@@ -295,8 +291,7 @@ function EditModal({
       await updateCollection(collection.id, {
         alias: alias.trim(), // ""=별명 비우기(백엔드 "".strip() or None). null은 미변경이라 안 됨.
         description,
-        chunk_size: chunkSize,
-        chunk_overlap: chunkOverlap,
+        // 스펙 198: 청크 크기·겹침은 생성 후 불변 → 수정에서 제거.
       })
       message.success('컬렉션을 수정했습니다')
       onSaved()
@@ -331,32 +326,17 @@ function EditModal({
             <span style={{ fontSize: 14, fontWeight: 500 }}>설명</span>
             <TextArea rows={3} value={description} onChange={(e) => setDescription(e.target.value)} />
           </label>
+          {/* 스펙 198: 청크 크기·겹침 수정 필드 제거 — 청크 정책은 생성 후 불변(소급 안 되고 재청킹은 원본
+             미저장이라 불가). 현재 값은 참고용으로만 표시. */}
           {!isEntity ? (
-            <div style={{ display: 'flex', gap: 16 }}>
-              <label style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1 }}>
-                <span style={{ fontSize: 14, fontWeight: 500 }}>청크 크기</span>
-                <InputNumber
-                  min={1}
-                  style={{ width: '100%' }}
-                  value={chunkSize}
-                  onChange={(v) => setChunkSize(v ?? collection.chunk_size)}
-                />
-              </label>
-              <label style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1 }}>
-                <span style={{ fontSize: 14, fontWeight: 500 }}>청크 겹침</span>
-                <InputNumber
-                  min={0}
-                  style={{ width: '100%' }}
-                  value={chunkOverlap}
-                  onChange={(v) => setChunkOverlap(v ?? collection.chunk_overlap)}
-                />
-              </label>
-            </div>
+            <span style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>
+              청크 정책: 크기 <b>{collection.chunk_size}</b> · 겹침 <b>{collection.chunk_overlap}</b>
+            </span>
           ) : null}
           <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
             {isEntity
               ? '엔티티 컬렉션은 청크 정책이 없습니다. 식별 이름·모델·차원은 변경할 수 없습니다.'
-              : '청크 정책 변경은 이후 업로드되는 문서에만 적용됩니다. 식별 이름·모델·차원은 변경할 수 없습니다.'}
+              : '청크 정책·식별 이름·모델·차원은 생성 후 변경할 수 없습니다 — 바꾸려면 컬렉션을 새로 만들어 문서를 다시 올리세요.'}
           </span>
         </div>
       ) : null}

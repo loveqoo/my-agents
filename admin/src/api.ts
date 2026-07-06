@@ -305,8 +305,7 @@ export const updateCollection = (
   body: {
     alias?: string | null
     description?: string
-    chunk_size?: number
-    chunk_overlap?: number
+    // 스펙 198: 청크 크기·겹침은 생성 후 불변 → 수정 payload에서 제거.
     entity_schema?: Record<string, unknown> | null
   },
 ) => put(`/collections/${id}`, body) as Promise<Collection>

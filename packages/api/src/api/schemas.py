@@ -70,13 +70,12 @@ class CollectionIn(BaseModel):
 
 
 class CollectionUpdate(BaseModel):
-    """수정 — 임베딩 모델·dims는 생성 후 불변(차원 고정). 청킹 설정·설명·별명만 수정 가능
+    """수정 — 임베딩 모델·dims·**청크 정책**은 생성 후 불변(스펙 198: 청크 수정은 기존 문서에 소급 안 되고
+    재청킹은 원본 미저장이라 불가 → 혼란 방지 위해 수정 자체 제거). 설명·별명만 수정 가능
     (식별 이름은 참조 키라 v1 불변)."""
 
     alias: str | None = Field(default=None, max_length=200)  # 별명(스펙 148)
     description: str | None = None
-    chunk_size: int | None = Field(default=None, gt=0)
-    chunk_overlap: int | None = Field(default=None, ge=0)
     # 엔티티 스키마 갱신(스펙 149) — 이후 업로드부터 적용(기존 행 재검증 없음).
     # 필드 미포함=미변경, 명시적 null=제거(model_fields_set 판별 — 오등록 스키마 해제 경로, codex 149)
     entity_schema: dict[str, Any] | None = None

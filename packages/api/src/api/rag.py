@@ -217,7 +217,8 @@ async def update_collection(
     if c is None:
         raise HTTPException(status_code=404, detail="not found")
     assert_may_manage(c, principal)  # 소유자/특권만(스펙 112)
-    # 임베딩 모델·dims·kind는 불변. 설명·청킹 설정·별명·엔티티 스키마만 갱신.
+    # 임베딩 모델·dims·kind·**청크 정책**은 불변(스펙 198 — 청크 수정은 소급 안 되고 재청킹은 원본
+    # 미저장이라 불가 → 수정 제거). 설명·별명·엔티티 스키마만 갱신.
     if body.alias is not None:
         c.alias = body.alias.strip() or None  # ""=별명 비우기(스펙 148)
     if "entity_schema" in body.model_fields_set:
@@ -229,10 +230,7 @@ async def update_collection(
         c.entity_schema = body.entity_schema
     if body.description is not None:
         c.description = body.description
-    if body.chunk_size is not None:
-        c.chunk_size = body.chunk_size
-    if body.chunk_overlap is not None:
-        c.chunk_overlap = body.chunk_overlap
+    # 스펙 198: 청크 크기·겹침 수정 제거(생성 후 불변). 구 클라이언트가 보내도 스키마에 필드가 없어 무시됨.
     await session.commit()
     return collection_to_out(await _load_collection(session, c.id))
 
