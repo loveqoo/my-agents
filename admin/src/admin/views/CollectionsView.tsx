@@ -486,17 +486,18 @@ function DocsDrawer({
       title={collection ? `문서 관리 · ${collection.name}` : ''}
       onClose={onClose}
       destroyOnHidden
+      /* 스펙 197: '평가하기'를 헤더 액션으로(제목 우측) — 문서 관리 콘텐츠와 위계 안 겹침.
+         문서 0개면 비활성(평가할 근거가 없음, 사유 툴팁). */
+      extra={onEvaluate && collection ? (
+        <Tooltip title={collection.doc_count === 0 ? '문서를 먼저 업로드하면 평가할 수 있습니다' : '이 컬렉션으로 평가 문제집을 만듭니다'}>
+          <Button size="small" icon={<Icon name="experiment" />} disabled={collection.doc_count === 0} onClick={() => onEvaluate(collection.id)}>
+            평가하기
+          </Button>
+        </Tooltip>
+      ) : undefined}
     >
       {collection ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-          {/* 스펙 197: 이 컬렉션으로 바로 평가 — 평가 화면으로 이동 + 새 문제집 창(누구나, 자기 문제집 생성). */}
-          {onEvaluate ? (
-            <div>
-              <Button icon={<Icon name="experiment" />} onClick={() => onEvaluate(collection.id)}>
-                이 컬렉션 평가하기
-              </Button>
-            </div>
-          ) : null}
           {/* 업로드 — 소유자/특권만(스펙 114, 백엔드도 게이트) */}
           {collection.can_manage !== false && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -765,9 +766,7 @@ export default function CollectionsView({ onEvaluate }: { onEvaluate?: (cid: str
           onClick={(e) => e.stopPropagation()}
           style={{ display: 'inline-flex', gap: 4, justifyContent: 'flex-end', alignItems: 'center' }}
         >
-          <Tooltip title="문서">
-            <Button type="text" size="small" icon={<Icon name="file" />} onClick={() => setDocsFor(c)} />
-          </Tooltip>
+          {/* 스펙 197 후속: '문서' 버튼 제거 — 행 클릭(onRowClick=setDocsFor)으로 이미 문서 관리가 열려 중복. */}
           <Tooltip title={c.status === 'ready' ? '' : '문서를 인제스트하면 검색할 수 있습니다'}>
             <Button
               type="primary"

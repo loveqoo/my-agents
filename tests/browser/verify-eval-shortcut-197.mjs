@@ -23,8 +23,10 @@ const cookie = (login.headers.get('set-cookie') || '').split(';')[0]
 const api = (path, opts = {}) => fetch(`${API}${path}`, { ...opts, headers: { 'Content-Type': 'application/json', Cookie: cookie, ...(opts.headers || {}) } })
 
 const cols = await (await api('/collections')).json().catch(() => [])
-const col = (Array.isArray(cols) ? cols : [])[0]
-ok(!!col, `준비: 실 컬렉션 존재 (${col?.name ?? '없음'})`)
+const list = Array.isArray(cols) ? cols : []
+const col = list.find((c) => c.doc_count > 0) ?? list[0]  // 평가하려면 문서가 있어야(스펙 197 후속)
+const emptyCol = list.find((c) => c.doc_count === 0)
+ok(!!col, `준비: 문서 있는 컬렉션 (${col?.name ?? '없음'}, ${col?.doc_count}건)`)
 const dsName = `ev197-${S}`
 let createdId = null
 
@@ -51,9 +53,10 @@ try {
   await page.waitForTimeout(800)
   ok(await waitFor(new RegExp(`문서 관리 · ${col.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`)), '1 컬렉션 상세(문서 관리) 드로어 열림')
 
-  // 2) '이 컬렉션 평가하기' 버튼
-  const evalBtn = page.getByRole('button', { name: '이 컬렉션 평가하기' })
-  ok(await evalBtn.count() > 0, "2 '이 컬렉션 평가하기' 버튼 노출")
+  // 2) 헤더 우측 '평가하기' 버튼(문서 있음 → 활성)
+  const evalBtn = page.getByRole('button', { name: '평가하기' })
+  ok(await evalBtn.count() > 0, "2a 헤더 '평가하기' 버튼 노출")
+  ok(await evalBtn.first().isEnabled(), '2b 문서 있는 컬렉션 → 활성')
   await evalBtn.first().click()
   await page.waitForTimeout(1200)
 
@@ -75,6 +78,19 @@ try {
   createdId = made?.id
   ok(!!made, '5a 문제집 생성됨')
   ok(made?.kind === 'rag' && made?.collection_id === col.id, `5b rag+컬렉션 고정 (kind=${made?.kind}, coll=${made?.collection_id === col.id})`)
+
+  // 2c) 문서 0개 컬렉션 → '평가하기' 비활성(평가할 근거 없음, 스펙 197 후속)
+  if (emptyCol) {
+    await page.getByText('RAG 컬렉션', { exact: true }).first().click()
+    await page.waitForTimeout(1000)
+    const erow = page.locator('tbody tr.ant-table-row').filter({ hasText: emptyCol.name }).first()
+    await erow.click({ force: true })
+    await page.waitForTimeout(900)
+    const eb = page.getByRole('button', { name: '평가하기' })
+    ok(await eb.count() > 0 && !(await eb.first().isEnabled()), `2c 문서 0개(${emptyCol.name}) → 평가하기 비활성`)
+  } else {
+    ok(true, '2c 빈 컬렉션 없음 — 비활성 검증 스킵')
+  }
 
   ok(pageErrors.length === 0, `Z pageerror 0 (실제 ${pageErrors.length})`)
   if (pageErrors.length) console.log('  errs:', pageErrors.slice(0, 3))
