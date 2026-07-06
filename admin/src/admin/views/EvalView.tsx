@@ -577,7 +577,10 @@ function RunDrawer({ runId, onClose }: { runId: string | null; onClose: () => vo
   )
 }
 
-export default function EvalView() {
+export default function EvalView({ initialCollectionId, onConsumedInitial }: {
+  initialCollectionId?: string | null  // 스펙 197: 컬렉션 '평가하기'로 진입 시 프리필할 컬렉션
+  onConsumedInitial?: () => void
+} = {}) {
   const [tab, setTab] = useState('datasets')
   // 스펙 196: 목록은 PagedListShell이 소유(서버 페이징·검색) — 부모는 재조회 트리거·폴링 신호만 든다.
   const [refreshKey, setRefreshKey] = useState(0)
@@ -621,6 +624,17 @@ export default function EvalView() {
     listModels('chat').then(setChatModels).catch(() => {})
     getEvalHelperStatus().then(setHelper).catch(() => setHelper({ available: false, reason: '도우미 상태 확인 실패' }))
   }, [loadRuns])
+
+  // 스펙 197: 컬렉션 '평가하기'로 진입 → 이 컬렉션이 프리필된 '새 문제집' 모달을 연다(1회 소비, 재열림 방지).
+  useEffect(() => {
+    if (!initialCollectionId) return
+    setTab('datasets')
+    setNewKind('rag')
+    setNewColl(initialCollectionId)
+    setCreating(true)
+    onConsumedInitial?.()
+
+  }, [initialCollectionId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // 실행 중인 런이 있으면 5초 폴링(성적 반영) — 없으면 중지.
   useEffect(() => {

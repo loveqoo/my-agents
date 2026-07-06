@@ -79,6 +79,8 @@ export default function AdminShell({ user, onLogout }: { user: Me; onLogout: () 
   const [view, setView] = useState<ViewKey>('agents')
   // 에이전트 "테스트" → 플레이그라운드로 이동+그 에이전트 자동 선택(스펙 144 #2).
   const [playgroundAgent, setPlaygroundAgent] = useState<string | null>(null)
+  // 컬렉션 "평가하기" → 평가로 이동+새 문제집 창 프리필(스펙 197, playground 패턴 재사용).
+  const [evalCollection, setEvalCollection] = useState<string | null>(null)
   const [collapsed, setCollapsed] = useState(false)
   const { token } = theme.useToken()
   // 모바일(<768px)에서는 Sider를 오버레이로 띄우고 기본은 닫는다 — 232px 사이더가
@@ -178,13 +180,13 @@ export default function AdminShell({ user, onLogout }: { user: Me; onLogout: () 
     ),
     blocks: <BlocksView />,
     models: <ProviderModelView />,
-    collections: <CollectionsView />,
+    collections: <CollectionsView onEvaluate={(cid) => { setEvalCollection(cid); setView('eval') }} />,
     sessions: <SessionsView />,
     memory: <MemoryView />,
     approvals: <ApprovalsView onPendingChange={setPendingCount} />,
     users: <UsersView />,
     batch: <BatchView />,
-    eval: <EvalView />,
+    eval: <EvalView initialCollectionId={evalCollection} onConsumedInitial={() => setEvalCollection(null)} />,
     'allowed-hosts': <AllowedHostsView />,
     settings: <SettingsView />,
     debug: <Playground initialAgentId={playgroundAgent} onConsumedInitial={() => setPlaygroundAgent(null)} meIsSuperuser={user.is_superuser} />,

@@ -369,10 +369,12 @@ function DocsDrawer({
   collection,
   onClose,
   onChanged,
+  onEvaluate,
 }: {
   collection: Collection | null
   onClose: () => void
   onChanged: () => void
+  onEvaluate?: (cid: string) => void  // 스펙 197: 평가로 단축 진입
 }) {
   const [uploading, setUploading] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0) // 업로드 후 문서 목록 재조회(셸 트리거)
@@ -487,6 +489,14 @@ function DocsDrawer({
     >
       {collection ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          {/* 스펙 197: 이 컬렉션으로 바로 평가 — 평가 화면으로 이동 + 새 문제집 창(누구나, 자기 문제집 생성). */}
+          {onEvaluate ? (
+            <div>
+              <Button icon={<Icon name="experiment" />} onClick={() => onEvaluate(collection.id)}>
+                이 컬렉션 평가하기
+              </Button>
+            </div>
+          ) : null}
           {/* 업로드 — 소유자/특권만(스펙 114, 백엔드도 게이트) */}
           {collection.can_manage !== false && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -573,7 +583,7 @@ function SearchDrawer({
   )
 }
 
-export default function CollectionsView() {
+export default function CollectionsView({ onEvaluate }: { onEvaluate?: (cid: string) => void } = {}) {
   const [collections, setCollections] = useState<Collection[]>([])
   const [models, setModels] = useState<Model[]>([])
   const [loaded, setLoaded] = useState(false)
@@ -837,7 +847,7 @@ export default function CollectionsView() {
         onSubmit={submitCreate}
       />
 
-      <DocsDrawer collection={docsFor} onClose={() => setDocsFor(null)} onChanged={load} />
+      <DocsDrawer collection={docsFor} onClose={() => setDocsFor(null)} onChanged={load} onEvaluate={onEvaluate} />
 
       <EditModal collection={editFor} onCancel={() => setEditFor(null)} onSaved={load} />
 
