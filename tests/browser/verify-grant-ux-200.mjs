@@ -51,7 +51,14 @@ try {
   await page.getByText('유저', { exact: true }).first().click()
   await page.waitForTimeout(1500)
 
-  const card = page.locator('.ant-card').filter({ hasText: '능력 부여' }).first()
+  // ⓪ 탭 분리(스펙 200 후속) — 기본 탭=유저 목록(+유저 추가 버튼), 능력 부여는 별도 탭
+  ok(await page.getByRole('tab', { name: '유저 목록' }).count() > 0, '0a 유저 목록 탭 존재')
+  ok(await page.getByRole('button', { name: '유저 추가' }).isVisible(), '0b 유저 탭에 유저 추가 버튼')
+  await page.getByRole('tab', { name: '능력 부여' }).click()
+  await page.waitForTimeout(700)
+  ok(!(await page.getByRole('button', { name: '유저 추가' }).isVisible().catch(() => false)), '0c 능력 부여 탭에선 유저 추가 숨김')
+
+  const card = page.locator('.ant-tabs-tabpane-active').first()
   await card.scrollIntoViewIfNeeded()
 
   // ① 도입 문장 + 대상 축

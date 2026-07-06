@@ -2,7 +2,7 @@
    목록 + 활성 토글 + 역할 부여/회수 + 유저 추가 모달. 공개 등록은 없으므로 생성은 여기서만.
    백엔드: GET/POST /admin/users, PATCH active, GET /admin/roles, POST/DELETE roles. */
 import { useState, useEffect, useCallback, type ReactNode } from 'react'
-import { Tag, Button, Modal, Input, Switch, Select, Form, message, Tooltip, Card, Space, Segmented } from 'antd'
+import { Tag, Button, Modal, Input, Switch, Select, Form, message, Tooltip, Space, Segmented, Tabs } from 'antd'
 import { Page, DataTable, StatusPill, type Column } from '../shared'
 import {
   listUsers,
@@ -361,108 +361,134 @@ export default function UsersView() {
     },
   ]
 
+  // 스펙 200 후속: 유저 목록·능력 부여 탭 분리(유저가 늘면 세로 나열이 불편 — 사용자 요청)
+  const [tab, setTab] = useState<'users' | 'grants'>('users')
+
+  /* 능력 부여 패널(스펙 177 P3 → 200 개편) — 자유입력→카탈로그 선택·코드→문장·역할/유저 축 분리·도입 문장 */
+  const grantPane = (
+    <div>
+      <div style={{ fontSize: 13, color: 'var(--color-text-secondary)', marginBottom: 16, lineHeight: 1.7 }}>
+        능력이란 에이전트가 쓸 수 있는 <b>도구(MCP)</b>·<b>지식(RAG 컬렉션)</b>·<b>하위 에이전트</b>·<b>기억</b>입니다.
+        admin은 모든 능력을 쓸 수 있고, <b>member는 여기서 열어준 능력만</b> 쓸 수 있습니다(기본 잠김).
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
+        <div>
+          <Segmented
+            value={grantTarget}
+            onChange={(v) => {
+              setGrantTarget(v as 'role' | 'user')
+              setGrantSubject(undefined) // 축 전환 시 다른 축 값 잔존 방지
+            }}
+            options={[
+              { label: '역할에게', value: 'role' },
+              { label: '특정 유저에게', value: 'user' },
+            ]}
+          />
+          <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginInlineStart: 12 }}>
+            {grantTarget === 'role' ? '이 역할을 가진 모든 유저에게 적용됩니다.' : '이 유저에게만 적용됩니다.'}
+          </span>
+        </div>
+        <Space wrap align="end">
+          <div>
+            <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginBottom: 4 }}>
+              {grantTarget === 'role' ? '역할' : '유저'}
+            </div>
+            <Select<string>
+              style={{ minWidth: 200 }}
+              placeholder={grantTarget === 'role' ? '역할 선택' : '유저 선택'}
+              value={grantSubject}
+              onChange={setGrantSubject}
+              options={
+                grantTarget === 'role'
+                  ? roles.map((r) => ({ value: r.name, label: r.name }))
+                  : users.map((u) => ({ value: u.id, label: u.email }))
+              }
+            />
+          </div>
+          <div>
+            <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginBottom: 4 }}>능력 종류</div>
+            <Select<string>
+              style={{ minWidth: 180 }}
+              placeholder="종류 선택"
+              value={grantKind}
+              onChange={(v) => {
+                setGrantKind(v)
+                setGrantName('') // 종류가 바뀌면 카탈로그도 바뀌므로 초기화(타 종류 값 잔존 방지)
+              }}
+              options={Object.entries(KIND_META).map(([value, m]) => ({ value, label: m.label }))}
+            />
+          </div>
+          {kindMeta?.hasName ? (
+            <div>
+              <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginBottom: 4 }}>
+                어느 {kindMeta.noun}?
+              </div>
+              <Select<string>
+                style={{ minWidth: 220 }}
+                value={grantName}
+                onChange={setGrantName}
+                options={[
+                  { value: '', label: `전체 — 모든 ${kindMeta.noun}` },
+                  ...nameOptions,
+                ]}
+                notFoundContent={`등록된 ${kindMeta.noun} 없음`}
+              />
+            </div>
+          ) : null}
+          <Button
+            type="primary"
+            loading={granting}
+            disabled={!grantSubject || !grantKind}
+            onClick={() => void onGrantPolicy()}
+          >
+            부여
+          </Button>
+        </Space>
+        {sentence ? (
+          <div>
+            <div style={{ fontSize: 13 }}>{sentence}</div>
+            <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-family-code)' }}>
+              {grantObject}
+            </div>
+          </div>
+        ) : null}
+      </div>
+      <DataTable columns={policyColumns} rows={policyRows} rowKey="rowKey" empty="부여된 능력 없음" />
+    </div>
+  )
+
   return (
     <Page
       title="유저"
       subtitle="계정과 역할을 관리합니다 — 공개 등록은 없으며 여기서만 생성됩니다."
       actions={
-        <Button type="primary" onClick={() => setModal(true)}>
-          유저 추가
-        </Button>
+        // 유저 추가는 유저 목록 탭에서만 의미 — 능력 부여 탭에선 숨김(스펙 200 후속: 탭 분리)
+        tab === 'users' ? (
+          <Button type="primary" onClick={() => setModal(true)}>
+            유저 추가
+          </Button>
+        ) : undefined
       }
     >
-      <DataTable columns={columns} rows={users} empty={loading ? '불러오는 중…' : '유저 없음'} />
-
-      {/* 능력 부여(스펙 177 P3 → 200 개편) — 자유입력→카탈로그 선택·코드→문장·역할/유저 축 분리·도입 문장 */}
-      <Card title="능력 부여" style={{ marginTop: 24 }}>
-        <div style={{ fontSize: 13, color: 'var(--color-text-secondary)', marginBottom: 16, lineHeight: 1.7 }}>
-          능력이란 에이전트가 쓸 수 있는 <b>도구(MCP)</b>·<b>지식(RAG 컬렉션)</b>·<b>하위 에이전트</b>·<b>기억</b>입니다.
-          admin은 모든 능력을 쓸 수 있고, <b>member는 여기서 열어준 능력만</b> 쓸 수 있습니다(기본 잠김).
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
-          <div>
-            <Segmented
-              value={grantTarget}
-              onChange={(v) => {
-                setGrantTarget(v as 'role' | 'user')
-                setGrantSubject(undefined) // 축 전환 시 다른 축 값 잔존 방지
-              }}
-              options={[
-                { label: '역할에게', value: 'role' },
-                { label: '특정 유저에게', value: 'user' },
-              ]}
-            />
-            <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginInlineStart: 12 }}>
-              {grantTarget === 'role' ? '이 역할을 가진 모든 유저에게 적용됩니다.' : '이 유저에게만 적용됩니다.'}
-            </span>
-          </div>
-          <Space wrap align="end">
-            <div>
-              <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginBottom: 4 }}>
-                {grantTarget === 'role' ? '역할' : '유저'}
-              </div>
-              <Select<string>
-                style={{ minWidth: 200 }}
-                placeholder={grantTarget === 'role' ? '역할 선택' : '유저 선택'}
-                value={grantSubject}
-                onChange={setGrantSubject}
-                options={
-                  grantTarget === 'role'
-                    ? roles.map((r) => ({ value: r.name, label: r.name }))
-                    : users.map((u) => ({ value: u.id, label: u.email }))
-                }
-              />
-            </div>
-            <div>
-              <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginBottom: 4 }}>능력 종류</div>
-              <Select<string>
-                style={{ minWidth: 180 }}
-                placeholder="종류 선택"
-                value={grantKind}
-                onChange={(v) => {
-                  setGrantKind(v)
-                  setGrantName('') // 종류가 바뀌면 카탈로그도 바뀌므로 초기화(타 종류 값 잔존 방지)
-                }}
-                options={Object.entries(KIND_META).map(([value, m]) => ({ value, label: m.label }))}
-              />
-            </div>
-            {kindMeta?.hasName ? (
-              <div>
-                <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginBottom: 4 }}>
-                  어느 {kindMeta.noun}?
-                </div>
-                <Select<string>
-                  style={{ minWidth: 220 }}
-                  value={grantName}
-                  onChange={setGrantName}
-                  options={[
-                    { value: '', label: `전체 — 모든 ${kindMeta.noun}` },
-                    ...nameOptions,
-                  ]}
-                  notFoundContent={`등록된 ${kindMeta.noun} 없음`}
-                />
-              </div>
-            ) : null}
-            <Button
-              type="primary"
-              loading={granting}
-              disabled={!grantSubject || !grantKind}
-              onClick={() => void onGrantPolicy()}
-            >
-              부여
-            </Button>
-          </Space>
-          {sentence ? (
-            <div>
-              <div style={{ fontSize: 13 }}>{sentence}</div>
-              <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-family-code)' }}>
-                {grantObject}
-              </div>
-            </div>
-          ) : null}
-        </div>
-        <DataTable columns={policyColumns} rows={policyRows} rowKey="rowKey" empty="부여된 능력 없음" />
-      </Card>
+      {/* 스펙 200 후속: 유저 목록·능력 부여 탭 분리 — 유저가 늘면 한 화면 세로 나열이 불편(사용자 요청). */}
+      <Tabs
+        activeKey={tab}
+        onChange={(k) => setTab(k as 'users' | 'grants')}
+        items={[
+          {
+            key: 'users',
+            label: '유저 목록',
+            children: (
+              <DataTable columns={columns} rows={users} empty={loading ? '불러오는 중…' : '유저 없음'} />
+            ),
+          },
+          {
+            key: 'grants',
+            label: '능력 부여',
+            children: grantPane,
+          },
+        ]}
+      />
 
       <CreateUserModal
         open={modal}
