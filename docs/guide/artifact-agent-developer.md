@@ -1,7 +1,7 @@
 # 산출물형 에이전트 저작 가이드 (개발자용)
 
 > 대상: `produce()` 로직을 코드로 작성하는 개발자.
-> 일반사용자(어드민에서 에이전트를 만들고 쓰는 사람)용은 [artifact-agent-user.md](./artifact-agent-user.md).
+> 일반사용자(어드민에서 에이전트를 만들고 쓰는 사람)용은 [노코드 가이드](./nocode-agent-guide.md).
 > 설계 배경·검증은 스펙 [`docs/spec/188-artifact-agent.md`](../spec/188-artifact-agent.md).
 
 ## 1. 산출물형 에이전트란
@@ -137,7 +137,7 @@ register_agent("travel_request", TravelRequestAgent)   # 이름 = 어드민에�
 ```
 
 이제 어드민에서 에이전트를 만들 때 `impl: "travel_request"`로 이 구현을 선택할 수 있다(그 흐름은
-[일반사용자 가이드](./artifact-agent-user.md) 참고).
+[노코드 가이드](./nocode-agent-guide.md) 참고).
 
 ## 7. 반드시 지킬 규칙 (안 지키면 조용히 깨진다)
 

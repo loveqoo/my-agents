@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>산출물형 에이전트 저작 가이드 (개발자용)</title>
+<style>
+body{font-family:-apple-system,'Apple SD Gothic Neo','Noto Sans KR',sans-serif;max-width:860px;margin:0 auto;padding:32px 20px;line-height:1.7;color:#222}
+h1{border-bottom:2px solid #eee;padding-bottom:8px} h2{margin-top:2em;border-bottom:1px solid #eee;padding-bottom:6px}
+table{border-collapse:collapse;width:100%;font-size:14px} th,td{border:1px solid #ddd;padding:6px 10px;text-align:left}
+th{background:#f7f7f7} blockquote{border-left:4px solid #4a90d9;background:#f4f8fc;margin:12px 0;padding:8px 16px;border-radius:0 6px 6px 0}
+code{background:#f2f2f2;padding:1px 5px;border-radius:4px;font-size:.9em}
+pre{background:#1f2430;color:#e6e6e6;padding:14px 16px;border-radius:8px;overflow-x:auto;font-size:13px;line-height:1.55}
+pre code{background:none;padding:0;color:inherit}
+figure{margin:16px 0;text-align:center} figure img{max-width:100%;border:1px solid #ddd;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.08)}
+figcaption{color:#888;font-size:13px;margin-top:4px}
+.guide-nav{margin-bottom:20px;padding:8px 14px;background:#f7f7f7;border-radius:8px;font-size:14px}
+.guide-nav .cur{font-weight:700}
+</style>
+</head>
+<body>
+<nav class="guide-nav"><a href="index.html">노코드 가이드</a> · <span class="cur">개발자 가이드</span></nav>
+<h1>산출물형 에이전트 저작 가이드 (개발자용)</h1>
+<blockquote>
+<p>대상: <code>produce()</code> 로직을 코드로 작성하는 개발자.</p>
+<p>일반사용자(어드민에서 에이전트를 만들고 쓰는 사람)용은 <a href="index.html">노코드 가이드</a>.</p>
+<p>설계 배경·검증은 스펙 <code>docs/spec/188-artifact-agent.md</code>.</p>
+</blockquote>
+<h2>1. 산출물형 에이전트란</h2>
+<p>대화를 통해 <strong>구조화된 데이터(산출물)를 모아서 완성하는</strong> 에이전트다. 일반 채팅 에이전트가 &quot;말로 답한다&quot;면, 산출물형은 &quot;<strong>결과물(JSON)을 만든다</strong>&quot; — 출장 신청서, 타겟팅 조건, 설문 응답처럼.</p>
+<p>핵심 뼈대는 딱 세 단계다:</p>
+<pre><code>produce(로직) → Artifact(산출물) → sink(처리: API 호출·UI 콜백 등)</code></pre>
+<p>당신이 채우는 건 가운데 <strong><code>produce()</code> 하나뿐</strong>이다. 멀티턴 대화, 폼, 재개, 검증 같은 배관은 전부 조상 클래스(<code>ArtifactAgentBase</code>)가 갖고 있다.</p>
+<h2>2. 가장 짧은 예제 — 고정 필드 채우기</h2>
+<p><code>ArtifactAgentBase</code>를 물려받아 <code>NAME</code>/<code>DESCRIPTION</code>을 정하고 <code>produce()</code>만 구현한다:</p>
+<pre class="lang-python"><code>from agent.flows.artifact import ArtifactAgentBase, ProduceContext, Artifact
+
+class TravelRequestAgent(ArtifactAgentBase):
+    NAME = &quot;travel_request&quot;
+    DESCRIPTION = &quot;출장 신청서를 대화로 채우는 에이전트&quot;
+
+    async def produce(self, ctx: ProduceContext) -&gt; Artifact:
+        destination = ctx.ask(&quot;목적지를 알려주세요 (예: 서울, 부산)&quot;)
+        period      = ctx.ask(&quot;기간을 알려주세요 (예: 3월 2일부터 3일간)&quot;)
+        budget      = ctx.ask(&quot;예산을 알려주세요 (예: 50만원)&quot;)
+        return Artifact(
+            kind=&quot;travel-request&quot;,
+            data={&quot;destination&quot;: destination, &quot;period&quot;: period, &quot;budget&quot;: budget},
+        )</code></pre>
+<p><code>ctx.ask()</code>가 질문을 던지면 대화가 거기서 멈추고 사용자의 다음 입력을 기다린다. 답이 오면 그 자리에서 이어진다. <strong>여러 번 <code>ask</code>해도</strong> 뼈대가 알아서 멀티턴으로 이어 붙인다 — <code>produce()</code> 안에서는 그냥 동기 코드처럼 읽으면 된다.</p>
+<blockquote>
+<p>실제 등록된 데모 <code>SlotFillDemoAgent</code>(<code>flows/artifact.py</code>)는 여기에 &quot;빈 답이면 3회까지 되묻기&quot;만</p>
+<p>더한 형태다.</p>
+</blockquote>
+<h2>3. 프리미티브 — 이 5개만 쓴다 (닫힌 집합)</h2>
+<p><code>produce()</code> 안에서 바깥 세계에 닿는 통로는 <code>ctx</code>의 이 다섯뿐이다. <strong>이게 보안·결정성 경계다</strong> — 파일·네트워크를 직접 만지지 말고 반드시 이 프리미티브를 거친다.</p>
+<table><thead><tr><th>프리미티브</th><th>시그니처</th><th>언제 쓰나</th></tr></thead><tbody>
+<tr><td><code>ctx.ask</code></td><td><code>ask(question: str) -&gt; str</code></td><td>자유 텍스트 한 줄을 받을 때. 대화가 멈추고 다음 입력을 반환.</td></tr>
+<tr><td><code>ctx.form</code></td><td><code>await form(fields, prefill=None, *, confirm=False) -&gt; dict</code></td><td>후보(SelectBox)·여러 칸을 <strong>폼</strong>으로 한 번에 받을 때.</td></tr>
+<tr><td><code>ctx.rag</code></td><td><code>await rag(collection, query) -&gt; 결과</code></td><td>등록된 RAG 컬렉션을 검색할 때(브로커 경유 — 권한 그대로).</td></tr>
+<tr><td><code>ctx.tool</code></td><td><code>await tool(cap_id, args: dict) -&gt; 결과</code></td><td>등록된 MCP 도구를 부를 때(브로커 경유 — 배선 권한 그대로).</td></tr>
+<tr><td><code>ctx.extract</code></td><td><code>await extract(instruction, text) -&gt; dict</code></td><td>자유 텍스트에서 LLM으로 값을 뽑을 때(모델 없으면 <code>{}</code>).</td></tr>
+<tr><td><code>ctx.text</code></td><td>(속성)</td><td>이번 실행을 시작한 사용자의 첫 발화.</td></tr>
+</tbody></table>
+<p><code>rag</code>/<code>tool</code>은 <strong>브로커를 거치므로 새 권한이 생기지 않는다</strong> — 에이전트에 연결된 컬렉션/도구만 닿고, 호출자 RBAC로 교집합된다. 안 붙은 자원은 조용히 빈 결과(deny-by-default).</p>
+<h2>4. 폼 쓰기 — 필드 명세와 이중 입력</h2>
+<p><code>ctx.form(fields, prefill, confirm=)</code>의 <code>fields</code>는 dict 리스트다. 각 필드 형태:</p>
+<pre class="lang-python"><code>{
+    &quot;key&quot;: &quot;purchase_history&quot;,     # 결과 dict의 키(필수)
+    &quot;label&quot;: &quot;구매이력&quot;,            # 화면 표시 이름
+    &quot;candidates&quot;: [&quot;최근&quot;, &quot;7일 전&quot;, &quot;최근 한 달&quot;],  # 있으면 SelectBox, 없으면 자유 입력
+    &quot;required&quot;: True,              # 기본 True
+}</code></pre>
+<p>폼을 띄우면 사용자는 <strong>두 가지 방법</strong>으로 답할 수 있고, 뼈대가 둘 다 같은 슬롯에 병합한다(이중 입력):</p>
+<ol>
+<li><strong>폼 제출</strong> — 후보 중에서 골라 제출. 뼈대가 <code>validate_form_values</code>로 후보 밖 값·빈 값을 걸러낸다.</li>
+<li><strong>채팅 텍스트</strong> — 폼이 떠 있어도 그냥 말로 입력. 후보 문자열이 텍스트에 있으면 결정적으로 채우고,</li>
+<p>남은 자유 칸은 <code>extract</code>(LLM)로 보완한다.</p>
+</ol>
+<p><code>prefill</code>로 미리 채워둘 수 있다(예: 첫 발화에서 이미 파악한 값). <code>confirm=True</code>면 프리필이 완전해도 <strong>최소 1회는 폼을 보여주고 사용자 확인을 받는다</strong>.</p>
+<blockquote>
+<p><strong>함정 주의(적대 검토로 배움):</strong> 텍스트 병합은 &quot;서울 말고 부산&quot; 같은 부정어를 잘못 채울 수 있다.</p>
+<p>그래서 <code>confirm=True</code>면 텍스트로 값이 바뀐 뒤 <strong>곧장 확정하지 않고 갱신된 폼을 다시 보여준다</strong> —</p>
+<p>최종 확정은 사용자가 <strong>폼 제출</strong>을 눌러야만 일어난다. 확정이 중요한 산출물이면 <code>confirm=True</code>를 켜라.</p>
+</blockquote>
+<h2>5. 동적 예제 — 발화에서 폼을 만들어내기</h2>
+<p>필드를 코드에 고정하지 않고 <strong>런타임에 합성</strong>할 수도 있다. 등록된 <code>TargetingDemoAgent</code>가 그 예다 (사용자 시나리오: &quot;최근 구매 이력 있는 30대 서울 남성&quot; → 요소 분해 → 폼 자동 생성):</p>
+<pre class="lang-python"><code>async def produce(self, ctx: ProduceContext) -&gt; Artifact:
+    utter = ctx.text or ctx.ask(&quot;어떤 유저를 타겟팅할까요? 조건을 문장으로 말씀해 주세요.&quot;)
+
+    # ① 카탈로그 목록(도구). 없으면 빈 폼을 조용히 띄우지 말고 정직하게 종료.
+    listing = await ctx.tool(f&quot;mcp:{self.CATALOG_MCP}/list_entities&quot;, {})
+    catalog = _first_json_obj(getattr(listing, &quot;text&quot;, &quot;&quot;) or &quot;&quot;).get(&quot;entities&quot;) or []
+    if not catalog:
+        return Artifact(kind=&quot;targeting&quot;, data={&quot;conditions&quot;: [], &quot;error&quot;: &quot;카탈로그 없음&quot;})
+
+    # ② 발화에서 요소 매칭 = RAG 마커 ∪ 카탈로그 동의어(결정적 폴백)
+    rag_res = await ctx.rag(self.RAG_COLLECTION, utter)
+    matched = match_entities(utter, catalog)  # + rag 결과 합집합(생략)
+
+    # ③ 엔티티별 후보를 조회(도구) → 폼 필드로 합성
+    fields = []
+    for e in matched:
+        detail = _first_json_obj((await ctx.tool(f&quot;mcp:{self.CATALOG_MCP}/get_entity&quot;,
+                                                 {&quot;entity_id&quot;: e[&quot;id&quot;]})).text)
+        fields.append({&quot;key&quot;: e[&quot;id&quot;], &quot;label&quot;: detail[&quot;label&quot;],
+                       &quot;candidates&quot;: detail[&quot;candidates&quot;], &quot;required&quot;: True})
+
+    # ④ 발화로 미리 채우고 → 폼 제시(확인) → 결과 조립
+    prefill = merge_text_into_fields(fields, {}, utter)
+    values = await ctx.form(fields, prefill, confirm=True)
+    return Artifact(kind=&quot;targeting&quot;,
+                    data={&quot;conditions&quot;: [{&quot;entity_id&quot;: f[&quot;key&quot;], &quot;value&quot;: values.get(f[&quot;key&quot;])}
+                                         for f in fields]})</code></pre>
+<p>핵심은 <strong>뼈대 파일을 한 줄도 안 고치고</strong> 이 둘째 구현이 붙는다는 점이다 — 추상이 새지 않았다는 증거.</p>
+<h2>6. 등록하기</h2>
+<p>작성한 클래스를 <code>runtime.py</code>의 부트스트랩에서 한 줄로 등록한다:</p>
+<pre class="lang-python"><code># packages/agent/src/agent/runtime.py  — _bootstrap_builtins() 안
+from .flows.artifact import TravelRequestAgent
+register_agent(&quot;travel_request&quot;, TravelRequestAgent)   # 이름 = 어드민에서 고를 impl 키</code></pre>
+<p>이제 어드민에서 에이전트를 만들 때 <code>impl: &quot;travel_request&quot;</code>로 이 구현을 선택할 수 있다(그 흐름은 <a href="index.html">노코드 가이드</a> 참고).</p>
+<h2>7. 반드시 지킬 규칙 (안 지키면 조용히 깨진다)</h2>
+<p>산출물형 에이전트는 LangGraph의 <strong>interrupt 재실행</strong> 위에서 돈다 — 대화가 재개될 때마다 <code>produce()</code>가 <strong>처음부터 다시 실행</strong>되고, 이미 지난 프리미티브 호출은 기록된 값으로 리플레이된다. 여기서 세 규칙:</p>
+<ol>
+<li><strong>결정성 계약</strong> — 프리미티브 반환값 <em>외의</em> 비결정 입력(현재 시각·난수·전역 상태)으로 분기하지 마라.</li>
+<p>재실행 때 분기가 달라지면 리플레이가 어긋난다(replay drift).</p>
+<li><strong>프리미티브는 멱등이어야</strong> — <code>ctx.tool</code>/<code>ctx.rag</code>가 부르는 도구는 부수효과가 없어야 한다. 스텝 캐시는</li>
+<p>인메모리라 프로세스 재시작·과다 동시 세션 시 재호출될 수 있다. (서빙 MCP는 이 불변식을 <code>_SIDE_EFFECT_FREE_TOOLS</code>로 강제한다 — 부수효과 있는 도구를 산출물 수집에 쓰지 마라.)</p>
+<li><strong>닫힌 집합은 규율이지 샌드박스가 아니다</strong> — <code>produce()</code>는 코드로 리뷰되어 등록되는 <strong>신뢰 1급 구현</strong>이다.</li>
+<p><code>ctx._model</code>/<code>ctx._broker</code>에 직접 손대거나 <code>import os</code>로 파일을 만지는 건 문법상 가능하지만 규율 위반이다. 미신뢰 제3자 코드를 <code>produce()</code>로 받는 설계는 별도 프로세스 격리가 필요하다(현 범위 밖).</p>
+</ol>
+<h2>8. 검증</h2>
+<p>새 에이전트를 만들면 <code>tests/verify_188_artifact.py</code>의 패턴을 따라 검증한다:</p>
+<ul>
+<li><strong>단위/그래프</strong>: <code>build_graph()</code>로 그래프를 만들고 <code>ainvoke</code> + <code>Command(resume=...)</code>로 멀티턴을 직접</li>
+<p>구동해 최종 <code>artifact</code>를 확인한다(순수함수는 <code>validate_form_values</code>·<code>merge_text_into_fields</code> 등 직접 호출).</p>
+<li><strong>e2e</strong>: <code>tests/browser/verify-artifact-*.mjs</code>처럼 플레이그라운드에서 실제 왕복을 돌린다.</li>
+<li>산출물이 사용자별 데이터·권한을 만지면 <strong>적대 검증(codex)</strong>까지 — 후보 밖 값 제출·타 세션 재개·미배선</li>
+<p>도구 사용을 실제로 시도해 막히는지 확인한다(스펙 188 적대 검토 절 참고).</p>
+</ul>
+</body>
+</html>

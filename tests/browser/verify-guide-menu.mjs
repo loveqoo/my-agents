@@ -43,6 +43,24 @@ try {
   const imgCnt = await popup.evaluate(() => document.images.length)
   ok(imgOk && imgCnt === 9, `G4c 스크린샷 9장 전부 로드 (개수 ${imgCnt}, 로드 ${imgOk})`)
   await popup.screenshot({ path: `${OUT}/guide-page-top.png` })
+
+  // G5: 상단 내비로 개발자 가이드 이동 — 제목·코드블록 렌더·내비 상호 링크
+  await popup.locator('nav.guide-nav').getByRole('link', { name: '개발자 가이드' }).click()
+  await popup.waitForLoadState('domcontentloaded')
+  ok(popup.url().includes('/guide/developer.html'), `G5a 개발자 가이드 URL (실제 ${popup.url()})`)
+  const devBody = await popup.locator('body').innerText()
+  ok(/산출물형 에이전트 저작 가이드/.test(devBody), 'G5b 개발자 가이드 제목')
+  const preCnt = await popup.locator('pre code').count()
+  ok(preCnt >= 4, `G5c 코드블록 렌더 (pre>code ${preCnt}개)`)
+  // 남은 .md 링크 0(전부 html 재작성/텍스트 강등)
+  const mdLinks = await popup.evaluate(() =>
+    Array.from(document.querySelectorAll('a')).filter((a) => a.getAttribute('href')?.endsWith('.md')).length)
+  ok(mdLinks === 0, `G5d 잔존 .md 링크 0 (실제 ${mdLinks})`)
+  await popup.screenshot({ path: `${OUT}/guide-dev-page.png` })
+  // 내비로 노코드 가이드 복귀
+  await popup.locator('nav.guide-nav').getByRole('link', { name: '노코드 가이드' }).click()
+  await popup.waitForLoadState('domcontentloaded')
+  ok(popup.url().includes('/guide/index.html'), 'G5e 내비 상호 링크(노코드 복귀)')
 } catch (e) {
   console.log('EXCEPTION:', String(e)); fails.push('exception')
 } finally {

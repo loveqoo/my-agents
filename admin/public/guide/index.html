@@ -10,11 +10,16 @@ h1{border-bottom:2px solid #eee;padding-bottom:8px} h2{margin-top:2em;border-bot
 table{border-collapse:collapse;width:100%;font-size:14px} th,td{border:1px solid #ddd;padding:6px 10px;text-align:left}
 th{background:#f7f7f7} blockquote{border-left:4px solid #4a90d9;background:#f4f8fc;margin:12px 0;padding:8px 16px;border-radius:0 6px 6px 0}
 code{background:#f2f2f2;padding:1px 5px;border-radius:4px;font-size:.9em}
+pre{background:#1f2430;color:#e6e6e6;padding:14px 16px;border-radius:8px;overflow-x:auto;font-size:13px;line-height:1.55}
+pre code{background:none;padding:0;color:inherit}
 figure{margin:16px 0;text-align:center} figure img{max-width:100%;border:1px solid #ddd;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.08)}
 figcaption{color:#888;font-size:13px;margin-top:4px}
+.guide-nav{margin-bottom:20px;padding:8px 14px;background:#f7f7f7;border-radius:8px;font-size:14px}
+.guide-nav .cur{font-weight:700}
 </style>
 </head>
 <body>
+<nav class="guide-nav"><span class="cur">노코드 가이드</span> · <a href="developer.html">개발자 가이드</a></nav>
 <h1>노코드 에이전트 만들기 가이드</h1>
 <blockquote>
 <p>코드를 몰라도 됩니다. 이 문서는 <strong>어드민 화면에서 클릭만으로</strong> AI 에이전트를 만들고, 도구·문서·기억을</p>
@@ -192,7 +197,7 @@ figcaption{color:#888;font-size:13px;margin-top:4px}
 <hr>
 <blockquote>
 <p><strong>참고 — 산출물형(결과물 수집) 에이전트:</strong> &quot;대화로 정보를 모아 정해진 결과물(JSON)을 만들어 외부로</p>
-<p>보내는&quot; 특수한 에이전트는 지금은 <strong>코드로</strong> 만듭니다(<a href="./artifact-agent-developer.md">개발자 가이드</a>).</p>
+<p>보내는&quot; 특수한 에이전트는 지금은 <strong>코드로</strong> 만듭니다(<a href="developer.html">개발자 가이드</a>).</p>
 <p>이것의 <strong>노코드 버전</strong>(화면에서 항목·후보·보낼 곳만 정하면 되는)은 준비 중입니다.</p>
 </blockquote>
 </body>
