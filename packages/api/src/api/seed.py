@@ -362,7 +362,7 @@ async def seed_if_empty(session: AsyncSession) -> None:
     # 서빙 커스텀 MCP 행 멱등 reconcile(스펙 156, codex Medium/High) — _empty 게이트와 무관하게 매
     # 부팅 실행. 이유 둘: (1) 기존 설치(테이블 비지 않음)에도 기능이 나타나게 한다(Medium), (2) custom
     # 행은 오직 여기서만(owner_id=None, 시스템 소유) 생성 → create 라우트의 source=custom 차단(High)과
-    # 합쳐 "사용자가 custom을 자가선언해 선점·공개"하는 우회를 원천 봉인. 이름 존재하면 건드리지 않음.
+    # 합쳐 "사용자가 custom을 자가선언해 선점·공개"하는 우회를 원천 봉인.
     have = set((await session.execute(select(McpServer.name))).scalars().all())
     for _sname, _stools in SERVED_MCP_TOOLS.items():
         if _sname not in have:
@@ -371,5 +371,18 @@ async def seed_if_empty(session: AsyncSession) -> None:
                 tools=list(_stools), enabled_tools=list(_stools), status="connected",
                 published=False, tools_meta=SERVED_MCP_TOOLS_META.get(_sname), owner_id=None,
             ))
+            continue
+        # 기존 행은 **코드 소유 필드만** 동기화(스펙 201 후속) — 도구 정의·설명(=모델 라우팅 재료이자
+        # 드로어 안내)이 레지스트리에서 바뀌면 화면과 모델이 같은 문서를 보게. 관리자 소유 필드
+        # (published·alias·enabled_tools)는 보존 — 통째 교체는 관리자 저작을 지우는 함정
+        # (learning: sync-wholesale-replace). source=custom 행만(같은 이름의 사용자 local 행이면 불변 —
+        # custom 자가선언 봉인과 일관).
+        _row = (await session.execute(
+            select(McpServer).where(McpServer.name == _sname)
+        )).scalar_one()
+        if _row.source == "custom":
+            _row.tools = list(_stools)
+            _row.tools_meta = SERVED_MCP_TOOLS_META.get(_sname)
+            _row.url = served_url(_sname)
 
     await session.commit()

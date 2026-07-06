@@ -115,7 +115,11 @@ def _wiki_get(url: str, params: dict | None = None) -> dict:
 
 @tool
 def wiki_search(query: str, limit: int = 5, lang: str = "ko") -> str:
-    """위키피디아에서 문서를 검색한다 — 제목·요약 스니펫 목록(JSON). lang: ko|en."""
+    """위키피디아(백과사전)에서 문서를 검색한다 — 제목·요약 스니펫 목록(JSON).
+
+    이럴 때 사용: 사용자가 "위키(피디아)에서/백과사전에서 찾아줘·검색해줘"라고 하거나, 인물·사건·
+    개념·지명 등 사실 정보가 필요한 질문일 때. 문서 제목을 정확히 모르면 이 도구를 먼저 호출해
+    제목을 찾은 뒤 wiki_page로 본문을 읽는다. lang: ko|en."""
     import json
     import re
 
@@ -138,7 +142,10 @@ def wiki_search(query: str, limit: int = 5, lang: str = "ko") -> str:
 
 @tool
 def wiki_page(title: str, lang: str = "ko") -> str:
-    """위키피디아 문서의 요약 본문을 가져온다(JSON: title·extract·url). lang: ko|en."""
+    """위키피디아 문서 하나의 요약 본문을 가져온다(JSON: title·extract·url).
+
+    이럴 때 사용: 읽을 문서의 제목을 알 때(사용자가 제목을 말했거나 wiki_search 결과에서 골랐을 때)
+    그 내용을 실제로 읽어 답에 인용한다. 제목이 불확실하면 wiki_search 먼저. lang: ko|en."""
     import json
     from urllib.parse import quote
 
