@@ -82,10 +82,83 @@ def get_entity(entity_id: str) -> str:
     return json.dumps(e or {"error": "not found"}, ensure_ascii=False)
 
 
+# ---- web-fetch(스펙 201) — "사이트 주소를 조립해 패치"(사용자 설계). 위키피디아 공식 API,
+# 호스트 고정(사용자 입력은 검색어·제목뿐 → SSRF 0), read-only. ----
+_WIKI_LANGS = {"ko", "en"}  # lang이 곧 호스트 — allowlist로 임의 호스트 조립 차단
+_FETCH_TIMEOUT = 8.0
+_FETCH_MAX_BYTES = 512 * 1024  # 응답 raw 바이트 캡(cap-the-raw-source)
+_FETCH_UA = "my-agents/1.0 (web-fetch custom MCP)"  # 위키 API가 UA 명시를 요구
+
+
+def _wiki_get(url: str, params: dict | None = None) -> dict:
+    """위키 API GET 공통 — 타임아웃·raw 바이트 캡·리다이렉트 후 호스트 재검증·JSON 파싱.
+    실패는 raise 대신 {'error': …}(도구는 graceful — 에이전트가 실패를 읽고 진행)."""
+    import httpx
+
+    try:
+        with httpx.Client(
+            timeout=_FETCH_TIMEOUT, headers={"User-Agent": _FETCH_UA}, follow_redirects=True
+        ) as c:
+            r = c.get(url, params=params)
+        # 리다이렉트가 위키 밖으로 새면 차단 — 가드는 부수효과 발생 지점에서(installed≠covering).
+        host = r.url.host or ""
+        if not (host == "wikipedia.org" or host.endswith(".wikipedia.org")):
+            return {"error": f"비허용 호스트로 리다이렉트됨({host})"}
+        if len(r.content) > _FETCH_MAX_BYTES:
+            return {"error": f"응답이 너무 큽니다({len(r.content)}B > {_FETCH_MAX_BYTES}B)"}
+        if r.status_code != 200:
+            return {"error": f"HTTP {r.status_code}"}
+        return r.json()
+    except Exception as exc:  # noqa: BLE001 — 네트워크/파싱 실패도 error JSON으로
+        return {"error": str(exc)[:200]}
+
+
+@tool
+def wiki_search(query: str, limit: int = 5, lang: str = "ko") -> str:
+    """위키피디아에서 문서를 검색한다 — 제목·요약 스니펫 목록(JSON). lang: ko|en."""
+    import json
+    import re
+
+    if lang not in _WIKI_LANGS:
+        return json.dumps({"error": f"lang은 {sorted(_WIKI_LANGS)}만 지원합니다"}, ensure_ascii=False)
+    limit = max(1, min(int(limit), 10))  # 1~10 클램프
+    data = _wiki_get(
+        f"https://{lang}.wikipedia.org/w/api.php",
+        {"action": "query", "list": "search", "srsearch": query[:300], "format": "json",
+         "srlimit": limit, "utf8": 1},
+    )
+    if "error" in data:
+        return json.dumps(data, ensure_ascii=False)
+    hits = [
+        {"title": h.get("title", ""), "snippet": re.sub(r"<[^>]+>", "", h.get("snippet", ""))[:300]}
+        for h in (data.get("query", {}).get("search", []) or [])
+    ]
+    return json.dumps({"query": query, "lang": lang, "results": hits}, ensure_ascii=False)
+
+
+@tool
+def wiki_page(title: str, lang: str = "ko") -> str:
+    """위키피디아 문서의 요약 본문을 가져온다(JSON: title·extract·url). lang: ko|en."""
+    import json
+    from urllib.parse import quote
+
+    if lang not in _WIKI_LANGS:
+        return json.dumps({"error": f"lang은 {sorted(_WIKI_LANGS)}만 지원합니다"}, ensure_ascii=False)
+    data = _wiki_get(f"https://{lang}.wikipedia.org/api/rest_v1/page/summary/{quote(title[:200], safe='')}")
+    if "error" in data:
+        return json.dumps(data, ensure_ascii=False)
+    return json.dumps(
+        {"title": data.get("title", title), "extract": (data.get("extract") or "")[:2000],
+         "url": ((data.get("content_urls") or {}).get("desktop") or {}).get("page", "")},
+        ensure_ascii=False,
+    )
+
+
 # 서빙 MCP 정의(단일 출처) — 이름 → (도구 리스트, 메타). 시드 카탈로그·서빙 앱이 이걸 공유(드리프트 0).
 _DEFS: dict[str, list] = {
     "calc-tools": [add, multiply, echo],
     "targeting-catalog": [list_entities, get_entity],
+    "web-fetch": [wiki_search, wiki_page],  # 스펙 201 — 위키 주소 조립→패치(read-only)
 }
 
 # 시드 카탈로그가 쓰는 도구 이름/메타(mock_mcp 패턴 — 평행 리터럴 드리프트 방지).
@@ -117,7 +190,11 @@ def _build(name: str, tools: list) -> FastMCP:
 # MCP는 **무인증 공개 API**다. 그래서 서빙 도구는 반드시 **부수효과 없는(read-only/순수) 도구**여야
 # 한다(HIL 승인 대상 delete_record류를 서빙하면 무인증 실행면이 된다). 새 도구를 서빙에 추가하려면
 # 이 allowlist에 명시적으로 등록해야 부팅이 통과 — "무심코 위험 도구 서빙"을 부팅에서 강제 차단한다.
-_SIDE_EFFECT_FREE_TOOLS = {"add", "multiply", "echo", "list_entities", "get_entity"}  # 후자 2=고정 dict 조회(스펙 188)
+_SIDE_EFFECT_FREE_TOOLS = {
+    "add", "multiply", "echo",
+    "list_entities", "get_entity",  # 고정 dict 조회(스펙 188)
+    "wiki_search", "wiki_page",  # 위키 read-only 조회(스펙 201) — 고정 호스트·바이트 캡·타임아웃
+}
 for _n, _ts in _DEFS.items():
     _unsafe = {t.name for t in _ts} - _SIDE_EFFECT_FREE_TOOLS
     if _unsafe:
