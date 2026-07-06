@@ -9,9 +9,9 @@ current_principal + ownership.py 술어로 전환 — 멤버가 본인 문제집
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select, text
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .auth import current_principal
@@ -46,18 +46,27 @@ class DatasetOut(BaseModel):
     generating: bool = False  # 스펙 193 — 문제 자동 생성 진행 중(목록 스피너·드로어 Skeleton·폴링 신호)
 
 
-def _dataset_out(d: EvalDataset, case_count: int, user) -> DatasetOut:
-    """DatasetOut 단일 생성 경로(드리프트 0) — 5곳 인라인 통일. generating은 description 진행 마커를
-    구조 필드로 승격(프론트는 bool만 소비 → 목록 배지·드로어 Skeleton·폴링).
-    두 경로: 컬렉션 생성(142)="생성 중…"(접두), AI 출제(143/195)="… · AI 출제 중…"(접미). 둘 다 봐야
-    출제 시에도 Skeleton이 뜬다(스펙 195 후속 — 접두만 보던 버그)."""
+def _is_generating(d: EvalDataset) -> bool:
+    """진행 중 판정(단일 출처) — 두 경로: 컬렉션 생성(142)="생성 중…"(접두), AI 출제(143/195)=
+    "… · AI 출제 중…"(접미). 둘 다 봐야 출제 시에도 Skeleton이 뜬다(스펙 195 후속 — 접두만 보던 버그)."""
     desc = d.description or ""
+    return desc.startswith("생성 중") or desc.endswith("AI 출제 중…")
+
+
+def _dataset_out(d: EvalDataset, case_count: int, user) -> DatasetOut:
+    """DatasetOut 단일 생성 경로(드리프트 0) — 인라인 통일. generating은 description 진행 마커를
+    구조 필드로 승격(프론트는 bool만 소비 → 목록 배지·드로어 Skeleton·폴링)."""
     return DatasetOut(
         id=d.id, name=d.name, description=d.description, kind=d.kind,
         collection_id=d.collection_id, case_count=case_count,
         can_manage=may_manage(d.owner_id, user),
-        generating=desc.startswith("생성 중") or desc.endswith("AI 출제 중…"),
+        generating=_is_generating(d),
     )
+
+
+def _ilike_literal(s: str) -> str:
+    """ilike 리터럴화 — 사용자 입력의 `\\`·`%`·`_`를 이스케이프(와일드카드 오라클/과매칭 차단, 세션 098)."""
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 class CaseIn(BaseModel):
@@ -95,22 +104,60 @@ async def _dataset_or_404(session: AsyncSession, dataset_id: uuid.UUID) -> EvalD
 
 
 # ----------------------------- 데이터셋 CRUD -----------------------------
-@router.get("/datasets", response_model=list[DatasetOut])
+class DatasetPageOut(BaseModel):
+    items: list[DatasetOut]
+    total: int
+    any_generating: bool = False  # 이 페이지에 진행 중 문제집이 있나 — 프론트 폴링 신호(스펙 196)
+
+
+@router.get("/datasets", response_model=DatasetPageOut)
 async def list_datasets(
-    session: AsyncSession = Depends(get_session), user=Depends(current_principal)
-) -> list[DatasetOut]:
-    rows = (
-        await session.execute(
-            select(EvalDataset, func.count(EvalCase.id))
-            .outerjoin(EvalCase, EvalCase.dataset_id == EvalDataset.id)
-            .group_by(EvalDataset.id)
-            .order_by(EvalDataset.name)
+    session: AsyncSession = Depends(get_session),
+    user=Depends(current_principal),
+    q: str | None = None,
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+) -> DatasetPageOut:
+    """문제집 목록 — **최근 생성순**, 이름·설명 부분검색(q), 페이징(스펙 196). 읽기 전원 공개(178 D1)."""
+    where = None
+    if q and q.strip():
+        term = f"%{_ilike_literal(q.strip())}%"
+        where = or_(
+            EvalDataset.name.ilike(term, escape="\\"),
+            func.coalesce(EvalDataset.description, "").ilike(term, escape="\\"),
         )
-    ).all()
-    return [
-        _dataset_out(d, n, user)  # 읽기는 전원, 관리 버튼은 소유자만(헬퍼가 collection_id·generating 포함)
-        for d, n in rows
-    ]
+    count_stmt = select(func.count()).select_from(EvalDataset)
+    if where is not None:
+        count_stmt = count_stmt.where(where)
+    total = (await session.execute(count_stmt)).scalar_one()
+
+    stmt = (
+        select(EvalDataset, func.count(EvalCase.id))
+        .outerjoin(EvalCase, EvalCase.dataset_id == EvalDataset.id)
+        .group_by(EvalDataset.id)
+        .order_by(EvalDataset.created_at.desc(), EvalDataset.id.desc())
+    )
+    if where is not None:
+        stmt = stmt.where(where)
+    rows = (await session.execute(stmt.offset(offset).limit(limit))).all()
+    return DatasetPageOut(
+        items=[_dataset_out(d, n, user) for d, n in rows],  # 관리 버튼은 소유자만(헬퍼가 계산)
+        total=total,
+        any_generating=any(_is_generating(d) for d, _ in rows),
+    )
+
+
+@router.get("/datasets/{dataset_id}", response_model=DatasetOut)
+async def get_dataset(
+    dataset_id: uuid.UUID, session: AsyncSession = Depends(get_session), user=Depends(current_principal)
+) -> DatasetOut:
+    """문제집 단건 — 열린 드로어 rebind용(폴링 시 generating 종료·collection_id 반영, 스펙 196).
+    읽기 공개(178 D1) · 없으면 404."""
+    ds = await _dataset_or_404(session, dataset_id)
+    n = (await session.execute(
+        select(func.count(EvalCase.id)).where(EvalCase.dataset_id == dataset_id)
+    )).scalar_one()
+    return _dataset_out(ds, n, user)
 
 
 @router.post("/datasets", response_model=DatasetOut, status_code=201)

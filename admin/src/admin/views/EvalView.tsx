@@ -8,8 +8,9 @@ import { Page, DataTable, Drawer, type Column } from '../shared'
 import { Icon } from '../icons'
 import { TrendChart, CompareDrawer } from './EvalTrend'
 import { MatrixView } from './EvalMatrix'
+import { PagedListShell } from './PagedListShell'
 import {
-  listEvalDatasets, createEvalDataset, deleteEvalDataset,
+  listEvalDatasets, getEvalDataset, createEvalDataset, deleteEvalDataset,
   listEvalCases, createEvalCase, updateEvalCase, deleteEvalCase,
   startEvalRun, listEvalRuns, getEvalRun, listAgents, listCollections, listModels, suggestEvalCases, getEvalHelperStatus, listDocuments,
   type EvalDataset, type EvalCaseT, type EvalAssert, type EvalRunT, type EvalRunDetail, type Agent, type Collection, type Model,
@@ -578,7 +579,9 @@ function RunDrawer({ runId, onClose }: { runId: string | null; onClose: () => vo
 
 export default function EvalView() {
   const [tab, setTab] = useState('datasets')
-  const [datasets, setDatasets] = useState<EvalDataset[]>([])
+  // 스펙 196: 목록은 PagedListShell이 소유(서버 페이징·검색) — 부모는 재조회 트리거·폴링 신호만 든다.
+  const [refreshKey, setRefreshKey] = useState(0)
+  const [anyGenerating, setAnyGenerating] = useState(false)
   const [runs, setRuns] = useState<EvalRunT[]>([])
   const [agents, setAgents] = useState<Agent[]>([])
   const [detail, setDetail] = useState<EvalDataset | null>(null)
@@ -595,9 +598,12 @@ export default function EvalView() {
   const [chatModels, setChatModels] = useState<Model[]>([])
   const [helper, setHelper] = useState<{ available: boolean; reason: string | null }>({ available: false, reason: '확인 중…' })
 
-  const loadDatasets = useCallback(() => {
-    listEvalDatasets().then(setDatasets).catch((e) => message.error((e as Error).message))
-  }, [])
+  const bumpDatasets = useCallback(() => setRefreshKey((k) => k + 1), [])
+  // 케이스 변경·AI 출제 후: 목록 재조회 + 열린 드로어(detail) 단건 재조회(generating·case_count 반영, 스펙 196).
+  const onDatasetChanged = useCallback(() => {
+    setRefreshKey((k) => k + 1)
+    if (detail) getEvalDataset(detail.id).then((d) => setDetail((c) => (c && c.id === d.id ? d : c))).catch(() => {})
+  }, [detail])
   const loadRuns = useCallback(() => {
     listEvalRuns()
       .then((rs) => {
@@ -609,13 +615,12 @@ export default function EvalView() {
   }, [])
 
   useEffect(() => {
-    loadDatasets()
-    loadRuns()
+    loadRuns()  // 목록(datasets)은 PagedListShell이 자체 로드(스펙 196)
     listAgents().then(setAgents).catch(() => {})
     listCollections().then(setCollections).catch(() => {})
     listModels('chat').then(setChatModels).catch(() => {})
     getEvalHelperStatus().then(setHelper).catch(() => setHelper({ available: false, reason: '도우미 상태 확인 실패' }))
-  }, [loadDatasets, loadRuns])
+  }, [loadRuns])
 
   // 실행 중인 런이 있으면 5초 폴링(성적 반영) — 없으면 중지.
   useEffect(() => {
@@ -624,17 +629,24 @@ export default function EvalView() {
     return () => clearInterval(t)
   }, [runs, loadRuns])
 
-  // 스펙 193: 문제 자동 생성 중인 문제집이 있으면 2.5초 폴링(케이스가 차오르는 것 반영) — 다 끝나면 중지(좀비 방지).
+  // 스펙 193/196: 현재 페이지에 생성 중 문제집이 있으면(any_generating) 2.5초마다 목록 재조회 — 끝나면 중지.
   useEffect(() => {
-    if (!datasets.some((d) => d.generating)) return
-    const t = setInterval(loadDatasets, 2500)
+    if (!anyGenerating) return
+    const t = setInterval(() => setRefreshKey((k) => k + 1), 2500)
     return () => clearInterval(t)
-  }, [datasets, loadDatasets])
+  }, [anyGenerating])
 
-  // 스펙 193: 폴링으로 datasets 갱신 시 열린 드로어(detail)도 최신으로 — generating 종료·collection_id 고정 반영.
+  // 스펙 196: 열린 드로어(detail)가 생성 중이면 단건 폴링으로 최신화 — generating 종료·collection_id 반영.
+  // (목록이 셸 소유라 datasets에서 find 못 함 → getEvalDataset으로 자기 재조회.)
   useEffect(() => {
-    setDetail((cur) => (cur ? datasets.find((d) => d.id === cur.id) ?? cur : cur))
-  }, [datasets])
+    if (!detail?.generating) return
+    const t = setInterval(() => {
+      getEvalDataset(detail.id)
+        .then((d) => setDetail((cur) => (cur && cur.id === d.id ? d : cur)))
+        .catch(() => {})
+    }, 2500)
+    return () => clearInterval(t)
+  }, [detail?.generating, detail?.id])
 
   const dsCols: Column<EvalDataset>[] = [
     {
@@ -664,7 +676,7 @@ export default function EvalView() {
         // 삭제는 소유자·관리자만(읽기는 공개, 스펙 178 P3) — can_manage 미실림(구버전 응답)은 보이게.
         d.can_manage !== false ? (
           <span onClick={(e) => e.stopPropagation()}>
-            <Popconfirm title="문제집과 모든 문제·성적을 삭제할까요?" okText="삭제" cancelText="취소" onConfirm={() => void deleteEvalDataset(d.id).then(loadDatasets)}>
+            <Popconfirm title="문제집과 모든 문제·성적을 삭제할까요?" okText="삭제" cancelText="취소" onConfirm={() => void deleteEvalDataset(d.id).then(bumpDatasets)}>
               <Button size="small" type="text" danger icon={<Icon name="delete" />} />
             </Popconfirm>
           </span>
@@ -727,14 +739,27 @@ export default function EvalView() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {/* 소유 기반 공개(스펙 178 P3) — 읽기는 모든 사용자, 편집·실행은 소유자·관리자만. */}
                 <Alert type="info" showIcon message="평가 결과는 모든 사용자에게 공개됩니다" />
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  {/* 스펙 195: '컬렉션에서 생성'(자동 채움) 제거 — 문제집은 빈 채로 만들고, 드로어 상단
-                     'AI 출제' 버튼으로 원할 때만 채운다(자동 강제 없음). rag는 새 문제집에서 컬렉션 고정. */}
-                  <Button type="primary" icon={<Icon name="plus" />} onClick={() => setCreating(true)}>
-                    새 문제집
-                  </Button>
-                </div>
-                <DataTable<EvalDataset> columns={dsCols} rows={datasets} onRowClick={setDetail} empty="문제집이 없습니다 — 첫 문제집을 만들어 보세요." />
+                {/* 스펙 196: 목록을 PagedListShell로 — 최근순 정렬·서버 검색·페이징(세션 098/128 패턴).
+                   '새 문제집'은 leftSlot으로(스펙 195: '컬렉션에서 생성' 자동 채움은 제거됨 — 빈 문제집+상단 AI 출제). */}
+                <PagedListShell<EvalDataset, boolean>
+                  scopeKey="eval-datasets"
+                  refreshKey={refreshKey}
+                  fetchPage={async (q, limit, offset) => {
+                    const data = await listEvalDatasets({ q, limit, offset })
+                    return { items: data.items, total: data.total, extra: data.any_generating }
+                  }}
+                  onExtra={(g) => setAnyGenerating(!!g)}
+                  columns={dsCols}
+                  onRowClick={setDetail}
+                  searchPlaceholder="문제집 이름·설명 검색"
+                  emptyText="문제집이 없습니다 — 첫 문제집을 만들어 보세요."
+                  errorTitle="문제집을 불러오지 못했습니다"
+                  leftSlot={
+                    <Button type="primary" icon={<Icon name="plus" />} onClick={() => setCreating(true)}>
+                      새 문제집
+                    </Button>
+                  }
+                />
               </div>
             ),
           },
@@ -754,7 +779,8 @@ export default function EvalView() {
                     placeholder="문제집으로 필터"
                     value={runFilter}
                     onChange={(v) => { setRunFilter(v); setCompareSel([]) }}
-                    options={datasets.map((d) => ({ value: d.id, label: d.name }))}
+                    /* 스펙 196: 전체 datasets(이제 페이징됨) 대신 runs에서 고유 문제집 유도 — 실행 이력 탭이라 자연. */
+                    options={Array.from(new Map(runs.map((r) => [r.dataset_id, r.dataset_name])).entries()).map(([id, name]) => ({ value: id, label: name ?? id }))}
                   />
                   <div style={{ flex: 1 }} />
                   <Button
@@ -796,7 +822,7 @@ export default function EvalView() {
               setNewDesc('')
               setNewKind('agent')
               setNewColl(undefined)
-              loadDatasets()
+              bumpDatasets()
             })
             .catch((e) => message.error((e as Error).message))
         }
@@ -831,7 +857,7 @@ export default function EvalView() {
         chatModels={chatModels}
         helper={helper}
         onClose={() => setDetail(null)}
-        onChanged={loadDatasets}
+        onChanged={onDatasetChanged}
         onRunStarted={() => { loadRuns(); setTab('runs') }}
         onOpenRun={(rid) => { setDetail(null); setRunDetail(rid) }}
       />
