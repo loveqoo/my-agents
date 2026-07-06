@@ -18,6 +18,7 @@ import {
   ScheduleOutlined,
   SafetyCertificateOutlined,
   SettingOutlined,
+  QuestionCircleOutlined,
   LogoutOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
@@ -157,6 +158,9 @@ export default function AdminShell({ user, onLogout }: { user: Me; onLogout: () 
       children: [
         { key: 'debug', icon: <ThunderboltOutlined />, label: 'Playground' },
         { key: 'eval', icon: <CheckCircleOutlined />, label: '평가' },
+        // 가이드 — 뷰 전환이 아니라 정적 HTML(public/guide, docs/guide/build-html.py 산출)을
+        // 새 탭으로 연다. onSelect에서 가로채므로 ViewKey에 포함하지 않는다.
+        { key: 'guide', icon: <QuestionCircleOutlined />, label: '가이드' },
       ],
     },
   ]
@@ -259,6 +263,11 @@ export default function AdminShell({ user, onLogout }: { user: Me; onLogout: () 
             mode="inline"
             selectedKeys={[view]}
             onSelect={({ key }) => {
+              if (key === 'guide') {
+                // 가이드는 뷰가 아니라 정적 문서 — 새 탭으로 열고 현재 뷰 유지.
+                window.open('/guide/index.html', '_blank', 'noopener')
+                return
+              }
               setView(key as ViewKey)
               if (isMobile) setCollapsed(true)
             }}
