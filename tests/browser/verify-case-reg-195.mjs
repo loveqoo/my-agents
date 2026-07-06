@@ -62,6 +62,9 @@ try {
   await page.getByText('평가', { exact: true }).first().click()
   await page.waitForTimeout(1000)
   ok(await waitFor(new RegExp(`ev195-${S}`)), '평가 목록에 문제집 노출')
+  // 5) '컬렉션에서 생성'(자동 채움) 버튼 제거 — 자동 출제 강제 경로 없음(빈 문제집+상단 AI 출제로 일원화)
+  ok(await page.getByRole('button', { name: '컬렉션에서 생성' }).count() === 0, "5 '컬렉션에서 생성'(자동) 버튼 제거됨")
+  ok(await page.getByRole('button', { name: '새 문제집' }).count() > 0, "5b '새 문제집'(빈) 버튼은 유지")
 
   await openDataset(`ev195-${S}`)
   const dt = await bodyText()
