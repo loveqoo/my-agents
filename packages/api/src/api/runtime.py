@@ -573,6 +573,8 @@ _SENSITIVE_KEY = re.compile(
     r"(api[_-]?key|secret|token|password|passwd|auth|credential|bearer|[_-]key$|^key$)", re.I
 )
 _FIELD_CAP = 300  # 필드(값) 1개 표시 상한(자)
+_MSG_PREVIEW_CAP = 160  # messages 델타의 메시지 1건 본문 프리뷰 상한(자) — 채팅 중복이라 짧게(스펙 192 후속)
+_MSG_PREVIEW_N = 3  # 프리뷰로 펼칠 앞쪽 메시지 수(나머지는 "+N건"으로 카운트만)
 _NODE_SUMMARY_CAP = 1200  # 노드 요약 전체 상한(자) — 필드 캡보다 커야 단일 필드가 이중 캡 안 됨
                           # (codex F3 후속: per-field 캡 후 join이 또 잘려 생략 길이가 거짓이 되던 버그)
 _REDACTED = "«redacted»"
@@ -636,6 +638,17 @@ def _cap(s: str, limit: int = _NODE_SUMMARY_CAP) -> str:
     return s[:limit] + f"…({len(s) - limit}자 생략)"
 
 
+def _msg_role(m: Any) -> str:
+    """메시지(LangChain 객체/dict)의 역할을 사용자 친화 라벨로. 청크형 type명(AIMessageChunk 등)도
+    소문자 접두 매칭으로 방어(스펙 086 노트: .type은 청크/비청크 간 불안정)."""
+    r = str((m.get("role") or m.get("type") or "") if isinstance(m, dict) else getattr(m, "type", "") or "")
+    low = r.lower()
+    for k, v in (("ai", "assistant"), ("human", "user"), ("tool", "tool"), ("system", "system")):
+        if low.startswith(k):
+            return v
+    return r or "msg"
+
+
 def _summarize_node_update(node: str, delta: Any) -> str | None:
     """노드가 발화하며 바꾼 상태 델타를 사람이 읽을 짧은 문자열로 요약(스펙 086).
 
@@ -656,9 +669,23 @@ def _summarize_node_update(node: str, delta: Any) -> str | None:
             if _SENSITIVE_KEY.search(key):
                 parts.append(f"{key}={_REDACTED}")
                 continue
-            # messages는 이미 토큰으로 스트림됐다 — 본문 중복 안 싣고 건수만.
+            # messages: 그 단계가 낸 발화를 role+본문 프리뷰로(스펙 192 후속 — plan처럼 execute 등도
+            # "무슨 메시지를 냈나"를 타임라인에서 보이게). 채팅 스트림과 일부 중복이라 프리뷰는 짧게 캡.
+            # 불변식(086) 유지: 마스킹은 캡 이전에 큰 cap으로(무절단), 잘림은 _cap이 정직 표기. 앞
+            # _MSG_PREVIEW_N건만 펼치고 나머지는 카운트(거대 리스트 방어).
             if key == "messages" and isinstance(val, list):
-                parts.append(f"메시지 {len(val)}건")
+                if not val:
+                    parts.append("메시지 0건")
+                    continue
+                from .memory import _sanitize as _mask
+
+                previews: list[str] = []
+                for m in val[:_MSG_PREVIEW_N]:
+                    raw = m.get("content") if isinstance(m, dict) else getattr(m, "content", None)
+                    text = _cap(_mask(_content_text(raw), cap=1_000_000), _MSG_PREVIEW_CAP)
+                    previews.append(f"{_msg_role(m)}: «{text}»" if text else _msg_role(m))
+                extra = len(val) - len(previews)
+                parts.append(" / ".join(previews) + (f" (+{extra}건)" if extra > 0 else ""))
                 continue
             if isinstance(val, str):
                 # 안전 키(plan)만 값 원문(budgeted 캡); 그 외 임의 키는 길이만(F2 값-비밀 fail-closed).

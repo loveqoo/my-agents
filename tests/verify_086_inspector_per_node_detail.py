@@ -76,11 +76,19 @@ def unit_checks() -> None:
     huge_plan = api_rt._summarize_node_update("plan", {"plan": "y" * 5_000_000})
     check(len(huge_plan) <= api_rt._FIELD_CAP + 20, f"U2b 안전 키도 필드 캡으로 유한 (len={len(huge_plan)})")
 
-    # U3 알려진 형태 — plan 문자열·messages 건수·빈/비dict→None.
+    # U3 알려진 형태 — plan 문자열·messages 프리뷰(스펙 192)·빈/비dict→None.
     plan_s = api_rt._summarize_node_update("plan", {"plan": "1) 핵심 2) 근거"})
     check("1) 핵심 2) 근거" in (plan_s or ""), f"U3 plan 값 원문 포함(131: 키 접두 허용) (got {plan_s})")
-    msg_s = api_rt._summarize_node_update("execute", {"messages": [object(), object()]})
-    check(msg_s == "메시지 2건", f"U3 messages는 건수만(본문 중복 안 실음) (got {msg_s})")
+    # 스펙 192: messages는 건수만 → role+본문 프리뷰(그 단계 발화를 타임라인서). 마스킹·fail-closed 유지.
+    from langchain_core.messages import AIMessage as _AIMsg
+    msg_s = api_rt._summarize_node_update("execute", {"messages": [_AIMsg(content="실행 결과 본문")]})
+    check(msg_s == "assistant: «실행 결과 본문»", f"U3 messages는 role+프리뷰 (got {msg_s})")
+    check(api_rt._summarize_node_update("x", {"messages": []}) == "메시지 0건", "U3 빈 messages → '메시지 0건'")
+    _mask_s = api_rt._summarize_node_update("x", {"messages": [_AIMsg(content="키 sk-ABCDEF1234567890ABCDEF end")]})
+    check("sk-ABCDEF1234567890ABCDEF" not in _mask_s and "«secret»" in _mask_s,
+          f"U3 messages 프리뷰 비밀 마스킹(누출0) (got {_mask_s})")
+    check(api_rt._summarize_node_update("x", {"messages": [object()]}) is not None,
+          "U3 비정상 메시지도 fail-closed(크래시 없음)")
     check(api_rt._summarize_node_update("n", {}) is None, "U3 빈 델타 → None(요약 행 미표시)")
     check(api_rt._summarize_node_update("n", "not-a-dict") is None, "U3 비dict 델타 → None")
 
@@ -198,9 +206,10 @@ async def http_checks() -> None:
         plan_sum = nodes.get("plan", {}).get("summary", "")
         check("핵심" in plan_sum and "근거" in plan_sum,
               f"H2 plan summary에 실 계획 문자열 (got {plan_sum!r})")
-        # execute는 messages를 만든다 → 건수 요약(본문은 토큰 스트림으로 이미 나감).
+        # execute는 messages를 만든다 → role+본문 프리뷰(스펙 192: 그 단계 발화를 타임라인서 보이게).
         exec_sum = nodes.get("execute", {}).get("summary", "")
-        check("메시지" in exec_sum, f"H2 execute summary=메시지 건수 (got {exec_sum!r})")
+        check("«" in exec_sum or "assistant" in exec_sum,
+              f"H2 execute summary=발화 role+프리뷰 (got {exec_sum!r})")
 
         # H3 노드별 실측 ms — plan(모델 호출 없는 결정적)은 execute(모델 호출)보다 빠르다.
         # 균등분할이면 둘이 같아야 하므로, plan<execute는 *실측*의 증거.
