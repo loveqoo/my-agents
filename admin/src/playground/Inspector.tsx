@@ -312,7 +312,12 @@ function BrokerRagCard({ b }: { b: BrokerCall }) {
 }
 
 // 한 노드에서 일어난 일의 상세 JSX(없으면 null). t.graph의 각 노드에 붙는다.
-function nodeEventContent(t: Trace, node: string): ReactNode | null {
+// tctx: tools 노드 라운드 귀속용(스펙 202/203 후속) — 이 tools 노드의 순번·전체 수·요약(내용 매칭 키).
+function nodeEventContent(
+  t: Trace,
+  node: string,
+  tctx?: { summary?: string; toolsIdx: number; toolsTotal: number },
+): ReactNode | null {
   // 메모리 회상 — retrieve_memory 노드.
   if (node === 'retrieve_memory' && (t.memoryQuery != null || t.memories.length)) {
     return (
@@ -333,10 +338,23 @@ function nodeEventContent(t: Trace, node: string): ReactNode | null {
       </div>
     )
   }
-  // 도구·문서검색(직접 경로) — tools 노드에 t.mcp 전부 귀속.
+  // 도구·문서검색(직접 경로) — tools 노드에 t.mcp 귀속.
+  // 스펙 202/203 후속(도시락 버그): 도구 루프가 생기며 tools 노드가 **여러 번** 등장할 수 있는데,
+  // 전부-귀속(옛 가정 "ReAct 다중 tools는 한 노드로 접힘")이면 라운드마다 같은 카드가 중복 렌더된다
+  // (3회 호출 턴 = 카드 9장). 다회면 ① 결과 본문 머리가 이 라운드 summary에 포함되는 호출만(내용
+  // 매칭), ② 매칭 0건이면 순번 폴백(라운드 수=호출 수인 통상 케이스)으로 라운드별 귀속한다.
   if (node === 'tools') {
-    const rag = t.mcp.filter((c) => c.server === 'rag')
-    const mcp = t.mcp.filter((c) => c.server !== 'rag')
+    let calls = t.mcp
+    if (tctx && tctx.toolsTotal > 1) {
+      const sum = tctx.summary || ''
+      const matched = t.mcp.filter((c) => {
+        const head = String(c.result ?? '').slice(0, 40)
+        return head.length > 0 && sum.includes(head)
+      })
+      calls = matched.length ? matched : t.mcp[tctx.toolsIdx] ? [t.mcp[tctx.toolsIdx]] : []
+    }
+    const rag = calls.filter((c) => c.server === 'rag')
+    const mcp = calls.filter((c) => c.server !== 'rag')
     if (!rag.length && !mcp.length) return null
     return (
       <div>
@@ -397,9 +415,16 @@ function NodeTimeline({ t }: { t: Trace }) {
         </div>
       ) : null}
       <Timeline
-        items={t.graph.map((n) => {
+        items={(() => {
+          // tools 라운드 순번(스펙 202/203 후속) — 다회 도구 루프의 카드 중복 귀속 방지.
+          const toolsTotal = t.graph.filter((x) => x.node === 'tools').length
+          let toolsSeen = 0
+          return t.graph.map((n) => {
           const meta = nodeMeta(n.node)
-          const content = nodeEventContent(t, n.node)
+          const tctx = n.node === 'tools'
+            ? { summary: n.summary, toolsIdx: toolsSeen++, toolsTotal }
+            : undefined
+          const content = nodeEventContent(t, n.node, tctx)
           return {
             dot: <Icon name={meta.icon} size={13} style={{ color: meta.color }} />,
             children: (
@@ -420,7 +445,8 @@ function NodeTimeline({ t }: { t: Trace }) {
               </div>
             ),
           }
-        })}
+          })
+        })()}
       />
     </div>
   )
