@@ -4,7 +4,7 @@
 import { useState, useEffect, type CSSProperties, type ReactNode } from 'react'
 import { Tag, Button, Collapse } from 'antd'
 import { Icon } from '../admin/icons'
-import type { ChatMsg, Memory, McpCallT, GraphNode, Trace } from './agentData'
+import type { ChatMsg, Memory, McpCallT, GraphNode, Trace, RagHit } from './agentData'
 import type { Agent } from '../admin/mockData'
 
 function Section({
@@ -138,11 +138,68 @@ function McpCall({ c }: { c: McpCallT }) {
   )
 }
 
+/* 유사도 점수대별 색(스펙 191) — score=1−cosine_distance(1=완전 일치). 표시 heuristic 밴드:
+   ≥0.7 강함(green)·0.5~0.7 보통(default)·<0.5 약함(orange). 임베딩 모델 무관 고정. */
+function scoreColor(score: number): string {
+  if (score >= 0.7) return 'green'
+  if (score >= 0.5) return 'default'
+  return 'orange'
+}
+
+/* 유사도 척도 범례(스펙 191) — "0.42가 낮은 건가?" 질문에 답한다. thresholds 있으면 컬렉션별 기준선도. */
+function ScaleLegend({ thresholds }: { thresholds?: Record<string, number> }) {
+  const entries = Object.entries(thresholds || {}).filter(([, v]) => typeof v === 'number' && v > 0)
+  return (
+    <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginBottom: 8 }}>
+      유사도 0~1 (1=완전 일치, 0.5 미만=관련 낮음)
+      {entries.length ? (
+        <> · <span style={{ color: 'var(--color-warning)' }}>필터: {entries.map(([c, v]) => `${c} ≥ ${v.toFixed(2)}`).join(', ')} 미만 제외</span></>
+      ) : null}
+    </div>
+  )
+}
+
+/* RAG 히트 1건 카드(스펙 191) — 컬렉션 + 파일명 + 유사도 배지(점수대 색) + 본문 프리뷰(길면 접기).
+   벽 텍스트를 문서별로 갈라 스캔 가능하게. */
+function HitCard({ hit, idx }: { hit: RagHit; idx: number }) {
+  const long = hit.textPreview.length > 160
+  const body = (
+    <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', overflowWrap: 'anywhere', whiteSpace: 'pre-wrap' }}>
+      {hit.textPreview || '(본문 없음)'}
+    </div>
+  )
+  return (
+    <div style={{ border: '1px solid var(--color-border-secondary)', borderRadius: 6, padding: '6px 10px', marginTop: 6 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: long ? 0 : 4 }}>
+        <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)', flex: 'none' }}>{idx + 1}.</span>
+        {hit.collection ? (
+          <Tag color="geekblue" style={{ fontSize: 11, marginInlineEnd: 0 }}>{hit.collection}</Tag>
+        ) : null}
+        <span style={{ fontSize: 12, fontFamily: 'var(--font-family-code)', color: 'var(--color-text-heading)', overflowWrap: 'anywhere' }}>
+          {hit.filename || '(파일명 없음)'}
+        </span>
+        <Tag color={scoreColor(hit.score)} style={{ marginInlineStart: 2 }}>유사도 {hit.score.toFixed(3)}</Tag>
+      </div>
+      {long ? (
+        <Collapse
+          size="small"
+          ghost
+          items={[{ key: 'b', label: <span style={{ fontSize: 12 }}>본문 보기</span>, children: body }]}
+        />
+      ) : (
+        body
+      )}
+    </div>
+  )
+}
+
 /* RAG 문서검색 호출 카드(스펙 079) — McpCall과 형제지만 hits(반환 건수)를 강조하고
-   "문서 검색" 맥락으로 라벨링한다. 0건이어도 조회 이력으로 남긴다. */
+   "문서 검색" 맥락으로 라벨링한다. 0건이어도 조회 이력으로 남긴다.
+   스펙 191: 결과를 벽 텍스트 대신 히트별 카드로(hitsDetail 있으면), 유사도 척도 범례 노출. */
 function RagCall({ c }: { c: McpCallT }) {
   const q = typeof c.args?.query === 'string' ? (c.args.query as string) : ''
   const n = c.hits ?? 0
+  const detail = c.hitsDetail ?? []
   return (
     <div style={{ border: '1px solid var(--color-border-secondary)', borderRadius: 8, padding: 12, marginTop: 10 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap', rowGap: 2 }}>
@@ -158,10 +215,18 @@ function RagCall({ c }: { c: McpCallT }) {
         <div style={{ flex: 1 }} />
         <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-family-code)', flex: 'none' }}>{c.ms} ms</span>
       </div>
-      <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginBottom: 3 }}>쿼리</div>
-      <pre style={{ ...codeBox, marginBottom: 8 }}>{q || '(빈 쿼리)'}</pre>
+      <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginBottom: 3 }}>검색어</div>
+      <pre style={{ ...codeBox, marginBottom: 8 }}>{q || '(빈 검색어)'}</pre>
       <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginBottom: 3 }}>결과</div>
-      <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', overflowWrap: 'anywhere' }}>{c.result}</div>
+      {detail.length ? (
+        <>
+          <ScaleLegend thresholds={c.minScores} />
+          {detail.map((h, i) => <HitCard key={i} hit={h} idx={i} />)}
+        </>
+      ) : (
+        // 옛 trace(hitsDetail 없음) 하위호환 — 기존 텍스트 폴백.
+        <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', overflowWrap: 'anywhere' }}>{c.result}</div>
+      )}
     </div>
   )
 }
@@ -473,9 +538,12 @@ export function Inspector({
                   </div>
                 ) : null}
                 {/* 브로커 위임 검색(조율형, 스펙 130) — 건수·최고 유사도·판정 태그.
-                    131: 결과 본문 프리뷰를 접이식으로(2000자 캡·마스킹된 안전본). */}
-                {brokerRag.map((b, i) => (
-                  <div key={`bk-${i}`} style={{ marginBottom: 6 }}>
+                    131: 결과 본문 프리뷰를 접이식으로(2000자 캡·마스킹된 안전본).
+                    191: 검색어 노출 + 히트별 카드(hitsDetail) + 유사도 척도/기준선. */}
+                {brokerRag.map((b, i) => {
+                  const bd = (b.hitsDetail ?? []) as RagHit[]
+                  return (
+                  <div key={`bk-${i}`} style={{ marginBottom: 8 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 13 }}>
                       <Tag color="geekblue" style={{ fontFamily: 'var(--font-family-code)' }}>{b.cap_id}</Tag>
                       {b.error ? (
@@ -496,7 +564,20 @@ export function Inspector({
                       )}
                       <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>{b.ms}ms</span>
                     </div>
-                    {b.resultPreview ? (
+                    {/* 검색어(스펙 191) — 직접 도구와 동일하게 무엇으로 검색했는지 노출. */}
+                    {b.query ? (
+                      <div style={{ marginTop: 4 }}>
+                        <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>검색어: </span>
+                        <span style={{ fontSize: 12, fontFamily: 'var(--font-family-code)', color: 'var(--color-text-secondary)', overflowWrap: 'anywhere' }}>{b.query}</span>
+                      </div>
+                    ) : null}
+                    {bd.length ? (
+                      <div style={{ marginTop: 6 }}>
+                        {/* 브로커 rag 호출은 컬렉션 1개(cap_id="rag:컬렉션명") → minScore(scalar)를 그 컬렉션 기준선으로. */}
+                        <ScaleLegend thresholds={b.minScore ? { [b.cap_id.replace(/^rag:/, '')]: b.minScore } : undefined} />
+                        {bd.map((h, j) => <HitCard key={j} hit={h} idx={j} />)}
+                      </div>
+                    ) : b.resultPreview ? (
                       <Collapse
                         size="small"
                         style={{ marginTop: 4 }}
@@ -504,7 +585,8 @@ export function Inspector({
                       />
                     ) : null}
                   </div>
-                ))}
+                  )
+                })}
                 {ragCalls.length ? (
                   ragCalls.map((c, i) => <RagCall key={i} c={c} />)
                 ) : !brokerRag.length ? (

@@ -25,6 +25,7 @@ export function blankForm(blocks: Record<string, BlockCategory>, models: Model[]
     impl: '',
     capabilities: [],
     toolPolicy: {},
+    ragMinScores: {}, // 컬렉션별 문서 검색 최소 유사도(스펙 191 v2) — 기본 무필터
   }
 }
 
@@ -278,6 +279,49 @@ export function AgentForm({
         ) : (
           <PickerGroups groups={doGroups} selected={directSelected} onToggle={toggleDirect} />
         )}
+
+        {/* 컬렉션별 문서 검색 최소 유사도(스펙 191 v2) — 배선된 RAG 컬렉션마다 슬라이더 하나.
+            직접=vectorTables, 조율형=capabilities의 rag:*. 산출물형은 문서 검색 없음. */}
+        {(() => {
+          if (isArtifactForm) return null
+          const cols = orchestratorSelected
+            ? form.capabilities.filter((c) => c.startsWith('rag:')).map((c) => c.slice(4))
+            : form.vectorTables
+          if (!cols.length) return null
+          const scores = form.ragMinScores || {}
+          const setScore = (col: string, val: number) =>
+            set('ragMinScores', { ...scores, [col]: val })
+          return (
+            <div style={{ marginTop: 4 }}>
+              <SectionHeader>문서 검색 — 최소 유사도 (컬렉션별)</SectionHeader>
+              <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)', display: 'block', marginBottom: 10 }}>
+                각 컬렉션에서 이 값 미만으로 유사한 문서는 검색에서 무시합니다(0 = 무필터). 유사도는 0~1이며 1이 완전 일치입니다.
+              </span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {cols.map((col) => {
+                  const v = scores[col] ?? 0
+                  return (
+                    <div key={col} style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                      <span style={{ minWidth: 130, fontSize: 13, fontFamily: 'var(--font-family-code)', overflowWrap: 'anywhere' }}>{col}</span>
+                      <Slider
+                        style={{ flex: 1 }}
+                        min={0}
+                        max={1}
+                        step={0.05}
+                        value={v}
+                        onChange={(val) => setScore(col, typeof val === 'number' ? val : 0)}
+                        marks={{ 0: '0', 0.5: '0.5', 1: '1' }}
+                      />
+                      <span style={{ fontFamily: 'var(--font-family-code)', minWidth: 44, textAlign: 'right', fontSize: 13 }}>
+                        {v === 0 ? '무필터' : v.toFixed(2)}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )
+        })()}
 
         {/* 도구 승인 오버라이드(스펙 177 P2) — 배선된 MCP 도구별로 승인 정책을 이 에이전트에 한해 덮어씀.
             완화(본인 승인·승인 없음)는 백엔드 완화 게이트가 admin만 저장 허용(비-admin 저장 시 403). */}

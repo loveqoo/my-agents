@@ -342,6 +342,9 @@ async def _load_context(
         else:
             ctx["rag_unresolved"] = []
         ctx["rag_collections"] = rag_collections
+        # 컬렉션별 최소 유사도 맵(스펙 191 v2) — {컬렉션명: 임계값}. 미만 문서를 검색 코어에서 드롭.
+        # downstream(build_rag_tool·RagProvider)이 범위(0<x≤1)·컬렉션 한정 재검증하므로 raw 통과({}=무필터).
+        ctx["rag_min_scores"] = cfg.get("ragMinScores") or {}
 
         sess = None
         if session_str_id:
@@ -509,7 +512,7 @@ def _broker_calls_trace(invocations: list[dict]) -> list[dict]:
     """브로커 호출 이력 → 트레이스 표시용 투영(스펙 130) — **키 화이트리스트 단일 출처**(메인/승인대기/
     재개 세 경로 공유, drift 0). 본문·args 불포함(087/092 원문 누출 0 유지)."""
     return [
-        {k: v for k, v in inv.items() if k in ("cap_id", "ms", "hits", "topScore", "error", "resultPreview")}
+        {k: v for k, v in inv.items() if k in ("cap_id", "ms", "hits", "topScore", "error", "resultPreview", "hitsDetail", "minScore", "query")}
         for inv in invocations
     ]
 
@@ -666,7 +669,7 @@ async def stream_local_reply(agent_id: uuid.UUID, user_text: str):
     calls_sink: list[dict] = []
     tools = await runtime.build_mcp_tools(ctx["mcp_servers"], calls_sink, ctx.get("toolPolicy"))
     if ctx["rag_collections"]:
-        tools.append(runtime.build_rag_tool(ctx["rag_collections"], calls_sink))
+        tools.append(runtime.build_rag_tool(ctx["rag_collections"], calls_sink, ctx.get("rag_min_scores")))
     run_params = {} if ctx["temperature"] is None else {"temperature": ctx["temperature"]}
     build_ctx = AgentBuildContext(
         persona=ctx["persona"],
@@ -751,7 +754,7 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
     # 채팅 자가기록 도구는 제거됨(스펙 051) — agent_id 메모리는 어드민 저작 전용. 회상은 아래 유지.
     # RAG 검색 도구 — vectorTables가 실 컬렉션으로 해석됐을 때만 주입(스펙 037). mem0 비종속.
     if ctx["rag_collections"]:
-        tools.append(runtime.build_rag_tool(ctx["rag_collections"], calls_sink))
+        tools.append(runtime.build_rag_tool(ctx["rag_collections"], calls_sink, ctx.get("rag_min_scores")))
 
     # 회상된 기억은 persona(시스템 프롬프트)에 합친다. 별도 system 메시지로 주입하면
     # create_agent의 system_prompt와 충돌해 모델 채팅 템플릿이 거부한다
@@ -768,7 +771,7 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
     # 능력 브로커(스펙 100) — 정책(에이전트 allowlist ∩ 유저 RBAC)으로 **미리 스코프**해 주입.
     # 로컬(ui) 실행 경로에만 준다: 원격 통째 프록시(_a2a_stream)는 broker 미주입(bypass 보존).
     # broker를 쓰는 flow(예: orchestrate)만 소비하고, 안 쓰면 무해(deny-by-default).
-    build_broker_scoped = build_broker(principal, ctx["capabilities"], ctx.get("toolPolicy"))
+    build_broker_scoped = build_broker(principal, ctx["capabilities"], ctx.get("toolPolicy"), ctx.get("rag_min_scores"))
     build_ctx = AgentBuildContext(
         persona=persona_prompt,
         model_cfg=ctx["model_cfg"],
@@ -1230,7 +1233,7 @@ async def resume_approval(approval: Approval, decision: str) -> None:
     tools = await runtime.build_mcp_tools(ctx["mcp_servers"], calls_sink, ctx.get("toolPolicy"))
     # 채팅 자가기록 도구 제거됨(스펙 051) — agent_id 메모리는 어드민 저작 전용. 회상(recall_scope)은 유지.
     if ctx["rag_collections"]:
-        tools.append(runtime.build_rag_tool(ctx["rag_collections"], calls_sink))
+        tools.append(runtime.build_rag_tool(ctx["rag_collections"], calls_sink, ctx.get("rag_min_scores")))
 
     persona_prompt = ctx["persona"]
     if mem_hits:

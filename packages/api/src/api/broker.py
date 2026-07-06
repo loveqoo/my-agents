@@ -502,8 +502,10 @@ class RagProvider:
 
     kind = CAP_KIND_RAG
 
-    def __init__(self, session_factory):
+    def __init__(self, session_factory, min_scores: dict | None = None):
         self._session_factory = session_factory
+        # 컬렉션별 최소 유사도 맵(스펙 191 v2) — invoke가 row.name으로 조회해 그 컬렉션 임계값을 적용.
+        self._min_scores = min_scores if isinstance(min_scores, dict) else {}
 
     async def _load_rows(self, names: set[str]) -> list:
         """Collection 행을 embedding_model.provider까지 selectinload(col dict 구성에 필요)."""
@@ -598,22 +600,34 @@ class RagProvider:
         text = str(args.get("text", "")) if isinstance(args, dict) else str(args)
         top_k = args.get("top_k", 4) if isinstance(args, dict) else 4
         rt = _rt()
+        # 검색 질의 표시(스펙 191) — 직접 인-챗 RAG 도구는 이미 args.query를 trace에 노출한다.
+        # 조율형(브로커)도 같은 표시-안전 값을 보이게 raw에 싣되, 비밀 마스킹(_sanitize)+캡을
+        # 백스톱으로 건다(일반 args 노출이 아니라 RAG 질의 1개만 — 087/092 원문 누출 경계 유지).
+        from .memory import _sanitize as _san
+        query_disp = _san((text or "").strip(), cap=300)
+        # 이 컬렉션의 임계값(스펙 191 v2) — 맵에서 조회, 없으면 0(무필터).
+        thr = rt._norm_score(self._min_scores.get(row.name, 0.0))
         try:
-            hits = await rt.search_collections([row.col], text, top_k)
+            hits = await rt.search_collections([row.col], text, top_k, {row.name: thr})
             # 결과 = 문서 내용 = **데이터**(지시 아님). trust=untrusted 불변(인젝션 방어).
             # hits/topScore 구조화(스펙 130) — 조율형의 RAG 검색이 인스펙터에 "N건·최고 유사도"로
             # 보이게. 문서 본문은 raw에 싣지 않는다(표시용 메타 숫자만 — 과대 데이터/누출 없음).
+            # 히트별 카드·기준선(스펙 191): hitsDetail(컬렉션·파일명·유사도·본문) + minScore + query.
             top = max((float(h.get("score", 0.0)) for h in hits), default=0.0)
             return InvokeResult(
                 text=rt.format_rag_hits(hits),  # 인-챗 도구와 공유 포맷(drift 0)
                 trust="untrusted", error=None,
-                raw={"cap_id": cap_id, "kind": CAP_KIND_RAG, "hits": len(hits), "topScore": round(top, 3)},
+                raw={
+                    "cap_id": cap_id, "kind": CAP_KIND_RAG, "hits": len(hits), "topScore": round(top, 3),
+                    "hitsDetail": rt._hits_detail(hits), "minScore": round(thr, 3), "query": query_disp,
+                },
             )
         except rt.RagSearchError as exc:
             # 코어가 이미 분류(empty/embed/db) — graceful 오류로 접어 에이전트를 죽이지 않는다.
+            # 실패해도 무엇을 검색했는지(query)는 남긴다(스펙 191 — 진단 가치).
             return InvokeResult(
                 text="", trust="untrusted", error=exc.tool_msg,
-                raw={"cap_id": cap_id, "kind": CAP_KIND_RAG},
+                raw={"cap_id": cap_id, "kind": CAP_KIND_RAG, "query": query_disp},
             )
 
     def node_label(self, row: _RagBacking) -> str:
@@ -998,6 +1012,7 @@ class PolicyScopedBroker:
         session_factory=SessionLocal,
         user_id: str | None = None,
         tool_policy: dict | None = None,
+        rag_min_scores: dict | None = None,
     ):
         self._allow: set[str] = set(allowlist or [])
         self._rbac_allows = rbac_allows
@@ -1008,7 +1023,7 @@ class PolicyScopedBroker:
         self._providers: list[_CapabilityProvider] = [
             AgentProvider(session_factory),
             McpProvider(session_factory),
-            RagProvider(session_factory),
+            RagProvider(session_factory, rag_min_scores),  # 스펙 191 v2 컬렉션별 최소 유사도
             MemoryProvider(session_factory, user_id),
             MemoryWriteProvider(session_factory, user_id),
             MemEditProvider(session_factory, user_id),
@@ -1107,6 +1122,13 @@ class PolicyScopedBroker:
             inv["hits"] = raw["hits"]
         if "topScore" in raw:
             inv["topScore"] = raw["topScore"]
+        # 스펙 191: 히트별 카드 + 이 에이전트 최소 유사도 기준선 + 검색 질의(RAG 위임 검색 가독성).
+        if "hitsDetail" in raw:
+            inv["hitsDetail"] = raw["hitsDetail"]
+        if "minScore" in raw:
+            inv["minScore"] = raw["minScore"]
+        if "query" in raw:
+            inv["query"] = raw["query"]
         if res.error:
             inv["error"] = True
         if res.text:
@@ -1155,7 +1177,7 @@ def _rbac_check(enforcer, subject: str, kind: str, name: str | None) -> bool:
     )
 
 
-def build_broker(principal, allowlist, tool_policy: dict | None = None) -> PolicyScopedBroker:
+def build_broker(principal, allowlist, tool_policy: dict | None = None, rag_min_scores: dict | None = None) -> PolicyScopedBroker:
     """chat.py 배선용 — principal(유저/머신)에서 RBAC 판정 클로저를 만들어 스코프된 브로커 구성.
 
     RBAC: `is_superuser` 우회(authz 패턴) 아니면 `enforce(str(id), f"capability:{kind}", "invoke")`.
@@ -1176,4 +1198,4 @@ def build_broker(principal, allowlist, tool_policy: dict | None = None) -> Polic
     # user_id = 주체 도출값(스펙 104 MemoryProvider self-scope). 머신 토큰(str)은 id 없음 → None →
     # 메모리 능력 없음(rbac_allows도 deny). 어드민이어도 자기 id라 타인 기억 위임 접근 불가(에스컬레이션 X).
     uid = None if isinstance(principal, str) else str(principal.id)
-    return PolicyScopedBroker(allowlist, rbac_allows, user_id=uid, tool_policy=tool_policy)
+    return PolicyScopedBroker(allowlist, rbac_allows, user_id=uid, tool_policy=tool_policy, rag_min_scores=rag_min_scores)

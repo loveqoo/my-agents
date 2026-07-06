@@ -16,4 +16,5 @@ export interface AgentFormData {
   capabilities: string[] // 능력 브로커 allowlist(cap id 목록, 스펙 106).
   toolPolicy: ToolPolicy // 도구 승인 오버라이드(스펙 177 P2) — cap_id→{approval:{required?,approver?}}.
   artifactSpec?: ArtifactSpec // 노코드 산출물형 필드 명세(스펙 190) — impl=artifact_form일 때.
+  ragMinScores: Record<string, number> // 컬렉션별 문서 검색 최소 유사도(스펙 191 v2). {컬렉션명:0~1}.
 }

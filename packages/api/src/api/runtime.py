@@ -288,7 +288,7 @@ class RagSearchError(Exception):
 
 
 async def search_collections(
-    collections: list[dict], query: str, top_k: int = 4
+    collections: list[dict], query: str, top_k: int = 4, min_scores: dict | None = None
 ) -> list[dict]:
     """RAG 검색 공유 코어(스펙 037 본체, 072로 추출). 질의 임베딩 → pgvector cosine → 상위 청크.
 
@@ -339,8 +339,9 @@ async def search_collections(
     except Exception as exc:  # noqa: BLE001 — 어떤 실패도 호출자를 죽이지 않는다
         raise RagSearchError("embed", "임베딩 예외", "문서 검색 실패(질의 임베딩 중 오류).") from exc
 
-    # 컬렉션별 cosine 검색 → 통합. 각 행: (dist, filename, text, meta). dist 오름차순 = 가까움.
-    hits: list[tuple[float, str, str, dict | None]] = []
+    # 컬렉션별 cosine 검색 → 통합. 각 행: (dist, filename, text, meta, collection). dist 오름차순 = 가까움.
+    # collection = 컬렉션명 — 컬렉션별 유사도 임계값(스펙 191 v2) 후필터·인스펙터 표시에 쓴다.
+    hits: list[tuple[float, str, str, dict | None, str]] = []
     try:
         async with SessionLocal() as db:
             for c in collections:
@@ -356,7 +357,7 @@ async def search_collections(
                     )
                 ).all()
                 for text, filename, meta, d in rows:
-                    hits.append((float(d), filename or "(파일 미상)", text, meta))
+                    hits.append((float(d), filename or "(파일 미상)", text, meta, c.get("name", "")))
     except Exception as exc:  # noqa: BLE001 — DB/검색 오류도 RagSearchError로
         raise RagSearchError("db", "검색 예외", "문서 검색 실패(유사도 검색 중 오류).") from exc
 
@@ -368,10 +369,33 @@ async def search_collections(
     # 서로 다른 벡터 공간의 거리를 한 리스트로 정렬하면 순위가 의미를 잃는다. 멀티모델 컬렉션
     # 동시 사용은 비권장이며, 강제 방지/스코어 정규화는 후속 스펙으로 남긴다.)
     relevant.sort(key=lambda h: h[0])
-    return [
-        {"score": 1.0 - d, "filename": filename, "text": text, "meta": meta}
-        for d, filename, text, meta in relevant[:k]
+    out = [
+        {"score": 1.0 - d, "filename": filename, "text": text, "meta": meta, "collection": name}
+        for d, filename, text, meta, name in relevant[:k]
     ]
+    # 컬렉션별 최소 유사도 후필터(스펙 191 v2) — top_k로 뽑은 뒤 각 히트를 그 컬렉션 임계값으로 판정.
+    return _apply_min_scores(out, min_scores)
+
+
+def _norm_score(v) -> float:
+    """유사도 임계값 정규화 — 비수치/음수/1 초과는 0(무필터)으로 접는다."""
+    try:
+        s = float(v)
+    except (TypeError, ValueError):
+        return 0.0
+    return s if 0.0 < s <= 1.0 else 0.0
+
+
+def _apply_min_scores(hits: list[dict], min_scores: dict | None) -> list[dict]:
+    """컬렉션별 유사도 임계값 후필터(스펙 191 v2) — 각 히트를 그 컬렉션의 임계값으로 판정한다.
+    위 366행이 빚으로 남겨둔 "양수 구간 관련도 임계"를 이제 컬렉션별 설정값으로 판다. 순수 함수.
+    min_scores: {컬렉션명: 임계값}. 항목 없거나 0이면 그 컬렉션은 무필터. score >= thr만 통과(경계 포함)."""
+    if not isinstance(min_scores, dict) or not min_scores:
+        return hits
+    norm = {k: _norm_score(v) for k, v in min_scores.items()}
+    if not any(norm.values()):
+        return hits
+    return [h for h in hits if float(h.get("score", 0.0)) >= norm.get(h.get("collection", ""), 0.0)]
 
 
 def format_rag_hits(results: list[dict]) -> str:
@@ -402,7 +426,47 @@ def format_rag_hits(results: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def build_rag_tool(collections: list[dict], calls_sink: list[dict]) -> StructuredTool:
+def _sanitize_preview(text: object, cap: int) -> str:
+    """trace 표시용 본문 프리뷰 — 비밀 마스킹 + 캡(스펙 087/092/125). 브로커 resultPreview·직접 result·
+    hitsDetail이 **한 경로**로 정화(drift 0). _sanitize가 비밀을 치환한 뒤 cap자로 자른다."""
+    from .memory import _sanitize  # 지연 임포트(순환 import 방지, broker와 동일 패턴)
+
+    return _sanitize(text, cap=cap)
+
+
+def _hits_detail(results: list[dict], cap: int = 240) -> list[dict]:
+    """히트별 표시 구조(스펙 191) — 인스펙터가 컬렉션·파일명·유사도·본문 프리뷰를 카드로 그릴 수 있게.
+    본문 프리뷰는 **캡(cap자) + 비밀 마스킹**한다(브로커 resultPreview와 동일 규율, 087/092/125 —
+    trace에 원문·비밀 누출 0)."""
+    out: list[dict] = []
+    for h in results:
+        snippet = _sanitize_preview(str(h.get("text", "")).strip().replace("\n", " "), cap)
+        out.append({
+            "score": round(float(h.get("score", 0.0)), 3),
+            "filename": h.get("filename", ""),
+            "collection": h.get("collection", ""),
+            "textPreview": snippet,
+        })
+    return out
+
+
+def _norm_min_scores(min_scores: dict | None, names: list[str] | None = None) -> dict:
+    """컬렉션별 임계값 맵 정규화(스펙 191 v2) — 값 0<x≤1인 항목만 남긴다(0/무효는 무필터라 제외).
+    names 주면 그 컬렉션으로 한정(무관 항목 소거)."""
+    if not isinstance(min_scores, dict):
+        return {}
+    allow = set(names) if names is not None else None
+    out = {}
+    for k, v in min_scores.items():
+        if allow is not None and k not in allow:
+            continue
+        s = _norm_score(v)
+        if s > 0:
+            out[k] = round(s, 3)
+    return out
+
+
+def build_rag_tool(collections: list[dict], calls_sink: list[dict], min_scores: dict | None = None) -> StructuredTool:
     """RAG 문서 검색 도구(스펙 037). `search_collections` 코어를 호출해 결과를 문자열로 포맷한다.
 
     이 함수는 **얇은 포맷터**다 — 검색 로직은 `search_collections`에 있고(시험 엔드포인트와 공유),
@@ -410,31 +474,37 @@ def build_rag_tool(collections: list[dict], calls_sink: list[dict]) -> Structure
     올리고, 도구는 그 `tool_msg`/`record_label`로 매핑해 에이전트를 죽이지 않는다.
     """
     names = ", ".join(c["name"] for c in collections)
+    # 컬렉션별 임계값 맵 정규화(스펙 191 v2) — 배선된 컬렉션으로 한정, 값 0<x≤1만 유효.
+    min_scores = _norm_min_scores(min_scores, [c.get("name", "") for c in collections])
 
     async def _search(query: str = "", top_k: int = 4) -> str:
         t0 = time.perf_counter()
 
-        def _record(status: str, result: str, n: int = 0) -> None:
-            calls_sink.append(
-                {
-                    "server": "rag",
-                    "tool": "search_documents",
-                    "status": status,
-                    "ms": int((time.perf_counter() - t0) * 1000) + 1,
-                    "args": _redact_args({"query": (query or "").strip(), "top_k": top_k}),
-                    "result": _cap(result, _RESULT_CAP),  # 스펙 087 F3: 같은 sink 표면이라 result 캡 일관 적용
-                    "hits": n,
-                }
-            )
+        def _record(status: str, result: str, n: int = 0, detail: list[dict] | None = None) -> None:
+            entry = {
+                "server": "rag",
+                "tool": "search_documents",
+                "status": status,
+                "ms": int((time.perf_counter() - t0) * 1000) + 1,
+                "args": _redact_args({"query": (query or "").strip(), "top_k": top_k}),
+                # 스펙 191(codex 적대검토): result도 비밀 마스킹(_sanitize) — 브로커 resultPreview·
+                # hitsDetail과 대칭. 직접 경로만 _cap(마스킹 없음)이던 비대칭(문서 본문 내 비밀 노출)을 닫는다.
+                "result": _sanitize_preview(result, _RESULT_CAP),
+                "hits": n,
+                # 스펙 191 v2: 히트별 구조(컬렉션 포함) + 컬렉션별 최소 유사도 맵(인스펙터 카드·기준선용).
+                "hitsDetail": detail or [],
+                "minScores": dict(min_scores),
+            }
+            calls_sink.append(entry)
 
         try:
-            results = await search_collections(collections, query, top_k)
+            results = await search_collections(collections, query, top_k, min_scores)
         except RagSearchError as exc:
             _record("error", exc.record_label)
             return exc.tool_msg
 
         # 결과 본문 스니펫(스펙 131) — "N건 반환" 카운트 대신 실제 구절(_record가 _RESULT_CAP 캡).
-        _record("ok", format_rag_hits(results) if results else "관련 결과 0건", len(results))
+        _record("ok", format_rag_hits(results) if results else "관련 결과 0건", len(results), _hits_detail(results))
         return format_rag_hits(results)
 
     return StructuredTool.from_function(

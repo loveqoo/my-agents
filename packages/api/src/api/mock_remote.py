@@ -70,8 +70,11 @@ def _extract_record_id(text: str) -> str:
 
 
 # 도구명 → (트리거 키워드들, 인자 빌더). 등록된 도구만, 결정적 규칙.
+# search_documents(스펙 191) — RAG 도구가 바인딩되고 "검색/찾아" 등이 있으면 문서검색 tool_call을
+# 결정적으로 낸다(인스펙터 RAG 표시·필터 e2e 실습용). query=user 텍스트(인스펙터 "검색어"에 그대로).
 _TOOL_TRIGGERS: dict = {
     "delete_record": (("삭제", "지워", "제거", "delete"), lambda t: {"record_id": _extract_record_id(t)}),
+    "search_documents": (("검색", "찾아", "문서", "search"), lambda t: {"query": (t or "").strip()[:200]}),
 }
 
 

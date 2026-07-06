@@ -52,6 +52,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
     capabilities: [...(a.capabilities || [])],
     toolPolicy: { ...(a.toolPolicy || {}) },
     ...(a.artifactSpec ? { artifactSpec: a.artifactSpec } : {}),
+    ragMinScores: { ...(a.ragMinScores || {}) },
   })
   const draftOf = (a: Agent) => (a.versions || []).find((v) => v.status === 'draft')
   const openCreate = () => {
@@ -164,6 +165,15 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
       toolPolicy: data.toolPolicy, // 도구 승인 오버라이드(스펙 177 P2) — 백엔드 완화 게이트가 admin 강제
       // 노코드 산출물형(스펙 190) — impl=artifact_form일 때만 명세 저장. 아니면 생략(무관 에이전트 오염 방지).
       ...(data.impl === 'artifact_form' && data.artifactSpec ? { artifactSpec: data.artifactSpec } : {}),
+      // 컬렉션별 문서 검색 최소 유사도(스펙 191 v2) — 배선된 컬렉션 중 값>0인 것만 저장(무관/0 제거).
+      ...(() => {
+        const m: Record<string, number> = {}
+        for (const c of data.vectorTables) {
+          const v = data.ragMinScores?.[c]
+          if (typeof v === 'number' && v > 0) m[c] = v
+        }
+        return Object.keys(m).length ? { ragMinScores: m } : {}
+      })(),
     }
     try {
       if (editing) {
@@ -576,6 +586,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
                   ...(c.artifactSpec || a.artifactSpec
                     ? { artifactSpec: c.artifactSpec || a.artifactSpec } // 노코드 산출물형 명세(스펙 190) 재로드
                     : {}),
+                  ragMinScores: { ...(c.ragMinScores || a.ragMinScores || {}) }, // 컬렉션별 최소 유사도(스펙 191 v2) 재로드
                 }
               })()
             : null

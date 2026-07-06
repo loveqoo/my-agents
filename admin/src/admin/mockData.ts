@@ -18,6 +18,7 @@ export interface AgentConfig {
   capabilities?: string[] // 능력 브로커 allowlist(스펙 106). 오케스트레이터 impl에서 위임 대상.
   toolPolicy?: ToolPolicy // 도구 승인 오버라이드(스펙 177 P2).
   artifactSpec?: ArtifactSpec // 노코드 산출물형 필드 명세(스펙 190). impl=artifact_form일 때만 의미.
+  ragMinScores?: Record<string, number> // 컬렉션별 문서 검색 최소 유사도(스펙 191 v2). {컬렉션명:0~1}, 미만 제외.
 }
 
 /** 노코드 산출물형 필드(스펙 190) — 후보 있으면 SelectBox(enum), 없으면 자유 입력. */
@@ -104,6 +105,7 @@ export interface Agent {
   capabilities?: string[] // 능력 브로커 allowlist(스펙 106)
   toolPolicy?: ToolPolicy // 도구 승인 오버라이드(스펙 177 P2) — cap_id→{approval:{required?,approver?}}
   artifactSpec?: ArtifactSpec // 노코드 산출물형 필드 명세(스펙 190) — 폼 재로드/라운드트립 보존
+  ragMinScores?: Record<string, number> // 컬렉션별 문서 검색 최소 유사도(스펙 191 v2) — 폼 재로드/라운드트립 보존
   owner_id?: string | null // 소유자(스펙 112). null=공유/레거시
   can_manage?: boolean // 관리 가능(스펙 114) — false면 편집/삭제 숨김
   exposed: { a2a: boolean }

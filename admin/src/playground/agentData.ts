@@ -12,6 +12,14 @@ export interface Memory {
   scope?: 'user_id' | 'run_id' | string
 }
 
+// RAG 히트 1건의 표시 구조(스펙 191) — 인스펙터가 컬렉션·파일명·유사도·본문 프리뷰를 카드로 그린다.
+export interface RagHit {
+  score: number
+  filename: string
+  collection?: string
+  textPreview: string
+}
+
 export interface McpCallT {
   server: string
   tool: string
@@ -21,6 +29,9 @@ export interface McpCallT {
   result: string
   // RAG 검색 도구가 반환한 히트 수(server='rag'일 때). 스펙 079.
   hits?: number
+  // 히트별 구조 + 컬렉션별 최소 유사도 맵(스펙 191 v2). 있으면 카드 렌더, 없으면 result 텍스트 폴백.
+  hitsDetail?: RagHit[]
+  minScores?: Record<string, number>
 }
 
 export interface GraphNode {
@@ -60,6 +71,10 @@ export interface Trace {
     topScore?: number
     error?: boolean
     resultPreview?: string
+    // 스펙 191(RAG 위임): 히트별 카드 + 최소 유사도 기준선 + 검색 질의(직접 도구와 동일 표시-안전 값).
+    hitsDetail?: RagHit[]
+    minScore?: number
+    query?: string
   }[]
   // 전송 프롬프트 전문(스펙 131) — 실제 그래프에 넣은 배열(조립 system=persona+회상 포함), 메시지당
   // 2000자 캡. 재개 턴은 N/A(체크포인트 내부 재개 — 스펙 131 경계).

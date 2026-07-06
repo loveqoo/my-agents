@@ -445,6 +445,29 @@ class AgentConfig(BaseModel):
     # 이 명세를 읽어 폼을 돈다(chat.py가 impl_config로 주입). 라운드트립 보존 필수(model_dump가 드롭하면
     # 폼 재로드 시 명세 소실 — learning 101 seed-bypasses-write-schema 동형).
     artifactSpec: dict[str, Any] | None = None
+    # 컬렉션별 문서 검색 최소 유사도(스펙 191 v2) — {컬렉션명: 0~1}. 미만 문서는 검색 코어가 드롭.
+    # 항목 없으면 그 컬렉션은 무필터. 값 0~1(1=완전 일치).
+    ragMinScores: dict[str, float] = Field(default_factory=dict)
+
+    @field_validator("ragMinScores", mode="before")
+    @classmethod
+    def _check_rag_min_scores(cls, v: Any) -> dict:
+        """컬렉션별 임계값 맵 형태 검증(스펙 191 v2) — dict[str, 0~1]. 각 값 범위 밖·비수치면 거부.
+        mode=before: bool(True→1.0)·문자열 코어싱 전 원값을 잡아 거부(숫자만 허용). 0 값은 허용(무필터)."""
+        if v is None:
+            return {}
+        if not isinstance(v, dict):
+            raise ValueError("ragMinScores는 객체여야 합니다.")
+        out: dict[str, float] = {}
+        for k, val in v.items():
+            if not isinstance(k, str) or not k.strip():
+                raise ValueError("ragMinScores 키(컬렉션명)는 비어있지 않은 문자열이어야 합니다.")
+            if isinstance(val, bool) or not isinstance(val, (int, float)):
+                raise ValueError(f"ragMinScores['{k}']는 숫자여야 합니다.")
+            if not (0.0 <= float(val) <= 1.0):
+                raise ValueError(f"ragMinScores['{k}']는 0.0~1.0 범위여야 합니다.")
+            out[k] = float(val)
+        return out
 
     @field_validator("artifactSpec")
     @classmethod
@@ -541,6 +564,7 @@ class AgentOut(BaseModel):
     capabilities: list[str] = Field(default_factory=list)  # 능력 브로커 allowlist(스펙 106, 폼 재로드용)
     toolPolicy: dict[str, Any] = Field(default_factory=dict)  # 도구 승인 오버라이드(스펙 177 P2, 폼 재로드용)
     artifactSpec: dict[str, Any] | None = None  # 노코드 산출물형 필드 명세(스펙 190, 폼 재로드/라운드트립 보존)
+    ragMinScores: dict[str, float] = Field(default_factory=dict)  # 컬렉션별 문서 검색 최소 유사도(스펙 191 v2, 왕복 보존)
     owner_id: str | None = None  # 소유자(스펙 112). None=공유/레거시
     can_manage: bool = True  # 요청 주체 수정/삭제 가능(스펙 114, list/get서 계산·기본 True)
     exposed: dict[str, Any] = Field(default_factory=lambda: {"a2a": False})
