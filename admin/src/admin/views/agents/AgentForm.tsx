@@ -277,7 +277,15 @@ export function AgentForm({
         ) : orchestratorSelected ? (
           <PickerGroups groups={capGroups} selected={form.capabilities} onToggle={toggleCap} />
         ) : (
-          <PickerGroups groups={doGroups} selected={directSelected} onToggle={toggleDirect} />
+          <>
+            <PickerGroups groups={doGroups} selected={directSelected} onToggle={toggleDirect} />
+            {/* 하이브리드 도구 접근 안내(스펙 203, 사용자 요청) — 임계값 10은 백엔드
+                agent/toolbox.py DISCOVER_THRESHOLD 미러(변경 시 함께). */}
+            <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)', display: 'block', marginTop: 6 }}>
+              도구를 많이 연결하면(총 10개 초과) 컨텍스트(프롬프트) 보호를 위해 도구를 검색해 쓰는
+              방식으로 자동 전환됩니다 — 기능은 동일합니다.
+            </span>
+          </>
         )}
 
         {/* 컬렉션별 문서 검색 최소 유사도(스펙 191 v2) — 배선된 RAG 컬렉션마다 슬라이더 하나.

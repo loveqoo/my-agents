@@ -66,12 +66,21 @@ class PlanExecuteAgent:
     def build_graph(self, ctx: AgentBuildContext):
         model = _model_from_cfg(ctx)
         persona = ctx.persona  # 오버라이드 병합 후 주입된 페르소나(주입 단일 출처)
-        tools = list(ctx.tools or [])  # 플랫폼 주입 도구(config.mcps 유래, HIL/트레이스 래핑 포함)
+        # 플랫폼 주입 도구(config.mcps 유래, HIL/트레이스 래핑 포함) — 하이브리드 게이트(스펙 203):
+        # 임계 이하 직접 바인딩, 초과면 검색 창구(search_tools·call_tool)로 컨텍스트 보호.
+        from ..toolbox import effective_tools
+
+        tools, discovery = effective_tools(ctx.tools)
         bound = model.bind_tools(tools) if tools else model  # 필요할 때만 호출 — 강제 아님(스펙 202)
 
         def plan(state: _State) -> dict:
             # 결정적 — 모델 호출 없음(스펙 086 계약: plan<execute 실측). 도구가 있으면 계획에 도구
             # 활용 단계를 반영(스펙 202) — '핵심'·'근거' 문구는 계약 보존.
+            if discovery:
+                return {"plan": (
+                    "1) 질문의 핵심을 파악한다 2) 필요하면 도구 검색(search_tools)으로 알맞은 도구를 "
+                    "찾아(call_tool) 사실을 확인한다 3) 단계적으로 근거를 들어 답한다"
+                )}
             if tools:
                 names = ", ".join(t.name for t in tools)
                 return {"plan": (

@@ -57,11 +57,17 @@ def build_agent(
         temperature=temperature,
         extra_body={"chat_template_kwargs": {"enable_thinking": enable_thinking}},
     )
+    # 하이브리드 도구 접근(스펙 203) — 임계 이하 직접 바인딩(코드 경로 동일=무회귀), 초과면 검색
+    # 창구(search_tools·call_tool)로 컨텍스트 보호. discovery 모드면 사용 안내 1줄을 프롬프트에 부가.
+    from .toolbox import DISCOVERY_HINT, effective_tools
+
+    eff_tools, discovery = effective_tools(tools)
+    system_prompt = f"{persona}\n\n# 도구 안내\n{DISCOVERY_HINT}" if discovery else persona
     # create_agent = 구 create_react_agent 후속(스펙 076). persona 파라미터는 prompt→system_prompt.
     # 정적 문자열 persona만 쓰므로 1:1 대응(콜러블 prompt 제거 영향 없음). 반환물은 동일한 컴파일
     # LangGraph 그래프 → invoke/astream/ainvoke(Command)/__interrupt__ 계약 보존(verify_041로 증명).
     return create_agent(
-        model=model, tools=tools or [], system_prompt=persona, checkpointer=checkpointer
+        model=model, tools=eff_tools, system_prompt=system_prompt, checkpointer=checkpointer
     )
 
 
