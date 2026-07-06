@@ -125,6 +125,29 @@ def run() -> None:
             ok = res == "RAISE"
         check(ok, f"S ({source},{impl!r}) classify={cls} ↔ resolve 일관")
 
+    # ------------------------------------------------ T: 도구 가용성(스펙 202 — "설정=동작" 계약)
+    # 주입 도구가 그래프에 **배선**되는가(강제 사용 아님 — 필요할 때 쓸 수 있는 가용성, 사용자 결정).
+    # 커스텀 impl이 ctx.tools를 버리면 여기서 걸린다(201 후속2 "연결했는데 조용히 무시" 재발 방지).
+    print("\n[T] 도구 가용성 — 주입 ctx.tools가 그래프에 배선(스펙 202)")
+    from langchain_core.tools import tool as _lc_tool
+
+    from agent.runtime import AgentBuildContext
+
+    @_lc_tool
+    def probe_202(x: str) -> str:
+        """적합성 프로브 도구(호출 안 함 — 배선만 검사)."""
+        return x
+
+    _mcfg = {"base_url": "http://127.0.0.1:9", "model_id": "probe"}  # 구성만(네트워크 무접촉)
+    g_tools = PlanExecuteAgent().build_graph(
+        AgentBuildContext(persona="p", model_cfg=_mcfg, tools=[probe_202])
+    )
+    check("tools" in set(g_tools.get_graph().nodes), "T1 주입 도구 → tools 노드 배선(가용성)")
+    g_plain = PlanExecuteAgent().build_graph(
+        AgentBuildContext(persona="p", model_cfg=_mcfg, tools=[])
+    )
+    check("tools" not in set(g_plain.get_graph().nodes), "T2 도구 없음 → 기존 2노드(무회귀)")
+
     # 픽스처 정리(전역 레지스트리 오염 방지 — 다른 테스트 무영향).
     agent_rt._REGISTRY.pop("bad_stub_089", None)
     agent_rt._REGISTRY.pop("throws_089", None)
