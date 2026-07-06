@@ -3,7 +3,7 @@
    antd dark Sider 기본 배경(#001529)이 번들 navy와 동일하다. 라우터는 쓰지 않고
    내부 상태로 전환(딥링크 필요해지면 추후 react-router). */
 import { useEffect, useState, type ReactNode } from 'react'
-import { Layout, Menu, Input, Avatar, Badge, Button, Dropdown, theme, Grid, message } from 'antd'
+import { Layout, Menu, Input, Avatar, Badge, Button, Dropdown, theme, Grid, message, Drawer } from 'antd'
 import {
   DashboardOutlined,
   RobotOutlined,
@@ -204,25 +204,18 @@ export default function AdminShell({ user, onLogout }: { user: Me; onLogout: () 
 
   return (
     <Layout style={{ height: '100vh' }}>
-      {/* 모바일에서 사이더가 열리면 본문 위 백드롭 — 클릭하면 닫힌다. */}
-      {isMobile && !collapsed && (
-        <div
-          onClick={() => setCollapsed(true)}
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 1099 }}
-        />
-      )}
-      <Sider
-        theme="dark"
-        width={232}
-        collapsedWidth={isMobile ? 0 : 72}
-        collapsed={collapsed}
-        trigger={null}
-        style={
-          isMobile
-            ? { position: 'fixed', height: '100vh', left: 0, top: 0, zIndex: 1100 }
-            : undefined
-        }
-      >
+      {(() => {
+        /* 모바일 내비를 antd Drawer로(스펙 204) — 수제 백드롭+fixed Sider 제거, mask·애니메이션·
+           바깥클릭 닫기를 antd에 이양. 데스크톱은 기존 Sider 그대로(무회귀). */
+        const sider = (
+          <Sider
+            theme="dark"
+            width={232}
+            collapsedWidth={72}
+            collapsed={isMobile ? false : collapsed}
+            trigger={null}
+            style={isMobile ? { height: '100%' } : undefined}
+          >
         {/* antd는 children을 .ant-layout-sider-children(height:100%)로 감싼다.
             그 안에서 flex column 한 겹을 더 둬야 메뉴가 늘어나고 칩이 바닥에 붙는다. */}
         <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -317,7 +310,23 @@ export default function AdminShell({ user, onLogout }: { user: Me; onLogout: () 
           </Dropdown>
         </div>
         </div>
-      </Sider>
+          </Sider>
+        )
+        return isMobile ? (
+          <Drawer
+            open={!collapsed}
+            placement="left"
+            width={232}
+            closable={false}
+            onClose={() => setCollapsed(true)}
+            styles={{ body: { padding: 0 } }}
+          >
+            {sider}
+          </Drawer>
+        ) : (
+          sider
+        )
+      })()}
 
       <Layout>
         <Header

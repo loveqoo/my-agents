@@ -2,7 +2,7 @@
    행=문제, 열=모델(같은 비교 그룹의 런), 셀=통과/실패(+점수 툴팁, 클릭→성적표).
    "다른 결과만" 필터 = promptfoo Different(모델 간 결과가 갈리는 행만 — 모델 선정의 신호는 거기 있다). */
 import { useEffect, useMemo, useState } from 'react'
-import { Select, Tag, Switch, Tooltip, Alert, message } from 'antd'
+import { Select, Tag, Switch, Tooltip, Alert, message, Table } from 'antd'
 import { Icon } from '../icons'
 import { getEvalRun, listEvalRunsByGroup, type EvalRunT, type EvalRunDetail } from '../../api'
 
@@ -96,66 +96,67 @@ export function MatrixView({ runs, onOpenRun }: { runs: EvalRunT[]; onOpenRun: (
         </span>
       </div>
 
+      {/* antd Table로 통일(스펙 204) — 생 HTML table 제거. 열=모델(동적 컬럼), 합계=Summary 행,
+          가로 스크롤은 Table scroll.x가 담당(수제 overflowX 래퍼 제거). */}
       {details.length > 0 ? (
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ borderCollapse: 'collapse', minWidth: '100%' }}>
-            <thead>
-              <tr>
-                <th style={{ textAlign: 'left', padding: '8px 10px', borderBottom: '2px solid var(--color-border)', fontSize: 13 }}>
-                  문제
-                </th>
-                {details.map((d) => (
-                  <th key={d.id} style={{ textAlign: 'center', padding: '8px 10px', borderBottom: '2px solid var(--color-border)', fontSize: 13, whiteSpace: 'nowrap' }}>
-                    {d.model_name ?? '(기본 모델)'}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.name}>
-                  <td style={{ padding: '7px 10px', borderBottom: '1px solid var(--color-border-secondary)', fontSize: 13, maxWidth: 280, overflowWrap: 'anywhere' }}>
-                    {row.name}
-                  </td>
-                  {row.cells.map((c, i) => (
-                    <td
-                      key={i}
-                      onClick={() => onOpenRun(details[i].id)}
-                      style={{ textAlign: 'center', padding: '7px 10px', borderBottom: '1px solid var(--color-border-secondary)', cursor: 'pointer' }}
-                    >
-                      {c === undefined ? (
-                        <Tag>—</Tag>
-                      ) : (
-                        <Tooltip title={`${c.details.filter(([, ok]) => ok).length}/${c.details.length} 기준 통과 — 클릭하면 성적표`}>
-                          <Tag color={c.case_passed ? 'green' : 'red'} style={{ margin: 0 }}>
-                            {c.case_passed ? '통과' : '실패'}
-                          </Tag>
-                        </Tooltip>
-                      )}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-              {/* 모델별 합계(열 하단) — 열의 최종 성적. */}
-              <tr>
-                <td style={{ padding: '9px 10px', fontWeight: 600, fontSize: 13 }}>합계</td>
-                {details.map((d) => (
-                  <td key={d.id} style={{ textAlign: 'center', padding: '9px 10px', fontWeight: 600, fontSize: 13 }}>
-                    {d.status === 'running' ? (
-                      <span style={{ display: 'inline-flex', gap: 5, alignItems: 'center', fontWeight: 400 }}>
-                        <Icon name="loading" spin size={12} /> 실행 중
-                      </span>
-                    ) : d.status === 'error' ? (
-                      <Tag color="red" style={{ margin: 0 }}>error</Tag>
+        <Table
+          size="small"
+          pagination={false}
+          scroll={{ x: 'max-content' }}
+          rowKey={(row) => row.name}
+          dataSource={rows}
+          columns={[
+            {
+              title: '문제',
+              dataIndex: 'name',
+              render: (v: string) => (
+                <span style={{ fontSize: 13, maxWidth: 280, display: 'inline-block', overflowWrap: 'anywhere' }}>{v}</span>
+              ),
+            },
+            ...details.map((d, i) => ({
+              title: <span style={{ whiteSpace: 'nowrap' as const }}>{d.model_name ?? '(기본 모델)'}</span>,
+              align: 'center' as const,
+              render: (_: unknown, row: (typeof rows)[number]) => {
+                const c = row.cells[i]
+                return (
+                  <span onClick={() => onOpenRun(details[i].id)} style={{ cursor: 'pointer' }}>
+                    {c === undefined ? (
+                      <Tag>—</Tag>
                     ) : (
-                      `${d.score != null ? Math.round(d.score * 100) : '—'}% (${d.passed}/${d.total})`
+                      <Tooltip title={`${c.details.filter(([, ok]: [string, boolean]) => ok).length}/${c.details.length} 기준 통과 — 클릭하면 성적표`}>
+                        <Tag color={c.case_passed ? 'green' : 'red'} style={{ margin: 0 }}>
+                          {c.case_passed ? '통과' : '실패'}
+                        </Tag>
+                      </Tooltip>
                     )}
-                  </td>
-                ))}
-              </tr>
-            </tbody>
-          </table>
-        </div>
+                  </span>
+                )
+              },
+            })),
+          ]}
+          summary={() => (
+            <Table.Summary.Row>
+              <Table.Summary.Cell index={0}>
+                <span style={{ fontWeight: 600, fontSize: 13 }}>합계</span>
+              </Table.Summary.Cell>
+              {details.map((d, i) => (
+                <Table.Summary.Cell key={d.id} index={i + 1} align="center">
+                  {d.status === 'running' ? (
+                    <span style={{ display: 'inline-flex', gap: 5, alignItems: 'center' }}>
+                      <Icon name="loading" spin size={12} /> 실행 중
+                    </span>
+                  ) : d.status === 'error' ? (
+                    <Tag color="red" style={{ margin: 0 }}>error</Tag>
+                  ) : (
+                    <span style={{ fontWeight: 600, fontSize: 13 }}>
+                      {`${d.score != null ? Math.round(d.score * 100) : '—'}% (${d.passed}/${d.total})`}
+                    </span>
+                  )}
+                </Table.Summary.Cell>
+              ))}
+            </Table.Summary.Row>
+          )}
+        />
       ) : (
         <div style={{ fontSize: 13, color: 'var(--color-text-tertiary)' }}>불러오는 중…</div>
       )}

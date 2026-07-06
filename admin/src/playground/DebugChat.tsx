@@ -812,8 +812,10 @@ function ArtifactCard({ artifact }: { artifact: NonNullable<ChatMsg['artifact']>
 function TraceChips({ trace, active, onClick }: { trace?: Trace; active: boolean; onClick: () => void }) {
   if (!trace) return null
   return (
-    <div
+    <Tag
       onClick={onClick}
+      color={active ? 'blue' : undefined}
+      // antd Tag로 통일(스펙 204) — 컨테이너 pill만 교체, 칩 내용(도메인 요약)은 유지.
       style={{
         display: 'inline-flex',
         gap: 10,
@@ -821,10 +823,8 @@ function TraceChips({ trace, active, onClick }: { trace?: Trace; active: boolean
         marginTop: 2,
         padding: '4px 10px',
         cursor: 'pointer',
-        border: '1px solid ' + (active ? 'var(--color-primary-border)' : 'var(--color-border-secondary)'),
-        background: active ? 'var(--color-primary-bg)' : 'var(--color-bg-container)',
         borderRadius: 100,
-        transition: 'all .2s',
+        marginInlineEnd: 0,
       }}
     >
       <Chip icon="bulb" color="var(--purple-6)" n={trace.memories.length} label="mem" />
@@ -842,7 +842,7 @@ function TraceChips({ trace, active, onClick }: { trace?: Trace; active: boolean
       <Chip icon="thunderbolt" color="var(--cyan-7)" n={trace.mcp.filter((c) => c.server !== 'rag').length} label="mcp" />
       <Chip icon="clock-circle" color="var(--color-text-tertiary)" label={(trace.latencyMs / 1000).toFixed(2) + 's'} />
       <span style={{ fontSize: 12, color: 'var(--color-primary)', fontWeight: 500 }}>인스펙터{active ? ' ✓' : ''}</span>
-    </div>
+    </Tag>
   )
 }
 

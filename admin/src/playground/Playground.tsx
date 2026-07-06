@@ -2,7 +2,7 @@
    streaming chat API, and links each assistant turn → the Inspector from the
    real execution trace. 3-pane: agent picker (in header) + debug chat + Inspector. */
 import { useEffect, useRef, useState } from 'react'
-import { message, Grid } from 'antd'
+import { message, Grid, Drawer } from 'antd'
 import { DebugChat } from './DebugChat'
 import { Inspector } from './Inspector'
 import { OverridePanel, overrideDefaults, overridePayload, type Overrides } from './OverridePanel'
@@ -552,9 +552,17 @@ export function Playground({
       {inspectorOpen ? (
         overlayInspector ? (
           // 좁은 폭(lg 미만): 인스펙터를 전체화면 오버레이로 — 채팅과 나란히 두면 양쪽이 짜부라진다.
-          <div style={{ position: 'fixed', inset: 0, zIndex: 1200, background: 'var(--color-bg-container)' }}>
+          // antd Drawer로 통일(스펙 204) — 수제 fixed div 제거, 애니메이션·Escape·포커스는 antd가.
+          <Drawer
+            open
+            placement="right"
+            width="100%"
+            closable={false}
+            onClose={() => setInspectorOpen(false)}
+            styles={{ body: { padding: 0 } }}
+          >
             <Inspector agent={activeAgent} turn={selectedMsg} turnIndex={selectedTurn || 0} onClose={() => setInspectorOpen(false)} fullWidth />
-          </div>
+          </Drawer>
         ) : (
           <Inspector agent={activeAgent} turn={selectedMsg} turnIndex={selectedTurn || 0} onClose={() => setInspectorOpen(false)} />
         )
