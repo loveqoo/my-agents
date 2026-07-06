@@ -2,7 +2,7 @@
    Shows the resolved system prompt, retrieved memories, MCP tool calls and the
    LangGraph execution path for the currently-selected assistant turn. */
 import { useState, useEffect, type CSSProperties, type ReactNode } from 'react'
-import { Tag, Button, Collapse, Timeline, Tabs, Modal } from 'antd'
+import { Tag, Button, Collapse, Timeline, Tabs, Modal, Progress } from 'antd'
 import { Icon } from '../admin/icons'
 import type { ChatMsg, Memory, McpCallT, Trace, RagHit } from './agentData'
 import type { Agent } from '../admin/mockData'
@@ -22,43 +22,24 @@ function Section({
   children: ReactNode
   defaultOpen?: boolean
 }) {
-  const [open, setOpen] = useState(defaultOpen)
+  // antd Collapse로 통일(스펙 204) — 수제 버튼+회전 셰브론+useState 제거, 접이 상태·접근성을 antd에 이양.
   return (
-    <div style={{ borderBottom: '1px solid var(--color-border-secondary)' }}>
-      <button
-        onClick={() => setOpen((o) => !o)}
-        style={{
-          width: '100%',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          padding: '12px 16px',
-          background: 'transparent',
-          border: 'none',
-          cursor: 'pointer',
-          font: 'inherit',
-        }}
-      >
-        <span style={{ color: iconColor, display: 'inline-flex' }}>
-          <Icon name={icon} size={15} />
-        </span>
-        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-heading)', flex: 1, textAlign: 'left' }}>
-          {title}
-        </span>
-        {count != null ? <Tag>{count}</Tag> : null}
-        <span
-          style={{
-            color: 'var(--color-text-tertiary)',
-            transform: open ? 'rotate(90deg)' : 'none',
-            transition: 'transform .2s',
-            display: 'inline-flex',
-          }}
-        >
-          <Icon name="right" size={11} />
-        </span>
-      </button>
-      {open ? <div style={{ padding: '0 16px 16px' }}>{children}</div> : null}
-    </div>
+    <Collapse
+      ghost
+      defaultActiveKey={defaultOpen ? ['s'] : []}
+      style={{ borderBottom: '1px solid var(--color-border-secondary)', borderRadius: 0 }}
+      items={[{
+        key: 's',
+        label: (
+          <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ color: iconColor, display: 'inline-flex' }}><Icon name={icon} size={15} /></span>
+            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-heading)', flex: 1, textAlign: 'left' }}>{title}</span>
+            {count != null ? <Tag>{count}</Tag> : null}
+          </span>
+        ),
+        children,
+      }]}
+    />
   )
 }
 
@@ -73,8 +54,8 @@ const codeBox: CSSProperties = {
   padding: '10px 12px',
   whiteSpace: 'pre-wrap',
   wordBreak: 'break-word',
+  overflowWrap: 'anywhere',
   margin: 0,
-  overflow: 'auto',
 }
 
 function MemoryRow({ m }: { m: Memory }) {
@@ -100,9 +81,8 @@ function MemoryRow({ m }: { m: Memory }) {
         <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-family-code)' }}>{pct}%</span>
       </div>
       <div style={{ fontSize: 13, color: 'var(--color-text)', lineHeight: 1.5, overflowWrap: 'anywhere' }}>{m.text}</div>
-      <div style={{ height: 4, background: 'var(--color-fill-secondary)', borderRadius: 100, overflow: 'hidden' }}>
-        <div style={{ width: pct + '%', height: '100%', background: 'var(--geekblue-5)', borderRadius: 100 }} />
-      </div>
+      {/* antd Progress로 통일(스펙 204) — 수치 표기는 위 pct% 텍스트가 담당. */}
+      <Progress percent={pct} size={{ height: 4 }} showInfo={false} strokeColor="var(--geekblue-5)" />
     </div>
   )
 }

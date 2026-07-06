@@ -59,26 +59,18 @@ function modelBadge(a: Agent): { text: string; remote: boolean; tip?: ReactNode 
 function ModelBadge({ a, size }: { a: Agent; size: 'header' | 'row' }) {
   const b = modelBadge(a)
   const header = size === 'header'
-  const chip = (
-    <span
-      style={{
-        fontFamily: 'var(--font-family-code)',
-        fontWeight: header ? 600 : 400,
-        fontSize: header ? undefined : 11,
-        color: b.remote ? 'var(--color-text-tertiary)' : header ? 'var(--color-primary)' : 'var(--color-text-tertiary)',
-        ...(header
-          ? {
-              background: b.remote ? 'var(--color-fill-tertiary)' : 'var(--color-primary-bg)',
-              border: '1px solid ' + (b.remote ? 'var(--color-border)' : 'var(--color-primary-border)'),
-              borderRadius: 5,
-              padding: '0 5px',
-              marginInlineEnd: 6,
-            }
-          : {}),
-      }}
+  // antd Tag로 통일(스펙 204) — header=Tag(색 프리셋), row=경량 텍스트(테두리 없는 bordered=false Tag).
+  const chip = header ? (
+    <Tag
+      color={b.remote ? 'default' : 'blue'}
+      style={{ fontFamily: 'var(--font-family-code)', fontWeight: 600, marginInlineEnd: 6 }}
     >
       {b.text}
-    </span>
+    </Tag>
+  ) : (
+    <Tag bordered={false} style={{ fontFamily: 'var(--font-family-code)', fontSize: 11, color: 'var(--color-text-tertiary)', background: 'transparent', paddingInline: 0, marginInlineEnd: 0 }}>
+      {b.text}
+    </Tag>
   )
   return b.tip ? <Tooltip title={b.tip}>{chip}</Tooltip> : chip
 }

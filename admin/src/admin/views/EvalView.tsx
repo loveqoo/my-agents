@@ -3,7 +3,7 @@
    수치 검증→자율 반복(Ralph) 로드맵의 제품 표면. 러너는 오염 제로(백엔드 eval_runner) —
    실행해도 세션/메모리에 흔적이 남지 않는다. */
 import { useState, useEffect, useCallback, type CSSProperties } from 'react'
-import { Tabs, Button, Input, InputNumber, AutoComplete, Select, Tag, Modal, Popconfirm, Alert, Collapse, Checkbox, Tooltip, message, Descriptions, Skeleton } from 'antd'
+import { Tabs, Button, Input, InputNumber, AutoComplete, Select, Tag, Modal, Popconfirm, Alert, Collapse, Checkbox, Tooltip, message, Descriptions, Skeleton, List } from 'antd'
 import { Page, DataTable, Drawer, type Column } from '../shared'
 import { Icon } from '../icons'
 import { TrendChart, CompareDrawer } from './EvalTrend'
@@ -390,12 +390,17 @@ function DatasetDrawer({
                 </span>
               </div>
               <TrendChart runs={dsRuns} />
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 6 }}>
-                {dsRuns.slice(0, 5).map((r) => (
-                  <div
-                    key={r.id}
+              {/* antd List로 통일(스펙 204) — 클릭 행·정렬은 renderItem에 보존. */}
+              <List
+                size="small"
+                split={false}
+                style={{ marginTop: 6 }}
+                dataSource={dsRuns.slice(0, 5)}
+                rowKey={(r) => r.id}
+                renderItem={(r) => (
+                  <List.Item
                     onClick={() => r.status !== 'running' && onOpenRun(r.id)}
-                    style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12, cursor: r.status !== 'running' ? 'pointer' : 'default' }}
+                    style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12, padding: '2px 0', border: 'none', cursor: r.status !== 'running' ? 'pointer' : 'default' }}
                   >
                     <span style={{ color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-family-code)' }}>{(r.started_at ?? '').slice(5, 16).replace('T', ' ')}</span>
                     <span>{r.agent_name}</span>
@@ -407,9 +412,9 @@ function DatasetDrawer({
                     ) : (
                       <Tag color="red">error</Tag>
                     )}
-                  </div>
-                ))}
-              </div>
+                  </List.Item>
+                )}
+              />
             </div>
           ) : null}
           {cases.length === 0 && !dataset.generating ? (

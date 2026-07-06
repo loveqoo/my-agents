@@ -2,7 +2,7 @@
    handoff 번들 ui_kits/admin/adminShared.jsx를 진짜 antd 6/React+TS로 재현.
    토큰은 theme.css의 CSS 변수를 그대로 참조한다. */
 import { type ReactNode, type CSSProperties } from 'react'
-import { Tag, Button, Switch, Grid, Drawer as AntDrawer, Table as AntTable, type TableColumnsType } from 'antd'
+import { Tag, Button, Switch, Grid, Badge, Card as AntCard, List, Drawer as AntDrawer, Table as AntTable, type TableColumnsType } from 'antd'
 import { Icon } from './icons'
 import { VERSION_STATUS, type VersionMeta } from './mockData'
 
@@ -51,14 +51,8 @@ export function Page({
 
 /* 상태 알약: 색 점 + 라벨. */
 export function StatusPill({ color, label }: { color: string; label: ReactNode }) {
-  return (
-    <span
-      style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 14, color: 'var(--color-text)' }}
-    >
-      <span style={{ width: 7, height: 7, borderRadius: '50%', background: color, flex: 'none' }} />
-      {label}
-    </span>
-  )
+  // antd Badge(색점+텍스트)로 통일(스펙 204) — 호출부 시그니처 불변.
+  return <Badge color={color} text={<span style={{ fontSize: 14, color: 'var(--color-text)' }}>{label}</span>} />
 }
 
 /* 소유 표시 태그(스펙 114) — owner_id·can_manage로 파생. 백엔드가 판정을 소유하므로(learning 113)
@@ -72,20 +66,13 @@ export function OwnerTag({ ownerId, canManage, meId }: { ownerId?: string | null
   return <Tag color="blue">private</Tag>
 }
 
-/* 테두리가 있는 카드 표면(테이블 패널 등). */
+/* 테두리가 있는 카드 표면(테이블 패널 등) — antd Card로 통일(스펙 204). body 패딩 0 = 구 Panel과
+   동일 시맨틱(내용물이 표 등 자체 패딩 보유), overflow hidden은 루트 스타일로 보존. */
 export function Panel({ children, style }: { children?: ReactNode; style?: CSSProperties }) {
   return (
-    <div
-      style={{
-        background: 'var(--color-bg-container)',
-        border: '1px solid var(--color-border-secondary)',
-        borderRadius: 'var(--radius-lg)',
-        overflow: 'hidden',
-        ...style,
-      }}
-    >
+    <AntCard style={{ overflow: 'hidden', ...style }} styles={{ body: { padding: 0 } }}>
       {children}
-    </div>
+    </AntCard>
   )
 }
 
@@ -300,18 +287,20 @@ export function VersionHistory({
           </Button>
         )}
       </div>
-      <div style={{ border: '1px solid var(--color-border-secondary)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
-        {versions.map((v, i) => {
+      {/* antd List로 통일(스펙 204) — 상태별 배경·행 구성은 renderItem에 보존. */}
+      <List
+        bordered
+        dataSource={versions}
+        rowKey={(v) => v.version}
+        renderItem={(v) => {
           const st = VERSION_STATUS[v.status] || VERSION_STATUS.archived
           return (
-            <div
-              key={v.version}
+            <List.Item
               style={{
                 display: 'flex',
                 alignItems: 'center',
                 gap: 10,
                 padding: '10px 14px',
-                borderTop: i ? '1px solid var(--color-border-secondary)' : 'none',
                 background:
                   v.status === 'active' ? 'var(--color-success-bg)' : v.status === 'draft' ? 'var(--gold-1)' : 'transparent',
               }}
@@ -339,10 +328,10 @@ export function VersionHistory({
               {v.status !== 'draft' && onRevert && (
                 <Button type="text" size="small" icon={<Icon name="redo" />} onClick={() => onRevert(v)} title="초안으로 되돌리기" />
               )}
-            </div>
+            </List.Item>
           )
-        })}
-      </div>
+        }}
+      />
     </div>
   )
 }

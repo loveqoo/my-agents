@@ -1,4 +1,4 @@
-import { Icon } from '../../icons'
+import { Typography } from 'antd'
 
 export function Field({ label, children }: { label: React.ReactNode; children?: React.ReactNode }) {
   return (
@@ -34,27 +34,15 @@ export function IdRow({ label, value }: { label: React.ReactNode; value: string 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0' }}>
       <span style={{ width: 84, flex: 'none', fontSize: 12, color: 'var(--color-text-tertiary)' }}>{label}</span>
-      <code
-        style={{
-          flex: 1,
-          minWidth: 0,
-          fontFamily: 'var(--font-family-code)',
-          fontSize: 12,
-          color: 'var(--color-text)',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-        }}
+      {/* antd Typography copyable로 통일(스펙 204) — 수제 클립보드 span 제거. */}
+      <Typography.Text
+        code
+        copyable={{ text: value, tooltips: ['복사', '복사됨'] }}
+        ellipsis
+        style={{ flex: 1, minWidth: 0, fontFamily: 'var(--font-family-code)', fontSize: 12, color: 'var(--color-text)' }}
       >
         {value}
-      </code>
-      <span
-        onClick={() => navigator.clipboard && navigator.clipboard.writeText(value)}
-        title="Copy"
-        style={{ cursor: 'pointer', color: 'var(--color-text-tertiary)', display: 'inline-flex', flex: 'none' }}
-      >
-        <Icon name="copy" size={13} />
-      </span>
+      </Typography.Text>
     </div>
   )
 }

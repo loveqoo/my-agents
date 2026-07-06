@@ -1,6 +1,6 @@
 /* my-agents admin — Overview: at-a-glance counts + quick links. */
 import { type CSSProperties, useEffect, useState } from 'react'
-import { Tag, Button, Avatar, message } from 'antd'
+import { Tag, Button, Avatar, message, Card, Statistic, List, Badge } from 'antd'
 import { Page, StatusPill, Panel } from '../shared'
 import { Icon } from '../icons'
 import { AGENT_STATUS, SESSION_STATUS } from '../mockData'
@@ -20,31 +20,15 @@ function StatTile({
   value: number
   onClick?: () => void
 }) {
+  // antd Card(hoverable)+Statistic으로 통일(스펙 204) — 수동 onMouseEnter/Leave hover 제거.
   return (
-    <button
-      onClick={onClick}
-      style={{
-        flex: 1,
-        textAlign: 'left',
-        font: 'inherit',
-        cursor: 'pointer',
-        background: 'var(--color-bg-container)',
-        border: '1px solid var(--color-border-secondary)',
-        borderRadius: 'var(--radius-lg)',
-        padding: 20,
-        transition: 'box-shadow .2s, border-color .2s',
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.boxShadow = 'var(--box-shadow)'
-        e.currentTarget.style.borderColor = 'transparent'
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.boxShadow = 'none'
-        e.currentTarget.style.borderColor = 'var(--color-border-secondary)'
-      }}
-    >
+    <Card hoverable onClick={onClick} style={{ flex: 1, cursor: 'pointer' }} styles={{ body: { padding: 20 } }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <span style={{ color: 'var(--color-text-tertiary)', fontSize: 14 }}>{label}</span>
+        <Statistic
+          title={<span style={{ fontSize: 14 }}>{label}</span>}
+          value={value}
+          valueStyle={{ fontSize: 30, fontWeight: 600, color: 'var(--color-text-heading)' }}
+        />
         <span
           style={{
             width: 36,
@@ -55,13 +39,13 @@ function StatTile({
             display: 'inline-flex',
             alignItems: 'center',
             justifyContent: 'center',
+            flex: 'none',
           }}
         >
           <Icon name={icon} size={18} />
         </span>
       </div>
-      <div style={{ fontSize: 30, fontWeight: 600, color: 'var(--color-text-heading)', marginTop: 10 }}>{value}</div>
-    </button>
+    </Card>
   )
 }
 
@@ -110,26 +94,24 @@ export default function OverviewView({ onGo }: { onGo: (v: string) => void }) {
               전체 보기
             </Button>
           </div>
-          {agents.slice(0, 4).map((a: Agent) => {
-            const st = AGENT_STATUS[a.status]
-            const stColor = st?.color ?? 'var(--gray-6)'
-            const stLabel = st?.label ?? a.status
-            return (
-              <div
-                key={a.id}
-                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 18px', borderTop: '1px solid var(--color-border-secondary)' }}
-              >
-                <Avatar size="small" style={{ background: 'var(--gray-12)' }}>
-                  <Icon name="robot" size={13} />
-                </Avatar>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 500, fontSize: 14 }}>{a.name}</div>
-                  <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>{a.persona}</div>
-                </div>
-                <StatusPill color={stColor} label={stLabel} />
-              </div>
-            )
-          })}
+          {/* antd List로 통일(스펙 204). */}
+          <List
+            dataSource={agents.slice(0, 4)}
+            rowKey={(a: Agent) => a.id}
+            renderItem={(a: Agent) => {
+              const st = AGENT_STATUS[a.status]
+              return (
+                <List.Item style={{ padding: '11px 18px' }}>
+                  <List.Item.Meta
+                    avatar={<Avatar size="small" style={{ background: 'var(--gray-12)' }}><Icon name="robot" size={13} /></Avatar>}
+                    title={<span style={{ fontWeight: 500, fontSize: 14 }}>{a.name}</span>}
+                    description={<span style={{ fontSize: 12 }}>{a.persona}</span>}
+                  />
+                  <StatusPill color={st?.color ?? 'var(--gray-6)'} label={st?.label ?? a.status} />
+                </List.Item>
+              )
+            }}
+          />
         </Panel>
 
         <Panel style={{ padding: 0 }}>
@@ -139,30 +121,25 @@ export default function OverviewView({ onGo }: { onGo: (v: string) => void }) {
               전체 보기
             </Button>
           </div>
-          {sessions
-            .filter((s) => s.status !== 'completed')
-            .slice(0, 4)
-            .map((s: Session) => {
+          {/* antd List로 통일(스펙 204) — 상태 점은 Badge. */}
+          <List
+            dataSource={sessions.filter((s) => s.status !== 'completed').slice(0, 4)}
+            rowKey={(s: Session) => s.id}
+            renderItem={(s: Session) => {
               const st = SESSION_STATUS[s.status]
-              const stColor = st?.color ?? 'var(--gray-6)'
-              const stLabel = st?.label ?? s.status
               const stTag = st?.tag ?? 'default'
               return (
-                <div
-                  key={s.id}
-                  style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 18px', borderTop: '1px solid var(--color-border-secondary)' }}
-                >
-                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: stColor, flex: 'none' }} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <code style={{ fontFamily: 'var(--font-family-code)', fontSize: 13 }}>{s.id}</code>
-                    <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-                      {s.agent} · {s.channel}
-                    </div>
-                  </div>
-                  {stTag === 'default' ? <Tag>{stLabel}</Tag> : <Tag color={stTag}>{stLabel}</Tag>}
-                </div>
+                <List.Item style={{ padding: '11px 18px' }}>
+                  <List.Item.Meta
+                    avatar={<Badge color={st?.color ?? 'var(--gray-6)'} />}
+                    title={<code style={{ fontFamily: 'var(--font-family-code)', fontSize: 13 }}>{s.id}</code>}
+                    description={<span style={{ fontSize: 12 }}>{s.agent} · {s.channel}</span>}
+                  />
+                  {stTag === 'default' ? <Tag>{st?.label ?? s.status}</Tag> : <Tag color={stTag}>{st?.label ?? s.status}</Tag>}
+                </List.Item>
               )
-            })}
+            }}
+          />
         </Panel>
       </div>
     </Page>

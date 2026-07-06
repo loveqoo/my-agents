@@ -3,7 +3,7 @@
    마지막 점만 직접 라벨(선택적 라벨링). error 런은 차트 제외(목록에 상태 태그로).
    비교: 케이스별 A→B 변화 — 회귀(red)+아이콘·개선(green)+아이콘(색 단독 금지), 회귀 우선 정렬. */
 import { useEffect, useMemo, useState } from 'react'
-import { Tag, Tooltip, Alert, message } from 'antd'
+import { Tag, Tooltip, Alert, message, Collapse } from 'antd'
 import { Drawer } from '../shared'
 import { Icon } from '../icons'
 import { getEvalRun, type EvalRunT, type EvalRunDetail } from '../../api'
@@ -67,12 +67,10 @@ export function TrendChart({ runs }: { runs: EvalRunT[] }) {
 export function CompareDrawer({ aId, bId, onClose }: { aId: string | null; bId: string | null; onClose: () => void }) {
   const [a, setA] = useState<EvalRunDetail | null>(null)
   const [b, setB] = useState<EvalRunDetail | null>(null)
-  const [open, setOpen] = useState<string | null>(null)
 
   useEffect(() => {
     setA(null)
     setB(null)
-    setOpen(null)
     if (!aId || !bId) return
     let alive = true
     Promise.all([getEvalRun(aId), getEvalRun(bId)])
@@ -142,40 +140,40 @@ export function CompareDrawer({ aId, bId, onClose }: { aId: string | null; bId: 
             <Alert type="warning" showIcon message="두 런에 공통 문제가 없습니다 — 문제 이름이 바뀌었을 수 있어 점수 비교만 유효합니다(문제별 비교 불가)." />
           ) : null}
 
-          {rows.map((r) => {
-            const tag =
-              r.kind === 'regress' ? (
-                <Tag color="red"><Icon name="close-circle" size={11} /> 회귀</Tag>
-              ) : r.kind === 'improve' ? (
-                <Tag color="green"><Icon name="check-circle" size={11} /> 개선</Tag>
-              ) : r.kind === 'only-one' ? (
-                <Tag color="gold">한쪽에만 존재</Tag>
-              ) : (
-                <Tag>동일</Tag>
-              )
-            const cell = (res?: { case_passed: boolean }) =>
-              res === undefined ? <Tag>—</Tag> : res.case_passed ? <Tag color="green">통과</Tag> : <Tag color="red">실패</Tag>
-            const isOpen = open === r.name
-            // assert 단위 diff — 이름 합집합, 새로 실패(a true→b false)를 붉게.
-            const aDet = new Map((r.a?.details ?? []).map(([n, ok]) => [n, ok]))
-            const bDet = new Map((r.b?.details ?? []).map(([n, ok]) => [n, ok]))
-            const assertNames = [...new Set([...aDet.keys(), ...bDet.keys()])]
-            return (
-              <div key={r.name} style={{ border: '1px solid var(--color-border-secondary)', borderRadius: 8, padding: 12 }}>
-                <div
-                  onClick={() => setOpen(isOpen ? null : r.name)}
-                  style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', flexWrap: 'wrap' }}
-                >
-                  {tag}
-                  <span style={{ fontWeight: 600, flex: 1, minWidth: 120 }}>{r.name}</span>
-                  <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>이전</span>
-                  {cell(r.a)}
-                  <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>이후</span>
-                  {cell(r.b)}
-                  <Icon name="right" size={11} style={{ transform: isOpen ? 'rotate(90deg)' : 'none', transition: 'transform .2s', color: 'var(--color-text-tertiary)' }} />
-                </div>
-                {isOpen ? (
-                  <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
+          {/* antd Collapse(accordion)로 통일(스펙 204) — 수제 onClick div+회전 셰브론+open 상태 제거. */}
+          <Collapse
+            accordion
+            items={rows.map((r) => {
+              const tag =
+                r.kind === 'regress' ? (
+                  <Tag color="red"><Icon name="close-circle" size={11} /> 회귀</Tag>
+                ) : r.kind === 'improve' ? (
+                  <Tag color="green"><Icon name="check-circle" size={11} /> 개선</Tag>
+                ) : r.kind === 'only-one' ? (
+                  <Tag color="gold">한쪽에만 존재</Tag>
+                ) : (
+                  <Tag>동일</Tag>
+                )
+              const cell = (res?: { case_passed: boolean }) =>
+                res === undefined ? <Tag>—</Tag> : res.case_passed ? <Tag color="green">통과</Tag> : <Tag color="red">실패</Tag>
+              // assert 단위 diff — 이름 합집합, 새로 실패(a true→b false)를 붉게.
+              const aDet = new Map((r.a?.details ?? []).map(([n, ok]) => [n, ok]))
+              const bDet = new Map((r.b?.details ?? []).map(([n, ok]) => [n, ok]))
+              const assertNames = [...new Set([...aDet.keys(), ...bDet.keys()])]
+              return {
+                key: r.name,
+                label: (
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    {tag}
+                    <span style={{ fontWeight: 600, flex: 1, minWidth: 120 }}>{r.name}</span>
+                    <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>이전</span>
+                    {cell(r.a)}
+                    <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>이후</span>
+                    {cell(r.b)}
+                  </span>
+                ),
+                children: (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
                     {assertNames.map((n) => {
                       const oa = aDet.get(n)
                       const ob = bDet.get(n)
@@ -196,10 +194,10 @@ export function CompareDrawer({ aId, bId, onClose }: { aId: string | null; bId: 
                       )
                     })}
                   </div>
-                ) : null}
-              </div>
-            )
-          })}
+                ),
+              }
+            })}
+          />
         </div>
       ) : (
         <div style={{ fontSize: 13, color: 'var(--color-text-tertiary)' }}>불러오는 중…</div>
