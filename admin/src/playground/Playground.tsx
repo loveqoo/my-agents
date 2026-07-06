@@ -2,7 +2,7 @@
    streaming chat API, and links each assistant turn → the Inspector from the
    real execution trace. 3-pane: agent picker (in header) + debug chat + Inspector. */
 import { useEffect, useRef, useState } from 'react'
-import { message, Grid, Drawer } from 'antd'
+import { message, Grid, Drawer, Splitter } from 'antd'
 import { DebugChat } from './DebugChat'
 import { Inspector } from './Inspector'
 import { OverridePanel, overrideDefaults, overridePayload, type Overrides } from './OverridePanel'
@@ -504,6 +504,11 @@ export function Playground({
 
   return (
     <div style={{ flex: 1, minHeight: 0, display: 'flex', background: 'var(--color-bg-container)' }}>
+      {inspectorOpen && !overlayInspector ? (
+        /* 도킹 인스펙터를 antd Splitter로(스펙 204) — 수제 aside 고정폭 대신 드래그 리사이즈.
+           채팅‖인스펙터 분할은 Splitter.Panel이 폭을 소유한다(Inspector aside는 width 100%). */
+        <Splitter style={{ flex: 1, minHeight: 0 }}>
+          <Splitter.Panel min="35%">
       <DebugChat
         agent={activeAgent}
         agents={agents}
@@ -537,6 +542,62 @@ export function Playground({
         a2aMode={!!a2aByAgent[activeId]}
         onToggleA2A={(v) => setA2aByAgent((m) => ({ ...m, [activeId]: v }))}
       />
+          </Splitter.Panel>
+          <Splitter.Panel defaultSize={384} min={300} max={720}>
+            <Inspector agent={activeAgent} turn={selectedMsg} turnIndex={selectedTurn || 0} onClose={() => setInspectorOpen(false)} />
+          </Splitter.Panel>
+        </Splitter>
+      ) : (
+        <>
+      <DebugChat
+        agent={activeAgent}
+        agents={agents}
+        onSwitchAgent={switchAgent}
+        sessions={sessionList}
+        currentSessionId={sessions[activeId]}
+        sessionsLoading={sessionsLoading}
+        onPickSession={loadSession}
+        onReloadSessions={refreshSessions}
+        messages={messages}
+        streaming={streaming}
+        awaitingApproval={!!pendingApproval && pendingApproval.convoId === activeId}
+        approvalCanResolve={canResolvePending && pendingApproval?.convoId === activeId}
+        approvalKind={pendingApproval?.approver === 'self' ? 'self' : 'admin'}
+        onResolveApproval={resolvePending}
+        pendingForm={pendingForm && pendingForm.convoId === activeId ? pendingForm : null}
+        onSubmitForm={submitForm}
+        selectedTurn={inspectorOpen ? selectedTurn : null}
+        onSelectTurn={openInspector}
+        onSend={send}
+        onStop={stop}
+        canResetConversation={messages.length > 0}
+        onResetConversation={resetConversation}
+        showPrompt={showPrompt}
+        onTogglePrompt={() => setShowPrompt((s) => !s)}
+        effectiveSystemPrompt={effectiveSystemPrompt}
+        inspectorOpen={inspectorOpen}
+        onToggleInspector={() => setInspectorOpen((o) => !o)}
+        overrideActive={overrideActive}
+        onToggleOverrides={() => setOverridePanelOpen((o) => !o)}
+        a2aMode={!!a2aByAgent[activeId]}
+        onToggleA2A={(v) => setA2aByAgent((m) => ({ ...m, [activeId]: v }))}
+      />
+          {inspectorOpen && overlayInspector ? (
+            // 좁은 폭(lg 미만): 인스펙터를 전체화면 오버레이로 — 채팅과 나란히 두면 양쪽이 짜부라진다.
+            // antd Drawer로 통일(스펙 204) — 수제 fixed div 제거, 애니메이션·Escape·포커스는 antd가.
+            <Drawer
+              open
+              placement="right"
+              width="100%"
+              closable={false}
+              onClose={() => setInspectorOpen(false)}
+              styles={{ body: { padding: 0 } }}
+            >
+              <Inspector agent={activeAgent} turn={selectedMsg} turnIndex={selectedTurn || 0} onClose={() => setInspectorOpen(false)} fullWidth />
+            </Drawer>
+          ) : null}
+        </>
+      )}
       <OverridePanel
         open={overridePanelOpen}
         agent={activeAgent}
@@ -549,24 +610,6 @@ export function Playground({
         onClear={clearOverrides}
         onClose={() => setOverridePanelOpen(false)}
       />
-      {inspectorOpen ? (
-        overlayInspector ? (
-          // 좁은 폭(lg 미만): 인스펙터를 전체화면 오버레이로 — 채팅과 나란히 두면 양쪽이 짜부라진다.
-          // antd Drawer로 통일(스펙 204) — 수제 fixed div 제거, 애니메이션·Escape·포커스는 antd가.
-          <Drawer
-            open
-            placement="right"
-            width="100%"
-            closable={false}
-            onClose={() => setInspectorOpen(false)}
-            styles={{ body: { padding: 0 } }}
-          >
-            <Inspector agent={activeAgent} turn={selectedMsg} turnIndex={selectedTurn || 0} onClose={() => setInspectorOpen(false)} fullWidth />
-          </Drawer>
-        ) : (
-          <Inspector agent={activeAgent} turn={selectedMsg} turnIndex={selectedTurn || 0} onClose={() => setInspectorOpen(false)} />
-        )
-      ) : null}
     </div>
   )
 }

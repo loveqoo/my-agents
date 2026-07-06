@@ -587,7 +587,8 @@ export function Inspector({
   return (
     <aside
       style={{
-        width: fullWidth ? '100%' : 384,
+        // 폭은 부모(Splitter.Panel/Drawer)가 소유(스펙 204) — aside는 채우기만.
+        width: '100%',
         flex: 'none',
         height: '100%',
         display: 'flex',

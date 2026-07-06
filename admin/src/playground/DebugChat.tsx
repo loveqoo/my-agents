@@ -13,7 +13,7 @@ import {
   dedupeConsecutive,
   type HistState,
 } from './inputHistory'
-import { Avatar, Button, Tag, Grid, Tooltip, Segmented, Select, Input } from 'antd'
+import { Avatar, Button, Tag, Grid, Tooltip, Segmented, Select, Input, Dropdown } from 'antd'
 import { Icon } from '../admin/icons'
 import { fmtTime } from '../admin/format'
 import { MessageContent } from './MessageContent'
@@ -155,104 +155,16 @@ function AgentCombo({
   fullWidth?: boolean
 }) {
   const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    const onDoc = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', onDoc)
-    return () => document.removeEventListener('mousedown', onDoc)
-  }, [])
+  // antd Dropdown으로 통일(스펙 204) — 바깥클릭·포지셔닝·z-index·접근성을 antd에 이양(수제
+  // mousedown 리스너 제거). 패널 내용(리치 행)은 popupRender로 그대로.
   return (
-    <div ref={ref} style={{ position: 'relative', minWidth: 0, width: fullWidth ? '100%' : undefined }}>
-      <button
-        onClick={() => setOpen((o) => !o)}
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 12,
-          padding: '6px 12px 6px 8px',
-          borderRadius: 10,
-          border: '1px solid ' + (open ? 'var(--color-primary-border)' : 'var(--color-border)'),
-          background: open ? 'var(--color-primary-bg)' : 'var(--color-bg-container)',
-          cursor: 'pointer',
-          font: 'inherit',
-          transition: 'all .2s',
-          maxWidth: fullWidth ? '100%' : 360,
-          // 슬롯이 좁아지면 버튼도 따라 줄고 안쪽 텍스트가 ellipsis 되도록 — 안 그러면
-          // 콘텐츠 폭(~347px)을 고수해 슬롯 밖으로 넘쳐 옆 요소(userId)를 덮는다.
-          width: '100%',
-          minWidth: 0,
-        }}
-      >
-        <span style={{ position: 'relative', flex: 'none' }}>
-          {agentAvatar}
-          <span
-            style={{
-              position: 'absolute',
-              right: -1,
-              bottom: -1,
-              width: 9,
-              height: 9,
-              borderRadius: '50%',
-              background: statusDot(agent.status),
-              border: '2px solid #fff',
-            }}
-          />
-        </span>
-        <span style={{ minWidth: 0, textAlign: 'left', flex: fullWidth ? 1 : undefined }}>
-          <span
-            style={{
-              display: 'block',
-              fontSize: 15,
-              fontWeight: 600,
-              color: 'var(--color-text-heading)',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {agent.name}
-          </span>
-          <span
-            style={{
-              display: 'block',
-              fontSize: 12,
-              color: 'var(--color-text-tertiary)',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {/* 실행 주체를 한눈에 — ui=모델명, code=코드 정의, external=외부 A2A (스펙 028). */}
-            <ModelBadge a={agent} size="header" />
-            {agent.persona}
-          </span>
-        </span>
-        {/* 미반영 초안 표식(스펙 078) — 현재 선택된 에이전트가 초안을 안고 있으면 트리거에도 점등. */}
-        {hasDraft(agent) ? (
-          <Tag color="gold" style={{ margin: 0, flex: 'none' }}>
-            <Icon name="edit" size={10} /> 초안
-          </Tag>
-        ) : null}
-        <Icon
-          name="down"
-          size={12}
-          style={{
-            color: 'var(--color-text-tertiary)',
-            flex: 'none',
-            transform: open ? 'rotate(180deg)' : 'none',
-            transition: 'transform .2s',
-          }}
-        />
-      </button>
-      {open ? (
+    <Dropdown
+      open={open}
+      onOpenChange={setOpen}
+      trigger={['click']}
+      popupRender={() => (
         <div
           style={{
-            position: 'absolute',
-            top: 'calc(100% + 6px)',
-            left: 0,
-            zIndex: 1050,
             width: 'min(360px, calc(100vw - 24px))',
             background: 'var(--color-bg-elevated)',
             borderRadius: 12,
@@ -333,8 +245,91 @@ function AgentCombo({
             )
           })}
         </div>
-      ) : null}
-    </div>
+      )}
+    >
+      <div style={{ minWidth: 0, width: fullWidth ? '100%' : undefined }}>
+      <button
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          padding: '6px 12px 6px 8px',
+          borderRadius: 10,
+          border: '1px solid ' + (open ? 'var(--color-primary-border)' : 'var(--color-border)'),
+          background: open ? 'var(--color-primary-bg)' : 'var(--color-bg-container)',
+          cursor: 'pointer',
+          font: 'inherit',
+          transition: 'all .2s',
+          maxWidth: fullWidth ? '100%' : 360,
+          // 슬롯이 좁아지면 버튼도 따라 줄고 안쪽 텍스트가 ellipsis 되도록 — 안 그러면
+          // 콘텐츠 폭(~347px)을 고수해 슬롯 밖으로 넘쳐 옆 요소(userId)를 덮는다.
+          width: '100%',
+          minWidth: 0,
+        }}
+      >
+        <span style={{ position: 'relative', flex: 'none' }}>
+          {agentAvatar}
+          <span
+            style={{
+              position: 'absolute',
+              right: -1,
+              bottom: -1,
+              width: 9,
+              height: 9,
+              borderRadius: '50%',
+              background: statusDot(agent.status),
+              border: '2px solid #fff',
+            }}
+          />
+        </span>
+        <span style={{ minWidth: 0, textAlign: 'left', flex: fullWidth ? 1 : undefined }}>
+          <span
+            style={{
+              display: 'block',
+              fontSize: 15,
+              fontWeight: 600,
+              color: 'var(--color-text-heading)',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {agent.name}
+          </span>
+          <span
+            style={{
+              display: 'block',
+              fontSize: 12,
+              color: 'var(--color-text-tertiary)',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {/* 실행 주체를 한눈에 — ui=모델명, code=코드 정의, external=외부 A2A (스펙 028). */}
+            <ModelBadge a={agent} size="header" />
+            {agent.persona}
+          </span>
+        </span>
+        {/* 미반영 초안 표식(스펙 078) — 현재 선택된 에이전트가 초안을 안고 있으면 트리거에도 점등. */}
+        {hasDraft(agent) ? (
+          <Tag color="gold" style={{ margin: 0, flex: 'none' }}>
+            <Icon name="edit" size={10} /> 초안
+          </Tag>
+        ) : null}
+        <Icon
+          name="down"
+          size={12}
+          style={{
+            color: 'var(--color-text-tertiary)',
+            flex: 'none',
+            transform: open ? 'rotate(180deg)' : 'none',
+            transition: 'transform .2s',
+          }}
+        />
+      </button>
+      </div>
+    </Dropdown>
   )
 }
 
@@ -369,57 +364,23 @@ function SessionCombo({
   fullWidth?: boolean
 }) {
   const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    const onDoc = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', onDoc)
-    return () => document.removeEventListener('mousedown', onDoc)
-  }, [])
-  const toggle = () => {
-    setOpen((o) => {
-      if (!o) onReload() // 열 때마다 최신 목록(승인 후 복귀 세션 즉시 반영)
-      return !o
-    })
-  }
   // 칩 라벨: 사람이 알아볼 수 있게 현재 세션의 preview(첫 메시지) 우선, 없으면 해시 단축형.
   const current = currentId ? sessions.find((s) => s.id === currentId) : undefined
   const label = current?.preview || (currentId ? shortSid(currentId) : '새 세션')
   const labelIsPreview = !!current?.preview
+  // antd Dropdown으로 통일(스펙 204) — 열 때 onReload(최신 세션 반영)는 onOpenChange에서.
   return (
-    <div ref={ref} style={{ position: 'relative', minWidth: 0, flex: 'none', width: fullWidth ? '100%' : undefined }}>
-      <button
-        onClick={toggle}
-        title="세션 — 과거 대화를 골라 이어서 대화합니다."
-        style={{
-          display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px',
-          borderRadius: 8, border: '1px solid ' + (open ? 'var(--color-primary-border)' : 'var(--color-border)'),
-          background: open ? 'var(--color-primary-bg)' : 'var(--color-bg-container)',
-          cursor: 'pointer', font: 'inherit', maxWidth: fullWidth ? '100%' : 240, width: fullWidth ? '100%' : undefined,
-          minWidth: 0, transition: 'all .2s',
-        }}
-      >
-        <Icon name="comment" size={13} style={{ color: 'var(--color-text-tertiary)', flex: 'none' }} />
-        <span
-          style={{
-            fontSize: 13, fontFamily: labelIsPreview ? undefined : (currentId ? 'var(--font-family-code)' : undefined),
-            color: currentId ? 'var(--color-text)' : 'var(--color-text-tertiary)',
-            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: fullWidth ? 1 : undefined,
-            textAlign: 'left',
-          }}
-        >
-          {label}
-        </span>
-        <Icon
-          name="down" size={11}
-          style={{ color: 'var(--color-text-tertiary)', flex: 'none', transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }}
-        />
-      </button>
-      {open ? (
+    <Dropdown
+      open={open}
+      onOpenChange={(o) => {
+        if (o) onReload() // 열 때마다 최신 목록(승인 후 복귀 세션 즉시 반영)
+        setOpen(o)
+      }}
+      trigger={['click']}
+      popupRender={() => (
         <div
           style={{
-            position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 1050, width: 'min(300px, calc(100vw - 24px))',
+            width: 'min(300px, calc(100vw - 24px))',
             background: 'var(--color-bg-elevated)', borderRadius: 12, boxShadow: 'var(--box-shadow)',
             padding: 6, maxHeight: 420, overflow: 'auto',
           }}
@@ -493,8 +454,37 @@ function SessionCombo({
             )
           })}
         </div>
-      ) : null}
-    </div>
+      )}
+    >
+      <div style={{ minWidth: 0, flex: 'none', width: fullWidth ? '100%' : undefined }}>
+      <button
+        title="세션 — 과거 대화를 골라 이어서 대화합니다."
+        style={{
+          display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px',
+          borderRadius: 8, border: '1px solid ' + (open ? 'var(--color-primary-border)' : 'var(--color-border)'),
+          background: open ? 'var(--color-primary-bg)' : 'var(--color-bg-container)',
+          cursor: 'pointer', font: 'inherit', maxWidth: fullWidth ? '100%' : 240, width: fullWidth ? '100%' : undefined,
+          minWidth: 0, transition: 'all .2s',
+        }}
+      >
+        <Icon name="comment" size={13} style={{ color: 'var(--color-text-tertiary)', flex: 'none' }} />
+        <span
+          style={{
+            fontSize: 13, fontFamily: labelIsPreview ? undefined : (currentId ? 'var(--font-family-code)' : undefined),
+            color: currentId ? 'var(--color-text)' : 'var(--color-text-tertiary)',
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: fullWidth ? 1 : undefined,
+            textAlign: 'left',
+          }}
+        >
+          {label}
+        </span>
+        <Icon
+          name="down" size={11}
+          style={{ color: 'var(--color-text-tertiary)', flex: 'none', transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }}
+        />
+      </button>
+      </div>
+    </Dropdown>
   )
 }
 

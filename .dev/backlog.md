@@ -64,6 +64,10 @@
 
 ## 보류 / 후속 후보
 
+- **antd 전환 보류 5건**(스펙 204, 사용자 결정 "교체 18건만 먼저") — ①TrendChart 생 SVG(antd 코어
+  무차트—@ant-design/plots 도입은 별 스펙) ②MessageContent/JsonTree(대응물 없음) ③DataTable 모바일
+  카드 분기(→List 후보) ④InlineFormPanel·트레이스 카드 겉면(→Card/Form 표준화) ⑤components/Chat.tsx
+  죽은 코드 삭제. 재론 시 docs/spec/204 참조.
 - **인스펙터 정직성 3건**(2026-07-07, 도시락 버그 진단 중 발견 — 중복 카드 자체는 202 후속으로 수리 완료):
   ① '전송 프롬프트'가 실제 모델 입력이 아님(플랫폼 페르소나+대화 재구성 — 커스텀 impl의 자체 구성
   프롬프트(계획·도구)·203 디스커버 힌트 미반영; 정공법=모델 콜백(on_chat_model_start) 계층 캡처),
