@@ -373,8 +373,10 @@ async def search_collections(
         {"score": 1.0 - d, "filename": filename, "text": text, "meta": meta, "collection": name}
         for d, filename, text, meta, name in relevant[:k]
     ]
-    # 컬렉션별 최소 유사도 후필터(스펙 191 v2) — top_k로 뽑은 뒤 각 히트를 그 컬렉션 임계값으로 판정.
-    return _apply_min_scores(out, min_scores)
+    # 컬렉션별 커트라인을 **표시(annotate)** — 스펙 192. 드롭이 아니라 belowCutoff/cutoff 부착:
+    # 인스펙터가 "쓴 문서(used) vs 커트라인 미달로 못 쓴 문서(dropped)"를 구분해 보이게. 에이전트가
+    # 실제로 보는 것(used)은 호출자(build_rag_tool·RagProvider)가 `not belowCutoff`로 거른다.
+    return _annotate_cutoffs(out, min_scores)
 
 
 def _norm_score(v) -> float:
@@ -386,16 +388,29 @@ def _norm_score(v) -> float:
     return s if 0.0 < s <= 1.0 else 0.0
 
 
-def _apply_min_scores(hits: list[dict], min_scores: dict | None) -> list[dict]:
-    """컬렉션별 유사도 임계값 후필터(스펙 191 v2) — 각 히트를 그 컬렉션의 임계값으로 판정한다.
-    위 366행이 빚으로 남겨둔 "양수 구간 관련도 임계"를 이제 컬렉션별 설정값으로 판다. 순수 함수.
-    min_scores: {컬렉션명: 임계값}. 항목 없거나 0이면 그 컬렉션은 무필터. score >= thr만 통과(경계 포함)."""
+def _annotate_cutoffs(hits: list[dict], min_scores: dict | None) -> list[dict]:
+    """컬렉션별 커트라인 표시(스펙 192) — 각 히트에 `cutoff`(그 컬렉션 임계값)+`belowCutoff`(미달 여부)를
+    부착한다. **드롭하지 않는다** — 인스펙터가 used/dropped를 구분해 "못 쓴 문서"까지 보이게. 커트라인이
+    없는(0/미설정) 컬렉션의 히트는 키를 안 붙인다(외부 호출자·SearchHit 스키마 안전). 순수 함수.
+    used(에이전트가 보는 것)는 호출자가 `[h for h in ... if not h.get("belowCutoff")]`로 거른다."""
     if not isinstance(min_scores, dict) or not min_scores:
         return hits
     norm = {k: _norm_score(v) for k, v in min_scores.items()}
     if not any(norm.values()):
         return hits
-    return [h for h in hits if float(h.get("score", 0.0)) >= norm.get(h.get("collection", ""), 0.0)]
+    out: list[dict] = []
+    for h in hits:
+        cut = norm.get(h.get("collection", ""), 0.0)
+        if cut > 0:
+            h = {**h, "cutoff": round(cut, 3), "belowCutoff": float(h.get("score", 0.0)) < cut}
+        out.append(h)
+    return out
+
+
+def used_hits(annotated: list[dict]) -> list[dict]:
+    """커트라인 통과분만(스펙 192) — 에이전트가 실제로 보는 문서. belowCutoff=True(미달) 제외.
+    build_rag_tool·RagProvider가 format_rag_hits에 넘기기 전에 거른다(에이전트는 미달 문서 안 봄)."""
+    return [h for h in annotated if not h.get("belowCutoff")]
 
 
 def format_rag_hits(results: list[dict]) -> str:
@@ -441,12 +456,18 @@ def _hits_detail(results: list[dict], cap: int = 240) -> list[dict]:
     out: list[dict] = []
     for h in results:
         snippet = _sanitize_preview(str(h.get("text", "")).strip().replace("\n", " "), cap)
-        out.append({
+        item = {
             "score": round(float(h.get("score", 0.0)), 3),
             "filename": h.get("filename", ""),
             "collection": h.get("collection", ""),
             "textPreview": snippet,
-        })
+        }
+        # 스펙 192: 커트라인 표시(used/dropped). belowCutoff/cutoff가 있으면 그대로 전달(인스펙터가
+        # "커트라인 미달로 못 쓴 문서"를 회색으로 구분). 커트라인 없는 히트는 키 없음(=used).
+        if "belowCutoff" in h:
+            item["belowCutoff"] = bool(h["belowCutoff"])
+            item["cutoff"] = h.get("cutoff")
+        out.append(item)
     return out
 
 
@@ -498,14 +519,17 @@ def build_rag_tool(collections: list[dict], calls_sink: list[dict], min_scores: 
             calls_sink.append(entry)
 
         try:
-            results = await search_collections(collections, query, top_k, min_scores)
+            results = await search_collections(collections, query, top_k, min_scores)  # 커트라인 annotate(미드롭)
         except RagSearchError as exc:
             _record("error", exc.record_label)
             return exc.tool_msg
 
+        # 스펙 192: 에이전트가 **실제로 보는 것은 used(커트라인 통과분)** — 미달 문서는 안 넘긴다(필터 의미
+        # 유지). trace(hitsDetail)에는 전부 싣는다(used+dropped, 플래그) — 인스펙터가 "못 쓴 문서"를 보이게.
+        used = used_hits(results)
         # 결과 본문 스니펫(스펙 131) — "N건 반환" 카운트 대신 실제 구절(_record가 _RESULT_CAP 캡).
-        _record("ok", format_rag_hits(results) if results else "관련 결과 0건", len(results), _hits_detail(results))
-        return format_rag_hits(results)
+        _record("ok", format_rag_hits(used) if used else "관련 결과 0건", len(used), _hits_detail(results))
+        return format_rag_hits(used)
 
     return StructuredTool.from_function(
         coroutine=_search,

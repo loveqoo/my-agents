@@ -18,6 +18,8 @@ export interface RagHit {
   filename: string
   collection?: string
   textPreview: string
+  belowCutoff?: boolean // 스펙 192: 커트라인 미달로 에이전트가 못 쓴 문서
+  cutoff?: number // 그 컬렉션 커트라인 값(belowCutoff 판정 기준)
 }
 
 export interface McpCallT {

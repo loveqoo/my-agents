@@ -2,9 +2,9 @@
    Shows the resolved system prompt, retrieved memories, MCP tool calls and the
    LangGraph execution path for the currently-selected assistant turn. */
 import { useState, useEffect, type CSSProperties, type ReactNode } from 'react'
-import { Tag, Button, Collapse } from 'antd'
+import { Tag, Button, Collapse, Timeline, Tabs, Modal } from 'antd'
 import { Icon } from '../admin/icons'
-import type { ChatMsg, Memory, McpCallT, GraphNode, Trace, RagHit } from './agentData'
+import type { ChatMsg, Memory, McpCallT, Trace, RagHit } from './agentData'
 import type { Agent } from '../admin/mockData'
 
 function Section({
@@ -163,13 +163,23 @@ function ScaleLegend({ thresholds }: { thresholds?: Record<string, number> }) {
    벽 텍스트를 문서별로 갈라 스캔 가능하게. */
 function HitCard({ hit, idx }: { hit: RagHit; idx: number }) {
   const long = hit.textPreview.length > 160
+  const dropped = hit.belowCutoff === true // 스펙 192: 커트라인 미달로 에이전트가 못 쓴 문서
   const body = (
     <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', overflowWrap: 'anywhere', whiteSpace: 'pre-wrap' }}>
       {hit.textPreview || '(본문 없음)'}
     </div>
   )
   return (
-    <div style={{ border: '1px solid var(--color-border-secondary)', borderRadius: 6, padding: '6px 10px', marginTop: 6 }}>
+    <div
+      style={{
+        border: '1px solid var(--color-border-secondary)',
+        borderRadius: 6,
+        padding: '6px 10px',
+        marginTop: 6,
+        opacity: dropped ? 0.6 : 1, // 못 쓴 문서는 흐리게
+        background: dropped ? 'var(--gray-2)' : undefined,
+      }}
+    >
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: long ? 0 : 4 }}>
         <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)', flex: 'none' }}>{idx + 1}.</span>
         {hit.collection ? (
@@ -178,7 +188,12 @@ function HitCard({ hit, idx }: { hit: RagHit; idx: number }) {
         <span style={{ fontSize: 12, fontFamily: 'var(--font-family-code)', color: 'var(--color-text-heading)', overflowWrap: 'anywhere' }}>
           {hit.filename || '(파일명 없음)'}
         </span>
-        <Tag color={scoreColor(hit.score)} style={{ marginInlineStart: 2 }}>유사도 {hit.score.toFixed(3)}</Tag>
+        <Tag color={dropped ? 'default' : scoreColor(hit.score)} style={{ marginInlineStart: 2 }}>유사도 {hit.score.toFixed(3)}</Tag>
+        {dropped ? (
+          <Tag color="default" style={{ marginInlineStart: 0 }}>
+            ✗ 커트라인 {typeof hit.cutoff === 'number' ? hit.cutoff.toFixed(2) : ''} 미달 · 미사용
+          </Tag>
+        ) : null}
       </div>
       {long ? (
         <Collapse
@@ -231,69 +246,182 @@ function RagCall({ c }: { c: McpCallT }) {
   )
 }
 
-function GraphPath({ graph }: { graph: GraphNode[] }) {
-  const special: Record<string, string> = {
-    interrupt: 'var(--gold-6)',
-    checkpoint_load: 'var(--purple-6)',
-    checkpoint_save: 'var(--purple-6)',
-    resume: 'var(--purple-6)',
+/* ── 스펙 192: 단계(노드)별 실행 타임라인 ─────────────────────────────
+   trace를 "자원 종류별"이 아니라 "실행 노드별"로 재조립한다. 이벤트→노드 귀속(추측 아님, 기존 데이터):
+   - 브로커 호출: brokerCalls[].node = broker_invoke:<cap_id> → 같은 이름의 그래프 노드에 귀속.
+   - 직접 경로: calls_sink(t.mcp)엔 node 없음 → 직접 그래프가 선형(retrieve_memory→tools→call_model)이라
+     타입으로 귀속(회상→retrieve_memory, rag/mcp→tools, 토큰→call_model). ReAct 다중 tools는 한 노드로 접힘. */
+
+type BrokerCall = NonNullable<Trace['brokerCalls']>[number]
+
+// 노드명 → 사람이 읽는 라벨·아이콘·색.
+function nodeMeta(node: string): { text: string; icon: string; color: string } {
+  const known: Record<string, { text: string; icon: string; color: string }> = {
+    __start__: { text: '시작', icon: 'play-circle', color: 'var(--gray-6)' },
+    __end__: { text: '종료', icon: 'check-circle', color: 'var(--gray-6)' },
+    retrieve_memory: { text: '메모리 회상', icon: 'bulb', color: 'var(--purple-6)' },
+    tools: { text: '도구·문서 검색 실행', icon: 'thunderbolt', color: 'var(--cyan-7)' },
+    model: { text: '모델 호출', icon: 'message', color: 'var(--color-primary)' },
+    call_model: { text: '모델 호출', icon: 'message', color: 'var(--color-primary)' },
+    agent: { text: '모델 호출', icon: 'message', color: 'var(--color-primary)' },
+    interrupt: { text: '중단(승인 대기)', icon: 'pause-circle', color: 'var(--gold-6)' },
+    checkpoint_load: { text: '체크포인트 로드', icon: 'clock-circle', color: 'var(--purple-6)' },
+    checkpoint_save: { text: '체크포인트 저장', icon: 'clock-circle', color: 'var(--purple-6)' },
+    resume: { text: '재개', icon: 'clock-circle', color: 'var(--purple-6)' },
   }
+  if (known[node]) return known[node]
+  if (node.startsWith('broker_invoke:rag:'))
+    return { text: `문서 검색 위임 · ${node.slice('broker_invoke:rag:'.length)}`, icon: 'search', color: 'var(--geekblue-6)' }
+  if (node.startsWith('broker_invoke:mcp:'))
+    return { text: `도구 위임 · ${node.slice('broker_invoke:mcp:'.length)}`, icon: 'thunderbolt', color: 'var(--cyan-7)' }
+  if (node.startsWith('broker_invoke:'))
+    return { text: `위임 · ${node.slice('broker_invoke:'.length)}`, icon: 'share-alt', color: 'var(--gold-6)' }
+  return { text: node, icon: 'dot-chart', color: 'var(--color-primary)' }
+}
+
+// 브로커 RAG 호출 1건 상세(검색어·건수·최고유사도·히트 카드) — 노드 타임라인·폴백 양쪽서 재사용.
+function BrokerRagCard({ b }: { b: BrokerCall }) {
+  const bd = (b.hitsDetail ?? []) as RagHit[]
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-      {graph.map((n, i) => {
-        const term = n.node.startsWith('__')
-        const sp = special[n.node]
-        const dot = sp || (term ? 'var(--gray-6)' : 'var(--color-primary)')
-        return (
-          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 'none' }}>
-              <span style={{ width: 9, height: 9, borderRadius: '50%', flex: 'none', background: dot }} />
-              {i < graph.length - 1 ? <span style={{ width: 2, height: 22, background: 'var(--color-border)' }} /> : null}
-            </div>
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'baseline',
-                gap: 8,
-                flexWrap: 'wrap',
-                minWidth: 0,
-                paddingBottom: i < graph.length - 1 ? 14 : 0,
-              }}
-            >
-              <span
-                style={{
-                  fontSize: 13,
-                  fontFamily: 'var(--font-family-code)',
-                  color: sp ? sp : term ? 'var(--color-text-tertiary)' : 'var(--color-text-heading)',
-                  overflowWrap: 'anywhere',
-                  minWidth: 0,
-                }}
-              >
-                {n.node}
-              </span>
-              <span style={{ fontSize: 11, color: 'var(--color-text-quaternary)', fontFamily: 'var(--font-family-code)', flex: 'none' }}>
-                {/* 병렬 superstep이면 ms는 청크 공유값 — '순차 +Xms'로 과장하지 않고 '병렬 ⏱Xms'로 정직 표기(F4). */}
-                {n.parallel ? `병렬 ⏱${n.ms}ms` : `+${n.ms}ms`}
-              </span>
-              {/* 그 노드가 바꾼 상태 델타 요약(스펙 086) — 있을 때만. 이름이 아니라 *내용*으로 읽힌다. */}
-              {n.summary ? (
-                <div
-                  style={{
-                    flexBasis: '100%',
-                    fontSize: 12,
-                    color: 'var(--color-text-secondary)',
-                    fontFamily: 'var(--font-family-code)',
-                    overflowWrap: 'anywhere',
-                    marginTop: 2,
-                  }}
-                >
-                  {n.summary}
-                </div>
+    <div style={{ marginBottom: 4 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 13 }}>
+        {b.error ? <Tag color="red">검색 실패</Tag> : <span>검색 {b.hits ?? 0}건 사용</span>}
+        {b.hits && typeof b.topScore === 'number' ? (
+          <span style={{ color: 'var(--color-text-secondary)' }}>· 최고 유사도 {b.topScore.toFixed(3)}</span>
+        ) : null}
+        {!b.hits && !b.error ? <Tag color="default">0건</Tag> : null}
+        <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>{b.ms}ms</span>
+      </div>
+      {b.query ? (
+        <div style={{ marginTop: 4 }}>
+          <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>검색어: </span>
+          <span style={{ fontSize: 12, fontFamily: 'var(--font-family-code)', color: 'var(--color-text-secondary)', overflowWrap: 'anywhere' }}>{b.query}</span>
+        </div>
+      ) : null}
+      {bd.length ? (
+        <div style={{ marginTop: 6 }}>
+          <ScaleLegend thresholds={b.minScore ? { [b.cap_id.replace(/^rag:/, '')]: b.minScore } : undefined} />
+          {bd.map((h, j) => <HitCard key={j} hit={h} idx={j} />)}
+        </div>
+      ) : b.resultPreview ? (
+        <Collapse size="small" style={{ marginTop: 4 }}
+          items={[{ key: 'r', label: <span style={{ fontSize: 12 }}>검색 결과 본문</span>, children: <pre style={codeBox}>{b.resultPreview}</pre> }]} />
+      ) : null}
+    </div>
+  )
+}
+
+// 한 노드에서 일어난 일의 상세 JSX(없으면 null). t.graph의 각 노드에 붙는다.
+function nodeEventContent(t: Trace, node: string): ReactNode | null {
+  // 메모리 회상 — retrieve_memory 노드.
+  if (node === 'retrieve_memory' && (t.memoryQuery != null || t.memories.length)) {
+    return (
+      <div>
+        {t.memoryQuery != null ? (
+          <div style={{ fontSize: 12, marginBottom: 6 }}>
+            <span style={{ color: 'var(--color-text-tertiary)' }}>회상 쿼리: </span>
+            <span style={{ fontFamily: 'var(--font-family-code)', color: 'var(--color-text-secondary)', overflowWrap: 'anywhere' }}>«{t.memoryQuery}»</span>
+            <Tag color={t.memories.length ? 'purple' : 'default'} style={{ marginInlineStart: 6 }}>{t.memories.length}건 회상</Tag>
+          </div>
+        ) : null}
+        {t.memoryScope?.user_id || t.memoryScope?.run_id ? (
+          <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginBottom: 4 }}>
+            스코프: {t.memoryScope.user_id ? `유저 장기(${t.memoryScope.user_id})` : ''}{t.memoryScope.user_id && t.memoryScope.run_id ? ' · ' : ''}{t.memoryScope.run_id ? `세션(${t.memoryScope.run_id})` : ''}
+          </div>
+        ) : null}
+        {t.memories.map((m, i) => <MemoryRow key={i} m={m} />)}
+      </div>
+    )
+  }
+  // 도구·문서검색(직접 경로) — tools 노드에 t.mcp 전부 귀속.
+  if (node === 'tools') {
+    const rag = t.mcp.filter((c) => c.server === 'rag')
+    const mcp = t.mcp.filter((c) => c.server !== 'rag')
+    if (!rag.length && !mcp.length) return null
+    return (
+      <div>
+        {rag.map((c, i) => <RagCall key={`r${i}`} c={c} />)}
+        {mcp.map((c, i) => <McpCall key={`m${i}`} c={c} />)}
+      </div>
+    )
+  }
+  // 브로커 위임(조율형) — broker_invoke:<cap_id> 노드에 그 cap 호출 귀속.
+  if (node.startsWith('broker_invoke:')) {
+    const calls = (t.brokerCalls ?? []).filter((b) => `broker_invoke:${b.cap_id}` === node)
+    if (!calls.length) return null
+    return (
+      <div>
+        {calls.map((b, i) =>
+          b.cap_id.startsWith('rag:') ? (
+            <BrokerRagCard key={i} b={b} />
+          ) : (
+            <div key={i} style={{ marginBottom: 4 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 13 }}>
+                <Tag color="gold" style={{ fontFamily: 'var(--font-family-code)' }}>{b.cap_id}</Tag>
+                {b.error ? <Tag color="red">실패</Tag> : null}
+                {typeof b.hits === 'number' ? <span>{b.hits}건</span> : null}
+                <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>{b.ms}ms</span>
+              </div>
+              {b.resultPreview ? (
+                <Collapse size="small" style={{ marginTop: 4 }}
+                  items={[{ key: 'r', label: <span style={{ fontSize: 12 }}>결과 본문</span>, children: <pre style={codeBox}>{b.resultPreview}</pre> }]} />
               ) : null}
             </div>
-          </div>
-        )
-      })}
+          )
+        )}
+      </div>
+    )
+  }
+  // 모델 호출 — 토큰 요약.
+  if (node === 'call_model') {
+    return (
+      <div style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>
+        입력 {t.tokens.in.toLocaleString()} · 출력 {t.tokens.out.toLocaleString()} 토큰
+      </div>
+    )
+  }
+  return null
+}
+
+// 단계별 실행 타임라인 — antd Timeline을 스파인으로, 각 노드에 상세를 접이식으로.
+function NodeTimeline({ t }: { t: Trace }) {
+  if (!t.graph.length) {
+    return <div style={{ fontSize: 13, color: 'var(--color-text-tertiary)' }}>실행 경로 정보가 없습니다(재개 턴 등).</div>
+  }
+  return (
+    <div>
+      {t.resumedFrom ? (
+        <div style={{ fontSize: 12, color: 'var(--purple-7)', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Icon name="clock-circle" size={12} />
+          체크포인트에서 재개됨 <code style={{ fontFamily: 'var(--font-family-code)' }}>{t.resumedFrom}</code>
+        </div>
+      ) : null}
+      <Timeline
+        items={t.graph.map((n) => {
+          const meta = nodeMeta(n.node)
+          const content = nodeEventContent(t, n.node)
+          return {
+            dot: <Icon name={meta.icon} size={13} style={{ color: meta.color }} />,
+            children: (
+              <div style={{ paddingBottom: 4 }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-heading)' }}>{meta.text}</span>
+                  <span style={{ fontSize: 11, fontFamily: 'var(--font-family-code)', color: 'var(--color-text-quaternary)' }}>{n.node}</span>
+                  <span style={{ fontSize: 11, color: 'var(--color-text-quaternary)', fontFamily: 'var(--font-family-code)' }}>
+                    {n.parallel ? `병렬 ⏱${n.ms}ms` : `+${n.ms}ms`}
+                  </span>
+                </div>
+                {n.summary ? (
+                  <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', fontFamily: 'var(--font-family-code)', overflowWrap: 'anywhere', marginTop: 2 }}>
+                    {n.summary}
+                  </div>
+                ) : null}
+                {content ? <div style={{ marginTop: 6 }}>{content}</div> : null}
+              </div>
+            ),
+          }
+        })}
+      />
     </div>
   )
 }
@@ -332,9 +460,124 @@ export function Inspector({
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [onClose])
+  const [full, setFull] = useState(false)
   if (!agent) return null
   const t: Trace | undefined = turn && turn.role === 'ai' ? turn.trace : undefined
   const empty = !t
+
+  // 프롬프트·설정 탭 — 턴 메타(전송 프롬프트·오버라이드). 노드 이벤트가 아니라 실행 흐름과 분리.
+  const promptTab = t ? (
+    <div style={{ padding: '4px 0' }}>
+      {/* 전송 프롬프트(스펙 131) — 실제 LLM에 넣은 메시지 배열. user 입력은 채팅 버블서 이미 보여 제외. */}
+      {t.sentMessages?.length ? (
+        (() => {
+          const shown = t.sentMessages.filter((m) => m.role !== 'user')
+          return (
+            <Section icon="file" iconColor="var(--color-primary)" title="전송 프롬프트" count={t.sentMessages.length}>
+              <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginBottom: 8 }}>
+                이 턴에 모델로 전송된 메시지 {t.sentMessages.length}개(회상 주입 포함 · 메시지당 2000자
+                표시 상한). user 입력 {t.sentMessages.length - shown.length}개는 채팅에서 확인 — 표시 생략.
+              </div>
+              <Collapse
+                size="small"
+                items={shown.map((m, i) => ({
+                  key: `m${i}`,
+                  label: (
+                    <span>
+                      <Tag color={m.role === 'system' ? 'blue' : 'green'}>{m.role}</Tag>
+                      <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>{m.content.length}자</span>
+                    </span>
+                  ),
+                  children: <pre style={codeBox}>{m.content}</pre>,
+                }))}
+              />
+            </Section>
+          )
+        })()
+      ) : (
+        <Section icon="file" iconColor="var(--color-primary)" title="시스템 프롬프트">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap', rowGap: 6 }}>
+            <Tag color="blue" style={{ whiteSpace: 'normal', height: 'auto', maxWidth: '100%', overflowWrap: 'anywhere' }}>
+              {agent.name}
+            </Tag>
+            {(agent.memories || []).map((m) => (
+              <Tag key={m} color="purple" style={{ whiteSpace: 'normal', height: 'auto', maxWidth: '100%', overflowWrap: 'anywhere' }}>
+                {m}
+              </Tag>
+            ))}
+          </div>
+          <pre style={codeBox}>{agent.systemPrompt}</pre>
+        </Section>
+      )}
+      {/* 이 턴에 적용된 오버라이드(스펙 134). */}
+      {t.overrides && Object.keys(t.overrides).length ? (
+        <Section icon="experiment" iconColor="var(--gold-6)" title="오버라이드 (이 턴 적용)" count={Object.keys(t.overrides).length}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12 }}>
+            {Object.entries(t.overrides).map(([k, v]) => (
+              <div key={k} style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
+                <span style={{ width: 100, flex: 'none', color: 'var(--color-text-tertiary)' }}>{k}</span>
+                {Array.isArray(v) ? (
+                  <span style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                    {v.map((it, i) => (
+                      <Tag key={i} style={{ margin: 0, whiteSpace: 'normal', height: 'auto', overflowWrap: 'anywhere' }}>{String(it)}</Tag>
+                    ))}
+                  </span>
+                ) : (
+                  <span style={{ fontFamily: 'var(--font-family-code)', overflowWrap: 'anywhere' }}>{String(v)}</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </Section>
+      ) : null}
+      {/* RAG 컬렉션 가용성(호출 안 해도 배선됐는지) — 실행 흐름 밖 참고 정보. */}
+      {(t.ragCollections?.length || t.ragUnresolved?.length) ? (
+        <Section icon="database" iconColor="var(--geekblue-6)" title="연결된 문서 컬렉션" count={t.ragCollections?.length || 0}>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {(t.ragCollections ?? []).map((n) => (
+              <Tag key={n} color="geekblue" style={{ whiteSpace: 'normal', height: 'auto', overflowWrap: 'anywhere' }}>{n}</Tag>
+            ))}
+          </div>
+          {t.ragUnresolved?.length ? (
+            <div style={{ fontSize: 12, color: 'var(--color-warning)', marginTop: 6, overflowWrap: 'anywhere' }}>
+              ⚠ 미해석(임베딩 불완전): {t.ragUnresolved.join(', ')}
+            </div>
+          ) : null}
+        </Section>
+      ) : null}
+    </div>
+  ) : null
+
+  // 인스펙터 본문(메트릭 + 탭) — 드로워와 전체화면 Modal이 공유.
+  const body = t ? (
+    <>
+      <div style={{ display: 'flex', gap: 0, padding: '12px 16px', borderBottom: '1px solid var(--color-border-secondary)' }}>
+        <Metric label="지연시간" value={(t.latencyMs / 1000).toFixed(2) + 's'} />
+        <Metric label="입력 토큰" value={t.tokens.in.toLocaleString()} />
+        <Metric label="출력 토큰" value={t.tokens.out.toLocaleString()} />
+      </div>
+      <Tabs
+        size="small"
+        style={{ padding: '0 14px' }}
+        items={[
+          {
+            key: 'flow',
+            label: '실행 흐름',
+            children: (
+              <div style={{ padding: '8px 2px' }}>
+                <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginBottom: 12 }}>
+                  각 단계를 실행 순서대로 — 그 단계에서 무엇을 호출했고 결과가 어땠는지.
+                </div>
+                <NodeTimeline t={t} />
+              </div>
+            ),
+          },
+          { key: 'prompt', label: '프롬프트·설정', children: promptTab },
+        ]}
+      />
+    </>
+  ) : null
+
   return (
     <aside
       style={{
@@ -360,6 +603,9 @@ export function Inspector({
         <Icon name="dashboard" size={16} style={{ color: 'var(--color-text-secondary)' }} />
         <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-heading)', flex: 1 }}>턴 인스펙터</span>
         {!empty ? <Tag color="blue">턴 {turnIndex + 1}</Tag> : null}
+        {t && !fullWidth ? (
+          <Button type="text" size="small" onClick={() => setFull(true)} title="전체화면으로 크게 보기">확대</Button>
+        ) : null}
         {onClose ? <Button type="text" size="small" icon={<Icon name="close" />} onClick={onClose} /> : null}
       </div>
 
@@ -385,264 +631,21 @@ export function Inspector({
           </div>
         </div>
       ) : (
-        <div style={{ flex: 1, overflowY: 'auto' }}>
-          {/* metrics strip */}
-          <div style={{ display: 'flex', gap: 0, padding: '12px 16px', borderBottom: '1px solid var(--color-border-secondary)' }}>
-            <Metric label="지연시간" value={(t.latencyMs / 1000).toFixed(2) + 's'} />
-            <Metric label="입력 토큰" value={t.tokens.in.toLocaleString()} />
-            <Metric label="출력 토큰" value={t.tokens.out.toLocaleString()} />
-          </div>
-
-          {/* 전송 프롬프트(스펙 131) — 실제 LLM에 넣은 메시지 배열(조립 system=persona+회상 포함).
-              trace.sentMessages 있으면 그것을(충실본), 없으면(구 트레이스·재개 턴) 정적 persona 폴백.
-              user 입력은 채팅 버블에서 이미 보이므로 **표시에서 제외**(사용자 요청 — 데이터는 보존). */}
-          {t.sentMessages?.length ? (
-            (() => {
-              const shown = t.sentMessages.filter((m) => m.role !== 'user')
-              return (
-                <Section icon="file" iconColor="var(--color-primary)" title="전송 프롬프트" count={t.sentMessages.length}>
-                  <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginBottom: 8 }}>
-                    이 턴에 모델로 전송된 메시지 {t.sentMessages.length}개(회상 주입 포함 · 메시지당 2000자
-                    표시 상한). user 입력 {t.sentMessages.length - shown.length}개는 채팅에서 확인 — 표시 생략.
-                  </div>
-                  <Collapse
-                    size="small"
-                    defaultActiveKey={['m0']}
-                    items={shown.map((m, i) => ({
-                      key: `m${i}`,
-                      label: (
-                        <span>
-                          <Tag color={m.role === 'system' ? 'blue' : 'green'}>{m.role}</Tag>
-                          <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>{m.content.length}자</span>
-                        </span>
-                      ),
-                      children: <pre style={codeBox}>{m.content}</pre>,
-                    }))}
-                  />
-                </Section>
-              )
-            })()
-          ) : (
-            <Section icon="file" iconColor="var(--color-primary)" title="시스템 프롬프트">
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap', rowGap: 6 }}>
-                <Tag color="blue" style={{ whiteSpace: 'normal', height: 'auto', maxWidth: '100%', overflowWrap: 'anywhere' }}>
-                  {agent.name}
-                </Tag>
-                {(agent.memories || []).map((m) => (
-                  <Tag key={m} color="purple" style={{ whiteSpace: 'normal', height: 'auto', maxWidth: '100%', overflowWrap: 'anywhere' }}>
-                    {m}
-                  </Tag>
-                ))}
-              </div>
-              <pre style={codeBox}>{agent.systemPrompt}</pre>
-            </Section>
-          )}
-
-          {/* 이 턴에 적용된 오버라이드(스펙 134) — 세션에 설정 다른 턴이 섞여도 턴별로 영구 구분. */}
-          {t.overrides && Object.keys(t.overrides).length ? (
-            <Section icon="experiment" iconColor="var(--gold-6)" title="오버라이드 (이 턴 적용)" count={Object.keys(t.overrides).length}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12 }}>
-                {Object.entries(t.overrides).map(([k, v]) => (
-                  <div key={k} style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
-                    <span style={{ width: 100, flex: 'none', color: 'var(--color-text-tertiary)' }}>{k}</span>
-                    {Array.isArray(v) ? (
-                      <span style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                        {v.map((it, i) => (
-                          <Tag key={i} style={{ margin: 0, whiteSpace: 'normal', height: 'auto', overflowWrap: 'anywhere' }}>{String(it)}</Tag>
-                        ))}
-                      </span>
-                    ) : (
-                      <span style={{ fontFamily: 'var(--font-family-code)', overflowWrap: 'anywhere' }}>{String(v)}</span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </Section>
-          ) : null}
-
-          <Section icon="bulb" iconColor="var(--purple-6)" title="메모리" count={t.memories.length}>
-            <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>메모리 타입: {(agent.memories || []).join(', ')}</div>
-            {/* 회상 조회 이력(스펙 079) — 0건이어도 "조회 행위"를 남긴다. memoryQuery 있을 때만. */}
-            {t.memoryQuery != null ? (
-              <div
-                style={{
-                  marginTop: 8,
-                  padding: '8px 10px',
-                  background: 'var(--gray-2)',
-                  border: '1px solid var(--color-border-secondary)',
-                  borderRadius: 6,
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                  <Icon name="search" size={12} style={{ color: 'var(--purple-6)' }} />
-                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-heading)' }}>회상 조회</span>
-                  <Tag color={t.memories.length > 0 ? 'purple' : 'default'} style={{ marginInlineStart: 2 }}>
-                    {t.memories.length}건 회상
-                  </Tag>
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', fontFamily: 'var(--font-family-code)', overflowWrap: 'anywhere' }}>
-                  «{t.memoryQuery}»
-                </div>
-              </div>
-            ) : null}
-            {t.memoryScope ? (
-              <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginTop: 2 }}>
-                스코프:{' '}
-                {t.memoryScope.user_id ? (
-                  <Tag
-                    color="green"
-                    style={{ marginInlineEnd: 4, whiteSpace: 'normal', height: 'auto', maxWidth: '100%', overflowWrap: 'anywhere' }}
-                  >
-                    유저 장기 · {t.memoryScope.user_id}
-                  </Tag>
-                ) : null}
-                {t.memoryScope.run_id ? (
-                  <Tag
-                    color="default"
-                    style={{ marginInlineEnd: 0, whiteSpace: 'normal', height: 'auto', maxWidth: '100%', overflowWrap: 'anywhere' }}
-                  >
-                    세션 · {t.memoryScope.run_id}
-                  </Tag>
-                ) : null}
-              </div>
-            ) : null}
-            {t.memories.map((m, i) => (
-              <MemoryRow key={i} m={m} />
-            ))}
-          </Section>
-
-          {/* 문서 검색(RAG) 이력 — RAG 호출은 MCP에서 분리해 전용 섹션에. 연결 컬렉션/미해석도 노출
-              해 도구를 안 불렀어도 RAG가 가용했는지 보인다(스펙 079). 조율형의 **브로커 경유 RAG**도
-              여기에 표면화(스펙 130) — 이전엔 그래프 노드명뿐이라 "검색 안 함"으로 오인됐다. */}
-          {(() => {
-            const ragCalls = t.mcp.filter((c) => c.server === 'rag')
-            const brokerRag = (t.brokerCalls ?? []).filter((b) => b.cap_id.startsWith('rag:'))
-            const cols = t.ragCollections ?? []
-            const unresolved = t.ragUnresolved ?? []
-            if (!ragCalls.length && !brokerRag.length && !cols.length && !unresolved.length) return null
-            return (
-              <Section icon="search" iconColor="var(--geekblue-6)" title="문서 검색 (RAG)" count={ragCalls.length + brokerRag.length}>
-                {cols.length ? (
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
-                    <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>연결 컬렉션:</span>
-                    {cols.map((name) => (
-                      <Tag key={name} color="geekblue" style={{ whiteSpace: 'normal', height: 'auto', maxWidth: '100%', overflowWrap: 'anywhere' }}>
-                        {name}
-                      </Tag>
-                    ))}
-                  </div>
-                ) : null}
-                {unresolved.length ? (
-                  <div style={{ fontSize: 12, color: 'var(--color-warning)', marginBottom: 8, overflowWrap: 'anywhere' }}>
-                    ⚠ 미해석 컬렉션(임베딩 모델/프로바이더 불완전): {unresolved.join(', ')}
-                  </div>
-                ) : null}
-                {/* 브로커 위임 검색(조율형, 스펙 130) — 건수·최고 유사도·판정 태그.
-                    131: 결과 본문 프리뷰를 접이식으로(2000자 캡·마스킹된 안전본).
-                    191: 검색어 노출 + 히트별 카드(hitsDetail) + 유사도 척도/기준선. */}
-                {brokerRag.map((b, i) => {
-                  const bd = (b.hitsDetail ?? []) as RagHit[]
-                  return (
-                  <div key={`bk-${i}`} style={{ marginBottom: 8 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 13 }}>
-                      <Tag color="geekblue" style={{ fontFamily: 'var(--font-family-code)' }}>{b.cap_id}</Tag>
-                      {b.error ? (
-                        <Tag color="red">검색 실패</Tag>
-                      ) : (
-                        <>
-                          <span>검색 {b.hits ?? 0}건</span>
-                          {/* 유사도·판정은 topScore가 **실측 숫자일 때만** — 없는데 0.000/관련도낮음으로
-                              오표시하지 않는다(codex 130 P3). */}
-                          {b.hits && typeof b.topScore === 'number' ? (
-                            <span style={{ color: 'var(--color-text-secondary)' }}>· 최고 유사도 {b.topScore.toFixed(3)}</span>
-                          ) : null}
-                          {b.hits && typeof b.topScore === 'number' && b.topScore < 0.5 ? (
-                            <Tag color="orange">관련도 낮음</Tag>
-                          ) : null}
-                          {!b.hits ? <Tag color="default">0건</Tag> : null}
-                        </>
-                      )}
-                      <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>{b.ms}ms</span>
-                    </div>
-                    {/* 검색어(스펙 191) — 직접 도구와 동일하게 무엇으로 검색했는지 노출. */}
-                    {b.query ? (
-                      <div style={{ marginTop: 4 }}>
-                        <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>검색어: </span>
-                        <span style={{ fontSize: 12, fontFamily: 'var(--font-family-code)', color: 'var(--color-text-secondary)', overflowWrap: 'anywhere' }}>{b.query}</span>
-                      </div>
-                    ) : null}
-                    {bd.length ? (
-                      <div style={{ marginTop: 6 }}>
-                        {/* 브로커 rag 호출은 컬렉션 1개(cap_id="rag:컬렉션명") → minScore(scalar)를 그 컬렉션 기준선으로. */}
-                        <ScaleLegend thresholds={b.minScore ? { [b.cap_id.replace(/^rag:/, '')]: b.minScore } : undefined} />
-                        {bd.map((h, j) => <HitCard key={j} hit={h} idx={j} />)}
-                      </div>
-                    ) : b.resultPreview ? (
-                      <Collapse
-                        size="small"
-                        style={{ marginTop: 4 }}
-                        items={[{ key: 'r', label: <span style={{ fontSize: 12 }}>검색 결과 본문</span>, children: <pre style={codeBox}>{b.resultPreview}</pre> }]}
-                      />
-                    ) : null}
-                  </div>
-                  )
-                })}
-                {ragCalls.length ? (
-                  ragCalls.map((c, i) => <RagCall key={i} c={c} />)
-                ) : !brokerRag.length ? (
-                  <div style={{ fontSize: 13, color: 'var(--color-text-tertiary)' }}>이 턴에서는 문서 검색을 호출하지 않았습니다.</div>
-                ) : null}
-              </Section>
-            )
-          })()}
-
-          <Section icon="thunderbolt" iconColor="var(--cyan-7)" title="MCP 도구 호출" count={t.mcp.filter((c) => c.server !== 'rag').length}>
-            {t.mcp.filter((c) => c.server !== 'rag').length ? (
-              t.mcp.filter((c) => c.server !== 'rag').map((c, i) => <McpCall key={i} c={c} />)
-            ) : (
-              <div style={{ fontSize: 13, color: 'var(--color-text-tertiary)' }}>호출된 도구 없음.</div>
-            )}
-          </Section>
-
-          {/* 비-RAG 브로커 위임 호출(스펙 131, codex #4) — mcp:/memory:/agent: 능력도 결과 본문을
-              표면화(부분 표면화=새 사각지대, 130 교훈). rag:* 는 위 RAG 섹션이 담당. */}
-          {(() => {
-            const others = (t.brokerCalls ?? []).filter((b) => !b.cap_id.startsWith('rag:'))
-            if (!others.length) return null
-            return (
-              <Section icon="share-alt" iconColor="var(--gold-6)" title="위임 호출 (브로커)" count={others.length}>
-                {others.map((b, i) => (
-                  <div key={`ob-${i}`} style={{ marginBottom: 6 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 13 }}>
-                      <Tag color="gold" style={{ fontFamily: 'var(--font-family-code)' }}>{b.cap_id}</Tag>
-                      {b.error ? <Tag color="red">실패</Tag> : null}
-                      {typeof b.hits === 'number' ? <span>{b.hits}건</span> : null}
-                      <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>{b.ms}ms</span>
-                    </div>
-                    {b.resultPreview ? (
-                      <Collapse
-                        size="small"
-                        style={{ marginTop: 4 }}
-                        items={[{ key: 'r', label: <span style={{ fontSize: 12 }}>결과 본문</span>, children: <pre style={codeBox}>{b.resultPreview}</pre> }]}
-                      />
-                    ) : null}
-                  </div>
-                ))}
-              </Section>
-            )
-          })()}
-
-          <Section icon="share-alt" iconColor="var(--green-6)" title="LangGraph 경로" count={t.graph.length}>
-            {t.resumedFrom ? (
-              <div style={{ fontSize: 12, color: 'var(--purple-7)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <Icon name="clock-circle" size={12} />
-                체크포인트에서 재개됨 <code style={{ fontFamily: 'var(--font-family-code)' }}>{t.resumedFrom}</code>
-              </div>
-            ) : null}
-            <GraphPath graph={t.graph} />
-          </Section>
-        </div>
+        <div style={{ flex: 1, overflowY: 'auto' }}>{full ? null : body}</div>
       )}
+
+      {/* 전체화면 확대(스펙 192) — 드로워가 비좁을 때 넓은 오버레이로 깊게 디버깅. */}
+      <Modal
+        open={full}
+        onCancel={() => setFull(false)}
+        width="90vw"
+        footer={null}
+        title={`턴 인스펙터 — 턴 ${turnIndex + 1}`}
+        styles={{ body: { maxHeight: '78vh', overflowY: 'auto' } }}
+      >
+        {full ? body : null}
+      </Modal>
     </aside>
   )
 }
+

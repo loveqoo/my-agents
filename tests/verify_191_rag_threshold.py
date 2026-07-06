@@ -28,20 +28,30 @@ def _hit(score, coll="a", name="a.md", text="t"):
     return {"score": score, "collection": coll, "filename": name, "text": text, "meta": None}
 
 
-# ── [F] 컬렉션별 후필터 ─────────────────────────────────────
+# ── [F] 컬렉션별 커트라인 표시(annotate) + used 분리 (스펙 192) ────────
+# _annotate_cutoffs는 드롭하지 않고 belowCutoff/cutoff를 부착 / used_hits가 통과분만 거른다.
+def _used(hits, ms):
+    return runtime.used_hits(runtime._annotate_cutoffs(hits, ms))
+
+
 hits = [_hit(0.9, "docs"), _hit(0.4, "docs"), _hit(0.6, "prod"), _hit(0.2, "prod"), _hit(0.5, "docs")]
-r = runtime._apply_min_scores(hits, {"docs": 0.5, "prod": 0.5})
-# docs≥0.5 → 0.9,0.5 / prod≥0.5 → 0.6 (0.4docs·0.2prod 드롭)
-ok(len(r) == 3 and {h["score"] for h in r} == {0.9, 0.5, 0.6}, "[F1] 컬렉션별 판정(docs 0.9·0.5, prod 0.6)")
-r2 = runtime._apply_min_scores(hits, {"docs": 0.5})  # prod 무설정=무필터
-ok(len(r2) == 4 and any(h["score"] == 0.2 for h in r2), "[F2] 미설정 컬렉션(prod)은 무필터")
-ok(len(runtime._apply_min_scores(hits, {})) == 5, "[F3] 빈 맵 = 무필터")
-ok(len(runtime._apply_min_scores(hits, {"docs": 0})) == 5, "[F4] 값 0 = 무필터")
-ok(len(runtime._apply_min_scores(hits, None)) == 5, "[F5] None = 무필터")
-# docs≥0.5 → 0.9,0.5 통과(2) / prod≥0.7 → 없음. 컬렉션 독립 판정.
-ok(len(runtime._apply_min_scores(hits, {"docs": 0.5, "prod": 0.7})) == 2, "[F6] 경계·컬렉션 독립(0.9·0.5 docs, prod 0건)")
-# 방어: 비정상 값은 그 컬렉션 무필터
-ok(len(runtime._apply_min_scores(hits, {"docs": 1.5, "prod": "x"})) == 5, "[F7] 비정상 값 → 무필터")
+u = _used(hits, {"docs": 0.5, "prod": 0.5})
+# docs≥0.5 → 0.9,0.5 / prod≥0.5 → 0.6 (0.4docs·0.2prod 미달)
+ok(len(u) == 3 and {h["score"] for h in u} == {0.9, 0.5, 0.6}, "[F1] used=통과분(docs 0.9·0.5, prod 0.6)")
+ok(len(_used(hits, {"docs": 0.5})) == 4 and any(h["score"] == 0.2 for h in _used(hits, {"docs": 0.5})),
+   "[F2] 미설정 컬렉션(prod)은 무필터")
+ok(len(_used(hits, {})) == 5, "[F3] 빈 맵 = 무필터")
+ok(len(_used(hits, {"docs": 0})) == 5, "[F4] 값 0 = 무필터")
+ok(len(_used(hits, None)) == 5, "[F5] None = 무필터")
+ok(len(_used(hits, {"docs": 0.5, "prod": 0.7})) == 2, "[F6] 경계·컬렉션 독립(0.9·0.5 docs, prod 0건)")
+ok(len(_used(hits, {"docs": 1.5, "prod": "x"})) == 5, "[F7] 비정상 값 → 무필터")
+# [F8] annotate는 **드롭 안 함** — 전부 유지 + belowCutoff 플래그(인스펙터 "못 쓴 문서"용).
+ann = runtime._annotate_cutoffs(hits, {"docs": 0.5, "prod": 0.5})
+dropped = [h for h in ann if h.get("belowCutoff")]
+ok(len(ann) == 5 and len(dropped) == 2 and {h["score"] for h in dropped} == {0.4, 0.2},
+   "[F8] annotate 전부 유지 + 미달 2건 belowCutoff 표시(못 쓴 문서)")
+ok(all(h.get("cutoff") == 0.5 for h in ann if "cutoff" in h), "[F9] cutoff 값 부착")
+ok(all("belowCutoff" not in h for h in runtime._annotate_cutoffs(hits, {})), "[F10] 커트라인 없으면 키 없음(외부 안전)")
 
 
 # ── [N] 맵 정규화 ───────────────────────────────────────────
@@ -59,6 +69,11 @@ ok(runtime._hits_detail([]) == [], "[D4] 빈 결과 → 빈 리스트")
 # [D5] 비밀 마스킹 — trace 누출 방지(087/092/125, resultPreview와 동일 규율). 원문 비밀 미노출.
 _masked = runtime._hits_detail([_hit(0.8, "kb", "f", "token sk-ABCDEF1234567890ABCDEF tail " * 20)])[0]["textPreview"]
 ok("sk-ABCDEF1234567890ABCDEF" not in _masked and "«secret»" in _masked, "[D5] textPreview 비밀 마스킹(누출 0)")
+# [D6] 커트라인 플래그 전달(스펙 192) — annotate된 히트의 belowCutoff/cutoff가 detail에 실림.
+_ann = runtime._annotate_cutoffs([_hit(0.4, "kb"), _hit(0.8, "kb")], {"kb": 0.5})
+_d6 = runtime._hits_detail(_ann)
+ok(_d6[0]["belowCutoff"] is True and _d6[1]["belowCutoff"] is False and _d6[0]["cutoff"] == 0.5,
+   "[D6] hitsDetail에 belowCutoff/cutoff 전달(못 쓴 문서 표시)")
 
 
 # ── [W] 직접 도구 배선 ──────────────────────────────────────
@@ -97,6 +112,26 @@ async def _direct():
     finally:
         runtime.search_collections = orig
     ok("sk-DEADBEEF0123456789DEADBEEF" not in sink2[0]["result"], "[W5] 직접 sink result 비밀 마스킹(누출 0)")
+
+    # [W6] 스펙 192 — 에이전트 결과는 used(통과분)만, hitsDetail엔 dropped(미달)도 실림.
+    async def fake_annotated(collections, query, top_k=4, min_scores=None):
+        # search_collections가 annotate한 것처럼 belowCutoff 부착 상태로 반환.
+        return runtime._annotate_cutoffs(
+            [_hit(0.8, "docs-kb", "keep.md", "kept"), _hit(0.3, "docs-kb", "drop.md", "dropped body")],
+            {"docs-kb": 0.5},
+        )
+
+    runtime.search_collections = fake_annotated
+    try:
+        sink3: list[dict] = []
+        tool3 = runtime.build_rag_tool([{"name": "docs-kb"}], sink3, {"docs-kb": 0.5})
+        agent_text = await tool3.coroutine(query="q", top_k=4)
+    finally:
+        runtime.search_collections = orig
+    ok("keep.md" in agent_text and "drop.md" not in agent_text, "[W6] 에이전트 결과는 used(통과)만 — 미달 문서 안 보임")
+    hd = sink3[0]["hitsDetail"]
+    ok(len(hd) == 2 and any(x.get("belowCutoff") for x in hd), "[W6b] hitsDetail엔 dropped(미달)도 포함(인스펙터용)")
+    ok(sink3[0]["hits"] == 1, "[W6c] hits 카운트=used(통과분) 수")
 
 
 asyncio.run(_direct())

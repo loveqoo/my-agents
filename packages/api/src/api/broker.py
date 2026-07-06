@@ -608,17 +608,17 @@ class RagProvider:
         # 이 컬렉션의 임계값(스펙 191 v2) — 맵에서 조회, 없으면 0(무필터).
         thr = rt._norm_score(self._min_scores.get(row.name, 0.0))
         try:
-            hits = await rt.search_collections([row.col], text, top_k, {row.name: thr})
+            hits = await rt.search_collections([row.col], text, top_k, {row.name: thr})  # 커트라인 annotate
             # 결과 = 문서 내용 = **데이터**(지시 아님). trust=untrusted 불변(인젝션 방어).
-            # hits/topScore 구조화(스펙 130) — 조율형의 RAG 검색이 인스펙터에 "N건·최고 유사도"로
-            # 보이게. 문서 본문은 raw에 싣지 않는다(표시용 메타 숫자만 — 과대 데이터/누출 없음).
-            # 히트별 카드·기준선(스펙 191): hitsDetail(컬렉션·파일명·유사도·본문) + minScore + query.
-            top = max((float(h.get("score", 0.0)) for h in hits), default=0.0)
+            # 스펙 192: used(커트라인 통과분)만 에이전트에 넘긴다(미달 문서 안 봄). trace(hitsDetail)엔 전부
+            # (used+dropped 플래그) — 인스펙터가 "못 쓴 문서"까지 보이게. hits=used 수·topScore=used 최고.
+            used = rt.used_hits(hits)
+            top = max((float(h.get("score", 0.0)) for h in used), default=0.0)
             return InvokeResult(
-                text=rt.format_rag_hits(hits),  # 인-챗 도구와 공유 포맷(drift 0)
+                text=rt.format_rag_hits(used),  # 인-챗 도구와 공유 포맷(drift 0)
                 trust="untrusted", error=None,
                 raw={
-                    "cap_id": cap_id, "kind": CAP_KIND_RAG, "hits": len(hits), "topScore": round(top, 3),
+                    "cap_id": cap_id, "kind": CAP_KIND_RAG, "hits": len(used), "topScore": round(top, 3),
                     "hitsDetail": rt._hits_detail(hits), "minScore": round(thr, 3), "query": query_disp,
                 },
             )
