@@ -150,6 +150,30 @@ const OVERLAYS = [
     },
   },
   {
+    key: 'users-grant-tab', // 스펙 200 — 유저 화면 '능력 부여' 탭(오버레이는 아니나 열어야 보이는 표면)
+    async open(page, isMobile) {
+      await navTo(page, 'users', isMobile)
+      await page.getByRole('tab', { name: '능력 부여' }).click({ timeout: 4000 })
+    },
+  },
+  {
+    key: 'collection-edit', // 스펙 198 — 청크 정책 제거 후 편집 모달(별명·설명+참고 표시)
+    async open(page, isMobile) {
+      await navTo(page, 'collections', isMobile)
+      // 행 클릭은 문서 드로어를 여니(197) 편집 아이콘 버튼을 직접 — antd EditOutlined.
+      await page.locator('button:has(.anticon-edit)').first().click({ timeout: 4000 })
+      await page.locator('.ant-modal').first().waitFor({ timeout: 4000 })
+    },
+  },
+  {
+    key: 'collection-docs', // 스펙 197 — 문서 관리 드로어(헤더 extra '평가하기' 버튼)
+    async open(page, isMobile) {
+      await navTo(page, 'collections', isMobile)
+      await clickFirstRow(page, isMobile)
+      await page.locator('.ant-drawer').first().waitFor({ timeout: 4000 })
+    },
+  },
+  {
     key: 'pg-override',
     async open(page, isMobile) {
       await navTo(page, 'debug', isMobile)

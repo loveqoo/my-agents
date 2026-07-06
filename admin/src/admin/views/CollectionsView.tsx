@@ -233,8 +233,14 @@ function CreateModal({
         </label>
         {f.kind === 'document' ? (
           <div style={{ display: 'flex', gap: 16 }}>
+            {/* 카피 감사(축3) 보강: '청크' 첫 노출부에 일반인용 한 줄 설명 — 도메인어는 없애지 않고 설명 추가 */}
             <label style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1 }}>
-              <span style={{ fontSize: 14, fontWeight: 500 }}>청크 크기</span>
+              <span style={{ fontSize: 14, fontWeight: 500 }}>
+                청크 크기{' '}
+                <Tooltip title="청크 = 문서를 잘게 나눈 조각. 검색은 이 조각 단위로 이뤄집니다. 크기는 조각 하나의 글자 수.">
+                  <span style={{ color: 'var(--color-text-tertiary)', fontWeight: 400, cursor: 'help' }}>(?)</span>
+                </Tooltip>
+              </span>
               <InputNumber
                 min={1}
                 style={{ width: '100%' }}
@@ -327,10 +333,10 @@ function EditModal({
             <TextArea rows={3} value={description} onChange={(e) => setDescription(e.target.value)} />
           </label>
           {/* 스펙 198: 청크 크기·겹침 수정 필드 제거 — 청크 정책은 생성 후 불변(소급 안 되고 재청킹은 원본
-             미저장이라 불가). 현재 값은 참고용으로만 표시. */}
+             미저장이라 불가). 현재 값은 참고용으로만 표시. 괄호 설명=카피 감사(축3) 보강. */}
           {!isEntity ? (
             <span style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>
-              청크 정책: 크기 <b>{collection.chunk_size}</b> · 겹침 <b>{collection.chunk_overlap}</b>
+              청크(문서를 잘게 나눈 조각) 정책: 크기 <b>{collection.chunk_size}</b> · 겹침 <b>{collection.chunk_overlap}</b>
             </span>
           ) : null}
           <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>

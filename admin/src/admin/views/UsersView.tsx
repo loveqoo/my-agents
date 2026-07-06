@@ -369,7 +369,7 @@ export default function UsersView() {
     <div>
       <div style={{ fontSize: 13, color: 'var(--color-text-secondary)', marginBottom: 16, lineHeight: 1.7 }}>
         능력이란 에이전트가 쓸 수 있는 <b>도구(MCP)</b>·<b>지식(RAG 컬렉션)</b>·<b>하위 에이전트</b>·<b>기억</b>입니다.
-        admin은 모든 능력을 쓸 수 있고, <b>member는 여기서 열어준 능력만</b> 쓸 수 있습니다(기본 잠김).
+        관리자(admin)는 모든 능력을 쓸 수 있고, <b>일반 멤버(member)는 여기서 열어준 능력만</b> 쓸 수 있습니다(기본 잠김).
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
         <div>

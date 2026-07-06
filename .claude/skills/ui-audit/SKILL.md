@@ -23,7 +23,9 @@ node tests/browser/audit-all.mjs
 ```
 
 - **screens**(축2, `ui-audit.mjs`): 14화면 × 3뷰포트(360/768/1280) 가로 오버플로 수치 측정.
-- **overlays**(축2 확장, `ui-audit-overlays.mjs`): 7 오버레이(모달·드로어) × 2뷰포트.
+- **overlays**(축2 확장, `ui-audit-overlays.mjs`): 10 표면(모달·드로어·탭 — 능력 부여 탭·컬렉션
+  편집·문서 드로어 포함) × 2뷰포트. **새 화면/탭/모달을 만들면 이 목록에 추가해야 감사가 따라온다**
+  (커버리지 밖 초록은 공허 — 2026-07-07 감사에서 신설 표면 3개 누락 발견).
 - **scenario**(축1, `scenario-audit.mjs`): 여정(생성→대화·지식 붙이기) 단계별 기대결과 대조. `scenarios.md`가 합격선.
 - 종합 종료코드 = 하나라도 FAIL이면 1. 상세: `out-*/scorecard.json` + 스크린샷 `out-*/{viewport}/*.png`.
 

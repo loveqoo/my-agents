@@ -63,7 +63,7 @@ try {
 
   // ① 도입 문장 + 대상 축
   const bt = await bodyText()
-  ok(/member는 여기서 열어준 능력만/.test(bt), '1a 도입 문장 노출')
+  ok(/멤버\(member\)는 여기서 열어준 능력만/.test(bt), '1a 도입 문장 노출(admin·member 병기, 축3 보강)')
   ok(/역할에게/.test(bt) && /특정 유저에게/.test(bt), '1b 대상 축 Segmented(역할/유저)')
   ok(/이 역할을 가진 모든 유저에게 적용/.test(bt), '1c 역할 축 효과 설명(기본)')
 
