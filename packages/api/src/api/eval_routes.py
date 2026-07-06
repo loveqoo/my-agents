@@ -32,6 +32,7 @@ class DatasetIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     description: str | None = None
     kind: str = Field(default="agent", pattern="^(agent|rag)$")
+    collection_id: uuid.UUID | None = None  # 스펙 193 — kind=rag면 대상 컬렉션 고정(생성 시 저장)
 
 
 class DatasetOut(BaseModel):
@@ -39,8 +40,21 @@ class DatasetOut(BaseModel):
     name: str
     description: str | None
     kind: str
+    collection_id: uuid.UUID | None = None  # 스펙 193 — RAG 문제집의 고정 컬렉션(실행 시 재선택 불필요)
     case_count: int = 0
     can_manage: bool = True  # 스펙 178 — 이 유저가 수정/삭제/실행 가능(소유자·특권). UI 버튼 게이트
+    generating: bool = False  # 스펙 193 — 문제 자동 생성 진행 중(목록 스피너·드로어 Skeleton·폴링 신호)
+
+
+def _dataset_out(d: EvalDataset, case_count: int, user) -> DatasetOut:
+    """DatasetOut 단일 생성 경로(드리프트 0) — 5곳 인라인 통일. generating은 description 마커
+    ("생성 중…" — 스펙 142/143이 박는 진행 신호)를 구조 필드로 승격(프론트는 bool만 소비)."""
+    return DatasetOut(
+        id=d.id, name=d.name, description=d.description, kind=d.kind,
+        collection_id=d.collection_id, case_count=case_count,
+        can_manage=may_manage(d.owner_id, user),
+        generating=(d.description or "").startswith("생성 중"),
+    )
 
 
 class CaseIn(BaseModel):
@@ -89,8 +103,7 @@ async def list_datasets(
         )
     ).all()
     return [
-        DatasetOut(id=d.id, name=d.name, description=d.description, kind=d.kind, case_count=n,
-                   can_manage=may_manage(d.owner_id, user))  # 읽기는 전원, 관리 버튼은 소유자만
+        _dataset_out(d, n, user)  # 읽기는 전원, 관리 버튼은 소유자만(헬퍼가 collection_id·generating 포함)
         for d, n in rows
     ]
 
@@ -100,7 +113,9 @@ async def create_dataset(
     body: DatasetIn, session: AsyncSession = Depends(get_session), user=Depends(current_principal)
 ) -> DatasetOut:
     ds = EvalDataset(
-        name=body.name, description=body.description, kind=body.kind, owner_id=owner_of(user)
+        name=body.name, description=body.description, kind=body.kind, owner_id=owner_of(user),
+        # 스펙 193: rag 문제집만 대상 컬렉션 고정(agent는 무의미 → None으로 무시).
+        collection_id=body.collection_id if body.kind == "rag" else None,
     )
     session.add(ds)
     try:
@@ -108,7 +123,7 @@ async def create_dataset(
     except Exception:
         await session.rollback()
         raise HTTPException(status_code=409, detail="같은 이름의 문제집이 이미 있습니다")
-    return DatasetOut(id=ds.id, name=ds.name, description=ds.description, kind=ds.kind, case_count=0)
+    return _dataset_out(ds, 0, user)
 
 
 @router.patch("/datasets/{dataset_id}", response_model=DatasetOut)
@@ -125,7 +140,7 @@ async def update_dataset(
     n = (
         await session.execute(select(func.count(EvalCase.id)).where(EvalCase.dataset_id == ds.id))
     ).scalar_one()
-    return DatasetOut(id=ds.id, name=ds.name, description=ds.description, kind=ds.kind, case_count=n)
+    return _dataset_out(ds, n, user)
 
 
 @router.delete("/datasets/{dataset_id}", status_code=204)
@@ -421,11 +436,15 @@ async def start_run(
         # 교차 대상 거부(codex 140 #1) — 조용한 무시는 "다른 대상을 시험했다"는 오해를 만든다.
         raise HTTPException(status_code=400, detail="agent_id와 collection_id는 동시에 줄 수 없습니다")
     if ds.kind == "rag":
-        if body.collection_id is None:
+        # 스펙 193: 문제집에 고정된 컬렉션 우선. body 값은 하위호환·구버전 첫 실행(lazy 고정)용.
+        coll_id = ds.collection_id or body.collection_id
+        if coll_id is None:
             raise HTTPException(status_code=400, detail="RAG 문제집은 collection_id가 필요합니다")
         from .rag import resolve_search_collection
-        rag_collection = await resolve_search_collection(session, body.collection_id)  # 404/400 자체 처리
+        rag_collection = await resolve_search_collection(session, coll_id)  # 404/400 자체 처리
         target_name = f"RAG · {rag_collection['name']}"
+        if ds.collection_id is None:  # 구버전 문제집: 첫 실행 때 고른 컬렉션을 고정(이후 재선택 불필요)
+            ds.collection_id = coll_id
     else:
         if body.agent_id is None:
             raise HTTPException(status_code=400, detail="에이전트 문제집은 agent_id가 필요합니다")
@@ -678,7 +697,8 @@ async def generate_dataset(
     if not is_privileged(user):
         await _member_job_guard(session, user)  # 생성 전 기존 in-flight만 카운트
     ds = EvalDataset(name=body.name, description="생성 중… (문제가 곧 채워집니다)",
-                     kind="rag", owner_id=owner_of(user))
+                     kind="rag", owner_id=owner_of(user),
+                     collection_id=body.collection_id)  # 스펙 193: 생성 컬렉션을 문제집에 고정
     session.add(ds)
     try:
         await session.commit()
@@ -687,7 +707,7 @@ async def generate_dataset(
         raise HTTPException(status_code=409, detail="같은 이름의 문제집이 이미 있습니다")
     _active_jobs.add(ds.id)  # 동기 등록 — create_task 전 창을 닫아 flood 카운트 누락 방지(codex #1)
     asyncio.create_task(_execute_generation(ds.id, body.collection_id, body.count))
-    return DatasetOut(id=ds.id, name=ds.name, description=ds.description, kind=ds.kind, case_count=0)
+    return _dataset_out(ds, 0, user)
 
 
 # ----------------------------- AI 출제 (스펙 143 — 평가 도우미 1탄) -----------------------------
@@ -823,4 +843,4 @@ async def suggest_cases(
     n = (
         await session.execute(select(func.count(EvalCase.id)).where(EvalCase.dataset_id == ds.id))
     ).scalar_one()
-    return DatasetOut(id=ds.id, name=ds.name, description=ds.description, kind=ds.kind, case_count=n)
+    return _dataset_out(ds, n, user)

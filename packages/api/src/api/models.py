@@ -493,6 +493,11 @@ class EvalDataset(Base):
     name: Mapped[str] = mapped_column(String(120), unique=True, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, default=None)
     kind: Mapped[str] = mapped_column(String(20), default="agent")  # agent|rag
+    # 스펙 193: RAG 문제집의 대상 컬렉션 고정(실행 시 재선택 제거). kind='rag'만 사용, agent는 NULL.
+    # 구버전 rag 문제집도 NULL(첫 실행 시 lazy 저장). 컬렉션 삭제 시 SET NULL(문제집 보존·연결만 끊김).
+    collection_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("collections.id", ondelete="SET NULL"), nullable=True, default=None, index=True
+    )
     owner_id: Mapped[str | None] = mapped_column(String(80), index=True, default=None)  # 스펙 112 스탬프
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

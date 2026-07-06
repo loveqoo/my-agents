@@ -3,7 +3,7 @@
    수치 검증→자율 반복(Ralph) 로드맵의 제품 표면. 러너는 오염 제로(백엔드 eval_runner) —
    실행해도 세션/메모리에 흔적이 남지 않는다. */
 import { useState, useEffect, useCallback } from 'react'
-import { Tabs, Button, Input, Select, Tag, Modal, Popconfirm, Alert, Collapse, Checkbox, Tooltip, message, Descriptions } from 'antd'
+import { Tabs, Button, Input, Select, Tag, Modal, Popconfirm, Alert, Collapse, Checkbox, Tooltip, message, Descriptions, Skeleton } from 'antd'
 import { Page, DataTable, Drawer, type Column } from '../shared'
 import { Icon } from '../icons'
 import { TrendChart, CompareDrawer } from './EvalTrend'
@@ -160,6 +160,13 @@ function DatasetDrawer({
     else setDsRuns([])
   }, [load])
 
+  // 스펙 193: 생성 중이면 케이스가 채워지므로 폴링(load=cases 갱신, onChanged=부모 목록·generating 갱신).
+  useEffect(() => {
+    if (!dataset?.generating) return
+    const t = setInterval(() => { void load(); onChanged() }, 2500)
+    return () => clearInterval(t)
+  }, [dataset?.generating, dataset?.id, load, onChanged])
+
   const save = async (body: { name: string; input: string; asserts: EvalAssert[] }, caseId?: string) => {
     if (!dataset) return
     setBusy(true)
@@ -181,13 +188,15 @@ function DatasetDrawer({
   const isRag = dataset?.kind === 'rag'
   // 관리 액션(실행·케이스 편집) 게이트(스펙 178 P3) — can_manage 미실림(구버전 응답)은 보이게.
   const canManage = dataset?.can_manage !== false
+  // 스펙 193: RAG는 고정 컬렉션 우선(있으면 runAgent 불필요), 구버전은 고른 컬렉션(첫 실행 시 백엔드가 고정).
+  const ragTarget = isRag ? (dataset?.collection_id ?? runAgent) : null
   const start = async () => {
-    if (!dataset || !runAgent) return
+    if (!dataset || (isRag ? !ragTarget : !runAgent)) return
     setStarting(true)
     try {
       await startEvalRun(
         dataset.id,
-        isRag ? { collectionId: runAgent } : { agentId: runAgent, models: runModels }
+        isRag ? { collectionId: ragTarget! } : { agentId: runAgent, models: runModels }
       )
       message.success(
         runModels.length > 1
@@ -209,18 +218,29 @@ function DatasetDrawer({
           {/* 시험 실행 — 소유자·관리자만(스펙 178 P3, 읽기는 공개). 로컬(ui) 에이전트만(러너 제약). */}
           {canManage ? (
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            <Select
-              style={{ minWidth: 220, flex: 1 }}
-              placeholder={isRag ? '시험 칠 RAG 컬렉션 선택' : '시험 칠 에이전트 선택 (로컬 ui 에이전트만)'}
-              value={runAgent}
-              onChange={setRunAgent}
-              options={
-                isRag
-                  ? collections.map((c) => ({ value: c.id, label: c.name }))
-                  : localAgents.map((a) => ({ value: a.id, label: a.name }))
-              }
-            />
-            <Button type="primary" icon={<Icon name="thunderbolt" />} loading={starting} disabled={!runAgent || cases.length === 0} onClick={() => void start()}>
+            {isRag && dataset.collection_id ? (
+              /* 스펙 193: 문제집에 고정된 대상 컬렉션 — 실행 시 재선택 불필요(칩 표시, 버튼만 누르면 됨). */
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 220 }}>
+                <span style={{ fontSize: 13, color: 'var(--color-text-tertiary)' }}>대상 컬렉션</span>
+                <Tag color="geekblue" style={{ margin: 0 }}>
+                  {collections.find((c) => c.id === dataset.collection_id)?.name ?? '(삭제된 컬렉션)'}
+                </Tag>
+              </span>
+            ) : (
+              <Select
+                style={{ minWidth: 220, flex: 1 }}
+                placeholder={isRag ? '시험 칠 RAG 컬렉션 선택 (첫 실행 후 이 문제집에 고정됩니다)' : '시험 칠 에이전트 선택 (로컬 ui 에이전트만)'}
+                value={runAgent}
+                onChange={setRunAgent}
+                options={
+                  isRag
+                    ? collections.map((c) => ({ value: c.id, label: c.name }))
+                    : localAgents.map((a) => ({ value: a.id, label: a.name }))
+                }
+              />
+            )}
+            <Button type="primary" icon={<Icon name="thunderbolt" />} loading={starting}
+              disabled={(isRag ? !ragTarget : !runAgent) || cases.length === 0} onClick={() => void start()}>
               {runModels.length > 1 ? `${runModels.length}개 모델 비교 실행` : '시험 실행'}
             </Button>
           </div>
@@ -238,8 +258,9 @@ function DatasetDrawer({
           ) : null}
           {/* 성적 추이(스펙 138) — 이 문제집의 완료 런들. 최근 런 목록이 표 뷰 역할(클릭→성적표). */}
           {dsRuns.length > 0 ? (
-            <div style={{ padding: 12, border: '1px solid var(--color-border-secondary)', borderRadius: 8 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+            <div style={{ padding: 12, border: '1px solid var(--geekblue-3)', borderLeft: '3px solid var(--geekblue-5)', borderRadius: 8, background: 'var(--geekblue-1)' }}>
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Icon name="dashboard" size={14} style={{ color: 'var(--geekblue-6)' }} />
                 성적 추이{' '}
                 <span style={{ fontWeight: 400, fontSize: 12, color: 'var(--color-text-tertiary)' }}>
                   (최근 {dsRuns.length}회{dsRuns.length >= 50 ? ' — 50회까지만 표시' : ''})
@@ -268,8 +289,22 @@ function DatasetDrawer({
               </div>
             </div>
           ) : null}
-          {cases.length === 0 ? (
+          {cases.length === 0 && !dataset.generating ? (
             <Alert type="info" showIcon message="문제가 없습니다 — 아래에서 첫 문제를 추가하세요." />
+          ) : null}
+          {/* 스펙 193: 자동 생성 중이면 아직 안 온 문제 자리를 Skeleton 카드로(무언가 써지는 중임을 시각화).
+              gen_target 미노출이라 3개 고정 자리표시 — 폴링으로 실제 케이스가 위에 하나씩 채워진다. */}
+          {dataset.generating ? (
+            <>
+              <div style={{ fontSize: 12, color: 'var(--geekblue-6)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Icon name="loading" spin size={12} /> AI가 문제를 만드는 중입니다 — 자동으로 채워집니다
+              </div>
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={`sk-${i}`} style={{ padding: 12, border: '1px dashed var(--geekblue-3)', borderRadius: 8, background: 'var(--geekblue-1)' }}>
+                  <Skeleton active title={{ width: '45%' }} paragraph={{ rows: 1, width: ['85%'] }} />
+                </div>
+              ))}
+            </>
           ) : null}
 
           {cases.map((c) =>
@@ -462,6 +497,7 @@ export default function EvalView() {
   const [newName, setNewName] = useState('')
   const [newDesc, setNewDesc] = useState('')
   const [newKind, setNewKind] = useState<'agent' | 'rag'>('agent')
+  const [newColl, setNewColl] = useState<string | undefined>() // 스펙 193 — rag 문제집 대상 컬렉션(생성 시 고정)
   const [genOpen, setGenOpen] = useState(false)
   const [genCol, setGenCol] = useState<string | undefined>()
   const [genCount, setGenCount] = useState(10)
@@ -500,12 +536,32 @@ export default function EvalView() {
     return () => clearInterval(t)
   }, [runs, loadRuns])
 
+  // 스펙 193: 문제 자동 생성 중인 문제집이 있으면 2.5초 폴링(케이스가 차오르는 것 반영) — 다 끝나면 중지(좀비 방지).
+  useEffect(() => {
+    if (!datasets.some((d) => d.generating)) return
+    const t = setInterval(loadDatasets, 2500)
+    return () => clearInterval(t)
+  }, [datasets, loadDatasets])
+
+  // 스펙 193: 폴링으로 datasets 갱신 시 열린 드로어(detail)도 최신으로 — generating 종료·collection_id 고정 반영.
+  useEffect(() => {
+    setDetail((cur) => (cur ? datasets.find((d) => d.id === cur.id) ?? cur : cur))
+  }, [datasets])
+
   const dsCols: Column<EvalDataset>[] = [
     {
       key: 'name', title: '문제집',
       render: (d) => (
         <div>
-          <div style={{ fontWeight: 600 }}>{d.name}</div>
+          <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            {d.name}
+            {/* 스펙 193: 자동 생성 중 배지(스피너) — 폴링으로 완료 시 사라짐. */}
+            {d.generating ? (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--geekblue-6)', fontWeight: 500 }}>
+                <Icon name="loading" spin size={11} /> 문제 생성 중…
+              </span>
+            ) : null}
+          </div>
           {d.description ? (
             <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>{d.description}</div>
           ) : null}
@@ -640,15 +696,19 @@ export default function EvalView() {
         title="새 문제집"
         okText="만들기"
         cancelText="취소"
-        okButtonProps={{ disabled: !newName.trim() }}
+        okButtonProps={{ disabled: !newName.trim() || (newKind === 'rag' && !newColl) }}
         onCancel={() => setCreating(false)}
         onOk={() =>
-          void createEvalDataset({ name: newName.trim(), description: newDesc.trim() || null, kind: newKind })
+          void createEvalDataset({
+            name: newName.trim(), description: newDesc.trim() || null, kind: newKind,
+            collection_id: newKind === 'rag' ? newColl : null, // 스펙 193: rag만 컬렉션 고정
+          })
             .then(() => {
               setCreating(false)
               setNewName('')
               setNewDesc('')
               setNewKind('agent')
+              setNewColl(undefined)
               loadDatasets()
             })
             .catch((e) => message.error((e as Error).message))
@@ -663,6 +723,15 @@ export default function EvalView() {
               { value: 'rag', label: 'RAG 컬렉션 시험 — 컬렉션 검색 품질(결과 수·유사도·근거 문서)을 채점' },
             ]}
           />
+          {/* 스펙 193: rag 문제집은 만들 때 대상 컬렉션을 고정 → 실행 시 재선택 불필요. */}
+          {newKind === 'rag' ? (
+            <Select
+              placeholder="채점 대상 RAG 컬렉션 선택 (문제집에 고정됩니다)"
+              value={newColl}
+              onChange={setNewColl}
+              options={collections.map((c) => ({ value: c.id, label: c.name }))}
+            />
+          ) : null}
           <Input placeholder="이름 (예: 옵시디언 매니저 회귀 시험)" value={newName} onChange={(e) => setNewName(e.target.value)} />
           <Input placeholder="설명 (선택)" value={newDesc} onChange={(e) => setNewDesc(e.target.value)} />
         </div>

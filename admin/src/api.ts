@@ -779,8 +779,10 @@ export interface EvalDataset {
   name: string
   description: string | null
   kind: 'agent' | 'rag'
+  collection_id?: string | null // 스펙 193 — RAG 문제집의 고정 컬렉션(실행 시 재선택 불필요)
   case_count: number
   can_manage?: boolean
+  generating?: boolean // 스펙 193 — 문제 자동 생성 진행 중(스피너·Skeleton·폴링 신호)
 }
 export interface EvalAssert {
   type: 'trace_has' | 'trace_lacks' | 'output_contains' | 'no_error' | 'output_nonempty' | 'llm_judge' | 'rag_hits_gte' | 'rag_score_gte' | 'rag_source_contains'
@@ -820,7 +822,7 @@ export interface EvalRunDetail extends EvalRunT {
   results: EvalCaseResultT[]
 }
 export const listEvalDatasets = () => j<EvalDataset[]>('/eval/datasets')
-export const createEvalDataset = (body: { name: string; description?: string | null; kind?: string }) =>
+export const createEvalDataset = (body: { name: string; description?: string | null; kind?: string; collection_id?: string | null }) =>
   post('/eval/datasets', body) as Promise<EvalDataset>
 export const deleteEvalDataset = (id: string) => del(`/eval/datasets/${id}`)
 export const listEvalCases = (datasetId: string) => j<EvalCaseT[]>(`/eval/datasets/${datasetId}/cases`)
