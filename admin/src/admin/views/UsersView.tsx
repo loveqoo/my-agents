@@ -2,7 +2,7 @@
    목록 + 활성 토글 + 역할 부여/회수 + 유저 추가 모달. 공개 등록은 없으므로 생성은 여기서만.
    백엔드: GET/POST /admin/users, PATCH active, GET /admin/roles, POST/DELETE roles. */
 import { useState, useEffect, useCallback, type ReactNode } from 'react'
-import { Tag, Button, Modal, Input, Switch, Select, Form, message, Tooltip, Card, Space } from 'antd'
+import { Tag, Button, Modal, Input, Switch, Select, Form, message, Tooltip, Card, Space, Segmented } from 'antd'
 import { Page, DataTable, StatusPill, type Column } from '../shared'
 import {
   listUsers,
@@ -14,12 +14,30 @@ import {
   listPolicies,
   grantPolicy,
   revokePolicy,
+  listMcpServers,
+  listCollections,
+  listAgents,
   type AdminUser,
   type RoleInfo,
   type Policy,
+  type McpServerLite,
+  type Collection,
+  type Agent,
 } from '../../api'
 
 const ROLE_COLOR: Record<string, string> = { admin: 'volcano', member: 'blue' }
+
+/* 능력 종류 메타(스펙 200) — 코드 kind를 사람 말로. hasName=false(기억 3종)는 브로커 리소스가 내부
+   고정('user')이라 kind-레벨 부여만 의미 있음(broker._cap_resource). 판정 키: mcp=서버 name ·
+   rag=컬렉션 name · agent=agentId(agt_…) — Select value를 이 키와 일치시켜야 부여가 실효된다. */
+const KIND_META: Record<string, { label: string; noun: string; hasName: boolean }> = {
+  mcp: { label: '도구 (MCP 서버)', noun: '도구', hasName: true },
+  rag: { label: '지식 (RAG 컬렉션)', noun: '지식', hasName: true },
+  agent: { label: '하위 에이전트', noun: '하위 에이전트', hasName: true },
+  memory: { label: '기억 검색', noun: '기억 검색', hasName: false },
+  memwrite: { label: '기억 저장', noun: '기억 저장', hasName: false },
+  memedit: { label: '기억 수정/삭제', noun: '기억 수정/삭제', hasName: false },
+}
 
 /* ---- 유저 추가 모달 ---- */
 function CreateUserModal({
@@ -84,14 +102,29 @@ export default function UsersView() {
   const [policies, setPolicies] = useState<Policy[]>([])
   const [loading, setLoading] = useState(true)
   const [modal, setModal] = useState(false)
+  // 능력 부여 카탈로그(스펙 200) — 자유입력 대신 등록된 자원에서 고르게. 실패해도 유저 목록은 떠야
+  // 하므로 각자 best-effort(catch → 빈 배열, 그 종류만 옵션 없음).
+  const [mcps, setMcps] = useState<McpServerLite[]>([])
+  const [collections, setCollections] = useState<Collection[]>([])
+  const [agents, setAgents] = useState<Agent[]>([])
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [u, r, p] = await Promise.all([listUsers(), listRoles(), listPolicies()])
+      const [u, r, p, m, c, a] = await Promise.all([
+        listUsers(),
+        listRoles(),
+        listPolicies(),
+        listMcpServers().catch(() => [] as McpServerLite[]),
+        listCollections().catch(() => [] as Collection[]),
+        listAgents().catch(() => [] as Agent[]),
+      ])
       setUsers(u)
       setRoles(r)
       setPolicies(p)
+      setMcps(m)
+      setCollections(c)
+      setAgents(a)
     } catch {
       message.error('목록을 불러오지 못했습니다')
     } finally {
@@ -149,16 +182,58 @@ export default function UsersView() {
     }
   }
 
+  // 대상 축 분리(스펙 200 C) — 역할(그 역할 전원) vs 특정 유저(그 사람만). 혼재 Select의 정신모델
+  // 문제를 축 선택으로 해소. 전환 시 대상 초기화(다른 축 값 잔존 방지).
+  const [grantTarget, setGrantTarget] = useState<'role' | 'user'>('role')
   const [grantSubject, setGrantSubject] = useState<string | undefined>(undefined)
   const [grantKind, setGrantKind] = useState<string | undefined>(undefined)
-  const [grantName, setGrantName] = useState('')
+  const [grantName, setGrantName] = useState('') // ''=전체(kind-레벨). Select 값(자유입력 제거, 스펙 200 A)
   const [granting, setGranting] = useState(false)
 
+  const kindMeta = grantKind ? KIND_META[grantKind] : undefined
+  // 종류별 카탈로그 옵션 — value는 브로커 판정 키(mcp=서버 name·rag=컬렉션 name·agent=agentId),
+  // label은 표시 규약(alias ?? name, 스펙 148).
+  const nameOptions =
+    grantKind === 'mcp'
+      ? mcps.map((m) => ({ value: m.name, label: m.alias ?? m.name }))
+      : grantKind === 'rag'
+        ? collections.map((c) => ({ value: c.name, label: c.alias ?? c.name }))
+        : grantKind === 'agent'
+          ? agents.map((a) => ({ value: a.agentId, label: a.alias ?? a.name }))
+          : []
+
   const grantObject = grantKind
-    ? grantName.trim()
-      ? `capability:${grantKind}:${grantName.trim()}`
+    ? kindMeta?.hasName && grantName
+      ? `capability:${grantKind}:${grantName}`
       : `capability:${grantKind}`
     : ''
+
+  /* capability 코드 → 사람 말(스펙 200 B). 미리보기·부여 목록 공용. agent는 agt_… id를 목록에서
+     이름으로 되찾아 표시(모르면 id 그대로 — 삭제된 에이전트 등). */
+  const capLabel = (object: string): string => {
+    if (!object.startsWith('capability:')) return object
+    const body = object.slice('capability:'.length)
+    const sep = body.indexOf(':')
+    const kind = sep === -1 ? body : body.slice(0, sep)
+    const name = sep === -1 ? '' : body.slice(sep + 1)
+    const meta = KIND_META[kind]
+    if (!meta) return object
+    if (!name) return meta.hasName ? `모든 ${meta.noun}` : meta.noun
+    if (kind === 'agent') {
+      const a = agents.find((x) => x.agentId === name)
+      return `${meta.noun} · ${a ? (a.alias ?? a.name) : name}`
+    }
+    return `${meta.noun} · ${name}`
+  }
+
+  // 문장 미리보기 — "누구에게 무엇을" 을 사람이 읽는 한 문장으로.
+  const subjectPhrase = grantSubject
+    ? grantTarget === 'role'
+      ? `'${grantSubject}' 역할`
+      : `'${users.find((u) => u.id === grantSubject)?.email ?? grantSubject}' 유저`
+    : ''
+  const sentence =
+    grantSubject && grantKind ? `${subjectPhrase}에게 ${capLabel(grantObject)} 사용을 허용합니다.` : ''
 
   const onGrantPolicy = async () => {
     if (!grantSubject || !grantKind) return
@@ -187,7 +262,12 @@ export default function UsersView() {
     {
       key: 'object',
       title: '능력',
-      render: (p) => <Tag style={{ fontFamily: 'var(--font-family-code)' }}>{p.object}</Tag>,
+      // 사람 말 우선(스펙 200 B) — 코드는 툴팁으로만(감사 로그 대조·디버깅용).
+      render: (p) => (
+        <Tooltip title={<span style={{ fontFamily: 'var(--font-family-code)' }}>{p.object}</span>}>
+          <Tag>{capLabel(p.object)}</Tag>
+        </Tooltip>
+      ),
     },
     {
       key: 'actions',
@@ -293,59 +373,94 @@ export default function UsersView() {
     >
       <DataTable columns={columns} rows={users} empty={loading ? '불러오는 중…' : '유저 없음'} />
 
-      <Card title="능력 부여 (정책)" style={{ marginTop: 24 }}>
-        <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginBottom: 12 }}>
-          능력을 이 역할/유저에 엽니다. member는 부여 전엔 능력을 쓸 수 없습니다(기본 거부).
+      {/* 능력 부여(스펙 177 P3 → 200 개편) — 자유입력→카탈로그 선택·코드→문장·역할/유저 축 분리·도입 문장 */}
+      <Card title="능력 부여" style={{ marginTop: 24 }}>
+        <div style={{ fontSize: 13, color: 'var(--color-text-secondary)', marginBottom: 16, lineHeight: 1.7 }}>
+          능력이란 에이전트가 쓸 수 있는 <b>도구(MCP)</b>·<b>지식(RAG 컬렉션)</b>·<b>하위 에이전트</b>·<b>기억</b>입니다.
+          admin은 모든 능력을 쓸 수 있고, <b>member는 여기서 열어준 능력만</b> 쓸 수 있습니다(기본 잠김).
         </div>
-        <Space wrap align="end" style={{ marginBottom: 16 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
           <div>
-            <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginBottom: 4 }}>대상</div>
-            <Select<string>
-              style={{ minWidth: 220 }}
-              placeholder="대상 선택"
-              value={grantSubject}
-              onChange={setGrantSubject}
+            <Segmented
+              value={grantTarget}
+              onChange={(v) => {
+                setGrantTarget(v as 'role' | 'user')
+                setGrantSubject(undefined) // 축 전환 시 다른 축 값 잔존 방지
+              }}
               options={[
-                { label: '역할', options: roles.map((r) => ({ value: r.name, label: `역할: ${r.name}` })) },
-                { label: '유저', options: users.map((u) => ({ value: u.id, label: `유저: ${u.email}` })) },
+                { label: '역할에게', value: 'role' },
+                { label: '특정 유저에게', value: 'user' },
               ]}
             />
+            <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginInlineStart: 12 }}>
+              {grantTarget === 'role' ? '이 역할을 가진 모든 유저에게 적용됩니다.' : '이 유저에게만 적용됩니다.'}
+            </span>
           </div>
-          <div>
-            <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginBottom: 4 }}>능력 종류</div>
-            <Select<string>
-              style={{ minWidth: 110 }}
-              placeholder="종류"
-              value={grantKind}
-              onChange={setGrantKind}
-              options={[
-                { value: 'mcp', label: 'mcp' },
-                { value: 'rag', label: 'rag' },
-                { value: 'agent', label: 'agent' },
-              ]}
-            />
-          </div>
-          <div>
-            <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginBottom: 4 }}>이름/서버(선택)</div>
-            <Input
-              style={{ minWidth: 200 }}
-              placeholder="이름/서버(선택, 비우면 전체)"
-              value={grantName}
-              onChange={(e) => setGrantName(e.target.value)}
-            />
-          </div>
-          <div style={{ color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-family-code)', fontSize: 13 }}>
-            {grantObject || 'capability:…'}
-          </div>
-          <Button
-            type="primary"
-            loading={granting}
-            disabled={!grantSubject || !grantKind}
-            onClick={() => void onGrantPolicy()}
-          >
-            부여
-          </Button>
-        </Space>
+          <Space wrap align="end">
+            <div>
+              <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginBottom: 4 }}>
+                {grantTarget === 'role' ? '역할' : '유저'}
+              </div>
+              <Select<string>
+                style={{ minWidth: 200 }}
+                placeholder={grantTarget === 'role' ? '역할 선택' : '유저 선택'}
+                value={grantSubject}
+                onChange={setGrantSubject}
+                options={
+                  grantTarget === 'role'
+                    ? roles.map((r) => ({ value: r.name, label: r.name }))
+                    : users.map((u) => ({ value: u.id, label: u.email }))
+                }
+              />
+            </div>
+            <div>
+              <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginBottom: 4 }}>능력 종류</div>
+              <Select<string>
+                style={{ minWidth: 180 }}
+                placeholder="종류 선택"
+                value={grantKind}
+                onChange={(v) => {
+                  setGrantKind(v)
+                  setGrantName('') // 종류가 바뀌면 카탈로그도 바뀌므로 초기화(타 종류 값 잔존 방지)
+                }}
+                options={Object.entries(KIND_META).map(([value, m]) => ({ value, label: m.label }))}
+              />
+            </div>
+            {kindMeta?.hasName ? (
+              <div>
+                <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginBottom: 4 }}>
+                  어느 {kindMeta.noun}?
+                </div>
+                <Select<string>
+                  style={{ minWidth: 220 }}
+                  value={grantName}
+                  onChange={setGrantName}
+                  options={[
+                    { value: '', label: `전체 — 모든 ${kindMeta.noun}` },
+                    ...nameOptions,
+                  ]}
+                  notFoundContent={`등록된 ${kindMeta.noun} 없음`}
+                />
+              </div>
+            ) : null}
+            <Button
+              type="primary"
+              loading={granting}
+              disabled={!grantSubject || !grantKind}
+              onClick={() => void onGrantPolicy()}
+            >
+              부여
+            </Button>
+          </Space>
+          {sentence ? (
+            <div>
+              <div style={{ fontSize: 13 }}>{sentence}</div>
+              <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-family-code)' }}>
+                {grantObject}
+              </div>
+            </div>
+          ) : null}
+        </div>
         <DataTable columns={policyColumns} rows={policyRows} rowKey="rowKey" empty="부여된 능력 없음" />
       </Card>
 

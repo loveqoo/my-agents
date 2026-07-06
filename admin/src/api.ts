@@ -189,6 +189,9 @@ export const deleteAllowedHost = (id: string) =>
 /* ---------- 빌딩 블록 ---------- */
 export const getBlocks = () => j<Record<string, BlockCategory>>('/blocks')
 
+/* MCP 서버 목록(스펙 200 — 능력 부여 카탈로그 선택용 최소 형태). */
+export type McpServerLite = { id: string; name: string; alias?: string | null }
+export const listMcpServers = () => j<McpServerLite[]>('/mcp-servers')
 export const createMcp = (body: unknown) => post('/mcp-servers', body)
 export const updateMcp = (id: string, body: unknown) => put(`/mcp-servers/${id}`, body)
 /* 저장 전 라이브 도구 탐색(스펙 054 E) — url에 실제로 붙어 도구목록만 읽음(부작용 0). */
