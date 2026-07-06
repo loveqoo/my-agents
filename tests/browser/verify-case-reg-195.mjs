@@ -39,6 +39,11 @@ ok(c1b?.name === c1.name, `3b update 미전송 시 해시 보존 (${c1.name} →
 // 두 번째 케이스(카드 표시용)
 await api(`/eval/datasets/${ds.id}/cases`, { method: 'POST', body: JSON.stringify({ input: '배송은 며칠 걸리나요?', asserts: [{ type: 'rag_hits_gte', arg: '1' }, { type: 'no_error' }] }) })
 
+// ── 6) AI 출제 진행 표시(가짜 콘텐츠) — description "… AI 출제 중…"(접미)면 generating=true(스펙 195 후속:
+//    접두 "생성 중"만 보던 버그로 출제 시 Skeleton 미표시였음) ──
+const dsGen = await (await api('/eval/datasets', { method: 'POST', body: JSON.stringify({ name: `ev195g-${S}`, kind: 'rag', collection_id: col?.id, description: '문서 10건 · AI 출제 중…' }) })).json()
+ok(dsGen?.generating === true, `6a AI 출제 중(접미) → generating=true (got ${dsGen?.generating})`)
+
 const browser = await chromium.launch({ channel: 'chrome', headless: true })
 const page = await (await browser.newContext({ viewport: { width: 1400, height: 1100 } })).newPage()
 const pageErrors = []
@@ -105,14 +110,22 @@ try {
     await page.screenshot({ path: `${OUT}/ev195-nosrc.png` })
   }
 
+  // 6b+6c) AI 출제 중 문제집: 목록 배지 + 드로어 Skeleton(가짜 콘텐츠)
+  await page.locator('.ant-drawer-close').first().click().catch(() => {})
+  await page.waitForTimeout(500)
+  ok(await waitFor(/문제 생성 중/, 6000), '6b 목록에 "문제 생성 중…" 배지(AI 출제 중)')
+  await openDataset(`ev195g-${S}`)
+  ok(await page.locator('.ant-skeleton').count() > 0, `6c 드로어 Skeleton(가짜 콘텐츠) 표시 (${await page.locator('.ant-skeleton').count()})`)
+  await page.screenshot({ path: `${OUT}/ev195-suggest-skeleton.png` })
+
   ok(pageErrors.length === 0, `Z pageerror 0 (실제 ${pageErrors.length})`)
   if (pageErrors.length) console.log('  errs:', pageErrors.slice(0, 3))
 } catch (e) {
   console.log('EXCEPTION:', String(e)); fails.push('exception')
 } finally {
   await browser.close()
-  if (ds?.id) await api(`/eval/datasets/${ds.id}`, { method: 'DELETE' }).catch(() => {})
-  console.log('CLEANUP', ds?.id)
+  for (const d of [ds, dsGen]) if (d?.id) await api(`/eval/datasets/${d.id}`, { method: 'DELETE' }).catch(() => {})
+  console.log('CLEANUP', [ds?.id, dsGen?.id].filter(Boolean).join(', '))
 }
 console.log(fails.length === 0 ? '\n✅ ALL PASS (CASEREG195_OK)' : `\n❌ ${fails.length} FAILED`)
 process.exit(fails.length === 0 ? 0 : 1)

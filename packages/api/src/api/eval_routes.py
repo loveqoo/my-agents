@@ -47,13 +47,16 @@ class DatasetOut(BaseModel):
 
 
 def _dataset_out(d: EvalDataset, case_count: int, user) -> DatasetOut:
-    """DatasetOut 단일 생성 경로(드리프트 0) — 5곳 인라인 통일. generating은 description 마커
-    ("생성 중…" — 스펙 142/143이 박는 진행 신호)를 구조 필드로 승격(프론트는 bool만 소비)."""
+    """DatasetOut 단일 생성 경로(드리프트 0) — 5곳 인라인 통일. generating은 description 진행 마커를
+    구조 필드로 승격(프론트는 bool만 소비 → 목록 배지·드로어 Skeleton·폴링).
+    두 경로: 컬렉션 생성(142)="생성 중…"(접두), AI 출제(143/195)="… · AI 출제 중…"(접미). 둘 다 봐야
+    출제 시에도 Skeleton이 뜬다(스펙 195 후속 — 접두만 보던 버그)."""
+    desc = d.description or ""
     return DatasetOut(
         id=d.id, name=d.name, description=d.description, kind=d.kind,
         collection_id=d.collection_id, case_count=case_count,
         can_manage=may_manage(d.owner_id, user),
-        generating=(d.description or "").startswith("생성 중"),
+        generating=desc.startswith("생성 중") or desc.endswith("AI 출제 중…"),
     )
 
 

@@ -43,6 +43,13 @@
   'AI 출제'로 원할 때만 채운다(자동 강제 완전 제거). `generate_dataset` **백엔드 엔드포인트는 유지**(API
   계약·테스트) — UI 진입만 제거.
 
+## 후속 버그 (2026-07-06)
+AI 출제를 눌러도 '가짜 콘텐츠'(Skeleton, 스펙 193)가 안 떴다. `generating`(구조 필드) 판정이
+`description.startswith("생성 중")`(접두)만 봤는데, AI 출제(143/195)는 `… · AI 출제 중…`(접미)를 박아
+안 걸렸다 → generating=false → 배지·Skeleton·폴링 전부 미작동. 판정을 `startswith("생성 중") or
+endswith("AI 출제 중…")`로 두 경로 다 보게 수정(`_dataset_out`). e2e 6a(접미→generating)·6b(목록
+배지)·6c(드로어 Skeleton).
+
 ## 검증 (사다리)
 - **단위**: `CaseIn.name` 없으면 해시 생성·update 시 미전송이면 기존 name 보존. suggest rag 분기(append
   base order_idx, 소유자·비용가드).

@@ -35,10 +35,20 @@ suggest_cases에 심은 것들). 대신 `suggest_cases`에 `kind=="rag"` 분기�
 "이게 필요한가 / 없애도 되나"를 묻는다 — 없앨 수 있는 필드/단계/옵션을 남기거나 자동화하면 복잡도만
 는다.** ([[explain-plainly-not-one-sided]]·회고 180 #2와 연속: 사용자 UI 감각을 내 초안보다 신뢰)
 
+### 4. 마커를 bool로 승격한 판정은 그 마커를 박는 **모든 경로**를 커버해야 한다 (후속 버그)
+AI 출제 시 Skeleton이 안 떴다. `generating`(스펙 193이 description 마커→구조 bool로 승격)이
+`startswith("생성 중")`만 봤는데, 두 진행 경로 중 컬렉션 생성(142)은 "생성 중…"(접두)를, AI 출제
+(143/195)는 "… · AI 출제 중…"(접미)를 박는다 → 접미 경로가 판정 밖 → 출제 시 배지·Skeleton·폴링 전멸.
+4번에서 AI 출제를 전면에 내세우자 비로소 드러났다(그전엔 하단 버튼이라 눈에 안 띔). **교훈: 문자열
+마커를 bool 필드로 승격할 땐 "그 마커를 **박는 곳**"을 전수한다(여기선 생성·출제 두 곳) — 한 경로만
+커버한 판정은 형제 경로에서 조용히 false가 된다([[installed-guard-isnt-covering-guard]]의 판정판:
+"설치했다"≠"모든 경로를 덮는다").**
+
 ## 다음에 적용
 - 필드 제거 = 소비처(생성·검증·표시·박제) 전수 후 대체 정하고 지운다(1).
 - 형제 기능은 기존 게이트 엔드포인트에서 분기(새 라우트 방어 복제 회피)(2).
 - "자동화할까" 전에 "필요한가"(없앨 수 있으면 없앤다)(3).
+- 마커→bool 승격은 그 마커를 박는 모든 경로 전수(생성·출제 두 경로 다 봐야 generating)(4).
 
 관련: [[180-eval-assert-sentence-ux]](직전, 같은 평가 케이스 편집) · [[installed-guard-isnt-covering-guard]] ·
 [[sync-wholesale-replace-drops-admin-fields]] · [[explain-plainly-not-one-sided]]
