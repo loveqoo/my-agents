@@ -509,6 +509,9 @@ export function Playground({
            채팅‖인스펙터 분할은 Splitter.Panel이 폭을 소유한다(Inspector aside는 width 100%). */
         <Splitter style={{ flex: 1, minHeight: 0 }}>
           <Splitter.Panel min="35%">
+            {/* Splitter.Panel은 블록 컨테이너 — DebugChat 루트(flex:1)가 높이를 받도록 flex 행 복원
+               (없으면 내용이 위로 붙고 입력창이 바닥 고정을 잃음 — 사용자 발견). */}
+            <div style={{ height: '100%', display: 'flex', minWidth: 0 }}>
       <DebugChat
         agent={activeAgent}
         agents={agents}
@@ -542,6 +545,7 @@ export function Playground({
         a2aMode={!!a2aByAgent[activeId]}
         onToggleA2A={(v) => setA2aByAgent((m) => ({ ...m, [activeId]: v }))}
       />
+            </div>
           </Splitter.Panel>
           <Splitter.Panel defaultSize={384} min={300} max={720}>
             <Inspector agent={activeAgent} turn={selectedMsg} turnIndex={selectedTurn || 0} onClose={() => setInspectorOpen(false)} />
