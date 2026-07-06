@@ -441,6 +441,30 @@ class AgentConfig(BaseModel):
     requires_approval: bool = False
     impl: str | None = None  # in-process 커스텀 런타임 키(스펙 085). None=기본 DefaultUiAgent.
     # 신뢰 레지스트리의 *키*일 뿐 코드 아님 — 미지/미등록 키는 조용히 기본으로 폴백(eval 없음).
+    # 노코드 산출물형(스펙 190) — {kind?, fields:[{key,label?,candidates?,required?}]}. impl=artifact_form이
+    # 이 명세를 읽어 폼을 돈다(chat.py가 impl_config로 주입). 라운드트립 보존 필수(model_dump가 드롭하면
+    # 폼 재로드 시 명세 소실 — learning 101 seed-bypasses-write-schema 동형).
+    artifactSpec: dict[str, Any] | None = None
+
+    @field_validator("artifactSpec")
+    @classmethod
+    def _check_artifact_spec(cls, v: dict[str, Any] | None) -> dict[str, Any] | None:
+        """산출물 필드 명세 얕은 검증(스펙 190) — fields=배열·각 항목 문자열 key 필수(≤100개).
+        의미 검증(후보 유효성 등)은 런타임 normalize_artifact_fields가 방어(빈/문자열후보 무시)."""
+        if v is None:
+            return v
+        if not isinstance(v, dict):
+            raise ValueError("artifactSpec은 객체여야 합니다.")
+        fields = v.get("fields")
+        if fields is not None:
+            if not isinstance(fields, list):
+                raise ValueError("artifactSpec.fields는 배열이어야 합니다.")
+            if len(fields) > 100:
+                raise ValueError("artifactSpec.fields는 100개 이하여야 합니다.")
+            for f in fields:
+                if not isinstance(f, dict) or not isinstance(f.get("key"), str) or not f["key"].strip():
+                    raise ValueError("artifactSpec.fields 항목은 비어있지 않은 문자열 key가 필요합니다.")
+        return v
 
     @field_validator("toolPolicy")
     @classmethod
@@ -516,6 +540,7 @@ class AgentOut(BaseModel):
     mcps: list[str] = Field(default_factory=list)
     capabilities: list[str] = Field(default_factory=list)  # 능력 브로커 allowlist(스펙 106, 폼 재로드용)
     toolPolicy: dict[str, Any] = Field(default_factory=dict)  # 도구 승인 오버라이드(스펙 177 P2, 폼 재로드용)
+    artifactSpec: dict[str, Any] | None = None  # 노코드 산출물형 필드 명세(스펙 190, 폼 재로드/라운드트립 보존)
     owner_id: str | None = None  # 소유자(스펙 112). None=공유/레거시
     can_manage: bool = True  # 요청 주체 수정/삭제 가능(스펙 114, list/get서 계산·기본 True)
     exposed: dict[str, Any] = Field(default_factory=lambda: {"a2a": False})

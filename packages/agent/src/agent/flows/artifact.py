@@ -142,8 +142,11 @@ class ProduceContext:
     - `form(...)`: P2(스펙 188)에서 승인 프레임 일반화로 추가 — 지금은 NotImplementedError.
     """
 
-    def __init__(self, *, text: str, model: Any, broker: Any, step_log: list):
+    def __init__(self, *, text: str, model: Any, broker: Any, step_log: list, config: dict | None = None):
         self.text = text
+        #: 에이전트별 impl 설정(스펙 190) — 노코드 범용 구현이 필드 명세 등을 읽는다. 대부분의
+        #: (코드 저작) produce는 안 본다. 플랫폼이 config.artifactSpec 등을 뽑아 뼈대가 넣어준다.
+        self.config = config or {}
         self._model = model
         self._broker = broker
         self._log = step_log
@@ -344,6 +347,7 @@ class ArtifactAgentBase(ABC):
                 model=model,
                 broker=broker,
                 step_log=_step_log(thread_id) if thread_id else [],
+                config=getattr(ctx, "impl_config", None),  # 스펙 190 — 노코드 구현용 설정 통로
             )
             art = await self.produce(pctx)
             # 구조 검증(뼈대 소유) — produce가 무엇을 반환하든 여기서 걸러진다.
@@ -419,6 +423,51 @@ class SlotFillDemoAgent(ArtifactAgentBase):
             else:
                 values[f.key] = "(미입력)"
         return Artifact(kind="travel-request", data=values, raw=ctx.text)
+
+
+# ----------------------------- 노코드: 설정 주도(config.artifactSpec) 범용 구현 (스펙 190) -----------------------------
+def normalize_artifact_fields(spec: dict | None) -> list[dict]:
+    """artifactSpec에서 **유효 필드만** 뽑는다(순수·방어 — 서버 저장 검증과 런타임이 공유).
+    - key: str(비어있지 않음) 필수 — 없으면 그 행 버림.
+    - label: 기본=key. required: 기본 True.
+    - candidates: **리스트일 때만** 유지(문자열 등은 무시 — enum substring 오판정 봉인, P2-1 동형).
+    빈 문자열 후보는 제거. 정규화된 dict는 그대로 ctx.form/validate_form_values가 소비."""
+    out: list[dict] = []
+    for raw in (spec or {}).get("fields") or []:
+        if not isinstance(raw, dict):
+            continue
+        key = raw.get("key")
+        if not isinstance(key, str) or not key.strip():
+            continue
+        f: dict = {
+            "key": key.strip(),
+            "label": str(raw.get("label") or key).strip() or key.strip(),
+            "required": bool(raw.get("required", True)),
+        }
+        cands = raw.get("candidates")
+        if isinstance(cands, (list, tuple)):
+            f["candidates"] = [str(c).strip() for c in cands if str(c).strip()]
+        out.append(f)
+    return out
+
+
+class ConfigDrivenArtifactAgent(ArtifactAgentBase):
+    """노코드 산출물형 에이전트(스펙 190) — produce에 로직을 박지 않고 **에이전트별 설정
+    (config.artifactSpec)**을 읽어 폼을 돌린다. 어드민 필드 편집기가 그 설정을 만든다.
+    셋째 구현(slot-fill·targeting에 이어) — 뼈대 무변경으로 붙어야 추상 무누수(회고 173)."""
+
+    NAME = "artifact_form"
+    DESCRIPTION = "설정한 항목을 대화·폼으로 모아 산출물을 만드는 에이전트(노코드, 스펙 190)"
+
+    async def produce(self, ctx: ProduceContext) -> Artifact:
+        spec = ctx.config if isinstance(ctx.config, dict) else {}
+        fields = normalize_artifact_fields(spec)
+        kind = str(spec.get("kind") or "").strip() or "form-result"
+        if not fields:
+            # 명세 없음/빈 필드 — 조용히 빈 폼을 띄우지 않고 정직하게 빈 산출물로 종료(스펙 125 원칙).
+            return Artifact(kind=kind, data={}, raw=ctx.text or "")
+        values = await ctx.form(fields)
+        return Artifact(kind=kind, data=values, raw=ctx.text or "")
 
 
 # ----------------------------- 데모 2: targeting (동적 폼 합성 — 사용자 시나리오) -----------------------------

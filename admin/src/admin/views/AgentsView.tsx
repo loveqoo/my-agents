@@ -51,6 +51,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
     impl: a.impl,
     capabilities: [...(a.capabilities || [])],
     toolPolicy: { ...(a.toolPolicy || {}) },
+    ...(a.artifactSpec ? { artifactSpec: a.artifactSpec } : {}),
   })
   const draftOf = (a: Agent) => (a.versions || []).find((v) => v.status === 'draft')
   const openCreate = () => {
@@ -161,6 +162,8 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
       ...(data.impl ? { impl: data.impl } : {}),
       capabilities: data.capabilities,
       toolPolicy: data.toolPolicy, // 도구 승인 오버라이드(스펙 177 P2) — 백엔드 완화 게이트가 admin 강제
+      // 노코드 산출물형(스펙 190) — impl=artifact_form일 때만 명세 저장. 아니면 생략(무관 에이전트 오염 방지).
+      ...(data.impl === 'artifact_form' && data.artifactSpec ? { artifactSpec: data.artifactSpec } : {}),
     }
     try {
       if (editing) {
@@ -570,6 +573,9 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
                   impl: c.impl ?? a.impl ?? '',
                   capabilities: [...(c.capabilities || a.capabilities || [])],
                   toolPolicy: { ...(c.toolPolicy || a.toolPolicy || {}) }, // 승인 오버라이드(스펙 177 P2)
+                  ...(c.artifactSpec || a.artifactSpec
+                    ? { artifactSpec: c.artifactSpec || a.artifactSpec } // 노코드 산출물형 명세(스펙 190) 재로드
+                    : {}),
                 }
               })()
             : null

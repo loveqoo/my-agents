@@ -163,6 +163,8 @@ async def _load_context(
             "agent_pk": agent.id,
             "source": agent.source,
             "impl": cfg.get("impl"),  # in-process 커스텀 구현 키(스펙 085) — 신뢰 레지스트리 조회용
+            "artifact_spec": cfg.get("artifactSpec"),  # 노코드 산출물형 필드 명세(스펙 190) — impl_config로 주입
+
             # 원본 오버라이드 — in-process 커스텀 에이전트가 화이트리스트 밖 키도 읽을 수 있게 전달
             # (스펙 085 AgentBuildContext.overrides). 원격은 None(로컬 설정 주입 무의미, bypass 보존).
             "overrides": overrides if (overrides and not _is_remote(agent.source)) else None,
@@ -776,6 +778,7 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
         memories=mem_hits,
         overrides=ctx.get("overrides"),
         broker=build_broker_scoped,
+        impl_config=ctx.get("artifact_spec"),  # 스펙 190 — 노코드 산출물형 필드 명세 주입(그 외 impl은 무시)
     )
     graph = impl.build_graph(build_ctx)
     # thread_id는 **턴별 고유**(세션-안정 아님): 세션-안정으로 두고 매 턴 전체 히스토리를 넘기면

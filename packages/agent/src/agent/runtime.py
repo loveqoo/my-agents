@@ -67,6 +67,8 @@ class AgentBuildContext:
     overrides: dict | None = None  # 원본 오버라이드(에이전트가 추가 키를 읽고 싶을 때)
     broker: Any = None  # 능력 브로커(스펙 100). 플랫폼이 **정책으로 미리 스코프**해 주입. None이면
     # 발견 공집합(deny-by-default). 에이전트는 이 핸들만 보고 능력을 오케스트레이션한다(정책·DB 미접촉).
+    impl_config: dict | None = None  # 스펙 190 — 에이전트별 impl 설정(예: 노코드 산출물형의 필드
+    # 명세 config.artifactSpec). 코드 저작 에이전트는 대개 안 본다. 플랫폼이 config에서 뽑아 주입.
 
 
 @dataclass
@@ -220,7 +222,7 @@ def _bootstrap_builtins() -> None:
     **agent-flow 스킬 규약(스펙 099)**: 새 flow 생성 시 아래에 두 줄을 추가한다 —
     `from .flows.<key> import <Cls>` + `register_agent("<key>", <Cls>)`. 신뢰 등록만(런타임 eval 없음)."""
     from .examples.plan_execute import PlanExecuteAgent
-    from .flows.artifact import SlotFillDemoAgent, TargetingDemoAgent
+    from .flows.artifact import ConfigDrivenArtifactAgent, SlotFillDemoAgent, TargetingDemoAgent
     from .flows.orchestrate import FirstMatchOrchestrateAgent, RankedOrchestrateAgent
     from .flows.route import RouteAgent
 
@@ -233,6 +235,8 @@ def _bootstrap_builtins() -> None:
     # 산출물형(스펙 188) — 공통 조상 ArtifactAgentBase 밑 데모 2종(둘째 구현 무누수 측정).
     register_agent("artifact_slotfill", SlotFillDemoAgent)
     register_agent("artifact_targeting", TargetingDemoAgent)
+    # 노코드 산출물형(스펙 190) — 설정(config.artifactSpec) 주도 범용 구현(셋째 구현·뼈대 무변경).
+    register_agent("artifact_form", ConfigDrivenArtifactAgent)
 
 
 _bootstrap_builtins()

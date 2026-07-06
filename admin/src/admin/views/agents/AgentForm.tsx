@@ -5,6 +5,7 @@ import { type Model, type Collection } from '../../../api'
 import { PickerGroups, type PickerGroup } from '../../../PickerGroups'
 import { validateName, NAME_HINT } from '../../naming'
 import { Field, SectionHeader } from './primitives'
+import { ArtifactSpecEditor, artifactSpecValid } from './ArtifactSpecEditor'
 import type { AgentFormData } from './types'
 
 /* 빈 폼 기본값 — persona는 로드된 blocks에서, model은 등록된 첫 chat 모델에서
@@ -33,6 +34,8 @@ export function blankForm(blocks: Record<string, BlockCategory>, models: Model[]
 export const AGENT_TYPES: { value: string; label: string; desc: string }[] = [
   { value: '', label: '직접 응답', desc: '스스로 도구·문서·기억을 써서 답합니다.' },
   { value: 'orchestrate', label: '조율형', desc: '일을 다른 에이전트·도구에 넘겨 처리합니다.' },
+  // 노코드 산출물형(스펙 190) — 코드 없이 "모을 항목"만 정의(impl=artifact_form).
+  { value: 'artifact_form', label: '산출물형', desc: '대화·폼으로 정보를 모아 결과물(JSON)을 만듭니다.' },
 ]
 export const typeDesc = (key: string) => AGENT_TYPES.find((t) => t.value === key)?.desc ?? ''
 
@@ -187,6 +190,9 @@ export function AgentForm({
     },
   ]
   const orchestratorSelected = isOrchestratorImpl(form.impl)
+  const isArtifactForm = form.impl === 'artifact_form'
+  // 산출물형이면 유효 필드 ≥1을 저장 조건으로 강제(스펙 190) — 빈 명세 저장 방지.
+  const artifactInvalid = isArtifactForm && !artifactSpecValid(form.artifactSpec)
   // 식별 이름 규칙(스펙 148) — 서버 400의 프론트 힌트. 빈 값은 입력 전이라 조용히(제출만 막음).
   const nameErr = form.name.trim() ? validateName(form.name.trim()) : null
 
@@ -198,7 +204,7 @@ export function AgentForm({
       okText={isEdit ? '초안 저장' : '에이전트 생성'}
       cancelText="취소"
       onCancel={onCancel}
-      okButtonProps={{ disabled: !form.name.trim() || !!nameErr }}
+      okButtonProps={{ disabled: !form.name.trim() || !!nameErr || artifactInvalid }}
       onOk={() => onSave({ ...form, name: form.name.trim(), alias: form.alias.trim() })}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxHeight: '60vh', overflow: 'auto' }}>
@@ -262,9 +268,12 @@ export function AgentForm({
         </Field>
 
         {/* ── 2단계: 이 에이전트가 하는 일(스펙 109) — 종류가 그룹 세트를 가른다(108). 늘어나는 항목은
-            PickerGroups(접이식+검색+카운트)로 효율 렌더 → 항목 100개여도 폼 높이 안정. ── */}
-        <SectionHeader>이 에이전트가 하는 일</SectionHeader>
-        {orchestratorSelected ? (
+            PickerGroups(접이식+검색+카운트)로 효율 렌더 → 항목 100개여도 폼 높이 안정.
+            산출물형(스펙 190)은 도구/문서 대신 "모을 항목" 편집기를 띄운다. ── */}
+        <SectionHeader>{isArtifactForm ? '모을 항목' : '이 에이전트가 하는 일'}</SectionHeader>
+        {isArtifactForm ? (
+          <ArtifactSpecEditor value={form.artifactSpec} onChange={(s) => set('artifactSpec', s)} />
+        ) : orchestratorSelected ? (
           <PickerGroups groups={capGroups} selected={form.capabilities} onToggle={toggleCap} />
         ) : (
           <PickerGroups groups={doGroups} selected={directSelected} onToggle={toggleDirect} />

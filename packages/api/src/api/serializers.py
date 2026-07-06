@@ -104,6 +104,7 @@ def agent_to_out(a: Agent, persona_bodies: dict[str, str] | None = None) -> Agen
         mcps=cfg.get("mcps", []),
         capabilities=cfg.get("capabilities", []),  # 능력 브로커 allowlist(스펙 106, 폼 재로드용)
         toolPolicy=cfg.get("toolPolicy", {}),  # 도구 승인 오버라이드(스펙 177 P2, 폼 재로드용)
+        artifactSpec=cfg.get("artifactSpec"),  # 노코드 산출물형 필드 명세(스펙 190, 폼 재로드용)
         owner_id=a.owner_id,  # 스펙 112(can_manage는 list/get 라우트서 세팅)
         exposed=dict(a.exposed or {"a2a": False}),
         status=a.status,

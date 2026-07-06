@@ -17,6 +17,19 @@ export interface AgentConfig {
   impl?: string // 실행 방식(런타임 키, 스펙 085/106). 빈값/미지정=기본 UI 에이전트.
   capabilities?: string[] // 능력 브로커 allowlist(스펙 106). 오케스트레이터 impl에서 위임 대상.
   toolPolicy?: ToolPolicy // 도구 승인 오버라이드(스펙 177 P2).
+  artifactSpec?: ArtifactSpec // 노코드 산출물형 필드 명세(스펙 190). impl=artifact_form일 때만 의미.
+}
+
+/** 노코드 산출물형 필드(스펙 190) — 후보 있으면 SelectBox(enum), 없으면 자유 입력. */
+export interface ArtifactField {
+  key: string // 결과 dict 키(비어있지 않은 문자열)
+  label: string // 화면 표시 이름
+  candidates?: string[] // 선택지(있으면 SelectBox)
+  required?: boolean // 기본 true
+}
+export interface ArtifactSpec {
+  kind?: string // 산출물 종류 라벨(기본 form-result)
+  fields: ArtifactField[]
 }
 
 /* 조율형(다른 곳에 위임하는 런타임) 판정 — orchestrate/orchestrate_ranked 둘 다(구 저장분 호환).
@@ -90,6 +103,7 @@ export interface Agent {
   impl?: string // 실행 방식 런타임 키(스펙 085/106) — 폼 재로드/라운드트립 보존
   capabilities?: string[] // 능력 브로커 allowlist(스펙 106)
   toolPolicy?: ToolPolicy // 도구 승인 오버라이드(스펙 177 P2) — cap_id→{approval:{required?,approver?}}
+  artifactSpec?: ArtifactSpec // 노코드 산출물형 필드 명세(스펙 190) — 폼 재로드/라운드트립 보존
   owner_id?: string | null // 소유자(스펙 112). null=공유/레거시
   can_manage?: boolean // 관리 가능(스펙 114) — false면 편집/삭제 숨김
   exposed: { a2a: boolean }
