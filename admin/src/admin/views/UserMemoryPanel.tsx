@@ -3,7 +3,7 @@
    일치=서버 페이지네이션 부분일치 목록(증가해도 가벼움, 행에서 수정·삭제), 유사도=회상 시험(RecallPanel,
    관련도+진단). 관리자는 유저 사실을 *저작*하지 않고 *교정*만 한다 → add 없음. */
 import { useState } from 'react'
-import { Segmented } from 'antd'
+import { Tabs } from 'antd'
 import {
   pageUserMemory,
   updateUserMemory,
@@ -18,20 +18,20 @@ export function UserMemoryPanel({ userId, label }: { userId: string; label?: str
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        <Segmented
-          value={mode}
-          onChange={(v) => setMode(v as 'exact' | 'similar')}
-          options={[
-            { label: '일치 검색', value: 'exact' },
-            { label: '유사도 검색', value: 'similar' },
-          ]}
-        />
-        <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-          이 유저가 대화 중 남긴 장기 기억. <b>{label ?? userId}</b>에게만 회상됩니다 — 잘못되거나 민감한
-          정보는 여기서 교정·삭제하세요.
-        </span>
-      </div>
+      {/* 스펙 219: [일치|유사도]는 서로 다른 도구/화면이라 Segmented→Tabs로 통일(상위 기억 Tabs와 시각 일관). */}
+      <Tabs
+        activeKey={mode}
+        onChange={(k) => setMode(k as 'exact' | 'similar')}
+        items={[
+          { key: 'exact', label: '일치 검색' },
+          { key: 'similar', label: '유사도 검색' },
+        ]}
+        style={{ marginBottom: -8 }}
+      />
+      <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+        이 유저가 대화 중 남긴 장기 기억. <b>{label ?? userId}</b>에게만 회상됩니다 — 잘못되거나 민감한
+        정보는 여기서 교정·삭제하세요.
+      </span>
 
       {mode === 'exact' ? (
         <PagedMemoryList
