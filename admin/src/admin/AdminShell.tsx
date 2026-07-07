@@ -3,7 +3,7 @@
    antd dark Sider 기본 배경(#001529)이 번들 navy와 동일하다. 라우터는 쓰지 않고
    내부 상태로 전환(딥링크 필요해지면 추후 react-router). */
 import { useEffect, useState, type ReactNode } from 'react'
-import { Layout, Menu, Input, Avatar, Badge, Button, Dropdown, theme, Grid, message, Drawer } from 'antd'
+import { Layout, Menu, Avatar, Badge, Button, Dropdown, theme, Grid, message, Drawer } from 'antd'
 import {
   DashboardOutlined,
   RobotOutlined,
@@ -22,7 +22,6 @@ import {
   LogoutOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
-  SearchOutlined,
 } from '@ant-design/icons'
 import OverviewView from './views/OverviewView'
 import AgentsView from './views/AgentsView'
@@ -352,11 +351,7 @@ export default function AdminShell({ user, onLogout }: { user: Me; onLogout: () 
           />
           <h3 style={{ fontSize: 18, margin: 0 }}>{TITLES[view]}</h3>
           <div style={{ flex: 1 }} />
-          {!isMobile && (
-            <div style={{ width: 220 }}>
-              <Input prefix={<SearchOutlined />} placeholder="검색" allowClear />
-            </div>
-          )}
+          {/* 스펙 213: 배선 안 된 전역 검색 껍데기 제거(각 목록은 자체 검색을 이미 보유). */}
         </Header>
 
         {/* shared.tsx Drawer는 fixed(뷰포트 기준)로 덮는다 — absolute(이 영역 기준)는 스크롤 시

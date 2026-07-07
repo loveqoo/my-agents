@@ -8,11 +8,12 @@ import { VERSION_STATUS, type VersionMeta } from './mockData'
 
 /* 제목+액션 툴바가 달린 페이지 패딩 래퍼. */
 export function Page({
-  title,
   subtitle,
   actions,
   children,
 }: {
+  // 스펙 213: 제목은 **상단 헤더(AdminShell TITLES[view])가 단독 표시** — Page는 렌더하지 않는다
+  // (메뉴 라벨과 중복 제거). 호출부 호환을 위해 prop은 받되 무시한다(점진 정리는 별도).
   title?: ReactNode
   subtitle?: ReactNode
   actions?: ReactNode
@@ -23,7 +24,7 @@ export function Page({
   // 모바일에서는 제목과 액션을 세로로 쌓는다 — 한 줄에 두면 제목이 버튼에 밀려 깨진다.
   return (
     <div style={{ padding: pad, maxWidth: 1200, margin: '0 auto', width: '100%' }}>
-      {(title || actions) && (
+      {(subtitle || actions) && (
         <div
           style={{
             display: 'flex',
@@ -34,9 +35,8 @@ export function Page({
           }}
         >
           <div style={{ flex: 1, minWidth: 0 }}>
-            {title && <h3 style={{ fontSize: 20, margin: 0 }}>{title}</h3>}
             {subtitle && (
-              <div style={{ color: 'var(--color-text-tertiary)', marginTop: 4, fontSize: 14 }}>
+              <div style={{ color: 'var(--color-text-tertiary)', fontSize: 14 }}>
                 {subtitle}
               </div>
             )}
