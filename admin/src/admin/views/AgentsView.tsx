@@ -462,6 +462,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
           value={sortKey}
           onChange={setSortKey}
           style={{ width: 130 }}
+          popupMatchSelectWidth={false}
           options={[
             { value: 'name', label: '이름순' },
             { value: 'recent', label: '최근 등록순' },
@@ -471,6 +472,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
           value={ownerFilter}
           onChange={setOwnerFilter}
           style={{ width: 140 }}
+          popupMatchSelectWidth={false}
           options={[
             { value: 'all', label: '소유: 전체' },
             { value: 'shared', label: 'public (모두 사용)' },
@@ -482,6 +484,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
           value={sourceFilter}
           onChange={setSourceFilter}
           style={{ width: 130 }}
+          popupMatchSelectWidth={false}
           options={[
             { value: 'all', label: '소스: 전체' },
             { value: 'ui', label: 'internal (UI 구성)' },
@@ -493,6 +496,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
           value={statusFilter}
           onChange={setStatusFilter}
           style={{ width: 130 }}
+          popupMatchSelectWidth={false}
           options={[
             { value: 'all', label: '상태: 전체' },
             { value: 'online', label: '온라인' },
