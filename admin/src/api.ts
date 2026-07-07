@@ -863,6 +863,11 @@ export const getEvalHelperStatus = () =>
   j<{ available: boolean; reason: string | null }>('/eval/helper-status')
 export const suggestEvalCases = (datasetId: string, body: { agent_id?: string; count: number }) =>
   post(`/eval/datasets/${datasetId}/suggest-cases`, body) as Promise<EvalDataset>
+// 스펙 209 Phase 2 — 피드백 수확: 미수확 수 조회 + 수확 트리거(에이전트 소유자/admin만)
+export const getHarvestCount = (agentId: string) =>
+  j<{ available: number; dataset_id: string | null }>(`/eval/harvest-count?agent_id=${encodeURIComponent(agentId)}`)
+export const harvestFeedback = (agentId: string) =>
+  post('/eval/datasets/harvest', { agent_id: agentId }) as Promise<EvalDataset>
 export const generateEvalDataset = (body: { collection_id: string; name: string; count: number }) =>
   post('/eval/generate-dataset', body) as Promise<EvalDataset>
 export const listEvalRunsByGroup = (groupId: string) =>

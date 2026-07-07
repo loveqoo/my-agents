@@ -59,7 +59,32 @@
   사유**: message-id 배관이 스트리밍 영속 경로(민감) 5곳을 건드려 Phase 1과 분리(위험 격리). ChatMsg에
   현재 id 없음(role/text/trace/artifact).
 - **Phase 2 — 수확**: 수확 엔드포인트(피드백→초안 케이스, LLM assert)·"피드백 수확" 문제집·EvalView 검토
-  편입·harvested 링크(models에 harvested_case_pk 추가).
+  편입·harvested 링크(models에 harvested_case_pk 추가). **완료(2026-07-07)**.
+
+## 검증 결과 (Phase 2, 2026-07-07)
+- **모델/마이그레이션(f210a1b2c3d4)**: `MessageFeedback.harvested_case_pk`(→eval_cases, 재수확 방지 링크)·
+  `EvalDataset.source_agent_pk`(→agents, 에이전트당 수확 문제집 idempotent).
+- **`eval_harvest.py`**: `gather_unharvested`(Session.agent_pk 조인=크로스에이전트 격리, 미수확만·직전 user
+  질문)·`harvest_agent_feedback`(👍/👎→llm_judge 기준 LLM 합성, **llm_cfg=None이면 폴백 템플릿으로 우아하게
+  저하** — 수확은 질문이 실제 사용자 메시지라 LLM 없이도 유효, suggest와 다름).
+- **엔드포인트**: `GET /eval/harvest-count`(미수확 수+기존 문제집)·`POST /eval/datasets/harvest`(find-or-create
+  by source_agent_pk·`_active_jobs` 락·`_member_job_guard`·배경 `_execute_harvest`가 케이스별 harvested_case_pk
+  스탬프). 소유권=`assert_may_manage(agent)`(에이전트 소유자/admin, 비소유 404-fold).
+- **통합 verify_209_harvest.py 18/18**: 소유자 202·비소유 404(count+harvest)+문제집 미생성·수확→2케이스
+  (질문=직전 user·assert=llm_judge·name 평점)·**크로스에이전트 격리**(agent2 피드백 불수확)·harvested 스탬프
+  2건·재수확 0중복+같은 문제집·admin 임의 count.
+- **e2e(브라우저, 실데이터)**: Phase 1에서 👍 준 plan-execute-demo 세션 → AgentDetail "피드백 수확" 패널에
+  배지 1 → 클릭 → draft "피드백 수확 · plan-execute-demo"(1케이스) → EvalView서 열람. 케이스 질문=실제 사용자
+  질문("한글 한 줄 요약"), 기준=LLM 합성("세종대왕 창제·1446 반포·훈민정음 포함하고 한 줄로 간결한가").
+- tsc0. ui-audit 오버레이 FAIL0(agent-detail 수확 패널 무회귀).
+- **codex 적대 검증(수확 여집합)**: 핵심 보장 유지(게이트 선행·크로스에이전트 무유출·created_by 불변·부분
+  커밋 없음). 통합이 못 본 5건 발견→수리: **F1(High)** 수확 문제집 케이스(입력=사용자 질문)가 eval 공개
+  읽기로 전원 노출→`_gate_harvest_read`(source_agent_pk≠NULL은 소유자/admin만·목록서도 필터, 스펙 §B
+  세션 스코프 상속). **F2(High)** 동시 첫-수확 경합→2문제집·이중수확→`pg_advisory_xact_lock('harvest:'+agent)`
+  로 직렬화(마이그레이션 없이). **F3(Med)** 무제한 수확 배경비용→`_HARVEST_MAX=50` 상한+절단 로그. **F4(Med)**
+  미존재 에이전트가 admin에 `assert_may_manage(None,super)` 통과→count 200/harvest 500→`agent is None` 선행
+  404. **F5(Low/Med)** 수확 문제집 소유가 수확자→admin이 남의 에이전트 수확 시 에이전트 소유자가 관리 불가
+  →`owner_id=agent.owner_id`. 통합 24/24 재통과(F1·F4 신규 6체크 포함).
 
 ## 검증 결과 (Phase 1, 2026-07-07)
 - **통합(seed+restart, rung 2) verify_209_feedback.py 17/17**: 소유자 upsert/토글(1건 유지)·assistant-only

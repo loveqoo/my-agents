@@ -7,6 +7,7 @@ import { displayName } from '../../naming'
 import { CodeAgentDetail } from './detail/CodeAgentDetail'
 import { ExternalAgentDetail } from './detail/ExternalAgentDetail'
 import { PersonaStaleNote } from './PersonaStaleNote'
+import { FeedbackHarvestButton } from './FeedbackHarvestButton'
 import { IdRow } from './primitives'
 
 /* 노출된 로컬(ui) 에이전트의 A2A 카드 URL(스펙 061 D7). 사용자가 "원격 에이전트 연결"에 그대로 붙여
@@ -359,6 +360,23 @@ export function AgentDetail({
             이 URL을 <strong>“원격 에이전트 연결”</strong>에 그대로 붙여 등록·테스트하세요. 루프백/사설
             주소면 백엔드에 <code style={{ fontFamily: 'var(--font-family-code)' }}>A2A_ALLOWED_HOSTS=127.0.0.1</code>가 필요합니다.
           </div>
+        </div>
+      ) : null}
+
+      {agent.can_manage !== false ? (
+        <div
+          style={{
+            marginTop: 18, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 10,
+            border: '1px solid var(--color-border-secondary)', borderRadius: 'var(--radius-lg)',
+          }}
+        >
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--color-text-heading)' }}>피드백 수확</div>
+            <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+              응답 피드백(👍/👎)을 초안 평가 케이스로 — 에이전트 변경 회귀 지표
+            </div>
+          </div>
+          <FeedbackHarvestButton agentId={agent.id} />
         </div>
       ) : null}
 

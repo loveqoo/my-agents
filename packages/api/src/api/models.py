@@ -340,6 +340,11 @@ class MessageFeedback(Base):
     rating: Mapped[str] = mapped_column(String(8))  # 'up' | 'down'
     reason: Mapped[str] = mapped_column(Text, default="")
     created_by: Mapped[str] = mapped_column(String(80), index=True)  # auth User UUID str(서버 도출)
+    # 수확 링크(스펙 209 Phase 2) — 이 피드백에서 만든 평가 케이스. NULL=미수확. 케이스 삭제 시 SET NULL
+    # (재수확 가능). 재수확 방지·피드백↔케이스 추적.
+    harvested_case_pk: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("eval_cases.id", ondelete="SET NULL"), default=None, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -526,6 +531,11 @@ class EvalDataset(Base):
     # 구버전 rag 문제집도 NULL(첫 실행 시 lazy 저장). 컬렉션 삭제 시 SET NULL(문제집 보존·연결만 끊김).
     collection_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("collections.id", ondelete="SET NULL"), nullable=True, default=None, index=True
+    )
+    # 스펙 209 Phase 2: 피드백 수확 문제집이 어느 에이전트에서 왔나(idempotent 수확 — 에이전트당 1개
+    # 문제집 재사용). 일반 문제집=NULL. 에이전트 삭제 시 SET NULL(문제집 보존·연결만 끊김).
+    source_agent_pk: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("agents.id", ondelete="SET NULL"), nullable=True, default=None, index=True
     )
     owner_id: Mapped[str | None] = mapped_column(String(80), index=True, default=None)  # 스펙 112 스탬프
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

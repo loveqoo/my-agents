@@ -11,7 +11,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import func, or_, select, text
+from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .auth import current_principal
@@ -50,7 +50,8 @@ def _is_generating(d: EvalDataset) -> bool:
     """진행 중 판정(단일 출처) — 두 경로: 컬렉션 생성(142)="생성 중…"(접두), AI 출제(143/195)=
     "… · AI 출제 중…"(접미). 둘 다 봐야 출제 시에도 Skeleton이 뜬다(스펙 195 후속 — 접두만 보던 버그)."""
     desc = d.description or ""
-    return desc.startswith("생성 중") or desc.endswith("AI 출제 중…")
+    # 진행 마커 3종: 컬렉션 생성(접두), AI 출제(접미), 피드백 수확(접미, 스펙 209 P2).
+    return desc.startswith("생성 중") or desc.endswith("AI 출제 중…") or desc.endswith("피드백 수확 중…")
 
 
 def _dataset_out(d: EvalDataset, case_count: int, user) -> DatasetOut:
@@ -103,6 +104,14 @@ async def _dataset_or_404(session: AsyncSession, dataset_id: uuid.UUID) -> EvalD
     return ds
 
 
+def _gate_harvest_read(ds: EvalDataset, user) -> None:
+    """수확 문제집(source_agent_pk≠NULL)은 **소유자/admin만** 읽는다(codex P2 F1). eval 읽기는 본래 전원
+    공개(178 D1)지만, 수확 케이스 input=사용자 세션 질문이라 세션 소유 스코프를 상속해야 한다(스펙 209 §B).
+    일반 문제집(source_agent_pk=NULL)은 공개 유지. 비소유=404-fold(존재 비노출)."""
+    if ds.source_agent_pk is not None:
+        assert_may_manage(ds, user, not_found_detail="dataset not found")
+
+
 # ----------------------------- 데이터셋 CRUD -----------------------------
 class DatasetPageOut(BaseModel):
     items: list[DatasetOut]
@@ -119,13 +128,22 @@ async def list_datasets(
     offset: int = Query(0, ge=0),
 ) -> DatasetPageOut:
     """문제집 목록 — **최근 생성순**, 이름·설명 부분검색(q), 페이징(스펙 196). 읽기 전원 공개(178 D1)."""
-    where = None
+    conds = []
     if q and q.strip():
         term = f"%{_ilike_literal(q.strip())}%"
-        where = or_(
+        conds.append(or_(
             EvalDataset.name.ilike(term, escape="\\"),
             func.coalesce(EvalDataset.description, "").ilike(term, escape="\\"),
-        )
+        ))
+    # 수확 문제집(source_agent_pk≠NULL)은 소유자/admin에게만 목록 노출(codex P2 F1 — 세션 파생 콘텐츠).
+    # 일반 문제집은 공개(178 D1). 특권은 전부 봄.
+    if not is_privileged(user):
+        mine = owner_of(user)
+        cond = EvalDataset.source_agent_pk.is_(None)
+        if mine:
+            cond = or_(cond, EvalDataset.owner_id == mine)
+        conds.append(cond)
+    where = and_(*conds) if conds else None
     count_stmt = select(func.count()).select_from(EvalDataset)
     if where is not None:
         count_stmt = count_stmt.where(where)
@@ -154,6 +172,7 @@ async def get_dataset(
     """문제집 단건 — 열린 드로어 rebind용(폴링 시 generating 종료·collection_id 반영, 스펙 196).
     읽기 공개(178 D1) · 없으면 404."""
     ds = await _dataset_or_404(session, dataset_id)
+    _gate_harvest_read(ds, user)  # 수확 문제집은 소유자/admin만(codex P2 F1)
     n = (await session.execute(
         select(func.count(EvalCase.id)).where(EvalCase.dataset_id == dataset_id)
     )).scalar_one()
@@ -210,7 +229,8 @@ async def delete_dataset(
 async def list_cases(
     dataset_id: uuid.UUID, session: AsyncSession = Depends(get_session), user=Depends(current_principal)
 ) -> list[CaseOut]:
-    await _dataset_or_404(session, dataset_id)
+    ds = await _dataset_or_404(session, dataset_id)
+    _gate_harvest_read(ds, user)  # 수확 케이스(입력=사용자 질문)는 소유자/admin만(codex P2 F1)
     rows = (
         await session.execute(
             select(EvalCase)
@@ -282,7 +302,7 @@ from datetime import datetime, timezone  # noqa: E402
 from .db import SessionLocal  # noqa: E402
 from .eval_harness import EvalCase as HarnessCase, run_eval  # noqa: E402
 from .eval_runner import eval_run_agent  # noqa: E402
-from .models import Agent, EvalCaseResult, EvalRun  # noqa: E402
+from .models import Agent, EvalCaseResult, EvalRun, Message, MessageFeedback, Session  # noqa: E402
 
 # 스펙 178 비용 가드 — 비특권(멤버) 자율 실행이 실모델을 폭주시키지 않게. 특권(admin)은 무제한.
 _MEMBER_MAX_CONCURRENT_RUNS = 2  # 유저당 동시 running run 상한(전 문제집 합산)
@@ -962,3 +982,182 @@ async def suggest_cases(
         await session.execute(select(func.count(EvalCase.id)).where(EvalCase.dataset_id == ds.id))
     ).scalar_one()
     return _dataset_out(ds, n, user)
+
+
+# ----------------------------- 피드백 수확 (스펙 209 Phase 2) -----------------------------
+class HarvestIn(BaseModel):
+    agent_id: uuid.UUID
+
+
+class HarvestCountOut(BaseModel):
+    available: int  # 미수확 피드백 수(수확 버튼 배지)
+    dataset_id: uuid.UUID | None = None  # 기존 수확 문제집(있으면)
+
+
+async def _unharvested_count(session: AsyncSession, agent_pk: uuid.UUID) -> int:
+    """이 에이전트 세션들의 미수확 피드백 수(harvested_case_pk IS NULL)."""
+    return (
+        await session.execute(
+            select(func.count(MessageFeedback.id))
+            .select_from(MessageFeedback)
+            .join(Session, Session.id == MessageFeedback.session_pk)
+            .where(Session.agent_pk == agent_pk, MessageFeedback.harvested_case_pk.is_(None))
+        )
+    ).scalar_one()
+
+
+@router.get("/harvest-count", response_model=HarvestCountOut)
+async def harvest_count(
+    agent_id: uuid.UUID = Query(...),
+    session: AsyncSession = Depends(get_session),
+    user=Depends(current_principal),
+) -> HarvestCountOut:
+    """수확 가능 피드백 수 + 기존 수확 문제집. 에이전트 소유자/admin만(수확=관리 행위, 비소유 404-fold)."""
+    agent = await session.get(Agent, agent_id)
+    if agent is None:  # 미존재 → 404(특권도, codex P2 F4 — assert_may_manage(None,superuser)는 통과해버림)
+        raise HTTPException(status_code=404, detail="agent not found")
+    assert_may_manage(agent, user, not_found_detail="agent not found")  # 소유자/admin만(존재 비노출)
+    ds = (
+        await session.execute(
+            select(EvalDataset.id).where(EvalDataset.source_agent_pk == agent_id).limit(1)
+        )
+    ).scalar_one_or_none()
+    return HarvestCountOut(available=await _unharvested_count(session, agent_id), dataset_id=ds)
+
+
+@router.post("/datasets/harvest", response_model=DatasetOut, status_code=202)
+async def harvest_feedback(
+    body: HarvestIn,
+    session: AsyncSession = Depends(get_session),
+    user=Depends(current_principal),
+) -> DatasetOut:
+    """에이전트 피드백(👍/👎) → 초안 평가 케이스 수확. 에이전트별 "피드백 수확" 문제집(source_agent_pk로
+    idempotent 재사용)에 draft로 append, 배경 LLM 작업(기준 합성). 소유권=에이전트 소유자/admin(비소유
+    404-fold). 초안 게이트: 자동 활성화 없음 — 관리자가 EvalView에서 검토(스펙 209 §C)."""
+    agent = await session.get(Agent, body.agent_id)
+    if agent is None:  # 미존재 → 404(특권도, codex P2 F4)
+        raise HTTPException(status_code=404, detail="agent not found")
+    assert_may_manage(agent, user, not_found_detail="agent not found")  # 소유자/admin만(존재 비노출)
+    agent_name, agent_owner = agent.name, agent.owner_id  # 롤백 후 만료 대비 캡처
+
+    # 동일 에이전트 동시 수확 직렬화(codex P2 F2) — advisory xact 락. 이게 없으면 두 첫-수확이 둘 다
+    # "문제집 없음"을 보고 각자 생성(하나는 이름충돌→해시명) → 2문제집·같은 피드백 이중수확.
+    # 락은 이 트랜잭션 종료 시 해제되고, 그 무렵엔 문제집이 존재해 뒤 요청은 _active_jobs로 409.
+    await session.execute(text("SELECT pg_advisory_xact_lock(hashtext(:k))"),
+                          {"k": f"harvest:{body.agent_id}"})
+
+    # 에이전트별 수확 문제집 find-or-create(source_agent_pk로 idempotent — 재수확은 같은 문제집에 append).
+    ds = (
+        await session.execute(
+            select(EvalDataset).where(EvalDataset.source_agent_pk == body.agent_id).limit(1)
+        )
+    ).scalar_one_or_none()
+    if ds is None:
+        import secrets
+        # 소유는 **에이전트 소유자**(수확자 아님, codex P2 F5) — admin이 남의 에이전트를 수확해도 그
+        # 에이전트 소유자가 문제집을 관리·검토하게. shared(owner None)면 특권만 관리(fail-closed).
+        ds = EvalDataset(
+            name=f"피드백 수확 · {agent_name}"[:120],
+            description="응답 피드백(👍/👎) 수확 문제집 — 관리자 검토 후 활성화",
+            kind="agent",
+            source_agent_pk=body.agent_id,
+            owner_id=agent_owner,
+        )
+        session.add(ds)
+        try:
+            await session.flush()
+        except Exception:
+            # 이름 유니크 충돌(동명 다른 에이전트) — 해시명 재시도. (source_agent_pk 경합은 advisory
+            # 락이 이미 막으므로 여기 도달=이름 충돌.)
+            await session.rollback()
+            ds = EvalDataset(
+                name=f"피드백 수확 · {secrets.token_hex(4)}",
+                description="응답 피드백(👍/👎) 수확 문제집 — 관리자 검토 후 활성화",
+                kind="agent", source_agent_pk=body.agent_id, owner_id=agent_owner,
+            )
+            session.add(ds)
+            await session.flush()
+
+    if ds.id in _active_jobs:
+        raise HTTPException(status_code=409, detail="이미 수확이 진행 중입니다")
+    _active_jobs.add(ds.id)  # 동기 락(중복 수확 TOCTOU 차단, suggest 패턴) — check와 사이 await 없음
+    try:
+        if not is_privileged(user):
+            await _member_job_guard(session, user, exclude_id=ds.id)  # 비특권 배경 작업 동시 상한(스펙 178)
+        # 도우미 LLM은 **선택** — 있으면 기준을 다듬고, mock/미설정이면 폴백 템플릿으로 저하(수확은 질문이
+        # 실제 사용자 메시지라 LLM 없이도 유효, suggest와 다름). 그래서 None이어도 400 안 함.
+        llm_cfg, _reason = await _helper_llm(session)
+        prior = ds.description
+        ds.description = f"{prior + ' · ' if prior else ''}피드백 수확 중…"
+        await session.commit()
+        asyncio.create_task(_execute_harvest(ds.id, body.agent_id, llm_cfg, prior))
+    except Exception:
+        _active_jobs.discard(ds.id)  # create_task까지 못 가면 배경 finally 미실행 → 락 누수
+        raise
+    n = (
+        await session.execute(select(func.count(EvalCase.id)).where(EvalCase.dataset_id == ds.id))
+    ).scalar_one()
+    return _dataset_out(ds, n, user)
+
+
+async def _execute_harvest(dataset_id: uuid.UUID, agent_pk: uuid.UUID, llm_cfg: dict,
+                           prior_desc: str | None) -> None:
+    """배경 수확 — 미수확 피드백→케이스(기준 LLM 합성), 케이스별 harvested_case_pk 스탬프(재수확 방지).
+    기존 케이스 보존(append). description에 상태 박제(suggest 패턴). 게이트=_active_jobs(엔드포인트 획득)."""
+    from .eval_harvest import harvest_agent_feedback
+
+    _MARK = "피드백 수확 중…"
+    try:
+        async with SessionLocal() as s:
+            result = await harvest_agent_feedback(s, agent_pk, llm_cfg)
+            ds = await s.get(EvalDataset, dataset_id)
+            if ds is None:
+                return
+            base_idx = (
+                await s.execute(
+                    select(func.coalesce(func.max(EvalCase.order_idx), -1)).where(
+                        EvalCase.dataset_id == dataset_id
+                    )
+                )
+            ).scalar_one() + 1
+            made = 0
+            for i, c in enumerate(result["cases"]):
+                liked = "좋아요" if c["label"] == "feedback:up" else "싫어요"
+                case = EvalCase(
+                    dataset_id=dataset_id,
+                    name=f"피드백 {liked} {base_idx + i + 1}",
+                    input=c["question"],
+                    order_idx=base_idx + i,
+                    asserts=c["asserts"],
+                )
+                s.add(case)
+                await s.flush()  # case.id 확보
+                # 이 피드백을 수확됨으로 스탬프(재수확 방지·링크). 소유는 불변(created_by 안 건드림).
+                fb = await s.get(MessageFeedback, c["feedback_id"])
+                if fb is not None:
+                    fb.harvested_case_pk = case.id
+                made += 1
+            tail = (
+                f"피드백 수확 {made}건 추가"
+                + (f", 건너뜀 {result['skipped']}" if result["skipped"] else "")
+                if made
+                else f"피드백 수확: 0건 (건너뜀 {result['skipped']})"
+            )
+            cur = ds.description or ""
+            if cur.endswith(_MARK):
+                ds.description = cur[: -len(_MARK)].rstrip(" ·") or None
+                ds.description = f"{ds.description} · {tail}" if ds.description else tail
+            else:
+                ds.description = f"{cur} · {tail}" if cur else tail
+            await s.commit()
+    except Exception as exc:  # noqa: BLE001 — 실패도 정직 박제
+        try:
+            async with SessionLocal() as s:
+                ds = await s.get(EvalDataset, dataset_id)
+                if ds is not None:
+                    ds.description = f"{prior_desc + ' · ' if prior_desc else ''}피드백 수확 실패: {str(exc)[:150]}"
+                    await s.commit()
+        except Exception:
+            pass
+    finally:
+        _active_jobs.discard(dataset_id)
