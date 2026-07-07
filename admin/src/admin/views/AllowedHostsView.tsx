@@ -117,9 +117,9 @@ export default function AllowedHostsView() {
         showIcon
         style={{ marginBottom: 8 }}
         title="보안 주의 — host 추가는 SSRF 예외를 여는 행위입니다"
-        description="여기 등록한 host는 사설/루프백/메타데이터 대역이라도 서버의 outbound 요청(A2A·MCP·Agent Card)이 통과합니다. 개발용 mock(예: 127.0.0.1) 등 신뢰하는 대상만 추가하세요. 와일드카드·CIDR·포트·스킴은 허용되지 않습니다(정확 host만)."
+        description="여기 등록한 host는 사설/루프백/메타데이터 대역이라도 서버의 바깥(outbound) 요청이 통과합니다 — 신뢰하는 대상만 추가하세요."
       />
-      {/* 스펙 229: 자세한 SSRF 정의는 매일 볼 필요 없으니 접이식(기본 접힘) — 필요할 때만 펼침. */}
+      {/* 스펙 229·230: 핵심 한 문장만 상시, 자세한 배경·규칙은 접이식(기본 접힘) — 필요할 때만 펼침. */}
       <Collapse
         ghost
         size="small"
@@ -133,7 +133,9 @@ export default function AllowedHostsView() {
                 <b>SSRF(Server-Side Request Forgery, 서버 측 요청 위조)</b>는 공격자가 서버를 속여, 원래는
                 바깥에서 닿을 수 없는 내부망·클라우드 메타데이터(예: 169.254.169.254)·로컬 서비스로 요청을
                 보내게 만드는 공격입니다. 그래서 이 서버는 사설·루프백·메타데이터 대역으로 나가는 요청을{' '}
-                <b>기본 차단</b>하고, 이 화면에 추가한 host만 그 차단의 <b>예외</b>가 됩니다.
+                <b>기본 차단</b>하고, 이 화면에 추가한 host만 그 차단의 <b>예외</b>가 됩니다 — 통과 경로는
+                A2A·MCP·Agent Card이며, 개발용 mock(예: 127.0.0.1)처럼 신뢰하는 대상만, 와일드카드·CIDR·포트·
+                스킴 없이 <b>정확 host</b>로만 등록하세요.
               </p>
             ),
           },
