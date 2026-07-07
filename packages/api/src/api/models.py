@@ -33,7 +33,8 @@ class Persona(Base):
     __tablename__ = "personas"
     id: Mapped[uuid.UUID] = _pk()
     name: Mapped[str] = mapped_column(String(200), unique=True)  # 식별 이름(규칙, 스펙 148)
-    alias: Mapped[str | None] = mapped_column(String(200), default=None)  # 별명(자유 표기, 스펙 148)
+    # 설명(선택, 스펙 210) — 구 별명(alias) 개명: 표시는 name 단독, 설명은 툴팁 등 부가정보.
+    description: Mapped[str | None] = mapped_column(String(200), default=None)
     tone: Mapped[str | None] = mapped_column(String(200), default=None)
     body: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -64,7 +65,6 @@ class Collection(Base):
     __tablename__ = "collections"
     id: Mapped[uuid.UUID] = _pk()
     name: Mapped[str] = mapped_column(String(200), unique=True)  # 식별 이름(규칙, 스펙 148)
-    alias: Mapped[str | None] = mapped_column(String(200), default=None)  # 별명(자유 표기, 스펙 148)
     # 종류 축(스펙 149): document=파일 파싱·청킹 | entity=JSONL 행 단위(1행=1청크, meta 동반).
     # 생성 후 불변(저장 형태가 다름 — 임베딩 모델과 동급). server_default=마이그레이션과 정합
     # (create_all 폴백 DB와 alembic DB의 스키마 diff 방지, codex 149 Low).
@@ -198,7 +198,8 @@ class McpServer(Base):
     __tablename__ = "mcp_servers"
     id: Mapped[uuid.UUID] = _pk()
     name: Mapped[str] = mapped_column(String(120), unique=True)  # 식별 이름(규칙, 스펙 148)
-    alias: Mapped[str | None] = mapped_column(String(200), default=None)  # 별명(자유 표기, 스펙 148)
+    # 설명(선택, 스펙 210) — 구 별명(alias) 개명: 표시는 name 단독, 설명은 툴팁 등 부가정보.
+    description: Mapped[str | None] = mapped_column(String(200), default=None)
     source: Mapped[str] = mapped_column(String(20), default="local")  # local | external
     transport: Mapped[str] = mapped_column(String(20), default="stdio")  # stdio | http
     url: Mapped[str | None] = mapped_column(String(400), default=None)
@@ -229,7 +230,8 @@ class Agent(Base):
     id: Mapped[uuid.UUID] = _pk()
     agent_id: Mapped[str] = mapped_column(String(80), unique=True)  # 외부 식별자 agt_...
     name: Mapped[str] = mapped_column(String(200), unique=True)  # 식별 이름(규칙+유니크, 스펙 148)
-    alias: Mapped[str | None] = mapped_column(String(200), default=None)  # 별명(자유 표기, 스펙 148)
+    # 설명(선택, 스펙 210) — 구 별명(alias) 개명: 표시는 name 단독, 설명은 툴팁 등 부가정보.
+    description: Mapped[str | None] = mapped_column(String(200), default=None)
     source: Mapped[str] = mapped_column(String(20), default="ui")  # ui | code | external(A2A 카드)
     model: Mapped[str] = mapped_column(String(120), default="mock-llm")  # 미지정 시 기본 모델(스펙 059)
     persona: Mapped[str] = mapped_column(Text, default="")  # 해석된 페르소나 본문(서빙용)

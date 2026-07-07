@@ -47,10 +47,10 @@ def _assert_valid_name(name: str) -> None:
         raise HTTPException(status_code=400, detail=err)
 
 
-def _norm_alias(data: dict) -> dict:
-    """별명 정규화 — 공백뿐이면 None(스펙 148)."""
-    if "alias" in data:
-        data["alias"] = (data["alias"] or "").strip() or None
+def _norm_description(data: dict) -> dict:
+    """설명 정규화 — 공백뿐이면 None(스펙 148, 210)."""
+    if "description" in data:
+        data["description"] = (data["description"] or "").strip() or None
     return data
 
 
@@ -73,7 +73,7 @@ async def list_personas(session: AsyncSession = Depends(get_session)) -> Any:
 @router.post("/personas", response_model=PersonaOut, status_code=201)
 async def create_persona(body: PersonaIn, session: AsyncSession = Depends(get_session)) -> Any:
     _assert_valid_name(body.name)  # 식별 이름 규칙(스펙 148)
-    obj = Persona(**_norm_alias(body.model_dump()))
+    obj = Persona(**_norm_description(body.model_dump()))
     session.add(obj)
     await _commit_or_409(session, "같은 식별 이름의 페르소나가 이미 있습니다.")
     await session.refresh(obj)
@@ -101,7 +101,7 @@ async def update_persona(
         refs = await agents_referencing(session, "persona", obj.name)
         if refs:
             raise HTTPException(status_code=409, detail=referenced_message(refs, "페르소나", action="이름 변경"))
-    for key, value in _norm_alias(body.model_dump()).items():
+    for key, value in _norm_description(body.model_dump()).items():
         setattr(obj, key, value)
     await _commit_or_409(session, "같은 식별 이름의 페르소나가 이미 있습니다.")
     await session.refresh(obj)
@@ -122,7 +122,7 @@ async def persona_agents(
     agents = (await session.execute(select(Agent))).scalars().all()
     return [
         PersonaUsageAgentOut(
-            id=a.id, agentId=a.agent_id, name=a.name, alias=a.alias,
+            id=a.id, agentId=a.agent_id, name=a.name, description=a.description,
             stale=(a.persona != obj.body),
             canManage=may_manage(a.owner_id, principal),
         )
@@ -324,7 +324,7 @@ def mcp_to_out(obj: McpServer) -> McpServerOut:
         served_url=_mcp_served_url(obj),
         id=obj.id,
         name=obj.name,
-        alias=obj.alias,  # 별명(스펙 148)
+        description=obj.description,  # 설명(스펙 210)
         source=obj.source,
         transport=obj.transport,
         url=obj.url,
@@ -372,7 +372,7 @@ async def create_mcp_server(
     if body.published and body.source == "external":
         # 재공개 금지(스펙 152) — 외부에서 가져온 MCP를 다시 외부로 여는 생성 경로 봉인.
         raise HTTPException(status_code=400, detail="외부에서 가져온 MCP는 다시 외부로 공개할 수 없습니다.")
-    data = _norm_alias(body.model_dump())
+    data = _norm_description(body.model_dump())
     data["enabled_tools"] = body.enabled_tools or body.tools
     # auth는 평문 입력 → Fernet 암호화 저장. 마스킹값이 들어오면(신규엔 없어야 함) 비워둔다.
     data["auth"] = None if (body.auth and crypto.is_masked(body.auth)) else crypto.encrypt(body.auth)
@@ -507,7 +507,7 @@ async def update_mcp_server(
     if obj is None:
         raise HTTPException(status_code=404, detail="not found")
     assert_may_manage(obj, principal)  # 소유자/특권만(스펙 112)
-    data = _norm_alias(body.model_dump())
+    data = _norm_description(body.model_dump())
     # source(유래)는 생성 후 불변(스펙 152, codex High) — external→local 세탁 후 publish하는
     # 재공개 우회를 봉인. provenance는 등록 시점의 사실이지 편집 대상이 아니다.
     if data.get("source") and data["source"] != obj.source:
@@ -664,7 +664,7 @@ async def get_blocks(
         {
             "id": str(row.id),
             "name": row.name,
-            "alias": row.alias,  # 별명(스펙 148)
+            "description": row.description,  # 설명(스펙 210)
             "tone": row.tone,
             "body": row.body,
             "usedBy": _count_by(agents, "persona", row.name, scalar=True),
@@ -688,7 +688,6 @@ async def get_blocks(
         {
             "id": str(row.id),
             "name": row.name,
-            "alias": row.alias,  # 별명(스펙 148)
             "kind": row.kind,  # document|entity(스펙 149)
             "model": row.embedding_model.name if row.embedding_model else "",
             "dims": row.dims,
@@ -707,7 +706,7 @@ async def get_blocks(
         {
             "id": str(row.id),
             "name": row.name,
-            "alias": row.alias,  # 별명(스펙 148)
+            "description": row.description,  # 설명(스펙 210)
             "source": row.source,
             "transport": row.transport,
             "url": row.url,

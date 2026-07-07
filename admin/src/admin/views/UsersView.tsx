@@ -192,14 +192,14 @@ export default function UsersView() {
 
   const kindMeta = grantKind ? KIND_META[grantKind] : undefined
   // 종류별 카탈로그 옵션 — value는 브로커 판정 키(mcp=서버 name·rag=컬렉션 name·agent=agentId),
-  // label은 표시 규약(alias ?? name, 스펙 148).
+  // label은 표시 규약(이름 단독, 스펙 210).
   const nameOptions =
     grantKind === 'mcp'
-      ? mcps.map((m) => ({ value: m.name, label: m.alias ?? m.name }))
+      ? mcps.map((m) => ({ value: m.name, label: m.name }))
       : grantKind === 'rag'
-        ? collections.map((c) => ({ value: c.name, label: c.alias ?? c.name }))
+        ? collections.map((c) => ({ value: c.name, label: c.name }))
         : grantKind === 'agent'
-          ? agents.map((a) => ({ value: a.agentId, label: a.alias ?? a.name }))
+          ? agents.map((a) => ({ value: a.agentId, label: a.name }))
           : []
 
   const grantObject = grantKind
@@ -221,7 +221,7 @@ export default function UsersView() {
     if (!name) return meta.hasName ? `모든 ${meta.noun}` : meta.noun
     if (kind === 'agent') {
       const a = agents.find((x) => x.agentId === name)
-      return `${meta.noun} · ${a ? (a.alias ?? a.name) : name}`
+      return `${meta.noun} · ${a ? a.name : name}`
     }
     return `${meta.noun} · ${name}`
   }

@@ -141,10 +141,10 @@ async def _dedupe_agent_name(session: AsyncSession, base: str) -> str:
 
 
 async def _slugify_remote_agent(session: AsyncSession, agent: Agent) -> None:
-    """원격 유래(A2A 카드·SDK 등록) 이름 자동 변환 — 원문은 별명으로 보존, 식별 이름은
-    slugify+유니크(스펙 148). 우리가 짓는 이름이 아니므로 거부하지 않는다."""
+    """원격 유래(A2A 카드·SDK 등록) 이름 자동 변환 — 원문은 설명(description)으로 보존, 식별 이름은
+    slugify+유니크(스펙 148, 210). 우리가 짓는 이름이 아니므로 거부하지 않는다."""
     raw = agent.name
-    agent.alias = (agent.alias or raw)[:200]  # DB String(200) 정합(codex 148 — 원격 문자열 무clip)
+    agent.description = (agent.description or raw)[:200]  # DB String(200) 정합(codex 148 — 원격 문자열 무clip)
     # base를 180자로 캡 — dedupe 접미(-N)가 붙어도 String(200)을 넘지 않게.
     agent.name = await _dedupe_agent_name(session, slugify_name(raw)[:180])
 
@@ -251,7 +251,7 @@ async def create_agent(
     agent = Agent(
         agent_id=_new_agent_id(),
         name=body.name,
-        alias=(body.alias or "").strip() or None,  # 별명(자유 표기, 스펙 148)
+        description=(body.description or "").strip() or None,  # 설명(자유 표기, 스펙 210)
         source="ui",
         model=body.config.model,
         persona=await resolve_persona(session, body.config.persona),
@@ -290,9 +290,9 @@ async def clone_agent(
     _enforce_tool_policy_gate(cfg, principal)  # 완화 정책 복제도 admin만(스펙 177 P2 D4)
     clone = Agent(
         agent_id=_new_agent_id(),
-        # 식별 이름은 규칙 준수+유니크로 자동 생성, 사람용 표기는 별명에(스펙 148). base 캡=접미 여유.
+        # 식별 이름은 규칙 준수+유니크로 자동 생성, 사람용 표기는 설명에(스펙 148, 210). base 캡=접미 여유.
         name=await _dedupe_agent_name(session, f"{src.name[:180]}-복사본"),
-        alias=f"{src.alias or src.name} (복사본)"[:200],
+        description=f"{src.description or src.name} (복사본)"[:200],
         source="ui",
         model=cfg.get("model") or src.model,
         persona=await resolve_persona(session, cfg.get("persona") or ""),
@@ -349,8 +349,8 @@ async def update_agent(
     if body.name is not None and body.name != agent.name:
         _assert_valid_name(body.name)  # 식별 이름 변경도 규칙(스펙 148)
         agent.name = body.name
-    if body.alias is not None:
-        agent.alias = body.alias.strip() or None  # ""=별명 비우기
+    if body.description is not None:
+        agent.description = body.description.strip() or None  # ""=설명 비우기
     # 서빙 config/active_version 은 건드리지 않음.
     await _commit_or_409(session, "같은 식별 이름의 에이전트가 이미 있습니다.")
     return await _reload_out(session, agent.id)
@@ -595,9 +595,9 @@ async def register_code_agent(
     raw_name = (body.name or body.repo or "코드 에이전트")[:200]
     agent = Agent(
         agent_id=_new_agent_id(),
-        # 원격 유래(SDK 등록명) — 거부 대신 자동 변환, 원문은 별명으로(스펙 148). base 180자 캡=접미 여유.
+        # 원격 유래(SDK 등록명) — 거부 대신 자동 변환, 원문은 설명으로(스펙 148, 210). base 180자 캡=접미 여유.
         name=await _dedupe_agent_name(session, slugify_name(raw_name)[:180]),
-        alias=raw_name,
+        description=raw_name,
         source="code",
         model=body.model,
         persona=body.persona,

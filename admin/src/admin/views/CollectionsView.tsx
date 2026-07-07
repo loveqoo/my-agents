@@ -92,7 +92,6 @@ function docStatusTag(status: string) {
 /* ---- 컬렉션 생성 모달 ---- */
 interface CreateFormData {
   name: string // 식별 이름(규칙, 스펙 148)
-  alias: string // 별명(자유 표기, 스펙 148)
   kind: 'document' | 'entity' // 종류 축(스펙 149)
   schemaText: string // 엔티티 행 검증 JSON Schema 원문(선택, 스펙 149) — 제출 시 파싱
   description: string
@@ -103,7 +102,6 @@ interface CreateFormData {
 
 const blankCreate: CreateFormData = {
   name: '',
-  alias: '',
   kind: 'document',
   schemaText: '',
   description: '',
@@ -213,16 +211,10 @@ function CreateModal({
             </span>
           </label>
         ) : null}
-        {/* 편집 가능 항목(별명·설명)은 아래로 — 언제든 바꿀 수 있음(스펙 173 별명 편집). */}
+        {/* 편집 가능 항목(설명)은 아래로 — 언제든 바꿀 수 있음(스펙 210). */}
         <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <span style={{ fontSize: 14, fontWeight: 500 }}>
-            별명 <span style={{ color: 'var(--color-text-tertiary)', fontWeight: 400 }}>(선택 — 화면 표시용 자유 표기)</span>
-          </span>
-          <Input placeholder="예: 사내 위키" value={f.alias} onChange={(e) => set('alias', e.target.value)} />
-        </label>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <span style={{ fontSize: 14, fontWeight: 500 }}>
-            설명 <span style={{ color: 'var(--color-text-tertiary)', fontWeight: 400 }}>(선택)</span>
+            설명 <span style={{ color: 'var(--color-text-tertiary)', fontWeight: 400 }}>(선택 — 부가 정보)</span>
           </span>
           <TextArea
             rows={3}
@@ -276,13 +268,11 @@ function EditModal({
   onCancel: () => void
   onSaved: () => void
 }) {
-  const [alias, setAlias] = useState('')
   const [description, setDescription] = useState('')
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     if (collection) {
-      setAlias(collection.alias ?? '')
       setDescription(collection.description ?? '')
     }
     /* eslint-disable-next-line */
@@ -295,7 +285,6 @@ function EditModal({
     setSaving(true)
     try {
       await updateCollection(collection.id, {
-        alias: alias.trim(), // ""=별명 비우기(백엔드 "".strip() or None). null은 미변경이라 안 됨.
         description,
         // 스펙 198: 청크 크기·겹침은 생성 후 불변 → 수정에서 제거.
       })
@@ -324,12 +313,8 @@ function EditModal({
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <span style={{ fontSize: 14, fontWeight: 500 }}>
-              별명 <span style={{ color: 'var(--color-text-tertiary)', fontWeight: 400 }}>(화면 표시용 — 비우면 식별 이름으로 표시)</span>
+              설명 <span style={{ color: 'var(--color-text-tertiary)', fontWeight: 400 }}>(선택 — 부가 정보)</span>
             </span>
-            <Input placeholder="예: 사내 위키" value={alias} onChange={(e) => setAlias(e.target.value)} />
-          </label>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <span style={{ fontSize: 14, fontWeight: 500 }}>설명</span>
             <TextArea rows={3} value={description} onChange={(e) => setDescription(e.target.value)} />
           </label>
           {/* 스펙 198: 청크 크기·겹침 수정 필드 제거 — 청크 정책은 생성 후 불변(소급 안 되고 재청킹은 원본
@@ -632,7 +617,6 @@ export default function CollectionsView({ onEvaluate }: { onEvaluate?: (cid: str
     try {
       await createCollection({
         name: data.name.trim(),
-        alias: data.alias.trim() || null,
         kind: data.kind,
         entity_schema: entitySchema,
         description: data.description.trim() || undefined,
@@ -676,31 +660,13 @@ export default function CollectionsView({ onEvaluate }: { onEvaluate?: (cid: str
       key: 'name',
       title: '이름',
       render: (c) => (
-        // description을 줄임표로 제한 — 긴 설명이 테이블 max-content 폭을 키워 우측
-        // 액션 컬럼(점검·삭제)이 가로 스크롤 뒤로 잘리던 것을 억제한다.
+        // 설명은 상시 노출하지 않고 툴팁으로만(스펙 210 — 리스트=이름 단독, 설명=마우스오버).
         <div style={{ maxWidth: 260 }}>
-          <span style={{ fontWeight: 500, color: 'var(--color-text-heading)' }}>{c.alias || c.name}</span>
-          {c.alias ? (
-            <code style={{ marginLeft: 6, fontSize: 11, color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-family-code)' }}>
-              {c.name}
-            </code>
-          ) : null}
+          <Tooltip title={c.description || undefined}>
+            <span style={{ fontWeight: 500, color: 'var(--color-text-heading)' }}>{c.name}</span>
+          </Tooltip>
           {c.kind === 'entity' ? (
             <Tag color="geekblue" style={{ marginLeft: 6 }}>엔티티</Tag>
-          ) : null}
-          {c.description ? (
-            <div
-              style={{
-                fontSize: 12,
-                color: 'var(--color-text-tertiary)',
-                marginTop: 2,
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-              }}
-            >
-              {c.description}
-            </div>
           ) : null}
         </div>
       ),

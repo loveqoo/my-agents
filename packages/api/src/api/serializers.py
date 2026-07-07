@@ -54,7 +54,6 @@ def collection_to_out(c: Collection) -> CollectionOut:
     return CollectionOut(
         id=c.id,
         name=c.name,
-        alias=c.alias,  # 별명(스펙 148)
         kind=c.kind,  # 종류 축(스펙 149)
         entity_schema=c.entity_schema,
         description=c.description,
@@ -87,7 +86,7 @@ def agent_to_out(a: Agent, persona_bodies: dict[str, str] | None = None) -> Agen
         id=a.id,
         agentId=a.agent_id,
         name=a.name,
-        alias=a.alias,  # 별명(스펙 148)
+        description=a.description,  # 설명(스펙 210)
         source=a.source,
         model=cfg.get("model", a.model),
         persona=cfg.get("persona", a.persona),

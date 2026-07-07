@@ -33,7 +33,7 @@ from .models import (
 # admin Provider UI에서 추가하고 기본 전환한다. 가상 모델명(claude-*/gpt-*) 금지.
 CHAT_MODEL_NAME = "mock-llm"
 
-# (name=식별 이름·규칙 준수, alias=별명, tone, body) — 스펙 148. name은 config.persona 참조 키.
+# (name=식별 이름·규칙 준수, description=설명, tone, body) — 스펙 148, 210. name은 config.persona 참조 키.
 PERSONAS = [
     ("methodical-researcher", "Methodical Researcher", "전문적, 차분함", "Rigorous, source-driven, neutral. Prefer primary sources. Always cite. Lead with a one-line answer."),
     ("strict-senior-engineer", "Strict Senior Engineer", "단호함, 공감적", "Direct, specific, kind. Flag correctness and security first, style last. Cite exact line numbers."),
@@ -104,7 +104,7 @@ MCP_SERVERS = [
      list(SERVED_MCP_TOOLS["calc-tools"]), "connected", False, None),
 ]
 
-# agent_id, name(식별·규칙), alias(별명), source, model, persona, memories, historyDepth, vectorTables, mcps, a2a, status, activeVersion, versions[(version,status,createdAt,note)]
+# agent_id, name(식별·규칙), description(설명), source, model, persona, memories, historyDepth, vectorTables, mcps, a2a, status, activeVersion, versions[(version,status,createdAt,note)]
 AGENTS = [
     # 코드/인프라 권한·MCP 제거(스펙 046)에 맞춰 web.search/tavily만 유지.
     ("agt_rsch_7f3a91", "research-assistant", "Research Assistant", "ui", CHAT_MODEL_NAME, "methodical-researcher",
@@ -124,10 +124,10 @@ AGENTS = [
 # 실제 턴=0이다. 부풀린 카운터(turns=14 등)는 정리 배치가 빈 세션을 고턴으로 오인해 보존하게 만들었다.
 # status·channel로 데모 다양성은 유지하되 카운터는 실제 행과 일치시킨다(빈 세션은 정직하게 0턴·정리대상).
 SESSIONS = [
-    ("sess-8f21", "agt_rsch_7f3a91", "Research Assistant", "debug-console", "active", 0, 0),
-    ("sess-7a05", "agt_rsch_7f3a91", "Research Assistant", "A2A · partner-x", "idle", 0, 0),
-    ("sess-5d77", "agt_sec_9d4417", "Personal Secretary", "web-chat", "error", 0, 0),
-    ("sess-4b10", "agt_rsch_7f3a91", "Research Assistant", "web-chat", "completed", 0, 0),
+    ("sess-8f21", "agt_rsch_7f3a91", "research-assistant", "debug-console", "active", 0, 0),
+    ("sess-7a05", "agt_rsch_7f3a91", "research-assistant", "A2A · partner-x", "idle", 0, 0),
+    ("sess-5d77", "agt_sec_9d4417", "personal-secretary", "web-chat", "error", 0, 0),
+    ("sess-4b10", "agt_rsch_7f3a91", "research-assistant", "web-chat", "completed", 0, 0),
 ]
 
 # 시드 승인 데모는 repo.merge·k8s.write(제거 권한) + Code Reviewer·Ops Copilot(제거 에이전트)에
@@ -143,10 +143,10 @@ async def _empty(session: AsyncSession, model) -> bool:
 
 async def seed_if_empty(session: AsyncSession) -> None:
     """각 카탈로그가 비어있으면 시드. 부분 시드 가능(독립적)."""
-    persona_body = {name: body for name, _alias, _tone, body in PERSONAS}
+    persona_body = {name: body for name, _description, _tone, body in PERSONAS}
 
     if await _empty(session, Persona):
-        session.add_all([Persona(name=n, alias=al, tone=t, body=b) for n, al, t, b in PERSONAS])
+        session.add_all([Persona(name=n, description=d, tone=t, body=b) for n, d, t, b in PERSONAS])
     if await _empty(session, MemoryType):
         session.add_all([MemoryType(key=k, name=n, scope=s, body=b) for k, n, s, b in MEMORY_TYPES])
     if await _empty(session, McpServer):
@@ -203,14 +203,14 @@ async def seed_if_empty(session: AsyncSession) -> None:
         ])
 
     if await _empty(session, Agent):
-        for (aid, name, alias, source, model, persona, mems, hist, vts, mcps, a2a, status, active, versions) in AGENTS:
+        for (aid, name, description, source, model, persona, mems, hist, vts, mcps, a2a, status, active, versions) in AGENTS:
             cfg = {
                 "model": model, "persona": persona, "memories": list(mems),
                 "vectorTables": list(vts), "mcps": list(mcps),
                 "historyDepth": hist,
             }
             agent = Agent(
-                agent_id=aid, name=name, alias=alias, source=source, model=model,
+                agent_id=aid, name=name, description=description, source=source, model=model,
                 persona=persona_body.get(persona, persona), history_depth=hist,
                 config=cfg, exposed={"a2a": a2a}, status=status, active_version=active,
             )
@@ -230,7 +230,7 @@ async def seed_if_empty(session: AsyncSession) -> None:
             "mcps": [], "historyDepth": 20, "impl": "plan_execute",
         }
         plan_execute = Agent(
-            agent_id="agt_plex_b5e207", name="plan-execute-demo", alias="Plan-Execute Demo", source="ui",
+            agent_id="agt_plex_b5e207", name="plan-execute-demo", description="Plan-Execute Demo", source="ui",
             model=CHAT_MODEL_NAME,
             persona=persona_body.get("methodical-researcher", "methodical-researcher"),
             history_depth=20, config=pe_cfg, exposed={"a2a": False},
@@ -281,7 +281,7 @@ async def seed_if_empty(session: AsyncSession) -> None:
             "historyDepth": 10, "card": code_card,
         }
         translator = Agent(
-            agent_id="agt_xlt_a17c33", name="doc-translator", alias="Doc Translator", source="code", model=CHAT_MODEL_NAME,
+            agent_id="agt_xlt_a17c33", name="doc-translator", description="Doc Translator", source="code", model=CHAT_MODEL_NAME,
             persona="코드 정의 (SDK)", history_depth=10, config=code_cfg, exposed={"a2a": False},
             status="online", active_version="f3a91c2",
             endpoint=code_endpoint,
@@ -315,8 +315,8 @@ async def seed_if_empty(session: AsyncSession) -> None:
             ],
         }
         external = Agent(
-            # 원격 유래 카드명은 자동 변환 + 원문 별명(스펙 148 — connect 경로와 동형)
-            agent_id="agt_ext_ac2e01", name="acme-translate-a2a", alias=ext_card["name"], source="external", model="",
+            # 원격 유래 카드명은 자동 변환 + 원문을 설명으로 보존(스펙 148, 210 — connect 경로와 동형)
+            agent_id="agt_ext_ac2e01", name="acme-translate-a2a", description=ext_card["name"], source="external", model="",
             persona="", history_depth=10,
             config={"model": "", "persona": "", "memories": [], "vectorTables": [],
                     "mcps": [], "historyDepth": 10, "card": ext_card},
@@ -374,7 +374,7 @@ async def seed_if_empty(session: AsyncSession) -> None:
             continue
         # 기존 행은 **코드 소유 필드만** 동기화(스펙 201 후속) — 도구 정의·설명(=모델 라우팅 재료이자
         # 드로어 안내)이 레지스트리에서 바뀌면 화면과 모델이 같은 문서를 보게. 관리자 소유 필드
-        # (published·alias·enabled_tools)는 보존 — 통째 교체는 관리자 저작을 지우는 함정
+        # (published·description·enabled_tools)는 보존 — 통째 교체는 관리자 저작을 지우는 함정
         # (learning: sync-wholesale-replace). source=custom 행만(같은 이름의 사용자 local 행이면 불변 —
         # custom 자가선언 봉인과 일관).
         _row = (await session.execute(

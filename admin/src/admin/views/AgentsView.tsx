@@ -177,14 +177,14 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
     }
     try {
       if (editing) {
-        // alias는 항상 현재 폼 값을 전송('' = 비우기, 스펙 148)
-        await A.update(editing.agent.id, data.name, config, data.alias)
+        // description은 항상 현재 폼 값을 전송('' = 비우기, 스펙 210)
+        await A.update(editing.agent.id, data.name, config, data.description)
         message.success(`초안에 저장됨 — 활성화하면 게시됩니다`)
         // 편집을 마치면 그 에이전트의 드로워로 복귀(스펙 144 #1 — 이어서 "활성화"를 누르는 동선).
         setDetailId(editing.agent.id)
       } else {
-        await A.create(data.name, config, data.alias || null)
-        message.success(`"${data.alias || data.name}" 생성됨 — v1 초안, 테스트 후 활성화`)
+        await A.create(data.name, config, data.description || null)
+        message.success(`"${data.name}" 생성됨 — v1 초안, 테스트 후 활성화`)
       }
       setFormOpen(false)
       setEditing(null)
@@ -252,7 +252,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
   const ownerKind = (a: Agent) =>
     a.owner_id == null ? 'shared' : meId !== undefined ? (a.owner_id === meId ? 'mine' : 'others') : a.can_manage === false ? 'others' : 'mine'
   const visibleAgents = agents
-    .filter((a) => !q || [a.name, a.alias, a.model, a.source].some((f) => (f || '').toLowerCase().includes(q)))
+    .filter((a) => !q || [a.name, a.description, a.model, a.source].some((f) => (f || '').toLowerCase().includes(q)))
     // 타인 private는 기본 숨김(스펙 147 — 소유자에게만 보임): admin도 '소유: private · 타인'을
     // 명시 선택해야 표시(정리·지원용 opt-in). 일반 사용자는 백엔드가 애초에 안 준다.
     .filter((a) => (ownerFilter === 'all' ? ownerKind(a) !== 'others' : ownerKind(a) === ownerFilter))
@@ -331,10 +331,11 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
               <Icon name={isCode ? 'code' : 'robot'} size={14} />
             </Avatar>
             <div>
-              <div style={{ fontWeight: 500, color: 'var(--color-text-heading)' }}>{displayName(a)}</div>
+              <Tooltip title={a.description || undefined}>
+                <div style={{ fontWeight: 500, color: 'var(--color-text-heading)' }}>{displayName(a)}</div>
+              </Tooltip>
               <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-family-code)' }}>
-                {/* 별명이 있으면 식별 이름을 보조 표기(스펙 148 — 참조 키가 늘 보이게) */}
-                {a.alias ? `${a.name} · ${a.model}` : a.model}
+                {a.model}
               </div>
             </div>
           </div>
@@ -571,7 +572,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
                 const c: AgentConfig = d ? d.config || configOf(a) : configOf(a)
                 return {
                   name: a.name,
-                  alias: a.alias ?? '',
+                  description: a.description ?? '',
                   model: c.model || a.model,
                   persona: c.persona || a.persona,
                   temperature: c.temperature ?? a.temperature ?? null,

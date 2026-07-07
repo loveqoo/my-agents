@@ -37,7 +37,7 @@ function statusTag(map: Record<string, StatusMeta>, status?: string | null) {
 /* 백엔드 McpServerIn payload — snake_case로 in. */
 interface McpServerIn {
   name: string // 식별 이름(규칙, 스펙 148)
-  alias?: string | null // 별명(자유 표기, 스펙 148)
+  description?: string | null // 설명(선택, 스펙 210)
   source: string
   transport: string
   url?: string
@@ -70,7 +70,7 @@ type McpFormState = {
 type McpFormData = {
   id?: string
   name: string // 식별 이름(규칙, 스펙 148)
-  alias: string // 별명(자유 표기, 스펙 148)
+  description: string // 설명(선택, 스펙 210)
   transport: string
   url: string
   authMode: 'none' | 'bearer'
@@ -95,7 +95,7 @@ function McpForm({
   onSave: (item: BlockItem) => void
 }) {
   const external = !!(form && (form.source === 'external' || (form.item && form.item.source === 'external')))
-  const blank: McpFormData = { name: '', alias: '', transport: external ? 'http' : 'stdio', url: '', authMode: 'none', auth: '', tools: [], enabledTools: [] }
+  const blank: McpFormData = { name: '', description: '', transport: external ? 'http' : 'stdio', url: '', authMode: 'none', auth: '', tools: [], enabledTools: [] }
   const [f, setF] = useState<McpFormData>(blank)
   const [discovering, setDiscovering] = useState(false)
   const [discoverMsg, setDiscoverMsg] = useState<{ ok: boolean; text: string } | null>(null)
@@ -107,7 +107,7 @@ function McpForm({
       setF({
         id: m.id,
         name: m.name,
-        alias: m.alias ?? '',
+        description: m.description ?? '',
         transport: m.transport || 'stdio',
         url: m.url || '',
         // GET는 토큰을 마스킹(••••)으로 반환 → 존재 시 bearer, sentinel 유지(미수정 저장=보존).
@@ -191,7 +191,7 @@ function McpForm({
     const item: BlockItem = {
       id,
       name: f.name.trim(),
-      alias: f.alias.trim() || null,
+      description: f.description.trim() || null,
       // source(유래)는 생성 후 불변(스펙 152) — 편집 시 원본 보존(custom도 그대로). 신규만 external/local.
       source: isEdit ? (form.item?.source ?? 'local') : (isExternal ? 'external' : 'local'),
       transport: f.transport,
@@ -258,9 +258,9 @@ function McpForm({
         </label>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <span style={{ fontSize: 14, fontWeight: 500 }}>
-            별명 <span style={{ color: 'var(--color-text-tertiary)', fontWeight: 400 }}>(선택 — 화면 표시용 자유 표기)</span>
+            설명 <span style={{ color: 'var(--color-text-tertiary)', fontWeight: 400 }}>(선택 — 부가 정보)</span>
           </span>
-          <Input placeholder="예: 파트너 CRM" value={f.alias} onChange={(e) => set('alias', e.target.value)} />
+          <Input placeholder="예: 파트너 CRM" value={f.description} onChange={(e) => set('description', e.target.value)} />
         </label>
         {isExternal ? (
           <>
@@ -413,10 +413,10 @@ function PersonaForm({
 }: {
   form: PersonaFormState | null
   onCancel: () => void
-  onSave: (data: { id?: string; name: string; alias: string; tone: string; body: string }) => void
+  onSave: (data: { id?: string; name: string; description: string; tone: string; body: string }) => void
 }) {
   const [name, setName] = useState('')
-  const [alias, setAlias] = useState('')
+  const [description, setDescription] = useState('')
   const [tones, setTones] = useState<string[]>([])
   const [body, setBody] = useState('')
   // 이 페르소나를 쓰는 에이전트(스펙 161) — 편집 모드에서만 로드·표시.
@@ -428,12 +428,12 @@ function PersonaForm({
     if (!form) return
     if (form.mode === 'edit' && form.item) {
       setName(form.item.name ?? '')
-      setAlias(form.item.alias ?? '')
+      setDescription(form.item.description ?? '')
       setTones(splitTones(form.item.tone))
       setBody(form.item.body ?? '')
     } else {
       setName('')
-      setAlias('')
+      setDescription('')
       setTones([])
       setBody('')
     }
@@ -467,7 +467,7 @@ function PersonaForm({
       message.warning(nameErr)
       return
     }
-    onSave({ id: isEdit ? form.item?.id : undefined, name: name.trim(), alias: alias.trim(), tone: joinTones(tones), body })
+    onSave({ id: isEdit ? form.item?.id : undefined, name: name.trim(), description: description.trim(), tone: joinTones(tones), body })
   }
   const staleCount = usage.filter((u) => u.stale).length
   const applySelected = async () => {
@@ -514,9 +514,9 @@ function PersonaForm({
         </label>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <span style={{ fontSize: 14, fontWeight: 500 }}>
-            별명 <span style={{ color: 'var(--color-text-tertiary)', fontWeight: 400 }}>(선택 — 화면 표시용 자유 표기)</span>
+            설명 <span style={{ color: 'var(--color-text-tertiary)', fontWeight: 400 }}>(선택 — 부가 정보)</span>
           </span>
-          <Input placeholder="예: 친절한 고양이" value={alias} onChange={(e) => setAlias(e.target.value)} />
+          <Input placeholder="예: 친절한 고양이" value={description} onChange={(e) => setDescription(e.target.value)} />
         </label>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <span style={{ fontSize: 14, fontWeight: 500 }}>
@@ -561,7 +561,7 @@ function PersonaForm({
                         setSelected((s) => (e.target.checked ? [...s, u.id] : s.filter((id) => id !== u.id)))
                       }
                     >
-                      {u.alias ?? u.name}
+                      <Tooltip title={u.description || undefined}>{u.name}</Tooltip>
                     </Checkbox>
                     {u.stale ? <Tag color="warning">오래됨</Tag> : null}
                     {!u.canManage ? (
@@ -782,7 +782,7 @@ export default function BlocksView() {
     const isEdit = !!data.mcp?.items.some((m) => m.id === item.id)
     const payload: McpServerIn = {
       name: item.name,
-      alias: item.alias ?? null,
+      description: item.description ?? null,
       source: item.source ?? 'local',
       transport: item.transport ?? 'stdio',
       url: item.url,
@@ -832,8 +832,8 @@ export default function BlocksView() {
     }
   }
 
-  const savePersona = async (data: { id?: string; name: string; alias: string; tone: string; body: string }) => {
-    const payload = { name: data.name, alias: data.alias || null, tone: data.tone || null, body: data.body }
+  const savePersona = async (data: { id?: string; name: string; description: string; tone: string; body: string }) => {
+    const payload = { name: data.name, description: data.description || null, tone: data.tone || null, body: data.body }
     try {
       if (data.id) await updateBlockItem('personas', data.id, payload)
       else await createBlockItem('personas', payload)
@@ -863,8 +863,9 @@ export default function BlocksView() {
           title: '서버',
           render: (r) => (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <code style={{ fontFamily: 'var(--font-family-code)', color: 'var(--cyan-7)', fontSize: 13 }}>{r.name}</code>
-              {r.alias ? <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>{r.alias}</span> : null}
+              <Tooltip title={r.description || undefined}>
+                <code style={{ fontFamily: 'var(--font-family-code)', color: 'var(--cyan-7)', fontSize: 13 }}>{r.name}</code>
+              </Tooltip>
               {r.source === 'external' ? <Tag color="purple">외부</Tag> : r.source === 'custom' ? <Tag color="cyan">커스텀</Tag> : <Tag>로컬</Tag>}
               <OwnerTag ownerId={r.owner_id} canManage={r.can_manage} />
             </span>
@@ -920,8 +921,9 @@ export default function BlocksView() {
           title: '테이블',
           render: (r) => (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <code style={{ fontFamily: 'var(--font-family-code)', color: 'var(--cyan-7)', fontSize: 13 }}>{r.name}</code>
-              {r.alias ? <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>{r.alias}</span> : null}
+              <Tooltip title={r.description || undefined}>
+                <code style={{ fontFamily: 'var(--font-family-code)', color: 'var(--cyan-7)', fontSize: 13 }}>{r.name}</code>
+              </Tooltip>
             </span>
           ),
         },
@@ -967,10 +969,9 @@ export default function BlocksView() {
         title: (def?.label ?? '').replace(/s$/, ''),
         render: (r) => (
           <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-            <span style={{ fontWeight: 500, color: 'var(--color-text-heading)' }}>{r.alias || r.name}</span>
-            {r.alias ? (
-              <code style={{ fontSize: 11, color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-family-code)' }}>{r.name}</code>
-            ) : null}
+            <Tooltip title={r.description || undefined}>
+              <span style={{ fontWeight: 500, color: 'var(--color-text-heading)' }}>{r.name}</span>
+            </Tooltip>
           </span>
         ),
       },

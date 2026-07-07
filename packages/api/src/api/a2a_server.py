@@ -158,7 +158,7 @@ async def _agent_a2a_skills(agent: Agent) -> list[dict]:
             # (2) AgentProvider는 remote+endpoint만 위임하므로(broker:236) 호출 불가한 거짓 능력이 된다.
             if not is_remote_source(sub.source) or not sub.endpoint:
                 continue
-            skills.append({"id": f"agent:{aid}", "name": sub.alias or sub.name,
+            skills.append({"id": f"agent:{aid}", "name": sub.name,
                            "description": "이 하위 에이전트에 위임한다(A2A 오케스트레이션).", "tags": ["delegate"]})
         if rag_colls:
             from .models import Collection

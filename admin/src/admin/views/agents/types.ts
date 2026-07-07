@@ -3,7 +3,7 @@ import type { ToolPolicy, ArtifactSpec } from '../../mockData'
 /* 폼 데이터 shape — 생성/편집에서 공유. */
 export interface AgentFormData {
   name: string // 식별 이름(규칙, 스펙 148)
-  alias: string // 별명(자유 표기, 스펙 148) — ''=없음
+  description: string // 설명(선택, 스펙 210) — ''=없음
   model: string
   persona: string
   temperature: number | null // null=자동(모델 등록값), 수동이면 0–2(스펙 077)

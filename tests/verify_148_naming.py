@@ -1,7 +1,7 @@
 """verify_148 — 네이밍 규칙 + 식별 이름/별명 분리 (스펙 148).
 
   V1 검증기/slugify 순수 함수 표본(허용/거부/변환).
-  V2 에이전트: 생성 위반 400 · 정상+별명 201 · 중복 409 · rename 위반 400 · alias 비우기.
+  V2 에이전트: 생성 위반 400 · 정상+별명 201 · 중복 409 · rename 위반 400 · description 비우기.
   V3 복제: 식별 이름 자동(-복사본, 규칙 준수·유니크) + 별명 "(복사본)".
   V4 코드 등록(원격 유래): 거부 대신 자동 변환 + 원문 별명 보존.
   V5 컬렉션/페르소나/권한/MCP: 생성 위반 400 · 정상+별명 저장 · (페르소나) rename 위반 400.
@@ -78,10 +78,10 @@ async def main():
                 check(e.status_code == 400, f"V2a 위반 이름 생성 400 (got {e.status_code})")
         async with async_session() as s:
             out = await AG.create_agent(
-                AgentCreate(name=f"{tag}-agent", alias="검증용 에이전트", config=AgentConfig()),
+                AgentCreate(name=f"{tag}-agent", description="검증용 에이전트", config=AgentConfig()),
                 session=s, principal=admin)
             made["agents"].append(out.id)
-            check(out.name == f"{tag}-agent" and out.alias == "검증용 에이전트", "V2b 정상 생성 + 별명 저장")
+            check(out.name == f"{tag}-agent" and out.description == "검증용 에이전트", "V2b 정상 생성 + 별명 저장")
         async with async_session() as s:
             try:
                 await AG.create_agent(AgentCreate(name=f"{tag}-agent", config=AgentConfig()), session=s, principal=admin)
@@ -96,20 +96,20 @@ async def main():
             except HTTPException as e:
                 check(e.status_code == 400, f"V2d rename 위반 400 (got {e.status_code})")
         async with async_session() as s:
-            out = await AG.update_agent(made["agents"][0], AgentUpdate(name=None, alias="", config=AgentConfig()),
+            out = await AG.update_agent(made["agents"][0], AgentUpdate(name=None, description="", config=AgentConfig()),
                                         session=s, principal=admin)
-            check(out.alias is None, "V2e alias=''로 별명 비우기")
+            check(out.description is None, "V2e description=''로 별명 비우기")
 
         # ---- V3 복제 ----
         async with async_session() as s:
-            out = await AG.update_agent(made["agents"][0], AgentUpdate(name=None, alias="원본 별명", config=AgentConfig()),
+            out = await AG.update_agent(made["agents"][0], AgentUpdate(name=None, description="원본 별명", config=AgentConfig()),
                                         session=s, principal=admin)
         async with async_session() as s:
             clone = await AG.clone_agent(made["agents"][0], session=s, principal=admin)
             made["agents"].append(clone.id)
             check(NAME_RE.match(clone.name) is not None and clone.name.startswith(f"{tag}-agent-복사본"),
                   f"V3a 복제 식별 이름 규칙 준수: {clone.name!r}")
-            check(clone.alias == "원본 별명 (복사본)", f"V3b 복제 별명: {clone.alias!r}")
+            check(clone.description == "원본 별명 (복사본)", f"V3b 복제 별명: {clone.description!r}")
         async with async_session() as s:
             clone2 = await AG.clone_agent(made["agents"][0], session=s, principal=admin)
             made["agents"].append(clone2.id)
@@ -124,7 +124,7 @@ async def main():
                 session=s, principal=admin)
             made["agents"].append(out.id)
             check(NAME_RE.match(out.name) is not None, f"V4a 원격 유래 자동 변환: {out.name!r}")
-            check(out.alias == f"{tag.upper()} SDK Agent", "V4b 원문은 별명 보존")
+            check(out.description == f"{tag.upper()} SDK Agent", "V4b 원문은 별명 보존")
 
         # ---- V5 나머지 4종 ----
         async with async_session() as s:
@@ -141,9 +141,9 @@ async def main():
             except HTTPException as e:
                 check(e.status_code == 400, f"V5b 페르소나 위반 400 (got {e.status_code})")
         async with async_session() as s:
-            p = await BL.create_persona(PersonaIn(name=f"{tag}-persona", alias="검증 페르소나"), session=s)
+            p = await BL.create_persona(PersonaIn(name=f"{tag}-persona", description="검증 페르소나"), session=s)
             made["personas"].append(p.id)
-            check(p.name == f"{tag}-persona" and p.alias == "검증 페르소나", "V5c 페르소나 정상+별명")
+            check(p.name == f"{tag}-persona" and p.description == "검증 페르소나", "V5c 페르소나 정상+별명")
         async with async_session() as s:
             try:
                 await BL.update_persona(made["personas"][0], PersonaIn(name="Renamed Bad"), session=s)
@@ -161,9 +161,9 @@ async def main():
             except HTTPException as e:
                 check(e.status_code == 400, f"V5h MCP 위반 400 (got {e.status_code})")
         async with async_session() as s:
-            m = await BL.create_mcp_server(McpServerIn(name=f"{tag}-mcp", alias="검증 MCP"), session=s, principal=admin)
+            m = await BL.create_mcp_server(McpServerIn(name=f"{tag}-mcp", description="검증 MCP"), session=s, principal=admin)
             made["mcp"].append(_uuid.UUID(str(m.id)))
-            check(m.alias == "검증 MCP", "V5i MCP 정상+별명")
+            check(m.description == "검증 MCP", "V5i MCP 정상+별명")
 
         # ---- V7 참조 가드(codex 148) — 참조 에이전트를 만들어 rename/삭제 409 확인 ----
         async with async_session() as s:

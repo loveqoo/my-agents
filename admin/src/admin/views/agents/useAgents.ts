@@ -40,8 +40,8 @@ export interface UseAgents {
   blocks: Record<string, BlockCategory>
   models: Model[]
   collections: Collection[]
-  create: (name: string, config: AgentConfig, alias: string | null) => Promise<Agent>
-  update: (id: string, name: string, config: AgentConfig, alias: string) => Promise<Agent>
+  create: (name: string, config: AgentConfig, description: string | null) => Promise<Agent>
+  update: (id: string, name: string, config: AgentConfig, description: string) => Promise<Agent>
   remove: (id: string) => Promise<void>
   clone: (id: string) => Promise<Agent>
   connect: (url: string, token?: string) => Promise<Agent>
@@ -84,8 +84,8 @@ export function useAgents(): UseAgents {
     blocks,
     models,
     collections,
-    create: async (name, config, alias) => prepend(await createAgent(name, config, alias)),
-    update: async (id, name, config, alias) => replace(await updateAgent(id, name, config, alias)),
+    create: async (name, config, description) => prepend(await createAgent(name, config, description)),
+    update: async (id, name, config, description) => replace(await updateAgent(id, name, config, description)),
     remove: async (id) => {
       await deleteAgent(id)
       setAgents((as) => as.filter((a) => a.id !== id))

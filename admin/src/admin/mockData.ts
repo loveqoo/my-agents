@@ -47,7 +47,7 @@ export interface VersionMeta {
 export interface BlockItem {
   id: string
   name: string // 식별 이름(규칙, 스펙 148)
-  alias?: string | null // 별명(자유 표기, 스펙 148) — 표시 = alias ?? name
+  description?: string | null // 설명(선택, 스펙 210) — 표시 = name 단독, 설명은 툴팁
   usedBy: number
   updated: string
   body?: string
@@ -89,7 +89,7 @@ export type ToolPolicy = Record<string, { approval?: ToolApprovalOverride }>
 export interface Agent {
   id: string
   name: string // 식별 이름(규칙, 스펙 148)
-  alias?: string | null // 별명(자유 표기, 스펙 148) — 표시 = alias ?? name
+  description?: string | null // 설명(선택, 스펙 210) — 표시 = name 단독, 설명은 툴팁
   agentId: string
   environments: string[]
   model: string

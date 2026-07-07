@@ -38,9 +38,9 @@ def check(cond, msg):
         _fails.append(msg)
 
 
-async def _mk(tag, suffix, config, exposed=True, source="ui", endpoint=None, alias=None):
+async def _mk(tag, suffix, config, exposed=True, source="ui", endpoint=None, description=None):
     async with async_session() as s:
-        a = Agent(agent_id=f"{tag}-{suffix}", name=f"{tag}-{suffix}", alias=alias, source=source,
+        a = Agent(agent_id=f"{tag}-{suffix}", name=f"{tag}-{suffix}", description=description, source=source,
                   owner_id=None, config=config, exposed={"a2a": exposed}, endpoint=endpoint)
         s.add(a)
         await s.commit()
@@ -81,7 +81,7 @@ async def main():
         made.append(v2)
         # ---- V7 누출 봉인: ui(미노출) 서브에이전트는 delegate로 광고 안 됨(이름 누출·거짓 능력 차단) ----
         hidden_sub = await _mk(tag, "hidsub", {"mcps": [], "persona": "", "model": ""}, exposed=False,
-                               source="ui", alias="Secret HR Agent")
+                               source="ui", description="Secret HR Agent")
         made.append(hidden_sub)
         v7 = await _mk(tag, "leakparent", {"mcps": [], "capabilities": [f"agent:{tag}-hidsub"],
                                            "persona": "", "model": ""})

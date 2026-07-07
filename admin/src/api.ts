@@ -190,7 +190,7 @@ export const deleteAllowedHost = (id: string) =>
 export const getBlocks = () => j<Record<string, BlockCategory>>('/blocks')
 
 /* MCP 서버 목록(스펙 200 — 능력 부여 카탈로그 선택용 최소 형태). */
-export type McpServerLite = { id: string; name: string; alias?: string | null }
+export type McpServerLite = { id: string; name: string; description?: string | null }
 export const listMcpServers = () => j<McpServerLite[]>('/mcp-servers')
 export const createMcp = (body: unknown) => post('/mcp-servers', body)
 export const updateMcp = (id: string, body: unknown) => put(`/mcp-servers/${id}`, body)
@@ -229,7 +229,7 @@ export interface PersonaUsageAgent {
   id: string
   agentId: string
   name: string
-  alias?: string | null
+  description?: string | null
   stale: boolean // 이 에이전트 스냅샷이 현재 페르소나 본문과 다름
   canManage: boolean // 요청 주체가 이 에이전트를 갱신 가능
 }
@@ -248,7 +248,6 @@ export const applyPersona = (personaId: string, agentIds: string[]) =>
 export interface Collection {
   id: string
   name: string // 식별 이름(규칙, 스펙 148)
-  alias?: string | null // 별명(자유 표기, 스펙 148) — 표시 = alias ?? name
   kind?: 'document' | 'entity' // 종류 축(스펙 149) — 생성 후 불변
   entity_schema?: Record<string, unknown> | null // 엔티티 행 검증 JSON Schema(선택, 스펙 149)
   description: string
@@ -295,7 +294,6 @@ export interface CollectionSearchOut {
 export const listCollections = () => j<Collection[]>('/collections')
 export const createCollection = (body: {
   name: string
-  alias?: string | null // 별명(스펙 148)
   kind?: 'document' | 'entity' // 종류 축(스펙 149)
   entity_schema?: Record<string, unknown> | null // 엔티티 행 검증 스키마(스펙 149)
   description?: string
@@ -306,7 +304,6 @@ export const createCollection = (body: {
 export const updateCollection = (
   id: string,
   body: {
-    alias?: string | null
     description?: string
     // 스펙 198: 청크 크기·겹침은 생성 후 불변 → 수정 payload에서 제거.
     entity_schema?: Record<string, unknown> | null
@@ -350,11 +347,11 @@ export const listAgents = () => j<Agent[]>('/agents')
 /* 실행 방식 메타(스펙 206) — consumes: 이 impl이 읽는 설정 표면(null=미선언, 폼 전부 노출). */
 export interface ImplMeta { key: string; consumes: string[] | null }
 export const listAgentImpls = () => j<ImplMeta[]>('/agent-impls')
-export const createAgent = (name: string, config: unknown, alias?: string | null) =>
-  post('/agents', { name, alias: alias ?? null, config }) as Promise<Agent>
-export const updateAgent = (id: string, name: string, config: unknown, alias?: string | null) =>
-  // alias: undefined=미변경(백엔드 None), ''=비우기 — 폼은 항상 현재값을 보낸다(스펙 148)
-  put(`/agents/${id}`, { name, alias: alias === undefined ? null : alias, config }) as Promise<Agent>
+export const createAgent = (name: string, config: unknown, description?: string | null) =>
+  post('/agents', { name, description: description ?? null, config }) as Promise<Agent>
+export const updateAgent = (id: string, name: string, config: unknown, description?: string | null) =>
+  // description: undefined=미변경(백엔드 None), ''=비우기 — 폼은 항상 현재값을 보낸다(스펙 210)
+  put(`/agents/${id}`, { name, description: description === undefined ? null : description, config }) as Promise<Agent>
 export const deleteAgent = (id: string) => del(`/agents/${id}`)
 /* 복제 — 기존 설정을 새 ui 초안으로 복사(저마찰 재사용, 스펙 120). 복제자가 소유. */
 export const cloneAgent = (id: string) => post(`/agents/${id}/clone`) as Promise<Agent>

@@ -12,7 +12,7 @@ ORM = {"from_attributes": True}
 # ----------------------------- 빌딩 블록 -----------------------------
 class PersonaIn(BaseModel):
     name: str = Field(max_length=200)  # 식별 이름(규칙, 스펙 148) — DB String(200) 정합(codex 148)
-    alias: str | None = Field(default=None, max_length=200)  # 별명(자유 표기, 스펙 148) — 표시 = alias ?? name
+    description: str | None = Field(default=None, max_length=200)  # 설명(자유 표기, 스펙 210) — 표시는 name 단독
     tone: str | None = None
     body: str = ""
 
@@ -29,7 +29,7 @@ class PersonaUsageAgentOut(BaseModel):
     id: uuid.UUID
     agentId: str
     name: str
-    alias: str | None = None
+    description: str | None = None
     stale: bool  # 이 에이전트 스냅샷이 현재 페르소나 본문과 다름
     canManage: bool  # 요청 주체가 이 에이전트를 갱신할 수 있음(스펙 112/114)
 
@@ -59,7 +59,6 @@ class CollectionIn(BaseModel):
     """컬렉션 생성 — 임베딩 모델 1개로 묶임. dims는 서버가 probe 실측으로 박제(클라이언트 미지정)."""
 
     name: str = Field(max_length=200)  # 식별 이름(규칙, 스펙 148) — DB String(200) 정합
-    alias: str | None = Field(default=None, max_length=200)  # 별명(자유 표기, 스펙 148)
     kind: Literal["document", "entity"] = "document"  # 종류 축(스펙 149) — 생성 후 불변
     # 엔티티 행 검증 JSON Schema(선택, 스펙 149) — 서버가 check_schema로 스키마 자체 유효성 검증
     entity_schema: dict[str, Any] | None = None
@@ -71,10 +70,9 @@ class CollectionIn(BaseModel):
 
 class CollectionUpdate(BaseModel):
     """수정 — 임베딩 모델·dims·**청크 정책**은 생성 후 불변(스펙 198: 청크 수정은 기존 문서에 소급 안 되고
-    재청킹은 원본 미저장이라 불가 → 혼란 방지 위해 수정 자체 제거). 설명·별명만 수정 가능
+    재청킹은 원본 미저장이라 불가 → 혼란 방지 위해 수정 자체 제거). 설명만 수정 가능
     (식별 이름은 참조 키라 v1 불변)."""
 
-    alias: str | None = Field(default=None, max_length=200)  # 별명(스펙 148)
     description: str | None = None
     # 엔티티 스키마 갱신(스펙 149) — 이후 업로드부터 적용(기존 행 재검증 없음).
     # 필드 미포함=미변경, 명시적 null=제거(model_fields_set 판별 — 오등록 스키마 해제 경로, codex 149)
@@ -84,7 +82,6 @@ class CollectionUpdate(BaseModel):
 class CollectionOut(BaseModel):
     id: uuid.UUID
     name: str
-    alias: str | None = None  # 별명(스펙 148)
     kind: str = "document"  # 종류 축(스펙 149)
     entity_schema: dict[str, Any] | None = None  # 엔티티 행 검증 스키마(스펙 149)
     description: str
@@ -254,7 +251,7 @@ class McpToolInfo(BaseModel):
 
 class McpServerIn(BaseModel):
     name: str = Field(max_length=120)  # 식별 이름(규칙, 스펙 148) — DB String(120) 정합
-    alias: str | None = Field(default=None, max_length=200)  # 별명(자유 표기, 스펙 148)
+    description: str | None = Field(default=None, max_length=200)  # 설명(자유 표기, 스펙 210) — 표시는 name 단독
     # local=외부/self-host 등록분 · external=남의 A2A/MCP(재공개 봉인 152) · custom=우리가 코드로
     # 정의·호스팅해 서빙 가능(스펙 156). source는 생성 후 불변(152) — 세탁 봉인.
     source: Literal["local", "external", "custom"] = "local"
@@ -520,7 +517,7 @@ class AgentConfig(BaseModel):
 
 class AgentCreate(BaseModel):
     name: str = Field(max_length=200)  # 식별 이름(규칙, 스펙 148) — DB String(200) 정합
-    alias: str | None = Field(default=None, max_length=200)  # 별명(자유 표기, 스펙 148)
+    description: str | None = Field(default=None, max_length=200)  # 설명(자유 표기, 스펙 210) — 표시는 name 단독
     config: AgentConfig = Field(default_factory=AgentConfig)
 
 
@@ -528,7 +525,7 @@ class AgentUpdate(BaseModel):
     """편집 = 초안(draft) 버전에 저장."""
 
     name: str | None = Field(default=None, max_length=200)  # 식별 이름(규칙, 스펙 148)
-    alias: str | None = Field(default=None, max_length=200)  # 별명(자유 표기, 스펙 148) — None=미변경("" = 비우기)
+    description: str | None = Field(default=None, max_length=200)  # 설명(자유 표기, 스펙 210) — None=미변경("" = 비우기)
     config: AgentConfig
 
 
@@ -544,7 +541,7 @@ class AgentOut(BaseModel):
     id: uuid.UUID
     agentId: str
     name: str  # 식별 이름(규칙, 스펙 148)
-    alias: str | None = None  # 별명(자유 표기, 스펙 148) — 표시 = alias ?? name
+    description: str | None = None  # 설명(자유 표기, 스펙 210) — 표시는 name 단독
     source: str
     model: str
     persona: str  # 페르소나 이름(블록 참조, UI 표시용)

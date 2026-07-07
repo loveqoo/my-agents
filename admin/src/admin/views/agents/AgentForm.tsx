@@ -13,7 +13,7 @@ import type { AgentFormData } from './types'
 export function blankForm(blocks: Record<string, BlockCategory>, models: Model[]): AgentFormData {
   return {
     name: '',
-    alias: '',
+    description: '',
     model: models.find((m) => m.kind === 'chat')?.name ?? '',
     persona: blocks.persona?.items?.[0]?.name ?? '',
     temperature: null,
@@ -226,7 +226,7 @@ export function AgentForm({
       cancelText="취소"
       onCancel={onCancel}
       okButtonProps={{ disabled: !form.name.trim() || !!nameErr || artifactInvalid }}
-      onOk={() => onSave({ ...form, name: form.name.trim(), alias: form.alias.trim() })}
+      onOk={() => onSave({ ...form, name: form.name.trim(), description: form.description.trim() })}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxHeight: '60vh', overflow: 'auto' }}>
         <Alert
@@ -253,9 +253,9 @@ export function AgentForm({
               {nameErr ?? NAME_HINT}
             </span>
           </Field>
-          <Field label="별명 (선택)">
-            <Input placeholder="예: 리서치 어시스턴트" value={form.alias} onChange={(e) => set('alias', e.target.value)} />
-            <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>화면 표시용 자유 표기</span>
+          <Field label="설명 (선택 — 부가 정보)">
+            <Input placeholder="예: 리서치 어시스턴트" value={form.description} onChange={(e) => set('description', e.target.value)} />
+            <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>화면에는 이름만 표시되며, 이 설명은 마우스 오버 시에만 노출됩니다</span>
           </Field>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))', gap: 16 }}>

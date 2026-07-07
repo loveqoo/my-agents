@@ -172,7 +172,6 @@ async def create_collection(
             raise HTTPException(status_code=409, detail=msg)
     c = Collection(
         name=body.name,
-        alias=(body.alias or "").strip() or None,  # 별명(자유 표기, 스펙 148)
         kind=body.kind,  # 종류 축(스펙 149) — 생성 후 불변
         entity_schema=body.entity_schema if body.kind == "entity" else None,
         description=body.description,
@@ -218,9 +217,7 @@ async def update_collection(
         raise HTTPException(status_code=404, detail="not found")
     assert_may_manage(c, principal)  # 소유자/특권만(스펙 112)
     # 임베딩 모델·dims·kind·**청크 정책**은 불변(스펙 198 — 청크 수정은 소급 안 되고 재청킹은 원본
-    # 미저장이라 불가 → 수정 제거). 설명·별명·엔티티 스키마만 갱신.
-    if body.alias is not None:
-        c.alias = body.alias.strip() or None  # ""=별명 비우기(스펙 148)
+    # 미저장이라 불가 → 수정 제거). 설명·엔티티 스키마만 갱신.
     if "entity_schema" in body.model_fields_set:
         # 명시적 null=스키마 제거(codex 149 — 오등록 스키마를 API로 해제 못 하면 업로드가 영구 잠김),
         # 미포함=미변경. 이후 업로드부터 적용(기존 행 재검증 없음 — 스펙 149). 문서형엔 400.

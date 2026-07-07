@@ -1,5 +1,5 @@
 /* 리소스 네이밍 규칙 (스펙 148) — 프론트는 힌트/즉시 검사, 진실원은 서버(400).
-   식별 이름(name)=규칙 적용·참조 키, 별명(alias)=자유 표기. 표시 = alias ?? name. */
+   식별 이름(name)=규칙 적용·참조 키. 표시 = name 단독(스펙 210), 설명은 툴팁. */
 
 export const NAME_RULE = /^[가-힣a-z0-9.\-]+$/
 
@@ -12,6 +12,5 @@ export function validateName(name: string): string | null {
   return null
 }
 
-/** 표시 이름 — 별명 우선, 없으면 식별 이름. */
-export const displayName = (x: { name: string; alias?: string | null }): string =>
-  x.alias || x.name
+/** 표시 이름 — 식별 이름 단독(스펙 210). */
+export const displayName = (x: { name: string }): string => x.name

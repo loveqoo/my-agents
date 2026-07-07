@@ -147,7 +147,7 @@ async def main():
             check(e.status_code == 400 and "pattern" in str(e.detail), f"V2e 정규식 키워드 400 (got {e.status_code})")
     async with async_session() as s:
         col = await RG.create_collection(
-            CollectionIn(name=f"{tag}-entities", alias="검증 엔티티", kind="entity", entity_schema=schema,
+            CollectionIn(name=f"{tag}-entities", description="검증 엔티티", kind="entity", entity_schema=schema,
                          embedding_model_id=emb_id), session=s, principal=admin)
         col_id = col.id
         check(col.kind == "entity" and col.entity_schema == schema, "V2c 엔티티 컬렉션 생성(kind+스키마 저장)")
