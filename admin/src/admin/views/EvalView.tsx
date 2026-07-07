@@ -292,13 +292,17 @@ function DatasetDrawer({
   const canManage = dataset?.can_manage !== false
   // 스펙 193: RAG는 고정 컬렉션 우선(있으면 runAgent 불필요), 구버전은 고른 컬렉션(첫 실행 시 백엔드가 고정).
   const ragTarget = isRag ? (dataset?.collection_id ?? runAgent) : null
+  // 스펙 209 P2: 수확 문제집은 출처 에이전트를 대상으로 고정(RAG 컬렉션과 동형) — "이 에이전트 바꾼 뒤
+  // 회귀 확인"이 목적이라 재선택 불필요. source_agent_pk 없으면(일반 문제집) 드롭다운으로 선택.
+  const harvestAgentId = !isRag ? (dataset?.source_agent_pk ?? null) : null
+  const agentTarget = harvestAgentId ?? runAgent
   const start = async () => {
-    if (!dataset || (isRag ? !ragTarget : !runAgent)) return
+    if (!dataset || (isRag ? !ragTarget : !agentTarget)) return
     setStarting(true)
     try {
       await startEvalRun(
         dataset.id,
-        isRag ? { collectionId: ragTarget! } : { agentId: runAgent, models: runModels }
+        isRag ? { collectionId: ragTarget! } : { agentId: agentTarget!, models: runModels }
       )
       message.success(
         runModels.length > 1
@@ -328,6 +332,14 @@ function DatasetDrawer({
                   {collections.find((c) => c.id === dataset.collection_id)?.name ?? '(삭제된 컬렉션)'}
                 </Tag>
               </span>
+            ) : harvestAgentId ? (
+              /* 스펙 209 P2: 수확 문제집의 출처 에이전트로 대상 고정 — 재선택 불필요(회귀 확인이 목적). */
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 220 }}>
+                <span style={{ fontSize: 13, color: 'var(--color-text-tertiary)' }}>대상 에이전트</span>
+                <Tag color="geekblue" style={{ margin: 0 }}>
+                  {agents.find((a) => a.id === harvestAgentId)?.name ?? '(삭제된 에이전트)'}
+                </Tag>
+              </span>
             ) : (
               <Select
                 style={{ minWidth: 220, flex: 1 }}
@@ -342,7 +354,7 @@ function DatasetDrawer({
               />
             )}
             <Button type="primary" icon={<Icon name="thunderbolt" />} loading={starting}
-              disabled={(isRag ? !ragTarget : !runAgent) || cases.length === 0} onClick={() => void start()}>
+              disabled={(isRag ? !ragTarget : !agentTarget) || cases.length === 0} onClick={() => void start()}>
               {runModels.length > 1 ? `${runModels.length}개 모델 비교 실행` : '시험 실행'}
             </Button>
             {/* 스펙 195: AI 출제를 상단으로 — 빈 문제집을 만든 뒤 원할 때만 눌러 AI가 문제를 채운다(agent·rag 공통).
@@ -350,15 +362,15 @@ function DatasetDrawer({
             <Tooltip title={
               !helper.available ? helper.reason
                 : isRag ? (dataset.collection_id ? 'AI가 이 컬렉션 문서로 문제 10개를 추가합니다(기존 문제 보존)' : '먼저 시험 실행으로 컬렉션을 고정하세요')
-                  : !runAgent ? '시험 칠 에이전트를 먼저 선택하세요'
+                  : !agentTarget ? '시험 칠 에이전트를 먼저 선택하세요'
                     : 'AI가 이 에이전트에 맞는 문제 10개를 추가합니다(기존 문제 보존)'
             }>
               <Button icon={<Icon name="experiment" />} loading={suggesting}
-                disabled={!helper.available || (isRag ? !dataset.collection_id : !runAgent)}
+                disabled={!helper.available || (isRag ? !dataset.collection_id : !agentTarget)}
                 onClick={() => {
                   if (!dataset) return
                   setSuggesting(true)
-                  suggestEvalCases(dataset.id, isRag ? { count: 10 } : { agent_id: runAgent, count: 10 })
+                  suggestEvalCases(dataset.id, isRag ? { count: 10 } : { agent_id: agentTarget, count: 10 })
                     .then(() => { message.success('AI 출제 시작 — 잠시 후 문제가 채워집니다(문제집을 다시 열면 갱신)'); onChanged() })
                     .catch((e) => message.error((e as Error).message))
                     .finally(() => setSuggesting(false))

@@ -41,6 +41,9 @@ class DatasetOut(BaseModel):
     description: str | None
     kind: str
     collection_id: uuid.UUID | None = None  # 스펙 193 — RAG 문제집의 고정 컬렉션(실행 시 재선택 불필요)
+    # 스펙 209 P2 후속: 수확 문제집의 출처 에이전트 — 실행 대상을 이 에이전트로 고정(RAG 컬렉션과 동형).
+    # 수확은 "이 에이전트 바꾼 뒤 회귀 확인"이 목적이라 재선택 불필요. 일반 문제집=NULL.
+    source_agent_pk: uuid.UUID | None = None
     case_count: int = 0
     can_manage: bool = True  # 스펙 178 — 이 유저가 수정/삭제/실행 가능(소유자·특권). UI 버튼 게이트
     generating: bool = False  # 스펙 193 — 문제 자동 생성 진행 중(목록 스피너·드로어 Skeleton·폴링 신호)
@@ -59,7 +62,7 @@ def _dataset_out(d: EvalDataset, case_count: int, user) -> DatasetOut:
     구조 필드로 승격(프론트는 bool만 소비 → 목록 배지·드로어 Skeleton·폴링)."""
     return DatasetOut(
         id=d.id, name=d.name, description=d.description, kind=d.kind,
-        collection_id=d.collection_id, case_count=case_count,
+        collection_id=d.collection_id, source_agent_pk=d.source_agent_pk, case_count=case_count,
         can_manage=may_manage(d.owner_id, user),
         generating=_is_generating(d),
     )

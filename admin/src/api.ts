@@ -799,6 +799,7 @@ export interface EvalDataset {
   description: string | null
   kind: 'agent' | 'rag'
   collection_id?: string | null // 스펙 193 — RAG 문제집의 고정 컬렉션(실행 시 재선택 불필요)
+  source_agent_pk?: string | null // 스펙 209 P2 — 수확 문제집의 출처 에이전트(실행 대상 고정)
   case_count: number
   can_manage?: boolean
   generating?: boolean // 스펙 193 — 문제 자동 생성 진행 중(스피너·Skeleton·폴링 신호)
