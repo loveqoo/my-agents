@@ -27,7 +27,7 @@ import {
 
 const ROLE_COLOR: Record<string, string> = { admin: 'volcano', member: 'blue' }
 
-/* 능력 종류 메타(스펙 200) — 코드 kind를 사람 말로. hasName=false(기억 3종)는 브로커 리소스가 내부
+/* 권한 종류 메타(스펙 200) — 코드 kind를 사람 말로. hasName=false(기억 3종)는 브로커 리소스가 내부
    고정('user')이라 kind-레벨 부여만 의미 있음(broker._cap_resource). 판정 키: mcp=서버 name ·
    rag=컬렉션 name · agent=agentId(agt_…) — Select value를 이 키와 일치시켜야 부여가 실효된다. */
 const KIND_META: Record<string, { label: string; noun: string; hasName: boolean }> = {
@@ -102,7 +102,7 @@ export default function UsersView() {
   const [policies, setPolicies] = useState<Policy[]>([])
   const [loading, setLoading] = useState(true)
   const [modal, setModal] = useState(false)
-  // 능력 부여 카탈로그(스펙 200) — 자유입력 대신 등록된 자원에서 고르게. 실패해도 유저 목록은 떠야
+  // 권한 부여 카탈로그(스펙 200) — 자유입력 대신 등록된 자원에서 고르게. 실패해도 유저 목록은 떠야
   // 하므로 각자 best-effort(catch → 빈 배열, 그 종류만 옵션 없음).
   const [mcps, setMcps] = useState<McpServerLite[]>([])
   const [collections, setCollections] = useState<Collection[]>([])
@@ -163,7 +163,7 @@ export default function UsersView() {
     }
   }
 
-  /* ---- 능력 부여(정책) — 스펙 177 P3 ---- */
+  /* ---- 권한 부여(정책) — 스펙 177 P3 ---- */
   const subjectLabel = (subject: string): ReactNode => {
     const u = users.find((x) => x.id === subject)
     if (u) return u.email
@@ -175,10 +175,10 @@ export default function UsersView() {
   const onRevokePolicy = async (p: Policy) => {
     try {
       await revokePolicy(p.subject, p.object, p.action)
-      message.success('능력을 회수했습니다')
+      message.success('권한을 회수했습니다')
       void load()
     } catch {
-      message.error('능력 회수 실패')
+      message.error('권한 회수 실패')
     }
   }
 
@@ -240,13 +240,13 @@ export default function UsersView() {
     setGranting(true)
     try {
       await grantPolicy({ subject: grantSubject, object: grantObject, action: 'invoke' })
-      message.success('능력을 부여했습니다')
+      message.success('권한을 부여했습니다')
       setGrantSubject(undefined)
       setGrantKind(undefined)
       setGrantName('')
       void load()
     } catch {
-      message.error('능력 부여 실패')
+      message.error('권한 부여 실패')
     } finally {
       setGranting(false)
     }
@@ -261,7 +261,7 @@ export default function UsersView() {
     { key: 'subject', title: '대상', render: (p) => subjectLabel(p.subject) },
     {
       key: 'object',
-      title: '능력',
+      title: '권한',
       // 사람 말 우선(스펙 200 B) — 코드는 툴팁으로만(감사 로그 대조·디버깅용).
       render: (p) => (
         <Tooltip title={<span style={{ fontFamily: 'var(--font-family-code)' }}>{p.object}</span>}>
@@ -361,19 +361,19 @@ export default function UsersView() {
     },
   ]
 
-  // 스펙 200 후속: 유저 목록·능력 부여 탭 분리(유저가 늘면 세로 나열이 불편 — 사용자 요청)
+  // 스펙 200 후속: 유저 목록·권한 부여 탭 분리(유저가 늘면 세로 나열이 불편 — 사용자 요청)
   const [tab, setTab] = useState<'users' | 'grants'>('users')
 
-  /* 능력 부여 패널(스펙 177 P3 → 200 개편) — 자유입력→카탈로그 선택·코드→문장·역할/유저 축 분리·도입 문장 */
+  /* 권한 부여 패널(스펙 177 P3 → 200 개편) — 자유입력→카탈로그 선택·코드→문장·역할/유저 축 분리·도입 문장 */
   const grantPane = (
     <div>
       <div style={{ fontSize: 13, color: 'var(--color-text-secondary)', marginBottom: 16, lineHeight: 1.7 }}>
-        능력이란 에이전트가 쓸 수 있는 <b>도구(MCP)</b>·<b>지식(RAG 컬렉션)</b>·<b>하위 에이전트</b>·<b>기억</b>입니다.
-        관리자(admin)는 모든 능력을 쓸 수 있고, <b>일반 멤버(member)는 여기서 열어준 능력만</b> 쓸 수 있습니다(기본 잠김).
+        권한이란 에이전트가 쓸 수 있는 <b>도구(MCP)</b>·<b>지식(RAG 컬렉션)</b>·<b>하위 에이전트</b>·<b>기억</b>입니다.
+        관리자(admin)는 모든 권한을 쓸 수 있고, <b>일반 멤버(member)는 여기서 열어준 권한만</b> 쓸 수 있습니다(기본 잠김).
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
-        {/* 스펙 224: [역할에게|특정 유저에게]는 부여 대상(역할 전체 vs 특정 유저)이 바뀌어 폼·목록이
-            달라지는 전환이라 Segmented→Tabs로 통일 — 상위 유저 목록/능력 부여 Tabs와 시각 일관(스펙 219와 동형). */}
+        {/* 스펙 224: [권한 기준|유저 기준]는 부여 대상(역할 전체 vs 특정 유저)이 바뀌어 폼·목록이
+            달라지는 전환이라 Segmented→Tabs로 통일 — 상위 유저 목록/권한 부여 Tabs와 시각 일관(스펙 219와 동형). */}
         <div>
           <Tabs
             activeKey={grantTarget}
@@ -382,8 +382,8 @@ export default function UsersView() {
               setGrantSubject(undefined) // 축 전환 시 다른 축 값 잔존 방지
             }}
             items={[
-              { key: 'role', label: '역할에게' },
-              { key: 'user', label: '특정 유저에게' },
+              { key: 'role', label: '권한 기준' },
+              { key: 'user', label: '유저 기준' },
             ]}
             style={{ marginBottom: -8 }}
           />
@@ -409,7 +409,7 @@ export default function UsersView() {
             />
           </div>
           <div>
-            <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginBottom: 4 }}>능력 종류</div>
+            <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginBottom: 4 }}>권한 종류</div>
             <Select<string>
               style={{ minWidth: 180 }}
               placeholder="종류 선택"
@@ -456,7 +456,7 @@ export default function UsersView() {
           </div>
         ) : null}
       </div>
-      <DataTable columns={policyColumns} rows={policyRows} rowKey="rowKey" empty="부여된 능력 없음" />
+      <DataTable columns={policyColumns} rows={policyRows} rowKey="rowKey" empty="부여된 권한 없음" />
     </div>
   )
 
@@ -465,7 +465,7 @@ export default function UsersView() {
       title="유저"
       subtitle="계정과 역할을 관리합니다 — 공개 등록은 없으며 여기서만 생성됩니다."
       actions={
-        // 유저 추가는 유저 목록 탭에서만 의미 — 능력 부여 탭에선 숨김(스펙 200 후속: 탭 분리)
+        // 유저 추가는 유저 목록 탭에서만 의미 — 권한 부여 탭에선 숨김(스펙 200 후속: 탭 분리)
         tab === 'users' ? (
           <Button type="primary" onClick={() => setModal(true)}>
             유저 추가
@@ -473,7 +473,7 @@ export default function UsersView() {
         ) : undefined
       }
     >
-      {/* 스펙 200 후속: 유저 목록·능력 부여 탭 분리 — 유저가 늘면 한 화면 세로 나열이 불편(사용자 요청). */}
+      {/* 스펙 200 후속: 유저 목록·권한 부여 탭 분리 — 유저가 늘면 한 화면 세로 나열이 불편(사용자 요청). */}
       <Tabs
         activeKey={tab}
         onChange={(k) => setTab(k as 'users' | 'grants')}
@@ -487,7 +487,7 @@ export default function UsersView() {
           },
           {
             key: 'grants',
-            label: '능력 부여',
+            label: '권한 부여',
             children: grantPane,
           },
         ]}
