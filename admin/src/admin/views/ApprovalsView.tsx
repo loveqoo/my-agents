@@ -143,16 +143,20 @@ function HistoryCard({ item }: { item: Approval }) {
       <div style={{ padding: '14px 18px' }}>
         <div style={{ fontSize: 14, color: 'var(--color-text-heading)', marginBottom: 10 }}>{item.summary}</div>
         <PermActionTags permission={item.permission} action={item.action} />
+        {/* 스펙 223: 요청 → 처리 흐름 순서(위=요청, 아래=처리자·처리 시각). 라벨 뒤 공백은 {' '}로 보장. */}
         <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', lineHeight: 1.8 }}>
+          <div>
+            <Icon name="clock-circle" size={12} style={{ marginRight: 6, verticalAlign: '-2px' }} />
+            요청{' '}{fmtDateTime(item.requestedAt)}
+          </div>
           <div>
             <Icon name={item.resolvedBySelf ? 'user' : 'lock'} size={12} style={{ marginRight: 6, verticalAlign: '-2px' }} />
             {item.resolvedBySelf ? '본인 처리' : '관리자 처리'}
           </div>
           <div>
             <Icon name="clock-circle" size={12} style={{ marginRight: 6, verticalAlign: '-2px' }} />
-            처리 시각 {fmtDateTime(item.resolvedAt) || '—'}
+            처리 시각{' '}{fmtDateTime(item.resolvedAt) || '—'}
           </div>
-          <div style={{ color: 'var(--color-text-quaternary)' }}>요청 {fmtDateTime(item.requestedAt)}</div>
         </div>
       </div>
     </Panel>
