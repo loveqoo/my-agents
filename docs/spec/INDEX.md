@@ -233,3 +233,4 @@
 - 228 허용 호스트 SSRF 설명+레이아웃 — **done**: 사용자 "SSRF 경고만 있고 설명 없다"+"스타일/배치 수정". 경고 배너에 SSRF(서버측 요청위조) 평이 정의·왜 기본차단하는지 2단락 추가. 추가 시각 raw toLocaleString→fmtDateTime(앱 통일·감사정밀), 호스트/메모 두 필드 나란히. tsc0 [ssrf-explain,threat-model-in-warning,fmtDateTime,side-by-side-form]
 - 229 SSRF 설명 접이식 — **done**: 사용자 "자세한 건 알겠는데 매일 보고 싶진 않아". 228 상세 정의를 Collapse(ghost·기본 접힘) "SSRF가 무엇인가요?"로 분리, 경고(보안 주의)는 상시 유지. 교훈: 경고=상시·정의=접이식(충분히 자세히≠매일 보이게). tsc0 [collapsible-explanation,always-vs-on-demand,antd-collapse]
 - 230 호스트 경고 한 문장화 — **done**: 사용자 스샷 "한 문장만 노출, 나머지 숨김". 경고 Alert를 3문장→핵심 한 문장("신뢰하는 대상만 추가"), 나머지 상세(통과경로·정확host 규칙)는 SSRF Collapse로 합침. 교훈: 상시=행동 좌우 한 줄, 상세=접이식(노출 계층 분리). 228→229→230 축약. tsc0 [one-sentence-banner,disclosure-layers,collapse-details]
+- 231 호스트 부제 제거 — **done**: 사용자 "이 문장도 숨기자". Page subtitle(SSRF 가드…allowlist) 제거·제목만, 무재시작 운영정보는 SSRF Collapse 끝에 보존(토스트에도 안내). 228~231 4단 축약(노출 계층 접기). tsc0 [remove-subtitle,disclosure-layers,minimal-chrome]

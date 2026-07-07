@@ -105,7 +105,6 @@ export default function AllowedHostsView() {
   return (
     <Page
       title="허용 호스트"
-      subtitle="SSRF 가드가 기본 차단하는 사설/루프백 대역 중, 의도적으로 통과시킬 host의 allowlist입니다(무재시작)."
       actions={
         <Button onClick={reload} loading={loading}>
           새로고침
@@ -135,7 +134,7 @@ export default function AllowedHostsView() {
                 보내게 만드는 공격입니다. 그래서 이 서버는 사설·루프백·메타데이터 대역으로 나가는 요청을{' '}
                 <b>기본 차단</b>하고, 이 화면에 추가한 host만 그 차단의 <b>예외</b>가 됩니다 — 통과 경로는
                 A2A·MCP·Agent Card이며, 개발용 mock(예: 127.0.0.1)처럼 신뢰하는 대상만, 와일드카드·CIDR·포트·
-                스킴 없이 <b>정확 host</b>로만 등록하세요.
+                스킴 없이 <b>정확 host</b>로만 등록하세요. 추가·삭제는 무재시작(최대 ~10초 내 반영)입니다.
               </p>
             ),
           },
