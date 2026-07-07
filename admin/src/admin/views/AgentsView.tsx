@@ -506,24 +506,36 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
         <Popover
           title="태그 안내"
           content={
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 13, maxWidth: 360 }}>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
-                <Tag>public</Tag><Tag color="blue">private</Tag><Tag color="orange">private · 타인</Tag>
-                <span>public=모두 도구처럼 사용 · private=소유자만 사용(A2A 불가)</span>
+            <div style={{ fontSize: 13, maxWidth: 380 }}>
+              {/* 2열 그리드 — 태그 열 고정폭으로 설명 시작선을 정렬(스펙 214, 흐름 wrap 정돈). */}
+              <div style={{ display: 'grid', gridTemplateColumns: '128px 1fr', columnGap: 12, rowGap: 12, alignItems: 'start' }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                  <Tag>public</Tag><Tag color="blue">private</Tag><Tag color="orange">private · 타인</Tag>
+                </div>
+                <span style={{ color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>
+                  public=모두 도구처럼 사용 · private=소유자만 사용(A2A 불가)
+                </span>
+
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                  <Tag color="geekblue">code</Tag><Tag color="purple">external</Tag>
+                </div>
+                <span style={{ color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>
+                  출처 — 없으면 이 콘솔 제작(internal). external=가져다 쓰는 것(항상 public)
+                </span>
+
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                  <Tag color="red">설정 오류</Tag><Tag color="gold">비준수</Tag>
+                </div>
+                <span style={{ color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>문제가 있을 때만 표시</span>
+
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                  <Tag color="cyan">MCP 이름</Tag><Tag color="geekblue">rag:컬렉션</Tag>
+                </div>
+                <span style={{ color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>연결된 도구·문서</span>
               </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
-                <Tag color="geekblue">code</Tag><Tag color="purple">external</Tag>
-                <span>출처 — 없으면 이 콘솔 제작(internal). external=가져다 쓰는 것(항상 public)</span>
+              <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--color-border-secondary)', color: 'var(--color-text-tertiary)', lineHeight: 1.5 }}>
+                상태(온라인·유휴)=최근 사용 여부 · A2A 스위치=다른 에이전트의 호출 허용(public만 켤 수 있음)
               </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
-                <Tag color="red">설정 오류</Tag><Tag color="gold">비준수</Tag>
-                <span>문제가 있을 때만 표시</span>
-              </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
-                <Tag color="cyan">MCP 이름</Tag><Tag color="geekblue">rag:컬렉션</Tag>
-                <span>연결된 도구·문서</span>
-              </div>
-              <div>상태(온라인·유휴)=최근 사용 여부 · A2A 스위치=다른 에이전트의 호출 허용(public만 켤 수 있음)</div>
             </div>
           }
         >
