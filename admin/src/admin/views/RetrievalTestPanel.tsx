@@ -176,7 +176,9 @@ export function RetrievalTestPanel<H extends RetrievalHit>({
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>{hint}</span>
       {preAlert ?? null}
-      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+      {/* 스펙 221: 질의는 전체 폭 위, 그 아래 한 줄 컨트롤 행(우측 정렬·수직 중앙) — 이전엔 textarea와
+          오른쪽 세로 스택이 top-align이라 바닥·상단이 어긋나 들쭉날쭉했다. 좁은 드로어에서도 깔끔. */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <TextArea
           rows={2}
           placeholder={queryPlaceholder}
@@ -186,11 +188,10 @@ export function RetrievalTestPanel<H extends RetrievalHit>({
             e.preventDefault()
             void run()
           }}
-          style={{ flex: 1 }}
         />
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, width: 120 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'flex-end' }}>
           <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>{limitLabel}</span>
-          <InputNumber min={1} max={10} style={{ width: '100%' }} value={limit} onChange={(v) => setLimit(v ?? defaultLimit)} />
+          <InputNumber min={1} max={10} style={{ width: 72 }} value={limit} onChange={(v) => setLimit(v ?? defaultLimit)} />
           <Button type="primary" icon={<Icon name="search" />} loading={searching} onClick={() => void run()}>
             {runLabel}
           </Button>
