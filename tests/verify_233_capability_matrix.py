@@ -219,10 +219,10 @@ def expected_fire(impl: str, kind: str) -> bool:
     if impl in BROKER_IMPLS:
         return True  # 브로커: capabilities 표면으로 6종 전부 위임
     if kind == "memory":
-        # 실측 발견(스펙 233 §finding): memory 회상(config.memories)은 **플랫폼 레벨** — impl의 consumes와
-        # 무관하게 발동한다(artifact도 회상함). spec 206상 consumes는 폼 힌트지 런타임 게이트가 아님.
-        # 따라서 memory는 브로커 포함 전 impl에서 발동(회상 콘텐츠가 있을 때).
-        return True
+        # 스펙 233 발견→봉합(사용자 결정: 타입별 게이트): memory 회상은 이제 impl이 "memories"를
+        # consumes로 선언할 때만 발동한다(chat.py used_memory 게이트). 직접-소비 impl(default/plan_
+        # execute/route)만 회상, artifact류는 회상 안 함(폼 "무시됩니다" 경고가 이제 참).
+        return impl in DIRECT_MEM_IMPLS
     if impl in {"default", "plan_execute"} and kind in {"mcp", "rag"}:
         return True  # ReAct: mcps(도구)·vectorTables(rag) 직접 소비
     return False

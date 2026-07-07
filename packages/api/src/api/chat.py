@@ -739,7 +739,17 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
     recall_scope = {**add_scope, "agent_id": ctx["ext_agent_id"]}
 
     # 의미론적 메모리 회상 (켠 에이전트 + 등록 임베딩 모델 있을 때만). mem0는 동기 → 스레드로.
-    used_memory = memory.memory_enabled(ctx["memories"]) and ctx["mem_cfg"] is not None
+    # 스펙 233 발견 봉합: 회상은 impl 실행 전 플랫폼 선처리라 impl의 consumes를 무시했다 — 편집 폼은
+    # "이 실행 방식은 기억을 무시합니다"라 경고하는데(스펙 206) 런타임은 회상해 **거짓 표시**였다.
+    # 사용자 결정(타입별 게이트): impl이 "memories" 표면을 consumes로 선언했을 때만 회상·자동기록.
+    # consumes=None(미선언)은 게이트 안 함(스펙 206 "폼 전부 노출" 계약과 정합 — 무회귀).
+    _impl_consumes = impl.describe().consumes
+    _impl_reads_memory = _impl_consumes is None or "memories" in _impl_consumes
+    used_memory = (
+        _impl_reads_memory
+        and memory.memory_enabled(ctx["memories"])
+        and ctx["mem_cfg"] is not None
+    )
     mem_hits = (
         await asyncio.to_thread(memory.search, recall_scope, user_text, ctx["mem_cfg"])
         if used_memory
@@ -1237,7 +1247,10 @@ async def resume_approval(approval: Approval, decision: str) -> None:
         return
 
     recall_scope = {"user_id": None, "run_id": ctx["session_id"], "agent_id": ctx["ext_agent_id"]}
-    used_memory = memory.memory_enabled(ctx["memories"]) and ctx["mem_cfg"] is not None
+    # 스펙 233 봉합(이중 배선 축 — 신규 chat과 동일 게이트를 재개 경로에도, codex 잔여 회귀): impl이
+    # "memories"를 consumes로 선언할 때만 회상(폼 "무시됩니다"를 재개 경로에서도 참으로).
+    _resume_reads_memory = impl.describe().consumes is None or "memories" in impl.describe().consumes
+    used_memory = _resume_reads_memory and memory.memory_enabled(ctx["memories"]) and ctx["mem_cfg"] is not None
     # user_id가 없으니(재개 주체=admin) user/run 축 회상은 의미가 약하나, 페르소나 톤 유지를 위해
     # agent 축 회상만이라도 접목(없어도 무해). 자동 메모리 add는 user_id 부재로 생략(빚).
     mem_hits = (
