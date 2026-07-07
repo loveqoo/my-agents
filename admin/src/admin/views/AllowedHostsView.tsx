@@ -3,7 +3,7 @@
    여기에 등록한 host는 그 예외로 통과한다 — A2A 클라이언트·Agent Card fetch/probe·MCP 연결 공용.
    추가/삭제는 **무재시작**(최대 ~10초 내 반영). 백엔드: GET/POST/DELETE /admin/allowed-hosts. */
 import { useState } from 'react'
-import { Button, Input, Popconfirm, Space, Alert, message, Form } from 'antd'
+import { Button, Input, Popconfirm, Space, Alert, message, Form, Collapse } from 'antd'
 import { Page, Panel, DataTable, type Column } from '../shared'
 import { fmtDateTime } from '../format'
 import { useAsyncData, runWithToast } from '../../hooks'
@@ -115,23 +115,29 @@ export default function AllowedHostsView() {
       <Alert
         type="warning"
         showIcon
-        style={{ marginBottom: 16 }}
+        style={{ marginBottom: 8 }}
         title="보안 주의 — host 추가는 SSRF 예외를 여는 행위입니다"
-        description={
-          <>
-            <p style={{ margin: '0 0 8px' }}>
-              <b>SSRF(Server-Side Request Forgery, 서버 측 요청 위조)</b>는 공격자가 서버를 속여, 원래는
-              바깥에서 닿을 수 없는 내부망·클라우드 메타데이터(예: 169.254.169.254)·로컬 서비스로 요청을
-              보내게 만드는 공격입니다. 그래서 이 서버는 사설·루프백·메타데이터 대역으로 나가는 요청을{' '}
-              <b>기본 차단</b>합니다.
-            </p>
-            <p style={{ margin: 0 }}>
-              여기 등록한 host는 그 차단의 <b>예외</b>가 되어, 사설/루프백 대역이라도 서버의 outbound
-              요청(A2A·MCP·Agent Card)이 통과합니다. 개발용 mock(예: 127.0.0.1) 등 <b>신뢰하는 대상만</b>{' '}
-              추가하세요. 와일드카드·CIDR·포트·스킴은 허용되지 않습니다(정확 host만).
-            </p>
-          </>
-        }
+        description="여기 등록한 host는 사설/루프백/메타데이터 대역이라도 서버의 outbound 요청(A2A·MCP·Agent Card)이 통과합니다. 개발용 mock(예: 127.0.0.1) 등 신뢰하는 대상만 추가하세요. 와일드카드·CIDR·포트·스킴은 허용되지 않습니다(정확 host만)."
+      />
+      {/* 스펙 229: 자세한 SSRF 정의는 매일 볼 필요 없으니 접이식(기본 접힘) — 필요할 때만 펼침. */}
+      <Collapse
+        ghost
+        size="small"
+        style={{ marginBottom: 16 }}
+        items={[
+          {
+            key: 'ssrf',
+            label: 'SSRF가 무엇인가요?',
+            children: (
+              <p style={{ margin: 0, color: 'var(--color-text-secondary)', fontSize: 13 }}>
+                <b>SSRF(Server-Side Request Forgery, 서버 측 요청 위조)</b>는 공격자가 서버를 속여, 원래는
+                바깥에서 닿을 수 없는 내부망·클라우드 메타데이터(예: 169.254.169.254)·로컬 서비스로 요청을
+                보내게 만드는 공격입니다. 그래서 이 서버는 사설·루프백·메타데이터 대역으로 나가는 요청을{' '}
+                <b>기본 차단</b>하고, 이 화면에 추가한 host만 그 차단의 <b>예외</b>가 됩니다.
+              </p>
+            ),
+          },
+        ]}
       />
 
       <Panel style={{ padding: 20, marginBottom: 20 }}>
