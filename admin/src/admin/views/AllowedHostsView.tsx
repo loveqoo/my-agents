@@ -115,7 +115,7 @@ export default function AllowedHostsView() {
         type="warning"
         showIcon
         style={{ marginBottom: 16 }}
-        message="보안 주의 — host 추가는 SSRF 예외를 여는 행위입니다"
+        title="보안 주의 — host 추가는 SSRF 예외를 여는 행위입니다"
         description="여기 등록한 host는 사설/루프백/메타데이터 대역이라도 서버의 outbound 요청(A2A·MCP·Agent Card)이 통과합니다. 개발용 mock(예: 127.0.0.1) 등 의도된 대상만 추가하세요. 와일드카드·CIDR·포트·스킴은 허용되지 않습니다(정확 host만)."
       />
 

@@ -1,11 +1,50 @@
 /* my-agents admin — Overview: at-a-glance counts + quick links. */
-import { type CSSProperties, useEffect, useState } from 'react'
-import { Tag, Button, Avatar, message, Card, Statistic, List, Badge } from 'antd'
+import { type CSSProperties, type ReactNode, useEffect, useState } from 'react'
+import { Tag, Button, Avatar, message, Card, Statistic, Badge } from 'antd'
 import { Page, StatusPill, Panel } from '../shared'
 import { Icon } from '../icons'
 import { AGENT_STATUS, SESSION_STATUS } from '../mockData'
 import { type Agent, type Session, type BlockCategory } from '../mockData'
 import { listAgents, listSessions, getBlocks } from '../../api'
+
+// 목록 행(아바타+제목/설명+후행) — antd List.Item.Meta 대체(List는 v6 deprecated, 스펙 208).
+// List.Item.Meta의 레이아웃(아바타 좌·제목/설명 스택·후행 우)을 Flex 프리미티브로 조립. 항목 간
+// 구분선은 첫 행 제외 borderTop으로(List 기본 디바이더 동치).
+function MetaRow({
+  avatar,
+  title,
+  description,
+  trailing,
+  divider,
+}: {
+  avatar: ReactNode
+  title: ReactNode
+  description: ReactNode
+  trailing: ReactNode
+  divider: boolean
+}) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 12,
+        padding: '11px 18px',
+        borderTop: divider ? '1px solid var(--color-split, rgba(5,5,5,0.06))' : undefined,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+        {avatar}
+        <div style={{ minWidth: 0 }}>
+          <div>{title}</div>
+          <div style={{ marginTop: 2 }}>{description}</div>
+        </div>
+      </div>
+      {trailing}
+    </div>
+  )
+}
 
 function StatTile({
   icon,
@@ -94,24 +133,20 @@ export default function OverviewView({ onGo }: { onGo: (v: string) => void }) {
               전체 보기
             </Button>
           </div>
-          {/* antd List로 통일(스펙 204). */}
-          <List
-            dataSource={agents.slice(0, 4)}
-            rowKey={(a: Agent) => a.id}
-            renderItem={(a: Agent) => {
-              const st = AGENT_STATUS[a.status]
-              return (
-                <List.Item style={{ padding: '11px 18px' }}>
-                  <List.Item.Meta
-                    avatar={<Avatar size="small" style={{ background: 'var(--gray-12)' }}><Icon name="robot" size={13} /></Avatar>}
-                    title={<span style={{ fontWeight: 500, fontSize: 14 }}>{a.name}</span>}
-                    description={<span style={{ fontSize: 12 }}>{a.persona}</span>}
-                  />
-                  <StatusPill color={st?.color ?? 'var(--gray-6)'} label={st?.label ?? a.status} />
-                </List.Item>
-              )
-            }}
-          />
+          {/* 행 스택 = Flex+MetaRow(List v6 deprecated, 스펙 208). */}
+          {agents.slice(0, 4).map((a: Agent, i) => {
+            const st = AGENT_STATUS[a.status]
+            return (
+              <MetaRow
+                key={a.id}
+                divider={i > 0}
+                avatar={<Avatar size="small" style={{ background: 'var(--gray-12)' }}><Icon name="robot" size={13} /></Avatar>}
+                title={<span style={{ fontWeight: 500, fontSize: 14 }}>{a.name}</span>}
+                description={<span style={{ fontSize: 12 }}>{a.persona}</span>}
+                trailing={<StatusPill color={st?.color ?? 'var(--gray-6)'} label={st?.label ?? a.status} />}
+              />
+            )
+          })}
         </Panel>
 
         <Panel style={{ padding: 0 }}>
@@ -121,25 +156,21 @@ export default function OverviewView({ onGo }: { onGo: (v: string) => void }) {
               전체 보기
             </Button>
           </div>
-          {/* antd List로 통일(스펙 204) — 상태 점은 Badge. */}
-          <List
-            dataSource={sessions.filter((s) => s.status !== 'completed').slice(0, 4)}
-            rowKey={(s: Session) => s.id}
-            renderItem={(s: Session) => {
-              const st = SESSION_STATUS[s.status]
-              const stTag = st?.tag ?? 'default'
-              return (
-                <List.Item style={{ padding: '11px 18px' }}>
-                  <List.Item.Meta
-                    avatar={<Badge color={st?.color ?? 'var(--gray-6)'} />}
-                    title={<code style={{ fontFamily: 'var(--font-family-code)', fontSize: 13 }}>{s.id}</code>}
-                    description={<span style={{ fontSize: 12 }}>{s.agent} · {s.channel}</span>}
-                  />
-                  {stTag === 'default' ? <Tag>{st?.label ?? s.status}</Tag> : <Tag color={stTag}>{st?.label ?? s.status}</Tag>}
-                </List.Item>
-              )
-            }}
-          />
+          {/* 행 스택 = Flex+MetaRow(상태 점은 Badge, 스펙 208). */}
+          {sessions.filter((s) => s.status !== 'completed').slice(0, 4).map((s: Session, i) => {
+            const st = SESSION_STATUS[s.status]
+            const stTag = st?.tag ?? 'default'
+            return (
+              <MetaRow
+                key={s.id}
+                divider={i > 0}
+                avatar={<Badge color={st?.color ?? 'var(--gray-6)'} />}
+                title={<code style={{ fontFamily: 'var(--font-family-code)', fontSize: 13 }}>{s.id}</code>}
+                description={<span style={{ fontSize: 12 }}>{s.agent} · {s.channel}</span>}
+                trailing={stTag === 'default' ? <Tag>{st?.label ?? s.status}</Tag> : <Tag color={stTag}>{st?.label ?? s.status}</Tag>}
+              />
+            )
+          })}
         </Panel>
       </div>
     </Page>

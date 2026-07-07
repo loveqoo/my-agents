@@ -133,11 +133,11 @@ export function CompareDrawer({ aId, bId, onClose }: { aId: string | null; bId: 
             </span>
           </div>
           {regressCount > 0 ? (
-            <Alert type="error" showIcon message={`회귀 ${regressCount}건 — 이전엔 통과했는데 이번에 실패한 문제가 있습니다.`} />
+            <Alert type="error" showIcon title={`회귀 ${regressCount}건 — 이전엔 통과했는데 이번에 실패한 문제가 있습니다.`} />
           ) : null}
           {/* 공통 문제 부족 경고(codex 138 #2) — 비교는 문제 이름으로 매칭하므로 개명되면 A/B가 아님. */}
           {rows.length > 0 && rows.every((r) => r.kind === 'only-one') ? (
-            <Alert type="warning" showIcon message="두 런에 공통 문제가 없습니다 — 문제 이름이 바뀌었을 수 있어 점수 비교만 유효합니다(문제별 비교 불가)." />
+            <Alert type="warning" showIcon title="두 런에 공통 문제가 없습니다 — 문제 이름이 바뀌었을 수 있어 점수 비교만 유효합니다(문제별 비교 불가)." />
           ) : null}
 
           {/* antd Collapse(accordion)로 통일(스펙 204) — 수제 onClick div+회전 셰브론+open 상태 제거. */}

@@ -319,7 +319,7 @@ export default function AdminShell({ user, onLogout }: { user: Me; onLogout: () 
           <Drawer
             open={!collapsed}
             placement="left"
-            width={232}
+            size={232}
             closable={false}
             onClose={() => setCollapsed(true)}
             styles={{ body: { padding: 0 } }}

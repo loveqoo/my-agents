@@ -71,7 +71,7 @@ function DiagPanel({ diag }: { diag: SearchDiag }) {
                 <Alert
                   type={diag.configured && diag.backendReady ? 'warning' : 'error'}
                   showIcon
-                  message={diag.error}
+                  title={diag.error}
                   style={{ marginBottom: 4 }}
                 />
               ) : null}
@@ -250,7 +250,7 @@ export function RetrievalTestPanel<H extends RetrievalHit>({
       ) : null}
 
       {/* 지속 오류(스펙 125) — 토스트는 사라지므로 네트워크/HTTP 실패를 화면에 남긴다. */}
-      {errMsg ? <Alert type="error" showIcon message="검색 실패" description={errMsg} /> : null}
+      {errMsg ? <Alert type="error" showIcon title="검색 실패" description={errMsg} /> : null}
       {/* 진단 패널 — 메모리 경로가 diag를 주면 "왜 0건/실패인지"를 지속 표시. */}
       {out?.diag ? <DiagPanel diag={out.diag} /> : null}
     </div>

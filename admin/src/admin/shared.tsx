@@ -2,7 +2,7 @@
    handoff 번들 ui_kits/admin/adminShared.jsx를 진짜 antd 6/React+TS로 재현.
    토큰은 theme.css의 CSS 변수를 그대로 참조한다. */
 import { type ReactNode, type CSSProperties } from 'react'
-import { Tag, Button, Switch, Grid, Badge, Card as AntCard, List, Drawer as AntDrawer, Table as AntTable, type TableColumnsType } from 'antd'
+import { Tag, Button, Switch, Grid, Badge, Card as AntCard, Drawer as AntDrawer, Table as AntTable, type TableColumnsType } from 'antd'
 import { Icon } from './icons'
 import { VERSION_STATUS, type VersionMeta } from './mockData'
 
@@ -248,7 +248,7 @@ export function Drawer({
     <AntDrawer
       open={open}
       title={title}
-      width={isMobile ? '100%' : width}
+      size={isMobile ? '100%' : width}
       onClose={onClose}
       destroyOnHidden
       footer={
@@ -289,20 +289,20 @@ export function VersionHistory({
           </Button>
         )}
       </div>
-      {/* antd List로 통일(스펙 204) — 상태별 배경·행 구성은 renderItem에 보존. */}
-      <List
-        bordered
-        dataSource={versions}
-        rowKey={(v) => v.version}
-        renderItem={(v) => {
+      {/* 테두리 컨테이너 + Flex 행 스택(List v6 deprecated → Flex 조립, 스펙 208). 상태별 배경·행 구성
+          보존, 항목 간 구분선은 첫 행 제외 borderTop(bordered List 디바이더 동치). */}
+      <div style={{ border: '1px solid var(--color-border)', borderRadius: 8, overflow: 'hidden' }}>
+        {versions.map((v, i) => {
           const st = VERSION_STATUS[v.status] || VERSION_STATUS.archived
           return (
-            <List.Item
+            <div
+              key={v.version}
               style={{
                 display: 'flex',
                 alignItems: 'center',
                 gap: 10,
                 padding: '10px 14px',
+                borderTop: i > 0 ? '1px solid var(--color-border)' : undefined,
                 background:
                   v.status === 'active' ? 'var(--color-success-bg)' : v.status === 'draft' ? 'var(--gold-1)' : 'transparent',
               }}
@@ -330,10 +330,10 @@ export function VersionHistory({
               {v.status !== 'draft' && onRevert && (
                 <Button type="text" size="small" icon={<Icon name="redo" />} onClick={() => onRevert(v)} title="초안으로 되돌리기" />
               )}
-            </List.Item>
+            </div>
           )
-        }}
-      />
+        })}
+      </div>
     </div>
   )
 }

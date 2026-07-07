@@ -596,7 +596,7 @@ export function Playground({
             <Drawer
               open
               placement="right"
-              width="100%"
+              size="100%"
               closable={false}
               onClose={() => setInspectorOpen(false)}
               styles={{ body: { padding: 0 } }}

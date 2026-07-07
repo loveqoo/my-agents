@@ -3,7 +3,7 @@
    수치 검증→자율 반복(Ralph) 로드맵의 제품 표면. 러너는 오염 제로(백엔드 eval_runner) —
    실행해도 세션/메모리에 흔적이 남지 않는다. */
 import { useState, useEffect, useCallback, type CSSProperties } from 'react'
-import { Tabs, Button, Input, InputNumber, AutoComplete, Select, Tag, Modal, Popconfirm, Alert, Collapse, Checkbox, Tooltip, message, Descriptions, Skeleton, List } from 'antd'
+import { Tabs, Button, Input, InputNumber, AutoComplete, Select, Tag, Modal, Popconfirm, Alert, Collapse, Checkbox, Tooltip, message, Descriptions, Skeleton } from 'antd'
 import { Page, DataTable, Drawer, type Column } from '../shared'
 import { Icon } from '../icons'
 import { TrendChart, CompareDrawer } from './EvalTrend'
@@ -390,17 +390,13 @@ function DatasetDrawer({
                 </span>
               </div>
               <TrendChart runs={dsRuns} />
-              {/* antd List로 통일(스펙 204) — 클릭 행·정렬은 renderItem에 보존. */}
-              <List
-                size="small"
-                split={false}
-                style={{ marginTop: 6 }}
-                dataSource={dsRuns.slice(0, 5)}
-                rowKey={(r) => r.id}
-                renderItem={(r) => (
-                  <List.Item
+              {/* 클릭 행 스택 = Flex(List v6 deprecated → div 조립, 스펙 208). 스타일·정렬 보존. */}
+              <div style={{ marginTop: 6 }}>
+                {dsRuns.slice(0, 5).map((r) => (
+                  <div
+                    key={r.id}
                     onClick={() => r.status !== 'running' && onOpenRun(r.id)}
-                    style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12, padding: '2px 0', border: 'none', cursor: r.status !== 'running' ? 'pointer' : 'default' }}
+                    style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12, padding: '2px 0', cursor: r.status !== 'running' ? 'pointer' : 'default' }}
                   >
                     <span style={{ color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-family-code)' }}>{(r.started_at ?? '').slice(5, 16).replace('T', ' ')}</span>
                     <span>{r.agent_name}</span>
@@ -412,13 +408,13 @@ function DatasetDrawer({
                     ) : (
                       <Tag color="red">error</Tag>
                     )}
-                  </List.Item>
-                )}
-              />
+                  </div>
+                ))}
+              </div>
             </div>
           ) : null}
           {cases.length === 0 && !dataset.generating ? (
-            <Alert type="info" showIcon message="문제가 없습니다 — 아래에서 첫 문제를 추가하세요." />
+            <Alert type="info" showIcon title="문제가 없습니다 — 아래에서 첫 문제를 추가하세요." />
           ) : null}
           {/* 스펙 193: 자동 생성 중이면 아직 안 온 문제 자리를 Skeleton 카드로(무언가 써지는 중임을 시각화).
               gen_target 미노출이라 3개 고정 자리표시 — 폴링으로 실제 케이스가 위에 하나씩 채워진다. */}
@@ -508,7 +504,7 @@ function RunDrawer({ runId, onClose }: { runId: string | null; onClose: () => vo
             })()}
           </div>
           <Descriptions column={1} size="small" items={[{ key: 'agent', label: '에이전트', children: detail.agent_name ?? '—' }]} />
-          {detail.error ? <Alert type="error" showIcon message="실행 오류" description={detail.error} /> : null}
+          {detail.error ? <Alert type="error" showIcon title="실행 오류" description={detail.error} /> : null}
           {detail.results.map((r, i) => (
             <div key={i} style={{ padding: 12, border: '1px solid var(--color-border-secondary)', borderRadius: 8 }}>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -538,7 +534,7 @@ function RunDrawer({ runId, onClose }: { runId: string | null; onClose: () => vo
                     label: <span style={{ fontSize: 12 }}>관측 (답변·흔적)</span>,
                     children: (
                       <div style={{ fontSize: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                        {r.obs.detail ? <Alert type="warning" showIcon message={r.obs.detail} /> : null}
+                        {r.obs.detail ? <Alert type="warning" showIcon title={r.obs.detail} /> : null}
                         {/* RAG 근거(스펙 140) — 파일·유사도 실값(요약보다 실값+상한 원칙). */}
                         {r.obs.rag && r.obs.rag.hits.length > 0 ? (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
@@ -757,7 +753,7 @@ export default function EvalView({ initialCollectionId, onConsumedInitial }: {
             children: (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {/* 소유 기반 공개(스펙 178 P3) — 읽기는 모든 사용자, 편집·실행은 소유자·관리자만. */}
-                <Alert type="info" showIcon message="평가 결과는 모든 사용자에게 공개됩니다" />
+                <Alert type="info" showIcon title="평가 결과는 모든 사용자에게 공개됩니다" />
                 {/* 스펙 196: 목록을 PagedListShell로 — 최근순 정렬·서버 검색·페이징(세션 098/128 패턴).
                    '새 문제집'은 leftSlot으로(스펙 195: '컬렉션에서 생성' 자동 채움은 제거됨 — 빈 문제집+상단 AI 출제). */}
                 <PagedListShell<EvalDataset, boolean>

@@ -68,7 +68,7 @@ export function ExternalAgentDetail({
         type="info"
         showIcon
         style={{ marginBottom: 14 }}
-        message="A2A 카드로 등록한 외부 에이전트입니다. 구성은 원격 서비스가 소유하므로 콘솔에서는 읽기 전용입니다. 실제 호출 기능은 준비 중 — 지금은 등록 정보 확인만 가능합니다."
+        title="A2A 카드로 등록한 외부 에이전트입니다. 구성은 원격 서비스가 소유하므로 콘솔에서는 읽기 전용입니다. 실제 호출 기능은 준비 중 — 지금은 등록 정보 확인만 가능합니다."
       />
 
       {card?.description ? (

@@ -20,7 +20,7 @@ export function RetrievalTestDrawer<H extends RetrievalHit>({
   ...panel
 }: RetrievalTestPanelProps<H> & { open: boolean; title: string; onClose: () => void }) {
   return (
-    <Drawer open={open} width={640} title={title} onClose={onClose} destroyOnHidden>
+    <Drawer open={open} size={640} title={title} onClose={onClose} destroyOnHidden>
       <RetrievalTestPanel<H> {...panel} />
     </Drawer>
   )

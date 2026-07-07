@@ -57,7 +57,7 @@ export function ConnectAgentModal({
           type="info"
           showIcon
           style={{ marginBottom: 0 }}
-          message="A2A 에이전트의 URL 하나만 입력하세요. 서버가 카드를 가져와(well-known 관례 포함) 검증하고, 우리가 배포한 SDK 에이전트인지(코드) 제3자인지(외부) 자동으로 판별합니다."
+          title="A2A 에이전트의 URL 하나만 입력하세요. 서버가 카드를 가져와(well-known 관례 포함) 검증하고, 우리가 배포한 SDK 에이전트인지(코드) 제3자인지(외부) 자동으로 판별합니다."
         />
         <Field label="에이전트 URL">
           <Input

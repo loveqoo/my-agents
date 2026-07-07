@@ -197,7 +197,7 @@ export default function SessionsView() {
             })()}
             {detail.error ? (
               <div style={{ marginBottom: 16 }}>
-                <Alert type="error" showIcon message="세션 오류" description={detail.error} />
+                <Alert type="error" showIcon title="세션 오류" description={detail.error} />
               </div>
             ) : null}
             {detail.awaiting ? (
@@ -205,7 +205,7 @@ export default function SessionsView() {
                 <Alert
                   type="warning"
                   showIcon
-                  message="일시정지 — 관리자 승인 대기 중"
+                  title="일시정지 — 관리자 승인 대기 중"
                   description={`${detail.awaiting.summary} · ${detail.awaiting.permission} · 체크포인트 ${detail.awaiting.checkpoint}`}
                 />
               </div>
@@ -223,7 +223,7 @@ export default function SessionsView() {
               ]}
             />
             <div style={{ marginTop: 16 }}>
-              <Alert type="info" showIcon message="디버그 콘솔에서 이 세션을 열면 턴별 프롬프트·메모리·MCP 호출을 확인할 수 있습니다." />
+              <Alert type="info" showIcon title="디버그 콘솔에서 이 세션을 열면 턴별 프롬프트·메모리·MCP 호출을 확인할 수 있습니다." />
             </div>
             {messages.length > 0 ? (
               <div style={{ marginTop: 16 }}>

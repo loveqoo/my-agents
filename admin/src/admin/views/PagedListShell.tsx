@@ -173,7 +173,7 @@ export function PagedListShell<T, X = unknown>({
       </div>
 
       {error ? (
-        <Alert type="error" showIcon message={errorTitle} description={error} />
+        <Alert type="error" showIcon title={errorTitle} description={error} />
       ) : !enabled ? (
         (disabledAlert ?? null)
       ) : (

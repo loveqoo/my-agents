@@ -92,7 +92,7 @@ function ExternalCardInfo({ agent }: { agent: Agent }) {
       <Alert
         type="info"
         showIcon
-        message="외부(A2A) 에이전트 — 오버라이드 미적용"
+        title="외부(A2A) 에이전트 — 오버라이드 미적용"
         description="이 에이전트는 외부 A2A 서비스가 소유합니다. 모델·도구·메모리는 원격이 관장하므로 로컬 설정을 덮어쓸 수 없습니다. 실제 호출 기능은 준비 중입니다."
       />
       {!card ? (
@@ -266,7 +266,7 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
       open={open}
       onClose={onClose}
       placement="left"
-      width={400}
+      size={400}
       title="런타임 오버라이드"
       styles={{ body: { paddingTop: 12 } }}
     >
@@ -276,7 +276,7 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
         <Alert
           type="info"
           showIcon
-          message="코드 에이전트 — 오버라이드 미적용"
+          title="코드 에이전트 — 오버라이드 미적용"
           description="이 에이전트는 등록된 원격 엔드포인트에서 실행됩니다(bypass). 모델·도구·메모리는 원격 배포가 소유하므로 여기 설정은 로컬 실행에 적용되지 않습니다."
         />
       ) : !draft ? null : (
@@ -285,7 +285,7 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
             type="info"
             showIcon
             style={{ padding: '6px 12px' }}
-            message="세션 한정 — 저장된 에이전트 설정은 바뀌지 않습니다. 적용하면 새 대화로 시작합니다."
+            title="세션 한정 — 저장된 에이전트 설정은 바뀌지 않습니다. 적용하면 새 대화로 시작합니다."
           />
 
           <Field label="모델" hint="mock-llm을 고르면 라이브 모델 없이 결정적으로 응답합니다.">

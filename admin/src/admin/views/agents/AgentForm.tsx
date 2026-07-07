@@ -233,7 +233,7 @@ export function AgentForm({
           type="info"
           showIcon
           style={{ marginBottom: 0 }}
-          message={
+          title={
             isEdit
               ? `변경사항은 초안 ${draftVersion}에 저장됩니다 — 활성화하기 전까지 현재 버전이 계속 서빙합니다.`
               : '에이전트의 v1 초안을 만듭니다. 테스트 후 활성화해 게시하세요.'
@@ -304,7 +304,7 @@ export function AgentForm({
                 type="warning"
                 showIcon
                 style={{ marginBottom: 10 }}
-                message={`이 실행 방식은 ${ignoredCounts.map(([k]) => k).join('·')} 설정을 읽지 않습니다 — 저장된 연결 ${ignoredCounts.reduce((s, [, n]) => s + n, 0)}개는 무시됩니다(연결은 보존되며, 실행 방식을 되돌리면 다시 적용됩니다).`}
+                title={`이 실행 방식은 ${ignoredCounts.map(([k]) => k).join('·')} 설정을 읽지 않습니다 — 저장된 연결 ${ignoredCounts.reduce((s, [, n]) => s + n, 0)}개는 무시됩니다(연결은 보존되며, 실행 방식을 되돌리면 다시 적용됩니다).`}
               />
             ) : null}
             <PickerGroups groups={doGroups.filter((g) => surfaceVisible(g.key))} selected={directSelected} onToggle={toggleDirect} />

@@ -138,7 +138,7 @@ export function CodeAgentDetail({
         type="info"
         showIcon
         style={{ marginBottom: 14 }}
-        message="SDK로 코드 정의해 원격 엔드포인트에서 실행되는 에이전트입니다. 구성은 코드가 소유하므로 콘솔에서는 읽기 전용입니다 — 변경하려면 코드를 수정해 다시 배포한 뒤 동기화하세요."
+        title="SDK로 코드 정의해 원격 엔드포인트에서 실행되는 에이전트입니다. 구성은 코드가 소유하므로 콘솔에서는 읽기 전용입니다 — 변경하려면 코드를 수정해 다시 배포한 뒤 동기화하세요."
       />
 
       <ReadonlyConfig agent={agent} onRefreshPersona={onRefreshPersona} />

@@ -137,7 +137,7 @@ export function PagedMemoryList({
         <Alert
           type="info"
           showIcon
-          message="장기 기억이 비활성/미구성입니다"
+          title="장기 기억이 비활성/미구성입니다"
           description="임베딩/LLM 모델·에이전트 메모리 설정을 확인하세요."
         />
       }

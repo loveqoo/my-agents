@@ -468,7 +468,7 @@ function DocsDrawer({
   return (
     <Drawer
       open={!!collection}
-      width={640}
+      size={640}
       title={collection ? `문서 관리 · ${collection.name}` : ''}
       onClose={onClose}
       destroyOnHidden

@@ -292,5 +292,5 @@
 - **HoC는 불필요**(리뷰 결론): AuthGate(render-prop)·PagedListShell(제네릭)이 HoC 니치 이미 덮음. 권한 게이트는 표현 분기(인라인/조각). 넣으면 과설계=신념 배신.
 - **테스트 부채(183서 발견)**: verify_152 V4 "code→400" stale(154가 code 노출 허용, 단언 갱신 필요)·verify_083 노출게이트 5건 404(라이브 인프라/시드 의존).
 
-## antd v6 deprecation 전면 마이그레이션 (스펙 207서 관측, 2026-07-07)
-- v6 콘솔 경고: `List` 컴포넌트 deprecated(제거 예정)·`Drawer` width→size·`Alert` message→title. 개별 스펙은 새로 쓸 때 피하되(스펙 207서 DataTable 모바일카드를 List 대신 Flex+Card로 유지), 기존 사용처(스펙 204서 List 다수 도입) 전면 교체는 별도 스펙. 우선순위 낮음(현재 동작·경고만).
+## antd v6 deprecation 전면 마이그레이션 (스펙 207서 관측 → ✅스펙 208 완료, 2026-07-07)
+- ✅**스펙 208 완료**(회고 196): 관측 3종 전수 처리(Alert message→title 30·Drawer width→size 13·List→Flex 4), 완료기준=콘솔 deprecation 경고 0건 달성. 공용 래퍼 Drawer는 내부 1곳만 고쳐 소비자 무변경 커버. **후속 씨앗(OUT)**: 다른 v6 deprecation(bodyStyle·destroyOnClose·Card bordered 등)이 감사에 새로 뜨면 그때 처리.

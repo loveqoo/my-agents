@@ -238,7 +238,7 @@ function McpForm({
           type="info"
           showIcon
           style={{ marginBottom: 0 }}
-          message={
+          title={
             isExternal
               ? '다른 곳에서 프로토콜로 공개한 MCP 서버에 연결해, 그 도구를 가져와 씁니다.'
               : '직접 운영하는 서버를 등록합니다. 나중에 MCP로 외부 공개할 수 있습니다.'
@@ -330,7 +330,7 @@ function McpForm({
                 type={discoverMsg.ok ? 'success' : 'error'}
                 showIcon
                 style={{ padding: '4px 12px', marginBottom: 0 }}
-                message={discoverMsg.text}
+                title={discoverMsg.text}
               />
             )}
             {f.tools.length > 0 ? (
@@ -498,7 +498,7 @@ function PersonaForm({
           type="info"
           showIcon
           style={{ marginBottom: 0 }}
-          message="페르소나는 에이전트의 성격·말투·역할을 정의하는 시스템 프롬프트입니다. 에이전트 편집기에서 이름으로 선택해 재사용합니다."
+          title="페르소나는 에이전트의 성격·말투·역할을 정의하는 시스템 프롬프트입니다. 에이전트 편집기에서 이름으로 선택해 재사용합니다."
         />
         <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <span style={{ fontSize: 14, fontWeight: 500 }}>식별 이름</span>
@@ -671,7 +671,7 @@ function BlockForm({
       onOk={submit}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxHeight: '64vh', overflow: 'auto' }}>
-        <Alert type="info" showIcon style={{ marginBottom: 0 }} message={cfg.intro} />
+        <Alert type="info" showIcon style={{ marginBottom: 0 }} title={cfg.intro} />
         {cfg.fields.map((fld) => (
           <label key={fld.key} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <span style={{ fontSize: 14, fontWeight: 500 }}>
@@ -1358,7 +1358,7 @@ export default function BlocksView() {
             ) : null}
             {cat === 'mcp' && detail.source === 'external' ? (
               <div style={{ marginTop: 18 }}>
-                <Alert type="info" showIcon message="외부 MCP — 다른 곳에서 호스팅·공개한 서버의 도구를 가져와 씁니다." />
+                <Alert type="info" showIcon title="외부 MCP — 다른 곳에서 호스팅·공개한 서버의 도구를 가져와 씁니다." />
               </div>
             ) : null}
             {detail.body ? (

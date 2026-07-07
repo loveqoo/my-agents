@@ -61,7 +61,7 @@ export function MatrixView({ runs, onOpenRun }: { runs: EvalRunT[]; onOpenRun: (
       <Alert
         type="info"
         showIcon
-        message="비교 그룹이 없습니다"
+        title="비교 그룹이 없습니다"
         description="문제집 드로어에서 모델을 2개 이상 선택해 실행하면 여기서 모델별 결과를 격자로 비교할 수 있습니다."
       />
     )
@@ -161,7 +161,7 @@ export function MatrixView({ runs, onOpenRun }: { runs: EvalRunT[]; onOpenRun: (
         <div style={{ fontSize: 13, color: 'var(--color-text-tertiary)' }}>불러오는 중…</div>
       )}
       {diffOnly && rows.length === 0 && details.length > 0 ? (
-        <Alert type="success" showIcon message="모든 문제에서 모델 간 결과가 같습니다." />
+        <Alert type="success" showIcon title="모든 문제에서 모델 간 결과가 같습니다." />
       ) : null}
     </div>
   )

@@ -4,7 +4,8 @@
 - **모든 UI는 antd 컴포넌트로 작성한다.** 커스텀(손수 만든) 컴포넌트는 antd에 대응물이 없을 때만
   허용하고, 그 경우에도 antd 프리미티브(Layout·Typography·Flex·Splitter 등) 위에 조립한다.
 - 새 화면·패널·오버레이를 만들 때 antd 대응물부터 찾는다: 도킹 분할=Splitter, 오버레이=Drawer/Modal,
-  목록=Table/List, 상태 표시=Tag/Badge, 접이식=Collapse, 알림=message/notification.
+  목록=**Table**(또는 Flex+행 조립 — `List`는 v6 deprecated, 스펙 208), 상태 표시=Tag/Badge,
+  접이식=Collapse, 알림=message/notification.
 - 기존 커스텀 잔재는 스펙 204(전수 조사·교체)가 기준 목록 — 새 커스텀을 추가하면 그 목록이 다시 늘어난다.
 - 관련 선례: 스펙 187(공용 Drawer를 antd로 전환 — 커스텀 95줄 제거), 스펙 204(전수 교체),
   스펙 207(채팅 본문 렌더러 → @ant-design/x-markdown 채택).
@@ -19,6 +20,8 @@ antd 프리미티브 위에 조립돼 있으며, 대응물이 생기면 재검�
 - **DataTable 모바일 카드 스택**(`shared.tsx`) — Flex + antd `Card`(Panel) 조립. antd `List`는 **v6에서
   deprecated(제거 예정)**라 목록이어도 List로 옮기지 않는다(Flex+Card가 규칙 부합이자 미래지향).
 
-## antd v6 deprecation 백로그 (전면 마이그레이션은 별건)
-v6 콘솔 경고 관측: `List` 컴포넌트 deprecated · `Drawer` width→size · `Alert` message→title.
-개별 스펙에서 새로 쓸 때는 피하되, 기존 사용처 전면 교체는 별도 스펙(`.dev/backlog.md`).
+## antd v6 deprecation (스펙 208서 마이그레이션 완료)
+관측된 3종 전수 처리(스펙 208): `Alert` `message`→`title`(30건)·`Drawer` `width`→`size`(13건, 공용 래퍼는
+내부에서 size 전달·공개 API는 width 유지)·`List` 컴포넌트→Flex+행 조립(4건, drop-in 없음). 완료 기준=
+콘솔 antd deprecation 경고 0건. **새 코드는 위 deprecated prop/컴포넌트를 쓰지 않는다.** 이후 새 v6
+deprecation이 감사에 뜨면 후속(`.dev/backlog.md`).
