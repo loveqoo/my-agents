@@ -42,12 +42,31 @@ export function jsonTooBigForTree(text: string): boolean {
 }
 
 // 렌더 예산 상한(codex F1, "가드를 비용 지점 앞으로"). detectFormat은 jsonTooBigForTree를
-// 보기 *전에* 이미 JSON.parse(전체)를 동기 실행하고, markdown 경로는 remark가 전체를 파싱한다.
-// 즉 트리캡만으론 거대 입력의 parse/파싱 비용을 못 막는다 — 비용 발생지점 *앞*에서 차단해야
-// covering. 이 한도를 넘으면 parse도 markdown도 시도하지 않고 원문 캡 블록으로 직행한다.
+// 보기 *전에* 이미 JSON.parse(전체)를 동기 실행하고, markdown 경로는 marked+DOMPurify+html-react-parser가
+// 전체를 파싱한다. 즉 트리캡만으론 거대 입력의 parse/파싱 비용을 못 막는다 — 비용 발생지점 *앞*에서
+// 차단해야 covering. 이 한도를 넘으면 parse도 markdown도 시도하지 않고 원문 캡 블록으로 직행한다.
 // (1MB: 평범한 응답은 KB 규모라 무관, 이 이상은 어떤 경로든 메인스레드를 막을 만큼만 가른다.)
 export const RENDER_BUDGET_MAX = 1_000_000
 
+// 구조 증폭 방어(codex 스펙207 적대검증 발견): **바이트는 작아도** GFM 표/목록은 마커 수만큼 DOM
+// 요소로 폭증한다 — `"|"+"x|".repeat(240000)`(≈960KB, 바이트캡 통과)이 `<th>` 24만 개·HTML 2.6MB로
+// 메인스레드를 프리즈, `"- x\n".repeat(240000)`도 `<li>` 24만 개. 바이트 캡만으론 못 막으므로 요소 수의
+// 싼 대리값(파이프=표 셀, 줄바꿈=블록/리스트 항목)에 가중치를 실어 "유효 렌더 비용"을 추정해 함께 건다.
+// 산문·거대 코드블록은 마커 밀도가 낮아(코드블록=<pre> 1개, 증폭 없음) 무관, 병적 표/목록만 캡에 걸린다.
+const CELL_COST = 12 // 표 셀('|' 1개)당 대략의 요소 생성 비용 가중치
+const LINE_COST = 6 // 줄바꿈(블록·리스트 항목 경계) 1개당 가중치
+
+export function renderCost(text: string): number {
+  let pipes = 0
+  let lines = 0
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i)
+    if (c === 124) pipes++ // '|'
+    else if (c === 10) lines++ // '\n'
+  }
+  return text.length + pipes * CELL_COST + lines * LINE_COST
+}
+
 export function exceedsRenderBudget(text: string): boolean {
-  return text.length > RENDER_BUDGET_MAX
+  return renderCost(text) > RENDER_BUDGET_MAX
 }

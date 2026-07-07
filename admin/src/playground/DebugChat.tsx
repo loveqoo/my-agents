@@ -13,7 +13,7 @@ import {
   dedupeConsecutive,
   type HistState,
 } from './inputHistory'
-import { Avatar, Button, Tag, Grid, Tooltip, Segmented, Select, Input, Dropdown } from 'antd'
+import { Avatar, Button, Tag, Grid, Tooltip, Segmented, Select, Input, Dropdown, Card } from 'antd'
 import { Icon } from '../admin/icons'
 import { fmtTime } from '../admin/format'
 import { MessageContent } from './MessageContent'
@@ -731,12 +731,10 @@ function InlineFormPanel({
   const set = (k: string, v: string) => setVals((s) => ({ ...s, [k]: v }))
   const missing = form.fields.filter((f) => (f.required ?? true) && !vals[f.key])
   return (
-    <div
-      style={{
-        maxWidth: 680, margin: '0 auto 8px', padding: '12px 14px',
-        border: '1px solid var(--color-border)', borderRadius: 10, background: 'var(--gray-2)',
-        display: 'flex', flexDirection: 'column', gap: 8,
-      }}
+    <Card
+      size="small"
+      style={{ maxWidth: 680, margin: '0 auto 8px', background: 'var(--gray-2)' }}
+      styles={{ body: { display: 'flex', flexDirection: 'column', gap: 8 } }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--color-text-secondary)' }}>
         <Icon name="edit" size={14} />
@@ -772,18 +770,16 @@ function InlineFormPanel({
           제출
         </Button>
       </div>
-    </div>
+    </Card>
   )
 }
 
 /* 산출물 카드(스펙 188) — 완성 payload를 그대로 표시. 임베드 시 JS 콜백이 받는 JSON과 동일. */
 function ArtifactCard({ artifact }: { artifact: NonNullable<ChatMsg['artifact']> }) {
   return (
-    <div
-      style={{
-        border: '1px solid var(--green-3, #b7eb8f)', background: 'var(--green-1, #f6ffed)',
-        borderRadius: 10, padding: '10px 14px', fontSize: 13, maxWidth: 560,
-      }}
+    <Card
+      size="small"
+      style={{ maxWidth: 560, fontSize: 13, background: 'var(--green-1, #f6ffed)', borderColor: 'var(--green-3, #b7eb8f)' }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
         <Tag color="green" style={{ margin: 0 }}>산출물</Tag>
@@ -795,7 +791,7 @@ function ArtifactCard({ artifact }: { artifact: NonNullable<ChatMsg['artifact']>
       <div style={{ marginTop: 6, fontSize: 11, color: 'var(--color-text-tertiary)' }}>
         임베드 시 이 JSON이 호스트 페이지의 JS 콜백(ui-callback)으로 전달됩니다.
       </div>
-    </div>
+    </Card>
   )
 }
 

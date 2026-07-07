@@ -9,6 +9,7 @@ import {
   jsonTooBigForTree,
   JSON_TREE_MAX_CHARS,
   exceedsRenderBudget,
+  renderCost,
   RENDER_BUDGET_MAX,
 } from '../admin/src/playground/messageFormat.ts'
 
@@ -55,6 +56,20 @@ check(exceedsRenderBudget('x'.repeat(RENDER_BUDGET_MAX)) === false, 'B2 임계 �
 check(exceedsRenderBudget('x'.repeat(RENDER_BUDGET_MAX + 1)) === true, 'B3 임계 초과 → 예산 밖(parse 전 직행)')
 // 트리캡(50k) < 렌더예산(1MB): 둘은 별개 관심사(트리 노드폭주 vs parse/파싱 비용).
 check(JSON_TREE_MAX_CHARS < RENDER_BUDGET_MAX, 'B4 트리캡 < 렌더예산(관심사 분리)')
+
+// 구조 증폭 방어(codex 스펙207 적대검증): 바이트는 캡 아래여도 표/목록 마커가 DOM 요소로 폭증하는
+// 병적 입력을 요소-비용 대리값으로 잡는다. 과캡 방지 핀(코드블록은 통과)까지 함께 단언.
+console.log('\n[B2] renderCost — 구조 증폭 캡(codex 207)')
+const tablePayload = '|' + 'x|'.repeat(240000) + '\n|' + '-|'.repeat(240000) // ≈960KB, 바이트캡 통과
+check(tablePayload.length < RENDER_BUDGET_MAX, 'B5a 표 페이로드는 바이트 임계 아래(우회 전제)')
+check(exceedsRenderBudget(tablePayload) === true, 'B5b 표 24만 셀 → 렌더비용 캡(프리즈 차단)')
+const listPayload = '- x\n'.repeat(240000) // ≈960KB
+check(listPayload.length < RENDER_BUDGET_MAX, 'B6a 목록 페이로드는 바이트 임계 아래')
+check(exceedsRenderBudget(listPayload) === true, 'B6b 목록 24만 항목 → 렌더비용 캡')
+// 과캡 방지: 거대 코드블록(줄바꿈 많으나 <pre> 1개=증폭 없음)은 예산 내로 통과해야 한다.
+const bigCode = '```\n' + 'const x = 1\n'.repeat(20000) + '```' // 줄 2만+·파이프 0·~240KB
+check(exceedsRenderBudget(bigCode) === false, 'B7 거대 코드블록(증폭 없음) → 예산 내(과캡 방지)')
+check(renderCost('|a|b|') > '|a|b|'.length, 'B8 파이프 가중치가 비용에 반영(대리값 작동)')
 
 if (fails) {
   console.log(`\nFAILED (${fails})`)

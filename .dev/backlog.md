@@ -291,3 +291,6 @@
 - ✅**AgentsView.tsx 분해=스펙 185 완료**(회고 166·167): **Phase A**(서브컴포넌트 8개 파일분리, 2128→747줄)+**Phase B**(useAgents 훅으로 데이터 오케스트레이션 격리, 747→684줄). tsc0·브라우저 회귀 2종 ALL PASS(파일분리 3드로어/폼/모달 + 뮤테이션 왕복 커스텀토스트 보존)·스샷. runWithToast 미채택(커스텀 플로팅토스트 보존). **남은 것(저위험 점진, 선택)**: 나머지 ~11개 뷰 useAsyncData 이관(fast-worker 위임 후보).
 - **HoC는 불필요**(리뷰 결론): AuthGate(render-prop)·PagedListShell(제네릭)이 HoC 니치 이미 덮음. 권한 게이트는 표현 분기(인라인/조각). 넣으면 과설계=신념 배신.
 - **테스트 부채(183서 발견)**: verify_152 V4 "code→400" stale(154가 code 노출 허용, 단언 갱신 필요)·verify_083 노출게이트 5건 404(라이브 인프라/시드 의존).
+
+## antd v6 deprecation 전면 마이그레이션 (스펙 207서 관측, 2026-07-07)
+- v6 콘솔 경고: `List` 컴포넌트 deprecated(제거 예정)·`Drawer` width→size·`Alert` message→title. 개별 스펙은 새로 쓸 때 피하되(스펙 207서 DataTable 모바일카드를 List 대신 Flex+Card로 유지), 기존 사용처(스펙 204서 List 다수 도입) 전면 교체는 별도 스펙. 우선순위 낮음(현재 동작·경고만).

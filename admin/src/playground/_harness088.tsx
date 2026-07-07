@@ -1,5 +1,5 @@
 /* 스펙 088 브라우저 검증용 임시 하니스(커밋 안 함). 실제 MessageContent +
-   JsonTree + react-markdown + theme.css를 픽스처로 마운트해 렌더를 단언한다. */
+   JsonTree + @ant-design/x-markdown(스펙 207) + theme.css를 픽스처로 마운트해 렌더를 단언한다. */
 import { createRoot } from 'react-dom/client'
 import '../theme.css'
 import { MessageContent } from './MessageContent'

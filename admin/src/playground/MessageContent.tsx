@@ -1,14 +1,20 @@
-/* 스펙 088 — assistant 응답 본문 렌더 디스패치.
+/* 스펙 088·207 — assistant 응답 본문 렌더 디스패치.
+   렌더러는 @ant-design/x-markdown(XMarkdown) — x 네이티브 AI 마크다운(GFM·수식·DOMPurify·스트리밍
+   애니메이션). 스펙 207에서 react-markdown → XMarkdown 교체. 구조(형식 추론·예산 캡·JSON 트리)는 보존.
+
    - 형식 추론은 스트림 완료(streaming===false)에서만: 부분 버퍼로는 전체-JSON인지
      확정 불가하므로 스트리밍 중엔 항상 markdown 경로(부분 JSON은 트리로 깜빡이지 않음).
-   - 보안: react-markdown 기본값 유지(raw HTML 미렌더·위험 URL 차단) — rehype-raw 미추가.
-     추가로 img는 자동 로드를 막고 링크로 치환(codex F3: 비신뢰 LLM 출력의 원격 이미지가
-     추적 픽셀이 되어 admin IP/referrer를 외부로 흘리는 것 차단 — 클릭은 사용자 의도).
+   - 보안(스펙 207 관문 — 현 방어 전부 보존):
+     · escapeRawHtml: 원문 raw HTML을 평문 이스케이프(현 react-markdown "raw HTML 미렌더" posture 유지).
+     · DOMPurify(XMarkdown 내장) — 스크립트·이벤트핸들러·위험 URL 차단.
+     · img는 components.img=SafeImgX로 링크 치환 — <img>가 DOM에 안 뜨므로 원격 fetch 미발생
+       (codex F3: 비신뢰 LLM 출력의 원격 이미지 추적픽셀이 admin IP/referrer를 흘리는 것 차단).
    - 거대 입력은 parse도 markdown 파싱도 메인스레드를 막으므로(codex F1) 어떤 형식
-     추론보다 먼저 렌더 예산을 검사해 원문 캡 블록으로 직행 — 가드를 비용 지점 앞에 둔다. */
-import type { ComponentPropsWithoutRef } from 'react'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+     추론보다 먼저 렌더 예산을 검사해 원문 캡 블록으로 직행 — 가드를 비용 지점 앞에 둔다.
+   - 스트리밍: XMarkdown streaming으로 tail 커서 `▋`·블록 fade-in(스펙 207 사용자 결정). */
+import XMarkdown from '@ant-design/x-markdown'
+import type { ComponentProps } from '@ant-design/x-markdown'
+import '@ant-design/x-markdown/dist/x-markdown.css'
 import { detectFormat, jsonTooBigForTree, exceedsRenderBudget } from './messageFormat'
 import { JsonTree } from './JsonTree'
 import './messageContent.css'
@@ -31,14 +37,17 @@ function RawTextBlock({ text }: { text: string }) {
   )
 }
 
-// img 자동 로드 차단: alt(없으면 src)를 노출하는 일반 링크로 치환(원격 fetch 미발생).
-// src가 없거나 문자열이 아니면 링크 대신 평문(현재 페이지로 가는 빈 href 링크 방지).
-function SafeImg({ src, alt }: ComponentPropsWithoutRef<'img'>) {
-  const href = typeof src === 'string' ? src : ''
-  const label = alt && alt.length > 0 ? alt : href || '(image)'
-  if (href === '') return <span>🖼 {label}</span>
+// img 자동 로드 차단: XMarkdown ComponentProps의 domNode.attribs에서 src/alt를 읽어 링크로 치환
+// (원격 fetch 미발생). src가 없거나 문자열이 아니면 링크 대신 평문(빈 href 링크 방지).
+// XMarkdown이 components.img로 이 컴포넌트를 대체하므로 실제 <img>는 렌더되지 않는다.
+function SafeImgX({ domNode }: ComponentProps) {
+  const attribs = (domNode as { attribs?: Record<string, string> }).attribs ?? {}
+  const src = typeof attribs.src === 'string' ? attribs.src : ''
+  const alt = typeof attribs.alt === 'string' ? attribs.alt : ''
+  const label = alt.length > 0 ? alt : src || '(image)'
+  if (src === '') return <span>🖼 {label}</span>
   return (
-    <a href={href} title={href} target="_blank" rel="noreferrer noopener nofollow">
+    <a href={src} title={src} target="_blank" rel="noreferrer noopener nofollow">
       🖼 {label}
     </a>
   )
@@ -56,9 +65,12 @@ export function MessageContent({ text, streaming }: { text: string; streaming: b
   }
   return (
     <div className="md-body">
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ img: SafeImg }}>
-        {text}
-      </ReactMarkdown>
+      <XMarkdown
+        content={text}
+        escapeRawHtml
+        components={{ img: SafeImgX }}
+        streaming={{ hasNextChunk: streaming, enableAnimation: true, tail: streaming }}
+      />
     </div>
   )
 }

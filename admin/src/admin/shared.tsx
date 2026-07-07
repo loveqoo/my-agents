@@ -124,6 +124,8 @@ export function DataTable<T>({
     const [head, ...rest] = columns
     const labeled = rest.filter((c) => c.title)
     const actions = rest.filter((c) => !c.title)
+    // 카드 스택 = flex 레이아웃 + Panel(=antd Card). antd List는 v6에서 deprecated(제거 예정)이라
+    // 목록이어도 List로 옮기지 않는다 — Flex 프리미티브 위 Card 조립이 규칙 부합이자 미래지향(스펙 207).
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {rows.length === 0 ? (
