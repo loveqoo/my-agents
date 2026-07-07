@@ -431,7 +431,11 @@ class AgentConfig(BaseModel):
     # (runtime.resolve_tool_approval). **완화는 저장 시 admin 게이트**(agents CRUD) — 스키마는 구조만 강제.
     toolPolicy: dict[str, Any] = Field(default_factory=dict)
     historyDepth: int = 20
-    persistHistory: bool = True  # 대화를 DB에 저장할지(끄면 윈도우 모드)
+    persistHistory: bool = True  # 대화를 DB에 저장할지(끄면 윈도우 모드 — 세션은 남고 메시지만 스킵)
+    # 비영속(1회성) 모드(스펙 235) — true면 DB 적재 전면 스킵(세션 행·카운터·메시지·commit·메모리 전부
+    # 무동작). 고트래픽·기록 무의미한 단순 추론 제공용. persistHistory의 상위집합. model_dump 드롭 방지 위해
+    # 반드시 스키마 필드로 둔다(위 requires_approval 주석의 seed-bypasses-write-schema 함정과 동일).
+    ephemeral: bool = False
     # A2A 위임 승인 opt-in(스펙 117) — 이 에이전트에게 위임(A2A 전송)할 때 승인 게이트를 걸지. 기본 False=
     # 게이트 없음(무회귀). 브로커 AgentProvider.approval_for가 read하는 정책 소스라 **라운드트립 보존 필수**
     # (없으면 model_dump가 조용히 드롭 → 게이트 비활성, learning 101 seed-bypasses-write-schema).
@@ -551,6 +555,7 @@ class AgentOut(BaseModel):
     personaStale: bool = False  # 스냅샷이 현재 원본 페르소나와 다름(스펙 161) — 로컬만 계산, 맵 미주입시 False
     historyDepth: int
     persistHistory: bool = True
+    ephemeral: bool = False
     impl: str | None = None  # in-process 커스텀 런타임 키(스펙 085) — 폼 재로드/라운드트립 보존용
     # 공통 인터페이스 준수 분류(스펙 089) — 파생값(저장 안 함). conforming=준수(default/적합 impl),
     # non_conforming=A2A 원격(정당한 다른 종류), config_error=impl 선언했으나 미해결(설정 실패).

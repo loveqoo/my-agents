@@ -20,6 +20,7 @@ export function blankForm(blocks: Record<string, BlockCategory>, models: Model[]
     memories: [],
     historyDepth: 20,
     persistHistory: true,
+    ephemeral: false,
     vectorTables: [],
     mcps: [],
     impl: '',
@@ -444,6 +445,8 @@ export function AgentForm({
               label: '세부 설정 (선택)',
               children: (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  {/* 스펙 235: 경계 구분 — 모델 동작 / 저장·영속(폼 표준 SectionHeader로 일관). */}
+                  <SectionHeader>모델 동작</SectionHeader>
                   {/* 온도(스펙 077) — 자동(끔)=모델 등록 기본값, 수동=0–2 저장. 플그 오버라이드와 대칭. */}
                   <Field label="Temperature">
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -471,10 +474,23 @@ export function AgentForm({
                       {form.temperature == null ? '자동 — 모델 등록 기본값을 사용합니다.' : '에이전트에 저장됩니다(세션마다 동일).'}
                     </span>
                   </Field>
+                  <SectionHeader>저장·영속</SectionHeader>
+                  {/* 비영속(스펙 235) — 저장 영역 최상위. 켜면 아래 저장 설정은 무의미(비활성). */}
+                  <Field label="비영속 (1회성)">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <Switch checked={form.ephemeral} onChange={(v) => set('ephemeral', v)} />
+                      <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+                        {form.ephemeral
+                          ? 'DB에 전혀 저장하지 않음 — 세션·이력·회상 없이 단발 추론만 (고트래픽·기록 무의미할 때)'
+                          : '평소대로 저장 (아래 설정 적용)'}
+                      </span>
+                    </div>
+                  </Field>
                   <Field label="채팅 히스토리">
                     <Select
                       value={form.historyDepth}
                       onChange={(v) => set('historyDepth', v)}
+                      disabled={form.ephemeral}
                       style={{ width: '100%' }}
                       options={[
                         { label: '기억 안 함 (0개)', value: 0 },
@@ -488,11 +504,13 @@ export function AgentForm({
                   </Field>
                   <Field label="대화 저장">
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <Switch checked={form.persistHistory} onChange={(v) => set('persistHistory', v)} />
+                      <Switch checked={form.persistHistory} disabled={form.ephemeral} onChange={(v) => set('persistHistory', v)} />
                       <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-                        {form.persistHistory
-                          ? '대화를 DB에 저장 (세션·인스펙터·재개)'
-                          : '대화를 저장하지 않음 (가볍고 기록이 남지 않음)'}
+                        {form.ephemeral
+                          ? '비영속이 켜져 있어 저장 설정은 적용되지 않습니다'
+                          : form.persistHistory
+                            ? '대화를 DB에 저장 (세션·인스펙터·재개)'
+                            : '대화를 저장하지 않음 (가볍고 기록이 남지 않음)'}
                       </span>
                     </div>
                   </Field>

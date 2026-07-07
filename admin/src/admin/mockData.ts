@@ -12,6 +12,7 @@ export interface AgentConfig {
   memories?: string[]
   historyDepth?: number
   persistHistory?: boolean
+  ephemeral?: boolean
   vectorTables?: string[]
   mcps?: string[]
   impl?: string // 실행 방식(런타임 키, 스펙 085/106). 빈값/미지정=기본 UI 에이전트.
@@ -99,6 +100,7 @@ export interface Agent {
   memories: string[]
   historyDepth: number
   persistHistory?: boolean
+  ephemeral?: boolean
   vectorTables: string[]
   mcps: string[]
   impl?: string // 실행 방식 런타임 키(스펙 085/106) — 폼 재로드/라운드트립 보존

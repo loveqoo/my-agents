@@ -10,6 +10,7 @@ export interface AgentFormData {
   memories: string[]
   historyDepth: number
   persistHistory: boolean
+  ephemeral: boolean
   vectorTables: string[]
   mcps: string[]
   impl: string // 실행 방식(런타임 키). ''=기본 UI 에이전트(스펙 106).

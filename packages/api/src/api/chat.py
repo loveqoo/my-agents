@@ -164,6 +164,10 @@ async def _load_context(
             "temperature": cfg.get("temperature"),
             "history_depth": cfg.get("historyDepth", 20),
             "persist_history": cfg.get("persistHistory", True),
+            # 비영속(1회성) 모드(스펙 235) — true면 DB 적재 전면 스킵: 세션 행·카운터·메시지·commit·
+            # 메모리 read/write 전부 무동작. 고트래픽·기록 무의미한 단순 추론 제공용. persistHistory(메시지만
+            # 스킵)의 상위집합. 세션이 없으니 이력·회상·소유권도 없음(순수 stateless).
+            "ephemeral": bool(cfg.get("ephemeral", False)),
         }
 
         # 모델은 레지스트리에서만 해석한다(env 안 봄). 에이전트가 고른 이름 → 없으면
@@ -510,7 +514,13 @@ async def _persist(
 
     반환: 저장한 **assistant Message.id(str)** — 플레이그라운드 피드백 부착용(스펙 209 Phase 1.5).
     store_messages가 False거나 세션 미해결이면 None(피드백 대상 없음).
+
+    비영속(스펙 235): ctx["ephemeral"]이면 세션 해결·행 생성·카운터·commit을 **전부 스킵**하고 즉시
+    None(DB 무접촉 — 고트래픽 1회성 추론). store_messages(persistHistory)는 메시지만 스킵하지만 세션은
+    남기는 하위 모드라 구분된다.
     """
+    if ctx.get("ephemeral"):
+        return None
     async with SessionLocal() as db:
         sess = await _resolve_session_for_persist(db, ctx)
         if sess is None:
@@ -746,7 +756,8 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
     _impl_consumes = impl.describe().consumes
     _impl_reads_memory = _impl_consumes is None or "memories" in _impl_consumes
     used_memory = (
-        _impl_reads_memory
+        not ctx.get("ephemeral")  # 비영속(스펙 235): 회상·자동기록 전면 off(stateless)
+        and _impl_reads_memory
         and memory.memory_enabled(ctx["memories"])
         and ctx["mem_cfg"] is not None
     )
@@ -774,7 +785,11 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
     run_params = {} if ctx["temperature"] is None else {"temperature": ctx["temperature"]}
     # HIL 체크포인터(스펙 041). 있으면 위험 도구가 interrupt로 일시정지·재개될 수 있다. 없으면
     # 기존 무상태 동작(무회귀) — 단 위험 도구가 호출되면 interrupt가 예외로 새 fail-closed(미실행).
-    ckpt = checkpointer.get_checkpointer()
+    # 비영속(스펙 235): 체크포인터 미부착 → 그래프 무상태 실행(checkpoints/checkpoint_writes/blobs
+    # 테이블 미기록) + HIL interrupt 구조적 불가(interrupt는 체크포인터 필요 → _create_approval 미도달).
+    # "쓰기 0" 계약의 핵심 봉합(codex 적대 검증). ephemeral은 순수 추론(무도구) 전제 — 승인형 도구와
+    # 병용 금지(verify_235가 checkpoint/approval 0으로 못박음).
+    ckpt = None if ctx.get("ephemeral") else checkpointer.get_checkpointer()
     # 능력 브로커(스펙 100) — 정책(에이전트 allowlist ∩ 유저 RBAC)으로 **미리 스코프**해 주입.
     # 로컬(ui) 실행 경로에만 준다: 원격 통째 프록시(_a2a_stream)는 broker 미주입(bypass 보존).
     # broker를 쓰는 flow(예: orchestrate)만 소비하고, 안 쓰면 무해(deny-by-default).
@@ -821,9 +836,11 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
         graph_input = None  # 아래에서 {"messages": messages}로 채움(messages는 이후 계산)
     config = {"configurable": {"thread_id": thread_id}}
     # 관측(스펙 118) — Langfuse가 설정됐을 때만 콜백 부착(미설정=무동작). 핵심 채팅 경로 무영향.
-    config = observability.with_trace(
-        config, name=f"chat:{ctx['ext_agent_id']}", session_id=ctx["session_id"], user_id=user_id
-    )
+    # 비영속(스펙 235): 외부 관측 기록도 스킵(고트래픽·기록 무의미 계약 — 앱 DB 밖이라도 적재 안 함).
+    if not ctx.get("ephemeral"):
+        config = observability.with_trace(
+            config, name=f"chat:{ctx['ext_agent_id']}", session_id=ctx["session_id"], user_id=user_id
+        )
     # 실측 캡처(스펙 205) — 모델 호출 메시지·usage. Langfuse 콜백과 병행(둘 다 callbacks 리스트).
     capture = trace_capture.TraceCaptureHandler()
     config["callbacks"] = list(config.get("callbacks") or []) + [capture]
@@ -1250,7 +1267,12 @@ async def resume_approval(approval: Approval, decision: str) -> None:
     # 스펙 233 봉합(이중 배선 축 — 신규 chat과 동일 게이트를 재개 경로에도, codex 잔여 회귀): impl이
     # "memories"를 consumes로 선언할 때만 회상(폼 "무시됩니다"를 재개 경로에서도 참으로).
     _resume_reads_memory = impl.describe().consumes is None or "memories" in impl.describe().consumes
-    used_memory = _resume_reads_memory and memory.memory_enabled(ctx["memories"]) and ctx["mem_cfg"] is not None
+    used_memory = (
+        not ctx.get("ephemeral")  # 스펙 235 대칭
+        and _resume_reads_memory
+        and memory.memory_enabled(ctx["memories"])
+        and ctx["mem_cfg"] is not None
+    )
     # user_id가 없으니(재개 주체=admin) user/run 축 회상은 의미가 약하나, 페르소나 톤 유지를 위해
     # agent 축 회상만이라도 접목(없어도 무해). 자동 메모리 add는 user_id 부재로 생략(빚).
     mem_hits = (
@@ -1291,7 +1313,10 @@ async def resume_approval(approval: Approval, decision: str) -> None:
     graph = impl.build_graph(build_ctx)
     config = {"configurable": {"thread_id": thread_id}}
     # 관측(스펙 118) — 재개 경로도 Langfuse가 설정됐을 때만 콜백 부착(미설정=무동작).
-    config = observability.with_trace(config, name="chat-resume", user_id=approval.user_id)
+    # 비영속(스펙 235) 대칭 가드(codex): 정상 ephemeral은 approval을 못 만들어 미도달이나, "과거 approval +
+    # 설정을 ephemeral로 변경" 엣지에서 이 경로가 호출될 수 있어 langfuse도 대칭으로 스킵(_persist는 이미 차단).
+    if not ctx.get("ephemeral"):
+        config = observability.with_trace(config, name="chat-resume", user_id=approval.user_id)
 
     t0 = time.perf_counter()
     try:
