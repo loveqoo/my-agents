@@ -213,6 +213,10 @@ class McpServer(Base):
     auth: Mapped[str | None] = mapped_column(String(400), default=None)  # 암호화 저장(Fernet, 스펙 054 F) — 응답은 마스킹
     # 소유자(스펙 112) — None=레거시/admin=admin 전용(fail-closed, 070). 생성 시 스탬프·이전 금지(069).
     owner_id: Mapped[str | None] = mapped_column(String(80), index=True, default=None)
+    # 수정일(스펙 216) — 빌딩 블록 '수정일' 열 배선. Persona와 동일 패턴, onupdate는 ORM-side.
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 class AppSetting(Base):

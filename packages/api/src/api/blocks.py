@@ -22,6 +22,7 @@ from .ownership import assert_may_manage, may_manage, may_use_agent, owner_of
 from agent.runtime import is_first_party
 from .models import Agent, Collection, McpServer, MemoryType, Persona
 from .references import _config_has, agents_referencing, referenced_message
+from .serializers import _iso
 from .schemas import (
     McpDiscoverIn,
     McpDiscoverResult,
@@ -671,7 +672,7 @@ async def get_blocks(
             "tone": row.tone,
             "body": row.body,
             "usedBy": _count_by(agents, "persona", row.name, scalar=True),
-            "updated": "—",
+            "updated": _iso(row.updated_at),  # 수정일 배선(스펙 216) — 프론트 fmtTime이 친화 표기
         }
         for row in personas
     ]
@@ -683,7 +684,7 @@ async def get_blocks(
             "scope": row.scope,
             "body": row.body,
             "usedBy": _count_by(agents, "memories", row.name),
-            "updated": "—",
+            "updated": "—",  # 메모리 타입은 읽기 전용(시스템 enum, spec 016) — 수정 N/A(스펙 216)
         }
         for row in memory_types
     ]
@@ -722,7 +723,7 @@ async def get_blocks(
             "served_url": _mcp_served_url(row),  # 서빙 URL(스펙 156) — custom+정의보유만, 그 외 None
             "auth": _mcp_auth_masked(row),
             "usedBy": _count_by(agents, "mcps", row.name),
-            "updated": "—",
+            "updated": _iso(row.updated_at),  # 수정일 배선(스펙 216)
             "owner_id": row.owner_id,  # 스펙 112
             "can_manage": may_manage(row.owner_id, principal),  # 스펙 114 — UI 편집/삭제 표시 파생
         }

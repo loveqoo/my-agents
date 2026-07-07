@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { Tag, Button, Tabs, Switch, Modal, Input, Select, Checkbox, Tooltip, Alert, Grid, message, Descriptions } from 'antd'
 import { Page, DataTable, Drawer, type Column } from '../shared'
 import { validateName, NAME_HINT } from '../naming'
+import { fmtTime } from '../format'
 import { Icon } from '../icons'
 import { VECTOR_STATUS, type BlockItem, type BlockCategory, type StatusMeta } from '../mockData'
 import {
@@ -1022,10 +1023,11 @@ export default function BlocksView() {
       },
       {
         key: 'updated',
-        title: '수정',
+        title: '수정일',
         width: 120,
         align: 'right',
-        render: (r) => <span style={{ color: 'var(--color-text-tertiary)' }}>{r.updated}</span>,
+        // 스펙 216: ISO→친화 표기(fmtTime), "—"(읽기 전용 메모리)는 파싱 불가라 그대로 통과.
+        render: (r) => <span style={{ color: 'var(--color-text-tertiary)' }}>{fmtTime(r.updated) || '—'}</span>,
       },
     ]
   }
@@ -1311,7 +1313,7 @@ export default function BlocksView() {
               size="small"
               items={[
                 { key: 'usedBy', label: '사용', children: `${detail.usedBy}개 에이전트` },
-                { key: 'updated', label: '수정', children: detail.updated },
+                { key: 'updated', label: '수정일', children: fmtTime(detail.updated) || '—' },
               ]}
             />
             {cat === 'mcp' && detail.source === 'custom' ? (
