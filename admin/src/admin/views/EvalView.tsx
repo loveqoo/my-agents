@@ -794,8 +794,12 @@ export default function EvalView({ initialCollectionId, onConsumedInitial }: {
                   emptyText={kindFilter === 'rag' ? 'RAG 평가 문제집이 없습니다 — 새로 만들어 보세요.' : '에이전트 평가 문제집이 없습니다 — 새로 만들어 보세요.'}
                   errorTitle="문제집을 불러오지 못했습니다"
                   leftSlot={
-                    <Button type="primary" icon={<Icon name="plus" />} onClick={() => setCreating(true)}>
-                      새 문제집
+                    <Button
+                      type="primary"
+                      icon={<Icon name="plus" />}
+                      onClick={() => { setNewKind(kindFilter); setCreating(true) }}
+                    >
+                      {kindFilter === 'rag' ? '새 RAG 문제집' : '새 에이전트 문제집'}
                     </Button>
                   }
                 />
@@ -845,7 +849,7 @@ export default function EvalView({ initialCollectionId, onConsumedInitial }: {
 
       <Modal
         open={creating}
-        title="새 문제집"
+        title={newKind === 'rag' ? '새 RAG 문제집' : '새 에이전트 문제집'}
         okText="만들기"
         cancelText="취소"
         okButtonProps={{ disabled: !newName.trim() || (newKind === 'rag' && !newColl) }}
@@ -859,7 +863,7 @@ export default function EvalView({ initialCollectionId, onConsumedInitial }: {
               setCreating(false)
               setNewName('')
               setNewDesc('')
-              setNewKind('agent')
+              setNewKind(kindFilter)
               setNewColl(undefined)
               bumpDatasets()
             })
@@ -867,14 +871,13 @@ export default function EvalView({ initialCollectionId, onConsumedInitial }: {
         }
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <Select
-            value={newKind}
-            onChange={setNewKind}
-            options={[
-              { value: 'agent', label: '에이전트 시험 — 에이전트에게 질문하고 답변·도구 사용을 채점' },
-              { value: 'rag', label: 'RAG 컬렉션 시험 — 컬렉션 검색 품질(결과 수·유사도·근거 문서)을 채점' },
-            ]}
-          />
+          {/* 스펙 212 후속: 종류는 열려 있던 kind 탭이 정한다 → 모달에서 재선택 불필요(맥락 승계).
+              무엇을 만드는지 한 줄로 알린다(선택 위젯 아님). */}
+          <div style={{ fontSize: 13, color: 'var(--color-text-tertiary)' }}>
+            {newKind === 'rag'
+              ? 'RAG 컬렉션 시험 — 컬렉션 검색 품질(결과 수·유사도·근거 문서)을 채점합니다.'
+              : '에이전트 시험 — 에이전트에게 질문하고 답변·도구 사용을 채점합니다.'}
+          </div>
           {/* 스펙 193: rag 문제집은 만들 때 대상 컬렉션을 고정 → 실행 시 재선택 불필요. */}
           {newKind === 'rag' ? (
             <Select
