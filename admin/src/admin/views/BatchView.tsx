@@ -3,7 +3,7 @@
    각 패널: 설정(임계치/일수 + cron) 편집 + dry-run/실행 트리거. 하단에 공용 실행 이력.
    백엔드: GET/PATCH /admin/batch/config, POST /admin/batch/{job}/run, GET /admin/batch/runs. */
 import { useState, useEffect, useCallback } from 'react'
-import { Button, InputNumber, Input, Tag, Tooltip, Popconfirm, Space, message, Form } from 'antd'
+import { Button, InputNumber, Input, Tag, Tooltip, Popconfirm, Space, message, Form, Tabs } from 'antd'
 import { Page, Panel, DataTable, StatusPill, type Column } from '../shared'
 import {
   getBatchConfig,
@@ -124,6 +124,9 @@ export default function BatchView() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState<'session' | 'memory' | 'user' | null>(null)
   const [busy, setBusy] = useState<string | null>(null) // `${job}:${dry|run}`
+  // 스펙 227: 네 잡을 세로 나열 → 탭(각 잡은 설정 폼·동작이 다른 별개 도구, 탭 규칙 스펙 212).
+  // 실행 이력은 공용이라 탭 아래 공통. 입력 상태는 컴포넌트 상태라 탭 전환에도 보존.
+  const [job, setJob] = useState<'session' | 'memory' | 'a2a' | 'user'>('session')
 
   const loadRuns = useCallback(async () => {
     try {
@@ -313,7 +316,19 @@ export default function BatchView() {
         </Button>
       }
     >
+      <Tabs
+        activeKey={job}
+        onChange={(k) => setJob(k as typeof job)}
+        items={[
+          { key: 'session', label: '세션 정리' },
+          { key: 'memory', label: '메모리 통합' },
+          { key: 'a2a', label: 'A2A 정크' },
+          { key: 'user', label: '테스트 유저' },
+        ]}
+        style={{ marginBottom: 12 }}
+      />
       {/* 세션 보존정리 설정 (스펙 038) */}
+      {job === 'session' && (
       <Panel style={{ padding: 20, marginBottom: 20 }}>
         <h4 style={{ margin: '0 0 4px', fontSize: 16 }}>세션 보존정리 (session-cleanup)</h4>
         <div style={{ color: 'var(--color-text-tertiary)', fontSize: 13, marginBottom: 16 }}>
@@ -407,8 +422,10 @@ export default function BatchView() {
           )}
         </div>
       </Panel>
+      )}
 
       {/* 유저 메모리 통합 설정 (스펙 039) */}
+      {job === 'memory' && (
       <Panel style={{ padding: 20, marginBottom: 20 }}>
         <h4 style={{ margin: '0 0 4px', fontSize: 16 }}>유저 메모리 통합 (memory-consolidation)</h4>
         <div style={{ color: 'var(--color-text-tertiary)', fontSize: 13, marginBottom: 16 }}>
@@ -481,8 +498,10 @@ export default function BatchView() {
           )}
         </div>
       </Panel>
+      )}
 
       {/* A2A 정크 정리 (스펙 050, #1) — 설정 없음, dry-run/실행만 */}
+      {job === 'a2a' && (
       <Panel style={{ padding: 20, marginBottom: 20 }}>
         <h4 style={{ margin: '0 0 4px', fontSize: 16 }}>A2A 정크 정리 (a2a-cleanup)</h4>
         <div style={{ color: 'var(--color-text-tertiary)', fontSize: 13, marginBottom: 16 }}>
@@ -513,8 +532,10 @@ export default function BatchView() {
           </Popconfirm>
         </Space>
       </Panel>
+      )}
 
       {/* 테스트 유저 정리 (스펙 050, #13) — 가장 비가역, 바닥 3겹 */}
+      {job === 'user' && (
       <Panel style={{ padding: 20, marginBottom: 20 }}>
         <h4 style={{ margin: '0 0 4px', fontSize: 16 }}>테스트 유저 정리 (user-cleanup)</h4>
         <div style={{ color: 'var(--color-text-tertiary)', fontSize: 13, marginBottom: 16 }}>
@@ -578,8 +599,9 @@ export default function BatchView() {
           )}
         </div>
       </Panel>
+      )}
 
-      {/* 실행 이력 (네 작업 공용) */}
+      {/* 실행 이력 (네 작업 공용 — 탭 아래 공통) */}
       <h4 style={{ margin: '0 0 12px', fontSize: 16 }}>실행 이력</h4>
       <DataTable columns={columns} rows={runs} empty={loading ? '불러오는 중…' : '실행 이력 없음'} />
     </Page>

@@ -229,3 +229,4 @@
 - 224 능력 부여 대상 Segmented→Tabs 통일 — **done**: [역할에게/특정 유저에게]가 Segmented라 상위 Tabs와 불일치. 대상(역할 vs 유저) 전환이 폼·목록 바꿈→Tabs 부합(스펙 219 동형). UsersView Segmented→Tabs·미사용 import 제거. 브라우저 role=tab·Segmented잔재0·안내문 갱신·tsc0 [mode-switch-swaps-tools-is-tabs] → 스샷
 - 225 유저 권한 부여 어휘 정리(능력→권한) — **done**: 사용자 지적. UsersView 표시용 '능력'→'권한' 전량(탭·도입문·컬럼·토스트), '역할에게'→'역할 기준'(권한기준 요청은 첫박스가 역할이라 되돌림)·'특정 유저에게'→'유저 기준'. 표시 문자열만(백엔드 capability 개념 불변). 브라우저 '능력'0·tsc0 [ui-label-vs-backend-term,permission-wording] → 스샷
 - 226 배치 폼 레이아웃 정돈 — **done**: 사용자 "스타일/컴포넌트 배치 조절 필요". 좁은 입력 오른쪽에 떠 있던 힌트 span 6개 → Form.Item extra(필드 아래 정렬), 세션 정리 두 숫자필드(보존일수·최소 턴 수) 나란히. 레이아웃만·로직 불변. tsc0 [batch-form,extra-hint-below,related-fields-side-by-side]
+- 227 배치 4개 잡 탭 구성 — **done**: 사용자 제안 "배치를 탭으로". 세로 나열 네 잡(세션 정리·메모리 통합·A2A 정크·테스트 유저)→언더라인 Tabs 스위처, 활성 잡만 조건 렌더. 실행 이력(공용)은 탭 아래 공통 유지, 입력 상태 탭전환 보존. 스크롤 대폭 감소·앱 전역 탭과 일치. tsc0 [batch-tabs,jobs-as-tabs,shared-history-below]
