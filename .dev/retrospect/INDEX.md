@@ -210,3 +210,4 @@
 - 205 제목 중복+죽은 검색 UI(스펙 213) — 중복=두 진실원 신호(헤더 단독으로·값 우연일치라 자가검증 못봄 육안만 잡음), 껍데기 UI=거짓 약속(배선or제거, "나중에"는 거짓노출), 전역 표시요소는 진실원1곳 불변식 [single-source-display,dead-widget-is-false-promise,screenshot-catches-overlap] → 브라우저9메뉴
 - 206 빌딩블록 수정일 죽은값 배선(스펙 216) — 상수리터럴("—"/"just now") 표시값=미배선 신호(렌더여부말고 액션후 값변화 검증), 읽기전용엔 정직한 N/A가 정답(가짜날짜 금지=여집합이 정직경계), 마이그 헤더그래프+실DB확인 [dead-value-is-unwired,honest-na-for-readonly,edit-then-reverify-roundtrip] → 편집왕복+DB
 - 207 이름규칙 조이기=생산자 전수감사(스펙 217) — 입력규칙 좁히면 validator 호출부뿐 아니라 값 생산자(자동생성·slug·복제접미·fallback상수) 전수감사(복제 "-복사본"이 새규칙 위반 생산), fallback도 규칙대상("unnamed"), 공용규칙 파급은 DB SELECT로 먼저 측정 [audit-producers-not-validators,fallback-obeys-rule,measure-blast-radius] → verify_148 42/42
+- 208 같은표면 일괄+mock 견고신호(스펙 218) — 연속 같은모달 요청은 한 스펙으로 묶어 검증1회, mock 판정은 이름 하드코딩 대신 provider.kind 원천속성 승격(이미 로드된 관계=비용0), 목록 필터는 파생(프리셀렉트·게이트·빈문구) 전부 일관적용 [robust-signal-over-literal,batch-same-surface,filter-all-derivations] → API+브라우저

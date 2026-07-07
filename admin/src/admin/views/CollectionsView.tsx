@@ -126,13 +126,20 @@ function CreateModal({
 }) {
   const [f, setF] = useState<CreateFormData>(blankCreate)
 
+  // mock 필터(스펙 218, 사용자 지시): 실제(비-mock) 임베딩 모델이 하나라도 있으면 mock 모델은
+  // 선택지에서 제외한다. mock만 있으면(개발 초기) 그대로 노출해 컬렉션 생성이 막히지 않게 한다.
+  const hasReal = models.some((m) => m.provider_kind !== 'mock')
+  const selectable = hasReal ? models.filter((m) => m.provider_kind !== 'mock') : models
+
   useEffect(() => {
     if (open) {
       // 기본 임베딩 모델을 프리셀렉트(is_default) — 없으면 모델이 하나일 때만 그걸로(스펙 175).
-      // 임베딩은 생성 후 불변이라, 흔한 선택을 미리 채워 실수 여지를 줄인다.
-      const def = models.find((m) => m.is_default) ?? (models.length === 1 ? models[0] : undefined)
+      // 임베딩은 생성 후 불변이라, 흔한 선택을 미리 채워 실수 여지를 줄인다. selectable에서만 고른다.
+      const def = selectable.find((m) => m.is_default) ?? (selectable.length === 1 ? selectable[0] : undefined)
       setF({ ...blankCreate, kind: initialKind, embedding_model_id: def?.id ?? '' })
     }
+    // selectable은 models 파생 — models 변경 시 재계산
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, models, initialKind])
 
   const set = <K extends keyof CreateFormData>(k: K, v: CreateFormData[K]) =>
@@ -187,9 +194,11 @@ function CreateModal({
             value={f.embedding_model_id || undefined}
             onChange={(v) => set('embedding_model_id', v)}
             style={{ width: '100%' }}
-            placeholder={models.length ? '임베딩 모델 선택' : '먼저 임베딩 모델을 등록하세요'}
-            options={models.map((m) => ({
-              label: `${m.name} — ${m.model_id}${m.is_default ? ' · 기본' : ''}`,
+            popupMatchSelectWidth={false}
+            placeholder={selectable.length ? '임베딩 모델 선택' : '먼저 임베딩 모델을 등록하세요'}
+            options={selectable.map((m) => ({
+              // 이름과 model_id가 같으면(HF 경로 등) 중복 표기 생략 — 라벨 과다 길이 방지(스펙 218).
+              label: `${m.name}${m.model_id && m.model_id !== m.name ? ` — ${m.model_id}` : ''}${m.is_default ? ' · 기본' : ''}`,
               value: m.id,
             }))}
           />
@@ -244,7 +253,12 @@ function CreateModal({
               />
             </label>
             <label style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1 }}>
-              <span style={{ fontSize: 14, fontWeight: 500 }}>청크 겹침</span>
+              <span style={{ fontSize: 14, fontWeight: 500 }}>
+                청크 겹침{' '}
+                <Tooltip title="이웃한 두 조각이 겹쳐서 공유하는 글자 수. 문장이 조각 경계에서 잘려 문맥이 끊기는 걸 줄입니다(보통 크기의 10~20%).">
+                  <span style={{ color: 'var(--color-text-tertiary)', fontWeight: 400, cursor: 'help' }}>(?)</span>
+                </Tooltip>
+              </span>
               <InputNumber
                 min={0}
                 style={{ width: '100%' }}

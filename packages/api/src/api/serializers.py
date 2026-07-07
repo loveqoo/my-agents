@@ -40,6 +40,7 @@ def model_to_out(m: ModelConfig) -> ModelOut:
         name=m.name,
         provider_id=m.provider_id,
         provider_name=m.provider.name if m.provider else "",
+        provider_kind=m.provider.kind if m.provider else "",  # mock 필터용(스펙 218)
         base_url=m.provider.base_url if m.provider else "",
         model_id=m.model_id,
         kind=m.kind,

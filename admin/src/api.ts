@@ -480,6 +480,7 @@ export interface Model {
   name: string
   provider_id: string
   provider_name: string
+  provider_kind: ProviderKind // provider.kind — mock 필터 등(스펙 218)
   base_url: string // provider에서 상속(읽기 전용 표시)
   model_id: string
   kind: 'chat' | 'embedding'

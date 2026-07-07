@@ -390,6 +390,7 @@ class ModelOut(BaseModel):
     name: str
     provider_id: uuid.UUID
     provider_name: str  # 표시용(denormalized)
+    provider_kind: str = ""  # provider.kind(local|mock|remote) — mock 필터 등에 사용(스펙 218)
     base_url: str  # provider에서 상속(표시용)
     model_id: str
     kind: str
