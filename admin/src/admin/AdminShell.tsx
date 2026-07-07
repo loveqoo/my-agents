@@ -257,7 +257,10 @@ export default function AdminShell({ user, onLogout }: { user: Me; onLogout: () 
             theme="dark"
             mode="inline"
             selectedKeys={[view]}
-            onSelect={({ key }) => {
+            // onClick(onSelect 아님) — onSelect는 **이미 선택된 항목 재클릭에 발화하지 않아**,
+            // 기본 뷰(agents)를 첫 클릭할 때 모바일 드로어가 안 닫히고 mask가 화면을 막았다(스펙 206
+            // 검증 중 실측). onClick은 재클릭 포함 항상 발화.
+            onClick={({ key }) => {
               if (key === 'guide') {
                 // 가이드는 뷰가 아니라 정적 문서 — 새 탭으로 열고 현재 뷰 유지.
                 window.open('/guide/index.html', '_blank', 'noopener')

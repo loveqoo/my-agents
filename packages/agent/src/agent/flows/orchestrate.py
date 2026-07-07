@@ -227,7 +227,7 @@ class OrchestrationAgentBase(ABC):
         # 파이프라인(Approval→Command(resume))이 모든 전략에 적용되므로 supports_hil=True로 정직
         # 표기해야 resume_approval의 드리프트 가드를 통과한다(False면 재개가 거부됨). 조상이 소유 =
         # 어떤 전략도 HIL 계약을 끌 수 없다.
-        return AgentManifest(name=self.NAME, description=self.DESCRIPTION, supports_hil=True)
+        return AgentManifest(name=self.NAME, description=self.DESCRIPTION, supports_hil=True, consumes=("capabilities", "memories"))  # 스펙 206
 
     @abstractmethod
     def select(self, query: str, candidates: list[Capability]) -> list[Capability]:

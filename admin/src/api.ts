@@ -347,6 +347,9 @@ export async function uploadDocument(id: string, file: File): Promise<RagDocumen
 
 /* ---------- 에이전트 ---------- */
 export const listAgents = () => j<Agent[]>('/agents')
+/* 실행 방식 메타(스펙 206) — consumes: 이 impl이 읽는 설정 표면(null=미선언, 폼 전부 노출). */
+export interface ImplMeta { key: string; consumes: string[] | null }
+export const listAgentImpls = () => j<ImplMeta[]>('/agent-impls')
 export const createAgent = (name: string, config: unknown, alias?: string | null) =>
   post('/agents', { name, alias: alias ?? null, config }) as Promise<Agent>
 export const updateAgent = (id: string, name: string, config: unknown, alias?: string | null) =>

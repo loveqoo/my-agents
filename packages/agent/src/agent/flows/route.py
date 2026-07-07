@@ -68,6 +68,7 @@ class RouteAgent:
 
     def describe(self) -> AgentManifest:
         return AgentManifest(
+            consumes=("memories",),  # 스펙 206 — 분기 데모: 도구·문서 미소비(persona 회상만)
             name="route",
             description="분기 라우터(classify→answer_a/answer_b) — 조건분기 예제 커스텀 에이전트",
             supports_hil=False,  # 위험 도구 게이트·interrupt 없음(순수 분기) — 정직하게 표기

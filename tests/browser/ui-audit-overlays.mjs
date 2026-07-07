@@ -280,4 +280,6 @@ console.log(`\n=== 스코어카드: ${scorecard.length}건 중 FAIL ${fails.leng
 for (const f of fails) console.log(`  FAIL ${f.vp}/${f.key} (pageScroll=${f.pageScroll}px, offenders=${f.offenderCount})`)
 for (const f of navFails) console.log(`  NAV?  ${f.vp}/${f.key} — ${f.navReason}`)
 console.log(`scorecard → ${OUT}/scorecard.json`)
-process.exit(fails.length ? 1 : 0)
+// NAV 실패도 실패다(스펙 206 실측: 모바일 드로어 잠김 4건이 NAV로만 기록돼 감사가 초록 — 공허 초록).
+// 열지 못한 표면은 측정 0건인데 통과로 세면 커버리지가 조용히 준다.
+process.exit(fails.length || navFails.length ? 1 : 0)

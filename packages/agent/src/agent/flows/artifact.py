@@ -327,7 +327,7 @@ class ArtifactAgentBase(ABC):
     @final
     def describe(self) -> AgentManifest:
         # ask/form의 interrupt 재개가 곧 HIL 계약 — supports_hil=True 정직 표기(조상 소유).
-        return AgentManifest(name=self.NAME, description=self.DESCRIPTION, supports_hil=True)
+        return AgentManifest(name=self.NAME, description=self.DESCRIPTION, supports_hil=True, consumes=("artifactSpec",))  # 스펙 206
 
     @abstractmethod
     async def produce(self, ctx: ProduceContext) -> Artifact:

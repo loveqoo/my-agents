@@ -85,13 +85,31 @@ def _enforce_tool_policy_gate(config: dict, principal) -> None:
 meta_router = APIRouter(tags=["agents"])
 
 
-@meta_router.get("/agent-impls", response_model=list[str])
-async def list_impls() -> list[str]:
-    """등록된 실행 방식(impl) 키 목록 — 신뢰 레지스트리 단일 출처(drift 0). 편집 폼 impl Select가 소비.
-    키일 뿐(런타임 eval 없음, 스펙 085). agent.runtime import가 `_bootstrap_builtins()`를 이미 실행."""
-    from agent.runtime import list_agent_impls
+class ImplMetaOut(BaseModel):
+    """실행 방식 메타(스펙 206) — key + 소비 표면 선언(consumes). consumes null=미선언(폼 전부 노출)."""
 
-    return list_agent_impls()
+    key: str
+    consumes: list[str] | None = None
+
+
+@meta_router.get("/agent-impls", response_model=list[ImplMetaOut])
+async def list_impls() -> list[ImplMetaOut]:
+    """등록된 실행 방식(impl) 키+소비 표면 — 신뢰 레지스트리 단일 출처(drift 0). 편집 폼이 소비
+    (스펙 206: consumes로 안 읽는 표면 숨김/경고). 키일 뿐(런타임 eval 없음, 스펙 085).
+    agent.runtime import가 `_bootstrap_builtins()`를 이미 실행."""
+    from agent.runtime import get_agent_impl, list_agent_impls
+
+    out = []
+    for key in list_agent_impls():
+        impl = get_agent_impl(key)
+        consumes = None
+        try:
+            c = impl.describe().consumes if impl else None
+            consumes = list(c) if c is not None else None
+        except Exception:  # noqa: BLE001 — describe 실패 impl은 미선언 취급(폼 전부 노출)
+            consumes = None
+        out.append(ImplMetaOut(key=key, consumes=consumes))
+    return out
 
 
 # ----------------------------- helpers -----------------------------

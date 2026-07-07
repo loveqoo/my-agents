@@ -59,6 +59,7 @@ class PlanExecuteAgent:
     def describe(self) -> AgentManifest:
         return AgentManifest(
             name="plan-execute",
+            consumes=("mcps", "vectorTables", "memories"),  # 202부터 ctx.tools(mcp+rag)·persona(회상) 소비
             description="2노드(plan→execute) 예제 커스텀 에이전트 — 인터페이스 누수 측정용",
             supports_hil=False,  # 위험 도구 게이트 없음(순수 2노드) — 정직하게 표기
         )

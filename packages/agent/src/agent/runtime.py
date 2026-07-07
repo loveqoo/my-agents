@@ -120,6 +120,10 @@ class AgentManifest:
     description: str = ""
     accepts_overrides: bool = True  # 플레이그라운드 설정 주입 수용 여부
     supports_hil: bool = True  # HIL interrupt/Command(resume) 계약 지원 여부
+    # 이 impl이 실제로 읽는 설정 표면(스펙 206) — "mcps"|"vectorTables"|"memories"|"capabilities"|
+    # "artifactSpec". None=미선언(폼은 전부 노출 — 현행 무회귀). 선언하면 편집 폼이 안 읽는 표면을
+    # 숨기고, 저장된 연결이 있으면 "무시됩니다" 경고("설정=동작" 정직화 — 201 후속2 함정의 구조 해법).
+    consumes: tuple[str, ...] | None = None
 
 
 @runtime_checkable
@@ -147,6 +151,7 @@ class DefaultUiAgent:
     def describe(self) -> AgentManifest:
         return AgentManifest(
             name="default-ui",
+            consumes=("mcps", "vectorTables", "memories"),  # ReAct: 도구(mcp+rag)·회상 전부 소비
             description="기본 ReAct 에이전트(create_agent) — UI 빌더로 만든 로컬 에이전트",
         )
 

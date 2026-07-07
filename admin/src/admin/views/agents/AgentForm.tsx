@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Select, Input, Switch, Slider, Tooltip, Collapse, Alert, Modal } from 'antd'
 import { isOrchestratorImpl, type BlockCategory, type ToolPolicy, type Agent } from '../../mockData'
-import { type Model, type Collection } from '../../../api'
+import { listAgentImpls, type Model, type Collection, type ImplMeta } from '../../../api'
 import { PickerGroups, type PickerGroup } from '../../../PickerGroups'
 import { validateName, NAME_HINT } from '../../naming'
 import { Field, SectionHeader } from './primitives'
@@ -104,6 +104,26 @@ export function AgentForm({
       [k]: f[k].includes(v) ? f[k].filter((x) => x !== v) : [...f[k], v],
     }))
   const isEdit = mode === 'edit'
+
+  // 실행 방식 소비 표면(스펙 206) — impl이 "나는 이 설정을 읽는다"를 선언(consumes). 미선언(null)
+  // =전부 노출(무회귀). 로드 실패도 전부 노출(best-effort — 게이트는 정직화 부가층).
+  const [implMetas, setImplMetas] = useState<Record<string, string[] | null>>({})
+  useEffect(() => {
+    listAgentImpls()
+      .then((ms: ImplMeta[]) => setImplMetas(Object.fromEntries(ms.map((m) => [m.key, m.consumes]))))
+      .catch(() => {})
+  }, [])
+  // ''(직접 응답)=기본 ReAct(전부 소비). 커스텀 impl은 선언 있으면 그대로, 없으면 null(전부).
+  const consumes = form.impl ? (implMetas[form.impl] ?? null) : null
+  const surfaceOf: Record<string, string> = { 도구: 'mcps', 문서: 'vectorTables', 기억: 'memories' }
+  const surfaceVisible = (groupKey: string) =>
+    consumes == null || consumes.includes(surfaceOf[groupKey] ?? '')
+  // 숨긴 표면에 저장된 연결이 있으면 경고(데이터는 보존 — impl 되돌리면 부활).
+  const ignoredCounts: [string, number][] = consumes == null ? [] : ([
+    ['도구', consumes.includes('mcps') ? 0 : form.mcps.length],
+    ['문서', consumes.includes('vectorTables') ? 0 : form.vectorTables.length],
+    ['기억', consumes.includes('memories') ? 0 : form.memories.length],
+  ] as [string, number][]).filter(([, n]) => n > 0)
 
   // 등록된 chat 모델로 옵션 구성. 목록이 비었거나 현재 model이 목록에 없으면
   // 현재 값을 옵션에 보존해 편집 시 선택이 사라지지 않게 한다.
@@ -278,7 +298,16 @@ export function AgentForm({
           <PickerGroups groups={capGroups} selected={form.capabilities} onToggle={toggleCap} />
         ) : (
           <>
-            <PickerGroups groups={doGroups} selected={directSelected} onToggle={toggleDirect} />
+            {/* 소비 표면 게이트(스펙 206) — 이 impl이 안 읽는 그룹은 숨기고, 저장된 연결이 있으면 경고. */}
+            {ignoredCounts.length > 0 ? (
+              <Alert
+                type="warning"
+                showIcon
+                style={{ marginBottom: 10 }}
+                message={`이 실행 방식은 ${ignoredCounts.map(([k]) => k).join('·')} 설정을 읽지 않습니다 — 저장된 연결 ${ignoredCounts.reduce((s, [, n]) => s + n, 0)}개는 무시됩니다(연결은 보존되며, 실행 방식을 되돌리면 다시 적용됩니다).`}
+              />
+            ) : null}
+            <PickerGroups groups={doGroups.filter((g) => surfaceVisible(g.key))} selected={directSelected} onToggle={toggleDirect} />
             {/* 하이브리드 도구 접근 안내(스펙 203, 사용자 요청) — 임계값 10은 백엔드
                 agent/toolbox.py DISCOVER_THRESHOLD 미러(변경 시 함께). */}
             <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)', display: 'block', marginTop: 6 }}>
