@@ -2,7 +2,7 @@
    목록 + 활성 토글 + 역할 부여/회수 + 유저 추가 모달. 공개 등록은 없으므로 생성은 여기서만.
    백엔드: GET/POST /admin/users, PATCH active, GET /admin/roles, POST/DELETE roles. */
 import { useState, useEffect, useCallback, type ReactNode } from 'react'
-import { Tag, Button, Modal, Input, Switch, Select, Form, message, Tooltip, Space, Segmented, Tabs } from 'antd'
+import { Tag, Button, Modal, Input, Switch, Select, Form, message, Tooltip, Space, Tabs } from 'antd'
 import { Page, DataTable, StatusPill, type Column } from '../shared'
 import {
   listUsers,
@@ -372,19 +372,22 @@ export default function UsersView() {
         관리자(admin)는 모든 능력을 쓸 수 있고, <b>일반 멤버(member)는 여기서 열어준 능력만</b> 쓸 수 있습니다(기본 잠김).
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
+        {/* 스펙 224: [역할에게|특정 유저에게]는 부여 대상(역할 전체 vs 특정 유저)이 바뀌어 폼·목록이
+            달라지는 전환이라 Segmented→Tabs로 통일 — 상위 유저 목록/능력 부여 Tabs와 시각 일관(스펙 219와 동형). */}
         <div>
-          <Segmented
-            value={grantTarget}
-            onChange={(v) => {
-              setGrantTarget(v as 'role' | 'user')
+          <Tabs
+            activeKey={grantTarget}
+            onChange={(k) => {
+              setGrantTarget(k as 'role' | 'user')
               setGrantSubject(undefined) // 축 전환 시 다른 축 값 잔존 방지
             }}
-            options={[
-              { label: '역할에게', value: 'role' },
-              { label: '특정 유저에게', value: 'user' },
+            items={[
+              { key: 'role', label: '역할에게' },
+              { key: 'user', label: '특정 유저에게' },
             ]}
+            style={{ marginBottom: -8 }}
           />
-          <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginInlineStart: 12 }}>
+          <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
             {grantTarget === 'role' ? '이 역할을 가진 모든 유저에게 적용됩니다.' : '이 유저에게만 적용됩니다.'}
           </span>
         </div>
