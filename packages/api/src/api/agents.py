@@ -290,8 +290,9 @@ async def clone_agent(
     _enforce_tool_policy_gate(cfg, principal)  # 완화 정책 복제도 admin만(스펙 177 P2 D4)
     clone = Agent(
         agent_id=_new_agent_id(),
-        # 식별 이름은 규칙 준수+유니크로 자동 생성, 사람용 표기는 설명에(스펙 148, 210). base 캡=접미 여유.
-        name=await _dedupe_agent_name(session, f"{src.name[:180]}-복사본"),
+        # 식별 이름은 규칙 준수+유니크로 자동 생성(스펙 217: 영소문자·숫자·대시만 — 접미는 영문 '-copy'),
+        # 사람용 표기는 설명에(스펙 148, 210). base 캡=접미 여유.
+        name=await _dedupe_agent_name(session, f"{src.name[:180]}-copy"),
         description=f"{src.description or src.name} (복사본)"[:200],
         source="ui",
         model=cfg.get("model") or src.model,

@@ -2,7 +2,7 @@
 
   V1 검증기/slugify 순수 함수 표본(허용/거부/변환).
   V2 에이전트: 생성 위반 400 · 정상+별명 201 · 중복 409 · rename 위반 400 · description 비우기.
-  V3 복제: 식별 이름 자동(-복사본, 규칙 준수·유니크) + 별명 "(복사본)".
+  V3 복제: 식별 이름 자동(-copy, 규칙 준수·유니크, 스펙 217) + 설명 "(복사본)".
   V4 코드 등록(원격 유래): 거부 대신 자동 변환 + 원문 별명 보존.
   V5 컬렉션/페르소나/권한/MCP: 생성 위반 400 · 정상+별명 저장 · (페르소나) rename 위반 400.
   V6 마이그레이션 후 불변식: 5테이블 전량 규칙 준수 + config 참조(신규 dangling 0).
@@ -58,12 +58,13 @@ async def main():
 
     # ---- V1 순수 함수 ----
     check(validate_resource_name("obsidian-manager") is None, "V1a 영소문자+대시 허용")
-    check(validate_resource_name("옵시디언-매니저") is None, "V1b 한글+대시 허용")
-    check(validate_resource_name("a.b-c1") is None, "V1c 마침표·숫자 허용")
-    for bad in ("My Agent", "doc_translator", "Docs", "옵시디언 매니저", "", "  "):
+    check(validate_resource_name("rag-docs-01") is None, "V1b 영소문자+숫자+대시 허용")
+    # 스펙 217(사용자 지시): 한글·마침표 거부. 이전 규칙(한글·마침표 허용)에서 좁힘.
+    check(validate_resource_name("옵시디언-매니저") is not None, "V1c 한글 거부(스펙 217)")
+    for bad in ("My Agent", "doc_translator", "Docs", "옵시디언 매니저", "a.b-c1", "rag.docs", "", "  "):
         check(validate_resource_name(bad) is not None, f"V1d 거부: {bad!r}")
     check(slugify_name("Doc Translator") == "doc-translator", "V1e slugify 공백·대문자")
-    check(slugify_name("옵시디언 매니저") == "옵시디언-매니저", "V1f slugify 한글 공백")
+    check(slugify_name("옵시디언 매니저") == "unnamed", "V1f slugify 한글 전탈락→영문 fallback(스펙 217)")
     check(slugify_name("docs_kb") == "docs-kb", "V1g slugify 밑줄")
     check(slugify_name("Acme Translate (A2A)") == "acme-translate-a2a", "V1h slugify 특수문자 제거")
     check(NAME_RE.match(slugify_name("!!!")) is not None, "V1i 전탈락도 규칙 준수 fallback")
@@ -107,8 +108,8 @@ async def main():
         async with async_session() as s:
             clone = await AG.clone_agent(made["agents"][0], session=s, principal=admin)
             made["agents"].append(clone.id)
-            check(NAME_RE.match(clone.name) is not None and clone.name.startswith(f"{tag}-agent-복사본"),
-                  f"V3a 복제 식별 이름 규칙 준수: {clone.name!r}")
+            check(NAME_RE.match(clone.name) is not None and clone.name.startswith(f"{tag}-agent-copy"),
+                  f"V3a 복제 식별 이름 규칙 준수(스펙 217: 영문 '-copy' 접미): {clone.name!r}")
             check(clone.description == "원본 별명 (복사본)", f"V3b 복제 별명: {clone.description!r}")
         async with async_session() as s:
             clone2 = await AG.clone_agent(made["agents"][0], session=s, principal=admin)
