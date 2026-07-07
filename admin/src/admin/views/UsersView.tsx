@@ -463,7 +463,7 @@ export default function UsersView() {
   return (
     <Page
       title="유저"
-      subtitle="계정과 역할을 관리합니다 — 공개 등록은 없으며 여기서만 생성됩니다."
+      subtitle="유저와 권한을 관리합니다 — 공개 등록은 없으며 여기서만 생성됩니다."
       actions={
         // 유저 추가는 유저 목록 탭에서만 의미 — 권한 부여 탭에선 숨김(스펙 200 후속: 탭 분리)
         tab === 'users' ? (
