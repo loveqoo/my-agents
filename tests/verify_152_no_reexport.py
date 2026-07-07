@@ -71,10 +71,13 @@ async def main():
             out = await BL.publish_mcp_server(made_mcp[0], McpPublishIn(published=False), session=s, principal=admin)
             check(out.published is False, "V1b 끄기는 항상 허용(멱등 청소)")
         async with async_session() as s:
-            out = await BL.publish_mcp_server(made_mcp[1], McpPublishIn(published=True), session=s, principal=admin)
-            check(out.published is True, "V1c local publish 정상")
-        async with async_session() as s:
-            await BL.publish_mcp_server(made_mcp[1], McpPublishIn(published=False), session=s, principal=admin)
+            # 스펙 211: published=커스텀 외부 서빙 전용 축 — local도 이제 켜기 400(서빙 레지스트리가
+            # custom만 서빙해 local published는 무의미 → 무의미 상태 생성 차단). custom만 켤 수 있다.
+            try:
+                await BL.publish_mcp_server(made_mcp[1], McpPublishIn(published=True), session=s, principal=admin)
+                check(False, "V1c local publish → 400이어야(스펙 211: custom 전용)")
+            except HTTPException as e:
+                check(e.status_code == 400, f"V1c local publish 400 (스펙 211, got {e.status_code})")
 
         # V2 생성 경로
         async with async_session() as s:
@@ -115,13 +118,17 @@ async def main():
             s.add_all([ext_agent, code_agent])
             await s.commit()
             made_agents.extend([ext_agent.id, code_agent.id])
-        for aid, label in ((made_agents[0], "external"), (made_agents[1], "code")):
-            async with async_session() as s:
-                try:
-                    await AG.expose_agent(aid, ExposeIn(a2a=True), session=s, principal=admin)
-                    check(False, f"V4 {label} 에이전트 A2A 켜기 → 400이어야")
-                except HTTPException as e:
-                    check(e.status_code == 400, f"V4 {label} 에이전트 A2A 400 (got {e.status_code})")
+        # external은 재공개 금지 400. code는 제1자 SDK 배포라 스펙 154에서 노출 허용(1홉 중계)
+        # — 구 152 V4의 "code→400"은 154로 낡음(백로그 부채, 스펙 211 정리 시 갱신).
+        async with async_session() as s:
+            try:
+                await AG.expose_agent(made_agents[0], ExposeIn(a2a=True), session=s, principal=admin)
+                check(False, "V4 external 에이전트 A2A 켜기 → 400이어야")
+            except HTTPException as e:
+                check(e.status_code == 400, f"V4 external 에이전트 A2A 400 (got {e.status_code})")
+        async with async_session() as s:
+            out = await AG.expose_agent(made_agents[1], ExposeIn(a2a=True), session=s, principal=admin)
+            check(out is not None, "V4 code 에이전트 A2A 노출 허용(스펙 154, 154 재공개≠code)")
         async with async_session() as s:
             out = await AG.expose_agent(made_agents[0], ExposeIn(a2a=False), session=s, principal=admin)
             check(out is not None, "V4 끄기는 허용(멱등 청소)")
@@ -136,25 +143,29 @@ async def main():
             except HTTPException as e:
                 check(e.status_code == 400 and "source" in str(e.detail), f"V5 source 불변 400 (got {e.status_code})")
 
-        # V6 소비 지점 fail-closed — 오염 행(external+published=True, ORM 직접)이 배선에서 걸러짐
+        # V6 (스펙 211 갱신) — 사용=공용: 등록된 MCP는 소유 무관 배선된다(사용자 요청 #3: 외부 등록
+        # MCP도 공동 사용). 구 152 V6는 배선 게이트(agent_may_wire)로 external 오염 행을 걸렀으나, 그
+        # 게이트가 211로 제거됨. 재공개 봉인은 **서빙**(V1a·V2·V3·V5, _is_served=custom 전용)에서 유지되고,
+        # **배선(사용)**은 이제 공용이다 — 두 축 분리. external 배선의 위험(원격 URL)은 연결 시점
+        # guard_url(SSRF)이 여전히 막고, 결과 토큰 유출은 _sanitize_preview가 마스킹한다.
         from api import chat as CH
         member_id = str(_uuid.uuid4())
         async with async_session() as s:
-            polluted = McpServer(name=f"{tag}-dirty", source="external", transport="http",
-                                 url="http://127.0.0.1:9", tools=["x"], enabled_tools=["x"],
-                                 published=True, owner_id=str(_uuid.uuid4()))  # 타인 소유
-            s.add(polluted)
+            shared = McpServer(name=f"{tag}-dirty", source="external", transport="http",
+                               url="http://127.0.0.1:9", tools=["x"], enabled_tools=["x"],
+                               published=True, owner_id=str(_uuid.uuid4()))  # 타인 소유
+            s.add(shared)
             member_agent = Agent(agent_id=f"{tag}-ma", name=f"{tag}-ma", owner_id=member_id,
                                  config={"model": "", "persona": "", "mcps": [f"{tag}-dirty"],
                                          "memories": [], "vectorTables": [],
                                          "historyDepth": 5})
             s.add(member_agent)
             await s.commit()
-            made_mcp.append(polluted.id)
+            made_mcp.append(shared.id)
             made_agents.append(member_agent.id)
         ctx = await CH._load_context(made_agents[-1], None)
         wired = [m["name"] for m in ctx["mcp_servers"]]
-        check(f"{tag}-dirty" not in wired, f"V6 오염 행 배선 차단(published이지만 external) — wired={wired}")
+        check(f"{tag}-dirty" in wired, f"V6 사용=공용: 타인 external MCP도 배선됨(스펙 211) — wired={wired}")
     finally:
         async with async_session() as s:
             for mid in made_mcp:

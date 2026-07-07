@@ -95,43 +95,10 @@ def assert_may_manage(resource, principal, enforcer=None, not_found_detail: str 
     raise HTTPException(status_code=404, detail=not_found_detail)
 
 
-def agent_may_wire(
-    row_owner: str | None,
-    published: bool,
-    agent_owner: str | None,
-    kind: str,
-    name: str,
-    *,
-    owner_privileged: bool = False,
-) -> bool:
-    """런타임 tool 배선 술어(스펙 113, 단일 헬퍼) — **에이전트 작성자**가 이 자원을 쓸 수 있나.
-
-    주체가 채팅 사용자가 아니라 **작성자(agent.owner_id)**인 이유: 채팅 사용자로 막으면 admin의 공유
-    에이전트가 member 채팅에서 깨진다(112 갈래). 원칙="에이전트는 작성자가 쓸 수 있는 자원까지만"
-    (confused-deputy 차단 — config에 이름을 박은 주체가 권한을 가졌어야 한다).
-
-    허용(닫힌 집합, 하나라도 참):
-    1. agent_owner IS None → 신뢰 저작 맥락(레거시/admin/머신) → 전부(무회귀 축).
-    2. owner_privileged(호출자가 미리 판정: casbin admin `*,*` or User.is_superuser) → 전부.
-    3. row_owner == agent_owner → 자기 소유(자가잠금 핀).
-    4. published → 명시 공개(MCP만 플래그 보유; Collection은 항상 False로 넘어옴).
-    5. RBAC per-cap/kind — broker._rbac_check 재사용(112 A와 동일 술어: 서버단위가 툴 덮음·kind-레벨
-       포함). authz 미초기화면 이 규칙만 불가(fail-closed — 1~4로만 판정)."""
-    if agent_owner is None or owner_privileged:
-        return True
-    if row_owner is not None and row_owner == agent_owner:
-        return True
-    if published:
-        return True
-    from . import authz
-    try:
-        enforcer = authz.get_enforcer()
-    except RuntimeError:
-        return False  # authz 미초기화 → RBAC 판정 불가 → 거부(안전측)
-    from .broker import _rbac_check
-    return _rbac_check(enforcer, agent_owner, kind, name)
-
-
+# (스펙 211) agent_may_wire(스펙 113 배선 인가 술어)는 "사용=공용" 정책 전환으로 제거.
+# MCP/RAG 등 카탈로그 자원의 **사용(배선)**은 등록만 되면 허용, **관리(수정/삭제)**는
+# assert_may_manage(소유자/특권)가 계속 게이트한다. 커스텀 MCP의 외부 노출은 published가
+# 서빙 게이트(served_mcp._is_served)로만 소비된다.
 def may_use_agent(agent, principal) -> bool:
     """에이전트 **사용**(채팅·목록 노출) 게이트 — 스펙 147 트리:
     public(owner 없음)=모두, private(owner 있음)=소유자·특권만, external=항상(가져다 쓰는 것).

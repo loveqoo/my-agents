@@ -369,9 +369,10 @@ async def create_mcp_server(
         # 내부 레지스트리 이름(calc-tools 등)을 선점·공개하는 우회를 봉인한다. custom 행은 오직 seed의
         # 멱등 reconcile만 만든다(owner_id=None). 사용자는 local/external만 등록. (152 유래-불변 계열)
         raise HTTPException(status_code=400, detail="커스텀(내부 정의) MCP는 시스템 전용입니다 — 사용자가 생성할 수 없습니다.")
-    if body.published and body.source == "external":
-        # 재공개 금지(스펙 152) — 외부에서 가져온 MCP를 다시 외부로 여는 생성 경로 봉인.
-        raise HTTPException(status_code=400, detail="외부에서 가져온 MCP는 다시 외부로 공개할 수 없습니다.")
+    if body.published and body.source != "custom":
+        # published=커스텀 외부 서빙 전용(스펙 211, 152 재공개 금지 포함). 사용자는 custom 생성이
+        # 불가하므로(위 게이트) 사실상 생성 경로에서 published=true는 항상 400.
+        raise HTTPException(status_code=400, detail="외부 서빙은 커스텀 MCP만 켤 수 있습니다.")
     data = _norm_description(body.model_dump())
     data["enabled_tools"] = body.enabled_tools or body.tools
     # auth는 평문 입력 → Fernet 암호화 저장. 마스킹값이 들어오면(신규엔 없어야 함) 비워둔다.
@@ -512,9 +513,9 @@ async def update_mcp_server(
     # 재공개 우회를 봉인. provenance는 등록 시점의 사실이지 편집 대상이 아니다.
     if data.get("source") and data["source"] != obj.source:
         raise HTTPException(status_code=400, detail="source(유래)는 생성 후 변경할 수 없습니다.")
-    # 재공개 금지(스펙 152) — 끄기는 항상 허용.
-    if data.get("published") and obj.source == "external":
-        raise HTTPException(status_code=400, detail="외부에서 가져온 MCP는 다시 외부로 공개할 수 없습니다.")
+    # published=커스텀 외부 서빙 전용(스펙 211, 152 재공개 금지 포함) — 끄기는 항상 허용.
+    if data.get("published") and obj.source != "custom":
+        raise HTTPException(status_code=400, detail="외부 서빙은 커스텀 MCP만 켤 수 있습니다.")
     if data.get("tools_meta") is None:
         data.pop("tools_meta", None)  # None=미변경(스펙 151 — 편집 폼이 메타를 안 들고 있어도 보존)
     # 참조 무결성(스펙 093, operation-symmetry): rename도 삭제와 똑같이 config의 name 링크를 끊는다.
@@ -576,10 +577,12 @@ async def publish_mcp_server(
     if obj is None:
         raise HTTPException(status_code=404, detail="not found")
     assert_may_manage(obj, principal)  # 소유자/특권만(스펙 112)
-    if body.published and obj.source == "external":
-        # 재공개 금지(스펙 152) — UI는 스위치를 숨기지만 API 봉인이 진실원(installed≠covering).
-        # 끄기는 항상 허용(stale 플래그 멱등 청소, 083 관례).
-        raise HTTPException(status_code=400, detail="외부에서 가져온 MCP는 다시 외부로 공개할 수 없습니다.")
+    if body.published and obj.source != "custom":
+        # published=커스텀 MCP "외부 서빙" 전용 축(스펙 211 — 사용 공유 게이트 소멸로 의미 축소).
+        # external 재공개 금지(스펙 152)를 포함해 non-custom은 켤 수 없다(서빙 레지스트리가 custom만
+        # 서빙해 켜져도 무의미 — 무의미 상태를 만들지 않는다). UI는 스위치를 숨기지만 API 봉인이
+        # 진실원(installed≠covering). 끄기는 항상 허용(stale 플래그 멱등 청소, 083 관례).
+        raise HTTPException(status_code=400, detail="외부 서빙은 커스텀 MCP만 켤 수 있습니다.")
     obj.published = body.published
     await session.commit()
     await session.refresh(obj)

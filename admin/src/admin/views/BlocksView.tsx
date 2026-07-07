@@ -2,10 +2,10 @@
    MCP servers. Category tabs → list → detail drawer. */
 import { useState, useEffect } from 'react'
 import { Tag, Button, Tabs, Switch, Modal, Input, Select, Checkbox, Tooltip, Alert, Grid, message, Descriptions } from 'antd'
-import { Page, DataTable, Drawer, OwnerTag, type Column } from '../shared'
+import { Page, DataTable, Drawer, type Column } from '../shared'
 import { validateName, NAME_HINT } from '../naming'
 import { Icon } from '../icons'
-import { MCP_STATUS, VECTOR_STATUS, type BlockItem, type BlockCategory, type StatusMeta } from '../mockData'
+import { VECTOR_STATUS, type BlockItem, type BlockCategory, type StatusMeta } from '../mockData'
 import {
   getBlocks,
   createMcp,
@@ -860,16 +860,40 @@ export default function BlocksView() {
       return [
         {
           key: 'name',
-          title: '서버',
-          render: (r) => (
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <Tooltip title={r.description || undefined}>
-                <code style={{ fontFamily: 'var(--font-family-code)', color: 'var(--cyan-7)', fontSize: 13 }}>{r.name}</code>
-              </Tooltip>
-              {r.source === 'external' ? <Tag color="purple">외부</Tag> : r.source === 'custom' ? <Tag color="cyan">커스텀</Tag> : <Tag>로컬</Tag>}
-              <OwnerTag ownerId={r.owner_id} canManage={r.can_manage} />
-            </span>
-          ),
+          title: '이름',
+          render: (r) => {
+            // 승인 필요 도구 수(스펙 211) — toolsMeta에 approval 메타는 discover 스냅샷에만 실려
+            // BlockItem 타입엔 없다(스펙 151 타입 최소 유지) — 여기서만 캐스트.
+            const approvalCount = Object.values(
+              (r.toolsMeta ?? {}) as Record<string, { approval?: { required?: boolean } }>,
+            ).filter((m) => m?.approval?.required).length
+            return (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <Tooltip title={r.description || undefined}>
+                  <code style={{ fontFamily: 'var(--font-family-code)', color: 'var(--cyan-7)', fontSize: 13 }}>{r.name}</code>
+                </Tooltip>
+                {approvalCount > 0 ? (
+                  <Tooltip title={`승인 필요 도구 ${approvalCount}개`}>
+                    <span aria-label="승인 필요 도구 있음">🔒</span>
+                  </Tooltip>
+                ) : null}
+              </span>
+            )
+          },
+        },
+        {
+          key: 'type',
+          title: '유형',
+          width: 90,
+          render: (r) =>
+            r.source === 'external' ? <Tag color="purple">외부</Tag> : r.source === 'custom' ? <Tag color="cyan">커스텀</Tag> : <Tag>로컬</Tag>,
+        },
+        {
+          key: 'owner',
+          title: '소유',
+          width: 90,
+          render: (r) =>
+            r.owner_id == null ? <Tag>시스템</Tag> : r.can_manage ? <Tag color="blue">내 소유</Tag> : <Tag>타인</Tag>,
         },
         { key: 'transport', title: '전송', width: 100, render: (r) => <Tag>{r.transport}</Tag> },
         {
@@ -888,17 +912,11 @@ export default function BlocksView() {
           ),
         },
         {
-          key: 'status',
-          title: '상태',
-          width: 110,
-          render: (r) => statusTag(MCP_STATUS, r.status),
-        },
-        {
           key: 'published',
-          title: '공개',
+          title: '외부 서빙',
           width: 116,
           render: (r) =>
-            r.source === 'external' ? (
+            r.source !== 'custom' ? (
               <span style={{ color: 'var(--color-text-quaternary)' }}>—</span>
             ) : r.published ? (
               <Tag color="green">MCP · 공개</Tag>
@@ -1120,7 +1138,6 @@ export default function BlocksView() {
               >
                 <Icon name={def?.icon ?? ''} size={18} />
               </span>
-              <div style={{ fontSize: 16, fontWeight: 600 }}>{detail.name}</div>
             </div>
             <Descriptions
               column={1}
@@ -1293,14 +1310,11 @@ export default function BlocksView() {
               column={1}
               size="small"
               items={[
-                ...(cat === 'mcp' && detail.status
-                  ? [{ key: 'status', label: '상태', children: statusTag(MCP_STATUS, detail.status) }]
-                  : []),
                 { key: 'usedBy', label: '사용', children: `${detail.usedBy}개 에이전트` },
                 { key: 'updated', label: '수정', children: detail.updated },
               ]}
             />
-            {cat === 'mcp' && detail.source !== 'external' ? (
+            {cat === 'mcp' && detail.source === 'custom' ? (
               <div
                 style={{
                   marginTop: 18,
@@ -1313,7 +1327,7 @@ export default function BlocksView() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <Icon name="global" size={16} style={{ color: 'var(--cyan-7)' }} />
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 14, fontWeight: 500 }}>외부 공개</div>
+                    <div style={{ fontSize: 14, fontWeight: 500 }}>외부 서빙</div>
                     <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
                       이 서버의 도구를 LangGraph MCP 프로토콜로 노출합니다
                     </div>

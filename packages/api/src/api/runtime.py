@@ -150,7 +150,10 @@ def _wrap_mcp_tool(
                 "status": status,
                 "ms": int((time.perf_counter() - t0) * 1000) + 1,
                 "args": _redact_args(kwargs),  # 스펙 087: 민감 키 마스킹 전 적재(형제 표면 누출 차단)
-                "result": _cap(text, _RESULT_CAP),  # 스펙 087: 무제한 적재 방어(learning 059)
+                # 스펙 211: 직접 MCP 결과도 브로커/RAG와 같은 정화 경로(_sanitize_preview=비밀 마스킹+캡).
+                # 사용=공용 전환으로 타인이 크레덴셜 MCP를 배선할 수 있어(사용자 결정: 전부 공용), 결과에
+                # 섞인 토큰/비밀이 trace·응답으로 새지 않게 마스킹(codex 211 P2). 구 _cap은 마스킹 없었음.
+                "result": _sanitize_preview(text, _RESULT_CAP),
             }
         )
         return text

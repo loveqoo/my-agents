@@ -43,7 +43,7 @@ from .models import (
     Session,
     User,
 )
-from .ownership import agent_may_wire, next_owner
+from .ownership import next_owner
 from .references import config_names
 from .schemas import ChatRequest
 from .sessions import _own_scope
@@ -96,25 +96,8 @@ async def _config_error_stream(impl_key: str):
     yield "event: done\ndata: [DONE]\n\n"
 
 
-async def _wiring_owner_privileged(db, owner_id: str) -> bool:
-    """배선 특권 판정(스펙 113) — casbin admin(`*,*`) OR User.is_superuser.
-    _load_context에서 1회 계산해 MCP·RAG 두 루프에 공유. authz 미초기화/유저 부재는 False(fail-closed).
-
-    **UUID 검증을 casbin보다 먼저**(codex 113 P2): owner_of는 UUID/None만 스탬프하므로, owner_id가
-    UUID가 아니면 비정상 스탬프 → 즉시 비특권. 그러지 않으면 owner_id="admin" 같은 role 이름이 기본
-    admin 정책(`admin,*,*`)과 우연히 매칭돼 특권 오판할 수 있다(정상 경로엔 없지만 fail-closed 반례)."""
-    try:
-        owner_uuid = uuid.UUID(owner_id)
-    except (ValueError, TypeError):
-        return False  # 비정상 스탬프(UUID 아님) → 비특권(role 이름 충돌 차단)
-    try:
-        from . import authz as _authz
-        if _authz.get_enforcer().enforce(owner_id, "*", "*"):
-            return True  # 실 admin은 uuid→역할 상속으로 (*,*) 매칭
-    except RuntimeError:
-        pass  # authz 미초기화(테스트 lifespan 미가동 등) → superuser 축만 판정
-    user = await db.get(User, owner_uuid)
-    return bool(user is not None and user.is_superuser)
+# 스펙 211: 배선 인가 헬퍼(_wiring_owner_privileged, 스펙 113)는 "사용=공용" 정책 전환으로 제거.
+# 관리(수정/삭제)는 blocks.py의 assert_may_manage가 계속 게이트한다.
 
 
 async def _load_context(
@@ -137,11 +120,8 @@ async def _load_context(
         if agent is None:
             raise HTTPException(status_code=404, detail="agent not found")
         cfg = dict(agent.config or {})
-        # 스펙 113 P0: override 병합 **전** 저장 config의 자원 이름을 포착한다. 저장본 자원은 작성자
-        # 권한으로, override로 주입된(저장본에 없던) 자원은 **호출자(own) 권한**으로 게이트한다 —
-        # 안 그러면 호출자가 overrides.mcps에 남의 비공개 MCP 이름을 넣어 작성자 권한으로 배선시키는
-        # confused-deputy(codex 113 P0)가 성립한다. own=None(admin/내부 호출)은 특권이라 주입 허용.
-        stored_mcps = set(config_names(cfg, "mcps"))
+        # (스펙 211) 구 113 P0의 저장본/override 권한 분리(stored_mcps 포착)는 사용=공용 전환으로
+        # 소멸 — 등록된 MCP는 누구 에이전트든 배선 가능하므로 주입 경로 구분이 무의미해졌다.
         persona = agent.persona
         # web 한정 세션 오버라이드(화이트리스트). 코드·외부 에이전트는 분기 진입 안 함 = bypass 보존.
         # (외부=A2A는 비로컬이라 로컬 설정 오버라이드 의미 없음 — 026 read-only 취급.)
@@ -253,15 +233,6 @@ async def _load_context(
                 }
         ctx["mem_cfg"] = mem_cfg
 
-        # 런타임 tool 배선 인가(스펙 113, codex 112 P0 봉합) — 주체는 **에이전트 작성자**(owner_id).
-        # 채팅 사용자로 막으면 공유 에이전트가 깨진다(112 갈래). NULL-owner(레거시/admin/머신 저작)는
-        # 신뢰 맥락이라 전부 배선(무회귀); member-저작 에이전트만 자원별 술어(agent_may_wire)로 거른다.
-        # 특권(casbin admin `*,*` or superuser)은 여기서 1회 판정해 두 루프(MCP·RAG)에 공유.
-        wiring_owner = agent.owner_id
-        owner_priv = False
-        if wiring_owner is not None:
-            owner_priv = await _wiring_owner_privileged(db, wiring_owner)
-
         # 등록된 MCP 서버를 runtime.build_mcp_tools가 실제로 붙을 수 있는 dict로 해석한다(스펙 054).
         # name/url/transport/enabled_tools + auth_token. auth_token은 저장된 Fernet 암호문을
         # 복호화한 평문(provider.api_key 동형) — 마스킹/빈값이면 None이라 헤더 생략(a2a_client 규칙).
@@ -273,18 +244,11 @@ async def _load_context(
                 await db.execute(select(McpServer).where(McpServer.name.in_(mcps)))
             ).scalars().all()
             for r in rows:
-                # 저장본 자원=작성자 권한, override 주입 자원=호출자(own) 권한(스펙 113 P0).
-                if r.name in stored_mcps:
-                    auth_owner, auth_priv = wiring_owner, owner_priv
-                else:
-                    auth_owner, auth_priv = own, (own is None)  # own=None(admin/내부)=특권
-                # published는 external이면 무효 취급(스펙 152 fail-closed) — 쓰기 게이트가 막아도
-                # 오염 행(세탁·구버전 데이터)이 다른 사용자 에이전트에 배선되지 않게 소비 지점서 재확인.
-                effective_pub = bool(r.published) and r.source != "external"
-                if not agent_may_wire(r.owner_id, effective_pub, auth_owner,
-                                      "mcp", r.name, owner_privileged=auth_priv):
-                    log.warning("mcp %s skipped: 배선 권한 없음(스펙 113)", r.name)
-                    continue
+                # 사용=공용(스펙 211, RAG 172 동형) — 등록된 MCP는 어떤 에이전트든 배선 가능.
+                # 구 배선 인가(스펙 113 agent_may_wire·published 게이트)는 사용자 정책 결정으로 제거.
+                # published는 이제 "커스텀 MCP 외부 서빙" 전용 축(served_mcp._is_served가 소비).
+                # 주의: auth 토큰 있는 MCP도 공용 배선된다(공유 카탈로그 모델) — 관리(수정/삭제)는
+                # 여전히 소유자만(assert_may_manage 불변).
                 token = None if crypto.is_masked(r.auth) else crypto.decrypt(r.auth)
                 mcp_servers.append(
                     {
