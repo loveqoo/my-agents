@@ -3,7 +3,7 @@
    수치 검증→자율 반복(Ralph) 로드맵의 제품 표면. 러너는 오염 제로(백엔드 eval_runner) —
    실행해도 세션/메모리에 흔적이 남지 않는다. */
 import { useState, useEffect, useCallback, type CSSProperties } from 'react'
-import { Tabs, Button, Input, InputNumber, AutoComplete, Select, Tag, Modal, Popconfirm, Alert, Collapse, Checkbox, Tooltip, message, Descriptions, Skeleton } from 'antd'
+import { Tabs, Segmented, Button, Input, InputNumber, AutoComplete, Select, Tag, Modal, Popconfirm, Alert, Collapse, Checkbox, Tooltip, message, Descriptions, Skeleton } from 'antd'
 import { Page, DataTable, Drawer, type Column } from '../shared'
 import { Icon } from '../icons'
 import { TrendChart, CompareDrawer } from './EvalTrend'
@@ -595,6 +595,9 @@ export default function EvalView({ initialCollectionId, onConsumedInitial }: {
   onConsumedInitial?: () => void
 } = {}) {
   const [tab, setTab] = useState('datasets')
+  // 스펙 212: 문제집을 에이전트/RAG kind로 필터(상위 Tabs 안이라 탭 중첩 대신 Segmented 필터 —
+  // 같은 목록의 부분집합 선택). 서버 kind 파라미터로 걸러 페이징 정합 유지.
+  const [kindFilter, setKindFilter] = useState<'agent' | 'rag'>('agent')
   // 스펙 196: 목록은 PagedListShell이 소유(서버 페이징·검색) — 부모는 재조회 트리거·폴링 신호만 든다.
   const [refreshKey, setRefreshKey] = useState(0)
   const [anyGenerating, setAnyGenerating] = useState(false)
@@ -695,7 +698,6 @@ export default function EvalView({ initialCollectionId, onConsumedInitial }: {
         </div>
       ),
     },
-    { key: 'kind', title: '종류', width: 90, render: (d) => <Tag>{d.kind}</Tag> },
     { key: 'case_count', title: '문제 수', width: 90, align: 'right', render: (d) => d.case_count },
     {
       key: 'actions', title: '', width: 60,
@@ -769,22 +771,32 @@ export default function EvalView({ initialCollectionId, onConsumedInitial }: {
                 {/* 스펙 196: 목록을 PagedListShell로 — 최근순 정렬·서버 검색·페이징(세션 098/128 패턴).
                    '새 문제집'은 leftSlot으로(스펙 195: '컬렉션에서 생성' 자동 채움은 제거됨 — 빈 문제집+상단 AI 출제). */}
                 <PagedListShell<EvalDataset, boolean>
-                  scopeKey="eval-datasets"
+                  scopeKey={`eval-datasets-${kindFilter}`}
                   refreshKey={refreshKey}
                   fetchPage={async (q, limit, offset) => {
-                    const data = await listEvalDatasets({ q, limit, offset })
+                    const data = await listEvalDatasets({ q, kind: kindFilter, limit, offset })
                     return { items: data.items, total: data.total, extra: data.any_generating }
                   }}
                   onExtra={(g) => setAnyGenerating(!!g)}
                   columns={dsCols}
                   onRowClick={setDetail}
                   searchPlaceholder="문제집 이름·설명 검색"
-                  emptyText="문제집이 없습니다 — 첫 문제집을 만들어 보세요."
+                  emptyText={kindFilter === 'rag' ? 'RAG 평가 문제집이 없습니다 — 새로 만들어 보세요.' : '에이전트 평가 문제집이 없습니다 — 새로 만들어 보세요.'}
                   errorTitle="문제집을 불러오지 못했습니다"
                   leftSlot={
-                    <Button type="primary" icon={<Icon name="plus" />} onClick={() => setCreating(true)}>
-                      새 문제집
-                    </Button>
+                    <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <Segmented
+                        value={kindFilter}
+                        onChange={(v) => setKindFilter(v as 'agent' | 'rag')}
+                        options={[
+                          { label: '에이전트 평가', value: 'agent' },
+                          { label: 'RAG 평가', value: 'rag' },
+                        ]}
+                      />
+                      <Button type="primary" icon={<Icon name="plus" />} onClick={() => setCreating(true)}>
+                        새 문제집
+                      </Button>
+                    </div>
                   }
                 />
               </div>

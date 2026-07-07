@@ -12,6 +12,7 @@ import {
   Input,
   InputNumber,
   Select,
+  Tabs,
   Tooltip,
   Upload,
   Popconfirm,
@@ -113,11 +114,13 @@ const blankCreate: CreateFormData = {
 function CreateModal({
   open,
   models,
+  initialKind,
   onCancel,
   onSubmit,
 }: {
   open: boolean
   models: Model[]
+  initialKind: 'document' | 'entity' // 스펙 212: 열려 있던 탭의 종류를 기본 선택(모달 안에서 변경은 계속 가능)
   onCancel: () => void
   onSubmit: (data: CreateFormData) => void
 }) {
@@ -128,9 +131,9 @@ function CreateModal({
       // 기본 임베딩 모델을 프리셀렉트(is_default) — 없으면 모델이 하나일 때만 그걸로(스펙 175).
       // 임베딩은 생성 후 불변이라, 흔한 선택을 미리 채워 실수 여지를 줄인다.
       const def = models.find((m) => m.is_default) ?? (models.length === 1 ? models[0] : undefined)
-      setF({ ...blankCreate, embedding_model_id: def?.id ?? '' })
+      setF({ ...blankCreate, kind: initialKind, embedding_model_id: def?.id ?? '' })
     }
-  }, [open, models])
+  }, [open, models, initialKind])
 
   const set = <K extends keyof CreateFormData>(k: K, v: CreateFormData[K]) =>
     setF((s) => ({ ...s, [k]: v }))
@@ -560,6 +563,9 @@ export default function CollectionsView({ onEvaluate }: { onEvaluate?: (cid: str
   const [models, setModels] = useState<Model[]>([])
   const [loaded, setLoaded] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
+  // 스펙 212: 문서/엔티티 임베딩 탭(데이터 집합 전환 — 탭/세그먼트 규칙상 Tabs). 생성 모달의
+  // kind 프리셀렉트에도 이 값을 넘긴다.
+  const [kindTab, setKindTab] = useState<'document' | 'entity'>('document')
   const [docsFor, setDocsFor] = useState<Collection | null>(null)
   const [editFor, setEditFor] = useState<Collection | null>(null)
   const [searchFor, setSearchFor] = useState<Collection | null>(null)
@@ -661,13 +667,12 @@ export default function CollectionsView({ onEvaluate }: { onEvaluate?: (cid: str
       title: '이름',
       render: (c) => (
         // 설명은 상시 노출하지 않고 툴팁으로만(스펙 210 — 리스트=이름 단독, 설명=마우스오버).
+        // 스펙 212: kind 배지 제거 — 목록이 이제 탭(문서/엔티티)으로 분리돼 각 탭 내부는 종류가
+        // 전부 동일, 배지가 중복 정보가 됐다.
         <div style={{ maxWidth: 260 }}>
           <Tooltip title={c.description || undefined}>
             <span style={{ fontWeight: 500, color: 'var(--color-text-heading)' }}>{c.name}</span>
           </Tooltip>
-          {c.kind === 'entity' ? (
-            <Tag color="geekblue" style={{ marginLeft: 6 }}>엔티티</Tag>
-          ) : null}
         </div>
       ),
     },
@@ -789,11 +794,41 @@ export default function CollectionsView({ onEvaluate }: { onEvaluate?: (cid: str
         />
       ) : null}
 
-      <DataTable columns={columns} rows={collections} onRowClick={setDocsFor} />
+      <Tabs
+        activeKey={kindTab}
+        onChange={(k) => setKindTab(k as 'document' | 'entity')}
+        items={[
+          {
+            key: 'document',
+            label: '문서 임베딩',
+            children: (
+              <DataTable
+                columns={columns}
+                rows={collections.filter((c) => c.kind === 'document')}
+                onRowClick={setDocsFor}
+                empty="문서 임베딩 컬렉션이 없습니다"
+              />
+            ),
+          },
+          {
+            key: 'entity',
+            label: '엔티티 임베딩',
+            children: (
+              <DataTable
+                columns={columns}
+                rows={collections.filter((c) => c.kind === 'entity')}
+                onRowClick={setDocsFor}
+                empty="엔티티 임베딩 컬렉션이 없습니다"
+              />
+            ),
+          },
+        ]}
+      />
 
       <CreateModal
         open={createOpen}
         models={models}
+        initialKind={kindTab}
         onCancel={() => setCreateOpen(false)}
         onSubmit={submitCreate}
       />

@@ -127,11 +127,15 @@ async def list_datasets(
     session: AsyncSession = Depends(get_session),
     user=Depends(current_principal),
     q: str | None = None,
+    kind: str | None = Query(None, pattern="^(agent|rag)$"),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ) -> DatasetPageOut:
-    """문제집 목록 — **최근 생성순**, 이름·설명 부분검색(q), 페이징(스펙 196). 읽기 전원 공개(178 D1)."""
+    """문제집 목록 — **최근 생성순**, 이름·설명 부분검색(q), kind 필터(agent|rag, 스펙 212),
+    페이징(스펙 196). 읽기 전원 공개(178 D1)."""
     conds = []
+    if kind:  # 스펙 212: 에이전트 평가/RAG 평가 분리(서버 필터로 페이징 정합 유지)
+        conds.append(EvalDataset.kind == kind)
     if q and q.strip():
         term = f"%{_ilike_literal(q.strip())}%"
         conds.append(or_(

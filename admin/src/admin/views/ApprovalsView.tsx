@@ -2,7 +2,7 @@
    LangGraph run is paused at a checkpoint (interrupt) awaiting an admin decision.
    Approve → resume from checkpoint; Reject → abort the run. */
 import { useState, useEffect, type ReactNode } from 'react'
-import { Tag, Button, Avatar, message, Segmented } from 'antd'
+import { Tag, Button, Avatar, message, Tabs } from 'antd'
 import { Page, Panel } from '../shared'
 import { Icon } from '../icons'
 import { type Approval } from '../mockData'
@@ -224,16 +224,14 @@ export default function ApprovalsView({ onPendingChange }: { onPendingChange?: (
 
   return (
     <Page title="승인" subtitle="체크포인트에서 일시정지된 승인 작업 — 대기 중 결정 + 처리 내역">
-      <div style={{ marginBottom: 16 }}>
-        <Segmented
-          value={tab}
-          onChange={(v) => setTab(v as 'pending' | 'resolved')}
-          options={[
-            { label: `대기 중${queue.length ? ` (${queue.length})` : ''}`, value: 'pending' },
-            { label: '처리됨', value: 'resolved' },
-          ]}
-        />
-      </div>
+      <Tabs
+        activeKey={tab}
+        onChange={(v) => setTab(v as 'pending' | 'resolved')}
+        items={[
+          { key: 'pending', label: `대기 중${queue.length ? ` (${queue.length})` : ''}` },
+          { key: 'resolved', label: '처리됨' },
+        ]}
+      />
 
       {tab === 'pending' ? (
         queue.length === 0 ? (

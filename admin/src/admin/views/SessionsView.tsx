@@ -1,10 +1,10 @@
 /* my-agents admin — Sessions view: live & past conversation sessions, each with
    status; click a session to see its state detail.
    목록 엔진은 공용 PagedListShell(스펙 128) — 디바운스 서버검색·페이지네이션·지속 오류를 셸이 담당
-   (기존 사라지는 토스트 오류도 지속 Alert로 교정됨). counts 배지는 응답 extra로 받아 Radio에 반영,
+   (기존 사라지는 토스트 오류도 지속 Alert로 교정됨). counts 배지는 응답 extra로 받아 Segmented에 반영,
    status 필터는 pageResetKey로 page만 리셋(검색어 보존 — 기존 UX 유지). */
 import { useEffect, useState } from 'react'
-import { Tag, Button, Avatar, Alert, Radio, Popconfirm, message, Descriptions } from 'antd'
+import { Tag, Button, Avatar, Alert, Segmented, Popconfirm, message, Descriptions } from 'antd'
 import { Page, StatusPill, Drawer, type Column } from '../shared'
 import { PagedListShell } from './PagedListShell'
 import { Icon } from '../icons'
@@ -146,10 +146,9 @@ export default function SessionsView() {
         emptyText="조건에 맞는 세션이 없습니다"
         errorTitle="세션을 불러오지 못했습니다"
         leftSlot={
-          <Radio.Group
-            optionType="button"
+          <Segmented
             value={filter}
-            onChange={(e) => setFilter(e.target.value)}
+            onChange={(v) => setFilter(v as string)}
             options={[
               { label: `전체 (${counts.all ?? 0})`, value: 'all' },
               { label: `라이브 (${counts.live ?? 0})`, value: 'live' },

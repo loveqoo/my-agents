@@ -839,8 +839,10 @@ export interface EvalRunDetail extends EvalRunT {
   results: EvalCaseResultT[]
 }
 export interface EvalDatasetPage { items: EvalDataset[]; total: number; any_generating: boolean }
-export const listEvalDatasets = (params?: { q?: string; limit?: number; offset?: number }) =>
-  j<EvalDatasetPage>(`/eval/datasets${pageQS(params?.q ?? '', params?.limit ?? 20, params?.offset ?? 0)}`)
+export const listEvalDatasets = (params?: { q?: string; kind?: 'agent' | 'rag'; limit?: number; offset?: number }) =>
+  j<EvalDatasetPage>(
+    `/eval/datasets${pageQS(params?.q ?? '', params?.limit ?? 20, params?.offset ?? 0)}${params?.kind ? `&kind=${params.kind}` : ''}`,
+  )
 export const getEvalDataset = (id: string) => j<EvalDataset>(`/eval/datasets/${id}`)
 export const createEvalDataset = (body: { name: string; description?: string | null; kind?: string; collection_id?: string | null }) =>
   post('/eval/datasets', body) as Promise<EvalDataset>
