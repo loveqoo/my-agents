@@ -1,14 +1,17 @@
-"""세션 라우터 (007 도메인). 세션 조회·메시지·종료."""
+"""세션 라우터 (007 도메인). 세션 조회·메시지·종료·응답 피드백(스펙 209)."""
+
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from . import authz
 from .auth import current_principal
 from .db import get_session
-from .models import Agent, Message, Session
-from .schemas import MessageOut, SessionOut, SessionPage
+from .models import Agent, Message, MessageFeedback, Session
+from .schemas import FeedbackOut, MessageFeedbackIn, MessageOut, SessionOut, SessionPage
 from .serializers import session_to_out
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
@@ -249,10 +252,114 @@ async def list_session_messages(
         .where(Message.session_pk == s.id)
         .order_by(Message.created_at)
     )
-    return [
-        MessageOut(role=m.role, content=m.content, trace=m.trace)
-        for m in result.scalars().all()
-    ]
+    msgs = result.scalars().all()
+    # 요청 사용자의 이 세션 피드백 맵(스펙 209) — created_by==나만(머신/익명이면 빈 맵). 표시용 토글 상태.
+    fb_map: dict = {}
+    uid = None if isinstance(principal, str) else getattr(principal, "id", None)
+    if uid is not None and msgs:
+        fbs = await session.execute(
+            select(MessageFeedback).where(
+                MessageFeedback.session_pk == s.id,
+                MessageFeedback.created_by == str(uid),
+            )
+        )
+        fb_map = {fb.message_pk: fb for fb in fbs.scalars().all()}
+    out: list[MessageOut] = []
+    for m in msgs:
+        fb = fb_map.get(m.id)
+        out.append(
+            MessageOut(
+                id=m.id,
+                role=m.role,
+                content=m.content,
+                trace=m.trace,
+                feedback=FeedbackOut(rating=fb.rating, reason=fb.reason) if fb else None,
+            )
+        )
+    return out
+
+
+def _require_user(principal) -> str:
+    """사용자-귀속 쓰기(피드백)는 인증 User가 필요 — 머신/익명은 created_by 원천이 없어 불가(스펙 209).
+    반환=auth User UUID str(created_by 스탬프의 진실 원천, 위조 불가)."""
+    if isinstance(principal, str) or getattr(principal, "id", None) is None:
+        raise HTTPException(status_code=403, detail="로그인 사용자만 피드백할 수 있습니다")
+    return str(principal.id)
+
+
+def _own_scope_write(principal) -> str | None:
+    """**쓰기**용 소유 스코프(codex 209 F1). `_own_scope`는 `sessions:read` 권한도 admin으로 봐 무스코프
+    (None)를 주는데, **읽기 권한이 쓰기를 넓히면 안 된다** — 읽기 전용 세션 오퍼레이터가 타인 세션에
+    피드백을 심을 수 있다. 그래서 쓰기 스코프는 **진짜 superuser만** 무스코프, 그 외 User는 자기 것만.
+    (_require_user가 이미 머신/익명을 막으므로 principal은 User.)"""
+    if getattr(principal, "is_superuser", False):
+        return None
+    return str(principal.id)
+
+
+@router.put("/{session_id}/messages/{message_id}/feedback", response_model=FeedbackOut)
+async def set_message_feedback(
+    session_id: str,
+    message_id: uuid.UUID,
+    body: MessageFeedbackIn,
+    session: AsyncSession = Depends(get_session),
+    principal=Depends(current_principal),
+) -> FeedbackOut:
+    """응답(👍/👎+이유) 피드백 upsert(스펙 209). 소유권: 세션 소유 스코프 융합 404 → 그 세션의
+    assistant 메시지만(SELECT-WHERE로 타세션·비-assistant는 거부행 미로드=404). 사용자당 1건(재클릭=수정)."""
+    uid = _require_user(principal)
+    s = await _get_session_or_404(session, session_id, _own_scope_write(principal))  # 쓰기 소유 스코프(F1)
+    m = (
+        await session.execute(
+            select(Message).where(
+                Message.id == message_id,
+                Message.session_pk == s.id,
+                Message.role == "assistant",
+            )
+        )
+    ).scalar_one_or_none()
+    if m is None:
+        raise HTTPException(status_code=404, detail="not found")  # 타세션·비-assistant·부재 = 동일 404
+    # 원자적 upsert(codex 209 F2) — check-then-insert는 동시 첫 PUT 경합 시 unique 위반 500. PG
+    # on_conflict_do_update로 경합 무관하게 1건 유지. id는 raw insert라 ORM default 미적용 → 명시.
+    stmt = (
+        pg_insert(MessageFeedback)
+        .values(
+            id=uuid.uuid4(),
+            message_pk=m.id,
+            session_pk=s.id,
+            rating=body.rating,
+            reason=body.reason,
+            created_by=uid,
+        )
+        .on_conflict_do_update(
+            index_elements=["message_pk", "created_by"],
+            set_={"rating": body.rating, "reason": body.reason, "updated_at": func.now()},
+        )
+    )
+    await session.execute(stmt)
+    await session.commit()
+    return FeedbackOut(rating=body.rating, reason=body.reason)
+
+
+@router.delete("/{session_id}/messages/{message_id}/feedback", status_code=204)
+async def clear_message_feedback(
+    session_id: str,
+    message_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    principal=Depends(current_principal),
+) -> None:
+    """피드백 취소(스펙 209). 소유 스코프 404 → 내(created_by) 피드백만 그 세션에서 삭제(멱등)."""
+    uid = _require_user(principal)
+    s = await _get_session_or_404(session, session_id, _own_scope_write(principal))  # 쓰기 소유 스코프(F1)
+    await session.execute(
+        delete(MessageFeedback).where(
+            MessageFeedback.message_pk == message_id,
+            MessageFeedback.session_pk == s.id,
+            MessageFeedback.created_by == uid,
+        )
+    )
+    await session.commit()
 
 
 @router.post("/{session_id}/end", response_model=SessionOut)

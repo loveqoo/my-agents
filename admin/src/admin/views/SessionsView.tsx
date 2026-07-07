@@ -10,7 +10,8 @@ import { PagedListShell } from './PagedListShell'
 import { Icon } from '../icons'
 import { SESSION_STATUS, type Session } from '../mockData'
 import { fmtTime } from '../format'
-import { listSessions, getSessionMessages, endSession, type SessionMessage } from '../../api'
+import { listSessions, getSessionMessages, endSession, type SessionMessage, type MessageFeedback } from '../../api'
+import { FeedbackButtons } from '../../FeedbackButtons'
 
 export default function SessionsView() {
   const [counts, setCounts] = useState<Record<string, number>>({})
@@ -57,6 +58,10 @@ export default function SessionsView() {
       cancelled = true
     }
   }, [detail])
+
+  // 스펙 209 — 피드백 변경을 로컬 메시지 상태에 반영(서버 응답으로 확정된 값).
+  const applyFeedback = (mid: string, fb: MessageFeedback | null) =>
+    setMessages((ms) => ms.map((m) => (m.id === mid ? { ...m, feedback: fb } : m)))
 
   const columns: Column<Session>[] = [
     {
@@ -229,8 +234,19 @@ export default function SessionsView() {
               <div style={{ marginTop: 16 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-heading)', marginBottom: 8 }}>최근 메시지</div>
                 {messages.slice(-5).map((m, i) => (
-                  <div key={i} style={{ marginBottom: 8 }}>
-                    <div style={{ fontSize: 11, textTransform: 'uppercase', color: 'var(--color-text-tertiary)', letterSpacing: 0.5 }}>{m.role}</div>
+                  <div key={m.id ?? i} style={{ marginBottom: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <div style={{ fontSize: 11, textTransform: 'uppercase', color: 'var(--color-text-tertiary)', letterSpacing: 0.5, flex: 1 }}>{m.role}</div>
+                      {/* 스펙 209 — assistant 응답에만 피드백(서버도 assistant-only 게이트). */}
+                      {m.role === 'assistant' && m.id && detail ? (
+                        <FeedbackButtons
+                          sessionId={detail.id}
+                          messageId={m.id}
+                          value={m.feedback}
+                          onChange={(fb) => applyFeedback(m.id as string, fb)}
+                        />
+                      ) : null}
+                    </div>
                     <div style={{ fontSize: 13, color: 'var(--color-text-secondary)', whiteSpace: 'pre-wrap' }}>{m.content}</div>
                   </div>
                 ))}

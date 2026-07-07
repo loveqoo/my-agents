@@ -319,6 +319,35 @@ class Message(Base):
     session: Mapped[Session] = relationship(back_populates="messages")
 
 
+class MessageFeedback(Base):
+    """응답 피드백(스펙 209) — assistant 메시지에 대한 👍/👎 + 이유. 평가 케이스 수확의 원천.
+
+    소유권: `created_by`=서버 도출 auth User UUID str(위조 불가, 세션 소유 스코프로 게이트). 한 사용자가
+    한 메시지에 1건(재클릭=upsert). session_pk는 소유 스코프 조회·수확 집계용(에이전트 세션 묶음)."""
+
+    __tablename__ = "message_feedback"
+    __table_args__ = (
+        # 사용자당 메시지당 1건(upsert 키). 소유 스코프·수확 집계용 인덱스는 컬럼 index=True로.
+        Index("uq_message_feedback_msg_user", "message_pk", "created_by", unique=True),
+    )
+    id: Mapped[uuid.UUID] = _pk()
+    message_pk: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("messages.id", ondelete="CASCADE"), index=True
+    )
+    session_pk: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("sessions.id", ondelete="CASCADE"), index=True
+    )
+    rating: Mapped[str] = mapped_column(String(8))  # 'up' | 'down'
+    reason: Mapped[str] = mapped_column(Text, default="")
+    created_by: Mapped[str] = mapped_column(String(80), index=True)  # auth User UUID str(서버 도출)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 # ----------------------------- 승인 큐 -----------------------------
 class Approval(Base):
     __tablename__ = "approvals"

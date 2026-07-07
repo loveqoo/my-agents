@@ -586,13 +586,24 @@ export interface MemoryUserList {
   users: MemoryUser[]
 }
 export const listMemoryUsers = () => j<MemoryUserList>('/memory/users')
+export interface MessageFeedback {
+  rating: 'up' | 'down'
+  reason: string
+}
 export interface SessionMessage {
+  id?: string // 스펙 209 — 피드백 부착 대상(구 응답엔 없을 수 있음)
   role: string
   content: string
   trace: Record<string, unknown> | null
+  feedback?: MessageFeedback | null // 스펙 209 — 요청 사용자의 이 메시지 피드백
 }
 export const getSessionMessages = (sessionId: string) =>
   j<SessionMessage[]>(`/sessions/${sessionId}/messages`)
+// 스펙 209 — 응답 피드백 upsert/취소(세션 소유자만·assistant 메시지만, 서버가 게이트).
+export const setMessageFeedback = (sessionId: string, messageId: string, rating: 'up' | 'down', reason = '') =>
+  put(`/sessions/${sessionId}/messages/${messageId}/feedback`, { rating, reason }) as Promise<MessageFeedback>
+export const clearMessageFeedback = (sessionId: string, messageId: string) =>
+  del(`/sessions/${sessionId}/messages/${messageId}/feedback`)
 export const listApprovals = (status?: string) =>
   j<Approval[]>(`/approvals${status ? `?status=${encodeURIComponent(status)}` : ''}`)
 export const resolveApproval = (id: string, decision: 'approve' | 'reject') =>

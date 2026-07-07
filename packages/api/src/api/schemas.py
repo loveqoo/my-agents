@@ -643,10 +643,23 @@ class SessionPage(BaseModel):
     counts: dict[str, int]  # 배지용 전체 집계, 키 all|live|awaiting|error (필터 무관)
 
 
+class FeedbackOut(BaseModel):
+    rating: Literal["up", "down"]
+    reason: str = ""
+
+
+class MessageFeedbackIn(BaseModel):
+    rating: Literal["up", "down"]
+    # 이유 상한(codex 209 F3) — 무제한이면 저장/응답 팽창. 사유는 짧은 메모라 2000자면 충분.
+    reason: str = Field(default="", max_length=2000)
+
+
 class MessageOut(BaseModel):
+    id: uuid.UUID | None = None  # 스펙 209 — 피드백 부착 대상(구 응답엔 없어 optional)
     role: str
     content: str
     trace: dict[str, Any] | None = None
+    feedback: FeedbackOut | None = None  # 스펙 209 — 요청 사용자의 이 메시지 피드백(없으면 None)
 
 
 class ApprovalOut(BaseModel):
