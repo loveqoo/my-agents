@@ -103,14 +103,7 @@ export default function AllowedHostsView() {
   ]
 
   return (
-    <Page
-      title="허용 호스트"
-      actions={
-        <Button onClick={reload} loading={loading}>
-          새로고침
-        </Button>
-      }
-    >
+    <Page title="허용 호스트">
       <Alert
         type="warning"
         showIcon
@@ -179,7 +172,20 @@ export default function AllowedHostsView() {
         </Form>
       </Panel>
 
-      <h4 style={{ margin: '0 0 12px', fontSize: 16 }}>등록된 허용 호스트</h4>
+      {/* 스펙 232: 새로고침을 상단 헤더 → 목록 제목 옆으로(이 버튼이 갱신하는 대상 곁에). */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginBottom: 12,
+        }}
+      >
+        <h4 style={{ margin: 0, fontSize: 16 }}>등록된 허용 호스트</h4>
+        <Button size="small" onClick={reload} loading={loading}>
+          새로고침
+        </Button>
+      </div>
       <DataTable
         columns={columns}
         rows={rows}
