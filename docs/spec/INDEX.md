@@ -230,3 +230,4 @@
 - 225 유저 권한 부여 어휘 정리(능력→권한) — **done**: 사용자 지적. UsersView 표시용 '능력'→'권한' 전량(탭·도입문·컬럼·토스트), '역할에게'→'역할 기준'(권한기준 요청은 첫박스가 역할이라 되돌림)·'특정 유저에게'→'유저 기준'. 표시 문자열만(백엔드 capability 개념 불변). 브라우저 '능력'0·tsc0 [ui-label-vs-backend-term,permission-wording] → 스샷
 - 226 배치 폼 레이아웃 정돈 — **done**: 사용자 "스타일/컴포넌트 배치 조절 필요". 좁은 입력 오른쪽에 떠 있던 힌트 span 6개 → Form.Item extra(필드 아래 정렬), 세션 정리 두 숫자필드(보존일수·최소 턴 수) 나란히. 레이아웃만·로직 불변. tsc0 [batch-form,extra-hint-below,related-fields-side-by-side]
 - 227 배치 4개 잡 탭 구성 — **done**: 사용자 제안 "배치를 탭으로". 세로 나열 네 잡(세션 정리·메모리 통합·A2A 정크·테스트 유저)→언더라인 Tabs 스위처, 활성 잡만 조건 렌더. 실행 이력(공용)은 탭 아래 공통 유지, 입력 상태 탭전환 보존. 스크롤 대폭 감소·앱 전역 탭과 일치. tsc0 [batch-tabs,jobs-as-tabs,shared-history-below]
+- 228 허용 호스트 SSRF 설명+레이아웃 — **done**: 사용자 "SSRF 경고만 있고 설명 없다"+"스타일/배치 수정". 경고 배너에 SSRF(서버측 요청위조) 평이 정의·왜 기본차단하는지 2단락 추가. 추가 시각 raw toLocaleString→fmtDateTime(앱 통일·감사정밀), 호스트/메모 두 필드 나란히. tsc0 [ssrf-explain,threat-model-in-warning,fmtDateTime,side-by-side-form]

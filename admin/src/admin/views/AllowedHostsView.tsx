@@ -5,6 +5,7 @@
 import { useState } from 'react'
 import { Button, Input, Popconfirm, Space, Alert, message, Form } from 'antd'
 import { Page, Panel, DataTable, type Column } from '../shared'
+import { fmtDateTime } from '../format'
 import { useAsyncData, runWithToast } from '../../hooks'
 import {
   listAllowedHosts,
@@ -77,7 +78,7 @@ export default function AllowedHostsView() {
       title: '추가 시각',
       render: (r) => (
         <span style={{ fontSize: 13, color: 'var(--color-text-tertiary)' }}>
-          {r.created_at ? new Date(r.created_at).toLocaleString() : '—'}
+          {r.created_at ? fmtDateTime(r.created_at) : '—'}
         </span>
       ),
     },
@@ -116,32 +117,53 @@ export default function AllowedHostsView() {
         showIcon
         style={{ marginBottom: 16 }}
         title="보안 주의 — host 추가는 SSRF 예외를 여는 행위입니다"
-        description="여기 등록한 host는 사설/루프백/메타데이터 대역이라도 서버의 outbound 요청(A2A·MCP·Agent Card)이 통과합니다. 개발용 mock(예: 127.0.0.1) 등 의도된 대상만 추가하세요. 와일드카드·CIDR·포트·스킴은 허용되지 않습니다(정확 host만)."
+        description={
+          <>
+            <p style={{ margin: '0 0 8px' }}>
+              <b>SSRF(Server-Side Request Forgery, 서버 측 요청 위조)</b>는 공격자가 서버를 속여, 원래는
+              바깥에서 닿을 수 없는 내부망·클라우드 메타데이터(예: 169.254.169.254)·로컬 서비스로 요청을
+              보내게 만드는 공격입니다. 그래서 이 서버는 사설·루프백·메타데이터 대역으로 나가는 요청을{' '}
+              <b>기본 차단</b>합니다.
+            </p>
+            <p style={{ margin: 0 }}>
+              여기 등록한 host는 그 차단의 <b>예외</b>가 되어, 사설/루프백 대역이라도 서버의 outbound
+              요청(A2A·MCP·Agent Card)이 통과합니다. 개발용 mock(예: 127.0.0.1) 등 <b>신뢰하는 대상만</b>{' '}
+              추가하세요. 와일드카드·CIDR·포트·스킴은 허용되지 않습니다(정확 host만).
+            </p>
+          </>
+        }
       />
 
       <Panel style={{ padding: 20, marginBottom: 20 }}>
         <h4 style={{ margin: '0 0 16px', fontSize: 16 }}>호스트 추가</h4>
         {/* antd Form은 레이아웃 전용(스펙 187 Phase 3) — 입력 상태는 기존 controlled 그대로(name 미지정). */}
+        {/* 스펙 228: 짧은 두 필드(호스트·메모)를 나란히 — 세로 여백 압축. */}
         <Form layout="vertical" component="div">
-          <Form.Item label="호스트" extra="정확 host(이름 또는 IP)만 — 와일드카드/CIDR/포트/스킴 불가">
-            <Input
-              value={host}
-              onChange={(e) => setHost(e.target.value)}
-              onPressEnter={() => void add()}
-              placeholder="예: 127.0.0.1 또는 agent.internal"
-              style={{ maxWidth: 320, fontFamily: 'var(--font-family-code, monospace)' }}
-            />
-          </Form.Item>
-          <Form.Item label="메모(선택)">
-            <Input
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              onPressEnter={() => void add()}
-              placeholder="왜 열었는지 — 예: dev mock A2A"
-              maxLength={200}
-              style={{ maxWidth: 320 }}
-            />
-          </Form.Item>
+          <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+            <Form.Item
+              label="호스트"
+              extra="정확 host(이름 또는 IP)만 — 와일드카드/CIDR/포트/스킴 불가"
+              style={{ marginBottom: 12 }}
+            >
+              <Input
+                value={host}
+                onChange={(e) => setHost(e.target.value)}
+                onPressEnter={() => void add()}
+                placeholder="예: 127.0.0.1 또는 agent.internal"
+                style={{ width: 320, fontFamily: 'var(--font-family-code, monospace)' }}
+              />
+            </Form.Item>
+            <Form.Item label="메모(선택)" style={{ marginBottom: 12 }}>
+              <Input
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                onPressEnter={() => void add()}
+                placeholder="왜 열었는지 — 예: dev mock A2A"
+                maxLength={200}
+                style={{ width: 320 }}
+              />
+            </Form.Item>
+          </div>
           <Space>
             <Button type="primary" onClick={() => void add()} loading={adding} disabled={!host.trim()}>
               추가
