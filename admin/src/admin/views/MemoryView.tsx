@@ -39,7 +39,7 @@ function AgentMemoryTab() {
         options={agents.map((a) => ({ value: a.id, label: a.name }))}
         notFoundContent="장기 기억을 쓰는 UI 에이전트가 없습니다"
       />
-      {sel ? <AgentMemoryPanel agentId={sel} /> : null}
+      {sel ? <AgentMemoryPanel agentId={sel} agentLabel={agents.find((a) => a.id === sel)?.name} /> : null}
     </div>
   )
 }

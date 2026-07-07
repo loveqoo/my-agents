@@ -3,7 +3,7 @@
    추출됐고, 여기는 **메모리 고유**만 남는다: 인라인 편집·삭제(마지막 항목 삭제 시 이전 페이지 보정),
    미구성(enabled=false) 안내, 스코프 라벨. 세션·컬렉션 문서와 같은 셸을 공유(드리프트 0). */
 import { useState } from 'react'
-import { Alert, Button, Input, Popconfirm, message } from 'antd'
+import { Alert, Button, Input, Popconfirm, Tooltip, message } from 'antd'
 import { PagedListShell, type ListController } from './PagedListShell'
 import { type Column } from '../shared'
 import { Icon } from '../icons'
@@ -17,8 +17,8 @@ export function PagedMemoryList({
   onDelete,
   refreshKey = 0,
 }: {
-  scopeKey: string // 스코프(유저/에이전트) 식별자 — 바뀌면 검색·페이지 초기화
-  scopeLabel: string // 총계 줄에 표기(진단 겸용: "누구의 기억을 보고 있나")
+  scopeKey: string // 스코프(유저/에이전트) 식별자(UUID) — 바뀌면 검색·페이지 초기화. 총계 줄엔 툴팁으로.
+  scopeLabel: string // 총계 줄 표기: 사람이 읽는 이름(스펙 220) — "누구의 기억을 보고 있나". UUID는 scopeKey 툴팁.
   fetchPage: (q: string, limit: number, offset: number) => Promise<MemoryPageOut>
   onEdit: (memId: string, text: string) => Promise<void>
   onDelete: (memId: string) => Promise<void>
@@ -129,7 +129,11 @@ export function PagedMemoryList({
       countLabel={(total, q) => (
         <>
           {q ? `"${q}" 일치 ` : '전체 '}
-          {total}건 · 스코프 <span style={{ fontFamily: 'var(--font-family-code)' }}>{scopeLabel}</span>
+          {/* 스펙 220: 이름 위주 표기 + UUID는 진단용 툴팁(호버) — 원본 스코프 식별자는 scopeKey. */}
+          {total}건 · 스코프{' '}
+          <Tooltip title={`스코프 ID: ${scopeKey}`}>
+            <span style={{ cursor: 'help', borderBottom: '1px dotted var(--color-border)' }}>{scopeLabel}</span>
+          </Tooltip>
         </>
       )}
       emptyText={(q) => (q ? '일치하는 기억이 없습니다.' : '기억이 없습니다.')}

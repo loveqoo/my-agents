@@ -14,7 +14,7 @@ import {
 import { PagedMemoryList } from './PagedMemoryList'
 import { RecallPanel } from './RecallPanel'
 
-export function AgentMemoryPanel({ agentId }: { agentId: string }) {
+export function AgentMemoryPanel({ agentId, agentLabel }: { agentId: string; agentLabel?: string }) {
   const [mode, setMode] = useState<'exact' | 'similar'>('exact')
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
@@ -58,7 +58,7 @@ export function AgentMemoryPanel({ agentId }: { agentId: string }) {
         <>
           <PagedMemoryList
             scopeKey={agentId}
-            scopeLabel={agentId}
+            scopeLabel={agentLabel ?? agentId}
             fetchPage={(q, l, o) => pageAgentMemory(agentId, q, l, o)}
             onEdit={async (memId, text) => {
               await updateAgentMemory(agentId, memId, text)

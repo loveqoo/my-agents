@@ -28,15 +28,16 @@ export function UserMemoryPanel({ userId, label }: { userId: string; label?: str
         ]}
         style={{ marginBottom: -8 }}
       />
+      {/* 스펙 220: 대상(이메일)은 총계 줄의 '스코프'가 단일 표기 — 안내문에선 빼 중복 제거(사용자 지적). */}
       <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-        이 유저가 대화 중 남긴 장기 기억. <b>{label ?? userId}</b>에게만 회상됩니다 — 잘못되거나 민감한
+        이 유저가 대화 중 남긴 장기 기억 — 이 유저에게만 회상됩니다. 잘못되거나 민감한
         정보는 여기서 교정·삭제하세요.
       </span>
 
       {mode === 'exact' ? (
         <PagedMemoryList
           scopeKey={userId}
-          scopeLabel={userId}
+          scopeLabel={label ?? userId}
           fetchPage={(q, l, o) => pageUserMemory(userId, q, l, o)}
           onEdit={async (memId, text) => {
             await updateUserMemory(userId, memId, text)
