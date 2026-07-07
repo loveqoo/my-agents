@@ -641,6 +641,8 @@ export interface ChatCallbacks {
   onForm?: (formId: string, form: ChatFormFrame) => void
   // 산출물 완성 프레임(스펙 188) — 임베드 시 JS 콜백이 받을 페이로드 그대로.
   onArtifact?: (artifact: ChatArtifact) => void
+  // 저장된 assistant 메시지 id(스펙 209 P1.5) — 이 응답에 피드백(👍/👎)을 부착하기 위해.
+  onMessageId?: (id: string) => void
 }
 
 function handleFrame(frame: string, cb: ChatCallbacks): boolean {
@@ -653,6 +655,7 @@ function handleFrame(frame: string, cb: ChatCallbacks): boolean {
   try {
     const parsed = JSON.parse(data)
     if (event === 'trace') cb.onTrace?.(parsed)
+    else if (event === 'message_id' && typeof parsed.id === 'string') cb.onMessageId?.(parsed.id)
     else if (typeof parsed.text === 'string') cb.onToken(parsed.text)
     else if (typeof parsed.session === 'string') cb.onSession?.(parsed.session)
     else if (typeof parsed.error === 'string') cb.onToken(`\n[오류] ${parsed.error}`)

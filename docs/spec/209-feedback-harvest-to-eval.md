@@ -55,9 +55,20 @@
   세션 GET messages에 id+feedback·소유권 게이트. UI: **세션 뷰(SessionsView) 응답에 👍/👎+이유**
   (재사용 FeedbackButtons). **완료(2026-07-07)**.
 - **Phase 1.5 — 플레이그라운드 피드백**: 플레이그라운드 응답 버블에도 👍/👎. `_persist`가 assistant
-  Message.id를 반환하게 하고 스트림에 message_id 프레임 방출(호출부 5곳) → ChatMsg.id로 부착. **분리
-  사유**: message-id 배관이 스트리밍 영속 경로(민감) 5곳을 건드려 Phase 1과 분리(위험 격리). ChatMsg에
-  현재 id 없음(role/text/trace/artifact).
+  Message.id를 반환하게 하고 스트림에 message_id 프레임 방출 → ChatMsg.id로 부착. **완료(2026-07-07)**.
+
+## 검증 결과 (Phase 1.5, 2026-07-07)
+- **백엔드**: `_persist`가 flush 후 assistant Message.id(str) 반환. `_mid_frame` 헬퍼로 `event: message_id`
+  프레임 방출 — SSE 스트림 4곳(A2A remote·ask·form·direct main). 5번째(resume_approval)는 비제너레이터
+  (-> None)라 스트림 없음 → 재개 턴 피드백은 **세션 리로드**(GET /messages, Phase 1의 id+feedback 재사용).
+- **프론트**: ChatMsg += id/feedback. streamChat `onMessageId` 콜백·handleFrame이 message_id 이벤트 파싱.
+  Playground `onMessageId`→appendToLastAi(id 부착)·loadSession 매핑에 id+feedback(과거 세션 복원 시 피드백
+  표면). DebugChat이 id 있는 완료 응답에 재사용 FeedbackButtons 렌더(currentSessionId 사용).
+- **육안 e2e(브라우저)**: 플레이그라운드 응답에 👍/👎 렌더 → 클릭 → "이유" 버튼(평점 설정) → **DB 영속**
+  실측(`up` · '[mock-llm] "플그 피드백 영속 테스트"'). 이 플그 피드백도 Phase 2 수확 대상이 됨.
+- 회귀: 209 스위트 18/18·24/24·tsc0·ui-audit 42화면 FAIL0(플그 무오버플로). codex 생략(가산적·소유권
+  경계는 Phase 1 codex 검증 재사용, 새 경계 없음). (verify_049는 무관한 스테일 테스트 — `_create_approval`
+  시그니처 불일치, Phase 1.5와 무관.)
 - **Phase 2 — 수확**: 수확 엔드포인트(피드백→초안 케이스, LLM assert)·"피드백 수확" 문제집·EvalView 검토
   편입·harvested 링크(models에 harvested_case_pk 추가). **완료(2026-07-07)**.
 

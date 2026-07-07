@@ -4,6 +4,8 @@
    chat-message shape the playground keeps in state. (Mock data + the HIL/A2UI flows
    were removed when the console was wired to the real backend.) */
 
+import type { MessageFeedback } from '../api'
+
 export interface Memory {
   type: 'semantic' | 'episodic' | 'procedural' | string
   text: string
@@ -93,4 +95,8 @@ export type ChatMsg = {
   text: string
   trace?: Trace
   artifact?: { kind: string; data: Record<string, unknown>; raw?: string | null }
+  // 스펙 209 P1.5: 저장된 assistant 메시지 id + 현재 사용자 피드백(👍/👎). id 있는 ai 메시지에만
+  // 피드백 버튼 노출(스트림 message_id 프레임 또는 세션 리로드로 채워짐).
+  id?: string
+  feedback?: MessageFeedback | null
 }

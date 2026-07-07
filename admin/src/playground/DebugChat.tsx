@@ -17,7 +17,8 @@ import { Avatar, Button, Tag, Grid, Tooltip, Segmented, Select, Input, Dropdown,
 import { Icon } from '../admin/icons'
 import { fmtTime } from '../admin/format'
 import { MessageContent } from './MessageContent'
-import { getA2ASkills, type A2ASkill, type ChatFormFrame } from '../api'
+import { getA2ASkills, type A2ASkill, type ChatFormFrame, type MessageFeedback } from '../api'
+import { FeedbackButtons } from '../FeedbackButtons'
 import type { ChatMsg, Trace } from './agentData'
 import type { Agent, Session } from '../admin/mockData'
 
@@ -105,6 +106,8 @@ interface DebugChatProps {
   onPickSession: (sid: string) => void
   onReloadSessions: () => void
   messages: ChatMsg[]
+  // 스펙 209 P1.5 — assistant 응답 피드백(👍/👎) 변경을 상위(convos)로 전파(낙관 갱신).
+  onFeedbackChange?: (msgIndex: number, fb: MessageFeedback | null) => void
   streaming: boolean
   awaitingApproval: boolean // 승인 대기 중(스펙 179 P3) — 입력 차단(그래프가 그 턴에서 멈춤)
   approvalCanResolve?: boolean // 인라인 승인(스펙 180) — 현재 사용자가 이 승인을 그 자리서 처리 가능
@@ -841,6 +844,7 @@ export function DebugChat({
   sessionsLoading,
   onPickSession,
   onReloadSessions,
+  onFeedbackChange,
   messages,
   streaming,
   awaitingApproval,
@@ -1047,6 +1051,17 @@ export function DebugChat({
                       />
                       {/* 산출물 카드(스펙 188) — 완성 payload를 그 턴 아래 표시. */}
                       {m.artifact ? <ArtifactCard artifact={m.artifact} /> : null}
+                      {/* 응답 피드백(스펙 209 P1.5) — 저장된 id가 있는 완료 응답에만(스트리밍 중 제외). */}
+                      {m.id && currentSessionId && !isStreaming ? (
+                        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                          <FeedbackButtons
+                            sessionId={currentSessionId}
+                            messageId={m.id}
+                            value={m.feedback}
+                            onChange={(fb) => onFeedbackChange?.(i, fb)}
+                          />
+                        </div>
+                      ) : null}
                     </div>
                   )
                 }

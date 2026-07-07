@@ -11,7 +11,7 @@ import type { Agent, BlockCategory, Session } from '../admin/mockData'
 import {
   listAgents, streamChat, streamChatA2A, getBlocks, listModels, listSessions, getSessionMessages, listCollections,
   listApprovals, resolveApproval,
-  type ChatMessage, type Model, type Collection, type ChatFormFrame,
+  type ChatMessage, type Model, type Collection, type ChatFormFrame, type MessageFeedback,
 } from '../api'
 import { onAgentsChanged } from '../agentsBus'
 import { isA2AExposed } from './DebugChat'
@@ -73,6 +73,15 @@ export function Playground({
 
   const activeAgent = agents.find((a) => a.id === activeId) ?? null
   const messages = convos[activeId] || []
+
+  // 스펙 209 P1.5 — 응답 피드백(👍/👎) 변경을 convos에 낙관 반영(FeedbackButtons가 서버 반영·실패 복원).
+  const handleFeedbackChange = (i: number, fb: MessageFeedback | null) => {
+    setConvos((c) => {
+      const arr = (c[activeId] || []).slice()
+      if (arr[i] && arr[i].role === 'ai') arr[i] = { ...arr[i], feedback: fb }
+      return { ...c, [activeId]: arr }
+    })
+  }
   // 항상 최신 활성 에이전트 외부 id를 가리키는 박스 — 비동기 세션 로드의 레이스 가드용
   // (A 요청이 B로 전환 후 도착해 B 피커를 오염시키는 것 차단).
   const activeExtRef = useRef<string | undefined>(undefined)
@@ -373,6 +382,8 @@ export function Playground({
           // 산출물형(스펙 188) — 폼 프레임은 입력 위 폼 렌더, artifact는 그 턴 메시지에 카드로.
           onForm: (formId, f) => setPendingForm({ formId, convoId: id, form: f }),
           onArtifact: (artifact) => appendToLastAi((prev) => ({ ...prev, artifact })),
+          // 스펙 209 P1.5 — 저장된 assistant id를 이 턴 메시지에 부착(피드백 버튼 노출 조건).
+          onMessageId: (mid) => appendToLastAi((prev) => ({ ...prev, id: mid })),
           onTrace: (tr) => {
             const trace = tr as unknown as Trace
             setConvos((c) => {
@@ -458,6 +469,8 @@ export function Playground({
           role: m.role === 'assistant' ? 'ai' : 'me',
           text: m.content,
           trace: (m.trace as unknown as Trace) ?? undefined,
+          id: m.id ?? undefined, // 스펙 209 P1.5 — 피드백 부착용(assistant만 서버가 채움)
+          feedback: m.feedback ?? null,
         }))
         setConvos((c) => ({ ...c, [targetId]: mapped }))
         setSelectedTurn(null)
@@ -526,6 +539,7 @@ export function Playground({
         onPickSession={loadSession}
         onReloadSessions={refreshSessions}
         messages={messages}
+        onFeedbackChange={handleFeedbackChange}
         streaming={streaming}
         awaitingApproval={!!pendingApproval && pendingApproval.convoId === activeId}
         approvalCanResolve={canResolvePending && pendingApproval?.convoId === activeId}
@@ -567,6 +581,7 @@ export function Playground({
         onPickSession={loadSession}
         onReloadSessions={refreshSessions}
         messages={messages}
+        onFeedbackChange={handleFeedbackChange}
         streaming={streaming}
         awaitingApproval={!!pendingApproval && pendingApproval.convoId === activeId}
         approvalCanResolve={canResolvePending && pendingApproval?.convoId === activeId}
