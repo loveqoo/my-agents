@@ -372,7 +372,7 @@ export default function UsersView() {
         관리자(admin)는 모든 권한을 쓸 수 있고, <b>일반 멤버(member)는 여기서 열어준 권한만</b> 쓸 수 있습니다(기본 잠김).
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
-        {/* 스펙 224: [권한 기준|유저 기준]는 부여 대상(역할 전체 vs 특정 유저)이 바뀌어 폼·목록이
+        {/* 스펙 224: [역할 기준|유저 기준]는 부여 대상(역할 전체 vs 특정 유저)이 바뀌어 폼·목록이
             달라지는 전환이라 Segmented→Tabs로 통일 — 상위 유저 목록/권한 부여 Tabs와 시각 일관(스펙 219와 동형). */}
         <div>
           <Tabs
@@ -382,7 +382,7 @@ export default function UsersView() {
               setGrantSubject(undefined) // 축 전환 시 다른 축 값 잔존 방지
             }}
             items={[
-              { key: 'role', label: '권한 기준' },
+              { key: 'role', label: '역할 기준' },
               { key: 'user', label: '유저 기준' },
             ]}
             style={{ marginBottom: -8 }}
