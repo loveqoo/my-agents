@@ -5,6 +5,7 @@ import { useState, useEffect, type ReactNode } from 'react'
 import { Tag, Button, Avatar, message, Tabs } from 'antd'
 import { Page, Panel } from '../shared'
 import { Icon } from '../icons'
+import { fmtDateTime } from '../format'
 import { type Approval } from '../mockData'
 import { listApprovals, resolveApproval } from '../../api'
 
@@ -64,7 +65,7 @@ function ApprovalCard({
       <CardHeaderRow
         agent={item.agent}
         sessionId={item.sessionId}
-        extra={<> · {item.requestedAt}</>}
+        extra={<> · {fmtDateTime(item.requestedAt)}</>}
         pad="14px 18px"
         rightTag={
           <Tag color={item.approver === 'self' ? 'blue' : 'purple'}>
@@ -149,9 +150,9 @@ function HistoryCard({ item }: { item: Approval }) {
           </div>
           <div>
             <Icon name="clock-circle" size={12} style={{ marginRight: 6, verticalAlign: '-2px' }} />
-            처리 시각 {item.resolvedAt ?? '—'}
+            처리 시각 {fmtDateTime(item.resolvedAt) || '—'}
           </div>
-          <div style={{ color: 'var(--color-text-quaternary)' }}>요청 {item.requestedAt}</div>
+          <div style={{ color: 'var(--color-text-quaternary)' }}>요청 {fmtDateTime(item.requestedAt)}</div>
         </div>
       </div>
     </Panel>

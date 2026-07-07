@@ -213,3 +213,4 @@
 - 208 같은표면 일괄+mock 견고신호(스펙 218) — 연속 같은모달 요청은 한 스펙으로 묶어 검증1회, mock 판정은 이름 하드코딩 대신 provider.kind 원천속성 승격(이미 로드된 관계=비용0), 목록 필터는 파생(프리셀렉트·게이트·빈문구) 전부 일관적용 [robust-signal-over-literal,batch-same-surface,filter-all-derivations] → API+브라우저
 - 209 도구 갈아치우는 모드전환=Tabs(스펙 219) — 컨트롤 종류는 라벨(모드/필터) 아니라 전환이 표현바꿈(Segmented)/도구·내용바꿈(Tabs)으로 판정("검색 모드" 라벨에 속아 Segmented 오분류), 분류 바꾸면 규칙 문서 예시도 동반갱신(코드-규칙 드리프트=재발) [mode-switch-swaps-tools,label-doesnt-decide-control,update-rule-on-reclassify] → 메모리 role=tab
 - 210 신분 표기처 하나로(스펙 220) — 식별자 표면화 전 "같은 신분이 이미 근처에 떴나" 스캔(UUID→이름 바꾸니 안내문 이메일과 중복), 중복은 canonical 1곳 지정+나머지 일반화(스코프=누구·안내문=가이드), 친숙화해도 원본ID는 삭제말고 툴팁 강등(진단성) [one-canonical-identity,scan-before-surface,demote-not-delete] → 브라우저 이메일1회
+- 211 감사 표면은 날짜+시각(스펙 222) — 친화 포맷터는 목적별로(fmtTime=스캔·옛날 날짜만 OK / fmtDateTime=감사·날짜+시:분:초 필수), "너무 길다" 축소요청은 노이즈(마이크로초·TZ)만 제거하고 정보(시:분:초)는 보존—과교정하면 2차 지적 [datetime-precision-by-purpose,cut-noise-not-info] → 승인 카드
