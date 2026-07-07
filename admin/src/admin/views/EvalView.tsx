@@ -3,7 +3,7 @@
    수치 검증→자율 반복(Ralph) 로드맵의 제품 표면. 러너는 오염 제로(백엔드 eval_runner) —
    실행해도 세션/메모리에 흔적이 남지 않는다. */
 import { useState, useEffect, useCallback, type CSSProperties } from 'react'
-import { Tabs, Segmented, Button, Input, InputNumber, AutoComplete, Select, Tag, Modal, Popconfirm, Alert, Collapse, Checkbox, Tooltip, message, Descriptions, Skeleton } from 'antd'
+import { Tabs, Button, Input, InputNumber, AutoComplete, Select, Tag, Modal, Popconfirm, Alert, Collapse, Checkbox, Tooltip, message, Descriptions, Skeleton } from 'antd'
 import { Page, DataTable, Drawer, type Column } from '../shared'
 import { Icon } from '../icons'
 import { TrendChart, CompareDrawer } from './EvalTrend'
@@ -595,8 +595,8 @@ export default function EvalView({ initialCollectionId, onConsumedInitial }: {
   onConsumedInitial?: () => void
 } = {}) {
   const [tab, setTab] = useState('datasets')
-  // 스펙 212: 문제집을 에이전트/RAG kind로 필터(상위 Tabs 안이라 탭 중첩 대신 Segmented 필터 —
-  // 같은 목록의 부분집합 선택). 서버 kind 파라미터로 걸러 페이징 정합 유지.
+  // 스펙 212(사용자 확정: 탭으로 통일): 문제집을 에이전트/RAG kind Tabs로 분리(RAG 컬렉션과 동형).
+  // 상위 Tabs 안 자식 Tabs. 서버 kind 파라미터로 걸러 페이징 정합 유지.
   const [kindFilter, setKindFilter] = useState<'agent' | 'rag'>('agent')
   // 스펙 196: 목록은 PagedListShell이 소유(서버 페이징·검색) — 부모는 재조회 트리거·폴링 신호만 든다.
   const [refreshKey, setRefreshKey] = useState(0)
@@ -770,6 +770,16 @@ export default function EvalView({ initialCollectionId, onConsumedInitial }: {
                 <Alert type="info" showIcon title="평가 결과는 모든 사용자에게 공개됩니다" />
                 {/* 스펙 196: 목록을 PagedListShell로 — 최근순 정렬·서버 검색·페이징(세션 098/128 패턴).
                    '새 문제집'은 leftSlot으로(스펙 195: '컬렉션에서 생성' 자동 채움은 제거됨 — 빈 문제집+상단 AI 출제). */}
+                {/* 스펙 212(사용자 확정): 에이전트/RAG를 Tabs로 통일(RAG 컬렉션과 동형). 상위 Tabs
+                    (문제집/격자/이력) 안 자식 Tabs — 전환이 kindFilter를 바꿔 아래 목록이 서버 필터로 재조회. */}
+                <Tabs
+                  activeKey={kindFilter}
+                  onChange={(k) => setKindFilter(k as 'agent' | 'rag')}
+                  items={[
+                    { key: 'agent', label: '에이전트 평가' },
+                    { key: 'rag', label: 'RAG 평가' },
+                  ]}
+                />
                 <PagedListShell<EvalDataset, boolean>
                   scopeKey={`eval-datasets-${kindFilter}`}
                   refreshKey={refreshKey}
@@ -784,19 +794,9 @@ export default function EvalView({ initialCollectionId, onConsumedInitial }: {
                   emptyText={kindFilter === 'rag' ? 'RAG 평가 문제집이 없습니다 — 새로 만들어 보세요.' : '에이전트 평가 문제집이 없습니다 — 새로 만들어 보세요.'}
                   errorTitle="문제집을 불러오지 못했습니다"
                   leftSlot={
-                    <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-                      <Segmented
-                        value={kindFilter}
-                        onChange={(v) => setKindFilter(v as 'agent' | 'rag')}
-                        options={[
-                          { label: '에이전트 평가', value: 'agent' },
-                          { label: 'RAG 평가', value: 'rag' },
-                        ]}
-                      />
-                      <Button type="primary" icon={<Icon name="plus" />} onClick={() => setCreating(true)}>
-                        새 문제집
-                      </Button>
-                    </div>
+                    <Button type="primary" icon={<Icon name="plus" />} onClick={() => setCreating(true)}>
+                      새 문제집
+                    </Button>
                   }
                 />
               </div>
