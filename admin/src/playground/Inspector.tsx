@@ -481,8 +481,10 @@ export function Inspector({
           return (
             <Section icon="file" iconColor="var(--color-primary)" title="전송 프롬프트" count={t.sentMessages.length}>
               <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginBottom: 8 }}>
-                이 턴에 모델로 전송된 메시지 {t.sentMessages.length}개(회상 주입 포함 · 메시지당 2000자
-                표시 상한). user 입력 {t.sentMessages.length - shown.length}개는 채팅에서 확인 — 표시 생략.
+                {t.sentMessagesSource === 'measured'
+                  ? `모델에 실제 전송된 메시지 ${t.sentMessages.length}개(마지막 호출 기준${t.modelCalls && t.modelCalls > 1 ? ` · 이 턴 모델 호출 ${t.modelCalls}회` : ''} · 메시지당 2000자 표시 상한).`
+                  : `플랫폼 입력 기준 재구성 ${t.sentMessages.length}개(실측 미수집 턴 · 메시지당 2000자 표시 상한).`}{' '}
+                user 입력 {t.sentMessages.length - shown.length}개는 채팅에서 확인 — 표시 생략.
               </div>
               <Collapse
                 size="small"
@@ -559,8 +561,9 @@ export function Inspector({
     <>
       <div style={{ display: 'flex', gap: 0, padding: '12px 16px', borderBottom: '1px solid var(--color-border-secondary)' }}>
         <Metric label="지연시간" value={(t.latencyMs / 1000).toFixed(2) + 's'} />
-        <Metric label="입력 토큰" value={t.tokens.in.toLocaleString()} />
-        <Metric label="출력 토큰" value={t.tokens.out.toLocaleString()} />
+        {/* 스펙 205 — 실측(usage)이면 그대로, 추정이면 ≈ 접두로 정직 표기. */}
+        <Metric label={t.tokens.estimated ? '입력 토큰(추정)' : '입력 토큰'} value={(t.tokens.estimated ? '≈' : '') + t.tokens.in.toLocaleString()} />
+        <Metric label={t.tokens.estimated ? '출력 토큰(추정)' : '출력 토큰'} value={(t.tokens.estimated ? '≈' : '') + t.tokens.out.toLocaleString()} />
       </div>
       <Tabs
         size="small"

@@ -49,7 +49,7 @@ export interface GraphNode {
 
 export interface Trace {
   latencyMs: number
-  tokens: { in: number; out: number }
+  tokens: { in: number; out: number; estimated?: boolean } // estimated=usage 부재 시 글자수 추정(스펙 205)
   promptRef: string
   memories: Memory[]
   mcp: McpCallT[]
@@ -81,6 +81,8 @@ export interface Trace {
   // 전송 프롬프트 전문(스펙 131) — 실제 그래프에 넣은 배열(조립 system=persona+회상 포함), 메시지당
   // 2000자 캡. 재개 턴은 N/A(체크포인트 내부 재개 — 스펙 131 경계).
   sentMessages?: { role: string; content: string }[]
+  sentMessagesSource?: 'measured' | 'reconstructed' // 스펙 205 — 실측(모델 콜백) vs 재구성(131 폴백)
+  modelCalls?: number // 이 턴의 모델 호출 수(실측 시)
   // 이 턴에 적용된 오버라이드(스펙 134) — 세션에 설정 다른 턴이 섞여도 턴별 구분(마스킹·캡된 값).
   overrides?: Record<string, unknown>
 }

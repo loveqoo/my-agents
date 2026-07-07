@@ -28,6 +28,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from . import a2a_client, authz, checkpointer, crypto, memory, observability, runtime
+from . import trace_capture
 from .auth import current_principal
 from .broker import PolicyScopedBroker, build_broker
 from .db import SessionLocal
@@ -478,6 +479,23 @@ def _build_sent_messages(persona_prompt: str, messages: list[dict]) -> list[dict
     return out
 
 
+def _format_sent_measured(call: list[dict]) -> list[dict]:
+    """실측 모델 호출 메시지 → 표시용(스펙 205) — 131과 같은 캡·마스킹. 첫 메시지(system)는 항상
+    보존하고 나머지는 꼬리 캡(재구성판과 동일 시맨틱)."""
+    from .memory import _sanitize as _mask
+
+    if not call:
+        return []
+    head, rest = call[0], call[1:]
+    out = [{"role": head.get("role", "system"), "content": _mask(head.get("content") or "", cap=_SENT_MSG_CHAR_CAP)}]
+    tail = rest[-_SENT_MSG_COUNT_CAP:]
+    omitted = len(rest) - len(tail)
+    if omitted > 0:
+        out.append({"role": "notice", "content": f"(이전 {omitted}개 메시지 생략 — 표시 상한 {_SENT_MSG_COUNT_CAP}개)"})
+    out.extend({"role": m.get("role", "?"), "content": _mask(m.get("content") or "", cap=_SENT_MSG_CHAR_CAP)} for m in tail)
+    return out
+
+
 # 트레이스에 기록할 오버라이드 허용 키(스펙 134) — _load_context 병합 allowlist + systemPrompt.
 _OVERRIDE_TRACE_KEYS = ("model", "temperature", "historyDepth", "mcps", "memories", "capabilities", "systemPrompt")
 
@@ -817,6 +835,9 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
     config = observability.with_trace(
         config, name=f"chat:{ctx['ext_agent_id']}", session_id=ctx["session_id"], user_id=user_id
     )
+    # 실측 캡처(스펙 205) — 모델 호출 메시지·usage. Langfuse 콜백과 병행(둘 다 callbacks 리스트).
+    capture = trace_capture.TraceCaptureHandler()
+    config["callbacks"] = list(config.get("callbacks") or []) + [capture]
 
     # 실행 컨텍스트를 historyDepth로 절단(최근 N개만 모델에 전달).
     messages = _window(
@@ -1020,7 +1041,11 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
         full = "".join(acc)
         total_ms = int((time.perf_counter() - t0) * 1000)
         prompt_chars = sum(len(m["content"]) for m in messages)
-        tokens = runtime.estimate_tokens(prompt_chars, len(full))
+        # 토큰(스펙 205): 모델 usage 실측 우선, 부재 시 추정 폴백(estimated로 정직 표기).
+        if capture.usage_seen:
+            tokens = {"in": capture.tokens_in, "out": capture.tokens_out, "estimated": False}
+        else:
+            tokens = {**runtime.estimate_tokens(prompt_chars, len(full)), "estimated": True}
         trace = runtime.assemble_trace(
             agent_id=ctx["ext_agent_id"],
             memories=mem_hits,
@@ -1031,7 +1056,15 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
             graph_observations=observed,
         )
         trace["contextMessages"] = len(messages)  # 모델에 넣은 메시지 수(historyDepth 적용 결과)
-        trace["sentMessages"] = sent_messages  # 전송 프롬프트 전문(스펙 131, 메시지당 2000자 캡)
+        # 전송 프롬프트(스펙 205): 콜백 실측(마지막 모델 호출 — 커스텀 impl의 계획·도구 안내 포함)
+        # 우선, 콜백 미발화면 기존 재구성(131) 폴백. 출처를 표기해 UI가 정직하게 라벨링.
+        if capture.calls:
+            trace["sentMessages"] = _format_sent_measured(capture.calls[-1])
+            trace["modelCalls"] = len(capture.calls)
+            trace["sentMessagesSource"] = "measured"
+        else:
+            trace["sentMessages"] = sent_messages  # 전송 프롬프트 전문(스펙 131, 메시지당 2000자 캡)
+            trace["sentMessagesSource"] = "reconstructed"
         ov_trace = _overrides_trace(ctx.get("overrides"))
         if ov_trace:
             # 이 턴에 적용된 오버라이드(스펙 134) — 세션에 설정 다른 턴이 섞여도 턴별 구분 가능.

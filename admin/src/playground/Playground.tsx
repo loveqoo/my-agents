@@ -501,6 +501,10 @@ export function Playground({
   }
 
   const selectedMsg = selectedTurn != null ? messages[selectedTurn] : null
+  // 턴 번호(스펙 205) — 배열 인덱스가 아니라 그 시점까지의 user 메시지 수(질문 순번). 1문답="턴 1".
+  const selectedTurnNo = selectedTurn != null
+    ? messages.slice(0, selectedTurn + 1).filter((m) => m.role === 'me').length
+    : 1
 
   return (
     <div style={{ flex: 1, minHeight: 0, display: 'flex', background: 'var(--color-bg-container)' }}>
@@ -548,7 +552,7 @@ export function Playground({
             </div>
           </Splitter.Panel>
           <Splitter.Panel defaultSize={384} min={300} max={720}>
-            <Inspector agent={activeAgent} turn={selectedMsg} turnIndex={selectedTurn || 0} onClose={() => setInspectorOpen(false)} />
+            <Inspector agent={activeAgent} turn={selectedMsg} turnIndex={selectedTurnNo - 1} onClose={() => setInspectorOpen(false)} />
           </Splitter.Panel>
         </Splitter>
       ) : (
@@ -597,7 +601,7 @@ export function Playground({
               onClose={() => setInspectorOpen(false)}
               styles={{ body: { padding: 0 } }}
             >
-              <Inspector agent={activeAgent} turn={selectedMsg} turnIndex={selectedTurn || 0} onClose={() => setInspectorOpen(false)} fullWidth />
+              <Inspector agent={activeAgent} turn={selectedMsg} turnIndex={selectedTurnNo - 1} onClose={() => setInspectorOpen(false)} fullWidth />
             </Drawer>
           ) : null}
         </>
