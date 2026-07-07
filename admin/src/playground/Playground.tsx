@@ -58,11 +58,12 @@ export function Playground({
   const [pendingForm, setPendingForm] = useState<{ formId: string; convoId: string; form: ChatFormFrame } | null>(null)
 
   const screens = Grid.useBreakpoint()
-  // 인스펙터를 채팅과 나란히(side-by-side) 두려면 사이드바 + 채팅 + 인스펙터(384px)가
-  // 모두 들어갈 폭이 필요하다. lg(992) 미만에서는 채팅 컬럼이 184px 수준으로 짜부라져
-  // 헤더 컨트롤(아바타·userId·버튼)이 인스펙터 헤더로 흘러넘쳐 "턴 인스펙터" 타이틀·아이콘과
-  // 겹친다(어중간한 폭 버그, #9). 그래서 lg 미만에서는 모바일과 동일하게 전체화면 오버레이로 띄운다.
-  const overlayInspector = !screens.lg
+  // 인스펙터를 채팅과 나란히(side-by-side) 두려면 사이드바(232) + 채팅 + 인스펙터(384) 폭이 필요하다.
+  // 임계값을 lg(992)로 잡으면 992~1199에서 채팅 컬럼이 ~376px로 짜부라져 헤더(아바타·이름·컨트롤)가
+  // 이름 글자 단위 줄바꿈·아이콘 겹침으로 깨진다(사용자 보고 2026-07-07). side-by-side는 채팅이
+  // 넉넉할 때만 — xl(1200)에서 채팅 = 1200-232-384 = 584px. 그 아래는 모바일과 동일하게 전체화면
+  // 오버레이(이미 완비된 경로, 인스펙터를 꽉 차게 보여줌).
+  const overlayInspector = !screens.xl
 
   // 에이전트 메뉴 "테스트"로 진입 시 그 에이전트 자동 선택(스펙 144 #2) — 목록 로드 후 1회 소비.
   useEffect(() => {
