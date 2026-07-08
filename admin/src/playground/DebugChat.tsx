@@ -567,6 +567,8 @@ function ChatHeader({
 }) {
   const screens = Grid.useBreakpoint()
   const isMobile = !screens.md
+  // 대화 설정 팝오버 열림(스펙 248 후속3) — 조건 표시줄 클릭과 버튼이 같은 팝오버를 공유(제어형).
+  const [settingsOpen, setSettingsOpen] = useState(false)
   // A2A 광고 스킬(스펙 157) — A2A 모드일 때 노출 에이전트의 카드가 외부에 광고하는 능력(chat+mcp+
   // delegate+rag)을 fetch해 칩으로 표시. 외부 소비자가 보는 것과 동일한 걸 확인하는 테스트 수단.
   const [a2aSkills, setA2aSkills] = useState<A2ASkill[]>([])
@@ -603,15 +605,38 @@ function ChatHeader({
         }
       >
         <AgentCombo agent={agent} agents={agents} onSwitch={onSwitchAgent} fullWidth={isMobile} />
-        {/* 신호 배지(스펙 247) — 기본과 다른 상태만 헤더에 표시(미리보기·오버라이드). 설정 자체는
-            "대화 설정" 팝오버로 가림(집중 모델: 헤더=에이전트+신호만). */}
-        {pinnedVersion && (
-          <Tag color="orange" style={{ margin: 0, flexShrink: 0 }}>미리보기 {pinnedVersion}</Tag>
-        )}
-        {overrideActive && (
-          <Tag color="blue" style={{ margin: 0, flexShrink: 0, cursor: 'pointer' }} onClick={onToggleOverrides}>오버라이드 ✓</Tag>
-        )}
-        {a2aMode && <Tag color="green" style={{ margin: 0, flexShrink: 0 }}>A2A 경유</Tag>}
+        {/* 상시 조건 표시줄(스펙 248 후속3, 사용자 교정: "스마트 자동 선택은 노출되어야 — 인지 관점").
+            컨트롤은 가리되(집중) **상태는 항상 보인다**: 자동 선택된 버전·경로·세션을 열어보지 않고
+            알 수 있게. 클릭=대화 설정(상태 표시가 곧 변경 입구). 기본과 다른 값은 색으로 강조. */}
+        <button
+          onClick={() => setSettingsOpen(true)}
+          title="현재 대화 조건 — 클릭해 변경"
+          style={{
+            display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', minWidth: 0,
+            border: 'none', background: 'transparent', cursor: 'pointer', font: 'inherit',
+            fontSize: 12, color: 'var(--color-text-tertiary)', padding: '2px 4px',
+          }}
+        >
+          {pinnedVersion ? (
+            <Tag color="orange" style={{ margin: 0 }}>미리보기 {pinnedVersion}</Tag>
+          ) : (
+            <span>{agent.activeVersion ? `활성 ${agent.activeVersion}` : '미서빙'}</span>
+          )}
+          <span>·</span>
+          {a2aMode ? <Tag color="green" style={{ margin: 0 }}>A2A 경유</Tag> : <span>직접</span>}
+          <span>·</span>
+          <span style={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {currentSessionId
+              ? `이어서: ${(sessions.find((ss) => ss.id === currentSessionId)?.preview || shortSid(currentSessionId))}`
+              : '새 대화'}
+          </span>
+          {overrideActive && (
+            <>
+              <span>·</span>
+              <Tag color="blue" style={{ margin: 0 }}>오버라이드 ✓</Tag>
+            </>
+          )}
+        </button>
         {!isMobile && <div style={{ flex: 1 }} />}
         {/* 도구 줄 — 모바일은 라벨 포함·줄바꿈 허용(flexWrap). */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -633,6 +658,8 @@ function ChatHeader({
             인스펙터)을 한 입구 뒤로. 헤더 상시 요소=에이전트·신호 배지·새 대화·이 버튼. */}
         <Popover
           trigger="click"
+          open={settingsOpen}
+          onOpenChange={setSettingsOpen}
           placement="bottomRight"
           content={
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: 260 }}>
@@ -1095,21 +1122,6 @@ export function DebugChat({
           </div>
         ) : empty ? (
           <div style={{ maxWidth: 680, margin: '0 auto', width: '100%', padding: '7vh 24px 0', display: 'flex', flexDirection: 'column', gap: 24 }}>
-            {/* 시작 조건 요약(스펙 248) — 어떤 조건으로 첫 메시지가 나가는지 시작 화면에서만 한 줄.
-                기본과 다르면 헤더 신호 배지가 있으므로, 여기는 기본 상태까지 포함한 확인용. */}
-            <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', textAlign: 'center' }}>
-              {agent ? (
-                <>
-                  <strong style={{ color: 'var(--color-text-secondary)' }}>{agent.name}</strong>
-                  {' · '}
-                  {pinnedVersion ? `미리보기 ${pinnedVersion}` : `활성${agent.activeVersion ? ` ${agent.activeVersion}` : ''}`}
-                  {' · '}
-                  {overrideActive ? '오버라이드 적용 중' : '오버라이드 없음'}
-                  {a2aMode ? ' · A2A 경유' : ''}
-                  <span style={{ color: 'var(--color-text-quaternary)' }}> — 조건 변경은 우측 상단 “대화 설정”</span>
-                </>
-              ) : null}
-            </div>
             <Prompts
               title={agent?.suggestedPrompts?.length ? '추천 명령어' : '디버그 프롬프트 체험'}
               wrap
