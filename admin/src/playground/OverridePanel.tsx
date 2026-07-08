@@ -297,7 +297,9 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
       )}
       // 위→아래(스펙 248 후속15, 사용자 디자인): 헤더에 매달린 U 손잡이를 당기면 서랍이 내려온다.
       placement="top"
-      height="min(70vh, 560px)"
+      // 컨테이너 기준 %(후속25): 70vh는 모바일 주소창 탓에 실제 가시 영역보다 커서 하단 닫기가
+      // 화면 밖으로 밀렸다(사용자 실기기). 래퍼(헤더 아래 영역)는 실제 레이아웃 높이라 항상 화면 안.
+      height="min(85%, 560px)"
       title="런타임 오버라이드"
       // 닫기는 하단 U 손잡이로 일원화(후속19, 사용자: 여는 버튼 오른쪽·닫는 X 왼쪽 불일치) — X 제거.
       closable={false}
