@@ -3,7 +3,7 @@
    복사 강등). 개요 탭=요약 대시보드(각 관심사 한 줄+클릭 점프 — 지도이지 또 다른 상세가 아님).
    로컬(ui) 전용(code/external은 드로어 유지 — 후속). */
 import { useEffect, useRef, useState } from 'react'
-import { Tag, Button, Avatar, Alert, Modal, Descriptions, Grid, Tooltip, message } from 'antd'
+import { Tag, Button, Avatar, Alert, Modal, Descriptions, Grid, Tooltip, message, Typography } from 'antd'
 import { VersionHistory, ExposeSwitch } from '../../shared'
 import { Icon } from '../../icons'
 import { AgentMemoryPanel } from '../AgentMemoryPanel'
@@ -11,7 +11,6 @@ import { isOrchestratorImpl, type Agent, type VersionMeta } from '../../mockData
 import { displayName } from '../../naming'
 import { PersonaStaleNote } from './PersonaStaleNote'
 import { FeedbackHarvestButton } from './FeedbackHarvestButton'
-import { IdRow } from './primitives'
 import { getAgentOps, type AgentOps } from '../../../api'
 
 function a2aCardUrl(agentPk: string): string {
@@ -184,40 +183,78 @@ export function AgentDetailPage({
           {active === 'overview' && (
           <section>
             <SectionTitle>개요 — 한눈에</SectionTitle>
-            <div style={{ display: 'flex', flexDirection: 'column' }}>
-              <SummaryRow label="실행" onJump={null}>
-                <span style={{ fontFamily: 'var(--font-family-code)' }}>{agent.model}</span>
-                <span style={{ color: 'var(--color-text-tertiary)' }}> · 페르소나 {agent.persona || '없음'} · 활성 세션 {agent.sessions}개</span>
-              </SummaryRow>
-              <SummaryRow label="구성" onJump={() => jump('config')}>
-                {(() => {
-                  const parts: string[] = []
-                  if ((agent.mcps || []).length) parts.push(`도구 ${agent.mcps.length}`)
-                  if ((agent.vectorTables || []).length) parts.push(`문서 ${agent.vectorTables.length}`)
-                  if ((agent.memories || []).length) parts.push(`메모리 ${agent.memories.length}`)
-                  if ((agent.capabilities || []).length) parts.push(`위임 대상 ${(agent.capabilities || []).length}`)
-                  return parts.length ? parts.join(' · ') : '연결 없음 — 모델만으로 응답'
-                })()}
-              </SummaryRow>
-              <SummaryRow label="버전·배포" onJump={() => jump('versions')}>
-                서빙 {agent.activeVersion ?? '없음'}
-                {draft ? ` · 초안 ${draft.version} 대기 중` : ' · 초안 없음'}
-              </SummaryRow>
-              <SummaryRow label="공개·연동" onJump={() => jump('sharing')}>
-                {agent.owner_id == null ? 'public(모두 사용 가능)' : 'private(소유자만)'} · A2A {agent.exposed?.a2a ? '켬' : '꺼짐'}
-              </SummaryRow>
-              <SummaryRow label="운영" onJump={() => jump('operations')}>
-                {(() => {
-                  if (!ops) return '지표 없음'
-                  const vs = Object.values(ops.versions || {})
-                  const up = vs.reduce((n, v) => n + v.up, 0) + ops.unversionedUp
-                  const down = vs.reduce((n, v) => n + v.down, 0) + ops.unversionedDown
-                  const cur = agent.activeVersion ? ops.versions?.[agent.activeVersion] : undefined
-                  const score = cur?.lastScore != null ? ` · 최근 평가 ${Math.round(cur.lastScore * 100)}%` : ''
-                  return (up || down || score) ? `👍${up} 👎${down}${score}` : '지표 없음'
-                })()}
-              </SummaryRow>
-            </div>
+            {/* key/value 표(사용자 제안) — bordered Descriptions로 레이블 셀/값 셀 구분. 점프는 값 셀 클릭. */}
+            <Descriptions
+              column={1}
+              size="small"
+              bordered
+              layout={isMobile ? 'vertical' : 'horizontal'}
+              labelStyle={{ width: 120 }}
+              items={[
+                {
+                  key: 'run',
+                  label: '실행',
+                  children: (
+                    <span>
+                      <span style={{ fontFamily: 'var(--font-family-code)' }}>{agent.model}</span>
+                      <span style={{ color: 'var(--color-text-tertiary)' }}> · 페르소나 {agent.persona || '없음'} · 활성 세션 {agent.sessions}개</span>
+                    </span>
+                  ),
+                },
+                {
+                  key: 'config',
+                  label: '구성',
+                  children: (
+                    <JumpCell onJump={() => jump('config')}>
+                      {(() => {
+                        const parts: string[] = []
+                        if ((agent.mcps || []).length) parts.push(`도구 ${agent.mcps.length}`)
+                        if ((agent.vectorTables || []).length) parts.push(`문서 ${agent.vectorTables.length}`)
+                        if ((agent.memories || []).length) parts.push(`메모리 ${agent.memories.length}`)
+                        if ((agent.capabilities || []).length) parts.push(`위임 대상 ${(agent.capabilities || []).length}`)
+                        return parts.length ? parts.join(' · ') : '연결 없음 — 모델만으로 응답'
+                      })()}
+                    </JumpCell>
+                  ),
+                },
+                {
+                  key: 'versions',
+                  label: '버전·배포',
+                  children: (
+                    <JumpCell onJump={() => jump('versions')}>
+                      서빙 {agent.activeVersion ?? '없음'}
+                      {draft ? ` · 초안 ${draft.version} 대기 중` : ' · 초안 없음'}
+                    </JumpCell>
+                  ),
+                },
+                {
+                  key: 'sharing',
+                  label: '공개·연동',
+                  children: (
+                    <JumpCell onJump={() => jump('sharing')}>
+                      {agent.owner_id == null ? 'public(모두 사용 가능)' : 'private(소유자만)'} · A2A {agent.exposed?.a2a ? '켬' : '꺼짐'}
+                    </JumpCell>
+                  ),
+                },
+                {
+                  key: 'ops',
+                  label: '운영',
+                  children: (
+                    <JumpCell onJump={() => jump('operations')}>
+                      {(() => {
+                        if (!ops) return '지표 없음'
+                        const vs = Object.values(ops.versions || {})
+                        const up = vs.reduce((n, v) => n + v.up, 0) + ops.unversionedUp
+                        const down = vs.reduce((n, v) => n + v.down, 0) + ops.unversionedDown
+                        const cur = agent.activeVersion ? ops.versions?.[agent.activeVersion] : undefined
+                        const score = cur?.lastScore != null ? ` · 최근 평가 ${Math.round(cur.lastScore * 100)}%` : ''
+                        return (up || down || score) ? `👍${up} 👎${down}${score}` : '지표 없음'
+                      })()}
+                    </JumpCell>
+                  ),
+                },
+              ]}
+            />
             {(agent.environments || []).length > 0 && (
               <div style={{ display: 'flex', gap: 4, marginTop: 10 }}>
                 {(agent.environments || []).map((env) =>
@@ -236,7 +273,9 @@ export function AgentDetailPage({
             <Descriptions
               column={1}
               size="small"
+              bordered
               layout={isMobile ? 'vertical' : 'horizontal'}
+              labelStyle={{ width: 120 }}
               items={[
                 { key: 'model', label: '모델', children: <span style={{ fontFamily: 'var(--font-family-code)' }}>{agent.model}</span> },
                 { key: 'persona', label: '페르소나', children: agent.persona || '없음' },
@@ -377,59 +416,92 @@ export function AgentDetailPage({
           {active === 'sharing' && (
           <section>
             <SectionTitle>공개·연동 — 누가 쓸 수 있나</SectionTitle>
-            {canManage ? (
-              <div style={{ padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 10, border: '1px solid var(--color-border-secondary)', borderRadius: 'var(--radius-lg)', background: 'var(--gray-2)', marginBottom: 10 }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--color-text-heading)' }}>공개 범위</div>
-                  <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-                    {agent.owner_id == null
-                      ? 'public · 모두 도구처럼 사용 가능(A2A 켜기 가능)'
-                      : 'private · 소유자만 사용(A2A 불가)'}
-                  </div>
-                </div>
-                <Button
-                  size="small"
-                  onClick={() =>
-                    Modal.confirm({
-                      title: agent.owner_id == null ? '비공개(private)로 전환할까요?' : '공개(public)로 전환할까요?',
-                      content:
-                        agent.owner_id == null
-                          ? 'private가 되면 소유자만 사용할 수 있고, 켜져 있던 A2A 공개는 자동으로 꺼집니다.'
-                          : 'public이 되면 모든 사용자가 이 에이전트를 도구처럼 사용할 수 있고 A2A 공개도 켤 수 있게 됩니다.',
-                      okText: '전환',
-                      cancelText: '취소',
-                      onOk: () => onSetVisibility(agent, agent.owner_id != null),
-                    })
-                  }
-                >
-                  {agent.owner_id == null ? '비공개로 전환' : '공개로 전환'}
-                </Button>
-              </div>
-            ) : null}
-            <ExposeSwitch
-              on={!!agent.exposed.a2a}
-              onChange={() => onToggleExpose(agent)}
-              label="A2A로 공개"
-              onText="켬 · 다른 에이전트가 호출 가능"
-              offText="꺼짐 · 노출되지 않음"
+            {/* key/value 표(사용자 제안) — 흩어진 박스 3개를 한 표로. 행=공개 범위/A2A/식별자(조건). */}
+            <Descriptions
+              column={1}
+              size="small"
+              bordered
+              layout={isMobile ? 'vertical' : 'horizontal'}
+              labelStyle={{ width: 120 }}
+              items={[
+                {
+                  key: 'visibility',
+                  label: '공개 범위',
+                  children: (
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                      <span style={{ flex: 1, minWidth: 180 }}>
+                        {agent.owner_id == null
+                          ? 'public · 모두 도구처럼 사용 가능(A2A 켜기 가능)'
+                          : 'private · 소유자만 사용(A2A 불가)'}
+                      </span>
+                      {canManage && (
+                        <Button
+                          size="small"
+                          onClick={() =>
+                            Modal.confirm({
+                              title: agent.owner_id == null ? '비공개(private)로 전환할까요?' : '공개(public)로 전환할까요?',
+                              content:
+                                agent.owner_id == null
+                                  ? 'private가 되면 소유자만 사용할 수 있고, 켜져 있던 A2A 공개는 자동으로 꺼집니다.'
+                                  : 'public이 되면 모든 사용자가 이 에이전트를 도구처럼 사용할 수 있고 A2A 공개도 켤 수 있게 됩니다.',
+                              okText: '전환',
+                              cancelText: '취소',
+                              onOk: () => onSetVisibility(agent, agent.owner_id != null),
+                            })
+                          }
+                        >
+                          {agent.owner_id == null ? '비공개로 전환' : '공개로 전환'}
+                        </Button>
+                      )}
+                    </span>
+                  ),
+                },
+                {
+                  key: 'a2a',
+                  label: 'A2A 공개',
+                  children: (
+                    <ExposeSwitch
+                      on={!!agent.exposed.a2a}
+                      onChange={() => onToggleExpose(agent)}
+                      label=""
+                      onText="켬 · 다른 에이전트가 호출 가능"
+                      offText="꺼짐 · 노출되지 않음"
+                    />
+                  ),
+                },
+                ...(agent.exposed.a2a
+                  ? [
+                      {
+                        key: 'aid',
+                        label: 'Agent ID',
+                        children: (
+                          <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                            <Typography.Text code copyable={{ text: agent.agentId, tooltips: ['복사', '복사됨'] }} style={{ fontFamily: 'var(--font-family-code)', fontSize: 12 }}>
+                              {agent.agentId}
+                            </Typography.Text>
+                            <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>불변 · 모든 환경에서 동일한 ID</span>
+                          </span>
+                        ),
+                      },
+                      {
+                        key: 'card',
+                        label: 'A2A 카드',
+                        children: (
+                          <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                            <Typography.Text code copyable={{ text: a2aCardUrl(agent.id), tooltips: ['복사', '복사됨'] }} ellipsis style={{ fontFamily: 'var(--font-family-code)', fontSize: 12, maxWidth: '100%' }}>
+                              {a2aCardUrl(agent.id)}
+                            </Typography.Text>
+                            <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>
+                              이 URL을 <strong>“원격 에이전트 연결”</strong>에 붙여 등록·테스트. 루프백/사설 주소면 백엔드에{' '}
+                              <code style={{ fontFamily: 'var(--font-family-code)' }}>A2A_ALLOWED_HOSTS=127.0.0.1</code> 필요.
+                            </span>
+                          </span>
+                        ),
+                      },
+                    ]
+                  : []),
+              ]}
             />
-            {agent.exposed.a2a ? (
-              <div style={{ marginTop: 10, padding: 14, border: '1px solid var(--green-3)', background: 'var(--green-1)', borderRadius: 'var(--radius-lg)' }}>
-                <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <Icon name="global" size={12} style={{ color: 'var(--green-7)' }} />
-                  A2A 식별자(소비자와 공유)
-                </div>
-                <IdRow label="Agent ID" value={agent.agentId} />
-                <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', margin: '2px 0 8px 84px' }}>
-                  불변 · 모든 환경에서 동일한 ID
-                </div>
-                <IdRow label="A2A 카드" value={a2aCardUrl(agent.id)} />
-                <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', margin: '2px 0 0 84px' }}>
-                  이 URL을 <strong>“원격 에이전트 연결”</strong>에 그대로 붙여 등록·테스트하세요. 루프백/사설
-                  주소면 백엔드에 <code style={{ fontFamily: 'var(--font-family-code)' }}>A2A_ALLOWED_HOSTS=127.0.0.1</code>가 필요합니다.
-                </div>
-              </div>
-            ) : null}
           </section>
           )}
 
@@ -438,22 +510,40 @@ export function AgentDetailPage({
           <section>
             <SectionTitle>운영 — 피드백과 개선</SectionTitle>
             {canManage ? (
-              <div style={{ padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 10, border: '1px solid var(--color-border-secondary)', borderRadius: 'var(--radius-lg)' }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--color-text-heading)' }}>피드백 수확</div>
-                  <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-                    응답 피드백(👍/👎)을 초안 평가 케이스로 — 에이전트 변경 회귀 지표
-                  </div>
-                </div>
-                <FeedbackHarvestButton agentId={agent.id} />
-              </div>
+              <Descriptions
+                column={1}
+                size="small"
+                bordered
+                layout={isMobile ? 'vertical' : 'horizontal'}
+                labelStyle={{ width: 120 }}
+                items={[
+                  {
+                    key: 'harvest',
+                    label: '피드백 수확',
+                    children: (
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                        <span style={{ flex: 1, minWidth: 180, fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+                          응답 피드백(👍/👎)을 초안 평가 케이스로 — 에이전트 변경 회귀 지표
+                        </span>
+                        <FeedbackHarvestButton agentId={agent.id} />
+                      </span>
+                    ),
+                  },
+                  ...(ops && (ops.unversionedUp > 0 || ops.unversionedDown > 0)
+                    ? [{
+                        key: 'unversioned',
+                        label: '버전 미기록',
+                        children: (
+                          <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+                            👍{ops.unversionedUp} 👎{ops.unversionedDown} (버전 기록 도입 전 대화)
+                          </span>
+                        ),
+                      }]
+                    : []),
+                ]}
+              />
             ) : (
               <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>운영 도구는 관리 권한이 필요합니다.</span>
-            )}
-            {ops && (ops.unversionedUp > 0 || ops.unversionedDown > 0) && (
-              <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginTop: 8 }}>
-                버전 미기록 피드백 👍{ops.unversionedUp} 👎{ops.unversionedDown} (버전 기록 도입 전 대화)
-              </div>
             )}
             <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginTop: 8 }}>
               버전별 성적·피드백은 <a onClick={() => jump('versions')}>버전·배포</a> 탭의 이력 행에 표시됩니다.
@@ -466,21 +556,16 @@ export function AgentDetailPage({
   )
 }
 
-/* 개요 요약 행(스펙 246) — 관심사 한 줄 요약 + 클릭 점프(지도). onJump=null이면 정보만. */
-function SummaryRow({ label, onJump, children }: { label: string; onJump: (() => void) | null; children: React.ReactNode }) {
+/* 값 셀 점프 래퍼(스펙 246) — bordered Descriptions 값 셀 전체를 클릭 가능하게 + 우측 화살표. */
+function JumpCell({ onJump, children }: { onJump: () => void; children: React.ReactNode }) {
   return (
-    <div
-      onClick={onJump ?? undefined}
-      style={{
-        display: 'flex', gap: 12, alignItems: 'baseline', padding: '9px 4px',
-        borderBottom: '1px solid var(--color-border-secondary)', fontSize: 13,
-        cursor: onJump ? 'pointer' : 'default',
-      }}
+    <span
+      onClick={onJump}
+      style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', width: '100%' }}
     >
-      <span style={{ minWidth: 84, color: 'var(--color-text-tertiary)', flexShrink: 0 }}>{label}</span>
       <span style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>{children}</span>
-      {onJump && <Icon name="right" size={11} style={{ color: 'var(--color-text-quaternary)', alignSelf: 'center' }} />}
-    </div>
+      <Icon name="right" size={11} style={{ color: 'var(--color-text-quaternary)', flexShrink: 0 }} />
+    </span>
   )
 }
 
