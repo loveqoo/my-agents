@@ -706,9 +706,13 @@ function ChatHeader({
           color: overrideActive ? 'var(--color-primary)' : 'var(--color-text-tertiary)',
           fontSize: 12, cursor: 'pointer', font: 'inherit',
           boxShadow: '0 2px 4px rgba(0,0,0,0.04)',
+          transition: 'transform .15s ease',
         }}
+        // 감성(후속23, 사용자): 방향이 곧 동작 — ∨=당겨 내리기. 호버 시 1px 내려와 "당겨질 준비".
+        onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(2px)' }}
+        onMouseLeave={(e) => { e.currentTarget.style.transform = '' }}
       >
-        <Icon name="experiment" size={12} />
+        <Icon name="down" size={11} />
         {overrideActive ? '오버라이드 ✓' : '오버라이드'}
       </button>
       {/* compact: 버튼 아이콘만(라벨 제거) + A2A 배지 숨김 — 한 줄에 안 들어가 겹치던 문제. */}
