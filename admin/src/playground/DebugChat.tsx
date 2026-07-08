@@ -347,12 +347,8 @@ function AgentCombo({
             {agent.persona}
           </span>
         </span>
-        {/* 미반영 초안 표식(스펙 078) — 현재 선택된 에이전트가 초안을 안고 있으면 트리거에도 점등. */}
-        {hasDraft(agent) ? (
-          <Tag color="gold" style={{ margin: 0, flex: 'none' }}>
-            <Icon name="edit" size={10} /> 초안
-          </Tag>
-        ) : null}
+        {/* 초안 표식은 헤더 신호 배지(DraftBadge — 설명 툴팁 보유)가 canonical(스펙 248 후속,
+            사용자 지적: 같은 상태가 콤보 안 "초안"+배지 줄 "미반영 초안"으로 중복 렌더). 트리거에선 제거. */}
         <Icon
           name="down"
           size={12}
