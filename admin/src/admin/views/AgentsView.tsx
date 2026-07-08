@@ -15,8 +15,9 @@ import {
 import { displayName } from '../naming'
 import type { AgentFormData } from './agents/types'
 import { AgentForm } from './agents/AgentForm'
-import { AgentDetail } from './agents/AgentDetail'
 import { AgentDetailPage } from './agents/AgentDetailPage'
+import { CodeAgentDetailPage } from './agents/detail/CodeAgentDetail'
+import { ExternalAgentDetailPage } from './agents/detail/ExternalAgentDetail'
 import { ConnectAgentModal } from './agents/ConnectAgentModal'
 import { useAgents } from './agents/useAgents'
 
@@ -34,9 +35,8 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
   const [sourceFilter, setSourceFilter] = useState<'all' | 'ui' | 'code' | 'external'>('all')
   const [statusFilter, setStatusFilter] = useState<'all' | 'online' | 'idle' | 'offline'>('all')
   const detail = agents.find((a) => a.id === detailId) || null
-  // 풀페이지 승격(스펙 245) — 로컬(ui)은 페이지, code/external은 블록 수가 적어 드로어 유지(후속 승격).
-  // source 미기록 레거시 행은 목록과 동일하게 ui 취급(codex 245 #3 — === 'ui'만 보면 구 드로어로 샘).
-  const uiDetail = detail && (detail.source || 'ui') === 'ui' ? detail : null
+  // 풀페이지(스펙 245→246 후속) — 사용자 지적("SDK 에이전트는 드로어 그대로")으로 **전 소스** 페이지.
+  // source 미기록 레거시 행은 목록과 동일하게 ui 취급.
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing] = useState<{ agent: Agent; version: string | null } | null>(null)
   const [confirmDel, setConfirmDel] = useState<Agent | null>(null)
@@ -452,7 +452,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
       title="에이전트"
       subtitle={`빌딩 블록으로 구성하거나 코드로 배포한 에이전트 ${agents.length}개`}
       actions={
-        uiDetail ? undefined : (
+        detail ? undefined : (
           <span style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
             <Button icon={<Icon name="link" />} onClick={() => setConnectOpen(true)}>
               원격 에이전트 연결
@@ -464,10 +464,28 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
         )
       }
     >
-      {uiDetail ? (
-        /* 에이전트 상세 풀페이지(스펙 245) — 목록을 대체 렌더(뒤로가기로 복귀). */
+      {detail && detail.source === 'code' ? (
+        <CodeAgentDetailPage
+          agent={detail}
+          onBack={() => setDetailId(null)}
+          onDelete={setConfirmDel}
+          onClone={onClone}
+          onResync={resync}
+          onToggleExpose={toggleExpose}
+          onSetVisibility={setVisibility}
+          onRefreshPersona={refreshPersona}
+        />
+      ) : detail && detail.source === 'external' ? (
+        <ExternalAgentDetailPage
+          agent={detail}
+          onBack={() => setDetailId(null)}
+          onDelete={setConfirmDel}
+          onClone={onClone}
+        />
+      ) : detail ? (
+        /* 에이전트 상세 풀페이지(스펙 245) — 목록을 대체 렌더(뒤로가기로 복귀). ui + 레거시(source 미기록). */
         <AgentDetailPage
-          agent={uiDetail}
+          agent={detail}
           onBack={() => setDetailId(null)}
           onEdit={openEdit}
           onDelete={setConfirmDel}
@@ -586,21 +604,6 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
       </>
       )}
 
-      <AgentDetail
-        agent={detail && !uiDetail ? detail : null}
-        onClose={() => setDetailId(null)}
-        onEdit={openEdit}
-        onDelete={setConfirmDel}
-        onClone={onClone}
-        onToggleExpose={toggleExpose}
-        onSetVisibility={setVisibility}
-        onActivate={activateVersion}
-        onTest={testVersion}
-        onRevert={revertToDraft}
-        onResync={resync}
-        onNewDraft={newDraft}
-        onRefreshPersona={refreshPersona}
-      />
       <ConnectAgentModal open={connectOpen} onCancel={() => setConnectOpen(false)} onConnect={connectAgent} />
       <AgentForm
         open={formOpen}
