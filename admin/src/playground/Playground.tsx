@@ -452,6 +452,9 @@ export function Playground({
     })
     setSelectedTurn(null)
     setInspectorOpen(false)
+    // 세션 칩 힌트("클릭하여 다른 세션 선택"/"첫 세션…")가 최신 목록 기준이 되도록(스펙 248 후속9 —
+    // 드롭다운 열 때만 리로드하면 방금 만든 세션이 안 잡혀 문구가 틀린다).
+    refreshSessions()
   }
 
   // 버전 미리보기 선택(스펙 243) — 바꾸면 새 대화로 리셋(한 대화에 버전 혼재 방지·오버라이드 결과 동일).

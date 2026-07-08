@@ -194,7 +194,7 @@ function AgentCombo({
             autoFocus
             allowClear
             size="small"
-            placeholder="이름·모델·페르소나 검색"
+            placeholder="에이전트 검색"
             value={q}
             onChange={(e) => setQ(e.target.value)}
             style={{ margin: '4px 4px 6px', width: 'calc(100% - 8px)' }}
@@ -264,8 +264,8 @@ function AgentCombo({
                     <span style={{ flex: 1 }} />
                     <ModelBadge a={a} size="row" />
                   </span>
-                  <span style={{ display: 'block', fontSize: 12, color: 'var(--color-text-secondary)', marginTop: 1 }}>{a.persona}</span>
-                  <span style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
+                  {/* 페르소나 줄 비노출(사용자 지시) — 행은 이름·모델 + 태그 2줄로 압축. */}
+                  <span style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
                     {/* 미반영 초안(스펙 078): 어느 에이전트가 미활성 편집을 안고 있는지 피커에서 구분. */}
                     {recent.includes(a.id) && !q ? <Tag bordered={false} style={{ background: 'var(--color-fill-tertiary)', fontSize: 11 }}>최근</Tag> : null}
                     {hasDraft(a) ? <Tag color="gold">초안</Tag> : null}
@@ -380,13 +380,14 @@ function shortSid(id: string) {
 }
 /* 2줄 트리거 공통 셸(스펙 248 후속6, 사용자 제안) — 에이전트 콤보와 같은 높이로 헤더 정렬:
    윗줄=상태(● 점 + 라벨), 아랫줄=값. 버전·세션 트리거가 공유. */
-function TwoLineTrigger({ open, top, bottom, fullWidth, title, maxW = 200 }: {
+function TwoLineTrigger({ open, top, bottom, fullWidth, title, maxW = 200, align = 'end' }: {
   open: boolean
   top: React.ReactNode
   bottom: React.ReactNode
   fullWidth?: boolean
   title?: string
   maxW?: number // 아랫줄 최대 폭(세션은 미리보기를 길게 — 사용자 요청)
+  align?: 'start' | 'end' // 버전=숫자라 오른쪽(end), 세션=텍스트라 왼쪽(start) — 사용자 명세
 }) {
   return (
     <button
@@ -394,7 +395,7 @@ function TwoLineTrigger({ open, top, bottom, fullWidth, title, maxW = 200 }: {
       style={{
         // 오른쪽 정렬(사용자 지적): 윗줄은 ●점/아이콘으로 들여져 아랫줄과 시작선이 어긋남 —
         // 끝선을 맞추면 두 줄이 한 덩어리로 읽힌다.
-        display: 'flex', flexDirection: 'column', alignItems: 'flex-end', justifyContent: 'center', gap: 1,
+        display: 'flex', flexDirection: 'column', alignItems: align === 'end' ? 'flex-end' : 'flex-start', justifyContent: 'center', gap: 1,
         // 에이전트 콤보와 같은 높이(실측 54px — 이름 15px 2줄+아바타가 더 높음, 사용자 지적)
         minHeight: 54, boxSizing: 'border-box',
         padding: '5px 12px', borderRadius: 10,
@@ -402,9 +403,10 @@ function TwoLineTrigger({ open, top, bottom, fullWidth, title, maxW = 200 }: {
         background: open ? 'var(--color-primary-bg)' : 'var(--color-bg-container)',
         cursor: 'pointer', font: 'inherit', textAlign: 'left', transition: 'all .2s',
         minWidth: 0, width: fullWidth ? '100%' : undefined,
+        maxWidth: fullWidth ? '100%' : maxW + 26, // 내부 말줄임 + 버튼 자체 상한(넘침 방지, 사용자 지시)
       }}
     >
-      <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'var(--color-text-tertiary)' }}>{top}</span>
+      <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'var(--color-text-tertiary)', maxWidth: fullWidth ? '100%' : maxW, overflow: 'hidden', whiteSpace: 'nowrap' }}>{top}</span>
       <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--color-text-heading)', maxWidth: fullWidth ? '100%' : maxW, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {bottom}
       </span>
@@ -594,18 +596,32 @@ function SessionCombo({
       )}
     >
       <div style={{ minWidth: 0, flex: 'none', width: fullWidth ? '100%' : undefined }}>
-        {/* 2줄 트리거(스펙 248 후속6) — 윗줄 '세션', 아랫줄 미리보기/'새 세션'(빈 상태도 두 줄 유지 —
-            헤더 컴포넌트 높이 정렬, 사용자 제안). 폭도 확대(미리보기를 더 길게). */}
+        {/* 세션 칩 상태별 3형태(스펙 248 후속9, 사용자 명세):
+            ① 새 세션+다른 세션 있음 → 윗줄 💬 세션 / 아랫줄 "클릭하여 다른 세션을 선택"
+            ② 새 세션+세션 없음   → 윗줄 💬 세션 / 아랫줄 "첫 세션을 생성하려면 대화를 시작하세요"
+            ③ 세션 선택됨        → 윗줄 세션 요약 / 아랫줄 세션 아이디 */}
         <TwoLineTrigger
           open={open}
           fullWidth={fullWidth}
+          align="start"
           title="세션 — 과거 대화를 골라 이어서 대화합니다."
-          maxW={280}
-          top={<><Icon name="comment" size={11} style={{ color: 'var(--color-text-tertiary)' }} />세션{sessions.length ? ` ${sessions.length}` : ''}</>}
+          maxW={340}
+          top={
+            currentId ? (
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+            ) : (
+              <><Icon name="comment" size={11} style={{ color: 'var(--color-text-tertiary)' }} />세션</>
+            )
+          }
           bottom={
-            <span style={{ color: currentId ? 'var(--color-text-heading)' : 'var(--color-text-tertiary)', fontWeight: currentId ? 500 : 400 }}>
-              {label}
-            </span>
+            currentId ? (
+              // 세션 아이디는 전체 노출(사용자 지시 — 디버그 채널에선 축약이 오히려 대조를 방해)
+              <span style={{ fontFamily: 'var(--font-family-code)', fontWeight: 400, fontSize: 11 }}>{currentId}</span>
+            ) : (
+              <span style={{ color: 'var(--color-text-tertiary)', fontWeight: 400 }}>
+                {sessions.length ? '클릭하여 다른 세션을 선택' : '첫 세션을 생성하려면 대화를 시작하세요'}
+              </span>
+            )
           }
         />
       </div>
@@ -702,8 +718,9 @@ function ChatHeader({
         <AgentCombo agent={agent} agents={agents} onSwitch={onSwitchAgent} fullWidth={isMobile} />
         {/* 조건은 요약이 아니라 **컴포넌트 자체**로 노출(스펙 248 후속5, 사용자 교정: 요약=중복 —
             셀렉트·세그먼트가 곧 상태 표시이자 컨트롤). 스마트 노출 규칙 유지: 선택지 있을 때만. */}
+        {/* 버전 칩은 모바일에서도 내용 폭(전폭+오른쪽 정렬 조합은 빈 상자처럼 보임 — 육안) */}
         {agent.source === 'ui' && (agent.versions ?? []).some((v) => v.status !== 'active') && agent.can_manage !== false && onPinVersion && (
-          <VersionPicker agent={agent} pinnedVersion={pinnedVersion} onPin={onPinVersion} fullWidth={isMobile} />
+          <VersionPicker agent={agent} pinnedVersion={pinnedVersion} onPin={onPinVersion} />
         )}
         {isA2AExposed(agent) && (
           <Tooltip title={a2aMode ? 'A2A 경유 테스트 — 단발 메시지(세션·trace·오버라이드 미전달)' : '직접 실행(/chat)'}>
