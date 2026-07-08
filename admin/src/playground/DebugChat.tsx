@@ -13,7 +13,7 @@ import {
   dedupeConsecutive,
   type HistState,
 } from './inputHistory'
-import { Avatar, Button, Tag, Grid, Tooltip, Segmented, Select, Input, Dropdown, Card, Popover } from 'antd'
+import { Avatar, Button, Tag, Grid, Tooltip, Segmented, Select, Input, Dropdown, Card } from 'antd'
 import { Icon } from '../admin/icons'
 import { fmtTime } from '../admin/format'
 import { MessageContent } from './MessageContent'
@@ -122,11 +122,7 @@ interface DebugChatProps {
   onSend: (text: string) => void
   onStop: () => void
   onResetConversation: () => void
-  showPrompt: boolean
-  onTogglePrompt: () => void
-  effectiveSystemPrompt?: string
   inspectorOpen: boolean
-  onToggleInspector: () => void
   overrideActive: boolean
   onToggleOverrides: () => void
   a2aMode: boolean
@@ -639,11 +635,7 @@ function ChatHeader({
   onPickSession,
   onReloadSessions,
   onResetConversation,
-  showPrompt,
-  onTogglePrompt,
-  effectiveSystemPrompt,
   inspectorOpen,
-  onToggleInspector,
   overrideActive,
   onToggleOverrides,
   a2aMode,
@@ -661,11 +653,7 @@ function ChatHeader({
   onPickSession: (sid: string) => void
   onReloadSessions: () => void
   onResetConversation: () => void
-  showPrompt: boolean
-  onTogglePrompt: () => void
-  effectiveSystemPrompt?: string
   inspectorOpen: boolean
-  onToggleInspector: () => void
   pinnedVersion?: string // 버전 미리보기(스펙 243) — undefined=활성(서빙) 버전
   onPinVersion?: (v?: string) => void
   fallbackPreview?: string // 조건 표시줄 세션 폴백(목록 preview 부재 시 로컬 첫 메시지)
@@ -676,8 +664,6 @@ function ChatHeader({
 }) {
   const screens = Grid.useBreakpoint()
   const isMobile = !screens.md
-  // 대화 설정 팝오버 열림(스펙 248 후속3) — 조건 표시줄 클릭과 버튼이 같은 팝오버를 공유(제어형).
-  const [settingsOpen, setSettingsOpen] = useState(false)
   // A2A 광고 스킬(스펙 157) — A2A 모드일 때 노출 에이전트의 카드가 외부에 광고하는 능력(chat+mcp+
   // delegate+rag)을 fetch해 칩으로 표시. 외부 소비자가 보는 것과 동일한 걸 확인하는 테스트 수단.
   const [a2aSkills, setA2aSkills] = useState<A2ASkill[]>([])
@@ -755,32 +741,17 @@ function ChatHeader({
             canonical — 같은 기능의 두 번째 입구는 중복. */}
         {/* 미반영 초안 안내(스펙 078): 신호 배지 — 헤더 유지. */}
         {hasDraft(agent) && <DraftBadge compact={compact} />}
-        {/* 대화 설정(스펙 247) — 집중 모델: 설정류 6종(버전·세션·A2A 경유·시스템 프롬프트·오버라이드·
-            인스펙터)을 한 입구 뒤로. 헤더 상시 요소=에이전트·신호 배지·새 대화·이 버튼. */}
-        <Popover
-          trigger="click"
-          open={settingsOpen}
-          onOpenChange={setSettingsOpen}
-          placement="bottomRight"
-          content={
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, width: 200 }}>
-              {/* 조건 컴포넌트(버전·세션·경로)는 헤더 인라인(스펙 248 후속5) — 여기는 검사 도구만. */}
-              <Button size="small" type={overrideActive ? 'primary' : 'default'} icon={<Icon name="experiment" />} onClick={onToggleOverrides} style={{ justifyContent: 'flex-start' }}>
-                {overrideActive ? '오버라이드 (적용 중)' : '오버라이드'}
-              </Button>
-              <Button size="small" type={showPrompt ? 'primary' : 'default'} icon={<Icon name="file" />} onClick={onTogglePrompt} style={{ justifyContent: 'flex-start' }}>
-                시스템 프롬프트
-              </Button>
-              <Button size="small" type={inspectorOpen ? 'primary' : 'default'} icon={<Icon name="dashboard" />} onClick={onToggleInspector} style={{ justifyContent: 'flex-start' }}>
-                인스펙터
-              </Button>
-            </div>
-          }
+        {/* 검사 도구 해체(스펙 248 후속14, 사용자): 인스펙터=턴 칩이 입구, 시스템 프롬프트=오버라이드
+            드로어에서 확인 — 남는 건 오버라이드 하나라 팝오버 없이 버튼 직결. */}
+        <Button
+          size="small"
+          type={overrideActive ? 'primary' : 'default'}
+          icon={<Icon name="experiment" />}
+          onClick={onToggleOverrides}
+          title="런타임 오버라이드 — 저장 설정을 이 대화에서만 바꿔 실험합니다."
         >
-          <Button size="small" icon={<Icon name="setting" />}>
-            {compact ? null : '검사 도구'}
-          </Button>
-        </Popover>
+          {compact ? null : overrideActive ? '오버라이드 (적용 중)' : '오버라이드'}
+        </Button>
         </div>
       </div>
       {/* A2A 모드 가시 힌트(스펙 155, codex 경계 #1): A2A 경유는 단발 호출이라 세션/히스토리/trace를
@@ -809,40 +780,6 @@ function ChatHeader({
                 ))}
             </div>
           ) : null}
-        </div>
-      ) : null}
-      {showPrompt ? (
-        <div style={{ padding: '0 20px 16px' }}>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
-            {(agent.memories || []).map((m) => (
-              <Tag key={m} color="purple">
-                {m}
-              </Tag>
-            ))}
-            {agent.mcps.map((m) => (
-              <Tag key={m} color="cyan">
-                {m}
-              </Tag>
-            ))}
-          </div>
-          <pre
-            style={{
-              fontFamily: 'var(--font-family-code)',
-              fontSize: 12,
-              lineHeight: 1.6,
-              color: 'var(--color-text)',
-              background: 'var(--gray-2)',
-              border: '1px solid var(--color-border-secondary)',
-              borderRadius: 8,
-              padding: '12px 14px',
-              margin: 0,
-              whiteSpace: 'pre-wrap',
-              maxHeight: 220,
-              overflow: 'auto',
-            }}
-          >
-            {effectiveSystemPrompt ?? agent.systemPrompt ?? ''}
-          </pre>
         </div>
       ) : null}
     </div>
@@ -1005,11 +942,7 @@ export function DebugChat({
   onSend,
   onStop,
   onResetConversation,
-  showPrompt,
-  onTogglePrompt,
-  effectiveSystemPrompt,
   inspectorOpen,
-  onToggleInspector,
   overrideActive,
   onToggleOverrides,
   a2aMode,
@@ -1033,7 +966,7 @@ export function DebugChat({
   }
   useEffect(() => {
     if (scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight
-  }, [messages, streaming, showPrompt])
+  }, [messages, streaming])
 
   // 터미널 콘솔식 입력 히스토리 재호출(스펙 091). 정책은 inputHistory.ts 순수 함수가 쥐고,
   // 여기선 caret 판정·DOM 부수효과만. history = 현재 대화에서 *내가 보낸* 입력(연속중복 접음).
@@ -1144,11 +1077,7 @@ export function DebugChat({
         onPickSession={onPickSession}
         onReloadSessions={onReloadSessions}
         onResetConversation={onResetConversation}
-        showPrompt={showPrompt}
-        onTogglePrompt={onTogglePrompt}
-        effectiveSystemPrompt={effectiveSystemPrompt}
         inspectorOpen={inspectorOpen}
-        onToggleInspector={onToggleInspector}
         overrideActive={overrideActive}
         onToggleOverrides={onToggleOverrides}
         a2aMode={a2aMode}

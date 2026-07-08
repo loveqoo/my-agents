@@ -35,7 +35,6 @@ export function Playground({
   const [streaming, setStreaming] = useState(false)
   // 버전 미리보기(스펙 243) — 에이전트별 지정 버전(undefined=활성). 변경=새 대화(혼재 방지).
   const [pinnedVersions, setPinnedVersions] = useState<Record<string, string | undefined>>({})
-  const [showPrompt, setShowPrompt] = useState(false)
   const [selectedTurn, setSelectedTurn] = useState<number | null>(null)
   const [inspectorOpen, setInspectorOpen] = useState(false)
   // mem0 user_id 축은 서버가 로그인 유저에서 도출한다(스펙 032) — Playground에 수동 입력 없음.
@@ -97,8 +96,6 @@ export function Playground({
       ? overridePayload(appliedOv, overrideDefaults(activeAgent))
       : {}
   const overrideActive = Object.keys(ovPayload).length > 0
-  // 시스템 프롬프트 뷰어는 적용된 오버라이드를 우선 반영(화면=실제 정합, 학습 025).
-  const effectiveSystemPrompt = (ovPayload.systemPrompt as string | undefined) ?? activeAgent?.systemPrompt
 
   // 마운트 시 실제 에이전트 목록 로드 — 첫 번째 에이전트를 활성으로.
   useEffect(() => {
@@ -436,7 +433,6 @@ export function Playground({
   const switchAgent = (id: string) => {
     stop()
     setActiveId(id)
-    setShowPrompt(false)
   }
 
   // "새 대화" — 활성 에이전트의 대화·세션을 비워 처음부터 다시 시작한다(스펙 032: userId 잠금 분리).
@@ -574,11 +570,7 @@ export function Playground({
         onSend={send}
         onStop={stop}
         onResetConversation={resetConversation}
-        showPrompt={showPrompt}
-        onTogglePrompt={() => setShowPrompt((s) => !s)}
-        effectiveSystemPrompt={effectiveSystemPrompt}
         inspectorOpen={inspectorOpen}
-        onToggleInspector={() => setInspectorOpen((o) => !o)}
         overrideActive={overrideActive}
         onToggleOverrides={() => setOverridePanelOpen((o) => !o)}
         a2aMode={!!a2aByAgent[activeId]}
@@ -617,11 +609,7 @@ export function Playground({
         onSend={send}
         onStop={stop}
         onResetConversation={resetConversation}
-        showPrompt={showPrompt}
-        onTogglePrompt={() => setShowPrompt((s) => !s)}
-        effectiveSystemPrompt={effectiveSystemPrompt}
         inspectorOpen={inspectorOpen}
-        onToggleInspector={() => setInspectorOpen((o) => !o)}
         overrideActive={overrideActive}
         onToggleOverrides={() => setOverridePanelOpen((o) => !o)}
         a2aMode={!!a2aByAgent[activeId]}
