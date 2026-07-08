@@ -12,7 +12,7 @@ import { displayName } from '../../naming'
 import { PersonaStaleNote } from './PersonaStaleNote'
 import { FeedbackHarvestButton } from './FeedbackHarvestButton'
 import { getAgentOps, type AgentOps } from '../../../api'
-import { DetailPageShell, SectionTitle, JumpCell, type DetailSection } from './detail/DetailPageShell'
+import { DetailPageShell, JumpCell, type DetailSection } from './detail/DetailPageShell'
 
 function a2aCardUrl(agentPk: string): string {
   const env = (import.meta.env.VITE_API_BASE ?? '') as string
@@ -71,7 +71,6 @@ export function AgentDetailPage({
       label: '개요',
       render: (jump) => (
           <section>
-            <SectionTitle>개요 — 한눈에</SectionTitle>
             {/* key/value 표(사용자 제안) — bordered Descriptions로 레이블 셀/값 셀 구분. 점프는 값 셀 클릭. */}
             <Descriptions
               column={1}
@@ -160,7 +159,6 @@ export function AgentDetailPage({
       label: '구성',
       render: () => (
           <section>
-            <SectionTitle>구성 — 무엇을 쓸 수 있나</SectionTitle>
             <Descriptions
               column={1}
               size="small"
@@ -252,7 +250,6 @@ export function AgentDetailPage({
       label: '버전·배포',
       render: () => (
           <section>
-            <SectionTitle>버전·배포 — 바꾸고 내보내기</SectionTitle>
             {draft ? (
               <div style={{ marginBottom: 14, border: '1px solid var(--gold-3)', background: 'var(--gold-1)', borderRadius: 'var(--radius-lg)', padding: 14 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
@@ -310,7 +307,6 @@ export function AgentDetailPage({
       label: '공개·연동',
       render: () => (
           <section>
-            <SectionTitle>공개·연동 — 누가 쓸 수 있나</SectionTitle>
             {/* key/value 표(사용자 제안) — 흩어진 박스 3개를 한 표로. 행=공개 범위/A2A/식별자(조건). */}
             <Descriptions
               column={1}
@@ -405,7 +401,6 @@ export function AgentDetailPage({
       label: '운영',
       render: (jump) => (
           <section>
-            <SectionTitle>운영 — 피드백과 개선</SectionTitle>
             {canManage ? (
               <Descriptions
                 column={1}

@@ -39,7 +39,6 @@ export function CodeAgentDetailPage({
       label: '개요',
       render: (jump) => (
         <section>
-          <SectionTitle>개요 — 한눈에</SectionTitle>
           <Descriptions
             {...kv}
             items={[
@@ -102,7 +101,6 @@ export function CodeAgentDetailPage({
       label: '구성',
       render: () => (
         <section>
-          <SectionTitle>구성 — 읽기 전용(코드 소유)</SectionTitle>
           <Descriptions
             {...kv}
             items={[
@@ -156,7 +154,6 @@ export function CodeAgentDetailPage({
       label: '배포·연결',
       render: () => (
         <section>
-          <SectionTitle>배포·연결 — 코드 푸시로 갱신</SectionTitle>
           <Descriptions
             {...kv}
             items={[
@@ -244,7 +241,6 @@ export function CodeAgentDetailPage({
       label: '공개·연동',
       render: () => (
         <section>
-          <SectionTitle>공개·연동 — 누가 쓸 수 있나</SectionTitle>
           <Descriptions
             {...kv}
             items={[

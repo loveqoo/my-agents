@@ -31,7 +31,6 @@ export function ExternalAgentDetailPage({
       label: '개요',
       render: (jump) => (
         <section>
-          <SectionTitle>개요 — 한눈에</SectionTitle>
           <Descriptions
             {...kv}
             items={[
@@ -72,7 +71,6 @@ export function ExternalAgentDetailPage({
       label: 'A2A 카드',
       render: () => (
         <section>
-          <SectionTitle>A2A 카드 — 원격이 광고하는 정보</SectionTitle>
           <Descriptions
             {...kv}
             items={[
