@@ -170,6 +170,7 @@ export function AgentDetailPage({
             <Descriptions
               column={1}
               size="small"
+              layout={isMobile ? 'vertical' : 'horizontal'}
               items={[
                 { key: 'model', label: '모델', children: <span style={{ fontFamily: 'var(--font-family-code)' }}>{agent.model}</span> },
                 { key: 'persona', label: '페르소나', children: agent.persona },
@@ -185,6 +186,7 @@ export function AgentDetailPage({
             <Descriptions
               column={1}
               size="small"
+              layout={isMobile ? 'vertical' : 'horizontal'}
               items={[
                 {
                   key: 'memories',
@@ -228,11 +230,18 @@ export function AgentDetailPage({
                     <span style={{ color: 'var(--color-text-tertiary)' }}>없음</span>
                   ),
                 },
-                ...((agent.memories || []).includes('장기 기억 (mem0)') && (agent.source || 'ui') === 'ui'
-                  ? [{ key: 'mem0', label: '에이전트 지식 (mem0)', children: <AgentMemoryPanel agentId={agent.id} /> }]
-                  : []),
               ]}
             />
+            {/* 에이전트 지식(mem0) — 내부에 탭·검색·목록을 가진 복합 위젯이라 Descriptions 값 칸에
+                넣으면 모바일(360px)에서 레이블 옆 셀로 밀려 우측이 뚫린다(사용자 신고) → 전체폭 블록. */}
+            {(agent.memories || []).includes('장기 기억 (mem0)') && (agent.source || 'ui') === 'ui' && (
+              <div style={{ marginTop: 14 }}>
+                <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginBottom: 8 }}>
+                  에이전트 지식 (mem0)
+                </div>
+                <AgentMemoryPanel agentId={agent.id} />
+              </div>
+            )}
           </section>
 
           {/* ── 버전·배포 ── */}
