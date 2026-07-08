@@ -283,8 +283,9 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
     <Drawer
       open={open}
       onClose={onClose}
-      placement="left"
-      size={400}
+      // 위→아래(스펙 248 후속15, 사용자 디자인): 헤더에 매달린 U 손잡이를 당기면 서랍이 내려온다.
+      placement="top"
+      height="min(70vh, 560px)"
       title="런타임 오버라이드"
       styles={{ body: { paddingTop: 12 } }}
     >

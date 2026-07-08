@@ -688,7 +688,28 @@ function ChatHeader({
   // 좁은 데스크톱/인스펙터 병행에만 적용. 사용자 피드백: 아이콘만으로는 버튼 뜻을 알 수 없음.
   const compact = !isMobile && (!screens.lg || inspectorOpen)
   return (
-    <div style={{ flex: 'none', borderBottom: '1px solid var(--color-border-secondary)', background: 'var(--color-bg-container)' }}>
+    <div style={{ flex: 'none', borderBottom: '1px solid var(--color-border-secondary)', background: 'var(--color-bg-container)', position: 'relative' }}>
+      {/* U 손잡이(스펙 248 후속15, 사용자 디자인): 헤더 경계선에 살짝 매달린 탭 —
+          당기면 위에서 오버라이드 서랍이 내려온다. 적용 중이면 파란 점등. */}
+      <button
+        onClick={onToggleOverrides}
+        title="런타임 오버라이드 — 저장 설정을 이 대화에서만 바꿔 실험합니다."
+        aria-label="오버라이드"
+        style={{
+          position: 'absolute', right: isMobile ? 16 : 28, top: '100%', marginTop: -1, zIndex: 5,
+          display: 'flex', alignItems: 'center', gap: 5, padding: '3px 14px 5px',
+          border: '1px solid ' + (overrideActive ? 'var(--color-primary-border)' : 'var(--color-border-secondary)'),
+          borderTop: 'none',
+          borderRadius: '0 0 12px 12px',
+          background: overrideActive ? 'var(--color-primary-bg)' : 'var(--color-bg-container)',
+          color: overrideActive ? 'var(--color-primary)' : 'var(--color-text-tertiary)',
+          fontSize: 12, cursor: 'pointer', font: 'inherit',
+          boxShadow: '0 2px 4px rgba(0,0,0,0.04)',
+        }}
+      >
+        <Icon name="experiment" size={12} />
+        {overrideActive ? '오버라이드 ✓' : '오버라이드'}
+      </button>
       {/* compact: 버튼 아이콘만(라벨 제거) + A2A 배지 숨김 — 한 줄에 안 들어가 겹치던 문제. */}
       {/* 모바일(스펙 132 v2 — 사용자 피드백): 아이콘만으로는 무슨 에이전트/세션인지 알 수 없다 →
           **여러 줄 스택 + 온전한 텍스트**(1줄 에이전트, 2줄 세션, 3줄 도구 라벨·줄바꿈 허용). */}
@@ -741,17 +762,7 @@ function ChatHeader({
             canonical — 같은 기능의 두 번째 입구는 중복. */}
         {/* 미반영 초안 안내(스펙 078): 신호 배지 — 헤더 유지. */}
         {hasDraft(agent) && <DraftBadge compact={compact} />}
-        {/* 검사 도구 해체(스펙 248 후속14, 사용자): 인스펙터=턴 칩이 입구, 시스템 프롬프트=오버라이드
-            드로어에서 확인 — 남는 건 오버라이드 하나라 팝오버 없이 버튼 직결. */}
-        <Button
-          size="small"
-          type={overrideActive ? 'primary' : 'default'}
-          icon={<Icon name="experiment" />}
-          onClick={onToggleOverrides}
-          title="런타임 오버라이드 — 저장 설정을 이 대화에서만 바꿔 실험합니다."
-        >
-          {compact ? null : overrideActive ? '오버라이드 (적용 중)' : '오버라이드'}
-        </Button>
+        {/* 오버라이드 입구는 헤더 하단의 U 손잡이 탭(아래 렌더 — 스펙 248 후속15, 사용자 디자인). */}
         </div>
       </div>
       {/* A2A 모드 가시 힌트(스펙 155, codex 경계 #1): A2A 경유는 단발 호출이라 세션/히스토리/trace를
