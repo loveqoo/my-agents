@@ -434,6 +434,9 @@ export function Playground({
   const switchAgent = (id: string) => {
     stop()
     setActiveId(id)
+    // 서랍 열린 채 에이전트를 바꾸면 닫는다(후속28, 사용자) — 열린 서랍은 이전 에이전트의
+    // 오버라이드 폼이라 새 에이전트와 안 맞는 상태를 노출하게 됨.
+    setOverridePanelOpen(false)
   }
 
   // "새 대화" — 활성 에이전트의 대화·세션을 비워 처음부터 다시 시작한다(스펙 032: userId 잠금 분리).
