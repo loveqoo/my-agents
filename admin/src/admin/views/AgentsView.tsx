@@ -16,6 +16,7 @@ import { displayName } from '../naming'
 import type { AgentFormData } from './agents/types'
 import { AgentForm } from './agents/AgentForm'
 import { AgentDetail } from './agents/AgentDetail'
+import { AgentDetailPage } from './agents/AgentDetailPage'
 import { ConnectAgentModal } from './agents/ConnectAgentModal'
 import { useAgents } from './agents/useAgents'
 
@@ -33,6 +34,9 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
   const [sourceFilter, setSourceFilter] = useState<'all' | 'ui' | 'code' | 'external'>('all')
   const [statusFilter, setStatusFilter] = useState<'all' | 'online' | 'idle' | 'offline'>('all')
   const detail = agents.find((a) => a.id === detailId) || null
+  // 풀페이지 승격(스펙 245) — 로컬(ui)은 페이지, code/external은 블록 수가 적어 드로어 유지(후속 승격).
+  // source 미기록 레거시 행은 목록과 동일하게 ui 취급(codex 245 #3 — === 'ui'만 보면 구 드로어로 샘).
+  const uiDetail = detail && (detail.source || 'ui') === 'ui' ? detail : null
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing] = useState<{ agent: Agent; version: string | null } | null>(null)
   const [confirmDel, setConfirmDel] = useState<Agent | null>(null)
@@ -448,16 +452,36 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
       title="에이전트"
       subtitle={`빌딩 블록으로 구성하거나 코드로 배포한 에이전트 ${agents.length}개`}
       actions={
-        <span style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-          <Button icon={<Icon name="link" />} onClick={() => setConnectOpen(true)}>
-            원격 에이전트 연결
-          </Button>
-          <Button type="primary" icon={<Icon name="plus" />} onClick={openCreate}>
-            새 에이전트
-          </Button>
-        </span>
+        uiDetail ? undefined : (
+          <span style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            <Button icon={<Icon name="link" />} onClick={() => setConnectOpen(true)}>
+              원격 에이전트 연결
+            </Button>
+            <Button type="primary" icon={<Icon name="plus" />} onClick={openCreate}>
+              새 에이전트
+            </Button>
+          </span>
+        )
       }
     >
+      {uiDetail ? (
+        /* 에이전트 상세 풀페이지(스펙 245) — 목록을 대체 렌더(뒤로가기로 복귀). */
+        <AgentDetailPage
+          agent={uiDetail}
+          onBack={() => setDetailId(null)}
+          onEdit={openEdit}
+          onDelete={setConfirmDel}
+          onClone={onClone}
+          onToggleExpose={toggleExpose}
+          onSetVisibility={setVisibility}
+          onActivate={activateVersion}
+          onTest={testVersion}
+          onRevert={revertToDraft}
+          onNewDraft={newDraft}
+          onRefreshPersona={refreshPersona}
+        />
+      ) : (
+      <>
       {/* 검색+정렬(스펙 144 #3) — 컬럼은 전부 상시 표시(hideBelow 제거, 좁으면 가로 스크롤). */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
         <Input
@@ -559,9 +583,11 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
         </Popover>
       </div>
       <DataTable columns={columns} rows={visibleAgents} onRowClick={(a) => setDetailId(a.id)} subRow={agentSubRow} />
+      </>
+      )}
 
       <AgentDetail
-        agent={detail}
+        agent={detail && !uiDetail ? detail : null}
         onClose={() => setDetailId(null)}
         onEdit={openEdit}
         onDelete={setConfirmDel}
