@@ -595,7 +595,7 @@ function SessionCombo({
         </div>
       )}
     >
-      <div style={{ minWidth: 0, flex: 'none', width: fullWidth ? '100%' : undefined }}>
+      <div style={{ minWidth: fullWidth ? 150 : 0, flex: fullWidth ? 1 : 'none' }}>
         {/* 세션 칩 상태별 3형태(스펙 248 후속9, 사용자 명세):
             ① 새 세션+다른 세션 있음 → 윗줄 💬 세션 / 아랫줄 "클릭하여 다른 세션을 선택"
             ② 새 세션+세션 없음   → 윗줄 💬 세션 / 아랫줄 "첫 세션을 생성하려면 대화를 시작하세요"
@@ -709,7 +709,9 @@ function ChatHeader({
       <div
         style={
           isMobile
-            ? { display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: 8, padding: '10px 12px' }
+            // 랩 가로(스펙 248 후속12, 사용자: "3줄이 되었네요") — 에이전트만 전폭 1줄, 버전·세션·
+            // 검사 도구는 한 줄을 나눠 쓴다(세션이 남는 폭을 흡수). 좁으면 flexWrap이 자연 줄바꿈.
+            ? { display: 'flex', flexWrap: 'wrap', alignItems: 'stretch', gap: 8, padding: '10px 12px' }
             : { height: 64, display: 'flex', alignItems: 'center', gap: 12, padding: '0 20px' }
         }
       >
