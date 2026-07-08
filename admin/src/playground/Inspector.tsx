@@ -582,8 +582,15 @@ export function Inspector({
   // 인스펙터 본문(메트릭 + 탭) — 드로워와 전체화면 Modal이 공유.
   const body = t ? (
     <>
-      <div style={{ display: 'flex', gap: 0, padding: '12px 16px', borderBottom: '1px solid var(--color-border-secondary)' }}>
+      <div style={{ display: 'flex', gap: 0, padding: '12px 16px', borderBottom: '1px solid var(--color-border-secondary)', alignItems: 'center' }}>
         <Metric label="지연시간" value={(t.latencyMs / 1000).toFixed(2) + 's'} />
+        {/* 실행 버전(스펙 242/243) — 이 턴이 어느 버전 config였나. 미리보기(활성 아님)면 태그로 구분. */}
+        {t.agentVersion && (
+          <Metric
+            label="버전"
+            value={t.agentVersion + (t.versionPinned ? ' (미리보기)' : '')}
+          />
+        )}
         {/* 스펙 205 — 실측(usage)이면 그대로, 추정이면 ≈ 접두로 정직 표기. */}
         <Metric label={t.tokens.estimated ? '입력 토큰(추정)' : '입력 토큰'} value={(t.tokens.estimated ? '≈' : '') + t.tokens.in.toLocaleString()} />
         <Metric label={t.tokens.estimated ? '출력 토큰(추정)' : '출력 토큰'} value={(t.tokens.estimated ? '≈' : '') + t.tokens.out.toLocaleString()} />

@@ -132,6 +132,8 @@ interface DebugChatProps {
   onToggleOverrides: () => void
   a2aMode: boolean
   onToggleA2A: (v: boolean) => void
+  pinnedVersion?: string // 버전 미리보기(스펙 243) — undefined=활성
+  onPinVersion?: (v?: string) => void
 }
 
 // A2A 노출 판정(스펙 154·155): source∈{ui,code} + exposed.a2a. 154가 code 중계 공개를 허용해
@@ -511,6 +513,8 @@ function ChatHeader({
   onToggleOverrides,
   a2aMode,
   onToggleA2A,
+  pinnedVersion,
+  onPinVersion,
 }: {
   agent: Agent
   agents: Agent[]
@@ -527,6 +531,8 @@ function ChatHeader({
   effectiveSystemPrompt?: string
   inspectorOpen: boolean
   onToggleInspector: () => void
+  pinnedVersion?: string // 버전 미리보기(스펙 243) — undefined=활성(서빙) 버전
+  onPinVersion?: (v?: string) => void
   overrideActive: boolean
   onToggleOverrides: () => void
   a2aMode: boolean
@@ -570,6 +576,28 @@ function ChatHeader({
         }
       >
         <AgentCombo agent={agent} agents={agents} onSwitch={onSwitchAgent} fullWidth={isMobile} />
+        {/* 버전 선택(스펙 243) — 세션 선택 **전에** 버전을 고른다(사용자 지시). 로컬 ui + 버전 존재 +
+            관리 가능 에이전트만(초안=미공개 작업본, 서버도 403 — 스펙 242). 변경=새 대화(혼재 방지). */}
+        {agent.source === 'ui' && (agent.versions?.length ?? 0) > 0 && agent.can_manage !== false && onPinVersion && (
+          <Select
+            size="small"
+            style={isMobile ? { width: '100%' } : { width: 150 }}
+            value={pinnedVersion ?? '__active__'}
+            onChange={(v) => onPinVersion(v === '__active__' ? undefined : v)}
+            options={[
+              { value: '__active__', label: `활성${agent.activeVersion ? ` (${agent.activeVersion})` : ''}` },
+              ...(agent.versions ?? [])
+                .filter((v) => v.status !== 'active')
+                .map((v) => ({
+                  value: v.version,
+                  label: `${v.version} · ${v.status === 'draft' ? '초안' : '보관'}`,
+                })),
+            ]}
+          />
+        )}
+        {pinnedVersion && (
+          <Tag color="orange" style={{ margin: 0, flexShrink: 0 }}>미리보기 {pinnedVersion}</Tag>
+        )}
         {/* 세션 이어가기(스펙 055): 에이전트 피커 옆에서 과거 세션을 골라 복원. */}
         <SessionCombo
           sessions={sessions}
@@ -868,6 +896,8 @@ export function DebugChat({
   onToggleOverrides,
   a2aMode,
   onToggleA2A,
+  pinnedVersion,
+  onPinVersion,
 }: DebugChatProps) {
   const scroller = useRef<HTMLDivElement>(null)
   // Sender는 submit 시 스스로 입력을 비우지 않는다(@ant-design/x 2.8 — triggerSend가
@@ -1000,6 +1030,8 @@ export function DebugChat({
         onToggleOverrides={onToggleOverrides}
         a2aMode={a2aMode}
         onToggleA2A={onToggleA2A}
+        pinnedVersion={pinnedVersion}
+        onPinVersion={onPinVersion}
       />
 
       <div ref={scroller} style={{ flex: 1, overflowY: 'auto' }}>

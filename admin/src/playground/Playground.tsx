@@ -33,6 +33,8 @@ export function Playground({
   const [sessionList, setSessionList] = useState<Session[]>([])
   const [sessionsLoading, setSessionsLoading] = useState(false)
   const [streaming, setStreaming] = useState(false)
+  // 버전 미리보기(스펙 243) — 에이전트별 지정 버전(undefined=활성). 변경=새 대화(혼재 방지).
+  const [pinnedVersions, setPinnedVersions] = useState<Record<string, string | undefined>>({})
   const [showPrompt, setShowPrompt] = useState(false)
   const [selectedTurn, setSelectedTurn] = useState<number | null>(null)
   const [inspectorOpen, setInspectorOpen] = useState(false)
@@ -407,6 +409,7 @@ export function Playground({
         sessions[id],
         ovPayload, // 세션 한정 오버라이드(변경된 키만; 빈 객체면 streamChat이 보내지 않음)
         form, // 산출물형 폼 제출(스펙 188) — 텍스트 입력이면 undefined
+        pinnedVersions[id], // 버전 미리보기(스펙 243) — undefined=활성(무회귀)
       )
     } catch (e) {
       if (e instanceof DOMException && e.name === 'AbortError') {
@@ -440,6 +443,12 @@ export function Playground({
     })
     setSelectedTurn(null)
     setInspectorOpen(false)
+  }
+
+  // 버전 미리보기 선택(스펙 243) — 바꾸면 새 대화로 리셋(한 대화에 버전 혼재 방지·오버라이드 결과 동일).
+  const pinVersion = (v?: string) => {
+    setPinnedVersions((m) => ({ ...m, [activeId]: v }))
+    resetConversation()
   }
 
   // 과거 세션 선택 → DB 메시지를 불러와 대화 복원 + session_id를 활성 세션으로 고정(스펙 055).
@@ -563,6 +572,8 @@ export function Playground({
         onToggleOverrides={() => setOverridePanelOpen((o) => !o)}
         a2aMode={!!a2aByAgent[activeId]}
         onToggleA2A={(v) => setA2aByAgent((m) => ({ ...m, [activeId]: v }))}
+        pinnedVersion={pinnedVersions[activeId]}
+        onPinVersion={pinVersion}
       />
             </div>
           </Splitter.Panel>
@@ -605,6 +616,8 @@ export function Playground({
         onToggleOverrides={() => setOverridePanelOpen((o) => !o)}
         a2aMode={!!a2aByAgent[activeId]}
         onToggleA2A={(v) => setA2aByAgent((m) => ({ ...m, [activeId]: v }))}
+        pinnedVersion={pinnedVersions[activeId]}
+        onPinVersion={pinVersion}
       />
           {inspectorOpen && overlayInspector ? (
             // 좁은 폭(lg 미만): 인스펙터를 전체화면 오버레이로 — 채팅과 나란히 두면 양쪽이 짜부라진다.

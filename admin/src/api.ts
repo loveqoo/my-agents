@@ -755,6 +755,8 @@ export async function streamChat(
   overrides?: Record<string, unknown>,
   // 산출물형 폼 제출(스펙 188) — 대기 중 폼 프레임(formId)의 값. 텍스트 입력은 messages 그대로(이중 입력).
   form?: { formId: string; values: Record<string, string> },
+  // 버전 지정 실행(스펙 242/243) — 미지정=활성(서빙) 버전. 관리 권한 필요(서버 403).
+  version?: string,
 ): Promise<void> {
   const callbacks: ChatCallbacks = typeof cb === 'function' ? { onToken: cb } : cb
   const hasOverrides = overrides != null && Object.keys(overrides).length > 0
@@ -768,6 +770,7 @@ export async function streamChat(
       sessionId,
       overrides: hasOverrides ? overrides : undefined,
       form,
+      version,
     }),
     signal,
   })
