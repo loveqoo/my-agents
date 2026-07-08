@@ -13,7 +13,7 @@ import {
   dedupeConsecutive,
   type HistState,
 } from './inputHistory'
-import { Avatar, Button, Tag, Grid, Tooltip, Segmented, Select, Input, Dropdown, Card } from 'antd'
+import { Avatar, Button, Tag, Grid, Tooltip, Segmented, Select, Input, Dropdown, Card, Popover } from 'antd'
 import { Icon } from '../admin/icons'
 import { fmtTime } from '../admin/format'
 import { MessageContent } from './MessageContent'
@@ -142,9 +142,6 @@ export function isA2AExposed(agent: Agent): boolean {
   return (agent.source === 'ui' || agent.source === 'code') && !!agent.exposed?.a2a
 }
 
-function ExposeBadges({ agent }: { agent: Agent }) {
-  return <div style={{ display: 'flex', gap: 6 }}>{isA2AExposed(agent) ? <Tag color="green">A2A</Tag> : null}</div>
-}
 
 /* Rich agent picker — replaces the left rail. Shows avatar, persona, model and
    MCP chips per agent in a dropdown. */
@@ -576,38 +573,15 @@ function ChatHeader({
         }
       >
         <AgentCombo agent={agent} agents={agents} onSwitch={onSwitchAgent} fullWidth={isMobile} />
-        {/* 버전 선택(스펙 243) — 세션 선택 **전에** 버전을 고른다(사용자 지시). 로컬 ui + 버전 존재 +
-            관리 가능 에이전트만(초안=미공개 작업본, 서버도 403 — 스펙 242). 변경=새 대화(혼재 방지). */}
-        {agent.source === 'ui' && (agent.versions?.length ?? 0) > 0 && agent.can_manage !== false && onPinVersion && (
-          <Select
-            size="small"
-            style={isMobile ? { width: '100%' } : { width: 150 }}
-            value={pinnedVersion ?? '__active__'}
-            onChange={(v) => onPinVersion(v === '__active__' ? undefined : v)}
-            options={[
-              { value: '__active__', label: `활성${agent.activeVersion ? ` (${agent.activeVersion})` : ''}` },
-              ...(agent.versions ?? [])
-                .filter((v) => v.status !== 'active')
-                .map((v) => ({
-                  value: v.version,
-                  label: `${v.version} · ${v.status === 'draft' ? '초안' : '보관'}`,
-                })),
-            ]}
-          />
-        )}
+        {/* 신호 배지(스펙 247) — 기본과 다른 상태만 헤더에 표시(미리보기·오버라이드). 설정 자체는
+            "대화 설정" 팝오버로 가림(집중 모델: 헤더=에이전트+신호만). */}
         {pinnedVersion && (
           <Tag color="orange" style={{ margin: 0, flexShrink: 0 }}>미리보기 {pinnedVersion}</Tag>
         )}
-        {/* 세션 이어가기(스펙 055): 에이전트 피커 옆에서 과거 세션을 골라 복원. */}
-        <SessionCombo
-          sessions={sessions}
-          currentId={currentSessionId}
-          loading={sessionsLoading}
-          onPick={onPickSession}
-          onNew={onResetConversation}
-          onReload={onReloadSessions}
-          fullWidth={isMobile}
-        />
+        {overrideActive && (
+          <Tag color="blue" style={{ margin: 0, flexShrink: 0, cursor: 'pointer' }} onClick={onToggleOverrides}>오버라이드 ✓</Tag>
+        )}
+        {a2aMode && <Tag color="green" style={{ margin: 0, flexShrink: 0 }}>A2A 경유</Tag>}
         {!isMobile && <div style={{ flex: 1 }} />}
         {/* 도구 줄 — 모바일은 라벨 포함·줄바꿈 허용(flexWrap). */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -623,52 +597,82 @@ function ChatHeader({
             {compact ? null : '새 대화'}
           </Button>
         )}
-        {/* 미반영 초안 안내(스펙 078): 편집은 초안에 저장되고 Playground는 활성 버전을 실행 —
-            초안이 있으면 "수정이 안 보임"의 원인을 배지로 알린다. compact에서도 아이콘만 유지. */}
+        {/* 미반영 초안 안내(스펙 078): 신호 배지 — 헤더 유지. */}
         {hasDraft(agent) && <DraftBadge compact={compact} />}
-        {!compact && <ExposeBadges agent={agent} />}
-        {/* A2A 루프백 테스트 토글(스펙 155) — 노출 에이전트만. 직접=/chat, A2A=/agents/{id}/a2a
-            (외부 소비자처럼 JSON-RPC 호출). A2A는 단발·세션/trace 미전달(정직 경계). */}
-        {isA2AExposed(agent) && (
-          <Tooltip title={a2aMode ? 'A2A 경유 테스트 — 단발 메시지(세션·trace·오버라이드 미전달)' : '직접 실행(/chat)'}>
-            <Segmented
-              size="small"
-              value={a2aMode ? 'a2a' : 'direct'}
-              onChange={(v) => onToggleA2A(v === 'a2a')}
-              options={[
-                { label: '직접', value: 'direct' },
-                { label: 'A2A', value: 'a2a' },
-              ]}
-            />
-          </Tooltip>
-        )}
-        <Button
-          size="small"
-          type={overrideActive ? 'primary' : 'default'}
-          icon={<Icon name="experiment" />}
-          onClick={onToggleOverrides}
-          title={overrideActive ? '런타임 오버라이드 (적용 중)' : '런타임 오버라이드'}
+        {/* 대화 설정(스펙 247) — 집중 모델: 설정류 6종(버전·세션·A2A 경유·시스템 프롬프트·오버라이드·
+            인스펙터)을 한 입구 뒤로. 헤더 상시 요소=에이전트·신호 배지·새 대화·이 버튼. */}
+        <Popover
+          trigger="click"
+          placement="bottomRight"
+          content={
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: 260 }}>
+              {agent.source === 'ui' && (agent.versions?.length ?? 0) > 0 && agent.can_manage !== false && onPinVersion && (
+                <div>
+                  <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginBottom: 4 }}>버전 (미리보기)</div>
+                  <Select
+                    size="small"
+                    style={{ width: '100%' }}
+                    value={pinnedVersion ?? '__active__'}
+                    onChange={(v) => onPinVersion(v === '__active__' ? undefined : v)}
+                    options={[
+                      { value: '__active__', label: `활성${agent.activeVersion ? ` (${agent.activeVersion})` : ''}` },
+                      ...(agent.versions ?? [])
+                        .filter((v) => v.status !== 'active')
+                        .map((v) => ({
+                          value: v.version,
+                          label: `${v.version} · ${v.status === 'draft' ? '초안' : '보관'}`,
+                        })),
+                    ]}
+                  />
+                </div>
+              )}
+              <div>
+                <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginBottom: 4 }}>대화 이어가기</div>
+                <SessionCombo
+                  sessions={sessions}
+                  currentId={currentSessionId}
+                  loading={sessionsLoading}
+                  onPick={onPickSession}
+                  onNew={onResetConversation}
+                  onReload={onReloadSessions}
+                  fullWidth
+                />
+              </div>
+              {isA2AExposed(agent) && (
+                <div>
+                  <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginBottom: 4 }}>실행 경로</div>
+                  <Tooltip title={a2aMode ? 'A2A 경유 테스트 — 단발 메시지(세션·trace·오버라이드 미전달)' : '직접 실행(/chat)'}>
+                    <Segmented
+                      size="small"
+                      block
+                      value={a2aMode ? 'a2a' : 'direct'}
+                      onChange={(v) => onToggleA2A(v === 'a2a')}
+                      options={[
+                        { label: '직접', value: 'direct' },
+                        { label: 'A2A 경유', value: 'a2a' },
+                      ]}
+                    />
+                  </Tooltip>
+                </div>
+              )}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <Button size="small" type={overrideActive ? 'primary' : 'default'} icon={<Icon name="experiment" />} onClick={onToggleOverrides} style={{ justifyContent: 'flex-start' }}>
+                  {overrideActive ? '오버라이드 (적용 중)' : '오버라이드'}
+                </Button>
+                <Button size="small" type={showPrompt ? 'primary' : 'default'} icon={<Icon name="file" />} onClick={onTogglePrompt} style={{ justifyContent: 'flex-start' }}>
+                  시스템 프롬프트
+                </Button>
+                <Button size="small" type={inspectorOpen ? 'primary' : 'default'} icon={<Icon name="dashboard" />} onClick={onToggleInspector} style={{ justifyContent: 'flex-start' }}>
+                  인스펙터
+                </Button>
+              </div>
+            </div>
+          }
         >
-          {compact ? null : overrideActive ? '오버라이드 ✓' : '오버라이드'}
-        </Button>
-        <Button
-          size="small"
-          type={showPrompt ? 'primary' : 'default'}
-          icon={<Icon name="file" />}
-          onClick={onTogglePrompt}
-          title="시스템 프롬프트"
-        >
-          {compact ? null : '시스템 프롬프트'}
-        </Button>
-        <Button
-          size="small"
-          type={inspectorOpen ? 'primary' : 'default'}
-          icon={<Icon name="dashboard" />}
-          onClick={onToggleInspector}
-          title="인스펙터"
-        >
-          {compact ? null : '인스펙터'}
-        </Button>
+          <Button size="small" icon={<Icon name="setting" />}>
+            {compact ? null : '대화 설정'}
+          </Button>
+        </Popover>
         </div>
       </div>
       {/* A2A 모드 가시 힌트(스펙 155, codex 경계 #1): A2A 경유는 단발 호출이라 세션/히스토리/trace를
@@ -999,7 +1003,8 @@ export function DebugChat({
     ? agent.suggestedPrompts.map((p, i) => ({
         key: `s${i}`,
         icon: <Icon name="bulb" style={{ color: 'var(--purple-6)' }} />,
-        label: p.length > 24 ? p.slice(0, 24) + '…' : p,
+        // label 생략(스펙 247) — 절단 제목+전문 설명이 같은 내용 중복으로 보이던 것(사용자 화면 진단).
+        // onItemClick은 description을 전송하므로 전문만 싣는다.
         description: p,
       }))
     : [
@@ -1173,7 +1178,7 @@ export function DebugChat({
             onCancel={onStop}
             prefix={<Button type="text" icon={<Icon name="paper-clip" />} />}
             footer={() => (
-              <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>LangGraph 에이전트 실행 · 턴마다 트레이스 기록 · ↑ 이전 입력</span>
+              <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>턴마다 실행 기록이 남습니다 · ↑ 이전 입력</span>
             )}
           />
         </div>
