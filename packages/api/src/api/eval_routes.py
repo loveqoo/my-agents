@@ -18,7 +18,11 @@ from .auth import current_principal
 from .db import get_session
 from .eval_harness import build_asserts
 from .models import EvalCase, EvalDataset
+import logging
+
 from .ownership import assert_may_manage, is_privileged, may_manage, may_use_agent, owner_of
+
+log = logging.getLogger("api.eval")
 
 router = APIRouter(prefix="/eval", tags=["eval"])
 
@@ -531,6 +535,97 @@ async def _model_env(session: AsyncSession, name: str | None) -> dict:
         if m is not None:
             out["params"] = _env_redact(m.params or {})
     return out
+
+
+async def trigger_auto_regression(agent_pk: uuid.UUID, actor) -> int:
+    """버전 활성화 시 자동 회귀(스펙 241, AgentOps B) — 이 에이전트의 회귀 자산(실행 이력 있는 문제집
+    ∪ 수확 문제집)을 자동 재실행. 최근 순 최대 3개(비용 캡 — 서빙 모델이 실모델일 수 있음).
+
+    fire-and-forget 계약: 어떤 실패도 활성화를 깨지 않는다(로그만). 케이스 0·이미 running·비특권
+    비용 가드 거부는 조용히 스킵. 각 런은 240 박제 + env.trigger="activate"(자동 회귀 식별).
+    **경계**: 서빙 config 실측이라 "배포 전" 게이트가 아님 — 회귀 발견 시 revert가 대응 경로(스펙 241).
+    """
+    started = 0
+    try:
+        async with SessionLocal() as session:
+            from .models import Agent
+
+            agent = await session.get(Agent, agent_pk)
+            if agent is None:
+                return 0
+            ran_ds = select(EvalRun.dataset_id).where(EvalRun.agent_pk == agent_pk)
+            candidates = (
+                await session.execute(
+                    select(EvalDataset)
+                    .where(
+                        EvalDataset.kind == "agent",
+                        or_(EvalDataset.id.in_(ran_ds), EvalDataset.source_agent_pk == agent_pk),
+                    )
+                    .order_by(EvalDataset.updated_at.desc())
+                    .limit(3)
+                )
+            ).scalars().all()
+            if not candidates:
+                return 0
+            # 소유권 게이트(codex 241 #1) — 수동 start_run은 assert_may_manage(ds)를 요구한다. 자동
+            # 경로가 남의 문제집(내 에이전트로 남이 실행한 이력)을 실행하면 그 우회가 된다 — 활성화
+            # 주체가 관리 가능한 문제집만.
+            candidates = [ds for ds in candidates if may_manage(ds, actor)]
+            if not candidates:
+                return 0
+            run_env = await _env_snapshot(session, agent, None)
+            run_env["trigger"] = "activate"
+            for ds in candidates:
+                # 버전당 1회 dedupe(codex 241 #2) — 같은 버전을 재활성화(연타·되돌림 반복)해도 이미
+                # 그 버전의 자동 회귀 런이 있으면 스킵(실모델 비용 폭주 차단). 새 버전만 새 런.
+                dup = (
+                    await session.execute(
+                        select(func.count(EvalRun.id)).where(
+                            EvalRun.dataset_id == ds.id,
+                            EvalRun.agent_pk == agent_pk,
+                            EvalRun.agent_version == agent.active_version,
+                            EvalRun.env["trigger"].astext == "activate",
+                        )
+                    )
+                ).scalar_one()
+                if dup:
+                    continue
+                n_cases = (
+                    await session.execute(
+                        select(func.count(EvalCase.id)).where(EvalCase.dataset_id == ds.id)
+                    )
+                ).scalar_one()
+                if n_cases == 0:
+                    continue
+                running = (
+                    await session.execute(
+                        select(func.count(EvalRun.id)).where(
+                            EvalRun.dataset_id == ds.id, EvalRun.status == "running"
+                        )
+                    )
+                ).scalar_one()
+                if running:
+                    continue
+                if not is_privileged(actor):
+                    try:
+                        await _member_run_guard(session, actor, ds.id, 0)
+                    except HTTPException:
+                        log.info("자동 회귀 스킵(비용 가드): dataset=%s agent=%s", ds.id, agent_pk)
+                        continue
+                run = EvalRun(
+                    dataset_id=ds.id, agent_pk=agent.id, agent_name=agent.name,
+                    status="running", total=n_cases, owner_id=owner_of(actor),
+                    agent_version=agent.active_version, env=run_env,
+                )
+                session.add(run)
+                await session.commit()
+                asyncio.create_task(_execute_run(run.id, ds.id, agent.id, actor))
+                started += 1
+        if started:
+            log.info("자동 회귀 시작(스펙 241): agent=%s runs=%d", agent_pk, started)
+    except Exception:  # noqa: BLE001 — 활성화를 깨지 않는다(fire-and-forget 계약)
+        log.exception("자동 회귀 트리거 실패(활성화는 정상 진행): agent=%s", agent_pk)
+    return started
 
 
 async def _env_snapshot(session: AsyncSession, agent, rag_collection: dict | None) -> dict:

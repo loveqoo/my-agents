@@ -462,6 +462,10 @@ async def activate_version(
     agent.status = "online"
 
     await session.commit()
+    # 자동 회귀(스펙 241, AgentOps B) — 새 버전이 서빙되는 순간 회귀 자산 자동 재실행(fire-and-forget:
+    # 실패해도 활성화는 정상). 결과는 평가 이력에 "자동 회귀 · vN"으로.
+    from .eval_routes import trigger_auto_regression
+    asyncio.create_task(trigger_auto_regression(agent.id, principal))
     return await _reload_out(session, agent.id)
 
 
@@ -513,6 +517,7 @@ async def revert_version(
     if other_draft is not None:
         raise HTTPException(status_code=400, detail="이미 초안이 있습니다")
 
+    promoted = False  # 승격 분기 여부(스펙 241) — 서빙이 실제로 바뀐 경우만 자동 회귀
     if target.status == "active":
         # 승격 가능한 archived 버전(가장 최근)을 찾는다.
         archived = [v for v in agent.versions if v.status == "archived"]
@@ -527,9 +532,14 @@ async def revert_version(
         agent.persona = await resolve_persona(session, cfg["persona"])
         agent.history_depth = cfg["historyDepth"]
         agent.active_version = promote.version
+        promoted = True
 
     target.status = "draft"
     await session.commit()
+    if promoted:
+        # 서빙 버전이 실제로 바뀐 경우만 자동 회귀(스펙 241) — 단순 draft 강등은 서빙 불변이라 제외.
+        from .eval_routes import trigger_auto_regression
+        asyncio.create_task(trigger_auto_regression(agent.id, principal))
     return await _reload_out(session, agent.id)
 
 

@@ -769,6 +769,10 @@ export default function EvalView({ initialCollectionId, onConsumedInitial }: {
       <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
         {r.agent_name ?? '—'}
         {r.agent_version && <Tag style={{ margin: 0 }}>{r.agent_version}</Tag>}
+        {/* 자동 회귀(스펙 241) — 버전 활성화가 트리거한 런을 수동 런과 구분. */}
+        {(r.env as { trigger?: string } | null | undefined)?.trigger === 'activate' && (
+          <Tag color="purple" style={{ margin: 0 }}>자동 회귀</Tag>
+        )}
       </span>
     ) },
     { key: 'model_name', title: '모델', width: 140, hideBelow: 'md', render: (r) => (r.model_name ? <Tag style={{ margin: 0 }}>{r.model_name}</Tag> : '—') },
