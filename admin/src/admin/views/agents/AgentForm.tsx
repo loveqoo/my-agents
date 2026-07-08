@@ -163,12 +163,21 @@ export function AgentForm({
     {
       key: '사용자 기억',
       title: '사용자 기억',
+      // 비영속(스펙 237)은 DB 쓰기 능력 금지(저장 시 422) — 읽기는 허용, 저장 항목은 감춘다.
+      // 단 **이미 선택돼 있으면 보인다**(감추면 해제 자체가 불가 — 경고가 시키는 행동을 막는 자기모순).
       items: [
         { id: 'memory:user', label: '사용자 기억 읽기' },
-        { id: 'memwrite:user', label: '사용자 기억에 저장 · 승인 필요' },
+        ...(form.ephemeral && !form.capabilities.includes('memwrite:user')
+          ? []
+          : [{ id: 'memwrite:user', label: '사용자 기억에 저장 · 승인 필요' }]),
       ],
     },
   ]
+  // 비영속인데 이미 저장/수정 능력이 선택돼 있으면(비영속을 나중에 켠 경우) 조용히 깨지지 않게 경고 —
+  // 서버가 저장 시 422로 최종 거부한다(스펙 237).
+  const ephemeralForbiddenCaps = form.ephemeral
+    ? form.capabilities.filter((c) => c.startsWith('memwrite:') || c.startsWith('memedit:'))
+    : []
 
   // 직접 응답 "하는 일" 그룹 — 3개 form 배열(memories/vectorTables/mcps)을 PickerGroups
   // 하나로 묶으려 id를 카테고리 prefix로 네임스페이스(스펙 109). 저장은 기존 배열 그대로, prefix는
@@ -306,7 +315,17 @@ export function AgentForm({
         {isArtifactForm ? (
           <ArtifactSpecEditor value={form.artifactSpec} onChange={(s) => set('artifactSpec', s)} />
         ) : orchestratorSelected ? (
-          <PickerGroups groups={capGroups} selected={form.capabilities} onToggle={toggleCap} />
+          <>
+            {ephemeralForbiddenCaps.length > 0 && (
+              <Alert
+                type="warning"
+                showIcon
+                title="비영속 에이전트는 기억 저장·수정 능력을 쓸 수 없습니다"
+                description={`DB에 기록하는 능력이라 비영속(1회성)과 충돌합니다 — 해제해야 저장됩니다: ${ephemeralForbiddenCaps.join(', ')}`}
+              />
+            )}
+            <PickerGroups groups={capGroups} selected={form.capabilities} onToggle={toggleCap} />
+          </>
         ) : (
           <>
             {/* 소비 표면 게이트(스펙 206) — 이 impl이 안 읽는 그룹은 숨기고, 저장된 연결이 있으면 경고. */}

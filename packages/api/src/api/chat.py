@@ -155,7 +155,12 @@ async def _load_context(
             "memories": cfg.get("memories", []),
             # 능력 브로커 allowlist(스펙 100) — 이 에이전트가 오케스트레이션 허용된 cap id 목록.
             # 없으면 [] = deny-by-default(브로커가 발견 공집합). RBAC과 교집합해 최종 스코프.
-            "capabilities": cfg.get("capabilities", []),
+            # 비영속(스펙 237) 방어층: DB 쓰기 능력(memwrite/memedit)은 걸러낸다 — 정본 게이트는
+            # 저장 시 422(agents._enforce_ephemeral_boundary), 여기는 과거 저장분·우회 대비 fail-closed.
+            "capabilities": [
+                c for c in cfg.get("capabilities", [])
+                if not (cfg.get("ephemeral") and isinstance(c, str) and c.split(":", 1)[0] in ("memwrite", "memedit"))
+            ],
             # 도구 승인 오버라이드(스펙 177 P2) — cap_id→{approval:{required?,approver?}}. 그래프-tools·
             # 브로커 두 경로 리졸버에 급전. **요청 오버라이드 허용키(위 allowed)엔 불포함** — 요청으로
             # 승인을 완화(우회)하지 못하게 config-only(완화 권한은 저장 시 admin 게이트로 강제).
@@ -786,9 +791,8 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
     # HIL 체크포인터(스펙 041). 있으면 위험 도구가 interrupt로 일시정지·재개될 수 있다. 없으면
     # 기존 무상태 동작(무회귀) — 단 위험 도구가 호출되면 interrupt가 예외로 새 fail-closed(미실행).
     # 비영속(스펙 235): 체크포인터 미부착 → 그래프 무상태 실행(checkpoints/checkpoint_writes/blobs
-    # 테이블 미기록) + HIL interrupt 구조적 불가(interrupt는 체크포인터 필요 → _create_approval 미도달).
-    # "쓰기 0" 계약의 핵심 봉합(codex 적대 검증). ephemeral은 순수 추론(무도구) 전제 — 승인형 도구와
-    # 병용 금지(verify_235가 checkpoint/approval 0으로 못박음).
+    # 테이블 미기록). **정정(스펙 237 실측)**: 체크포인터가 없어도 interrupt 자체는 발생한다 — 승인
+    # 경로의 DB 쓰기는 아래 interrupted 분기의 ephemeral 게이트가 막는다(여기만으론 불충분).
     ckpt = None if ctx.get("ephemeral") else checkpointer.get_checkpointer()
     # 능력 브로커(스펙 100) — 정책(에이전트 allowlist ∩ 유저 RBAC)으로 **미리 스코프**해 주입.
     # 로컬(ui) 실행 경로에만 준다: 원격 통째 프록시(_a2a_stream)는 broker 미주입(bypass 보존).
@@ -1010,6 +1014,15 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
         # 위험 도구가 그래프를 멈췄다 → 런타임 Approval 생성 + "대기" 프레임 후 종료(정상 턴 영속 안 함).
         # 부수효과(canned·calls_sink)는 interrupt 이전이라 0 — 승인 전 무실행 불변식(스펙 041 §3.3).
         if interrupted and not errored:
+            if ctx.get("ephemeral"):
+                # 비영속(스펙 237) — 승인 대기는 만들 수 없다: _create_approval이 세션+Approval 행을
+                # 쓰고(235 "쓰기 0" 위반), 체크포인터도 없어 재개 불가. **실측 주의**: 체크포인터가
+                # None이어도 interrupt 자체는 발생해 여기 도달한다(235의 "구조적 미도달" 가정은 틀렸다
+                # — 이 게이트가 실제 봉합). 도구는 interrupt 이전이라 미실행(부수효과 0). 조용한 실패
+                # 대신 명시 안내(회고 214).
+                yield f"data: {json.dumps({'error': '비영속(1회성) 에이전트는 승인이 필요한 도구를 사용할 수 없습니다 — 승인·재개에는 기록(DB)이 필요합니다. 승인 없는 도구를 쓰거나 일반 에이전트를 사용하세요.'}, ensure_ascii=False)}\n\n"
+                yield "event: done\ndata: [DONE]\n\n"
+                return
             apid = await _create_approval(ctx, thread_id, interrupted, user_id)
             action = interrupted.get("action", "(작업)")
             # approver 반영(스펙 180) — self면 요청자 본인이 승인. 하드코딩 "관리자 승인"은 오표기였다.

@@ -81,6 +81,30 @@ def _enforce_tool_policy_gate(config: dict, principal) -> None:
     log.info("audit tool-policy 완화(스펙 177 P2): user=%s relaxing=%s", owner_of(principal) or "machine", relaxing)
 
 
+# 비영속에 금지되는 능력 kind(스펙 237) — 우리 DB에 **직접 쓰는** 유일한 도구 표면(기억 저장·수정).
+# MCP 도구·RAG 조회·읽기 능력은 허용(사용자 결정: "DB 쓰기 도구만 금지, 읽기는 상관없음").
+_EPHEMERAL_FORBIDDEN_CAP_KINDS = ("memwrite", "memedit")
+
+
+def _enforce_ephemeral_boundary(config: dict) -> None:
+    """스펙 237 — 비영속(ephemeral) 에이전트에 DB 쓰기 능력(memwrite/memedit) 연결을 입구에서 거부.
+
+    비영속 계약(스펙 235)은 "채팅 1턴 DB 쓰기 0"인데 기억 저장·수정 능력은 정의상 DB에 쓴다 — 조용히
+    무시(런타임 필터만)하면 사용자가 "연결했는데 안 된다"를 또 추적하게 되므로(회고 214) 저장 시점에
+    명시적으로 막는다. 런타임 ctx 필터는 과거 저장분 대비 방어층."""
+    if not (config or {}).get("ephemeral"):
+        return
+    bad = [
+        c for c in (config.get("capabilities") or [])
+        if isinstance(c, str) and c.split(":", 1)[0] in _EPHEMERAL_FORBIDDEN_CAP_KINDS
+    ]
+    if bad:
+        raise HTTPException(
+            status_code=422,
+            detail=f"비영속(1회성) 에이전트에는 기억 저장·수정 능력을 연결할 수 없습니다(DB에 기록하는 도구): {', '.join(bad[:5])}",
+        )
+
+
 # 능력 브로커 UI(스펙 106)용 메타 라우터 — `/agents/{id}`(uuid) 경로와 충돌 않게 top-level에 둔다.
 meta_router = APIRouter(tags=["agents"])
 
@@ -247,7 +271,8 @@ async def create_agent(
 ) -> AgentOut:
     _assert_valid_name(body.name)  # 식별 이름 규칙(스펙 148) — 서버가 진실원
     cfg = body.config.model_dump()
-    _enforce_tool_policy_gate(cfg, principal)  # 완화는 admin만(스펙 177 P2 D4)
+    _enforce_tool_policy_gate(cfg, principal)
+    _enforce_ephemeral_boundary(cfg)  # DB 쓰기 능력 금지(스펙 237)  # 완화는 admin만(스펙 177 P2 D4)
     agent = Agent(
         agent_id=_new_agent_id(),
         name=body.name,
@@ -287,7 +312,8 @@ async def clone_agent(
         raise HTTPException(status_code=404, detail="agent not found")
     cfg = dict(src.config or {})
     cfg.pop("card", None)  # 외부 등록 스냅샷은 복사 안 함(ui 복제=행위 설정만; endpoint/token은 Agent 컬럼이라 애초 미복사)
-    _enforce_tool_policy_gate(cfg, principal)  # 완화 정책 복제도 admin만(스펙 177 P2 D4)
+    _enforce_tool_policy_gate(cfg, principal)
+    _enforce_ephemeral_boundary(cfg)  # DB 쓰기 능력 금지(스펙 237)  # 완화 정책 복제도 admin만(스펙 177 P2 D4)
     clone = Agent(
         agent_id=_new_agent_id(),
         # 식별 이름은 규칙 준수+유니크로 자동 생성(스펙 217: 영소문자·숫자·대시만 — 접미는 영문 '-copy'),
@@ -326,7 +352,8 @@ async def update_agent(
     assert_may_manage(agent, principal, not_found_detail="agent not found")  # 소유자/특권만(스펙 112)
 
     cfg = body.config.model_dump()
-    _enforce_tool_policy_gate(cfg, principal)  # 완화는 admin만(스펙 177 P2 D4)
+    _enforce_tool_policy_gate(cfg, principal)
+    _enforce_ephemeral_boundary(cfg)  # DB 쓰기 능력 금지(스펙 237)  # 완화는 admin만(스펙 177 P2 D4)
     draft = next((v for v in agent.versions if v.status == "draft"), None)
     # impl(스펙 085 SDK 런타임 키)은 편집 폼이 아직 안 보내므로(SPA 미배선), 요청에 명시되지
     # 않으면 기존 값을 보존한다 — 안 그러면 Pydantic 기본 None이 덮어써 편집→활성화가 커스텀
@@ -426,6 +453,7 @@ async def activate_version(
     target.status = "active"
 
     cfg = dict(target.config or {})
+    _enforce_ephemeral_boundary(cfg)  # 스펙 237(codex #1) — 과거 버전 승격도 "존재 불가" 불변식 유지
     agent.config = cfg
     agent.model = cfg["model"]
     agent.persona = await resolve_persona(session, cfg["persona"])
@@ -493,6 +521,7 @@ async def revert_version(
         promote = max(archived, key=lambda v: (v.created_at, v.version))
         promote.status = "active"
         cfg = dict(promote.config or {})
+        _enforce_ephemeral_boundary(cfg)  # 스펙 237(codex #1) — 아카이브 승격도 동일 불변식
         agent.config = cfg
         agent.model = cfg["model"]
         agent.persona = await resolve_persona(session, cfg["persona"])

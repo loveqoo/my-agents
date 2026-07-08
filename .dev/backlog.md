@@ -58,6 +58,8 @@
   (재개 간 args 비결정 대비). 기본 orchestrate 경로는 이미 안전.
 - **a2a.delegate self-approve 시드**(스펙 117 OUT) — 현재 admin만 승인(fail-closed). 소유자 self-승인(105 선례).
 
+- ✅**비영속 도구 경계=스펙 237 완료**(2026-07-08, 회고 215 — DB 쓰기 능력(memwrite/memedit)만 금지·MCP/RAG 허용, 235 'interrupt 구조적 불가' 가정 실측 반증·승인 경로 계약위반 봉합)
+
 ## 진행 중
 
 - (없음)

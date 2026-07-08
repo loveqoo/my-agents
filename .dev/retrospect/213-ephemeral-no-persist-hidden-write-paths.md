@@ -22,10 +22,17 @@ checkpoint를 안 써서 E6(ephemeral 0)이 **vacuous**(내 ckpt=None 봉합과 
 **교훈: 대조군이 그 신호를 실제로 내지 못하면 "0"은 아무것도 증명 못 한다 — 인과 대조는 신호원을 켜야 성립.**
 [[probe-deeper-before-concluding]]·회고 212(무배선 대조로 vacuous pass 봉합)의 같은 함정 재발.
 
-### 3. 구조적 봉합 > 지점 봉합 — ckpt=None 하나가 3갭을 동시에 닫았다
+### 3. 구조적 봉합 > 지점 봉합 — ckpt=None 하나가 3갭을 동시에 닫았다 **[정정: 절반만 참]**
 approval 쓰기를 개별 게이트하는 대신 **체크포인터를 안 붙이면** interrupt가 성립 안 해 approval 경로가
 *구조적으로* 미도달 + checkpoint 미기록. 한 원인(체크포인터 부재)이 두 증상(approval·checkpoint)을 함께
 없앴다. **교훈: 여러 갭이 한 메커니즘에서 파생되면 그 메커니즘을 끊어라 — 증상마다 가드를 다는 것보다 견고.**
+
+> **정정(2026-07-08, 스펙 237 실측)**: "interrupt 성립 안 함 → approval 미도달"은 **틀렸다**. 체크포인터
+> None이어도 interrupt는 발생해 `_create_approval`이 세션+Approval 행을 썼다(계약 위반 실경로 — codex도
+> 나도 같은 추론을 했고, verify_235 E6은 승인형 도구 셀을 안 돌려 vacuous 초록). checkpoint 미기록만 참.
+> **메타 교훈: "구조적으로 불가"는 추론이 아니라 그 경로를 실제로 밟아 실측해야 한다** — 237이 승인형
+> 도구 트리거를 직접 쏴서 발견·명시 게이트로 봉합(verify_237 T5). [[probe-deeper-before-concluding]]의
+> 재발: 이 회고의 배움 2(vacuous 0)를 쓰면서 배움 3에서 같은 함정에 또 빠졌다.
 
 ### 4. 새 config 필드는 "다배선 미러링"을 열거로 — persistHistory가 이미 경고를 남겨뒀다
 `ephemeral`이 저장 안 돼 첫 테스트가 FAIL — Pydantic `model_dump`가 스키마에 없는 키를 조용히 드롭.

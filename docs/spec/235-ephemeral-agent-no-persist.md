@@ -15,8 +15,10 @@
   해결·행 생성·카운터·commit 전부 무접촉). 신규 chat·승인 재개 두 경로 공용.
 - 메모리 read/write도 ephemeral이면 off(`used_memory`에 `not ephemeral` — 신규·재개 대칭). 완전 stateless.
 - **체크포인터 미부착**(codex 적대 검증 봉합): `ckpt = None if ephemeral`. AsyncPostgresSaver를 안 붙여
-  `checkpoints/checkpoint_writes/blobs` 미기록 + HIL interrupt 구조적 불가(interrupt는 체크포인터 필요) →
-  `_create_approval`(세션+Approval 쓰기)도 미도달. **이게 "쓰기 0"의 핵심 봉합** — _persist만으론 부족했다.
+  `checkpoints/checkpoint_writes/blobs` 미기록. ~~HIL interrupt 구조적 불가 → `_create_approval` 미도달~~
+  **← 정정(스펙 237 실측 반증)**: 체크포인터가 None이어도 interrupt는 발생해 `_create_approval`이
+  세션+Approval 행을 썼다(계약 위반 실경로). 스펙 237이 interrupted 분기에 명시 게이트를 넣어 봉합
+  (verify_237 T5가 회귀 가드).
 - **Langfuse 트레이스 스킵**(신규·재개 경로 대칭): 외부 관측 기록도 계약상 무의미하므로 off.
 - **다배선 미러링**(persistHistory 선례 — 빠뜨리면 model_dump가 조용히 드롭): schemas.py AgentConfig +
   AgentOut, serializers.py(cfg→top-level), admin api/types/mockData, AgentsView 매핑 3곳, AgentForm.
