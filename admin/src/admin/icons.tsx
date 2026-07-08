@@ -3,6 +3,7 @@
    새 아이콘이 필요하면 MAP에 한 줄 추가하면 된다. */
 import { type CSSProperties, type ComponentType } from 'react'
 import {
+  UpOutlined,
   RobotOutlined,
   SmileOutlined,
   BulbOutlined,
@@ -83,6 +84,7 @@ const MAP: Record<string, ComponentType<{ style?: CSSProperties; spin?: boolean 
   experiment: ExperimentOutlined,
   branches: BranchesOutlined,
   down: DownOutlined,
+  up: UpOutlined,
   right: RightOutlined,
   file: FileOutlined,
   'paper-clip': PaperClipOutlined,

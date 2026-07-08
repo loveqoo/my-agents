@@ -6,6 +6,7 @@ import { message, Grid, Drawer, Splitter } from 'antd'
 import { DebugChat } from './DebugChat'
 import { Inspector } from './Inspector'
 import { OverridePanel, overrideDefaults, overridePayload, type Overrides } from './OverridePanel'
+import { Icon } from '../admin/icons'
 import type { ChatMsg, Trace } from './agentData'
 import type { Agent, BlockCategory, Session } from '../admin/mockData'
 import {
@@ -538,19 +539,42 @@ export function Playground({
     : 1
 
   // 오버라이드 서랍(스펙 248 후속17) — DebugChat의 헤더 아래 영역에 렌더(U 손잡이 바로 아래서 내려옴).
+  // 후속19(사용자): 닫기도 같은 손잡이로 — 서랍이 열리면 손잡이가 서랍 앞면 하단(우측)으로 내려온
+  // 것처럼, 하단 U를 당기면(클릭) 서랍이 올라간다. 좌측 X는 제거(여닫이 입구 일원화).
   const overridePanelNode = (
-    <OverridePanel
-      open={overridePanelOpen}
-      agent={activeAgent}
-      models={models}
-      blocks={blocks}
-      agents={agents}
-      collections={collections}
-      applied={appliedOv}
-      onApply={applyOverrides}
-      onClear={clearOverrides}
-      onClose={() => setOverridePanelOpen(false)}
-    />
+    <>
+      <OverridePanel
+        open={overridePanelOpen}
+        agent={activeAgent}
+        models={models}
+        blocks={blocks}
+        agents={agents}
+        collections={collections}
+        applied={appliedOv}
+        onApply={applyOverrides}
+        onClear={clearOverrides}
+        onClose={() => setOverridePanelOpen(false)}
+      />
+      {overridePanelOpen && (
+        <button
+          onClick={() => setOverridePanelOpen(false)}
+          aria-label="오버라이드 닫기"
+          title="서랍을 닫습니다"
+          style={{
+            position: 'absolute', right: screens.md ? 28 : 16, top: 'min(70vh, 560px)', marginTop: -1, zIndex: 1005,
+            display: 'flex', alignItems: 'center', gap: 5, padding: '3px 14px 5px',
+            border: '1px solid var(--color-border-secondary)', borderTop: 'none',
+            borderRadius: '0 0 12px 12px',
+            background: 'var(--color-bg-container)', color: 'var(--color-text-tertiary)',
+            fontSize: 12, cursor: 'pointer', font: 'inherit',
+            boxShadow: '0 2px 4px rgba(0,0,0,0.04)',
+          }}
+        >
+          <Icon name="up" size={11} />
+          오버라이드
+        </button>
+      )}
+    </>
   )
 
   return (
