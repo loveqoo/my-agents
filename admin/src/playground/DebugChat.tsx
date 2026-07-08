@@ -157,12 +157,26 @@ function AgentCombo({
   fullWidth?: boolean
 }) {
   const [open, setOpen] = useState(false)
+  // 에이전트 조회(스펙 248) — 검색(이름·모델·페르소나 부분일치) + 최근 사용 순(localStorage).
+  const [q, setQ] = useState('')
+  const recent: string[] = (() => {
+    try { return JSON.parse(localStorage.getItem('pg_recent_agents') || '[]') } catch { return [] }
+  })()
+  const rank = (id: string) => { const i = recent.indexOf(id); return i === -1 ? Infinity : i }
+  const shown = agents
+    .filter((a) => {
+      const needle = q.trim().toLowerCase()
+      if (!needle) return true
+      return [a.name, a.model, a.persona].some((f) => (f || '').toLowerCase().includes(needle))
+    })
+    .slice()
+    .sort((x, y) => rank(x.id) - rank(y.id) || (x.name || '').localeCompare(y.name || ''))
   // antd Dropdown으로 통일(스펙 204) — 바깥클릭·포지셔닝·z-index·접근성을 antd에 이양(수제
   // mousedown 리스너 제거). 패널 내용(리치 행)은 popupRender로 그대로.
   return (
     <Dropdown
       open={open}
-      onOpenChange={setOpen}
+      onOpenChange={(o) => { setOpen(o); if (o) setQ('') }}
       trigger={['click']}
       popupRender={() => (
         <div
@@ -176,13 +190,32 @@ function AgentCombo({
             overflow: 'auto',
           }}
         >
-          <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', padding: '6px 10px 4px' }}>에이전트 {agents.length}</div>
-          {agents.map((a) => {
+          <Input
+            autoFocus
+            allowClear
+            size="small"
+            placeholder="이름·모델·페르소나 검색"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            style={{ margin: '4px 4px 6px', width: 'calc(100% - 8px)' }}
+          />
+          <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', padding: '2px 10px 4px' }}>
+            에이전트 {shown.length}{q ? ` / ${agents.length}` : ''}
+          </div>
+          {shown.length === 0 && (
+            <div style={{ fontSize: 12, color: 'var(--color-text-quaternary)', padding: '8px 10px' }}>검색 결과 없음</div>
+          )}
+          {shown.map((a) => {
             const on = a.id === agent.id
             return (
               <button
                 key={a.id}
                 onClick={() => {
+                  // 최근 사용 기록(스펙 248) — 다음 조회 시 최근 순 정렬.
+                  try {
+                    const next = [a.id, ...recent.filter((id) => id !== a.id)].slice(0, 8)
+                    localStorage.setItem('pg_recent_agents', JSON.stringify(next))
+                  } catch { /* localStorage 불가 환경 무시 */ }
                   onSwitch(a.id)
                   setOpen(false)
                 }}
@@ -234,6 +267,7 @@ function AgentCombo({
                   <span style={{ display: 'block', fontSize: 12, color: 'var(--color-text-secondary)', marginTop: 1 }}>{a.persona}</span>
                   <span style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
                     {/* 미반영 초안(스펙 078): 어느 에이전트가 미활성 편집을 안고 있는지 피커에서 구분. */}
+                    {recent.includes(a.id) && !q ? <Tag bordered={false} style={{ background: 'var(--color-fill-tertiary)', fontSize: 11 }}>최근</Tag> : null}
                     {hasDraft(a) ? <Tag color="gold">초안</Tag> : null}
                     {isA2AExposed(a) ? <Tag color="green">A2A</Tag> : null}
                     {a.mcps.map((m) => (
@@ -938,6 +972,11 @@ export function DebugChat({
   const inputTextarea = (): HTMLTextAreaElement | null =>
     (senderRef.current?.inputElement as HTMLTextAreaElement | undefined) ?? null
 
+  // 에이전트 전환 시 입력 자동 포커스(스펙 248) — "찾고 → 바로 친다"의 마지막 반 박자.
+  useEffect(() => {
+    inputTextarea()?.focus()
+  }, [agent?.id])
+
   // 재호출 시 caret을 끝으로(편집이 자연스럽게 이어지도록). recallSeq에만 의존하므로 사용자
   // 타이핑(draft만 변함)엔 발화하지 않고, 마운트(seq 0)도 건너뛴다.
   useLayoutEffect(() => {
@@ -1059,6 +1098,21 @@ export function DebugChat({
           </div>
         ) : empty ? (
           <div style={{ maxWidth: 680, margin: '0 auto', width: '100%', padding: '7vh 24px 0', display: 'flex', flexDirection: 'column', gap: 24 }}>
+            {/* 시작 조건 요약(스펙 248) — 어떤 조건으로 첫 메시지가 나가는지 시작 화면에서만 한 줄.
+                기본과 다르면 헤더 신호 배지가 있으므로, 여기는 기본 상태까지 포함한 확인용. */}
+            <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', textAlign: 'center' }}>
+              {agent ? (
+                <>
+                  <strong style={{ color: 'var(--color-text-secondary)' }}>{agent.name}</strong>
+                  {' · '}
+                  {pinnedVersion ? `미리보기 ${pinnedVersion}` : `활성${agent.activeVersion ? ` ${agent.activeVersion}` : ''}`}
+                  {' · '}
+                  {overrideActive ? '오버라이드 적용 중' : '오버라이드 없음'}
+                  {a2aMode ? ' · A2A 경유' : ''}
+                  <span style={{ color: 'var(--color-text-quaternary)' }}> — 조건 변경은 우측 상단 “대화 설정”</span>
+                </>
+              ) : null}
+            </div>
             <Prompts
               title={agent?.suggestedPrompts?.length ? '추천 명령어' : '디버그 프롬프트 체험'}
               wrap
