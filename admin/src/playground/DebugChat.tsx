@@ -13,7 +13,7 @@ import {
   dedupeConsecutive,
   type HistState,
 } from './inputHistory'
-import { Avatar, Button, Tag, Grid, Tooltip, Segmented, Select, Input, Dropdown, Card } from 'antd'
+import { Avatar, Button, Tag, Grid, Tooltip, Select, Input, Dropdown, Card } from 'antd'
 import { Icon } from '../admin/icons'
 import { fmtTime } from '../admin/format'
 import { MessageContent } from './MessageContent'
@@ -415,7 +415,60 @@ function StatusDot({ color }: { color: string }) {
   return <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, flex: 'none', display: 'inline-block' }} />
 }
 
-/* 버전 선택(스펙 248 후속6) — 트리거: ●활성/●비활성 + 줄바꿈 vN(사용자 제안 형식).
+/* 실행 경로 선택(스펙 248 후속29) — A2A 노출 에이전트만. Segmented(1줄)가 2줄 칩 리듬을 깨던 것을
+   버전 피커와 같은 문법(2줄 칩+드롭다운)으로: 윗줄 ●경로, 아랫줄 직접/A2A 경유. */
+function PathPicker({ a2aMode, onToggle }: { a2aMode: boolean; onToggle: (v: boolean) => void }) {
+  const [open, setOpen] = useState(false)
+  const GREEN = 'var(--green-6)'
+  const GRAY = 'var(--gray-6)'
+  const rows = [
+    { key: false, label: '직접', desc: '우리 서버로 바로 실행' },
+    { key: true, label: 'A2A 경유', desc: '외부 소비자처럼 호출 — 단발·미저장' },
+  ]
+  return (
+    <Dropdown
+      open={open}
+      onOpenChange={setOpen}
+      trigger={['click']}
+      popupRender={() => (
+        <div style={{ width: 260, background: 'var(--color-bg-elevated)', borderRadius: 12, boxShadow: 'var(--box-shadow)', padding: 6 }}>
+          {rows.map((r) => {
+            const selected = a2aMode === r.key
+            return (
+              <button
+                key={String(r.key)}
+                onClick={() => { onToggle(r.key); setOpen(false) }}
+                style={{
+                  width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px',
+                  borderRadius: 8, border: 'none', cursor: 'pointer', font: 'inherit', textAlign: 'left',
+                  background: selected ? 'var(--color-primary-bg)' : 'transparent', transition: 'background .15s',
+                }}
+                onMouseEnter={(e) => { if (!selected) e.currentTarget.style.background = 'var(--color-fill-tertiary)' }}
+                onMouseLeave={(e) => { if (!selected) e.currentTarget.style.background = 'transparent' }}
+              >
+                <StatusDot color={r.key ? GREEN : GRAY} />
+                <span style={{ fontSize: 13, color: 'var(--color-text-heading)', fontWeight: 500, width: 64, flex: 'none' }}>{r.label}</span>
+                <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)', flex: 1, minWidth: 0 }}>{r.desc}</span>
+                {selected && <Icon name="check" size={12} style={{ color: 'var(--color-primary)' }} />}
+              </button>
+            )
+          })}
+        </div>
+      )}
+    >
+      <div style={{ minWidth: 0 }}>
+        <TwoLineTrigger
+          open={open}
+          title={a2aMode ? 'A2A 경유 테스트 — 단발 메시지(세션·trace·오버라이드 미전달)' : '직접 실행(/chat)'}
+          top={<><StatusDot color={a2aMode ? GREEN : GRAY} />경로</>}
+          bottom={a2aMode ? 'A2A 경유' : '직접'}
+        />
+      </div>
+    </Dropdown>
+  )
+}
+
+/* 버전 선택(스펙 248 후속6)/* 버전 선택(스펙 248 후속6) — 트리거: ●활성/●비활성 + 줄바꿈 vN(사용자 제안 형식).
    옵션은 버전 내림차순, 표기 일관: ● 활성|비활성 · vN (· 초안|보관). */
 function VersionPicker({ agent, pinnedVersion, onPin, fullWidth }: {
   agent: Agent
@@ -740,17 +793,7 @@ function ChatHeader({
           <VersionPicker agent={agent} pinnedVersion={pinnedVersion} onPin={onPinVersion} />
         )}
         {isA2AExposed(agent) && (
-          <Tooltip title={a2aMode ? 'A2A 경유 테스트 — 단발 메시지(세션·trace·오버라이드 미전달)' : '직접 실행(/chat)'}>
-            <Segmented
-              size="small"
-              value={a2aMode ? 'a2a' : 'direct'}
-              onChange={(v) => onToggleA2A(v === 'a2a')}
-              options={[
-                { label: '직접', value: 'direct' },
-                { label: 'A2A', value: 'a2a' },
-              ]}
-            />
-          </Tooltip>
+          <PathPicker a2aMode={a2aMode} onToggle={onToggleA2A} />
         )}
         <SessionCombo
           sessions={sessions}
