@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Select, Input, Switch, Slider, Tooltip, Collapse, Alert, Modal, Segmented } from 'antd'
+import { Select, Input, Switch, Slider, Tooltip, Collapse, Alert, Modal, Segmented, Button, Tag } from 'antd'
 import { isOrchestratorImpl, type BlockCategory, type ToolPolicy, type Agent } from '../../mockData'
 import { listAgentImpls, type Model, type Collection, type ImplMeta } from '../../../api'
 import { PickerGroups, type PickerGroup } from '../../../PickerGroups'
@@ -70,6 +70,7 @@ export function AgentForm({
 
   useEffect(() => {
     setForm(initial ? { ...initial } : blankForm(blocks, models))
+    setSpDraft('') // 추천 명령어 입력 드래프트도 초기화(모달 재오픈 시 잔존 방지)
     /* eslint-disable-next-line */
   }, [open])
 
@@ -93,6 +94,15 @@ export function AgentForm({
 
   const set = <K extends keyof AgentFormData>(k: K, v: AgentFormData[K]) =>
     setForm((f) => ({ ...f, [k]: v }))
+  // 추천 명령어 입력 드래프트(스펙 238 후속2) — 입력창+추가 버튼 편집기(태그형 Select는 모바일 불가).
+  const [spDraft, setSpDraft] = useState('')
+  const addSuggestedPrompt = () => {
+    const v = spDraft.trim().slice(0, 200)
+    if (!v || form.suggestedPrompts.length >= 8) return
+    set('suggestedPrompts', [...form.suggestedPrompts, v])
+    setSpDraft('')
+  }
+
   // 저장 방식 전환(스펙 238) — 비영속으로 바꾸면 DB 쓰기 능력(memwrite/memedit)을 자동 해제한다.
   // disabled 상태로 남겨두면 "해제하라"는 요구와 "해제할 수 없다"는 상태가 모순되기 때문(경고 지양).
   const setEphemeral = (v: boolean) =>
@@ -576,21 +586,43 @@ export function AgentForm({
                     </div>
                   </Field>
                   <SectionHeader>플레이그라운드</SectionHeader>
-                  {/* 추천 명령어(스펙 238 #5) — 플그 빈 화면의 프롬프트 카드를 에이전트별로(옵셔널).
-                      미등록이면 플그 기본 카드 폴백(무회귀). 서버 캡: 최대 8개·각 200자. */}
+                  {/* 추천 명령어(스펙 238 #5, 후속2) — 태그형 Select(Enter 의존)는 모바일서 입력 불가·
+                      발견성 나빠 명시적 입력창+추가 버튼+목록으로 교체(사용자 지적). 서버 캡: 8개·200자. */}
                   <Field label="추천 명령어 (선택)">
-                    <Select
-                      mode="tags"
-                      value={form.suggestedPrompts}
-                      onChange={(v: string[]) => set('suggestedPrompts', v.map((s) => s.slice(0, 200)).slice(0, 8))}
-                      style={{ width: '100%' }}
-                      placeholder="예: 최신 스트리밍 UI 동향을 검색해줘 — 입력 후 Enter"
-                      open={false}
-                      suffixIcon={null}
-                      tokenSeparators={[]}
-                    />
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <Input
+                        value={spDraft}
+                        onChange={(e) => setSpDraft(e.target.value)}
+                        onPressEnter={addSuggestedPrompt}
+                        maxLength={200}
+                        placeholder="예: 최신 스트리밍 UI 동향을 검색해줘"
+                      />
+                      <Button
+                        onClick={addSuggestedPrompt}
+                        disabled={!spDraft.trim() || form.suggestedPrompts.length >= 8}
+                      >
+                        추가
+                      </Button>
+                    </div>
+                    {form.suggestedPrompts.length > 0 && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
+                        {form.suggestedPrompts.map((p, i) => (
+                          <Tag
+                            key={`${i}-${p}`}
+                            closable
+                            onClose={(e) => {
+                              e.preventDefault()
+                              set('suggestedPrompts', form.suggestedPrompts.filter((_, j) => j !== i))
+                            }}
+                            style={{ whiteSpace: 'normal', height: 'auto', padding: '4px 8px', marginInlineEnd: 0, overflowWrap: 'anywhere' }}
+                          >
+                            {p}
+                          </Tag>
+                        ))}
+                      </div>
+                    )}
                     <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-                      플레이그라운드 새 대화 화면에 이 명령어들이 카드로 노출됩니다 (최대 8개 · 각 200자).
+                      플레이그라운드 새 대화 화면에 카드로 노출됩니다 ({form.suggestedPrompts.length}/8 · 각 200자).
                     </span>
                   </Field>
                 </div>
