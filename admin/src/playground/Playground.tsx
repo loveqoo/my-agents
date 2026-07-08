@@ -538,7 +538,9 @@ export function Playground({
     : 1
 
   return (
-    <div style={{ flex: 1, minHeight: 0, display: 'flex', background: 'var(--color-bg-container)' }}>
+    // position: relative — 오버라이드 top 드로어가 이 영역(사이드바 제외 우측) 안에서만 내려온다
+    // (스펙 248 후속16, 사용자: 데탑은 메뉴 제외·모바일은 전폭 — 모바일은 이 영역이 곧 전폭).
+    <div style={{ flex: 1, minHeight: 0, display: 'flex', background: 'var(--color-bg-container)', position: 'relative' }}>
       {inspectorOpen && !overlayInspector ? (
         /* 도킹 인스펙터를 antd Splitter로(스펙 204) — 수제 aside 고정폭 대신 드래그 리사이즈.
            채팅‖인스펙터 분할은 Splitter.Panel이 폭을 소유한다(Inspector aside는 width 100%). */

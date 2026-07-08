@@ -287,6 +287,10 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
       placement="top"
       height="min(70vh, 560px)"
       title="런타임 오버라이드"
+      // 후속16: body가 아니라 플레이그라운드 영역 안에 렌더 — 데탑은 사이드바를 제외한 우측만 덮고,
+      // 모바일은 그 영역이 곧 전폭. 부모(Playground 루트)가 position: relative를 소유.
+      getContainer={false}
+      rootStyle={{ position: 'absolute' }}
       styles={{ body: { paddingTop: 12 } }}
     >
       {isExternal ? (
