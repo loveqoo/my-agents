@@ -749,8 +749,8 @@ function ChatHeader({
           <Tag color="blue" style={{ margin: 0, flexShrink: 0, cursor: 'pointer' }} onClick={onToggleOverrides}>오버라이드 ✓</Tag>
         )}
         {!isMobile && <div style={{ flex: 1 }} />}
-        {/* 도구 줄 — 모바일은 라벨 포함·줄바꿈 허용(flexWrap). */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        {/* 도구 줄 — 모바일은 전폭 뉴라인(사용자 확정: 2줄=버전+세션, 3줄=검사 도구 — 도구는 차기 수정 대상). */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', width: isMobile ? '100%' : undefined }}>
         {/* "새 대화" 버튼 제거(스펙 248 후속11, 사용자 지적): 세션 콤보 드롭다운의 "새 세션"이
             canonical — 같은 기능의 두 번째 입구는 중복. */}
         {/* 미반영 초안 안내(스펙 078): 신호 배지 — 헤더 유지. */}
