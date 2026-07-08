@@ -537,10 +537,24 @@ export function Playground({
     ? messages.slice(0, selectedTurn + 1).filter((m) => m.role === 'me').length
     : 1
 
+  // 오버라이드 서랍(스펙 248 후속17) — DebugChat의 헤더 아래 영역에 렌더(U 손잡이 바로 아래서 내려옴).
+  const overridePanelNode = (
+    <OverridePanel
+      open={overridePanelOpen}
+      agent={activeAgent}
+      models={models}
+      blocks={blocks}
+      agents={agents}
+      collections={collections}
+      applied={appliedOv}
+      onApply={applyOverrides}
+      onClear={clearOverrides}
+      onClose={() => setOverridePanelOpen(false)}
+    />
+  )
+
   return (
-    // position: relative — 오버라이드 top 드로어가 이 영역(사이드바 제외 우측) 안에서만 내려온다
-    // (스펙 248 후속16, 사용자: 데탑은 메뉴 제외·모바일은 전폭 — 모바일은 이 영역이 곧 전폭).
-    <div style={{ flex: 1, minHeight: 0, display: 'flex', background: 'var(--color-bg-container)', position: 'relative' }}>
+    <div style={{ flex: 1, minHeight: 0, display: 'flex', background: 'var(--color-bg-container)' }}>
       {inspectorOpen && !overlayInspector ? (
         /* 도킹 인스펙터를 antd Splitter로(스펙 204) — 수제 aside 고정폭 대신 드래그 리사이즈.
            채팅‖인스펙터 분할은 Splitter.Panel이 폭을 소유한다(Inspector aside는 width 100%). */
@@ -558,6 +572,7 @@ export function Playground({
         sessionsLoading={sessionsLoading}
         onPickSession={loadSession}
         onReloadSessions={refreshSessions}
+        overridePanel={overridePanelNode}
         messages={messages}
         onFeedbackChange={handleFeedbackChange}
         streaming={streaming}
@@ -597,6 +612,7 @@ export function Playground({
         sessionsLoading={sessionsLoading}
         onPickSession={loadSession}
         onReloadSessions={refreshSessions}
+        overridePanel={overridePanelNode}
         messages={messages}
         onFeedbackChange={handleFeedbackChange}
         streaming={streaming}
@@ -635,18 +651,6 @@ export function Playground({
           ) : null}
         </>
       )}
-      <OverridePanel
-        open={overridePanelOpen}
-        agent={activeAgent}
-        models={models}
-        blocks={blocks}
-        agents={agents}
-        collections={collections}
-        applied={appliedOv}
-        onApply={applyOverrides}
-        onClear={clearOverrides}
-        onClose={() => setOverridePanelOpen(false)}
-      />
     </div>
   )
 }

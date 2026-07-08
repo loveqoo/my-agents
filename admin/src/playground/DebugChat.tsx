@@ -97,6 +97,7 @@ function DraftBadge({ compact }: { compact?: boolean }) {
 }
 
 interface DebugChatProps {
+  overridePanel?: React.ReactNode // 오버라이드 top 드로어 — 헤더 아래 영역에서 내려오도록 여기서 렌더
   agent: Agent | null
   agents: Agent[]
   onSwitchAgent: (id: string) => void
@@ -931,6 +932,7 @@ function TraceChips({ trace, active, onClick }: { trace?: Trace; active: boolean
 }
 
 export function DebugChat({
+  overridePanel,
   agent,
   agents,
   onSwitchAgent,
@@ -1098,6 +1100,10 @@ export function DebugChat({
         fallbackPreview={messages.find((m) => m.role === 'me')?.text.slice(0, 40)}
       />
 
+      {/* 헤더 아래 영역(스펙 248 후속17) — 오버라이드 서랍이 U 손잡이 바로 아래서 내려오도록
+          position: relative 컨테이너가 스크롤·입력 영역을 감싼다(드로어 getContainer=false). */}
+      <div style={{ position: 'relative', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+        {overridePanel}
       <div ref={scroller} style={{ flex: 1, overflowY: 'auto' }}>
         {pickedButEmpty ? (
           <div
@@ -1241,6 +1247,7 @@ export function DebugChat({
             )}
           />
         </div>
+      </div>
       </div>
     </div>
   )

@@ -138,3 +138,9 @@
 - Drawer를 body 대신 플레이그라운드 루트 안에 렌더(getContainer={false}+rootStyle absolute,
   루트에 position: relative) — 데탑은 메뉴 제외 우측 영역만 덮고, 모바일은 그 영역이 곧 전폭이라
   자동 충족. U 손잡이 e2e 6/6·248/249 무회귀·육안 확인.
+
+## 후속 수정 17 (사용자 — 서랍 시작점: 헤더 바로 아래)
+- 드로어 컨테이너를 플레이그라운드 루트 → **DebugChat 헤더 아래 영역**(스크롤+입력을 감싸는
+  relative 래퍼)으로 이동. OverridePanel은 Playground서 노드로 만들어 DebugChat prop으로 주입
+  (도킹/일반 두 렌더 경로 공통). 이제 헤더·사이드바는 남고 U 손잡이 바로 아래서 서랍이 내려옴 —
+  손잡이 은유 완성. e2e 6/6·249 무회귀·육안 확인.
