@@ -88,6 +88,30 @@ def _bound_tool_names(body: dict) -> set:
     return names
 
 
+def _tool_params_schema(body: dict, name: str) -> dict:
+    """바인딩된 도구의 parameters(JSON Schema) — 일반 트리거의 인자 조립용."""
+    for t in body.get("tools") or []:
+        fn = t.get("function") if isinstance(t, dict) else None
+        if isinstance(fn, dict) and fn.get("name") == name:
+            return fn.get("parameters") or {}
+    return {}
+
+
+def _generic_args(schema: dict, text: str) -> dict | None:
+    """required string 파라미터에 사용자 문장을 채우는 휴리스틱(캡 200자) — 임의 도구 실습용.
+    required에 비-string(integer 등)이 있으면 **None(트리거 포기)** — 채울 수 없는 필수 인자를
+    누락한 invalid tool_call을 만드느니 안 부르는 게 정직(codex 236 #5). required가 없으면
+    첫 string 프로퍼티 하나에 채운다(무인자 호출로 헛돌지 않게)."""
+    props = schema.get("properties") or {}
+    required = list(schema.get("required") or [])
+    if any((props.get(p) or {}).get("type") not in (None, "string") for p in required):
+        return None
+    if not required:
+        required = [k for k, v in props.items() if isinstance(v, dict) and v.get("type") in (None, "string")][:1]
+    val = (text or "").strip()[:200]
+    return {p: val for p in required}
+
+
 def _pick_tool_call(body: dict) -> tuple[str, dict] | None:
     """트리거 매치면 (tool_name, args), 아니면 None(평문). messages에 tool 결과가 있으면(재개 후
     요약 턴) None — 무한 tool_call 루프 차단."""
@@ -105,6 +129,17 @@ def _pick_tool_call(body: dict) -> tuple[str, dict] | None:
         bound_name = next((b for b in bound if b == tool or b.endswith("__" + tool)), None)
         if bound_name and any(k.lower() in low for k in keywords):
             return bound_name, argfn(raw)
+    # 일반 트리거(스펙 236) — 문장에 바인딩된 도구의 base 이름이 언급되면 그 도구를 호출
+    # (예: "wiki_search로 파이썬 검색해줘"). mock으로도 임의 등록 도구 실습이 되게. 위 키워드
+    # 트리거가 항상 우선(기존 테스트 결정성 보존). 오발동 방어(codex 236 #4): base 4자 미만 제외 +
+    # **단어 경계 매칭**(search⊂research·echo⊂echolocation 우발 매치 차단).
+    for b in sorted(bound):
+        base = b.rsplit("__", 1)[-1]
+        if len(base) >= 4 and re.search(rf"(?<![a-z0-9_]){re.escape(base.lower())}(?![a-z0-9_])", low):
+            text = re.sub(re.escape(base), " ", raw, flags=re.IGNORECASE).strip()
+            args = _generic_args(_tool_params_schema(body, b), text or raw)
+            if args is not None:  # None=required 비-string(채울 수 없음) → 트리거 포기
+                return b, args
     return None
 
 

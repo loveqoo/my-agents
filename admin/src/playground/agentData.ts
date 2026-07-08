@@ -66,6 +66,8 @@ export interface Trace {
   ragCollections?: string[]
   // 요청됐으나 해석 실패한 컬렉션명(조용히 비는 footgun을 드러냄). 스펙 079.
   ragUnresolved?: string[]
+  // 도구 무발동 진단(스펙 236) — 도구가 바인딩된 턴의 호출 수. called=0이면 "왜 안 되는지" 표면화.
+  toolDiag?: { bound: string[]; called: number }
   // 브로커 호출 상세(스펙 130) — 조율형 위임 호출의 표시용 메타. rag:* 는 RAG 섹션이 렌더.
   // resultPreview(스펙 131): 결과 본문 프리뷰(2000자 캡·비밀 마스킹, args는 계속 미포함).
   brokerCalls?: {

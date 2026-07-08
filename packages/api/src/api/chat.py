@@ -1064,6 +1064,17 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
             graph_observations=observed,
         )
         trace["contextMessages"] = len(messages)  # 모델에 넣은 메시지 수(historyDepth 적용 결과)
+        # 도구 무발동 진단(스펙 236) — 도구가 바인딩된 턴의 호출 수를 항상 기록. called=0이면 UI가
+        # "왜 안 되는지" 후보(모델이 도구 호출 미지원(mock 등)·질문이 도구와 무관)를 표면화한다
+        # (158 회상·125 검색 진단의 결 — 조용한 무발동 금지). impl이 도구 표면(mcps/vectorTables)을
+        # 안 읽는 타입(route·artifact류)은 제외 — 그건 무발동이 아니라 설계상 무소비(폼이 이미 경고).
+        _td_consumes = impl.describe().consumes
+        _td_reads_tools = _td_consumes is None or bool({"mcps", "vectorTables"} & set(_td_consumes))
+        if tools and _td_reads_tools:
+            trace["toolDiag"] = {
+                "bound": [getattr(tl, "name", "?") for tl in tools][:20],
+                "called": len(calls_sink),
+            }
         # 전송 프롬프트(스펙 205): 콜백 실측(마지막 모델 호출 — 커스텀 impl의 계획·도구 안내 포함)
         # 우선, 콜백 미발화면 기존 재구성(131) 폴백. 출처를 표기해 UI가 정직하게 라벨링.
         if capture.calls:

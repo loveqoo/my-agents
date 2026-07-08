@@ -2,7 +2,7 @@
    Shows the resolved system prompt, retrieved memories, MCP tool calls and the
    LangGraph execution path for the currently-selected assistant turn. */
 import { useState, useEffect, type CSSProperties, type ReactNode } from 'react'
-import { Tag, Button, Collapse, Timeline, Tabs, Modal, Progress } from 'antd'
+import { Tag, Button, Collapse, Timeline, Tabs, Modal, Progress, Alert } from 'antd'
 import { Icon } from '../admin/icons'
 import type { ChatMsg, Memory, McpCallT, Trace, RagHit } from './agentData'
 import type { Agent } from '../admin/mockData'
@@ -553,6 +553,29 @@ export function Inspector({
           ) : null}
         </Section>
       ) : null}
+      {/* 도구 무발동 진단(스펙 236) — 도구는 연결됐는데 이 턴 호출 0회면 "왜"를 표면화(조용한 무발동 금지).
+          정보성 진단(도구와 무관한 질문일 수도) — 경고색이 아니라 보조 톤. */}
+      {t.toolDiag ? (
+        <Section icon="thunderbolt" iconColor="var(--cyan-7)" title="연결된 도구" count={t.toolDiag.bound.length}>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {t.toolDiag.bound.map((n) => (
+              <Tag key={n} color="cyan" style={{ whiteSpace: 'normal', height: 'auto', overflowWrap: 'anywhere' }}>{n}</Tag>
+            ))}
+          </div>
+          {t.toolDiag.called === 0 && !t.brokerCalls?.length ? (
+            <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginTop: 6, overflowWrap: 'anywhere' }}>
+              이 턴에서 모델이 도구를 호출하지 않았습니다 — 질문이 도구와 무관했거나, 모델이 도구 호출을
+              지원하지 않을 수 있습니다(mock 모델은 정해진 키워드·도구 이름을 문장에 쓸 때만 호출합니다).
+            </div>
+          ) : (
+            <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginTop: 6 }}>
+              {t.toolDiag.called > 0
+                ? `이 턴 도구 호출 ${t.toolDiag.called}회 — 상세는 실행 흐름 탭.`
+                : '직접 도구 호출 0회 — 이 턴은 위임(브로커) 경유로 처리됐습니다(상세는 실행 흐름 탭).'}
+            </div>
+          )}
+        </Section>
+      ) : null}
     </div>
   ) : null
 
@@ -578,6 +601,18 @@ export function Inspector({
                   각 단계를 실행 순서대로 — 그 단계에서 무엇을 호출했고 결과가 어땠는지.
                 </div>
                 <NodeTimeline t={t} />
+                {/* 도구 무발동 진단(스펙 236) — 무발동 턴은 흐름에 tools 노드가 아예 안 떠 조용하다.
+                    "왜"를 찾는 곳이 이 기본 탭이므로 여기서 바로 안내(상세 목록은 프롬프트·설정 탭).
+                    brokerCalls 있으면 억제 — 브로커 경유로 일한 턴을 "무발동"으로 오진 금지(codex 236 #2). */}
+                {t.toolDiag && t.toolDiag.called === 0 && !t.brokerCalls?.length ? (
+                  <Alert
+                    type="info"
+                    showIcon
+                    style={{ marginTop: 12 }}
+                    title={`도구 ${t.toolDiag.bound.length}개가 연결됐지만 이 턴에서 호출되지 않았습니다`}
+                    description="질문이 도구와 무관했거나, 모델이 도구 호출을 지원하지 않을 수 있습니다. mock 모델은 정해진 키워드나 도구 이름을 문장에 쓸 때만 호출합니다. 연결 목록은 프롬프트·설정 탭에서 확인하세요."
+                  />
+                ) : null}
               </div>
             ),
           },

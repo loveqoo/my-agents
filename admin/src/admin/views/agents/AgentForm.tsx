@@ -277,6 +277,16 @@ export function AgentForm({
             />
           </Field>
         </div>
+        {/* mock 모델 + 도구 조합 사전 경고(스펙 236) — 실사용서 "도구가 조용히 무발동" 추적 낭비 방지.
+            감지는 레지스트리 데이터(provider_kind, 스펙 218)로 — 모델명 하드코딩 안 함(learning 026). */}
+        {models.find((m) => m.name === form.model)?.provider_kind === 'mock' && form.mcps.length > 0 && (
+          <Alert
+            type="warning"
+            showIcon
+            title="이 모델(mock)은 도구를 스스로 고르지 못합니다"
+            description="데모용 모델이라 정해진 키워드나 도구 이름을 문장에 쓸 때만 도구를 호출합니다. 도구를 제대로 쓰려면 실제 모델을 선택하세요."
+          />
+        )}
         <Field label="에이전트 종류">
           <Select
             value={form.impl}
