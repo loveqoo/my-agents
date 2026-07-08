@@ -573,7 +573,6 @@ export function Playground({
         onSelectTurn={openInspector}
         onSend={send}
         onStop={stop}
-        canResetConversation={messages.length > 0}
         onResetConversation={resetConversation}
         showPrompt={showPrompt}
         onTogglePrompt={() => setShowPrompt((s) => !s)}
@@ -617,7 +616,6 @@ export function Playground({
         onSelectTurn={openInspector}
         onSend={send}
         onStop={stop}
-        canResetConversation={messages.length > 0}
         onResetConversation={resetConversation}
         showPrompt={showPrompt}
         onTogglePrompt={() => setShowPrompt((s) => !s)}

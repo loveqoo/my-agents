@@ -121,7 +121,6 @@ interface DebugChatProps {
   onSelectTurn: (i: number) => void
   onSend: (text: string) => void
   onStop: () => void
-  canResetConversation: boolean
   onResetConversation: () => void
   showPrompt: boolean
   onTogglePrompt: () => void
@@ -639,7 +638,6 @@ function ChatHeader({
   sessionsLoading,
   onPickSession,
   onReloadSessions,
-  canResetConversation,
   onResetConversation,
   showPrompt,
   onTogglePrompt,
@@ -662,7 +660,6 @@ function ChatHeader({
   sessionsLoading: boolean
   onPickSession: (sid: string) => void
   onReloadSessions: () => void
-  canResetConversation: boolean
   onResetConversation: () => void
   showPrompt: boolean
   onTogglePrompt: () => void
@@ -752,18 +749,8 @@ function ChatHeader({
         {!isMobile && <div style={{ flex: 1 }} />}
         {/* 도구 줄 — 모바일은 라벨 포함·줄바꿈 허용(flexWrap). */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        {/* mem0 user_id 축은 서버가 로그인 유저에서 도출한다(스펙 032) — 수동 userId 입력은 제거.
-            "새 대화"는 userId 잠금에서 분리된 일반 리셋: 진행 중인 대화가 있을 때만 노출. */}
-        {canResetConversation && (
-          <Button
-            size="small"
-            icon={<Icon name="plus" />}
-            onClick={onResetConversation}
-            title="새 대화 — 현재 대화를 비우고 처음부터 시작합니다."
-          >
-            {compact ? null : '새 대화'}
-          </Button>
-        )}
+        {/* "새 대화" 버튼 제거(스펙 248 후속11, 사용자 지적): 세션 콤보 드롭다운의 "새 세션"이
+            canonical — 같은 기능의 두 번째 입구는 중복. */}
         {/* 미반영 초안 안내(스펙 078): 신호 배지 — 헤더 유지. */}
         {hasDraft(agent) && <DraftBadge compact={compact} />}
         {/* 대화 설정(스펙 247) — 집중 모델: 설정류 6종(버전·세션·A2A 경유·시스템 프롬프트·오버라이드·
@@ -1015,7 +1002,6 @@ export function DebugChat({
   onSelectTurn,
   onSend,
   onStop,
-  canResetConversation,
   onResetConversation,
   showPrompt,
   onTogglePrompt,
@@ -1155,7 +1141,6 @@ export function DebugChat({
         sessionsLoading={sessionsLoading}
         onPickSession={onPickSession}
         onReloadSessions={onReloadSessions}
-        canResetConversation={canResetConversation}
         onResetConversation={onResetConversation}
         showPrompt={showPrompt}
         onTogglePrompt={onTogglePrompt}
