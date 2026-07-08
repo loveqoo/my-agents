@@ -107,7 +107,16 @@ export function Playground({
       .then((list) => {
         if (cancelled) return
         setAgents(list)
-        if (list.length) setActiveId(list[0].id)
+        // 시작 캐스케이드(스펙 248 후속2, 사용자 플로우): 최근 사용 에이전트를 자동 선택(재방문 시
+        // 이어서), 기록 없으면 첫 항목(에이전트 1개면 그게 곧 자동 선택).
+        if (list.length) {
+          let recentId: string | undefined
+          try {
+            const recent: string[] = JSON.parse(localStorage.getItem('pg_recent_agents') || '[]')
+            recentId = recent.find((id) => list.some((a) => a.id === id))
+          } catch { /* 기록 없음 */ }
+          setActiveId(recentId ?? list[0].id)
+        }
       })
       .catch(() => {
         if (!cancelled) message.error('에이전트 목록을 불러오지 못했습니다.')

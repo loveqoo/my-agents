@@ -636,7 +636,8 @@ function ChatHeader({
           placement="bottomRight"
           content={
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: 260 }}>
-              {agent.source === 'ui' && (agent.versions?.length ?? 0) > 0 && agent.can_manage !== false && onPinVersion && (
+              {/* 선택지가 실재할 때만(사용자 플로우: 버전 1개면 자동 선택 — 비활성 버전이 있어야 고를 게 있다) */}
+              {agent.source === 'ui' && (agent.versions ?? []).some((v) => v.status !== 'active') && agent.can_manage !== false && onPinVersion && (
                 <div>
                   <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginBottom: 4 }}>버전 (미리보기)</div>
                   <Select
