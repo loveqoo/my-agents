@@ -377,7 +377,7 @@ function shortSid(id: string) {
 }
 /* 2줄 트리거 공통 셸(스펙 248 후속6, 사용자 제안) — 에이전트 콤보와 같은 높이로 헤더 정렬:
    윗줄=상태(● 점 + 라벨), 아랫줄=값. 버전·세션 트리거가 공유. */
-function TwoLineTrigger({ open, top, bottom, fullWidth, title, maxW = 200, align = 'end' }: {
+function TwoLineTrigger({ open, top, bottom, fullWidth, title, maxW = 200, align = 'end', topAlign, bottomAlign }: {
   open: boolean
   top: React.ReactNode
   bottom: React.ReactNode
@@ -385,14 +385,18 @@ function TwoLineTrigger({ open, top, bottom, fullWidth, title, maxW = 200, align
   title?: string
   maxW?: number // 아랫줄 최대 폭(세션은 미리보기를 길게 — 사용자 요청)
   align?: 'start' | 'end' // 버전=숫자라 오른쪽(end), 세션=텍스트라 왼쪽(start) — 사용자 명세
+  topAlign?: 'start' | 'end' // 줄별 정렬(후속30: 경로 칩=윗줄 왼쪽·아랫줄 오른쪽)
+  bottomAlign?: 'start' | 'end'
 }) {
+  const ta = topAlign ?? align
+  const ba = bottomAlign ?? align
   return (
     <button
       title={title}
       style={{
         // 오른쪽 정렬(사용자 지적): 윗줄은 ●점/아이콘으로 들여져 아랫줄과 시작선이 어긋남 —
         // 끝선을 맞추면 두 줄이 한 덩어리로 읽힌다.
-        display: 'flex', flexDirection: 'column', alignItems: align === 'end' ? 'flex-end' : 'flex-start', justifyContent: 'center', gap: 1,
+        display: 'flex', flexDirection: 'column', alignItems: 'stretch', justifyContent: 'center', gap: 1,
         // 에이전트 콤보와 같은 높이(실측 54px — 이름 15px 2줄+아바타가 더 높음, 사용자 지적)
         minHeight: 54, boxSizing: 'border-box',
         padding: '5px 12px', borderRadius: 10,
@@ -403,8 +407,8 @@ function TwoLineTrigger({ open, top, bottom, fullWidth, title, maxW = 200, align
         maxWidth: fullWidth ? '100%' : maxW + 26, // 내부 말줄임 + 버튼 자체 상한(넘침 방지, 사용자 지시)
       }}
     >
-      <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'var(--color-text-tertiary)', maxWidth: fullWidth ? '100%' : maxW, overflow: 'hidden', whiteSpace: 'nowrap' }}>{top}</span>
-      <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--color-text-heading)', maxWidth: fullWidth ? '100%' : maxW, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+      <span style={{ display: 'flex', alignItems: 'center', justifyContent: ta === 'end' ? 'flex-end' : 'flex-start', gap: 5, fontSize: 11, color: 'var(--color-text-tertiary)', maxWidth: fullWidth ? '100%' : maxW, overflow: 'hidden', whiteSpace: 'nowrap' }}>{top}</span>
+      <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--color-text-heading)', textAlign: ba === 'end' ? 'right' : 'left', maxWidth: fullWidth ? '100%' : maxW, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {bottom}
       </span>
     </button>
@@ -460,8 +464,10 @@ function PathPicker({ a2aMode, onToggle }: { a2aMode: boolean; onToggle: (v: boo
         <TwoLineTrigger
           open={open}
           title={a2aMode ? 'A2A 경유 테스트 — 단발 메시지(세션·trace·오버라이드 미전달)' : '직접 실행(/chat)'}
+          topAlign="start"
+          bottomAlign="end"
           top={<><StatusDot color={a2aMode ? GREEN : GRAY} />경로</>}
-          bottom={a2aMode ? 'A2A 경유' : '직접'}
+          bottom={a2aMode ? 'A2A' : '직접'}
         />
       </div>
     </Dropdown>
