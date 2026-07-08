@@ -353,7 +353,7 @@ export function AgentForm({
           />
           <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
             {form.ephemeral
-              ? '아무것도 저장하지 않는 1회성 추론입니다 — 세션·대화 이력·기억 없이 응답만 합니다(고트래픽용).'
+              ? '아무것도 저장하지 않는 1회성 추론입니다 — 세션·대화 이력·기억 없이 응답만 합니다.'
               : '대화와 기록을 저장합니다 — 세션·이력·기억을 사용할 수 있습니다.'}
           </span>
         </Field>
