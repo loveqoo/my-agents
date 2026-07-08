@@ -2,7 +2,7 @@
    streaming chat API, and links each assistant turn → the Inspector from the
    real execution trace. 3-pane: agent picker (in header) + debug chat + Inspector. */
 import { useEffect, useRef, useState } from 'react'
-import { message, Grid, Drawer, Splitter } from 'antd'
+import { message, Grid, Drawer, Splitter, Button } from 'antd'
 import { DebugChat } from './DebugChat'
 import { Inspector } from './Inspector'
 import { OverridePanel, overrideDefaults, overridePayload, type Overrides } from './OverridePanel'
@@ -558,8 +558,18 @@ export function Playground({
         onClear={clearOverrides}
         onClose={() => setOverridePanelOpen(false)}
         afterOpenChange={setOverrideSettled}
+        footer={
+          // 모바일(후속21, 사용자): 바깥 손잡이는 70vh+헤더 탓에 화면 밖 — 드로어 안 하단 우측으로.
+          !screens.md ? (
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <Button size="small" icon={<Icon name="up" size={11} />} onClick={() => setOverridePanelOpen(false)} aria-label="오버라이드 닫기">
+                닫기
+              </Button>
+            </div>
+          ) : undefined
+        }
       />
-      {overridePanelOpen && overrideSettled && (
+      {screens.md && overridePanelOpen && overrideSettled && (
         <button
           onClick={() => setOverridePanelOpen(false)}
           aria-label="오버라이드 닫기"
