@@ -458,7 +458,8 @@ function VersionPicker({ agent, pinnedVersion, onPin, fullWidth }: {
                 onMouseLeave={(e) => { if (!selected) e.currentTarget.style.background = 'transparent' }}
               >
                 <StatusDot color={isActive ? GREEN : GRAY} />
-                <span style={{ fontSize: 13, color: 'var(--color-text-heading)', fontWeight: 500 }}>
+                {/* 상태 라벨 고정 폭 — 활성(2자)/비활성(3자) 폭 차로 버전 열이 어긋남(사용자 지적) */}
+                <span style={{ fontSize: 13, color: 'var(--color-text-heading)', fontWeight: 500, width: 42, flex: 'none' }}>
                   {isActive ? '활성' : '비활성'}
                 </span>
                 <span style={{ fontFamily: 'var(--font-family-code)', fontSize: 13 }}>{v.version}</span>
