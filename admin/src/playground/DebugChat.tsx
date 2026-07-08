@@ -542,6 +542,7 @@ function ChatHeader({
   onToggleA2A,
   pinnedVersion,
   onPinVersion,
+  fallbackPreview,
 }: {
   agent: Agent
   agents: Agent[]
@@ -560,6 +561,7 @@ function ChatHeader({
   onToggleInspector: () => void
   pinnedVersion?: string // 버전 미리보기(스펙 243) — undefined=활성(서빙) 버전
   onPinVersion?: (v?: string) => void
+  fallbackPreview?: string // 조건 표시줄 세션 폴백(목록 preview 부재 시 로컬 첫 메시지)
   overrideActive: boolean
   onToggleOverrides: () => void
   a2aMode: boolean
@@ -626,8 +628,9 @@ function ChatHeader({
           {a2aMode ? <Tag color="green" style={{ margin: 0 }}>A2A 경유</Tag> : <span>직접</span>}
           <span>·</span>
           <span style={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {/* 해시 폴백 금지(식별자 강등) — 목록 preview가 아직 없으면 로컬 첫 메시지, 그것도 없으면 '대화 중'. */}
             {currentSessionId
-              ? `이어서: ${(sessions.find((ss) => ss.id === currentSessionId)?.preview || shortSid(currentSessionId))}`
+              ? `이어서: ${(sessions.find((ss) => ss.id === currentSessionId)?.preview || fallbackPreview || '대화 중')}`
               : '새 대화'}
           </span>
           {overrideActive && (
@@ -899,6 +902,13 @@ function TraceChips({ trace, active, onClick }: { trace?: Trace; active: boolean
         display: 'inline-flex',
         gap: 10,
         alignItems: 'center',
+        // 모바일(360px)에서 칩 6개가 한 줄을 고집하면 버블 최소폭이 화면을 넘긴다(오버플로 실측) —
+        // 줄바꿈 허용 + 최대폭 제한으로 버블이 화면 안에서 접히게.
+        flexWrap: 'wrap',
+        maxWidth: '100%',
+        boxSizing: 'border-box',
+        height: 'auto',
+        whiteSpace: 'normal',
         marginTop: 2,
         padding: '4px 10px',
         cursor: 'pointer',
@@ -1100,6 +1110,7 @@ export function DebugChat({
         onToggleA2A={onToggleA2A}
         pinnedVersion={pinnedVersion}
         onPinVersion={onPinVersion}
+        fallbackPreview={messages.find((m) => m.role === 'me')?.text.slice(0, 40)}
       />
 
       <div ref={scroller} style={{ flex: 1, overflowY: 'auto' }}>
