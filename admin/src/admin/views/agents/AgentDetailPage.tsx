@@ -2,8 +2,8 @@
    2층=관심사 탭 **하나만 렌더**(구성/버전·배포/공개·연동/운영), 3층=상세·진단(빈 값 접기·식별자
    복사 강등). 개요 탭=요약 대시보드(각 관심사 한 줄+클릭 점프 — 지도이지 또 다른 상세가 아님).
    로컬(ui) 전용(code/external은 드로어 유지 — 후속). */
-import { useEffect, useRef, useState } from 'react'
-import { Tag, Button, Avatar, Alert, Modal, Descriptions, Grid, Tooltip, message, Typography } from 'antd'
+import { useEffect, useState } from 'react'
+import { Tag, Button, Alert, Modal, Descriptions, Grid, Typography } from 'antd'
 import { VersionHistory, ExposeSwitch } from '../../shared'
 import { Icon } from '../../icons'
 import { AgentMemoryPanel } from '../AgentMemoryPanel'
@@ -12,6 +12,7 @@ import { displayName } from '../../naming'
 import { PersonaStaleNote } from './PersonaStaleNote'
 import { FeedbackHarvestButton } from './FeedbackHarvestButton'
 import { getAgentOps, type AgentOps } from '../../../api'
+import { DetailPageShell, SectionTitle, JumpCell, type DetailSection } from './detail/DetailPageShell'
 
 function a2aCardUrl(agentPk: string): string {
   const env = (import.meta.env.VITE_API_BASE ?? '') as string
@@ -19,13 +20,6 @@ function a2aCardUrl(agentPk: string): string {
   return `${base}/agents/${agentPk}/a2a/card`
 }
 
-const SECTIONS = [
-  { key: 'overview', label: '개요' },
-  { key: 'config', label: '구성' },
-  { key: 'versions', label: '버전·배포' },
-  { key: 'sharing', label: '공개·연동' },
-  { key: 'operations', label: '운영' },
-] as const
 
 export function AgentDetailPage({
   agent,
@@ -56,8 +50,6 @@ export function AgentDetailPage({
 }) {
   const screens = Grid.useBreakpoint()
   const isMobile = !screens.md
-  const bodyRef = useRef<HTMLDivElement>(null)
-  const [active, setActive] = useState<string>('overview')
 
   // 버전 운영 지표(스펙 244) — 관리 가능일 때만(서버 403 정합).
   const [ops, setOps] = useState<AgentOps | null>(null)
@@ -68,123 +60,16 @@ export function AgentDetailPage({
     }
   }, [agent.id, agent.can_manage])
 
-  // 2층=탭(스펙 246): 하나만 렌더 — 화면 정보량이 항상 "지금 하는 일" 분량.
-  const jump = (key: string) => {
-    setActive(key)
-    bodyRef.current?.scrollIntoView({ block: 'start' })
-  }
-
   const draft = (agent.versions || []).find((v) => v.status === 'draft')
   const canManage = agent.can_manage !== false
   // 종류 라벨(사용자 언어, 스펙 108과 동일 매핑)
   const typeLabel = !agent.impl ? '직접 응답' : agent.impl.startsWith('artifact') ? '산출물형' : isOrchestratorImpl(agent.impl) ? '조율형' : agent.impl
 
-  const nav = (
-    <div
-      style={
-        isMobile
-          ? { display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 8 }
-          : { display: 'flex', flexDirection: 'column', gap: 2, position: 'sticky', top: 12, minWidth: 120 }
-      }
-    >
-      {SECTIONS.map((s) => (
-        <Button
-          key={s.key}
-          type={active === s.key ? 'primary' : 'text'}
-          size="small"
-          style={{ justifyContent: 'flex-start', flexShrink: 0 }}
-          onClick={() => jump(s.key)}
-        >
-          {s.label}
-        </Button>
-      ))}
-    </div>
-  )
-
-  return (
-    // 중앙 정렬 컨테이너(사용자 피드백) — 좌측 네비+본문이 왼쪽에 붙으면 넓은 화면서 우측이 통째로
-    // 비어 쏠려 보인다. 문서처럼 가운데(최대 1040px)로.
-    <div style={{ maxWidth: 1040, margin: '0 auto', width: '100%' }}>
-      {/* 상단(사용자 피드백: 목록 버튼이 정체성 줄에 끼어 어수선) — 1줄=돌아가기, 2줄=정체성|액션. */}
-      <div style={{ marginBottom: 10 }}>
-        <Button type="text" size="small" icon={<Icon name="arrow-left" size={12} />} onClick={onBack} style={{ color: 'var(--color-text-tertiary)', paddingInline: 4 }}>
-          에이전트 목록
-        </Button>
-      </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
-        <Avatar size="large" style={{ background: 'var(--gray-12)' }}>
-          <Icon name="robot" />
-        </Avatar>
-        <div style={{ flex: 1, minWidth: 160 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 16, fontWeight: 600 }}>{displayName(agent)}</span>
-            {/* 식별자 강등(스펙 246 3층) — 본문 코드 대신 복사 버튼+툴팁. canonical 표기는 공개·연동 탭. */}
-            <Tooltip title={<span style={{ fontFamily: 'var(--font-family-code)' }}>{agent.agentId}</span>}>
-              <Button
-                type="text"
-                size="small"
-                icon={<Icon name="copy" size={12} />}
-                onClick={() => {
-                  void navigator.clipboard.writeText(agent.agentId)
-                  message.success('Agent ID 복사됨')
-                }}
-              />
-            </Tooltip>
-          </div>
-          {/* 1층 상태 배지(스펙 246) — 정체성·상태를 한 줄로(각 탭 상세의 요약이 아니라 상태 신호만). */}
-          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 2 }}>
-            {agent.conformance === 'config_error' ? (
-              <Tag color="red" style={{ margin: 0 }}>
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 600 }}>
-                  <Icon name="exclamation-circle" size={11} /> 설정 실패
-                </span>
-              </Tag>
-            ) : agent.activeVersion ? (
-              <Tag color="green" style={{ margin: 0 }}>서빙 {agent.activeVersion}</Tag>
-            ) : (
-              <Tag style={{ margin: 0 }}>미서빙 · 초안만</Tag>
-            )}
-            <Tag style={{ margin: 0 }}>{typeLabel}</Tag>
-            {draft && <Tag color="gold" style={{ margin: 0 }}>초안 {draft.version}</Tag>}
-            <Tag style={{ margin: 0 }}>{agent.owner_id == null ? 'public' : 'private'}</Tag>
-            {agent.exposed?.a2a && <Tag color="green" style={{ margin: 0 }}>A2A</Tag>}
-            {agent.ephemeral && <Tag color="orange" style={{ margin: 0 }}>비영속</Tag>}
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <Button icon={<Icon name="copy" />} onClick={() => onClone(agent)}>
-            복제
-          </Button>
-          {canManage ? (
-            <>
-              <Button danger icon={<Icon name="delete" />} onClick={() => onDelete(agent)}>
-                삭제
-              </Button>
-              <Button type="primary" icon={<Icon name="edit" />} onClick={() => onEdit(agent)}>
-                {draft ? '초안 편집' : '편집(새 초안)'}
-              </Button>
-            </>
-          ) : (
-            <span style={{ color: 'var(--color-text-tertiary)', alignSelf: 'center' }}>다른 사용자 소유 — 관리 권한 없음</span>
-          )}
-        </div>
-      </div>
-
-      {agent.conformance === 'config_error' ? (
-        <Alert
-          type="error"
-          showIcon
-          style={{ marginBottom: 12 }}
-          title="에이전트 설정 실패 — 런타임이 서빙을 거부합니다"
-          description="이 에이전트는 실행 방식 설정에 문제가 있어 실행할 수 없습니다(등록되지 않았거나 형식이 맞지 않음). 담당자에게 문의하거나, 실행 방식을 기본값으로 되돌린 뒤 다시 시도하세요."
-        />
-      ) : null}
-
-      <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 24 }}>
-        {nav}
-        <div ref={bodyRef} style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 24 }}>
-          {/* ── 개요(스펙 246) — 요약 대시보드: 각 관심사의 한 줄 요약 + 클릭 점프(지도). ── */}
-          {active === 'overview' && (
+  const sections: DetailSection[] = [
+    {
+      key: 'overview',
+      label: '개요',
+      render: (jump) => (
           <section>
             <SectionTitle>개요 — 한눈에</SectionTitle>
             {/* key/value 표(사용자 제안) — bordered Descriptions로 레이블 셀/값 셀 구분. 점프는 값 셀 클릭. */}
@@ -268,10 +153,12 @@ export function AgentDetailPage({
             )}
             <PersonaStaleNote agent={agent} onRefresh={onRefreshPersona} />
           </section>
-          )}
-
-          {/* ── 구성(스펙 246) — 값 있는 표면만 행으로, 없는 것은 한 줄로 접기(빈 값도 자리 차지 금지). ── */}
-          {active === 'config' && (
+      ),
+    },
+    {
+      key: 'config',
+      label: '구성',
+      render: () => (
           <section>
             <SectionTitle>구성 — 무엇을 쓸 수 있나</SectionTitle>
             <Descriptions
@@ -358,10 +245,12 @@ export function AgentDetailPage({
               </div>
             )}
           </section>
-          )}
-
-          {/* ── 버전·배포 ── */}
-          {active === 'versions' && (
+      ),
+    },
+    {
+      key: 'versions',
+      label: '버전·배포',
+      render: () => (
           <section>
             <SectionTitle>버전·배포 — 바꾸고 내보내기</SectionTitle>
             {draft ? (
@@ -414,10 +303,12 @@ export function AgentDetailPage({
               편집은 항상 초안에 저장됩니다 — 활성 버전은 계속 서빙. 초안을 테스트한 뒤 활성화해 게시하세요.
             </div>
           </section>
-          )}
-
-          {/* ── 공개·연동 ── */}
-          {active === 'sharing' && (
+      ),
+    },
+    {
+      key: 'sharing',
+      label: '공개·연동',
+      render: () => (
           <section>
             <SectionTitle>공개·연동 — 누가 쓸 수 있나</SectionTitle>
             {/* key/value 표(사용자 제안) — 흩어진 박스 3개를 한 표로. 행=공개 범위/A2A/식별자(조건). */}
@@ -507,10 +398,12 @@ export function AgentDetailPage({
               ]}
             />
           </section>
-          )}
-
-          {/* ── 운영 ── */}
-          {active === 'operations' && (
+      ),
+    },
+    {
+      key: 'operations',
+      label: '운영',
+      render: (jump) => (
           <section>
             <SectionTitle>운영 — 피드백과 개선</SectionTitle>
             {canManage ? (
@@ -555,30 +448,69 @@ export function AgentDetailPage({
               버전별 성적·피드백은 <a onClick={() => jump('versions')}>버전·배포</a> 탭의 이력 행에 표시됩니다.
             </div>
           </section>
+      ),
+    },
+  ]
+
+  return (
+    <DetailPageShell
+      onBack={onBack}
+      avatar={<Icon name="robot" />}
+      name={displayName(agent)}
+      agentId={agent.agentId}
+      badges={
+        <>
+          {agent.conformance === 'config_error' ? (
+            <Tag color="red" style={{ margin: 0 }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 600 }}>
+                <Icon name="exclamation-circle" size={11} /> 설정 실패
+              </span>
+            </Tag>
+          ) : agent.activeVersion ? (
+            <Tag color="green" style={{ margin: 0 }}>서빙 {agent.activeVersion}</Tag>
+          ) : (
+            <Tag style={{ margin: 0 }}>미서빙 · 초안만</Tag>
           )}
-        </div>
-      </div>
-    </div>
+          <Tag style={{ margin: 0 }}>{typeLabel}</Tag>
+          {draft && <Tag color="gold" style={{ margin: 0 }}>초안 {draft.version}</Tag>}
+          <Tag style={{ margin: 0 }}>{agent.owner_id == null ? 'public' : 'private'}</Tag>
+          {agent.exposed?.a2a && <Tag color="green" style={{ margin: 0 }}>A2A</Tag>}
+          {agent.ephemeral && <Tag color="orange" style={{ margin: 0 }}>비영속</Tag>}
+        </>
+      }
+      actions={
+        <>
+          <Button icon={<Icon name="copy" />} onClick={() => onClone(agent)}>
+            복제
+          </Button>
+          {canManage ? (
+            <>
+              <Button danger icon={<Icon name="delete" />} onClick={() => onDelete(agent)}>
+                삭제
+              </Button>
+              <Button type="primary" icon={<Icon name="edit" />} onClick={() => onEdit(agent)}>
+                {draft ? '초안 편집' : '편집(새 초안)'}
+              </Button>
+            </>
+          ) : (
+            <span style={{ color: 'var(--color-text-tertiary)', alignSelf: 'center' }}>다른 사용자 소유 — 관리 권한 없음</span>
+          )}
+        </>
+      }
+      aboveTabs={
+        agent.conformance === 'config_error' ? (
+          <Alert
+            type="error"
+            showIcon
+            style={{ marginBottom: 12 }}
+            title="에이전트 설정 실패 — 런타임이 서빙을 거부합니다"
+            description="이 에이전트는 실행 방식 설정에 문제가 있어 실행할 수 없습니다(등록되지 않았거나 형식이 맞지 않음). 담당자에게 문의하거나, 실행 방식을 기본값으로 되돌린 뒤 다시 시도하세요."
+          />
+        ) : null
+      }
+      sections={sections}
+    />
   )
 }
 
-/* 값 셀 점프 래퍼(스펙 246) — bordered Descriptions 값 셀 전체를 클릭 가능하게 + 우측 화살표. */
-function JumpCell({ onJump, children }: { onJump: () => void; children: React.ReactNode }) {
-  return (
-    <span
-      onClick={onJump}
-      style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', width: '100%' }}
-    >
-      <span style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>{children}</span>
-      <Icon name="right" size={11} style={{ color: 'var(--color-text-quaternary)', flexShrink: 0 }} />
-    </span>
-  )
-}
 
-function SectionTitle({ children }: { children: React.ReactNode }) {
-  return (
-    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-heading)', marginBottom: 10, paddingBottom: 6, borderBottom: '1px solid var(--color-border-secondary)' }}>
-      {children}
-    </div>
-  )
-}
