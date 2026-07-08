@@ -4,7 +4,7 @@
    리셋되고 이후 턴이 그 설정대로 실행된다.
    code 에이전트: 원격 실행이라 오버라이드 미적용 — read-only 안내만. */
 import { useEffect, useState } from 'react'
-import { Drawer, Select, Input, Slider, Switch, Button, Alert, Tag, Tooltip, Collapse } from 'antd'
+import { Drawer, Select, Input, Slider, Switch, Button, Alert, Tag, Tooltip, Steps } from 'antd'
 import { isOrchestratorImpl, type Agent, type BlockCategory } from '../admin/mockData'
 import type { Collection, Model } from '../api'
 import { PickerGroups, type PickerGroup } from '../PickerGroups'
@@ -171,6 +171,9 @@ interface Props {
 }
 
 export function OverridePanel({ open, agent, models, blocks, agents, collections, applied, onApply, onClear, onClose, afterOpenChange, footer, bottomHandle }: Props) {
+  // 단계형(스펙 249, 생성폼 기조) — 열 때마다 1단계부터. 요약 단계는 생략(사용자 결정).
+  const [step, setStep] = useState(0)
+  useEffect(() => { if (open) setStep(0) }, [open])
   const isCode = agent?.source === 'code'
   const isExternal = agent?.source === 'external' // 외부 A2A — 코드처럼 read-only(026)
   const isOrchestrator = isOrchestratorImpl(agent?.impl) // 조율형 — capabilities로 위임(스펙 108/122)
@@ -286,8 +289,30 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
     <Drawer
       open={open}
       onClose={onClose}
+      // 모바일: 열릴 때 첫 입력으로 자동 포커스하면 본문이 스크롤돼 Steps가 가려짐 — 포커스 이동 끔.
+      autoFocus={false}
+      // 닫힐 때 내용 언마운트 — 이전 열림의 본문 스크롤(예: 2단계서 적용)이 남아 재열기 때 Steps가
+      // 스크롤 위로 숨던 문제(scrollTop 115 실측). 매번 1단계·스크롤 0에서 시작.
+      destroyOnHidden
       afterOpenChange={afterOpenChange}
-      footer={footer}
+      // 하단 고정 푸터(스펙 249) — 요약 단계가 없는 대신 적용을 어디서나 한 클릭으로.
+      // 좌=보조(기본값·해제), 우=이동(이전/다음)+적용. 모바일 닫기(footer prop)는 맨 오른쪽에 병합.
+      footer={
+        !isExternal && !isCode && draft ? (
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Button size="small" onClick={() => agent && setDraft(overrideDefaults(agent))}>기본값으로</Button>
+            {applied ? (
+              <Button size="small" type="text" danger onClick={onClear}>해제</Button>
+            ) : null}
+            {applied ? <Tag color="purple" style={{ margin: 0 }}>적용 중</Tag> : null}
+            <span style={{ flex: 1 }} />
+            {step > 0 && <Button size="small" onClick={() => setStep(step - 1)}>이전</Button>}
+            {step < 1 && <Button size="small" onClick={() => setStep(step + 1)}>다음</Button>}
+            <Button size="small" type="primary" onClick={() => draft && onApply(draft)}>적용 — 새 대화</Button>
+            {footer}
+          </div>
+        ) : footer
+      }
       // 손잡이를 패널에 직접 부착(후속22) — 지연 게이팅 대신 서랍과 **함께** 내려온다(0초 지연).
       drawerRender={(node) => (
         <div style={{ height: '100%', position: 'relative' }}>
@@ -322,6 +347,14 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
         />
       ) : !draft ? null : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+          <Steps
+            size="small"
+            current={step}
+            onChange={setStep}
+            items={[{ title: '모델 · 프롬프트' }, { title: '도구 · 지식 · 세부' }]}
+            style={{ maxWidth: 520 }}
+          />
+          {step === 0 && (<>
           <Alert
             type="info"
             showIcon
@@ -372,7 +405,9 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
               placeholder={agent.systemPrompt ? undefined : '(저장된 시스템 프롬프트 없음)'}
             />
           </Field>
+          </>)}
 
+          {step === 1 && (<>
           {/* 이 대화에서 쓸 것(스펙 109/122) — 조율형은 위임 대상(capabilities), 직접형은 도구·기억.
               편집 폼과 같은 kind별 표면(스펙 108): 조율형에 mcps/memories를 보여주면 런타임 미사용이라
               오해만 준다(learning 108). */}
@@ -384,68 +419,43 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
             )}
           </Field>
 
-          {/* 세부 설정(선택·기본 접힘) — Temperature·채팅 히스토리. 기본값 있어 평소 접어둠. */}
-          <Collapse
-            size="small"
-            items={[
-              {
-                key: 'advanced',
-                label: '세부 설정 (선택)',
-                children: (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                    <Field
-                      group
-                      label="Temperature"
-                      hint={draft.temperature == null ? '자동 — 모델 등록 기본값을 사용합니다.' : undefined}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                        <Tooltip title="끄면 모델 등록 기본값(자동)">
-                          <Switch
-                            size="small"
-                            checked={draft.temperature != null}
-                            onChange={(on) => set('temperature', on ? 0.7 : null)}
-                          />
-                        </Tooltip>
-                        <Slider
-                          min={0}
-                          max={2}
-                          step={0.1}
-                          disabled={draft.temperature == null}
-                          value={draft.temperature ?? 0.7}
-                          onChange={(v) => set('temperature', v)}
-                          style={{ flex: 1 }}
-                        />
-                        <span style={{ width: 32, textAlign: 'right', fontFamily: 'var(--font-family-code)', fontSize: 13 }}>
-                          {draft.temperature == null ? '—' : draft.temperature.toFixed(1)}
-                        </span>
-                      </div>
-                    </Field>
-                    <Field label="채팅 히스토리">
-                      <Select
-                        value={draft.historyDepth}
-                        onChange={(v) => set('historyDepth', v)}
-                        style={{ width: '100%' }}
-                        options={DEPTH_OPTS}
-                      />
-                    </Field>
-                  </div>
-                ),
-              },
-            ]}
-          />
-
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 4 }}>
-            <Button type="primary" onClick={() => draft && onApply(draft)}>
-              적용 (새 대화)
-            </Button>
-            <Button onClick={() => agent && setDraft(overrideDefaults(agent))}>기본값으로</Button>
-            {applied ? (
-              <Button type="text" danger onClick={onClear}>
-                오버라이드 해제
-              </Button>
-            ) : null}
-            {applied ? <Tag color="purple">적용 중</Tag> : null}
-          </div>
+          {/* 세부(스펙 249: 단계가 이미 구획이라 Collapse 해제·평면 나열) — Temperature·채팅 히스토리. */}
+          <Field
+            group
+            label="Temperature"
+            hint={draft.temperature == null ? '자동 — 모델 등록 기본값을 사용합니다.' : undefined}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <Tooltip title="끄면 모델 등록 기본값(자동)">
+                <Switch
+                  size="small"
+                  checked={draft.temperature != null}
+                  onChange={(on) => set('temperature', on ? 0.7 : null)}
+                />
+              </Tooltip>
+              <Slider
+                min={0}
+                max={2}
+                step={0.1}
+                disabled={draft.temperature == null}
+                value={draft.temperature ?? 0.7}
+                onChange={(v) => set('temperature', v)}
+                style={{ flex: 1 }}
+              />
+              <span style={{ width: 32, textAlign: 'right', fontFamily: 'var(--font-family-code)', fontSize: 13 }}>
+                {draft.temperature == null ? '—' : draft.temperature.toFixed(1)}
+              </span>
+            </div>
+          </Field>
+          <Field label="채팅 히스토리">
+            <Select
+              value={draft.historyDepth}
+              onChange={(v) => set('historyDepth', v)}
+              style={{ width: '100%' }}
+              options={DEPTH_OPTS}
+            />
+          </Field>
+          </>)}
         </div>
       )}
     </Drawer>
