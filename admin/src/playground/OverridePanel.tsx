@@ -300,8 +300,8 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
       // 컨테이너 기준 %(후속25): 70vh는 모바일 주소창 탓에 실제 가시 영역보다 커서 하단 닫기가
       // 화면 밖으로 밀렸다(사용자 실기기). 래퍼(헤더 아래 영역)는 실제 레이아웃 높이라 항상 화면 안.
       height="min(85%, 560px)"
-      title="런타임 오버라이드"
-      // 닫기는 하단 U 손잡이로 일원화(후속19, 사용자: 여는 버튼 오른쪽·닫는 X 왼쪽 불일치) — X 제거.
+      // 헤더 삭제(후속26, 사용자): 손잡이에 '오버라이드'가 이미 써 있고 본문 첫 줄이 안내 —
+      // 제목·X 없는 무헤더 서랍(title 없음+closable=false → antd가 헤더 자체를 안 그림).
       closable={false}
       // 후속16: body가 아니라 플레이그라운드 영역 안에 렌더 — 데탑은 사이드바를 제외한 우측만 덮고,
       // 모바일은 그 영역이 곧 전폭. 부모(Playground 루트)가 position: relative를 소유.
