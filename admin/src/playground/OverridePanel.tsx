@@ -416,11 +416,15 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
               편집 폼과 같은 kind별 표면(스펙 108): 조율형에 mcps/memories를 보여주면 런타임 미사용이라
               오해만 준다(learning 108). */}
           <Field group label={isOrchestrator ? '이 대화에서 맡길 것' : '이 대화에서 쓸 것'}>
-            {isOrchestrator ? (
-              <PickerGroups groups={capGroups} selected={draft.capabilities} onToggle={capToggle} />
-            ) : (
-              <PickerGroups groups={ovGroups} selected={ovSelected} onToggle={ovToggle} />
-            )}
+            {/* 내부 스크롤 상한(스펙 249 후속2) — 도구·컬렉션이 많아도(14개 실측 697px) 서랍 골격은
+                고정, 목록만 스크롤. 데탑 한정(모바일은 본문 스크롤이 자연). */}
+            <div style={{ maxHeight: screens.md ? 400 : undefined, overflowY: 'auto' }}>
+              {isOrchestrator ? (
+                <PickerGroups groups={capGroups} selected={draft.capabilities} onToggle={capToggle} />
+              ) : (
+                <PickerGroups groups={ovGroups} selected={ovSelected} onToggle={ovToggle} />
+              )}
+            </div>
           </Field>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
