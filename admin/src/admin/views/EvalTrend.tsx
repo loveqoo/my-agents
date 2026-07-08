@@ -130,6 +130,9 @@ export function CompareDrawer({ aId, bId, onClose }: { aId: string | null; bId: 
             <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
               {fmtTime(a.started_at)} → {fmtTime(b.started_at)} · {a.agent_name}
               {a.agent_name !== b.agent_name ? ` → ${b.agent_name}` : ''}
+              {/* 버전 귀속(스펙 240) — "v3 vs v4" 회귀 비교가 읽히게. 무버전 과거 런은 생략. */}
+              {(a.agent_version || b.agent_version) &&
+                ` · ${a.agent_version ?? '?'} → ${b.agent_version ?? '?'}`}
             </span>
           </div>
           {regressCount > 0 ? (

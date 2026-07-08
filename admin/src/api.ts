@@ -820,6 +820,8 @@ export interface EvalRunT {
   dataset_name?: string | null
   agent_name: string | null
   model_name?: string | null
+  agent_version?: string | null // 실행 시점 활성 버전(스펙 240) — null=과거 런(미기록)
+  env?: Record<string, unknown> | null // 경량 환경 기록(스펙 240, 진단용)
   group_id?: string | null
   status: 'running' | 'ok' | 'error'
   score: number | null

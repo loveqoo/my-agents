@@ -382,6 +382,8 @@ class RunOut(BaseModel):
     dataset_name: str | None = None  # 목록 표시용(조인 채움)
     agent_name: str | None
     model_name: str | None = None  # 모델 오버라이드 박제(스펙 141)
+    agent_version: str | None = None  # 실행 시점 활성 버전(스펙 240) — NULL=과거 런
+    env: dict | None = None  # 경량 환경 기록(스펙 240, 진단용)
     group_id: uuid.UUID | None = None  # 모델 비교 그룹(스펙 141)
     status: str
     score: float | None
@@ -500,6 +502,93 @@ async def _execute_group(specs: list[tuple], dataset_id: uuid.UUID, agent_pk, pr
                            overrides={"model": model_name} if model_name else None)
 
 
+_ENV_SECRET_KEYS = ("api_key", "apikey", "token", "secret", "authorization", "password")
+
+
+def _env_redact(v):
+    """env 기록용 재귀 마스킹(codex 240 #3) — ModelConfig.params는 임의 JSONB라 운영자가 넣은
+    비밀(api_key류)이 성적표 JSON 덤프로 노출될 수 있다. 키 이름 기반 마스킹."""
+    if isinstance(v, dict):
+        return {
+            k: ("***" if any(sk in k.lower() for sk in _ENV_SECRET_KEYS) else _env_redact(x))
+            for k, x in v.items()
+        }
+    if isinstance(v, list):
+        return [_env_redact(x) for x in v]
+    return v
+
+
+async def _model_env(session: AsyncSession, name: str | None) -> dict:
+    """모델별 env.model 조각 — 오버라이드 런은 **그 모델의** params를 기록(codex 240 #2:
+    name=오버라이드·params=기본 모델이면 거짓 기록). params는 마스킹."""
+    from .models import ModelConfig
+
+    out: dict = {"name": name}
+    if name:
+        m = (
+            await session.execute(select(ModelConfig).where(ModelConfig.name == name))
+        ).scalar_one_or_none()
+        if m is not None:
+            out["params"] = _env_redact(m.params or {})
+    return out
+
+
+async def _env_snapshot(session: AsyncSession, agent, rag_collection: dict | None) -> dict:
+    """경량 환경 기록(스펙 240) — **재현 보장이 아니라 진단 단서**(모델 params·도구 목록·컬렉션 상태).
+    수집 실패는 부분 기록으로 우아 저하(진단 부가층이 실행을 막으면 본말전도)."""
+    env: dict = {}
+    try:
+        if rag_collection is not None:
+            env["collections"] = {
+                rag_collection["name"]: {
+                    "docs": rag_collection.get("doc_count"),
+                    "chunks": rag_collection.get("chunk_count"),
+                    "embedding": rag_collection.get("embedding_model_name"),
+                }
+            }
+            return env
+        cfg = dict(agent.config or {})
+        env["impl"] = cfg.get("impl") or "default"
+        if cfg.get("ephemeral"):
+            env["ephemeral"] = True
+        # 모델 + 레지스트리 params(실행 파라미터의 진단 축 — 스펙 077 temperature 등). 마스킹 포함.
+        env["model"] = await _model_env(session, cfg.get("model"))
+        if cfg.get("temperature") is not None:
+            env["model"]["temperature"] = cfg.get("temperature")
+        # MCP 도구 목록(배선 서버의 enabled_tools — "도구가 달라졌나" 진단 축)
+        wired_mcps = list(cfg.get("mcps") or [])
+        for c in cfg.get("capabilities") or []:
+            if isinstance(c, str) and c.startswith("mcp:"):
+                wired_mcps.append(c[4:].split("/", 1)[0])
+        if wired_mcps:
+            from .models import McpServer
+            rows = (
+                await session.execute(select(McpServer).where(McpServer.name.in_(set(wired_mcps))))
+            ).scalars().all()
+            env["mcps"] = {r.name: sorted(r.enabled_tools or []) for r in rows}
+        # 컬렉션 상태(배선 표면: vectorTables ∪ capabilities rag:* — 239 codex #4와 동일 합집합)
+        cols = set(cfg.get("vectorTables") or [])
+        for c in cfg.get("capabilities") or []:
+            if isinstance(c, str) and c.startswith("rag:"):
+                cols.add(c[4:])
+        if cols:
+            # embedding_model_name은 ORM 컬럼이 아니라 serializer 파생 필드(codex 240 #2b) — 조인으로.
+            from .models import Collection, ModelConfig
+            rows = (
+                await session.execute(
+                    select(Collection.name, Collection.doc_count, Collection.chunk_count, ModelConfig.name)
+                    .join(ModelConfig, ModelConfig.id == Collection.embedding_model_id, isouter=True)
+                    .where(Collection.name.in_(cols))
+                )
+            ).all()
+            env["collections"] = {
+                n: {"docs": dc, "chunks": cc, "embedding": emb} for n, dc, cc, emb in rows
+            }
+    except Exception:  # noqa: BLE001 — 진단 부가층: 부분 기록으로 우아 저하
+        env["partial"] = True
+    return env
+
+
 @router.post("/datasets/{dataset_id}/runs", response_model=RunOut, status_code=202)
 async def start_run(
     dataset_id: uuid.UUID,
@@ -579,10 +668,16 @@ async def start_run(
     if not is_privileged(user):
         await _member_run_guard(session, user, dataset_id, len(models))
 
+    # 버전 귀속+환경 기록(스펙 240) — 실행 시점 활성 버전과 경량 환경을 모든 런에 박제.
+    run_env = await _env_snapshot(session, agent, rag_collection)
+    agent_version = agent.active_version if agent is not None else None
+
     if len(models) == 1:
         # 1개 선택=비교가 아니라 단순 모델 오버라이드 런(codex 141 #3 — 1열 그룹은 격자 의미 없음).
         run = EvalRun(dataset_id=dataset_id, agent_pk=agent.id, agent_name=target_name,
-                      model_name=models[0], status="running", total=n_cases, owner_id=owner_of(user))
+                      model_name=models[0], status="running", total=n_cases, owner_id=owner_of(user),
+                      agent_version=agent_version,
+                      env={**run_env, "model": await _model_env(session, models[0])})
         session.add(run)
         await session.commit()
         asyncio.create_task(_execute_run(run.id, dataset_id, agent.id, user,
@@ -591,10 +686,12 @@ async def start_run(
 
     if models:
         group_id = uuid.uuid4()
+        model_envs = {m: await _model_env(session, m) for m in models}
         runs = [
             EvalRun(dataset_id=dataset_id, agent_pk=agent.id, agent_name=target_name,
                     model_name=m, group_id=group_id, status="running", total=n_cases,
-                    owner_id=owner_of(user))
+                    owner_id=owner_of(user), agent_version=agent_version,
+                    env={**run_env, "model": model_envs[m]})
             for m in models
         ]
         session.add_all(runs)
@@ -606,6 +703,7 @@ async def start_run(
     run = EvalRun(
         dataset_id=dataset_id, agent_pk=agent.id if agent else None, agent_name=target_name,
         status="running", total=n_cases, owner_id=owner_of(user),
+        agent_version=agent_version, env=run_env,
     )
     session.add(run)
     await session.commit()

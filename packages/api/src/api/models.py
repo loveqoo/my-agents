@@ -587,6 +587,11 @@ class EvalRun(Base):
     )
     agent_name: Mapped[str | None] = mapped_column(String(120), default=None)  # 삭제 후 성적표 표기용 박제
     model_name: Mapped[str | None] = mapped_column(String(120), default=None)  # 모델 오버라이드 박제(스펙 141)
+    # 버전 귀속(스펙 240, AgentOps A) — 실행 시점 활성 버전. NULL=과거 런(미기록, 정직 표기).
+    agent_version: Mapped[str | None] = mapped_column(String(20), default=None)
+    # 경량 환경 기록(스펙 240) — 모델 params·MCP 도구 목록·컬렉션 상태(docs/chunks/임베딩). **재현
+    # 보장이 아니라 진단 단서**(완전 재현 스냅샷은 과설계로 기각 — RAG 인덱스 복제 비용).
+    env: Mapped[dict | None] = mapped_column(JSONB, default=None)
     group_id: Mapped[uuid.UUID | None] = mapped_column(default=None, index=True)  # 모델 비교 그룹(스펙 141)
     status: Mapped[str] = mapped_column(String(20), default="running")  # running|ok|error
     score: Mapped[float | None] = mapped_column(default=None)  # passed/total

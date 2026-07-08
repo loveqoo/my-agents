@@ -412,6 +412,7 @@ function DatasetDrawer({
                   >
                     <span style={{ color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-family-code)' }}>{(r.started_at ?? '').slice(5, 16).replace('T', ' ')}</span>
                     <span>{r.agent_name}</span>
+                    {r.agent_version && <Tag style={{ margin: 0 }}>{r.agent_version}</Tag>}
                     <div style={{ flex: 1 }} />
                     {r.status === 'ok' ? (
                       <span style={{ fontWeight: 600 }}>{r.score != null ? Math.round(r.score * 100) + '%' : '—'} ({r.passed}/{r.total})</span>
@@ -515,7 +516,35 @@ function RunDrawer({ runId, onClose }: { runId: string | null; onClose: () => vo
               ) : null
             })()}
           </div>
-          <Descriptions column={1} size="small" items={[{ key: 'agent', label: '에이전트', children: detail.agent_name ?? '—' }]} />
+          <Descriptions
+            column={1}
+            size="small"
+            items={[{
+              key: 'agent',
+              label: '에이전트',
+              children: (
+                <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                  {detail.agent_name ?? '—'}
+                  {detail.agent_version && <Tag style={{ margin: 0 }}>{detail.agent_version}</Tag>}
+                </span>
+              ),
+            }]}
+          />
+          {/* 실행 환경(스펙 240) — 재현 보장이 아니라 진단 단서(왜 점수가 달라졌나의 대조 축). */}
+          {detail.env && Object.keys(detail.env).length > 0 && (
+            <Collapse
+              size="small"
+              items={[{
+                key: 'env',
+                label: '실행 환경 (진단용)',
+                children: (
+                  <pre style={{ margin: 0, fontSize: 12, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
+                    {JSON.stringify(detail.env, null, 2)}
+                  </pre>
+                ),
+              }]}
+            />
+          )}
           {detail.error ? <Alert type="error" showIcon title="실행 오류" description={detail.error} /> : null}
           {detail.results.map((r, i) => (
             <div key={i} style={{ padding: 12, border: '1px solid var(--color-border-secondary)', borderRadius: 8 }}>
@@ -736,7 +765,12 @@ export default function EvalView({ initialCollectionId, onConsumedInitial }: {
       ),
     },
     { key: 'dataset_name', title: '문제집', render: (r) => r.dataset_name ?? '—' },
-    { key: 'agent_name', title: '대상', render: (r) => r.agent_name ?? '—' },
+    { key: 'agent_name', title: '대상', render: (r) => (
+      <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+        {r.agent_name ?? '—'}
+        {r.agent_version && <Tag style={{ margin: 0 }}>{r.agent_version}</Tag>}
+      </span>
+    ) },
     { key: 'model_name', title: '모델', width: 140, hideBelow: 'md', render: (r) => (r.model_name ? <Tag style={{ margin: 0 }}>{r.model_name}</Tag> : '—') },
     {
       key: 'status', title: '상태', width: 100,
