@@ -11,6 +11,7 @@ export interface AgentFormData {
   historyDepth: number
   persistHistory: boolean
   ephemeral: boolean
+  suggestedPrompts: string[] // 플그 추천 명령어(스펙 238, 옵셔널·최대 8)
   vectorTables: string[]
   mcps: string[]
   impl: string // 실행 방식(런타임 키). ''=기본 UI 에이전트(스펙 106).

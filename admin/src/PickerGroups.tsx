@@ -10,6 +10,9 @@ export type PickerItem = {
   label: string
   hint?: string // 회색 보조 설명줄(메모리 설명·컬렉션 임베딩 등)
   extra?: React.ReactNode // 라벨 뒤 노드(권한 승인자 태그 등)
+  // 선택 불가(스펙 238) — 경고로 놀래키는 대신 어포던스 자체를 잠근다. disabledHint=잠금 사유(회색).
+  disabled?: boolean
+  disabledHint?: string
 }
 export type PickerGroup = {
   key: string
@@ -73,6 +76,7 @@ export function PickerGroups({
                     <Checkbox
                       key={it.id}
                       checked={sel.has(it.id)}
+                      disabled={it.disabled}
                       onChange={() => onToggle(it.id)}
                       style={{ alignItems: 'flex-start', marginInlineStart: 0 }}
                     >
@@ -81,7 +85,9 @@ export function PickerGroups({
                           {it.label}
                           {it.extra}
                         </span>
-                        {it.hint ? (
+                        {it.disabled && it.disabledHint ? (
+                          <span style={{ fontSize: 12, color: 'var(--color-text-quaternary)' }}>{it.disabledHint}</span>
+                        ) : it.hint ? (
                           <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>{it.hint}</span>
                         ) : null}
                       </span>

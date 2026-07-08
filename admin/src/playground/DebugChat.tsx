@@ -963,11 +963,20 @@ export function DebugChat({
   // 아무것도 안 나온다"고 오해되므로(사용자 보고) 명시적 빈 상태를 띄운다.
   const pickedButEmpty = empty && !!currentSessionId && !streaming
 
-  const promptItems = [
-    { key: '1', icon: <Icon name="bulb" style={{ color: 'var(--purple-6)' }} />, label: '메모리 회상 테스트', description: '지난번에 무슨 얘기를 나눴지?' },
-    { key: '2', icon: <Icon name="thunderbolt" style={{ color: 'var(--cyan-7)' }} />, label: '도구 호출 유도', description: '스트리밍 UI 최신 동향을 검색해줘' },
-    { key: '3', icon: <Icon name="file" style={{ color: 'var(--color-primary)' }} />, label: '시스템 프롬프트 확인', description: '너의 역할과 규칙을 한 줄로 요약해줘' },
-  ]
+  // 추천 명령어(스펙 238) — 에이전트에 등록돼 있으면 그걸 카드로, 없으면 기본 3종 폴백(무회귀).
+  // onItemClick이 description을 입력으로 보내므로 커스텀도 description에 실문장을 싣는다.
+  const promptItems = agent?.suggestedPrompts?.length
+    ? agent.suggestedPrompts.map((p, i) => ({
+        key: `s${i}`,
+        icon: <Icon name="bulb" style={{ color: 'var(--purple-6)' }} />,
+        label: p.length > 24 ? p.slice(0, 24) + '…' : p,
+        description: p,
+      }))
+    : [
+        { key: '1', icon: <Icon name="bulb" style={{ color: 'var(--purple-6)' }} />, label: '메모리 회상 테스트', description: '지난번에 무슨 얘기를 나눴지?' },
+        { key: '2', icon: <Icon name="thunderbolt" style={{ color: 'var(--cyan-7)' }} />, label: '도구 호출 유도', description: '스트리밍 UI 최신 동향을 검색해줘' },
+        { key: '3', icon: <Icon name="file" style={{ color: 'var(--color-primary)' }} />, label: '시스템 프롬프트 확인', description: '너의 역할과 규칙을 한 줄로 요약해줘' },
+      ]
 
   return (
     <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', background: 'var(--color-bg-container)' }}>
@@ -1014,7 +1023,7 @@ export function DebugChat({
         ) : empty ? (
           <div style={{ maxWidth: 680, margin: '0 auto', width: '100%', padding: '7vh 24px 0', display: 'flex', flexDirection: 'column', gap: 24 }}>
             <Prompts
-              title="디버그 프롬프트 체험"
+              title={agent?.suggestedPrompts?.length ? '추천 명령어' : '디버그 프롬프트 체험'}
               wrap
               items={promptItems}
               onItemClick={(info) => onSend((info.data as { description?: string }).description ?? '')}

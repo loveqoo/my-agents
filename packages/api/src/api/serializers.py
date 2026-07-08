@@ -97,6 +97,7 @@ def agent_to_out(a: Agent, persona_bodies: dict[str, str] | None = None) -> Agen
         historyDepth=cfg.get("historyDepth", a.history_depth),
         persistHistory=cfg.get("persistHistory", True),
         ephemeral=cfg.get("ephemeral", False),
+        suggestedPrompts=cfg.get("suggestedPrompts") or [],  # 플그 추천 명령어(스펙 238)
         impl=cfg.get("impl"),  # in-process 커스텀 런타임 키(스펙 085, 폼 재로드용 — 편집 silent drop 방지)
         # 준수 분류(스펙 089) — resolve_agent_runtime과 같은 게이트로 파생(단일 출처, 저장 안 함).
         conformance=classify_runtime(a.source, cfg.get("impl")),

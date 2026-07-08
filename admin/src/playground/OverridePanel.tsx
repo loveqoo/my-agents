@@ -171,6 +171,10 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
   const isCode = agent?.source === 'code'
   const isExternal = agent?.source === 'external' // 외부 A2A — 코드처럼 read-only(026)
   const isOrchestrator = isOrchestratorImpl(agent?.impl) // 조율형 — capabilities로 위임(스펙 108/122)
+  // 비영속(스펙 238 #4) — 편집 폼과 오버라이드 폼의 규칙 정합. 저장 방식 자체는 세션 오버라이드
+  // **불가**(서버 allowed 키에 없음 — 근본 모드)이므로 read-only로 표시하고, 비영속이 무시/금지하는
+  // 표면(기억 회상=235, memwrite/memedit=237)은 여기서도 disabled.
+  const isEphemeral = !!agent?.ephemeral
   const [draft, setDraft] = useState<Overrides | null>(null)
 
   // 열릴 때(또는 에이전트가 바뀔 때) 드래프트를 적용값 ?? 기본값으로 시드.
@@ -211,7 +215,14 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
     {
       key: '기억',
       title: '기억',
-      items: (blocks.memory?.items ?? []).map((m) => ({ id: `mem:${m.name}`, label: m.name })),
+      items: (blocks.memory?.items ?? []).map((m) => ({
+        id: `mem:${m.name}`,
+        label: m.name,
+        // 비영속은 회상·기록을 하지 않는다(스펙 235) — 새 선택만 잠근다(미선택-잠금, codex 238 #2:
+        // 이미 적용된 오버라이드에 남은 기선택은 해제할 수 있어야 함).
+        disabled: isEphemeral && !draft?.memories.includes(m.name),
+        disabledHint: isEphemeral ? '비영속(1회성) 에이전트는 기억을 쓰지 않습니다.' : undefined,
+      })),
       emptyText: '등록된 메모리 블록 없음',
     },
   ]
@@ -250,7 +261,14 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
       title: '사용자 기억',
       items: [
         { id: 'memory:user', label: '사용자 기억 읽기' },
-        { id: 'memwrite:user', label: '사용자 기억에 저장 · 승인 필요' },
+        {
+          id: 'memwrite:user',
+          label: '사용자 기억에 저장 · 승인 필요',
+          // 편집 폼과 동일 규칙(스펙 237/238) — 비영속은 DB 쓰기 능력 금지(서버도 런타임 필터).
+          // 미선택-잠금: 이미 적용된 오버라이드에 남은 기선택은 해제 가능해야(codex 238 #2).
+          disabled: isEphemeral && !draft?.capabilities.includes('memwrite:user'),
+          disabledHint: isEphemeral ? '비영속(1회성)에서는 쓸 수 없습니다 — 기록을 남기는 능력입니다.' : undefined,
+        },
       ],
     },
   ]
@@ -287,6 +305,15 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
             style={{ padding: '6px 12px' }}
             title="세션 한정 — 저장된 에이전트 설정은 바뀌지 않습니다. 적용하면 새 대화로 시작합니다."
           />
+          {/* 바꿀 수 없는 것 명시(스펙 238 #4) — 저장 방식(영속/비영속)은 근본 모드라 세션 오버라이드 불가. */}
+          {isEphemeral && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Tag color="default">비영속 (1회성)</Tag>
+              <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+                저장 방식은 여기서 바꿀 수 없습니다 — 에이전트 편집에서 변경하세요.
+              </span>
+            </div>
+          )}
 
           <Field label="모델" hint="mock-llm을 고르면 라이브 모델 없이 결정적으로 응답합니다.">
             <Select

@@ -47,6 +47,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
     historyDepth: a.historyDepth,
     persistHistory: a.persistHistory ?? true,
     ephemeral: a.ephemeral ?? false,
+    suggestedPrompts: a.suggestedPrompts ?? [],
     vectorTables: [...(a.vectorTables || [])],
     mcps: [...a.mcps],
     impl: a.impl,
@@ -159,6 +160,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
       historyDepth: data.historyDepth,
       persistHistory: data.persistHistory,
       ephemeral: data.ephemeral,
+      suggestedPrompts: data.suggestedPrompts,
       vectorTables: data.vectorTables,
       mcps: data.mcps,
       // 빈 impl은 config에서 생략(기본 UI 에이전트 동작 보존 — undefined면 백엔드가 default 경로).
@@ -598,6 +600,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
                   historyDepth: c.historyDepth != null ? c.historyDepth : a.historyDepth,
                   persistHistory: c.persistHistory ?? a.persistHistory ?? true,
                   ephemeral: c.ephemeral ?? a.ephemeral ?? false,
+                  suggestedPrompts: c.suggestedPrompts ?? a.suggestedPrompts ?? [],
                   vectorTables: [...(c.vectorTables || [])],
                   mcps: [...(c.mcps || [])],
                   impl: c.impl ?? a.impl ?? '',

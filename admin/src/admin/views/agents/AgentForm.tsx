@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Select, Input, Switch, Slider, Tooltip, Collapse, Alert, Modal } from 'antd'
+import { Select, Input, Switch, Slider, Tooltip, Collapse, Alert, Modal, Segmented } from 'antd'
 import { isOrchestratorImpl, type BlockCategory, type ToolPolicy, type Agent } from '../../mockData'
 import { listAgentImpls, type Model, type Collection, type ImplMeta } from '../../../api'
 import { PickerGroups, type PickerGroup } from '../../../PickerGroups'
@@ -21,6 +21,7 @@ export function blankForm(blocks: Record<string, BlockCategory>, models: Model[]
     historyDepth: 20,
     persistHistory: true,
     ephemeral: false,
+    suggestedPrompts: [],
     vectorTables: [],
     mcps: [],
     impl: '',
@@ -92,6 +93,16 @@ export function AgentForm({
 
   const set = <K extends keyof AgentFormData>(k: K, v: AgentFormData[K]) =>
     setForm((f) => ({ ...f, [k]: v }))
+  // 저장 방식 전환(스펙 238) — 비영속으로 바꾸면 DB 쓰기 능력(memwrite/memedit)을 자동 해제한다.
+  // disabled 상태로 남겨두면 "해제하라"는 요구와 "해제할 수 없다"는 상태가 모순되기 때문(경고 지양).
+  const setEphemeral = (v: boolean) =>
+    setForm((f) => ({
+      ...f,
+      ephemeral: v,
+      capabilities: v
+        ? f.capabilities.filter((c) => !c.startsWith('memwrite:') && !c.startsWith('memedit:'))
+        : f.capabilities,
+    }))
   const toggleCap = (id: string) =>
     setForm((f) => ({
       ...f,
@@ -163,21 +174,20 @@ export function AgentForm({
     {
       key: '사용자 기억',
       title: '사용자 기억',
-      // 비영속(스펙 237)은 DB 쓰기 능력 금지(저장 시 422) — 읽기는 허용, 저장 항목은 감춘다.
-      // 단 **이미 선택돼 있으면 보인다**(감추면 해제 자체가 불가 — 경고가 시키는 행동을 막는 자기모순).
+      // 비영속(스펙 237→238)은 DB 쓰기 능력 금지 — 숨김·경고 대신 **disabled**(사용자 지적: 놀래키지
+      // 말 것). 비영속 전환 시 setEphemeral이 기선택을 자동 해제하므로 disabled+checked 모순 없음.
       items: [
         { id: 'memory:user', label: '사용자 기억 읽기' },
-        ...(form.ephemeral && !form.capabilities.includes('memwrite:user')
-          ? []
-          : [{ id: 'memwrite:user', label: '사용자 기억에 저장 · 승인 필요' }]),
+        {
+          id: 'memwrite:user',
+          label: '사용자 기억에 저장 · 승인 필요',
+          // 미선택-잠금(codex 238 #2 동형 방지): 전환 시 자동 해제되지만, 혹시 남은 기선택은 해제 가능.
+          disabled: form.ephemeral && !form.capabilities.includes('memwrite:user'),
+          disabledHint: '비영속(1회성)에서는 쓸 수 없습니다 — 기록을 남기는 능력입니다.',
+        },
       ],
     },
   ]
-  // 비영속인데 이미 저장/수정 능력이 선택돼 있으면(비영속을 나중에 켠 경우) 조용히 깨지지 않게 경고 —
-  // 서버가 저장 시 422로 최종 거부한다(스펙 237).
-  const ephemeralForbiddenCaps = form.ephemeral
-    ? form.capabilities.filter((c) => c.startsWith('memwrite:') || c.startsWith('memedit:'))
-    : []
 
   // 직접 응답 "하는 일" 그룹 — 3개 form 배열(memories/vectorTables/mcps)을 PickerGroups
   // 하나로 묶으려 id를 카테고리 prefix로 네임스페이스(스펙 109). 저장은 기존 배열 그대로, prefix는
@@ -217,7 +227,15 @@ export function AgentForm({
     {
       key: '기억',
       title: '기억',
-      items: (blocks.memory?.items ?? []).map((m) => ({ id: `mem:${m.name}`, label: m.name, hint: m.body })),
+      // 비영속은 회상하지 않는다(스펙 235) — 새 선택은 disabled(codex 238 #1), 기선택은 해제만 가능
+      // ("선택했는데 무동작" 함정과 "해제 불가" 모순을 동시에 피하는 미선택-잠금 패턴).
+      items: (blocks.memory?.items ?? []).map((m) => ({
+        id: `mem:${m.name}`,
+        label: m.name,
+        hint: form.ephemeral && form.memories.includes(m.name) ? '비영속에서는 회상되지 않습니다 — 해제 가능' : m.body,
+        disabled: form.ephemeral && !form.memories.includes(m.name),
+        disabledHint: '비영속(1회성) 에이전트는 기억을 쓰지 않습니다.',
+      })),
     },
   ]
   const orchestratorSelected = isOrchestratorImpl(form.impl)
@@ -276,6 +294,12 @@ export function AgentForm({
               style={{ width: '100%' }}
               options={modelOptions}
             />
+            {/* mock+도구 안내(스펙 236→238): 큰 경고 Alert에서 보조 문구로 강등 — 놀래키지 않되 정보는 유지. */}
+            {models.find((m) => m.name === form.model)?.provider_kind === 'mock' && form.mcps.length > 0 && (
+              <span style={{ fontSize: 12, color: 'var(--color-warning)' }}>
+                mock 모델은 정해진 키워드·도구 이름에만 도구를 호출합니다 — 도구를 제대로 쓰려면 실제 모델을 선택하세요.
+              </span>
+            )}
           </Field>
           <Field label="페르소나">
             <Select
@@ -286,25 +310,41 @@ export function AgentForm({
             />
           </Field>
         </div>
-        {/* mock 모델 + 도구 조합 사전 경고(스펙 236) — 실사용서 "도구가 조용히 무발동" 추적 낭비 방지.
-            감지는 레지스트리 데이터(provider_kind, 스펙 218)로 — 모델명 하드코딩 안 함(learning 026). */}
-        {models.find((m) => m.name === form.model)?.provider_kind === 'mock' && form.mcps.length > 0 && (
-          <Alert
-            type="warning"
-            showIcon
-            title="이 모델(mock)은 도구를 스스로 고르지 못합니다"
-            description="데모용 모델이라 정해진 키워드나 도구 이름을 문장에 쓸 때만 도구를 호출합니다. 도구를 제대로 쓰려면 실제 모델을 선택하세요."
-          />
-        )}
+        {/* 종류 선택 rich화(스펙 238 #3) — 드롭다운 옵션마다 설명을 내장(단순 라벨 선택박스 지양). */}
         <Field label="에이전트 종류">
           <Select
             value={form.impl}
             onChange={(v) => set('impl', v)}
             options={typeOptions}
             style={{ width: '100%' }}
+            optionRender={(o) => (
+              <span style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '2px 0' }}>
+                <span style={{ fontWeight: 600 }}>{o.label}</span>
+                <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)', whiteSpace: 'normal' }}>
+                  {typeDesc(String(o.value ?? ''))}
+                </span>
+              </span>
+            )}
           />
           <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
             {typeDesc(form.impl)}
+          </span>
+        </Field>
+        {/* 저장 방식(스펙 238 #1) — 영속/비영속은 부가정보가 아니라 1급 정보(사용자 지적). 기본=영속.
+            비영속 전환은 금지 능력(memwrite/memedit)을 자동 해제한다(setEphemeral — disabled+checked 모순 방지). */}
+        <Field label="저장 방식">
+          <Segmented
+            value={form.ephemeral ? 'ephemeral' : 'persistent'}
+            onChange={(v) => setEphemeral(v === 'ephemeral')}
+            options={[
+              { label: '영속 (기본)', value: 'persistent' },
+              { label: '비영속 — 1회성', value: 'ephemeral' },
+            ]}
+          />
+          <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+            {form.ephemeral
+              ? '아무것도 저장하지 않는 1회성 추론입니다 — 세션·대화 이력·기억 없이 응답만 합니다(고트래픽용).'
+              : '대화와 기록을 저장합니다 — 세션·이력·기억을 사용할 수 있습니다.'}
           </span>
         </Field>
 
@@ -315,17 +355,7 @@ export function AgentForm({
         {isArtifactForm ? (
           <ArtifactSpecEditor value={form.artifactSpec} onChange={(s) => set('artifactSpec', s)} />
         ) : orchestratorSelected ? (
-          <>
-            {ephemeralForbiddenCaps.length > 0 && (
-              <Alert
-                type="warning"
-                showIcon
-                title="비영속 에이전트는 기억 저장·수정 능력을 쓸 수 없습니다"
-                description={`DB에 기록하는 능력이라 비영속(1회성)과 충돌합니다 — 해제해야 저장됩니다: ${ephemeralForbiddenCaps.join(', ')}`}
-              />
-            )}
-            <PickerGroups groups={capGroups} selected={form.capabilities} onToggle={toggleCap} />
-          </>
+          <PickerGroups groups={capGroups} selected={form.capabilities} onToggle={toggleCap} />
         ) : (
           <>
             {/* 소비 표면 게이트(스펙 206) — 이 impl이 안 읽는 그룹은 숨기고, 저장된 연결이 있으면 경고. */}
@@ -504,17 +534,13 @@ export function AgentForm({
                     </span>
                   </Field>
                   <SectionHeader>저장·영속</SectionHeader>
-                  {/* 비영속(스펙 235) — 저장 영역 최상위. 켜면 아래 저장 설정은 무의미(비활성). */}
-                  <Field label="비영속 (1회성)">
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <Switch checked={form.ephemeral} onChange={(v) => set('ephemeral', v)} />
-                      <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-                        {form.ephemeral
-                          ? 'DB에 전혀 저장하지 않음 — 세션·이력·회상 없이 단발 추론만 (고트래픽·기록 무의미할 때)'
-                          : '평소대로 저장 (아래 설정 적용)'}
-                      </span>
-                    </div>
-                  </Field>
+                  {/* 영속/비영속 자체는 상단 "저장 방식"이 소유(스펙 238 — 1급 정보 승격). 여기는
+                      영속일 때의 세부만. 비영속이면 아래가 disabled + 사유 문구. */}
+                  {form.ephemeral && (
+                    <span style={{ fontSize: 12, color: 'var(--color-text-quaternary)' }}>
+                      상단 저장 방식이 비영속(1회성)이라 아래 저장 설정은 적용되지 않습니다.
+                    </span>
+                  )}
                   <Field label="채팅 히스토리">
                     <Select
                       value={form.historyDepth}
@@ -542,6 +568,24 @@ export function AgentForm({
                             : '대화를 저장하지 않음 (가볍고 기록이 남지 않음)'}
                       </span>
                     </div>
+                  </Field>
+                  <SectionHeader>플레이그라운드</SectionHeader>
+                  {/* 추천 명령어(스펙 238 #5) — 플그 빈 화면의 프롬프트 카드를 에이전트별로(옵셔널).
+                      미등록이면 플그 기본 카드 폴백(무회귀). 서버 캡: 최대 8개·각 200자. */}
+                  <Field label="추천 명령어 (선택)">
+                    <Select
+                      mode="tags"
+                      value={form.suggestedPrompts}
+                      onChange={(v: string[]) => set('suggestedPrompts', v.map((s) => s.slice(0, 200)).slice(0, 8))}
+                      style={{ width: '100%' }}
+                      placeholder="예: 최신 스트리밍 UI 동향을 검색해줘 — 입력 후 Enter"
+                      open={false}
+                      suffixIcon={null}
+                      tokenSeparators={[]}
+                    />
+                    <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+                      플레이그라운드 새 대화 화면에 이 명령어들이 카드로 노출됩니다 (최대 8개 · 각 200자).
+                    </span>
                   </Field>
                 </div>
               ),
