@@ -580,11 +580,12 @@ export function Playground({
                 background: 'var(--color-bg-container)', color: 'var(--color-text-tertiary)',
                 fontSize: 12, cursor: 'pointer', font: 'inherit',
                 boxShadow: '0 2px 4px rgba(0,0,0,0.04)',
-                transition: 'margin-top .15s ease',
+                transition: 'transform .15s ease',
               }}
-              // 감성(후속23): ∧=밀어 올리기 — 호버 시 2px 올라가 "올릴 준비".
-              onMouseEnter={(e) => { e.currentTarget.style.marginTop = '-2px' }}
-              onMouseLeave={(e) => { e.currentTarget.style.marginTop = '' }}
+              // 감성(후속23→24 수정): ∧=밀어 올리기 — 호버 시 2px 올라가 "올릴 준비".
+              // bottom 고정 배치라 margin-top은 무효(후속23의 첫 시도가 무동작) — transform으로.
+              onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(calc(100% - 2px))' }}
+              onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(100%)' }}
             >
               <Icon name="up" size={11} />
               오버라이드
