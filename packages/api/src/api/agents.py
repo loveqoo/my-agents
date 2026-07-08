@@ -13,7 +13,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -244,6 +244,122 @@ async def list_agents(
     for o in outs:  # 스펙 114 — 관리 가능 여부를 각 객체에 실어 UI가 버튼 표시를 파생
         o.can_manage = may_manage(o.owner_id, principal)
     return outs
+
+
+class VersionOps(BaseModel):
+    """버전 1개의 운영 지표(스펙 244) — 평가·자동 회귀·피드백."""
+
+    evalRuns: int = 0
+    lastScore: float | None = None
+    lastRunAt: str | None = None
+    autoRuns: int = 0  # 자동 회귀(env.trigger=activate) 런 수
+    errorRuns: int = 0  # 실패 런 수(codex 244 #4 — 최근 성공 점수만 보이면 실패가 숨음)
+    up: int = 0
+    down: int = 0
+
+
+class AgentOpsOut(BaseModel):
+    """버전 운영 집계(스펙 244, AgentOps D) — "Version 하나가 운영 단위"의 데이터 면."""
+
+    versions: dict[str, VersionOps]
+    unversionedUp: int = 0  # 버전 미기록(242 이전) 피드백 — 정직한 분리
+    unversionedDown: int = 0
+
+
+@router.get("/{agent_id}/ops", response_model=AgentOpsOut)
+async def agent_ops(
+    agent_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    principal=Depends(current_principal),
+) -> AgentOpsOut:
+    """버전별 운영 지표(스펙 244) — 평가(240 귀속)·자동 회귀(241)·피드백(209, 242 trace 귀속) 집계.
+
+    게이트=상세와 동일(may_use_agent, 비가시 404-fold). 피드백의 버전 귀속은 대상 assistant 메시지의
+    trace.agentVersion(242 이후 기록) — 미기록분은 unversioned로 정직하게 분리(과거를 아는 척 안 함)."""
+    agent = await _load_agent(session, agent_id)
+    if agent is None or not may_use_agent(agent, principal):
+        raise HTTPException(status_code=404, detail="agent not found")
+    if not may_manage(agent, principal):
+        # 운영 지표=전 유저 피드백·평가 합산(codex 244 #2) — 관리자·소유자 전용(사용자는 대화만).
+        raise HTTPException(status_code=403, detail="운영 지표는 이 에이전트를 관리할 수 있어야 합니다")
+
+    from .models import EvalRun, Message, MessageFeedback, Session as SessionRow
+
+    versions: dict[str, VersionOps] = {}
+
+    def _v(key: str) -> VersionOps:
+        if key not in versions:
+            versions[key] = VersionOps()
+        return versions[key]
+
+    # 평가 집계 — SQL 전수(codex 244 #3: 최신 N개 순회는 조용한 과소집계 = no-silent-caps 위반).
+    from sqlalchemy import case
+
+    agg = (
+        await session.execute(
+            select(
+                EvalRun.agent_version,
+                func.count(EvalRun.id),
+                func.sum(case((EvalRun.env["trigger"].astext == "activate", 1), else_=0)),
+                func.sum(case((EvalRun.status == "error", 1), else_=0)),
+            )
+            .where(EvalRun.agent_pk == agent.id, EvalRun.agent_version.is_not(None))
+            .group_by(EvalRun.agent_version)
+        )
+    ).all()
+    for ver, total, auto, errs in agg:
+        vo = _v(ver)
+        vo.evalRuns = int(total)
+        vo.autoRuns = int(auto or 0)
+        vo.errorRuns = int(errs or 0)
+    # 버전별 **최근 성공** 점수(DISTINCT ON) — 최신 런이 error여도 마지막 성공을 정직하게 표기
+    # (UI는 errorRuns>0이면 실패 칩을 함께 노출 — codex 244 #4).
+    last_ok = (
+        await session.execute(
+            select(EvalRun.agent_version, EvalRun.score, EvalRun.started_at)
+            .where(
+                EvalRun.agent_pk == agent.id,
+                EvalRun.agent_version.is_not(None),
+                EvalRun.status == "ok",
+                EvalRun.score.is_not(None),
+            )
+            .distinct(EvalRun.agent_version)
+            .order_by(EvalRun.agent_version, EvalRun.started_at.desc())
+        )
+    ).all()
+    for ver, score, started_at in last_ok:
+        vo = _v(ver)
+        vo.lastScore = score
+        vo.lastRunAt = started_at.isoformat() if started_at else None
+
+    # 피드백 집계 — feedback→message(trace.agentVersion)→session(agent_pk=이 에이전트).
+    _ver_expr = Message.trace["agentVersion"].astext  # 식 재사용(두 번 쓰면 bind 파라미터가 갈라져 GROUP BY 불일치)
+    fb = (
+        await session.execute(
+            select(_ver_expr, MessageFeedback.rating, func.count(MessageFeedback.id))
+            .join(Message, (Message.id == MessageFeedback.message_pk)
+                  # codex 244 #1 — 중복 session_pk 불일치 행(보정/버그 유래) 방어: 메시지와 피드백의
+                  # 세션 일치를 조인에 강제(정상 경로는 항상 참, 불일치 행은 집계 제외).
+                  & (Message.session_pk == MessageFeedback.session_pk))
+            .join(SessionRow, SessionRow.id == MessageFeedback.session_pk)
+            .where(SessionRow.agent_pk == agent.id)
+            .group_by(_ver_expr, MessageFeedback.rating)
+        )
+    ).all()
+    un_up = un_down = 0
+    for ver, rating, cnt in fb:
+        if ver:
+            vo = _v(ver)
+            if rating == "up":
+                vo.up += int(cnt)
+            else:
+                vo.down += int(cnt)
+        elif rating == "up":
+            un_up += int(cnt)
+        else:
+            un_down += int(cnt)
+
+    return AgentOpsOut(versions=versions, unversionedUp=un_up, unversionedDown=un_down)
 
 
 @router.get("/{agent_id}", response_model=AgentOut)

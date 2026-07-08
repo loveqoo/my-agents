@@ -1,9 +1,11 @@
+import { useEffect, useState } from 'react'
 import { Tag, Button, Avatar, Alert, Modal, Descriptions } from 'antd'
 import { Drawer, VersionHistory, ExposeSwitch } from '../../shared'
 import { Icon } from '../../icons'
 import { AgentMemoryPanel } from '../AgentMemoryPanel'
 import type { Agent, VersionMeta } from '../../mockData'
 import { displayName } from '../../naming'
+import { getAgentOps, type AgentOps } from '../../../api'
 import { CodeAgentDetail } from './detail/CodeAgentDetail'
 import { ExternalAgentDetail } from './detail/ExternalAgentDetail'
 import { PersonaStaleNote } from './PersonaStaleNote'
@@ -50,6 +52,17 @@ export function AgentDetail({
   onNewDraft: (a: Agent) => void
   onRefreshPersona: (a: Agent) => Promise<void>
 }) {
+  // 버전 운영 지표(스펙 244) — 훅은 조기 return 이전(순서 불변). 로컬(ui) 에이전트만 조회,
+  // 실패는 무소음(지표는 부가층 — 상세를 막지 않음).
+  const [ops, setOps] = useState<AgentOps | null>(null)
+  // 관리 가능 에이전트만(서버 403과 정합 — 운영 지표는 관리자·소유자 전용, codex 244 #2).
+  const isLocalUi = !!agent && agent.source === 'ui' && agent.can_manage !== false
+  useEffect(() => {
+    setOps(null)
+    if (agent && isLocalUi) {
+      getAgentOps(agent.id).then(setOps).catch(() => setOps(null))
+    }
+  }, [agent?.id, isLocalUi])
   if (!agent) return null
   if (agent.source === 'code')
     return (
@@ -387,7 +400,14 @@ export function AgentDetail({
           onTest={(v) => onTest(agent, v)}
           onRevert={(v) => onRevert(agent, v)}
           onNewDraft={draft ? null : () => onNewDraft(agent)}
+          ops={ops?.versions}
         />
+        {/* 버전 미기록 피드백(242 이전 대화) — 정직한 분리(과거를 아는 척하지 않음). 스펙 244. */}
+        {ops && (ops.unversionedUp > 0 || ops.unversionedDown > 0) && (
+          <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginTop: 6 }}>
+            버전 미기록 피드백 👍{ops.unversionedUp} 👎{ops.unversionedDown} (버전 기록 도입 전 대화)
+          </div>
+        )}
       </div>
 
       <div style={{ marginTop: 16 }}>

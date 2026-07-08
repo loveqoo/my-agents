@@ -344,6 +344,10 @@ export async function uploadDocument(id: string, file: File): Promise<RagDocumen
 
 /* ---------- 에이전트 ---------- */
 export const listAgents = () => j<Agent[]>('/agents')
+// 버전 운영 집계(스펙 244) — 버전별 평가·자동 회귀·피드백.
+export interface VersionOps { evalRuns: number; lastScore: number | null; lastRunAt: string | null; autoRuns: number; errorRuns: number; up: number; down: number }
+export interface AgentOps { versions: Record<string, VersionOps>; unversionedUp: number; unversionedDown: number }
+export const getAgentOps = (id: string) => j<AgentOps>(`/agents/${id}/ops`)
 /* 실행 방식 메타(스펙 206) — consumes: 이 impl이 읽는 설정 표면(null=미선언, 폼 전부 노출). */
 export interface ImplMeta { key: string; consumes: string[] | null }
 export const listAgentImpls = () => j<ImplMeta[]>('/agent-impls')

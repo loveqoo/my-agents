@@ -272,12 +272,15 @@ export function VersionHistory({
   onTest,
   onNewDraft,
   onRevert,
+  ops,
 }: {
   versions?: VersionMeta[]
   onActivate?: (v: VersionMeta) => void
   onTest?: (v: VersionMeta) => void
   onNewDraft?: (() => void) | null
   onRevert?: (v: VersionMeta) => void
+  // 버전 운영 지표(스펙 244, 옵셔널 — 미전달 소비자 무회귀): version → {evalRuns,lastScore,autoRuns,up,down}
+  ops?: Record<string, { evalRuns: number; lastScore: number | null; autoRuns: number; errorRuns?: number; up: number; down: number }>
 }) {
   return (
     <div>
@@ -316,6 +319,25 @@ export function VersionHistory({
                   {v.note}
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>{v.createdAt}</div>
+                {/* 운영 칩(스펙 244) — 이 버전의 성적·피드백. 데이터 없으면 무소음. */}
+                {(() => {
+                  const o = ops?.[v.version]
+                  if (!o || (o.evalRuns === 0 && o.up === 0 && o.down === 0)) return null
+                  return (
+                    <div style={{ display: 'flex', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
+                      {o.evalRuns > 0 && (
+                        <Tag color={o.lastScore != null && o.lastScore >= 0.8 ? 'green' : o.lastScore != null ? 'orange' : 'default'} style={{ margin: 0, fontSize: 11 }}>
+                          평가 {o.lastScore != null ? Math.round(o.lastScore * 100) + '% (최근 성공)' : '—'} · {o.evalRuns}회
+                        </Tag>
+                      )}
+                      {o.autoRuns > 0 && <Tag color="purple" style={{ margin: 0, fontSize: 11 }}>자동회귀 {o.autoRuns}</Tag>}
+                      {(o.errorRuns ?? 0) > 0 && <Tag color="red" style={{ margin: 0, fontSize: 11 }}>실패 {o.errorRuns}</Tag>}
+                      {(o.up > 0 || o.down > 0) && (
+                        <Tag style={{ margin: 0, fontSize: 11 }}>👍{o.up} 👎{o.down}</Tag>
+                      )}
+                    </div>
+                  )
+                })()}
               </div>
               {v.status === 'draft' && onTest && (
                 <Button type="primary" size="small" icon={<Icon name="thunderbolt" />} onClick={() => onTest(v)}>
