@@ -44,6 +44,9 @@ export function Playground({
   const [blocks, setBlocks] = useState<Record<string, BlockCategory>>({})
   const [collections, setCollections] = useState<Collection[]>([]) // 조율형 위임 카탈로그(문서, 스펙 122)
   const [overridePanelOpen, setOverridePanelOpen] = useState(false)
+  // 서랍이 다 내려온 뒤에야 하단 손잡이를 붙인다(후속20, 사용자: 손잡이가 너무 일찍 생김 —
+  // 서랍은 0.3s 애니메이션인데 손잡이가 최종 위치에 먼저 도착해 떠 보임).
+  const [overrideSettled, setOverrideSettled] = useState(false)
   const [appliedByAgent, setAppliedByAgent] = useState<Record<string, Overrides>>({})
   // A2A 루프백 테스트 모드(스펙 155) — 에이전트별. true면 send가 /agents/{id}/a2a(JSON-RPC)로
   // 외부 소비자처럼 호출. 노출 에이전트에서만 토글 노출. 기본 false(직접 /chat — 무회귀).
@@ -554,8 +557,9 @@ export function Playground({
         onApply={applyOverrides}
         onClear={clearOverrides}
         onClose={() => setOverridePanelOpen(false)}
+        afterOpenChange={setOverrideSettled}
       />
-      {overridePanelOpen && (
+      {overridePanelOpen && overrideSettled && (
         <button
           onClick={() => setOverridePanelOpen(false)}
           aria-label="오버라이드 닫기"

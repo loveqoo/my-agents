@@ -165,9 +165,10 @@ interface Props {
   onApply: (ov: Overrides) => void
   onClear: () => void
   onClose: () => void
+  afterOpenChange?: (open: boolean) => void // 서랍 애니메이션 완료 신호(하단 손잡이 타이밍용)
 }
 
-export function OverridePanel({ open, agent, models, blocks, agents, collections, applied, onApply, onClear, onClose }: Props) {
+export function OverridePanel({ open, agent, models, blocks, agents, collections, applied, onApply, onClear, onClose, afterOpenChange }: Props) {
   const isCode = agent?.source === 'code'
   const isExternal = agent?.source === 'external' // 외부 A2A — 코드처럼 read-only(026)
   const isOrchestrator = isOrchestratorImpl(agent?.impl) // 조율형 — capabilities로 위임(스펙 108/122)
@@ -283,6 +284,7 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
     <Drawer
       open={open}
       onClose={onClose}
+      afterOpenChange={afterOpenChange}
       // 위→아래(스펙 248 후속15, 사용자 디자인): 헤더에 매달린 U 손잡이를 당기면 서랍이 내려온다.
       placement="top"
       height="min(70vh, 560px)"
