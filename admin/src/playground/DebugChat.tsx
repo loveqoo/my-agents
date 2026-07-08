@@ -392,7 +392,9 @@ function TwoLineTrigger({ open, top, bottom, fullWidth, title, maxW = 200 }: {
     <button
       title={title}
       style={{
-        display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 1,
+        display: 'flex', flexDirection: 'column', alignItems: 'flex-start', justifyContent: 'center', gap: 1,
+        // 에이전트 콤보와 같은 높이(실측 54px — 이름 15px 2줄+아바타가 더 높음, 사용자 지적)
+        minHeight: 54, boxSizing: 'border-box',
         padding: '5px 12px', borderRadius: 10,
         border: '1px solid ' + (open ? 'var(--color-primary-border)' : 'var(--color-border)'),
         background: open ? 'var(--color-primary-bg)' : 'var(--color-bg-container)',
@@ -456,11 +458,6 @@ function VersionPicker({ agent, pinnedVersion, onPin, fullWidth }: {
                   {isActive ? '활성' : '비활성'}
                 </span>
                 <span style={{ fontFamily: 'var(--font-family-code)', fontSize: 13 }}>{v.version}</span>
-                {!isActive && (
-                  <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-                    {v.status === 'draft' ? '초안' : '보관'}
-                  </span>
-                )}
                 <span style={{ flex: 1 }} />
                 {selected && <Icon name="check" size={12} style={{ color: 'var(--color-primary)' }} />}
               </button>
