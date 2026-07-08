@@ -858,12 +858,14 @@ export const updateEvalCase = (caseId: string, body: { name?: string; input: str
 export const deleteEvalCase = (caseId: string) => del(`/eval/cases/${caseId}`)
 export const startEvalRun = (
   datasetId: string,
-  target: { agentId?: string; collectionId?: string; models?: string[] }
+  target: { agentId?: string; collectionId?: string; models?: string[]; agentVersion?: string }
 ) =>
   post(`/eval/datasets/${datasetId}/runs`, {
     agent_id: target.agentId ?? null,
     collection_id: target.collectionId ?? null,
     models: target.models ?? [],
+    // 버전 지정 평가(스펙 242) — null=활성(서빙) 버전.
+    agent_version: target.agentVersion ?? null,
   }) as Promise<EvalRunT>
 export const getEvalHelperStatus = () =>
   j<{ available: boolean; reason: string | null }>('/eval/helper-status')

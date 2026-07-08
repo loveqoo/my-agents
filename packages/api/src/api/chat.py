@@ -105,6 +105,7 @@ async def _load_context(
     session_str_id: str | None,
     overrides: dict | None = None,
     own: str | None = None,
+    version: str | None = None,
 ):
     """에이전트 구성 + MCP 활성 툴 + 세션(생성/지속)을 한 번에 준비.
 
@@ -123,6 +124,31 @@ async def _load_context(
         # (스펙 211) 구 113 P0의 저장본/override 권한 분리(stored_mcps 포착)는 사용=공용 전환으로
         # 소멸 — 등록된 MCP는 누구 에이전트든 배선 가능하므로 주입 경로 구분이 무의미해졌다.
         persona = agent.persona
+        # 버전 지정 실행(스펙 242) — 그 버전의 config 스냅샷으로 소스 전환(초안 미리보기·버전 테스트).
+        # persona는 스냅샷에 이름만 있으므로 지금 본문으로 재해석(activate와 동일 규칙).
+        pinned_version: str | None = None
+        if version:
+            if _is_remote(agent.source):
+                raise HTTPException(status_code=400, detail="원격(code/external) 에이전트는 버전 지정 실행을 지원하지 않습니다")
+            from .models import AgentVersion
+
+            vrow = (
+                await db.execute(
+                    select(AgentVersion).where(
+                        AgentVersion.agent_pk == agent.id, AgentVersion.version == version
+                    )
+                )
+            ).scalar_one_or_none()
+            if vrow is None:
+                raise HTTPException(status_code=404, detail=f"버전을 찾을 수 없습니다: {version}")
+            cfg = dict(vrow.config or {})
+            from .models import Persona as _Persona
+
+            prow = (
+                await db.execute(select(_Persona).where(_Persona.name == cfg.get("persona", "")))
+            ).scalar_one_or_none()
+            persona = prow.body if prow is not None else cfg.get("persona", "")
+            pinned_version = version
         # web 한정 세션 오버라이드(화이트리스트). 코드·외부 에이전트는 분기 진입 안 함 = bypass 보존.
         # (외부=A2A는 비로컬이라 로컬 설정 오버라이드 의미 없음 — 026 read-only 취급.)
         # 모델은 여전히 cfg["model"] 이름으로 레지스트리에서만 해석 → [012] 단일 소스 불변식 유지.
@@ -173,6 +199,10 @@ async def _load_context(
             # 메모리 read/write 전부 무동작. 고트래픽·기록 무의미한 단순 추론 제공용. persistHistory(메시지만
             # 스킵)의 상위집합. 세션이 없으니 이력·회상·소유권도 없음(순수 stateless).
             "ephemeral": bool(cfg.get("ephemeral", False)),
+            # 실행 버전(스펙 242) — pinned=지정 버전(미리보기), exec=실제 실행 버전(지정 없으면 활성).
+            # trace.agentVersion 기록·HIL 게이트(pinned는 승인 재개가 서빙 config로 돌아 drift) 근거.
+            "pinned_version": pinned_version,
+            "exec_version": pinned_version or agent.active_version,
         }
 
         # 모델은 레지스트리에서만 해석한다(env 안 봄). 에이전트가 고른 이름 → 없으면
@@ -721,7 +751,22 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
         _arow = await _s.get(_AgentRow, agent_id)
     if _arow is None or not may_use_agent(_arow, principal):
         raise HTTPException(status_code=404, detail="agent not found")
-    ctx = await _load_context(agent_id, body.sessionId, body.overrides, own=own)
+    req_version = body.version
+    if req_version is not None:
+        # 버전 지정 실행은 관리 권한(codex 242 #2) — 초안은 미공개 작업본이라 "사용 권한만" 있는
+        # 유저의 미리보기는 누출. 버전 목록 자체는 상세에 보이므로 403 명시(404-fold 불요).
+        from .ownership import may_manage as _may_manage
+
+        if not _may_manage(_arow, principal):
+            raise HTTPException(status_code=403, detail="버전 지정 실행은 이 에이전트를 관리할 수 있어야 합니다")
+    elif body.sessionId:
+        # ask/form 재개 턴의 버전 승계(codex 242 #1) — 미리보기 턴이 만든 pending(체크포인트)은 그
+        # 버전 config로만 재개해야 한다(활성 config로 재개하면 drift). 클라이언트가 재개 턴에 version을
+        # 안 보내도 서버가 pending에 저장해 둔 버전을 이어받는다.
+        _pend = _PENDING_ARTIFACT.get(body.sessionId)
+        if _pend and _pend.get("version"):
+            req_version = _pend["version"]
+    ctx = await _load_context(agent_id, body.sessionId, body.overrides, own=own, version=req_version)
     user_text = body.messages[-1].content if body.messages else ""
 
     # mem0 user_id 축 = 인증 주체에서 도출(스펙 032). 쿠키 유저면 안정 UUID(str(user.id)),
@@ -946,7 +991,7 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
         # 메시지로 영속(승인 턴의 "영속 안 함"과 다름: 질문·답이 대화 이력에 남아야 한다).
         if interrupted and not errored and interrupted.get("kind") == "ask":
             question = str(interrupted.get("text") or "").strip() or "(질문)"
-            _PENDING_ARTIFACT[ctx["session_id"]] = {"thread_id": thread_id}
+            _PENDING_ARTIFACT[ctx["session_id"]] = {"thread_id": thread_id, "version": ctx.get("pinned_version")}
             yield f"data: {json.dumps({'text': question}, ensure_ascii=False)}\n\n"
             ask_tokens = runtime.estimate_tokens(
                 sum(len(m["content"]) for m in messages), len(question)
@@ -955,7 +1000,8 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
                 "latencyMs": int((time.perf_counter() - t0) * 1000),
                 "tokens": ask_tokens, "promptRef": ctx["ext_agent_id"],
                 "memories": mem_hits, "mcp": calls_sink, "graph": observed,
-                "artifact": {"awaiting": "ask"},  # 인스펙터: 산출물 진행 중 표기
+                "artifact": {"awaiting": "ask"},
+                **({"agentVersion": ctx["exec_version"], **({"versionPinned": True} if ctx.get("pinned_version") else {})} if ctx.get("exec_version") else {}),  # 인스펙터: 산출물 진행 중 표기
                 "sentMessages": sent_messages,
             }
             if not errored:
@@ -975,6 +1021,7 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
             form_fields = interrupted.get("fields") or []
             _PENDING_ARTIFACT[ctx["session_id"]] = {
                 "thread_id": thread_id, "kind": "form", "form_id": form_id, "fields": form_fields,
+                "version": ctx.get("pinned_version"),  # 재개 턴 버전 승계(codex 242 #1)
             }
             form_frame = {
                 "form": {
@@ -999,6 +1046,7 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
                 "tokens": form_tokens, "promptRef": ctx["ext_agent_id"],
                 "memories": mem_hits, "mcp": calls_sink, "graph": observed,
                 "artifact": {"awaiting": "form", "formId": form_id},
+                **({"agentVersion": ctx["exec_version"], **({"versionPinned": True} if ctx.get("pinned_version") else {})} if ctx.get("exec_version") else {}),
                 "sentMessages": sent_messages,
             }
             if not errored:
@@ -1014,6 +1062,12 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
         # 위험 도구가 그래프를 멈췄다 → 런타임 Approval 생성 + "대기" 프레임 후 종료(정상 턴 영속 안 함).
         # 부수효과(canned·calls_sink)는 interrupt 이전이라 0 — 승인 전 무실행 불변식(스펙 041 §3.3).
         if interrupted and not errored:
+            if ctx.get("pinned_version"):
+                # 버전 미리보기(스펙 242) — 승인 재개는 서빙 config로 돌아 버전이 어긋난다(drift).
+                # Approval을 만들지 않고 명시 안내(235 비영속 게이트와 동형). 도구는 interrupt 이전이라 미실행.
+                yield f"data: {json.dumps({'error': '버전 미리보기에서는 승인이 필요한 도구를 사용할 수 없습니다 — 활성 버전에서 실행하거나 승인 없는 도구를 사용하세요.'}, ensure_ascii=False)}\n\n"
+                yield "event: done\ndata: [DONE]\n\n"
+                return
             if ctx.get("ephemeral"):
                 # 비영속(스펙 237) — 승인 대기는 만들 수 없다: _create_approval이 세션+Approval 행을
                 # 쓰고(235 "쓰기 0" 위반), 체크포인터도 없어 재개 불가. **실측 주의**: 체크포인터가
@@ -1035,6 +1089,7 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
                 "tokens": {"in": 0, "out": 0}, "promptRef": ctx["ext_agent_id"],
                 "memories": mem_hits, "mcp": calls_sink, "graph": [],
                 "approval": {"id": apid, "action": action, "status": "pending"},
+                **({"agentVersion": ctx["exec_version"]} if ctx.get("exec_version") else {}),
             }
             # 승인대기 턴도 회상 조회 이력 일관 노출(스펙 079).
             if used_memory:
@@ -1077,6 +1132,11 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
             graph_observations=observed,
         )
         trace["contextMessages"] = len(messages)  # 모델에 넣은 메시지 수(historyDepth 적용 결과)
+        if ctx.get("exec_version"):
+            # 실행 버전(스펙 242) — 이 턴이 어느 버전 config였나(지정 버전 미리보기 포함, 240 평가 귀속과 대칭).
+            trace["agentVersion"] = ctx["exec_version"]
+            if ctx.get("pinned_version"):
+                trace["versionPinned"] = True  # 미리보기 턴 표식(활성 아님)
         # 도구 무발동 진단(스펙 236) — 도구가 바인딩된 턴의 호출 수를 항상 기록. called=0이면 UI가
         # "왜 안 되는지" 후보(모델이 도구 호출 미지원(mock 등)·질문이 도구와 무관)를 표면화한다
         # (158 회상·125 검색 진단의 결 — 조용한 무발동 금지). impl이 도구 표면(mcps/vectorTables)을

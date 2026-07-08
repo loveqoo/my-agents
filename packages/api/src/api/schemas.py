@@ -725,6 +725,9 @@ class ChatRequest(BaseModel):
     overrides: dict | None = None
     # 산출물형 폼 제출(스펙 188 P2) — 이중 입력의 폼 입구. 텍스트 입구는 messages 그대로.
     form: ChatFormSubmission | None = None
+    # 버전 지정 실행(스펙 242) — 지정하면 그 AgentVersion의 config로 실행(초안 미리보기·버전별 테스트).
+    # 내부(관리 API) 전용 축: A2A·공개 서빙 경로는 이 필드가 없어 활성 버전만 나간다(외부 경계 공짜).
+    version: str | None = None
 
 
 # ----------------------------- 인증·권한 (스펙 031) -----------------------------

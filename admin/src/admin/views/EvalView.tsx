@@ -230,6 +230,7 @@ function DatasetDrawer({
   const [busy, setBusy] = useState(false)
   const [runAgent, setRunAgent] = useState<string | undefined>()
   const [runModels, setRunModels] = useState<string[]>([]) // 모델 비교(스펙 141, 빈 배열=기본 모델 1회)
+  const [runVersion, setRunVersion] = useState<string | undefined>() // 버전 지정 평가(스펙 242, 없으면 활성)
   const [starting, setStarting] = useState(false)
   const [suggesting, setSuggesting] = useState(false)
   const [filenames, setFilenames] = useState<string[]>([])  // 스펙 195: rag 근거 파일명 AutoComplete용
@@ -248,6 +249,7 @@ function DatasetDrawer({
     setAdding(false)
     setRunAgent(undefined) // 문제집 전환 시 대상 리셋(codex 140 #4 — kind 다른 stale id로 실행 방지)
     setRunModels([])
+    setRunVersion(undefined)
     void load()
     if (dataset) listEvalRuns(dataset.id).then(setDsRuns).catch(() => setDsRuns([]))
     else setDsRuns([])
@@ -302,7 +304,7 @@ function DatasetDrawer({
     try {
       await startEvalRun(
         dataset.id,
-        isRag ? { collectionId: ragTarget! } : { agentId: agentTarget!, models: runModels }
+        isRag ? { collectionId: ragTarget! } : { agentId: agentTarget!, models: runModels, agentVersion: runVersion }
       )
       message.success(
         runModels.length > 1
@@ -391,6 +393,24 @@ function DatasetDrawer({
               options={chatModels.map((m) => ({ value: m.name, label: m.name }))}
             />
           ) : null}
+          {/* 버전 지정 평가(스펙 242) — 초안을 활성화 전에 시험(배포 전 게이트). 기본=활성(서빙) 버전. */}
+          {canManage && !isRag && agentTarget ? (() => {
+            const tgt = agents.find((a) => a.id === agentTarget)
+            const versions = tgt?.versions ?? []
+            if (!versions.length) return null
+            return (
+              <Select
+                allowClear
+                placeholder={`버전 선택 (선택) — 비우면 활성 버전${tgt?.activeVersion ? ` ${tgt.activeVersion}` : ''}으로 실행. 초안을 고르면 활성화 전에 시험할 수 있습니다.`}
+                value={runVersion}
+                onChange={setRunVersion}
+                options={versions.map((v) => ({
+                  value: v.version,
+                  label: `${v.version} · ${v.status === 'active' ? '활성' : v.status === 'draft' ? '초안' : '보관'}`,
+                }))}
+              />
+            )
+          })() : null}
           {/* 성적 추이(스펙 138) — 이 문제집의 완료 런들. 최근 런 목록이 표 뷰 역할(클릭→성적표). */}
           {dsRuns.length > 0 ? (
             <div style={{ padding: 12, border: '1px solid var(--geekblue-3)', borderLeft: '3px solid var(--geekblue-5)', borderRadius: 8, background: 'var(--geekblue-1)' }}>

@@ -378,6 +378,8 @@ class RunStartIn(BaseModel):
     agent_id: uuid.UUID | None = None  # kind=agent: agents.id (pk)
     collection_id: uuid.UUID | None = None  # kind=rag: 컬렉션 id (스펙 140)
     models: list[str] = Field(default_factory=list, max_length=6)  # 모델 비교(스펙 141, agent 전용)
+    # 버전 지정 평가(스펙 242) — 그 AgentVersion config로 실행(초안=배포 전 게이트). None=활성(서빙).
+    agent_version: str | None = None
 
 
 class RunOut(BaseModel):
@@ -413,7 +415,8 @@ class RunDetailOut(RunOut):
 
 
 async def _execute_run(run_id: uuid.UUID, dataset_id: uuid.UUID, agent_pk, principal,
-                       rag_collection: dict | None = None, overrides: dict | None = None) -> None:
+                       rag_collection: dict | None = None, overrides: dict | None = None,
+                       version: str | None = None) -> None:
     """백그라운드 실행(batch runner 미러) — 케이스 **순차**(실모델 rate-limit·격리), 상태머신
     running→ok|error. kind=rag면 rag_collection으로 검색 러너(스펙 140), 아니면 agent 러너.
     케이스/러너 실패는 하네스가 error 관측으로 접어 전체는 계속(조용한 초록 금지)."""
@@ -456,7 +459,7 @@ async def _execute_run(run_id: uuid.UUID, dataset_id: uuid.UUID, agent_pk, princ
                 from .eval_runner import eval_run_rag
                 obs = await eval_run_rag(rag_collection, case.input)
             else:
-                obs = await eval_run_agent(agent_pk, case.input, principal, overrides)
+                obs = await eval_run_agent(agent_pk, case.input, principal, overrides, version=version)
             # 이 케이스의 llm_judge 기준만 순차 심판(스펙 139) — 결과를 obs에 주입, scorer는 읽기만.
             criteria = [a.get("arg") for a in case.meta.get("raw_asserts", [])
                         if isinstance(a, dict) and a.get("type") == "llm_judge" and a.get("arg")]
@@ -498,12 +501,12 @@ async def _execute_run(run_id: uuid.UUID, dataset_id: uuid.UUID, agent_pk, princ
             pass
 
 
-async def _execute_group(specs: list[tuple], dataset_id: uuid.UUID, agent_pk, principal) -> None:
+async def _execute_group(specs: list[tuple], dataset_id: uuid.UUID, agent_pk, principal, version: str | None = None) -> None:
     """모델 비교 그룹 실행(스펙 141) — (run_id, model_name)들을 **순차**로(로컬 LLM 과점유 방지).
     개별 런 실패는 _execute_run이 error로 박제하고 다음 모델은 계속."""
     for run_id, model_name in specs:
         await _execute_run(run_id, dataset_id, agent_pk, principal,
-                           overrides={"model": model_name} if model_name else None)
+                           overrides={"model": model_name} if model_name else None, version=version)
 
 
 _ENV_SECRET_KEYS = ("api_key", "apikey", "token", "secret", "authorization", "password")
@@ -628,7 +631,8 @@ async def trigger_auto_regression(agent_pk: uuid.UUID, actor) -> int:
     return started
 
 
-async def _env_snapshot(session: AsyncSession, agent, rag_collection: dict | None) -> dict:
+async def _env_snapshot(session: AsyncSession, agent, rag_collection: dict | None,
+                        cfg_override: dict | None = None) -> dict:
     """경량 환경 기록(스펙 240) — **재현 보장이 아니라 진단 단서**(모델 params·도구 목록·컬렉션 상태).
     수집 실패는 부분 기록으로 우아 저하(진단 부가층이 실행을 막으면 본말전도)."""
     env: dict = {}
@@ -642,7 +646,7 @@ async def _env_snapshot(session: AsyncSession, agent, rag_collection: dict | Non
                 }
             }
             return env
-        cfg = dict(agent.config or {})
+        cfg = cfg_override if cfg_override is not None else dict(agent.config or {})  # 스펙 242: 지정 버전 config 기준
         env["impl"] = cfg.get("impl") or "default"
         if cfg.get("ephemeral"):
             env["ephemeral"] = True
@@ -763,9 +767,31 @@ async def start_run(
     if not is_privileged(user):
         await _member_run_guard(session, user, dataset_id, len(models))
 
-    # 버전 귀속+환경 기록(스펙 240) — 실행 시점 활성 버전과 경량 환경을 모든 런에 박제.
-    run_env = await _env_snapshot(session, agent, rag_collection)
-    agent_version = agent.active_version if agent is not None else None
+    # 버전 지정 평가(스펙 242) — 지정 시 그 버전 존재 검증 + config 소스로 사용(초안=배포 전 게이트).
+    pinned_cfg: dict | None = None
+    if body.agent_version is not None:
+        if agent is None:
+            raise HTTPException(status_code=400, detail="agent_version은 에이전트 문제집에서만 사용합니다")
+        if not may_manage(agent, user):
+            # 초안=미공개 작업본(codex 242 #2) — 버전 지정 평가는 그 에이전트 관리 권한 필요.
+            raise HTTPException(status_code=403, detail="버전 지정 평가는 이 에이전트를 관리할 수 있어야 합니다")
+        from .models import AgentVersion
+
+        vrow = (
+            await session.execute(
+                select(AgentVersion).where(
+                    AgentVersion.agent_pk == agent.id, AgentVersion.version == body.agent_version
+                )
+            )
+        ).scalar_one_or_none()
+        if vrow is None:
+            raise HTTPException(status_code=404, detail=f"버전을 찾을 수 없습니다: {body.agent_version}")
+        pinned_cfg = dict(vrow.config or {})
+
+    # 버전 귀속+환경 기록(스펙 240) — **실행한 버전**(지정 시 지정 버전, 아니면 활성)과 그 버전 config
+    # 기준의 경량 환경을 모든 런에 박제(스펙 242 의미 확장).
+    run_env = await _env_snapshot(session, agent, rag_collection, cfg_override=pinned_cfg)
+    agent_version = (body.agent_version or agent.active_version) if agent is not None else None
 
     if len(models) == 1:
         # 1개 선택=비교가 아니라 단순 모델 오버라이드 런(codex 141 #3 — 1열 그룹은 격자 의미 없음).
@@ -776,7 +802,7 @@ async def start_run(
         session.add(run)
         await session.commit()
         asyncio.create_task(_execute_run(run.id, dataset_id, agent.id, user,
-                                         overrides={"model": models[0]}))
+                                         overrides={"model": models[0]}, version=body.agent_version))
         return RunOut.model_validate(run)
 
     if models:
@@ -792,7 +818,7 @@ async def start_run(
         session.add_all(runs)
         await session.commit()
         asyncio.create_task(_execute_group([(r.id, r.model_name) for r in runs],
-                                           dataset_id, agent.id, user))
+                                           dataset_id, agent.id, user, version=body.agent_version))
         return RunOut.model_validate(runs[0])
 
     run = EvalRun(
@@ -803,7 +829,7 @@ async def start_run(
     session.add(run)
     await session.commit()
     asyncio.create_task(_execute_run(run.id, dataset_id, agent.id if agent else None, user,
-                                     rag_collection=rag_collection))
+                                     rag_collection=rag_collection, version=body.agent_version))
     return RunOut.model_validate(run)
 
 
