@@ -1102,7 +1102,9 @@ export function DebugChat({
 
       {/* 헤더 아래 영역(스펙 248 후속17) — 오버라이드 서랍이 U 손잡이 바로 아래서 내려오도록
           position: relative 컨테이너가 스크롤·입력 영역을 감싼다(드로어 getContainer=false). */}
-      <div style={{ position: 'relative', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+      <div style={{ position: 'relative', overflow: 'hidden', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+        {/* overflow: hidden 필수 — 인라인 드로어(getContainer=false)는 닫힐 때 위로 밀려 숨는데,
+            클리핑이 없으면 밀려난 서랍이 헤더 위로 비쳐 보인다(사용자 실기기 캡처로 발견). */}
         {overridePanel}
       <div ref={scroller} style={{ flex: 1, overflowY: 'auto' }}>
         {pickedButEmpty ? (
