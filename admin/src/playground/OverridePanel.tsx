@@ -4,7 +4,7 @@
    리셋되고 이후 턴이 그 설정대로 실행된다.
    code 에이전트: 원격 실행이라 오버라이드 미적용 — read-only 안내만. */
 import { useEffect, useState } from 'react'
-import { Drawer, Select, Input, Slider, Switch, Button, Alert, Tag, Tooltip, Steps } from 'antd'
+import { Drawer, Select, Input, Slider, Switch, Button, Alert, Tag, Tooltip, Steps, Grid } from 'antd'
 import { isOrchestratorImpl, type Agent, type BlockCategory } from '../admin/mockData'
 import type { Collection, Model } from '../api'
 import { PickerGroups, type PickerGroup } from '../PickerGroups'
@@ -171,6 +171,7 @@ interface Props {
 }
 
 export function OverridePanel({ open, agent, models, blocks, agents, collections, applied, onApply, onClear, onClose, afterOpenChange, footer, bottomHandle }: Props) {
+  const screens = Grid.useBreakpoint()
   // 단계형(스펙 249, 생성폼 기조) — 열 때마다 1단계부터. 요약 단계는 생략(사용자 결정).
   const [step, setStep] = useState(0)
   useEffect(() => { if (open) setStep(0) }, [open])
@@ -407,7 +408,10 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
           </Field>
           </>)}
 
-          {step === 1 && (<>
+          {step === 1 && (
+          // 데탑 2열(스펙 249 후속1, 사용자: 2단계가 서랍 세로를 넘음) — top 드로어는 가로가 넓다:
+          // 좌=쓸 것, 우=세부. 모바일은 1열+스크롤.
+          <div style={{ display: 'grid', gridTemplateColumns: screens.md ? '1fr 1fr' : '1fr', gap: screens.md ? 28 : 18, alignItems: 'start' }}>
           {/* 이 대화에서 쓸 것(스펙 109/122) — 조율형은 위임 대상(capabilities), 직접형은 도구·기억.
               편집 폼과 같은 kind별 표면(스펙 108): 조율형에 mcps/memories를 보여주면 런타임 미사용이라
               오해만 준다(learning 108). */}
@@ -418,6 +422,7 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
               <PickerGroups groups={ovGroups} selected={ovSelected} onToggle={ovToggle} />
             )}
           </Field>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
           {/* 세부(스펙 249: 단계가 이미 구획이라 Collapse 해제·평면 나열) — Temperature·채팅 히스토리. */}
           <Field
@@ -455,7 +460,9 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
               options={DEPTH_OPTS}
             />
           </Field>
-          </>)}
+          </div>
+          </div>
+          )}
         </div>
       )}
     </Drawer>
