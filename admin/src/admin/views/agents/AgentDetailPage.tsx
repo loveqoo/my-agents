@@ -538,8 +538,10 @@ export function AgentDetailPage({
                         key: 'unversioned',
                         label: '버전 미기록',
                         children: (
+                          // 찬반 내역은 여기선 무의미(사용자 지적) — 이 행의 역할은 "집계 밖 피드백이
+                          // 있다"는 정직성 고지뿐이라 합계 건수만.
                           <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-                            👍{ops.unversionedUp} 👎{ops.unversionedDown} (버전 기록 도입 전 대화)
+                            피드백 {ops.unversionedUp + ops.unversionedDown}건 — 버전 기록 도입 전 대화(버전별 집계 제외)
                           </span>
                         ),
                       }]
