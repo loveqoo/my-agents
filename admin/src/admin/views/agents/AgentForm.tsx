@@ -533,19 +533,13 @@ export function AgentForm({
                       {form.temperature == null ? '자동 — 모델 등록 기본값을 사용합니다.' : '에이전트에 저장됩니다(세션마다 동일).'}
                     </span>
                   </Field>
-                  <SectionHeader>저장·영속</SectionHeader>
-                  {/* 영속/비영속 자체는 상단 "저장 방식"이 소유(스펙 238 — 1급 정보 승격). 여기는
-                      영속일 때의 세부만. 비영속이면 아래가 disabled + 사유 문구. */}
-                  {form.ephemeral && (
-                    <span style={{ fontSize: 12, color: 'var(--color-text-quaternary)' }}>
-                      상단 저장 방식이 비영속(1회성)이라 아래 저장 설정은 적용되지 않습니다.
-                    </span>
-                  )}
+                  {/* 채팅 히스토리(스펙 238 재검토) — 저장 설정이 아니라 **모델 컨텍스트** 설정
+                      (모델에 넣을 최근 N개). 런타임 _window는 비영속에도 적용되므로(클라이언트가 보낸
+                      대화 기준) 비영속에서도 활성 — "적용 안 됨"으로 잠갔던 건 거짓이었다. */}
                   <Field label="채팅 히스토리">
                     <Select
                       value={form.historyDepth}
                       onChange={(v) => set('historyDepth', v)}
-                      disabled={form.ephemeral}
                       style={{ width: '100%' }}
                       options={[
                         { label: '기억 안 함 (0개)', value: 0 },
@@ -556,13 +550,25 @@ export function AgentForm({
                         { label: '최근 100개 메시지', value: 100 },
                       ]}
                     />
+                    <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+                      모델에 넣을 최근 대화 개수입니다{form.ephemeral ? ' — 비영속에서도 요청에 담긴 대화에 적용됩니다' : ''}.
+                    </span>
                   </Field>
+                  <SectionHeader>저장·영속</SectionHeader>
+                  {/* 영속/비영속 자체는 상단 "저장 방식"이 소유(스펙 238 — 1급 정보 승격). 여기는
+                      영속일 때의 세부만. */}
                   <Field label="대화 저장">
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <Switch checked={form.persistHistory} disabled={form.ephemeral} onChange={(v) => set('persistHistory', v)} />
+                      {/* 표시값=실효값(사용자 지적: 비영속인데 ON 고정은 모순). 저장된 persistHistory는
+                          보존 — 영속으로 되돌리면 원래 값이 복원된다. */}
+                      <Switch
+                        checked={!form.ephemeral && form.persistHistory}
+                        disabled={form.ephemeral}
+                        onChange={(v) => set('persistHistory', v)}
+                      />
                       <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
                         {form.ephemeral
-                          ? '비영속이 켜져 있어 저장 설정은 적용되지 않습니다'
+                          ? '비영속(1회성)은 대화를 저장하지 않습니다'
                           : form.persistHistory
                             ? '대화를 DB에 저장 (세션·인스펙터·재개)'
                             : '대화를 저장하지 않음 (가볍고 기록이 남지 않음)'}
