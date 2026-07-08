@@ -17,7 +17,7 @@ import { Avatar, Button, Tag, Grid, Tooltip, Select, Input, Dropdown, Card } fro
 import { Icon } from '../admin/icons'
 import { fmtTime } from '../admin/format'
 import { MessageContent } from './MessageContent'
-import { getA2ASkills, type A2ASkill, type ChatFormFrame, type MessageFeedback } from '../api'
+import { type ChatFormFrame, type MessageFeedback } from '../api'
 import { FeedbackButtons } from '../FeedbackButtons'
 import type { ChatMsg, Trace } from './agentData'
 import type { Agent, Session } from '../admin/mockData'
@@ -727,22 +727,6 @@ function ChatHeader({
 }) {
   const screens = Grid.useBreakpoint()
   const isMobile = !screens.md
-  // A2A 광고 스킬(스펙 157) — A2A 모드일 때 노출 에이전트의 카드가 외부에 광고하는 능력(chat+mcp+
-  // delegate+rag)을 fetch해 칩으로 표시. 외부 소비자가 보는 것과 동일한 걸 확인하는 테스트 수단.
-  const [a2aSkills, setA2aSkills] = useState<A2ASkill[]>([])
-  useEffect(() => {
-    if (!a2aMode || !isA2AExposed(agent)) {
-      setA2aSkills([])
-      return
-    }
-    let live = true
-    getA2ASkills(agent.id)
-      .then((sk) => { if (live) setA2aSkills(sk) })
-      .catch(() => { if (live) setA2aSkills([]) })
-    return () => { live = false }
-    // 노출 상태·능력 시그니처가 바뀌면 재fetch(codex Low): 같은 agent.id라도 un-expose/능력 변경 시
-    // stale 칩을 남기지 않는다. exposed 꺼지면 위 가드가 [] 처리, 능력 바뀌면 카드 재조회.
-  }, [a2aMode, agent.id, agent.exposed?.a2a, JSON.stringify(agent.mcps), JSON.stringify(agent.capabilities)])
   // 좁은 데스크톱(lg 미만): 사이드바(232px) 탓에 헤더 가로가 빠듯해 AgentCombo가 아바타만 남게
   // 쭈그러든다. md만으로는 너무 늦으니 lg부터 컨트롤을 축소(A2A 숨김 + 버튼 아이콘만)해 공간 확보.
   // 또한 인스펙터가 나란히(side-by-side) 열려 있으면 채팅 컬럼이 384px만큼 더 줄어 라벨이 인스펙터로
@@ -824,34 +808,6 @@ function ChatHeader({
         {/* 오버라이드 입구는 헤더 하단의 U 손잡이 탭(아래 렌더 — 스펙 248 후속15, 사용자 디자인). */}
         </div>
       </div>
-      {/* A2A 모드 가시 힌트(스펙 155, codex 경계 #1): A2A 경유는 단발 호출이라 세션/히스토리/trace를
-          안 넘긴다. 기존 세션을 이어보는 것처럼 보여도 이 턴은 우리 DB에 안 남는다(재로드 시 사라짐).
-          툴팁은 hover-only라 부족 — 인라인 배너로 경계를 늘 보이게. */}
-      {a2aMode && isA2AExposed(agent) ? (
-        <div style={{ padding: '0 20px 10px' }}>
-          <Tag color="green" style={{ whiteSpace: 'normal', height: 'auto', margin: 0 }}>
-            A2A 경유 테스트 — 단발 호출입니다(세션·히스토리·trace 미저장 · 이 턴은 저장되지 않음).
-          </Tag>
-          {/* 광고 스킬(스펙 157) — 카드가 외부에 노출하는 능력. chat 외(mcp/delegate/rag)만 칩으로. */}
-          {a2aSkills.filter((s) => s.id !== 'chat').length ? (
-            <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
-              <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>광고 스킬:</span>
-              {a2aSkills
-                .filter((s) => s.id !== 'chat')
-                .map((s) => (
-                  <Tooltip key={s.id} title={`${s.id} — ${s.description}`}>
-                    <Tag
-                      color={s.tags.includes('mcp') ? 'cyan' : s.tags.includes('delegate') ? 'geekblue' : s.tags.includes('rag') ? 'purple' : 'default'}
-                      style={{ margin: 0 }}
-                    >
-                      {s.name}
-                    </Tag>
-                  </Tooltip>
-                ))}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
     </div>
   )
 }
