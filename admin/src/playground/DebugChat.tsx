@@ -378,6 +378,110 @@ function shortSid(id: string) {
   // sess-ab12cd → sess-ab12cd 그대로 짧음. 더 길면 끝 6자만.
   return id.length <= 14 ? id : '…' + id.slice(-12)
 }
+/* 2줄 트리거 공통 셸(스펙 248 후속6, 사용자 제안) — 에이전트 콤보와 같은 높이로 헤더 정렬:
+   윗줄=상태(● 점 + 라벨), 아랫줄=값. 버전·세션 트리거가 공유. */
+function TwoLineTrigger({ open, top, bottom, fullWidth, title, maxW = 200 }: {
+  open: boolean
+  top: React.ReactNode
+  bottom: React.ReactNode
+  fullWidth?: boolean
+  title?: string
+  maxW?: number // 아랫줄 최대 폭(세션은 미리보기를 길게 — 사용자 요청)
+}) {
+  return (
+    <button
+      title={title}
+      style={{
+        display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 1,
+        padding: '5px 12px', borderRadius: 10,
+        border: '1px solid ' + (open ? 'var(--color-primary-border)' : 'var(--color-border)'),
+        background: open ? 'var(--color-primary-bg)' : 'var(--color-bg-container)',
+        cursor: 'pointer', font: 'inherit', textAlign: 'left', transition: 'all .2s',
+        minWidth: 0, width: fullWidth ? '100%' : undefined,
+      }}
+    >
+      <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'var(--color-text-tertiary)' }}>{top}</span>
+      <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--color-text-heading)', maxWidth: fullWidth ? '100%' : maxW, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {bottom}
+      </span>
+    </button>
+  )
+}
+
+function StatusDot({ color }: { color: string }) {
+  return <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, flex: 'none', display: 'inline-block' }} />
+}
+
+/* 버전 선택(스펙 248 후속6) — 트리거: ●활성/●비활성 + 줄바꿈 vN(사용자 제안 형식).
+   옵션은 버전 내림차순, 표기 일관: ● 활성|비활성 · vN (· 초안|보관). */
+function VersionPicker({ agent, pinnedVersion, onPin, fullWidth }: {
+  agent: Agent
+  pinnedVersion?: string
+  onPin: (v?: string) => void
+  fullWidth?: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  const versions = (agent.versions ?? []).slice().sort((a, b) => {
+    const n = (x: string) => parseInt(String(x).replace(/\D/g, ''), 10) || 0
+    return n(b.version) - n(a.version)
+  })
+  const activeIsCurrent = !pinnedVersion
+  const currentVersion = pinnedVersion ?? agent.activeVersion ?? '—'
+  const GREEN = 'var(--green-6)'
+  const GRAY = 'var(--gray-6)'
+  return (
+    <Dropdown
+      open={open}
+      onOpenChange={setOpen}
+      trigger={['click']}
+      popupRender={() => (
+        <div style={{ width: 220, background: 'var(--color-bg-elevated)', borderRadius: 12, boxShadow: 'var(--box-shadow)', padding: 6 }}>
+          {versions.map((v) => {
+            const isActive = v.status === 'active'
+            const selected = isActive ? activeIsCurrent : pinnedVersion === v.version
+            return (
+              <button
+                key={v.version}
+                onClick={() => { onPin(isActive ? undefined : v.version); setOpen(false) }}
+                style={{
+                  width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px',
+                  borderRadius: 8, border: 'none', cursor: 'pointer', font: 'inherit', textAlign: 'left',
+                  background: selected ? 'var(--color-primary-bg)' : 'transparent', transition: 'background .15s',
+                }}
+                onMouseEnter={(e) => { if (!selected) e.currentTarget.style.background = 'var(--color-fill-tertiary)' }}
+                onMouseLeave={(e) => { if (!selected) e.currentTarget.style.background = 'transparent' }}
+              >
+                <StatusDot color={isActive ? GREEN : GRAY} />
+                <span style={{ fontSize: 13, color: 'var(--color-text-heading)', fontWeight: 500 }}>
+                  {isActive ? '활성' : '비활성'}
+                </span>
+                <span style={{ fontFamily: 'var(--font-family-code)', fontSize: 13 }}>{v.version}</span>
+                {!isActive && (
+                  <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+                    {v.status === 'draft' ? '초안' : '보관'}
+                  </span>
+                )}
+                <span style={{ flex: 1 }} />
+                {selected && <Icon name="check" size={12} style={{ color: 'var(--color-primary)' }} />}
+              </button>
+            )
+          })}
+        </div>
+      )}
+    >
+      <div style={{ minWidth: 0, width: fullWidth ? '100%' : undefined }}>
+        <TwoLineTrigger
+          open={open}
+          fullWidth={fullWidth}
+          title="실행할 버전 — 비활성 버전은 미리보기로 실행됩니다."
+          top={<><StatusDot color={activeIsCurrent ? GREEN : GRAY} />{activeIsCurrent ? '활성' : '비활성'}</>}
+          bottom={<span style={{ fontFamily: 'var(--font-family-code)' }}>{currentVersion}</span>}
+        />
+      </div>
+    </Dropdown>
+  )
+}
+
 function SessionCombo({
   sessions,
   currentId,
@@ -402,7 +506,6 @@ function SessionCombo({
   const current = currentId ? sessions.find((s) => s.id === currentId) : undefined
   // 해시 노출 금지(식별자 강등) — preview 부재 시 로컬 첫 메시지, 그것도 없으면 '대화 중'.
   const label = current?.preview || (currentId ? (fallbackPreview || '대화 중') : '새 세션')
-  const labelIsPreview = !!current?.preview
   // antd Dropdown으로 통일(스펙 204) — 열 때 onReload(최신 세션 반영)는 onOpenChange에서.
   return (
     <Dropdown
@@ -492,32 +595,20 @@ function SessionCombo({
       )}
     >
       <div style={{ minWidth: 0, flex: 'none', width: fullWidth ? '100%' : undefined }}>
-      <button
-        title="세션 — 과거 대화를 골라 이어서 대화합니다."
-        style={{
-          display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px',
-          borderRadius: 8, border: '1px solid ' + (open ? 'var(--color-primary-border)' : 'var(--color-border)'),
-          background: open ? 'var(--color-primary-bg)' : 'var(--color-bg-container)',
-          cursor: 'pointer', font: 'inherit', maxWidth: fullWidth ? '100%' : 240, width: fullWidth ? '100%' : undefined,
-          minWidth: 0, transition: 'all .2s',
-        }}
-      >
-        <Icon name="comment" size={13} style={{ color: 'var(--color-text-tertiary)', flex: 'none' }} />
-        <span
-          style={{
-            fontSize: 13, fontFamily: labelIsPreview ? undefined : (currentId ? 'var(--font-family-code)' : undefined),
-            color: currentId ? 'var(--color-text)' : 'var(--color-text-tertiary)',
-            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: fullWidth ? 1 : undefined,
-            textAlign: 'left',
-          }}
-        >
-          {label}
-        </span>
-        <Icon
-          name="down" size={11}
-          style={{ color: 'var(--color-text-tertiary)', flex: 'none', transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }}
+        {/* 2줄 트리거(스펙 248 후속6) — 윗줄 '세션', 아랫줄 미리보기/'새 세션'(빈 상태도 두 줄 유지 —
+            헤더 컴포넌트 높이 정렬, 사용자 제안). 폭도 확대(미리보기를 더 길게). */}
+        <TwoLineTrigger
+          open={open}
+          fullWidth={fullWidth}
+          title="세션 — 과거 대화를 골라 이어서 대화합니다."
+          maxW={280}
+          top={<><Icon name="comment" size={11} style={{ color: 'var(--color-text-tertiary)' }} />세션{sessions.length ? ` ${sessions.length}` : ''}</>}
+          bottom={
+            <span style={{ color: currentId ? 'var(--color-text-heading)' : 'var(--color-text-tertiary)', fontWeight: currentId ? 500 : 400 }}>
+              {label}
+            </span>
+          }
         />
-      </button>
       </div>
     </Dropdown>
   )
@@ -613,21 +704,7 @@ function ChatHeader({
         {/* 조건은 요약이 아니라 **컴포넌트 자체**로 노출(스펙 248 후속5, 사용자 교정: 요약=중복 —
             셀렉트·세그먼트가 곧 상태 표시이자 컨트롤). 스마트 노출 규칙 유지: 선택지 있을 때만. */}
         {agent.source === 'ui' && (agent.versions ?? []).some((v) => v.status !== 'active') && agent.can_manage !== false && onPinVersion && (
-          <Select
-            size="small"
-            style={isMobile ? { width: '100%' } : { width: 150 }}
-            value={pinnedVersion ?? '__active__'}
-            onChange={(v) => onPinVersion(v === '__active__' ? undefined : v)}
-            options={[
-              { value: '__active__', label: `활성${agent.activeVersion ? ` (${agent.activeVersion})` : ''}` },
-              ...(agent.versions ?? [])
-                .filter((v) => v.status !== 'active')
-                .map((v) => ({
-                  value: v.version,
-                  label: `${v.version} · ${v.status === 'draft' ? '초안' : '보관'}`,
-                })),
-            ]}
-          />
+          <VersionPicker agent={agent} pinnedVersion={pinnedVersion} onPin={onPinVersion} fullWidth={isMobile} />
         )}
         {isA2AExposed(agent) && (
           <Tooltip title={a2aMode ? 'A2A 경유 테스트 — 단발 메시지(세션·trace·오버라이드 미전달)' : '직접 실행(/chat)'}>
