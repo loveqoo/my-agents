@@ -97,6 +97,7 @@ function DraftBadge({ compact }: { compact?: boolean }) {
 }
 
 interface DebugChatProps {
+  overrideOpen?: boolean // 서랍 열림 — 여는 손잡이 숨김(후속27: 손잡이는 서랍과 함께 내려갔다)
   overridePanel?: React.ReactNode // 오버라이드 top 드로어 — 헤더 아래 영역에서 내려오도록 여기서 렌더
   agent: Agent | null
   agents: Agent[]
@@ -637,6 +638,7 @@ function ChatHeader({
   onReloadSessions,
   onResetConversation,
   inspectorOpen,
+  overrideOpen,
   overrideActive,
   onToggleOverrides,
   a2aMode,
@@ -658,6 +660,7 @@ function ChatHeader({
   pinnedVersion?: string // 버전 미리보기(스펙 243) — undefined=활성(서빙) 버전
   onPinVersion?: (v?: string) => void
   fallbackPreview?: string // 조건 표시줄 세션 폴백(목록 preview 부재 시 로컬 첫 메시지)
+  overrideOpen?: boolean
   overrideActive: boolean
   onToggleOverrides: () => void
   a2aMode: boolean
@@ -692,6 +695,7 @@ function ChatHeader({
     <div style={{ flex: 'none', borderBottom: '1px solid var(--color-border-secondary)', background: 'var(--color-bg-container)', position: 'relative' }}>
       {/* U 손잡이(스펙 248 후속15, 사용자 디자인): 헤더 경계선에 살짝 매달린 탭 —
           당기면 위에서 오버라이드 서랍이 내려온다. 적용 중이면 파란 점등. */}
+      {!overrideOpen && (
       <button
         onClick={onToggleOverrides}
         title="런타임 오버라이드 — 저장 설정을 이 대화에서만 바꿔 실험합니다."
@@ -715,6 +719,7 @@ function ChatHeader({
         <Icon name="down" size={11} />
         {overrideActive ? '오버라이드 ✓' : '오버라이드'}
       </button>
+      )}
       {/* compact: 버튼 아이콘만(라벨 제거) + A2A 배지 숨김 — 한 줄에 안 들어가 겹치던 문제. */}
       {/* 모바일(스펙 132 v2 — 사용자 피드백): 아이콘만으로는 무슨 에이전트/세션인지 알 수 없다 →
           **여러 줄 스택 + 온전한 텍스트**(1줄 에이전트, 2줄 세션, 3줄 도구 라벨·줄바꿈 허용). */}
@@ -937,6 +942,7 @@ function TraceChips({ trace, active, onClick }: { trace?: Trace; active: boolean
 
 export function DebugChat({
   overridePanel,
+  overrideOpen,
   agent,
   agents,
   onSwitchAgent,
@@ -1096,6 +1102,7 @@ export function DebugChat({
         onResetConversation={onResetConversation}
         inspectorOpen={inspectorOpen}
         overrideActive={overrideActive}
+        overrideOpen={overrideOpen}
         onToggleOverrides={onToggleOverrides}
         a2aMode={a2aMode}
         onToggleA2A={onToggleA2A}

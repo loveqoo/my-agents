@@ -616,6 +616,7 @@ export function Playground({
         onPickSession={loadSession}
         onReloadSessions={refreshSessions}
         overridePanel={overridePanelNode}
+        overrideOpen={overridePanelOpen}
         messages={messages}
         onFeedbackChange={handleFeedbackChange}
         streaming={streaming}
@@ -656,6 +657,7 @@ export function Playground({
         onPickSession={loadSession}
         onReloadSessions={refreshSessions}
         overridePanel={overridePanelNode}
+        overrideOpen={overridePanelOpen}
         messages={messages}
         onFeedbackChange={handleFeedbackChange}
         streaming={streaming}
