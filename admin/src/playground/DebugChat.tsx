@@ -795,9 +795,8 @@ function ChatHeader({
           fullWidth={isMobile}
           fallbackPreview={fallbackPreview}
         />
-        {overrideActive && (
-          <Tag color="blue" style={{ margin: 0, flexShrink: 0, cursor: 'pointer' }} onClick={onToggleOverrides}>오버라이드 ✓</Tag>
-        )}
+        {/* 오버라이드 상태 표시는 U 손잡이("오버라이드 ✓")가 canonical(스펙 250 #1) — 인라인 태그는
+            같은 상태+같은 동작의 이중이라 제거. */}
         {!isMobile && <div style={{ flex: 1 }} />}
         {/* 도구 줄 — 모바일은 전폭 뉴라인(사용자 확정: 2줄=버전+세션, 3줄=검사 도구 — 도구는 차기 수정 대상). */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', width: isMobile ? '100%' : undefined }}>

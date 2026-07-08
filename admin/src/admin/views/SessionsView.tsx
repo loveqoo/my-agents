@@ -4,7 +4,7 @@
    (기존 사라지는 토스트 오류도 지속 Alert로 교정됨). counts 배지는 응답 extra로 받아 Segmented에 반영,
    status 필터는 pageResetKey로 page만 리셋(검색어 보존 — 기존 UX 유지). */
 import { useEffect, useState } from 'react'
-import { Tag, Button, Avatar, Alert, Segmented, Popconfirm, message, Descriptions } from 'antd'
+import { Button, Avatar, Alert, Segmented, Popconfirm, message, Descriptions } from 'antd'
 import { Page, StatusPill, Drawer, type Column } from '../shared'
 import { PagedListShell } from './PagedListShell'
 import { Icon } from '../icons'
@@ -193,9 +193,8 @@ export default function SessionsView() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
                   <span style={{ width: 10, height: 10, borderRadius: '50%', background: st.color }} />
                   <span style={{ fontSize: 16, fontWeight: 600 }}>{st.label}</span>
-                  <Tag color={st.tag} style={{ marginInlineStart: 'auto' }}>
-                    {detail.channel}
-                  </Tag>
+                  {/* 채널은 아래 Descriptions "채널" 행이 canonical(스펙 250 #2) — 상단 태그 중복 제거,
+                      상태줄은 상태 전용으로. */}
                 </div>
               )
             })()}

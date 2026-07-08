@@ -3,7 +3,7 @@
    백엔드: GET/POST /admin/users, PATCH active, GET /admin/roles, POST/DELETE roles. */
 import { useState, useEffect, useCallback, type ReactNode } from 'react'
 import { Tag, Button, Modal, Input, Switch, Select, Form, message, Tooltip, Space, Tabs } from 'antd'
-import { Page, DataTable, StatusPill, type Column } from '../shared'
+import { Page, DataTable, type Column } from '../shared'
 import {
   listUsers,
   createUser,
@@ -349,16 +349,7 @@ export default function UsersView() {
         </Tooltip>
       ),
     },
-    {
-      key: 'verified',
-      title: '상태',
-      render: (u) =>
-        u.is_active ? (
-          <StatusPill color="var(--green-6)" label="활성" />
-        ) : (
-          <StatusPill color="var(--gray-6)" label="비활성" />
-        ),
-    },
+    // "상태" 컬럼 제거(스펙 250 #3) — "활성" Switch와 같은 is_active 파생(값=상태 문법, 토글이 canonical).
   ]
 
   // 스펙 200 후속: 유저 목록·권한 부여 탭 분리(유저가 늘면 세로 나열이 불편 — 사용자 요청)
