@@ -111,6 +111,14 @@ try {
       const modelPicked = await selectFirstOptionByLabel('.ant-modal-container', '모델')
       const personaPicked = await selectFirstOptionByLabel('.ant-modal-container', '페르소나')
       // 종류(impl)는 기본값(직접 응답) 그대로 둔다(브리프 지시).
+      // 위저드(스펙 239): 정체성 → 하는 일 → 세부 → 요약까지 "다음"으로 이동해야 생성 버튼이 나온다.
+      for (let i = 0; i < 3; i++) {
+        const nb = page.locator('.ant-modal-footer').getByRole('button', { name: '다음', exact: true })
+        if (await nb.count()) {
+          await nb.click()
+          await page.waitForTimeout(350)
+        }
+      }
       const okBtn = page.locator('.ant-modal-footer').getByRole('button', { name: '에이전트 생성', exact: true })
       const disabled = await okBtn.isDisabled().catch(() => false)
       if (disabled) {
@@ -311,6 +319,10 @@ try {
       await page.waitForTimeout(900)
       await page.getByRole('button', { name: /새 에이전트/ }).first().click()
       await page.locator('.ant-modal-title', { hasText: '에이전트 생성' }).waitFor({ timeout: 5000 })
+      // 위저드(스펙 239): "문서" 선택은 2단계(하는 일) — 이름을 임시로 채워 다음으로 이동해야 보인다.
+      await page.locator('.ant-modal-container').getByPlaceholder('예: research-assistant').fill('scenario-j2-probe')
+      await page.locator('.ant-modal-footer').getByRole('button', { name: '다음', exact: true }).click()
+      await page.waitForTimeout(400)
       const docsPanel = page.locator('.ant-modal-container .ant-collapse-header', { hasText: '문서' }).first()
       const panelFound = await docsPanel.waitFor({ timeout: 5000 }).then(() => true).catch(() => false)
       if (panelFound) {

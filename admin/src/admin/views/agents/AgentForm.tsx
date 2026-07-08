@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Select, Input, Switch, Slider, Tooltip, Collapse, Alert, Modal, Segmented, Button, Tag } from 'antd'
+import { Select, Input, Switch, Slider, Tooltip, Collapse, Alert, Modal, Segmented, Button, Tag, Steps } from 'antd'
 import { isOrchestratorImpl, type BlockCategory, type ToolPolicy, type Agent } from '../../mockData'
 import { listAgentImpls, type Model, type Collection, type ImplMeta } from '../../../api'
 import { PickerGroups, type PickerGroup } from '../../../PickerGroups'
@@ -255,30 +255,91 @@ export function AgentForm({
   // 식별 이름 규칙(스펙 148) — 서버 400의 프론트 힌트. 빈 값은 입력 전이라 조용히(제출만 막음).
   const nameErr = form.name.trim() ? validateName(form.name.trim()) : null
 
+  /* ── 위저드(스펙 239) — 4단계: 정체성 → 하는 일 → 세부 → 요약·확인.
+     생성: 순차 진행(방문한 단계는 클릭 재이동), 요약까지 가야 생성 버튼.
+     수정: 전 단계 자유 이동, 저장은 요약에서만(생성과 동일 규칙 — 사용자 합의). ── */
+  const [step, setStep] = useState(0)
+  const [maxVisited, setMaxVisited] = useState(0)
+  useEffect(() => {
+    if (open) {
+      setStep(0)
+      setMaxVisited(isEdit ? 3 : 0)
+    }
+  }, [open, isEdit])
+  const stepOk = (s: number): boolean => {
+    if (s === 0) return !!form.name.trim() && !nameErr
+    if (s === 1) return !artifactInvalid
+    return true
+  }
+  const goNext = () => {
+    if (!stepOk(step)) return
+    const n = Math.min(step + 1, 3)
+    setStep(n)
+    setMaxVisited((m) => Math.max(m, n))
+  }
+  const goTo = (n: number) => {
+    if (n <= maxVisited) setStep(n)
+  }
+  const saveDisabled = !form.name.trim() || !!nameErr || artifactInvalid
+  const typeLabel = AGENT_TYPES.find((t) => t.value === form.impl)?.label ?? (form.impl || '직접 응답')
+
   return (
     <Modal
       open={open}
-      width={560}
+      width={760}
       title={isEdit ? `초안 편집 · ${draftVersion}` : '에이전트 생성'}
-      okText={isEdit ? '초안 저장' : '에이전트 생성'}
-      cancelText="취소"
       onCancel={onCancel}
-      okButtonProps={{ disabled: !form.name.trim() || !!nameErr || artifactInvalid }}
-      onOk={() => onSave({ ...form, name: form.name.trim(), description: form.description.trim() })}
+      footer={
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+          <Button onClick={onCancel}>취소</Button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {step > 0 && <Button onClick={() => setStep(step - 1)}>이전</Button>}
+            {step < 3 && (
+              <Button type="primary" disabled={!stepOk(step)} onClick={goNext}>
+                다음
+              </Button>
+            )}
+            {step === 3 && (
+              <Button
+                type="primary"
+                disabled={saveDisabled}
+                onClick={() => onSave({ ...form, name: form.name.trim(), description: form.description.trim() })}
+              >
+                {isEdit ? '초안 저장' : '에이전트 생성'}
+              </Button>
+            )}
+          </div>
+        </div>
+      }
     >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxHeight: '60vh', overflow: 'auto' }}>
-        <Alert
-          type="info"
-          showIcon
-          style={{ marginBottom: 0 }}
-          title={
-            isEdit
-              ? `변경사항은 초안 ${draftVersion}에 저장됩니다 — 활성화하기 전까지 현재 버전이 계속 서빙합니다.`
-              : '에이전트의 v1 초안을 만듭니다. 테스트 후 활성화해 게시하세요.'
-          }
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxHeight: '62vh', overflow: 'auto' }}>
+        <Steps
+          size="small"
+          current={step}
+          onChange={goTo}
+          style={{ marginBottom: 4 }}
+          items={[
+            { title: '정체성', disabled: 0 > maxVisited },
+            { title: '하는 일', disabled: 1 > maxVisited },
+            { title: '세부', disabled: 2 > maxVisited },
+            { title: '요약·확인', disabled: 3 > maxVisited },
+          ]}
         />
-        {/* ── 1단계: 기본(필수) — 이름·모델·페르소나·종류(스펙 109) ── */}
-        <SectionHeader first>기본</SectionHeader>
+        {step === 0 && (
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 0 }}
+            title={
+              isEdit
+                ? `변경사항은 초안 ${draftVersion}에 저장됩니다 — 활성화하기 전까지 현재 버전이 계속 서빙합니다.`
+                : '에이전트의 v1 초안을 만듭니다. 테스트 후 활성화해 게시하세요.'
+            }
+          />
+        )}
+        {/* ── 단계 ① 정체성(스펙 239) — 이름·설명·종류·모델·페르소나·저장 방식 ── */}
+        {step === 0 && (
+          <>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))', gap: 16 }}>
           <Field label="식별 이름">
             <Input
@@ -358,10 +419,15 @@ export function AgentForm({
           </span>
         </Field>
 
-        {/* ── 2단계: 이 에이전트가 하는 일(스펙 109) — 종류가 그룹 세트를 가른다(108). 늘어나는 항목은
+          </>
+        )}
+
+        {/* ── 단계 ② 하는 일(스펙 109/239) — 종류가 그룹 세트를 가른다(108). 늘어나는 항목은
             PickerGroups(접이식+검색+카운트)로 효율 렌더 → 항목 100개여도 폼 높이 안정.
             산출물형(스펙 190)은 도구/문서 대신 "모을 항목" 편집기를 띄운다. ── */}
-        <SectionHeader>{isArtifactForm ? '모을 항목' : '이 에이전트가 하는 일'}</SectionHeader>
+        {step === 1 && (
+          <>
+        <SectionHeader first>{isArtifactForm ? '모을 항목' : '이 에이전트가 할 수 있는 일'}</SectionHeader>
         {isArtifactForm ? (
           <ArtifactSpecEditor value={form.artifactSpec} onChange={(s) => set('artifactSpec', s)} />
         ) : orchestratorSelected ? (
@@ -505,15 +571,15 @@ export function AgentForm({
           )
         })()}
 
-        {/* ── 3단계: 세부 설정(선택·기본 접힘) — 기본값 있어 평소 접어둠. Temperature·히스토리·대화저장. ── */}
-        <Collapse
-          size="small"
-          items={[
-            {
-              key: 'advanced',
-              label: '세부 설정 (선택)',
-              children: (
+          </>
+        )}
+
+        {/* ── 단계 ③ 세부(전부 선택 — 기본값 그대로면 그냥 다음, 스펙 239) ── */}
+        {step === 2 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+                    모두 선택 사항입니다 — 그대로 두면 기본값으로 동작합니다.
+                  </span>
                   {/* 스펙 235: 경계 구분 — 모델 동작 / 저장·영속(폼 표준 SectionHeader로 일관). */}
                   <SectionHeader>모델 동작</SectionHeader>
                   {/* 온도(스펙 077) — 자동(끔)=모델 등록 기본값, 수동=0–2 저장. 플그 오버라이드와 대칭. */}
@@ -626,11 +692,106 @@ export function AgentForm({
                     </span>
                   </Field>
                 </div>
-              ),
-            },
-          ]}
-        />
+        )}
+
+        {/* ── 단계 ④ 요약·확인(스펙 239) — 섹션별 요약 + "수정"으로 해당 단계 점프. 생성/저장은 여기만. ── */}
+        {step === 3 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <SummaryCard title="정체성" onEdit={() => setStep(0)}>
+              <SummaryRow k="이름" v={form.name.trim() || '(미입력)'} bad={!form.name.trim() || !!nameErr} />
+              {form.description.trim() && <SummaryRow k="설명" v={form.description.trim()} />}
+              <SummaryRow k="종류" v={`${typeLabel} — ${typeDesc(form.impl)}`} />
+              <SummaryRow k="모델" v={form.model || '(없음)'} />
+              <SummaryRow k="페르소나" v={form.persona || '(없음)'} />
+              <SummaryRow k="저장 방식" v={form.ephemeral ? '비영속 (1회성) — 대화·기록을 남기지 않음' : '영속 — 대화와 기록 저장'} />
+            </SummaryCard>
+            <SummaryCard title="하는 일" onEdit={() => setStep(1)}>
+              {isArtifactForm ? (
+                <SummaryRow
+                  k="모을 항목"
+                  v={
+                    (form.artifactSpec?.fields ?? []).length
+                      ? (form.artifactSpec!.fields as { key?: string; label?: string }[])
+                          .map((f) => f.label || f.key || '?')
+                          .join(', ')
+                      : '(없음 — 최소 1개 필요)'
+                  }
+                  bad={artifactInvalid}
+                />
+              ) : orchestratorSelected ? (
+                <SummaryRow
+                  k="위임 대상"
+                  v={form.capabilities.length ? `${form.capabilities.length}개 — ${form.capabilities.slice(0, 6).join(', ')}${form.capabilities.length > 6 ? ' 외' : ''}` : '없음 — 위임 없이는 답만 합니다'}
+                />
+              ) : (
+                <>
+                  <SummaryRow k="도구" v={form.mcps.length ? form.mcps.join(', ') : '없음'} />
+                  <SummaryRow k="문서" v={form.vectorTables.length ? form.vectorTables.join(', ') : '없음'} />
+                  <SummaryRow k="기억" v={form.ephemeral ? '사용 안 함 (비영속)' : form.memories.length ? form.memories.join(', ') : '없음'} />
+                </>
+              )}
+              {/* 현재 종류가 안 쓰는 표면에 남은 연결도 저장은 되므로 정직하게 표기(codex 239 #1 —
+                  요약이 payload를 축소하면 거짓 확인. 데이터 보존 정책(206)은 유지, 표시만 추가). */}
+              {(() => {
+                const hidden: string[] = []
+                if (isArtifactForm || orchestratorSelected) {
+                  if (form.mcps.length) hidden.push(`도구 ${form.mcps.length}`)
+                  if (form.vectorTables.length) hidden.push(`문서 ${form.vectorTables.length}`)
+                  if (form.memories.length) hidden.push(`기억 ${form.memories.length}`)
+                }
+                if (!orchestratorSelected && form.capabilities.length) hidden.push(`위임 대상 ${form.capabilities.length}`)
+                return hidden.length ? (
+                  <span style={{ fontSize: 12, color: 'var(--color-text-quaternary)' }}>
+                    보존된 연결(현재 종류에선 사용 안 함): {hidden.join(' · ')} — 종류를 되돌리면 다시 적용됩니다.
+                  </span>
+                ) : null
+              })()}
+            </SummaryCard>
+            <SummaryCard title="세부" onEdit={() => setStep(2)}>
+              {(() => {
+                const diffs: [string, string][] = []
+                if (form.temperature != null) diffs.push(['Temperature', form.temperature.toFixed(1)])
+                if (form.historyDepth !== 20) diffs.push(['채팅 히스토리', form.historyDepth === 0 ? '기억 안 함' : `최근 ${form.historyDepth}개`])
+                if (!form.ephemeral && !form.persistHistory) diffs.push(['대화 저장', '저장 안 함(윈도우 모드)'])
+                if (form.suggestedPrompts.length) diffs.push(['추천 명령어', `${form.suggestedPrompts.length}개`])
+                const minScores = Object.entries(form.ragMinScores || {}).filter(([, v]) => v > 0)
+                if (minScores.length) diffs.push(['문서 검색 최소 유사도', minScores.map(([k, v]) => `${k}=${v.toFixed(2)}`).join(', ')])
+                const tpCount = Object.keys(form.toolPolicy || {}).length
+                if (tpCount) diffs.push(['도구 승인 오버라이드', `${tpCount}개`])
+                return diffs.length ? (
+                  <>{diffs.map(([k, v]) => <SummaryRow key={k} k={k} v={v} />)}</>
+                ) : (
+                  <span style={{ fontSize: 13, color: 'var(--color-text-tertiary)' }}>기본값 사용</span>
+                )
+              })()}
+            </SummaryCard>
+          </div>
+        )}
       </div>
     </Modal>
+  )
+}
+
+/* 요약 카드(스펙 239) — 섹션 제목 + "수정" 점프 버튼 + 행들. */
+function SummaryCard({ title, onEdit, children }: { title: string; onEdit: () => void; children: React.ReactNode }) {
+  return (
+    <div style={{ border: '1px solid var(--color-border-secondary)', borderRadius: 8, padding: '10px 14px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-tertiary)' }}>{title}</span>
+        <Button size="small" type="link" onClick={onEdit} style={{ padding: 0, height: 'auto' }}>
+          수정
+        </Button>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>{children}</div>
+    </div>
+  )
+}
+
+function SummaryRow({ k, v, bad }: { k: string; v: string; bad?: boolean }) {
+  return (
+    <div style={{ display: 'flex', gap: 10, fontSize: 13 }}>
+      <span style={{ minWidth: 110, color: 'var(--color-text-tertiary)', flexShrink: 0 }}>{k}</span>
+      <span style={{ color: bad ? 'var(--red-6)' : 'var(--color-text)', overflowWrap: 'anywhere' }}>{v}</span>
+    </div>
   )
 }

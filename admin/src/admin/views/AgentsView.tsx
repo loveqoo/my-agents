@@ -170,9 +170,15 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
       // 노코드 산출물형(스펙 190) — impl=artifact_form일 때만 명세 저장. 아니면 생략(무관 에이전트 오염 방지).
       ...(data.impl === 'artifact_form' && data.artifactSpec ? { artifactSpec: data.artifactSpec } : {}),
       // 컬렉션별 문서 검색 최소 유사도(스펙 191 v2) — 배선된 컬렉션 중 값>0인 것만 저장(무관/0 제거).
+      // 조율형은 capabilities의 `rag:*`가 배선 표면(스펙 239 codex #4 — vectorTables만 돌면 조율형
+      // 슬라이더 값이 조용히 유실되던 버그).
       ...(() => {
+        const wired = new Set<string>(data.vectorTables)
+        data.capabilities.forEach((c) => {
+          if (c.startsWith('rag:')) wired.add(c.slice(4))
+        })
         const m: Record<string, number> = {}
-        for (const c of data.vectorTables) {
+        for (const c of wired) {
           const v = data.ragMinScores?.[c]
           if (typeof v === 'number' && v > 0) m[c] = v
         }
