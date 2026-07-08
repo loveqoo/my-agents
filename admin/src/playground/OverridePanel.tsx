@@ -167,9 +167,10 @@ interface Props {
   onClose: () => void
   afterOpenChange?: (open: boolean) => void // 서랍 애니메이션 완료 신호(하단 손잡이 타이밍용)
   footer?: React.ReactNode // 모바일: 닫기를 드로어 안 하단에(바깥 손잡이는 화면 밖으로 밀림)
+  bottomHandle?: React.ReactNode // 데탑: 패널 하단에 부착돼 서랍과 함께 움직이는 닫기 손잡이(후속22)
 }
 
-export function OverridePanel({ open, agent, models, blocks, agents, collections, applied, onApply, onClear, onClose, afterOpenChange, footer }: Props) {
+export function OverridePanel({ open, agent, models, blocks, agents, collections, applied, onApply, onClear, onClose, afterOpenChange, footer, bottomHandle }: Props) {
   const isCode = agent?.source === 'code'
   const isExternal = agent?.source === 'external' // 외부 A2A — 코드처럼 read-only(026)
   const isOrchestrator = isOrchestratorImpl(agent?.impl) // 조율형 — capabilities로 위임(스펙 108/122)
@@ -287,6 +288,13 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
       onClose={onClose}
       afterOpenChange={afterOpenChange}
       footer={footer}
+      // 손잡이를 패널에 직접 부착(후속22) — 지연 게이팅 대신 서랍과 **함께** 내려온다(0초 지연).
+      drawerRender={(node) => (
+        <div style={{ height: '100%', position: 'relative' }}>
+          {node}
+          {bottomHandle}
+        </div>
+      )}
       // 위→아래(스펙 248 후속15, 사용자 디자인): 헤더에 매달린 U 손잡이를 당기면 서랍이 내려온다.
       placement="top"
       height="min(70vh, 560px)"
@@ -297,7 +305,9 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
       // 모바일은 그 영역이 곧 전폭. 부모(Playground 루트)가 position: relative를 소유.
       getContainer={false}
       rootStyle={{ position: 'absolute' }}
-      styles={{ body: { paddingTop: 12 } }}
+      // wrapper를 마스크(z 1000) 위로 — 같은 z면 DOM 뒤의 마스크가 패널 밖으로 나온 손잡이의
+      // 클릭을 가로챈다(elementFromPoint 실측).
+      styles={{ body: { paddingTop: 12 }, wrapper: { zIndex: 1001 } }}
     >
       {isExternal ? (
         <ExternalCardInfo agent={agent} />

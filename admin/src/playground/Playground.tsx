@@ -44,9 +44,6 @@ export function Playground({
   const [blocks, setBlocks] = useState<Record<string, BlockCategory>>({})
   const [collections, setCollections] = useState<Collection[]>([]) // 조율형 위임 카탈로그(문서, 스펙 122)
   const [overridePanelOpen, setOverridePanelOpen] = useState(false)
-  // 서랍이 다 내려온 뒤에야 하단 손잡이를 붙인다(후속20, 사용자: 손잡이가 너무 일찍 생김 —
-  // 서랍은 0.3s 애니메이션인데 손잡이가 최종 위치에 먼저 도착해 떠 보임).
-  const [overrideSettled, setOverrideSettled] = useState(false)
   const [appliedByAgent, setAppliedByAgent] = useState<Record<string, Overrides>>({})
   // A2A 루프백 테스트 모드(스펙 155) — 에이전트별. true면 send가 /agents/{id}/a2a(JSON-RPC)로
   // 외부 소비자처럼 호출. 노출 에이전트에서만 토글 노출. 기본 false(직접 /chat — 무회귀).
@@ -557,7 +554,6 @@ export function Playground({
         onApply={applyOverrides}
         onClear={clearOverrides}
         onClose={() => setOverridePanelOpen(false)}
-        afterOpenChange={setOverrideSettled}
         footer={
           // 모바일(후속21, 사용자): 바깥 손잡이는 70vh+헤더 탓에 화면 밖 — 드로어 안 하단 우측으로.
           !screens.md ? (
@@ -568,26 +564,30 @@ export function Playground({
             </div>
           ) : undefined
         }
+        bottomHandle={
+          // 데탑(후속22, 사용자: 0.5초 늦게 나옴): 패널에 부착돼 서랍과 함께 이동 — 지연 0.
+          screens.md ? (
+            <button
+              onClick={() => setOverridePanelOpen(false)}
+              aria-label="오버라이드 닫기"
+              title="서랍을 닫습니다"
+              style={{
+                position: 'absolute', right: 28, bottom: 0, transform: 'translateY(100%)',
+                pointerEvents: 'auto', // 래퍼가 pointer-events:none(rc-drawer) — 패널 밖 손잡이는 명시 복원
+                display: 'flex', alignItems: 'center', gap: 5, padding: '3px 14px 5px',
+                border: '1px solid var(--color-border-secondary)', borderTop: 'none',
+                borderRadius: '0 0 12px 12px',
+                background: 'var(--color-bg-container)', color: 'var(--color-text-tertiary)',
+                fontSize: 12, cursor: 'pointer', font: 'inherit',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.04)',
+              }}
+            >
+              <Icon name="up" size={11} />
+              오버라이드
+            </button>
+          ) : undefined
+        }
       />
-      {screens.md && overridePanelOpen && overrideSettled && (
-        <button
-          onClick={() => setOverridePanelOpen(false)}
-          aria-label="오버라이드 닫기"
-          title="서랍을 닫습니다"
-          style={{
-            position: 'absolute', right: screens.md ? 28 : 16, top: 'min(70vh, 560px)', marginTop: -1, zIndex: 1005,
-            display: 'flex', alignItems: 'center', gap: 5, padding: '3px 14px 5px',
-            border: '1px solid var(--color-border-secondary)', borderTop: 'none',
-            borderRadius: '0 0 12px 12px',
-            background: 'var(--color-bg-container)', color: 'var(--color-text-tertiary)',
-            fontSize: 12, cursor: 'pointer', font: 'inherit',
-            boxShadow: '0 2px 4px rgba(0,0,0,0.04)',
-          }}
-        >
-          <Icon name="up" size={11} />
-          오버라이드
-        </button>
-      )}
     </>
   )
 
