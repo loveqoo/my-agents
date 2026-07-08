@@ -103,7 +103,9 @@ export function AgentDetailPage({
   )
 
   return (
-    <div>
+    // 중앙 정렬 컨테이너(사용자 피드백) — 좌측 네비+본문이 왼쪽에 붙으면 넓은 화면서 우측이 통째로
+    // 비어 쏠려 보인다. 문서처럼 가운데(최대 1040px)로.
+    <div style={{ maxWidth: 1040, margin: '0 auto', width: '100%' }}>
       {/* 상단 바 — 뒤로가기 + 정체성 + 주요 행동(개요 섹션과 별개로 항상 보임) */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
         <Button icon={<Icon name="arrow-left" />} onClick={onBack}>
@@ -177,7 +179,7 @@ export function AgentDetailPage({
 
       <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 24 }}>
         {nav}
-        <div ref={bodyRef} style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 24, maxWidth: 860 }}>
+        <div ref={bodyRef} style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 24 }}>
           {/* ── 개요(스펙 246) — 요약 대시보드: 각 관심사의 한 줄 요약 + 클릭 점프(지도). ── */}
           {active === 'overview' && (
           <section>
