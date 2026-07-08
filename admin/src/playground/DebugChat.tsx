@@ -386,6 +386,7 @@ function SessionCombo({
   onNew,
   onReload,
   fullWidth = false, // 모바일(스펙 132 v2): 한 줄 통째 — 세션 미리보기를 온전히 표시
+  fallbackPreview,
 }: {
   sessions: Session[]
   currentId?: string
@@ -394,11 +395,13 @@ function SessionCombo({
   onNew: () => void
   onReload: () => void
   fullWidth?: boolean
+  fallbackPreview?: string // 트리거 라벨 폴백(해시 노출 금지)
 }) {
   const [open, setOpen] = useState(false)
   // 칩 라벨: 사람이 알아볼 수 있게 현재 세션의 preview(첫 메시지) 우선, 없으면 해시 단축형.
   const current = currentId ? sessions.find((s) => s.id === currentId) : undefined
-  const label = current?.preview || (currentId ? shortSid(currentId) : '새 세션')
+  // 해시 노출 금지(식별자 강등) — preview 부재 시 로컬 첫 메시지, 그것도 없으면 '대화 중'.
+  const label = current?.preview || (currentId ? (fallbackPreview || '대화 중') : '새 세션')
   const labelIsPreview = !!current?.preview
   // antd Dropdown으로 통일(스펙 204) — 열 때 onReload(최신 세션 반영)는 onOpenChange에서.
   return (
@@ -607,39 +610,51 @@ function ChatHeader({
         }
       >
         <AgentCombo agent={agent} agents={agents} onSwitch={onSwitchAgent} fullWidth={isMobile} />
-        {/* 상시 조건 표시줄(스펙 248 후속3, 사용자 교정: "스마트 자동 선택은 노출되어야 — 인지 관점").
-            컨트롤은 가리되(집중) **상태는 항상 보인다**: 자동 선택된 버전·경로·세션을 열어보지 않고
-            알 수 있게. 클릭=대화 설정(상태 표시가 곧 변경 입구). 기본과 다른 값은 색으로 강조. */}
-        <button
-          onClick={() => setSettingsOpen(true)}
-          title="현재 대화 조건 — 클릭해 변경"
-          style={{
-            display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', minWidth: 0,
-            border: 'none', background: 'transparent', cursor: 'pointer', font: 'inherit',
-            fontSize: 12, color: 'var(--color-text-tertiary)', padding: '2px 4px',
-          }}
-        >
-          {pinnedVersion ? (
-            <Tag color="orange" style={{ margin: 0 }}>미리보기 {pinnedVersion}</Tag>
-          ) : (
-            <span>{agent.activeVersion ? `활성 ${agent.activeVersion}` : '미서빙'}</span>
-          )}
-          <span>·</span>
-          {a2aMode ? <Tag color="green" style={{ margin: 0 }}>A2A 경유</Tag> : <span>직접</span>}
-          <span>·</span>
-          <span style={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {/* 해시 폴백 금지(식별자 강등) — 목록 preview가 아직 없으면 로컬 첫 메시지, 그것도 없으면 '대화 중'. */}
-            {currentSessionId
-              ? `이어서: ${(sessions.find((ss) => ss.id === currentSessionId)?.preview || fallbackPreview || '대화 중')}`
-              : '새 대화'}
-          </span>
-          {overrideActive && (
-            <>
-              <span>·</span>
-              <Tag color="blue" style={{ margin: 0 }}>오버라이드 ✓</Tag>
-            </>
-          )}
-        </button>
+        {/* 조건은 요약이 아니라 **컴포넌트 자체**로 노출(스펙 248 후속5, 사용자 교정: 요약=중복 —
+            셀렉트·세그먼트가 곧 상태 표시이자 컨트롤). 스마트 노출 규칙 유지: 선택지 있을 때만. */}
+        {agent.source === 'ui' && (agent.versions ?? []).some((v) => v.status !== 'active') && agent.can_manage !== false && onPinVersion && (
+          <Select
+            size="small"
+            style={isMobile ? { width: '100%' } : { width: 150 }}
+            value={pinnedVersion ?? '__active__'}
+            onChange={(v) => onPinVersion(v === '__active__' ? undefined : v)}
+            options={[
+              { value: '__active__', label: `활성${agent.activeVersion ? ` (${agent.activeVersion})` : ''}` },
+              ...(agent.versions ?? [])
+                .filter((v) => v.status !== 'active')
+                .map((v) => ({
+                  value: v.version,
+                  label: `${v.version} · ${v.status === 'draft' ? '초안' : '보관'}`,
+                })),
+            ]}
+          />
+        )}
+        {isA2AExposed(agent) && (
+          <Tooltip title={a2aMode ? 'A2A 경유 테스트 — 단발 메시지(세션·trace·오버라이드 미전달)' : '직접 실행(/chat)'}>
+            <Segmented
+              size="small"
+              value={a2aMode ? 'a2a' : 'direct'}
+              onChange={(v) => onToggleA2A(v === 'a2a')}
+              options={[
+                { label: '직접', value: 'direct' },
+                { label: 'A2A', value: 'a2a' },
+              ]}
+            />
+          </Tooltip>
+        )}
+        <SessionCombo
+          sessions={sessions}
+          currentId={currentSessionId}
+          loading={sessionsLoading}
+          onPick={onPickSession}
+          onNew={onResetConversation}
+          onReload={onReloadSessions}
+          fullWidth={isMobile}
+          fallbackPreview={fallbackPreview}
+        />
+        {overrideActive && (
+          <Tag color="blue" style={{ margin: 0, flexShrink: 0, cursor: 'pointer' }} onClick={onToggleOverrides}>오버라이드 ✓</Tag>
+        )}
         {!isMobile && <div style={{ flex: 1 }} />}
         {/* 도구 줄 — 모바일은 라벨 포함·줄바꿈 허용(flexWrap). */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -665,73 +680,22 @@ function ChatHeader({
           onOpenChange={setSettingsOpen}
           placement="bottomRight"
           content={
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: 260 }}>
-              {/* 선택지가 실재할 때만(사용자 플로우: 버전 1개면 자동 선택 — 비활성 버전이 있어야 고를 게 있다) */}
-              {agent.source === 'ui' && (agent.versions ?? []).some((v) => v.status !== 'active') && agent.can_manage !== false && onPinVersion && (
-                <div>
-                  <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginBottom: 4 }}>버전 (미리보기)</div>
-                  <Select
-                    size="small"
-                    style={{ width: '100%' }}
-                    value={pinnedVersion ?? '__active__'}
-                    onChange={(v) => onPinVersion(v === '__active__' ? undefined : v)}
-                    options={[
-                      { value: '__active__', label: `활성${agent.activeVersion ? ` (${agent.activeVersion})` : ''}` },
-                      ...(agent.versions ?? [])
-                        .filter((v) => v.status !== 'active')
-                        .map((v) => ({
-                          value: v.version,
-                          label: `${v.version} · ${v.status === 'draft' ? '초안' : '보관'}`,
-                        })),
-                    ]}
-                  />
-                </div>
-              )}
-              <div>
-                <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginBottom: 4 }}>대화 이어가기</div>
-                <SessionCombo
-                  sessions={sessions}
-                  currentId={currentSessionId}
-                  loading={sessionsLoading}
-                  onPick={onPickSession}
-                  onNew={onResetConversation}
-                  onReload={onReloadSessions}
-                  fullWidth
-                />
-              </div>
-              {isA2AExposed(agent) && (
-                <div>
-                  <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginBottom: 4 }}>실행 경로</div>
-                  <Tooltip title={a2aMode ? 'A2A 경유 테스트 — 단발 메시지(세션·trace·오버라이드 미전달)' : '직접 실행(/chat)'}>
-                    <Segmented
-                      size="small"
-                      block
-                      value={a2aMode ? 'a2a' : 'direct'}
-                      onChange={(v) => onToggleA2A(v === 'a2a')}
-                      options={[
-                        { label: '직접', value: 'direct' },
-                        { label: 'A2A 경유', value: 'a2a' },
-                      ]}
-                    />
-                  </Tooltip>
-                </div>
-              )}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <Button size="small" type={overrideActive ? 'primary' : 'default'} icon={<Icon name="experiment" />} onClick={onToggleOverrides} style={{ justifyContent: 'flex-start' }}>
-                  {overrideActive ? '오버라이드 (적용 중)' : '오버라이드'}
-                </Button>
-                <Button size="small" type={showPrompt ? 'primary' : 'default'} icon={<Icon name="file" />} onClick={onTogglePrompt} style={{ justifyContent: 'flex-start' }}>
-                  시스템 프롬프트
-                </Button>
-                <Button size="small" type={inspectorOpen ? 'primary' : 'default'} icon={<Icon name="dashboard" />} onClick={onToggleInspector} style={{ justifyContent: 'flex-start' }}>
-                  인스펙터
-                </Button>
-              </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, width: 200 }}>
+              {/* 조건 컴포넌트(버전·세션·경로)는 헤더 인라인(스펙 248 후속5) — 여기는 검사 도구만. */}
+              <Button size="small" type={overrideActive ? 'primary' : 'default'} icon={<Icon name="experiment" />} onClick={onToggleOverrides} style={{ justifyContent: 'flex-start' }}>
+                {overrideActive ? '오버라이드 (적용 중)' : '오버라이드'}
+              </Button>
+              <Button size="small" type={showPrompt ? 'primary' : 'default'} icon={<Icon name="file" />} onClick={onTogglePrompt} style={{ justifyContent: 'flex-start' }}>
+                시스템 프롬프트
+              </Button>
+              <Button size="small" type={inspectorOpen ? 'primary' : 'default'} icon={<Icon name="dashboard" />} onClick={onToggleInspector} style={{ justifyContent: 'flex-start' }}>
+                인스펙터
+              </Button>
             </div>
           }
         >
           <Button size="small" icon={<Icon name="setting" />}>
-            {compact ? null : '대화 설정'}
+            {compact ? null : '검사 도구'}
           </Button>
         </Popover>
         </div>
