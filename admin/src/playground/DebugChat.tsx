@@ -392,7 +392,9 @@ function TwoLineTrigger({ open, top, bottom, fullWidth, title, maxW = 200 }: {
     <button
       title={title}
       style={{
-        display: 'flex', flexDirection: 'column', alignItems: 'flex-start', justifyContent: 'center', gap: 1,
+        // 오른쪽 정렬(사용자 지적): 윗줄은 ●점/아이콘으로 들여져 아랫줄과 시작선이 어긋남 —
+        // 끝선을 맞추면 두 줄이 한 덩어리로 읽힌다.
+        display: 'flex', flexDirection: 'column', alignItems: 'flex-end', justifyContent: 'center', gap: 1,
         // 에이전트 콤보와 같은 높이(실측 54px — 이름 15px 2줄+아바타가 더 높음, 사용자 지적)
         minHeight: 54, boxSizing: 'border-box',
         padding: '5px 12px', borderRadius: 10,
