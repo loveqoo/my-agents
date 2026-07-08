@@ -105,11 +105,13 @@ export function AgentDetailPage({
     // 중앙 정렬 컨테이너(사용자 피드백) — 좌측 네비+본문이 왼쪽에 붙으면 넓은 화면서 우측이 통째로
     // 비어 쏠려 보인다. 문서처럼 가운데(최대 1040px)로.
     <div style={{ maxWidth: 1040, margin: '0 auto', width: '100%' }}>
-      {/* 상단 바 — 뒤로가기 + 정체성 + 주요 행동(개요 섹션과 별개로 항상 보임) */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
-        <Button icon={<Icon name="arrow-left" />} onClick={onBack}>
-          목록
+      {/* 상단(사용자 피드백: 목록 버튼이 정체성 줄에 끼어 어수선) — 1줄=돌아가기, 2줄=정체성|액션. */}
+      <div style={{ marginBottom: 10 }}>
+        <Button type="text" size="small" icon={<Icon name="arrow-left" size={12} />} onClick={onBack} style={{ color: 'var(--color-text-tertiary)', paddingInline: 4 }}>
+          에이전트 목록
         </Button>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
         <Avatar size="large" style={{ background: 'var(--gray-12)' }}>
           <Icon name="robot" />
         </Avatar>
@@ -137,8 +139,10 @@ export function AgentDetailPage({
                   <Icon name="exclamation-circle" size={11} /> 설정 실패
                 </span>
               </Tag>
+            ) : agent.activeVersion ? (
+              <Tag color="green" style={{ margin: 0 }}>서빙 {agent.activeVersion}</Tag>
             ) : (
-              <Tag color="green" style={{ margin: 0 }}>서빙 {agent.activeVersion ?? '—'}</Tag>
+              <Tag style={{ margin: 0 }}>미서빙 · 초안만</Tag>
             )}
             <Tag style={{ margin: 0 }}>{typeLabel}</Tag>
             {draft && <Tag color="gold" style={{ margin: 0 }}>초안 {draft.version}</Tag>}
@@ -197,7 +201,7 @@ export function AgentDetailPage({
                   children: (
                     <span>
                       <span style={{ fontFamily: 'var(--font-family-code)' }}>{agent.model}</span>
-                      <span style={{ color: 'var(--color-text-tertiary)' }}> · 페르소나 {agent.persona || '없음'} · 활성 세션 {agent.sessions}개</span>
+                      <span style={{ color: 'var(--color-text-tertiary)' }}> · 페르소나 {agent.persona || '없음'} · 활성 세션 {agent.sessions ?? 0}개</span>
                     </span>
                   ),
                 },
@@ -222,8 +226,8 @@ export function AgentDetailPage({
                   label: '버전·배포',
                   children: (
                     <JumpCell onJump={() => jump('versions')}>
-                      서빙 {agent.activeVersion ?? '없음'}
-                      {draft ? ` · 초안 ${draft.version} 대기 중` : ' · 초안 없음'}
+                      {agent.activeVersion ? `서빙 ${agent.activeVersion}` : '미서빙(초안만 — 활성화 필요)'}
+                      {draft ? ` · 초안 ${draft.version} 대기 중` : agent.activeVersion ? ' · 초안 없음' : ''}
                     </JumpCell>
                   ),
                 },
