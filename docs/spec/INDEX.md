@@ -257,3 +257,4 @@
 - 252 RAG·평가 점검·수정 — **done**: 3중 점검(deep-reasoner 6파일+런타임 실측+육안)으로 소수술 5(judge 태그 관통·raw enum 한글화·과잉 컨테이너·내부어 top_k/limit·Tag 폭 상한)+문제집 드로어 탭 분리(문제/실행·성적 — 관심사 3겹 해소, 사용자 결정). 건전 판정 근거 기록(meta JSON=디버그 통로 의도 등) [rag-eval-grammar,dataset-drawer-tabs,plain-language] 
 - 253 칩 시맨틱·헤더 줄바꿈 — **done**: rag/mcp 칩=성공만 카운트+실패는 빨간 별도 칩(시도 +1=거짓 신호, 실패는 지우지 않고 승격), 데탑 헤더 minHeight+wrap(인스펙터 병행 짜부 해소). 실패 칩 실검증=사용자 실기기 장애 상황 [chip-success-only,fail-chip-promoted,header-wrap] 
 - 254 엔티티 히트 카드 정돈 — **done**: 직렬화 원문의 빈 키 라인 나열(사용자 불편)→값 필드만 2열 표+빈 필드는 이름만 한 줄, meta raw JSON→null 제외 key=value 칩(149 원본 특정 축 유지). 사용자 케이스 시드 재현 e2e 8/8 [entity-hit-card,empty-fields-folded,meta-chips]
+- 255 엔티티 meta JsonTree·인스펙터 히트 구조화 — **done**: meta=JsonTree(사용자 제안, null 포함 원본), EntityFields 공용화(검색 시험+인스펙터 드리프트 0), 백엔드 프리뷰 개행 보존(구조화 렌더 전제). e2e 8/8+2/2 [jsontree-meta,entityfields-shared,preview-newline]

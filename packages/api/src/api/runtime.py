@@ -458,7 +458,9 @@ def _hits_detail(results: list[dict], cap: int = 240) -> list[dict]:
     trace에 원문·비밀 누출 0)."""
     out: list[dict] = []
     for h in results:
-        snippet = _sanitize_preview(str(h.get("text", "")).strip().replace("\n", " "), cap)
+        # 개행 보존(스펙 255) — 엔티티 직렬화 텍스트("key: value" 라인들)를 인스펙터가 구조화
+        # 렌더(EntityFields)하려면 라인 경계가 필요. 평문 청크도 pre-wrap이라 개행 무해.
+        snippet = _sanitize_preview(str(h.get("text", "")).strip(), cap)
         item = {
             "score": round(float(h.get("score", 0.0)), 3),
             "filename": h.get("filename", ""),

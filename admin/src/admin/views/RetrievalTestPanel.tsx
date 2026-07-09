@@ -9,6 +9,8 @@
 import { useState, useEffect, useRef, type ReactNode } from 'react'
 import { Input, InputNumber, Button, Tag, Alert, Collapse, message } from 'antd'
 import { Icon } from '../icons'
+import { parseEntityText, EntityFields } from '../EntityFields'
+import { JsonTree } from '../../playground/JsonTree'
 
 const { TextArea } = Input
 
@@ -107,22 +109,6 @@ export interface RetrievalTestPanelProps<H extends RetrievalHit> {
   renderMeta: (hit: H) => ReactNode // 결과 카드 메타(컬렉션 filename / 메모리 scope·type)
   onSearch: (query: string, limit: number) => Promise<RetrievalOut<H>>
   defaultLimit?: number
-}
-
-/* 엔티티 직렬화 텍스트 파서(스펙 254) — "key: value" 라인 형식이면 구조화 렌더로.
-   빈 값 라인은 이름만 모아 한 줄(빈 값도 자리 차지 금지 — 246 문법). 형식이 아니면 null(원문 그대로). */
-function parseEntityText(text: string): { rows: [string, string][]; empty: string[] } | null {
-  const lines = text.split('\n').filter((l) => l.trim().length > 0)
-  if (lines.length < 2) return null
-  const rows: [string, string][] = []
-  const empty: string[] = []
-  for (const l of lines) {
-    const m = l.match(/^([\w.]+):\s*(.*)$/)
-    if (!m) return null // 한 줄이라도 형식 밖이면 원문 그대로(문서 청크 등)
-    if (m[2].trim()) rows.push([m[1], m[2].trim()])
-    else empty.push(m[1])
-  }
-  return rows.length ? { rows, empty } : null
 }
 
 export function RetrievalTestPanel<H extends RetrievalHit>({
@@ -245,46 +231,15 @@ export function RetrievalTestPanel<H extends RetrievalHit>({
                   // 빈 필드는 이름만 모아 한 줄(정직성: 무엇이 비었는지는 보임). 문서 청크는 원문 그대로.
                   const parsed = parseEntityText(h.text)
                   return parsed ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                      {parsed.rows.map(([k, v]) => (
-                        <div key={k} style={{ fontSize: 13, display: 'flex', gap: 8 }}>
-                          <span style={{ color: 'var(--color-text-tertiary)', minWidth: 118, flex: 'none', fontFamily: 'var(--font-family-code)', fontSize: 12 }}>{k}</span>
-                          <span style={{ color: 'var(--color-text-secondary)', overflowWrap: 'anywhere' }}>{v}</span>
-                        </div>
-                      ))}
-                      {parsed.empty.length > 0 && (
-                        <div style={{ fontSize: 12, color: 'var(--color-text-quaternary)', marginTop: 2 }}>
-                          빈 필드: {parsed.empty.join(' · ')}
-                        </div>
-                      )}
-                    </div>
+                    <EntityFields rows={parsed.rows} empty={parsed.empty} />
                   ) : (
                     <div style={{ fontSize: 13, color: 'var(--color-text-secondary)', whiteSpace: 'pre-wrap' }}>{h.text}</div>
                   )
                 })()}
-                {h.meta && Object.entries(h.meta).some(([, v]) => v != null) ? (
-                  // 엔티티 metadata(스펙 149) — 원본 행 특정 축. raw JSON 대신 null 제외 key=value 칩
-                  // (스펙 254: 괄호·따옴표·null 노이즈 제거, 실값·상한 원칙은 유지).
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                    {Object.entries(h.meta)
-                      .filter(([, v]) => v != null)
-                      .map(([k, v]) => (
-                        <code
-                          key={k}
-                          style={{
-                            fontSize: 12,
-                            fontFamily: 'var(--font-family-code)',
-                            color: 'var(--geekblue-7)',
-                            background: 'var(--geekblue-1)',
-                            padding: '2px 8px',
-                            borderRadius: 'var(--radius-sm)',
-                            overflowWrap: 'anywhere',
-                          }}
-                        >
-                          {k}={String(v)}
-                        </code>
-                      ))}
-                  </div>
+                {h.meta && Object.keys(h.meta).length > 0 ? (
+                  // 엔티티 metadata(스펙 149→255): 실제 데이터는 JSON 뷰어(JsonTree — 접이식·타입 색)로
+                  // 렌더(사용자 제안). null 포함 원본 그대로 — 뷰어가 타입을 구분해 보여준다.
+                  <JsonTree value={h.meta} />
                 ) : null}
               </div>
             ))}
