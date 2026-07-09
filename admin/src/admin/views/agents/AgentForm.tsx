@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Select, Input, Switch, Slider, Tooltip, Collapse, Alert, Modal, Segmented, Button, Tag, Steps } from 'antd'
-import { isOrchestratorImpl, type BlockCategory, type ToolPolicy, type Agent } from '../../mockData'
+import { isOrchestratorImpl, SHORT_TERM_MEMORY, type BlockCategory, type ToolPolicy, type Agent } from '../../mockData'
 import { DelegationGraph } from '../../DelegationGraph'
 import { listAgentImpls, type Model, type Collection, type ImplMeta } from '../../../api'
 import { PickerGroups, type PickerGroup } from '../../../PickerGroups'
@@ -32,6 +32,9 @@ export function blankForm(blocks: Record<string, BlockCategory>, models: Model[]
     ragMinScores: {}, // 컬렉션별 문서 검색 최소 유사도(스펙 191 v2) — 기본 무필터
   }
 }
+
+/* SHORT_TERM_MEMORY(스펙 269)는 mockData가 단일 출처 — 백엔드 memory_enabled()가 무시하는 죽은
+   라벨이라 기억 선택지·표시에서 제외한다(단기는 historyDepth가 소유). 저장값은 보존(finalize 무변경). */
 
 /* 에이전트 종류(사용자 언어, 스펙 108) — 내부 impl 키를 유저가 이해하는 두 선택지로 감싼다.
    ''=직접 응답(DefaultUiAgent, 자기 도구로 답함), 'orchestrate'=조율형(다른 곳에 넘김).
@@ -245,7 +248,8 @@ export function AgentForm({
       title: '기억',
       // 비영속은 회상하지 않는다(스펙 235) — 새 선택은 disabled(codex 238 #1), 기선택은 해제만 가능
       // ("선택했는데 무동작" 함정과 "해제 불가" 모순을 동시에 피하는 미선택-잠금 패턴).
-      items: (blocks.memory?.items ?? []).map((m) => ({
+      // 단기(세션)은 선택지에서 제외(스펙 269) — 단기는 세부 ③ "단기 기억"(historyDepth)이 소유.
+      items: (blocks.memory?.items ?? []).filter((m) => m.name !== SHORT_TERM_MEMORY).map((m) => ({
         id: `mem:${m.name}`,
         label: m.name,
         hint: form.ephemeral && form.memories.includes(m.name) ? '비영속에서는 회상되지 않습니다 — 해제 가능' : m.body,
@@ -280,8 +284,11 @@ export function AgentForm({
     ),
     ...collections.map((c) => ({ label: `문서 검색 · ${c.name}`, value: safeToolName('search_documents', c.name) })),
   ]
-  // 노드별 기억 선택지(스펙 268 P2) — 직접형 "기억" 그룹과 같은 원천(blocks.memory).
-  const nodeMemoryOptions = (blocks.memory?.items ?? []).map((m) => ({ label: m.name, value: m.name }))
+  // 노드별 기억 선택지(스펙 268 P2) — 직접형 "기억" 그룹과 같은 원천(blocks.memory). 단기(세션)은
+  // 제외(스펙 269): 노드 회상은 장기(mem0)만 대상이라, 죽은 선택지를 빼면 회상 경고(268 P3)도 소멸.
+  const nodeMemoryOptions = (blocks.memory?.items ?? [])
+    .filter((m) => m.name !== SHORT_TERM_MEMORY)
+    .map((m) => ({ label: m.name, value: m.name }))
   // 저장 직전 파생(스펙 259) — 노드형은 에이전트-레벨 도구 풀(mcps/vectorTables)을 노드 도구 합집합에서
   // 파생한다(에이전트-레벨 도구 UI를 숨기므로). 백엔드 ctx.tools는 이 풀로 빌드되고, 노드는 자기 tools로
   // 다시 필터한다(권한 상승 0). 문서 검색은 단일 도구라 컬렉션 스코핑 불가 → 쓰면 전체 컬렉션이 풀에.
@@ -692,7 +699,7 @@ export function AgentForm({
                   {/* 채팅 히스토리(스펙 238 재검토) — 저장 설정이 아니라 **모델 컨텍스트** 설정
                       (모델에 넣을 최근 N개). 런타임 _window는 비영속에도 적용되므로(클라이언트가 보낸
                       대화 기준) 비영속에서도 활성 — "적용 안 됨"으로 잠갔던 건 거짓이었다. */}
-                  <Field label="채팅 히스토리">
+                  <Field label="단기 기억">
                     <Select
                       value={form.historyDepth}
                       onChange={(v) => set('historyDepth', v)}
@@ -707,7 +714,7 @@ export function AgentForm({
                       ]}
                     />
                     <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-                      모델에 넣을 최근 대화 개수입니다{form.ephemeral ? ' — 비영속에서도 요청에 담긴 대화에 적용됩니다' : ''}.
+                      최근 N개 대화(채팅 히스토리)를 모델에 넣습니다{form.ephemeral ? ' — 비영속에서도 요청에 담긴 대화에 적용됩니다' : ''}. 장기 기억(mem0)은 "하는 일"의 기억에서 켭니다.
                     </span>
                   </Field>
                   <SectionHeader>저장·영속</SectionHeader>
@@ -827,7 +834,12 @@ export function AgentForm({
                 <>
                   <SummaryRow k="도구" v={form.mcps.length ? form.mcps.join(', ') : '없음'} />
                   <SummaryRow k="문서" v={form.vectorTables.length ? form.vectorTables.join(', ') : '없음'} />
-                  <SummaryRow k="기억" v={form.ephemeral ? '사용 안 함 (비영속)' : form.memories.length ? form.memories.join(', ') : '없음'} />
+                  {/* 표시에서 단기(세션) 죽은 값 제외(스펙 269) — 단기는 세부 "단기 기억"이 소유. 저장값 불변. */}
+                  <SummaryRow k="기억" v={(() => {
+                    if (form.ephemeral) return '사용 안 함 (비영속)'
+                    const live = form.memories.filter((m) => m !== SHORT_TERM_MEMORY)
+                    return live.length ? live.join(', ') : '없음'
+                  })()} />
                 </>
               )}
               {/* 현재 종류가 안 쓰는 표면에 남은 연결도 저장은 되므로 정직하게 표기(codex 239 #1 —
@@ -837,7 +849,7 @@ export function AgentForm({
                 if (isArtifactForm || orchestratorSelected) {
                   if (form.mcps.length) hidden.push(`도구 ${form.mcps.length}`)
                   if (form.vectorTables.length) hidden.push(`문서 ${form.vectorTables.length}`)
-                  if (form.memories.length) hidden.push(`기억 ${form.memories.length}`)
+                  { const liveMem = form.memories.filter((m) => m !== SHORT_TERM_MEMORY); if (liveMem.length) hidden.push(`기억 ${liveMem.length}`) }
                 }
                 if (!orchestratorSelected && form.capabilities.length) hidden.push(`위임 대상 ${form.capabilities.length}`)
                 return hidden.length ? (
@@ -851,7 +863,7 @@ export function AgentForm({
               {(() => {
                 const diffs: [string, string][] = []
                 if (form.temperature != null) diffs.push(['Temperature', form.temperature.toFixed(1)])
-                if (form.historyDepth !== 20) diffs.push(['채팅 히스토리', form.historyDepth === 0 ? '기억 안 함' : `최근 ${form.historyDepth}개`])
+                if (form.historyDepth !== 20) diffs.push(['단기 기억', form.historyDepth === 0 ? '기억 안 함' : `최근 ${form.historyDepth}개`])
                 if (!form.ephemeral && !form.persistHistory) diffs.push(['대화 저장', '저장 안 함(윈도우 모드)'])
                 if (form.suggestedPrompts.length) diffs.push(['추천 명령어', `${form.suggestedPrompts.length}개`])
                 const minScores = Object.entries(form.ragMinScores || {}).filter(([, v]) => v > 0)

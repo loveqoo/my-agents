@@ -5,7 +5,7 @@
    code 에이전트: 원격 실행이라 오버라이드 미적용 — read-only 안내만. */
 import { useEffect, useState } from 'react'
 import { Drawer, Select, Input, Slider, Switch, Button, Alert, Tag, Tooltip, Steps, Grid } from 'antd'
-import { isOrchestratorImpl, type Agent, type BlockCategory } from '../admin/mockData'
+import { isOrchestratorImpl, SHORT_TERM_MEMORY, type Agent, type BlockCategory } from '../admin/mockData'
 import type { Collection, Model } from '../api'
 import { PickerGroups, type PickerGroup } from '../PickerGroups'
 import { DelegationGraph } from '../admin/DelegationGraph'
@@ -223,7 +223,8 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
     {
       key: '기억',
       title: '기억',
-      items: (blocks.memory?.items ?? []).map((m) => ({
+      // 단기(세션)은 선택지에서 제외(스펙 269) — 단기는 아래 "단기 기억"(historyDepth)이 소유.
+      items: (blocks.memory?.items ?? []).filter((m) => m.name !== SHORT_TERM_MEMORY).map((m) => ({
         id: `mem:${m.name}`,
         label: m.name,
         // 비영속은 회상·기록을 하지 않는다(스펙 235) — 새 선택만 잠근다(미선택-잠금, codex 238 #2:
@@ -467,7 +468,7 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
               </span>
             </div>
           </Field>
-          <Field label="채팅 히스토리">
+          <Field label="단기 기억">
             <Select
               value={draft.historyDepth}
               onChange={(v) => set('historyDepth', v)}

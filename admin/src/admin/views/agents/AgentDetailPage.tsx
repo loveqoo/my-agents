@@ -7,7 +7,7 @@ import { Tag, Button, Alert, Modal, Descriptions, Grid, Typography } from 'antd'
 import { VersionHistory, ExposeSwitch } from '../../shared'
 import { Icon } from '../../icons'
 import { AgentMemoryPanel } from '../AgentMemoryPanel'
-import { isOrchestratorImpl, type Agent, type VersionMeta } from '../../mockData'
+import { isOrchestratorImpl, SHORT_TERM_MEMORY, type Agent, type VersionMeta } from '../../mockData'
 import { DelegationGraph } from '../../DelegationGraph'
 import { displayName } from '../../naming'
 import { PersonaStaleNote } from './PersonaStaleNote'
@@ -101,7 +101,7 @@ export function AgentDetailPage({
                         const parts: string[] = []
                         if ((agent.mcps || []).length) parts.push(`도구 ${agent.mcps.length}`)
                         if ((agent.vectorTables || []).length) parts.push(`문서 ${agent.vectorTables.length}`)
-                        if ((agent.memories || []).length) parts.push(`메모리 ${agent.memories.length}`)
+                        { const liveMem = (agent.memories || []).filter((m) => m !== SHORT_TERM_MEMORY); if (liveMem.length) parts.push(`메모리 ${liveMem.length}`) }
                         if ((agent.capabilities || []).length) parts.push(`위임 대상 ${(agent.capabilities || []).length}`)
                         return parts.length ? parts.join(' · ') : '연결 없음 — 모델만으로 응답'
                       })()}
@@ -173,16 +173,17 @@ export function AgentDetailPage({
                 { key: 'persona', label: '페르소나', children: agent.persona || '없음' },
                 {
                   key: 'history',
-                  label: '채팅 히스토리',
+                  label: '단기 기억',
                   children: agent.historyDepth ? `최근 ${agent.historyDepth}개 메시지` : '기억 안 함',
                 },
-                ...((agent.memories || []).length
+                // 단기(세션) 죽은 값은 제외(스펙 269) — 단기는 위 "단기 기억"이 소유.
+                ...((agent.memories || []).filter((m) => m !== SHORT_TERM_MEMORY).length
                   ? [{
                       key: 'memories',
-                      label: '메모리',
+                      label: '장기 기억',
                       children: (
                         <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6 }}>
-                          {agent.memories.map((m) => <Tag key={m} color="purple">{m}</Tag>)}
+                          {agent.memories.filter((m) => m !== SHORT_TERM_MEMORY).map((m) => <Tag key={m} color="purple">{m}</Tag>)}
                         </span>
                       ),
                     }]
@@ -279,7 +280,7 @@ export function AgentDetailPage({
                         if (cfg.model !== agent.model) diffs.push('모델 → ' + cfg.model)
                         if (cfg.persona !== agent.persona) diffs.push('페르소나 → ' + cfg.persona)
                         if ((cfg.memories || []).join() !== (agent.memories || []).join()) diffs.push('메모리 변경됨')
-                        if (cfg.historyDepth !== agent.historyDepth) diffs.push('채팅 히스토리 → ' + (cfg.historyDepth || 0))
+                        if (cfg.historyDepth !== agent.historyDepth) diffs.push('단기 기억 → ' + (cfg.historyDepth || 0))
                         if ((cfg.vectorTables || []).join() !== (agent.vectorTables || []).join()) diffs.push('벡터 테이블 변경됨')
                         if ((cfg.mcps || []).join() !== (agent.mcps || []).join()) diffs.push('MCP 변경됨')
                         return diffs.length ? (

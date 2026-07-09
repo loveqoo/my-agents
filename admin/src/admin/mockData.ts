@@ -4,6 +4,10 @@
    라이브 세션, 승인 큐, 각종 상태맵. 모두 mock(데모 데이터)이며 뷰에서 useState로
    복제해 조작한다. 실제 백엔드 연결은 이후 루프에서 점진적으로. */
 
+/* 단기 기억 카탈로그 라벨(스펙 269) — 백엔드 memory_enabled()가 무시하는 죽은 문자열(단기 기억은
+   historyDepth가 소유). 기억 *선택지·표시*에서 제외하는 단일 출처(카탈로그 DB 행은 유지). */
+export const SHORT_TERM_MEMORY = '단기(세션)'
+
 /* ---------- 타입 ---------- */
 export interface AgentConfig {
   model?: string

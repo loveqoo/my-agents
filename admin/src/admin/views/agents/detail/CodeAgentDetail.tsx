@@ -4,7 +4,7 @@
 import { Tag, Button, Alert, Modal, Descriptions, Grid, Typography } from 'antd'
 import { ExposeSwitch } from '../../../shared'
 import { Icon } from '../../../icons'
-import type { Agent } from '../../../mockData'
+import { SHORT_TERM_MEMORY, type Agent } from '../../../mockData'
 import { displayName } from '../../../naming'
 import { PersonaStaleNote } from '../PersonaStaleNote'
 import { DetailPageShell, SectionTitle, JumpCell, type DetailSection } from './DetailPageShell'
@@ -60,7 +60,7 @@ export function CodeAgentDetailPage({
                     {(() => {
                       const parts: string[] = []
                       if ((agent.mcps || []).length) parts.push(`도구 ${agent.mcps.length}`)
-                      if ((agent.memories || []).length) parts.push(`메모리 ${agent.memories.length}`)
+                      { const liveMem = (agent.memories || []).filter((m) => m !== SHORT_TERM_MEMORY); if (liveMem.length) parts.push(`메모리 ${liveMem.length}`) }
                       return parts.length ? `${parts.join(' · ')} (읽기 전용)` : '연결 없음 (읽기 전용)'
                     })()}
                   </JumpCell>
@@ -108,16 +108,17 @@ export function CodeAgentDetailPage({
               { key: 'persona', label: '페르소나', children: agent.persona || '없음' },
               {
                 key: 'history',
-                label: '채팅 히스토리',
+                label: '단기 기억',
                 children: agent.historyDepth ? `최근 ${agent.historyDepth}개 메시지` : '기억 안 함',
               },
-              ...((agent.memories || []).length
+              // 단기(세션) 죽은 값은 제외(스펙 269) — 단기는 위 "단기 기억"이 소유.
+              ...((agent.memories || []).filter((m) => m !== SHORT_TERM_MEMORY).length
                 ? [{
                     key: 'memories',
-                    label: '메모리',
+                    label: '장기 기억',
                     children: (
                       <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6 }}>
-                        {agent.memories.map((m) => <Tag key={m} color="purple">{m}</Tag>)}
+                        {agent.memories.filter((m) => m !== SHORT_TERM_MEMORY).map((m) => <Tag key={m} color="purple">{m}</Tag>)}
                       </span>
                     ),
                   }]

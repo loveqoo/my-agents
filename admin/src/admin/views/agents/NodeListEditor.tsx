@@ -1,10 +1,6 @@
 import { Input, Select, Button, Segmented } from 'antd'
 import type { PipelineNode } from '../../mockData'
 
-/* 회상을 실제로 켜는 기억 블록(codex 268 P3) — 백엔드 memory.LONG_TERM_MEMORY 미러(변경 시 함께).
-   이 블록 없이 다른 기억(단기 등)만 고르면 회상이 조용히 안 돌아 정직 안내가 필요하다. */
-const RECALL_BLOCK = '장기 기억 (mem0)'
-
 /* 노드형 일렬 파이프라인 편집기(스펙 259) — impl=pipeline일 때 "하는 일" 자리에 뜬다.
    ArtifactSpecEditor(190) 관용구 계승: 테두리 카드 + add/remove + per-item 설정 + xxxValid 게이트.
    각 노드 = { 이름 · 프롬프트 · 모델 · 도구 }. 노드를 위→아래 순서대로 이어 실행(일렬).
@@ -226,12 +222,8 @@ export function NodeListEditor({
                   disabled={memoryOptions.length === 0}
                   style={{ width: '100%' }}
                 />
-                {/* 정직 안내(codex 268 P3): 장기 기억 없이 고르면 회상이 조용히 안 돎 — 미리 알림. */}
-                {(n.memories?.length ?? 0) > 0 && !n.memories!.includes(RECALL_BLOCK) && (
-                  <span style={{ fontSize: 12, color: 'var(--color-warning)' }}>
-                    회상은 "{RECALL_BLOCK}"을 선택해야 동작합니다 — 지금 선택으로는 기억을 찾지 않습니다.
-                  </span>
-                )}
+                {/* 스펙 269: 회상 경고 제거 — 단기(세션) 선택지를 뺐으니 고를 수 있는 건 장기(mem0)뿐.
+                    죽은 선택지에 대한 경고(268 P3)가 필요 없어졌다. */}
               </div>
               {(n.memories?.length ?? 0) > 0 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
