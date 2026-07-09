@@ -172,6 +172,37 @@ export function NodeListEditor({
                   : '지금까지의 대화(사용자 입력 + 앞 노드 결과)를 모두 보고 이어서 처리합니다.'}
               </span>
             </div>
+
+            {/* 출력 형식(스펙 261) — 자유 텍스트 / JSON 강제. JSON이면 필수 키(선택) 태그 입력. */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <span style={{ fontSize: 13, color: 'var(--color-text)', fontWeight: 500 }}>출력 형식</span>
+              <Segmented
+                value={n.format ?? 'text'}
+                onChange={(v) => setNode(i, { format: v as 'text' | 'json' })}
+                options={[
+                  { label: '자유 텍스트', value: 'text' },
+                  { label: 'JSON', value: 'json' },
+                ]}
+              />
+              {(n.format ?? 'text') === 'json' && (
+                <>
+                  <Select
+                    mode="tags"
+                    allowClear
+                    value={n.fields ?? []}
+                    onChange={(vals) => setNode(i, { fields: vals })}
+                    placeholder="필수 키 (선택 — 입력 후 Enter, 예: title, summary)"
+                    options={[]}
+                    style={{ width: '100%' }}
+                    tokenSeparators={[',']}
+                  />
+                  <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+                    유효한 JSON 객체로만 답하도록 강제합니다. 키를 넣으면 그 키의 존재까지 검증하고, 형식이
+                    어긋나면 한 번 자동 교정합니다(그래도 실패하면 원문을 그대로 넘깁니다).
+                  </span>
+                </>
+              )}
+            </div>
           </div>
         </div>
       ))}

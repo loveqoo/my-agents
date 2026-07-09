@@ -32,6 +32,8 @@ export interface PipelineNode {
   model: string // 이 노드가 쓸 등록 모델 이름(ModelConfig.name)
   tools: string[] // 이 노드가 참고할 도구 이름(MCP 도구명 + 문서 검색 search_documents)
   context?: 'carry' | 'clean' // 맥락 모드(스펙 260). carry=대화 이어받기(기본), clean=앞 결과만 격리
+  format?: 'text' | 'json' // 출력 형식(스펙 261). text=자유(기본), json=유효 JSON 강제
+  fields?: string[] // JSON 필수 키(스펙 261, 선택) — format=json일 때만 의미
 }
 
 /** 노코드 산출물형 필드(스펙 190) — 후보 있으면 SelectBox(enum), 없으면 자유 입력. */

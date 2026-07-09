@@ -13,9 +13,10 @@
 
 from __future__ import annotations
 
+import json
 from typing import Annotated, TypedDict
 
-from langchain_core.messages import HumanMessage, RemoveMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage, SystemMessage, ToolMessage
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
@@ -26,6 +27,30 @@ from ..runtime import AgentBuildContext, AgentManifest
 
 class _State(TypedDict):
     messages: Annotated[list, add_messages]
+
+
+def _coerce_json(text: object, fields: list) -> dict | None:
+    """관대 JSON 추출·파싱·필수키 검사(스펙 261, 순수 — 단위 검증 가능). 코드펜스·전후 산문에 감싸여도
+    첫 `{`~마지막 `}` 슬라이스로 시도하고, 안 되면 전체 문자열로 재시도. dict 아님·파싱 실패·필수키
+    누락이면 None(형식 위반을 조용히 통과시키지 않음)."""
+    if not isinstance(text, str) or not text.strip():
+        return None
+    candidates = []
+    s, e = text.find("{"), text.rfind("}")
+    if s != -1 and e != -1 and e > s:
+        candidates.append(text[s:e + 1])
+    candidates.append(text.strip())
+    for c in candidates:
+        try:
+            obj = json.loads(c)
+        except (ValueError, TypeError):
+            continue
+        if not isinstance(obj, dict):
+            continue
+        if fields and any(k not in obj for k in fields):
+            continue
+        return obj
+    return None
 
 
 def _text_of(m: object) -> str:
@@ -78,12 +103,19 @@ def normalize_nodes(raw: object) -> list[dict]:
         # 맥락 모드(스펙 260): carry=누적 대화 이어받기(기본), clean=앞 결과만 격리 입력. 잡값→carry.
         context = n.get("context")
         context = context if context in ("carry", "clean") else "carry"
+        # 출력 형식(스펙 261): text=자유(기본), json=유효 JSON 강제. fields=필수 키(선택). 잡값→text.
+        fmt = n.get("format")
+        fmt = fmt if fmt in ("text", "json") else "text"
+        raw_fields = n.get("fields")
+        node_fields = [f for f in raw_fields if isinstance(f, str) and f.strip()] if isinstance(raw_fields, list) else []
         out.append({
             "name": name,
             "prompt": prompt,
             "model_cfg": n.get("model_cfg") if isinstance(n.get("model_cfg"), dict) else None,
             "tools": tools,
             "context": context,
+            "format": fmt,
+            "fields": node_fields,
         })
     return out
 
@@ -135,9 +167,35 @@ class LinearPipelineAgent:
             bound = model.bind_tools(node_tools) if node_tools else model
             prompt = node["prompt"]
             clean = node.get("context") == "clean"
+            fmt = node.get("format") or "text"
+            fields = node.get("fields") or []
+            # 출력 형식 강제(스펙 261): JSON이면 시스템 프롬프트에 지시를 덧붙여 첫 시도부터 JSON 지향.
+            sys_content = prompt
+            if fmt == "json":
+                key_req = f" 반드시 다음 키를 포함하세요: {', '.join(fields)}." if fields else ""
+                sys_content = (
+                    f"{prompt}\n\n[출력 형식] 최종 답변은 유효한 JSON 객체 하나로만 출력하세요"
+                    f"(도구 호출은 예외). 코드블록·설명·주석 없이 JSON만.{key_req}"
+                )
+
+            async def _finalize(resp):
+                # JSON 강제는 노드의 최종 응답(tool_calls 없음)에만. 도구 루프 중간은 건드리지 않음.
+                if fmt != "json" or getattr(resp, "tool_calls", None):
+                    return resp
+                obj = _coerce_json(_text_of(resp), fields)
+                if obj is None:
+                    # 1회 보정 — unbound 모델(도구 없이)에 형식 변환만 요청.
+                    repair = await model.ainvoke([
+                        SystemMessage(content=sys_content),
+                        HumanMessage(content="다음 내용을 위 형식의 유효한 JSON 객체 하나로 변환해 JSON만 출력하세요:\n\n" + _text_of(resp)),
+                    ])
+                    obj = _coerce_json(_text_of(repair), fields)
+                if obj is not None:
+                    return AIMessage(content=json.dumps(obj, ensure_ascii=False))
+                return resp  # 강제 실패 — 원문 통과(크래시 0·거짓 JSON 조작 안 함, 정직)
 
             async def _step(state: _State) -> dict:
-                sys = SystemMessage(content=prompt)
+                sys = SystemMessage(content=sys_content)
                 msgs = state["messages"]
                 # clean 첫 진입(스펙 260): 쌓인 대화를 걷어내고 앞 결과만 새 입력으로 격리. 재진입
                 # (도구 루프 뒤 = 마지막이 ToolMessage)은 격리 buffer 위에서 정상 누적(carry 경로).
@@ -145,11 +203,11 @@ class LinearPipelineAgent:
                 if clean and not reentry:
                     prev_text = _text_of(msgs[-1]) if msgs else ""
                     human = HumanMessage(content=prev_text)
-                    resp = await bound.ainvoke([sys, human])
+                    resp = await _finalize(await bound.ainvoke([sys, human]))
                     # 이전 메시지 전부 제거 + [앞 결과 입력, 응답]만 남김(격리 경계 — 하류도 여기부터 봄).
                     removals = [RemoveMessage(id=m.id) for m in msgs if getattr(m, "id", None)]
                     return {"messages": [*removals, human, resp]}
-                resp = await bound.ainvoke([sys, *msgs])
+                resp = await _finalize(await bound.ainvoke([sys, *msgs]))
                 return {"messages": [resp]}
 
             return _step, node_tools

@@ -84,6 +84,10 @@ try {
   } catch (e) { log('  info  도구 선택 skip: ' + (e?.message ?? e).slice(0, 60)) }
   await page.waitForTimeout(200)
 
+  // 출력 형식(스펙 261): 노드1을 JSON으로 전환 — 왕복 보존 검증용. (필수 키 태그 입력은 unit이 덮음.)
+  await page.getByText('JSON', { exact: true }).first().click({ force: true })
+  await page.waitForTimeout(200)
+
   // 둘째 노드 + 페르소나 불러오기(있으면) → 프롬프트 자동 채움 확인
   await page.getByRole('button', { name: /노드 추가/ }).click()
   await page.waitForTimeout(300)
@@ -128,7 +132,7 @@ try {
     const items = Array.isArray(j) ? j : (j.items ?? j.data ?? [])
     const a = items.find((x) => x.name === nm)
     if (!a) return { error: 'not found', count: items.length }
-    return { impl: a.impl, conformance: a.conformance, nodes: a.nodes, mcps: a.mcps, vectorTables: a.vectorTables, source: a.source }
+    return { impl: a.impl, conformance: a.conformance, nodes: a.nodes, mcps: a.mcps, vectorTables: a.vectorTables, source: a.source, format0: a.nodes?.[0]?.format }
   }, NAME)
   log('ROUNDTRIP=' + JSON.stringify(roundtrip))
   check(roundtrip && !roundtrip.error, '왕복: 생성된 에이전트 조회됨')
@@ -139,6 +143,8 @@ try {
   // 맥락 모드 왕복(스펙 260): 노드1 기본 carry·노드2 clean 보존
   check((roundtrip?.nodes?.[0]?.context ?? 'carry') === 'carry', `왕복: 노드1 맥락=carry (got ${roundtrip?.nodes?.[0]?.context})`)
   check(roundtrip?.nodes?.[1]?.context === 'clean', `왕복: 노드2 맥락=clean 보존 (got ${roundtrip?.nodes?.[1]?.context})`)
+  // 출력 형식 왕복(스펙 261): 노드1 format=json 보존
+  check(roundtrip?.nodes?.[0]?.format === 'json', `왕복: 노드1 출력형식=json 보존 (got ${roundtrip?.nodes?.[0]?.format})`)
   check(roundtrip?.conformance === 'conforming', `왕복: conformance=conforming (got ${roundtrip?.conformance})`)
   if (toolPicked) {
     const derivedPool = (roundtrip?.mcps?.length ?? 0) + (roundtrip?.vectorTables?.length ?? 0)
