@@ -224,7 +224,10 @@ function DatasetDrawer({
   onOpenRun: (runId: string) => void
 }) {
   const [cases, setCases] = useState<EvalCaseT[]>([])
+  // 드로어 내부 탭(스펙 252, 사용자 결정) — 관심사 3겹(실행 폼·성적·문제 CRUD)을 두 탭으로.
+  const [dsTab, setDsTab] = useState<'cases' | 'run'>('cases')
   const [dsRuns, setDsRuns] = useState<EvalRunT[]>([])
+  useEffect(() => { setDsTab('cases') }, [dataset?.id])
   const [editing, setEditing] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -323,6 +326,17 @@ function DatasetDrawer({
     <Drawer open={!!dataset} width={640} title={dataset ? `문제집 · ${dataset.name}` : ''} onClose={onClose}>
       {dataset ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <Tabs
+            activeKey={dsTab}
+            onChange={(k) => setDsTab(k as 'cases' | 'run')}
+            items={[
+              { key: 'cases', label: `문제${cases.length ? ` (${cases.length})` : ''}` },
+              { key: 'run', label: '실행 · 성적' },
+            ]}
+            size="small"
+            style={{ marginBottom: -6 }}
+          />
+          {dsTab === 'run' && (<>
           {/* 시험 실행 — 소유자·관리자만(스펙 178 P3, 읽기는 공개). 로컬(ui) 에이전트만(러너 제약). */}
           {canManage ? (
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -446,6 +460,12 @@ function DatasetDrawer({
               </div>
             </div>
           ) : null}
+          {dsRuns.length === 0 ? (
+            <Alert type="info" showIcon title="아직 실행 기록이 없습니다 — 위에서 시험을 실행하면 추이가 쌓입니다." />
+          ) : null}
+          </>)}
+
+          {dsTab === 'cases' && (<>
           {cases.length === 0 && !dataset.generating ? (
             <Alert type="info" showIcon title="문제가 없습니다 — 아래에서 첫 문제를 추가하세요." />
           ) : null}
@@ -501,6 +521,7 @@ function DatasetDrawer({
               </Button>
             )
           ) : null}
+          </>)}
         </div>
       ) : null}
     </Drawer>
