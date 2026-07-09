@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Select, Input, Switch, Slider, Tooltip, Collapse, Alert, Modal, Segmented, Button, Tag, Steps } from 'antd'
 import { isOrchestratorImpl, type BlockCategory, type ToolPolicy, type Agent } from '../../mockData'
+import { DelegationGraph } from '../../DelegationGraph'
 import { listAgentImpls, type Model, type Collection, type ImplMeta } from '../../../api'
 import { PickerGroups, type PickerGroup } from '../../../PickerGroups'
 import { validateName, NAME_HINT } from '../../naming'
@@ -433,7 +434,23 @@ export function AgentForm({
         {isArtifactForm ? (
           <ArtifactSpecEditor value={form.artifactSpec} onChange={(s) => set('artifactSpec', s)} />
         ) : orchestratorSelected ? (
-          <PickerGroups groups={capGroups} selected={form.capabilities} onToggle={toggleCap} />
+          <>
+            <PickerGroups groups={capGroups} selected={form.capabilities} onToggle={toggleCap} />
+            {/* 위임 구조 미리보기(스펙 257 후속) — 저장을 막지 않고 보이게: 순환은 빨간 마커
+                ("실행 시 자동 차단"). 하드 차단은 존재 비노출 원칙과 충돌(타인 private 에이전트
+                때문에 저장 거부 = 존재 누출)·런타임 체인이 이미 안전을 보장하므로 채택 안 함. */}
+            {form.capabilities.some((c) => !c.includes(':')) ? (
+              <div style={{ marginTop: 12, border: '1px solid var(--color-border-secondary)', borderRadius: 8, padding: '10px 14px' }}>
+                <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginBottom: 6 }}>위임 구조 미리보기</div>
+                <DelegationGraph
+                  rootAgentId={agents.find((a) => a.name === initial?.name)?.agentId ?? '__new__'}
+                  agents={agents}
+                  rootCapsOverride={form.capabilities}
+                  rootLabel={form.name || '(이 에이전트)'}
+                />
+              </div>
+            ) : null}
+          </>
         ) : (
           <>
             {/* 소비 표면 게이트(스펙 206) — 이 impl이 안 읽는 그룹은 숨기고, 저장된 연결이 있으면 경고. */}

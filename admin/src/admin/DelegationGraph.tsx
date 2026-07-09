@@ -55,11 +55,13 @@ function NodeRow({ agent, name, depth, cycle, capsOverride }: {
   )
 }
 
-export function DelegationGraph({ rootAgentId, agents, rootCapsOverride }: {
+export function DelegationGraph({ rootAgentId, agents, rootCapsOverride, rootLabel }: {
   rootAgentId: string
   agents: Agent[]
   /** 오버라이드 미리보기(스펙 257) — 루트의 위임 대상을 편집 중 값으로(저장 config 대신). */
   rootCapsOverride?: string[]
+  /** 루트가 아직 저장 전(새 에이전트)일 때 표시할 이름 — 미확인 태그 대신 합성 루트로. */
+  rootLabel?: string
 }) {
   const byId = new Map(agents.map((a) => [a.agentId, a]))
   const root = byId.get(rootAgentId)
@@ -68,16 +70,26 @@ export function DelegationGraph({ rootAgentId, agents, rootCapsOverride }: {
   const walk = (agentId: string, depth: number, path: Set<string>) => {
     const a = byId.get(agentId)
     const cycle = path.has(agentId)
+    const syntheticRoot = depth === 0 && !a && !!rootCapsOverride // 저장 전 새 에이전트(스펙 257 후속)
     rows.push(
-      <NodeRow
-        key={`${agentId}-${depth}-${rows.length}`}
-        agent={a}
-        name={a?.name ?? agentId}
-        depth={depth}
-        cycle={cycle}
-        capsOverride={depth === 0 ? rootCapsOverride : undefined}
-      />,
+      syntheticRoot ? (
+        <NodeRow key="root" name={rootLabel || '(이 에이전트)'} depth={0} capsOverride={rootCapsOverride} />
+      ) : (
+        <NodeRow
+          key={`${agentId}-${depth}-${rows.length}`}
+          agent={a}
+          name={a?.name ?? agentId}
+          depth={depth}
+          cycle={cycle}
+          capsOverride={depth === 0 ? rootCapsOverride : undefined}
+        />
+      ),
     )
+    if (syntheticRoot) {
+      const next = new Set(path)
+      for (const c of (rootCapsOverride ?? []).filter(isAgentCap)) walk(c, 1, next)
+      return
+    }
     if (cycle || !a) return // 순환·미확인은 전개 중단(런타임과 동일 지점에서 멈춤)
     if (a.source === 'code' || a.source === 'external') return // 원격은 내부 구조 미상(잎)
     if (depth >= MAX_DEPTH) {
