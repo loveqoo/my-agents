@@ -132,11 +132,18 @@ def normalize_nodes(raw: object) -> list[dict]:
 
 
 def _unique_node_ids(nodes: list[dict]) -> list[str]:
-    """그래프 노드 id(이름 충돌 시 접미 — LangGraph 노드명 유일 요구). 표시 이름은 별개 보존."""
+    """그래프 노드 id(이름 충돌 시 접미 — LangGraph 노드명 유일 요구). 표시 이름은 별개 보존.
+
+    `__tools` 접미는 예약(codex 268 P2): 도구 노드 id가 `<id>__tools`로 생성되므로, 사용자가 노드를
+    문자 그대로 "A__tools"로 지으면 (a) 노드 "A"의 도구 노드와 id 충돌(그래프 빌드 크래시),
+    (b) 인스펙터가 도구 노드로 오귀속. 예약 접미로 끝나는 이름은 '_'를 덧붙여 회피(정직 표기 —
+    id에만, 저장된 이름은 불변)."""
     seen: dict[str, int] = {}
     ids: list[str] = []
     for n in nodes:
         base = n["name"]
+        while base.endswith("__tools"):
+            base += "_"
         if base in seen:
             seen[base] += 1
             ids.append(f"{base}#{seen[base]}")

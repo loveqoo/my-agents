@@ -141,6 +141,37 @@ async def main():
     finally:
         P._model_from_node = orig_model
 
+    # ── codex 268 후속: __tools 이름 충돌 회피 + 기록 쿼리 마스킹 ──
+    from langchain_core.tools import StructuredTool
+
+    probe = StructuredTool.from_function(func=lambda query="": "", name="probe", description="p")
+    P._model_from_node = fake_model
+    try:
+        # 노드 "A"(도구 있음) + 노드 "A__tools"(문자 그대로) → 크래시 없이 빌드·id 회피
+        nodes_clash = [
+            {"name": "A", "prompt": "PA", "model_cfg": MODEL_CFG, "tools": ["probe"]},
+            {"name": "A__tools", "prompt": "PB", "model_cfg": MODEL_CFG, "tools": []},
+        ]
+        ctx3 = AgentBuildContext(persona="", model_cfg=MODEL_CFG, tools=[probe],
+                                 impl_config={"nodes": nodes_clash})
+        g3 = LinearPipelineAgent().build_graph(ctx3)
+        g3nodes = set(g3.get_graph().nodes)
+        check("A" in g3nodes and "A__tools" in g3nodes and "A__tools_" in g3nodes,
+              f"P2 예약 접미: A의 도구 노드(A__tools)와 사용자 노드(A__tools→A__tools_) 공존 (got {sorted(g3nodes)})")
+    finally:
+        P._model_from_node = orig_model
+
+    chat_mod.memory.search = lambda scope, q, cfg: [{"memory": "m"}]
+    chat_mod.memory.format_memory_hits = lambda hits: "m"
+    try:
+        rec2: list = []
+        proxy3 = _MemoryRecallProxy({}, {"cfg": 1}, "기본", rec2)
+        await proxy3("비밀 sk-abcdef1234567890 포함 키워드", node="N")
+        check("sk-abcdef1234567890" not in rec2[0]["query"], f"P3 기록 쿼리 비밀 마스킹 (got {rec2[0]['query']})")
+    finally:
+        chat_mod.memory.search = orig_search
+        chat_mod.memory.format_memory_hits = orig_format
+
     # ── 스키마: memories/memoryQuery 화이트리스트 ──
     from api.schemas import AgentConfig
     n = AgentConfig(nodes=[{"prompt": "p", "memories": ["단기(세션)", 3], "memoryQuery": "input", "evil": 1}]).nodes

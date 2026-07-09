@@ -181,7 +181,9 @@ class _MemoryRecallProxy:
             hits = await asyncio.to_thread(memory.search, self._scope, q, self._cfg)
             self._cache[q] = (memory.format_memory_hits(hits) if hits else "", len(hits))
         text, n = self._cache[q]
-        self.records.append({"node": node, "query": q[:120], "hits": n, "cached": cached})
+        # 기록 쿼리는 비밀 마스킹(codex 268 P3 — 타 트레이스 표면과 정합): input 모드 키워드는 앞 노드
+        # 출력이라 비밀이 섞일 수 있음(_sanitize가 sk-… 등 마스킹, 캡 120).
+        self.records.append({"node": node, "query": memory._sanitize(q, cap=120), "hits": n, "cached": cached})
         return text
 
 
@@ -1493,7 +1495,13 @@ async def resume_approval(approval: Approval, decision: str) -> None:
         )
         return
 
-    recall_scope = {"user_id": None, "run_id": ctx["session_id"], "agent_id": ctx["ext_agent_id"]}
+    # user 축 = 원 요청자(approval.user_id — 브로커 RBAC 재확인과 동일 재료, codex 268 P2): 재개 후
+    # 노드 회상이 원 요청자의 세션-가로지름 기억을 그대로 쓰게(원 턴과 동일 스코프). 없으면 None(머신 발).
+    recall_scope = {
+        "user_id": str(approval.user_id) if approval.user_id else None,
+        "run_id": ctx["session_id"],
+        "agent_id": ctx["ext_agent_id"],
+    }
     # 스펙 233 봉합(이중 배선 축 — 신규 chat과 동일 게이트를 재개 경로에도, codex 잔여 회귀): impl이
     # "memories"를 consumes로 선언할 때만 회상(폼 "무시됩니다"를 재개 경로에서도 참으로).
     _resume_reads_memory = impl.describe().consumes is None or "memories" in impl.describe().consumes
@@ -1602,6 +1610,10 @@ async def resume_approval(approval: Approval, decision: str) -> None:
     if resume_broker.invocations:
         # 재개 턴의 브로커 호출도 표면화(스펙 130, codex #1).
         trace["brokerCalls"] = _broker_calls_trace(resume_broker.invocations)
+    if resume_recalls:
+        # 재개 후 노드 회상도 표면화(codex 268 P3 — 메인 경로 미러): 없으면 재개 답이 왜 기억을
+        # 썼는지 인스펙터가 설명 못 함.
+        trace["memoryRecalls"] = resume_recalls
     await _persist(
         ctx, user_text, reply, trace, tokens, ctx["persist_history"], user_id=None
     )
