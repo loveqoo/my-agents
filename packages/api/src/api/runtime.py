@@ -693,12 +693,19 @@ def _summarize_node_update(node: str, delta: Any) -> str | None:
                     continue
                 from .memory import _sanitize as _mask
 
+                # 맥락 격리(스펙 260/262) — clean 노드가 낸 RemoveMessage(role=="remove", 상태 삭제
+                # 지시)는 내부어라 사람 말로 접는다: "이전 맥락 N개 정리 (격리)". 개수=걷어낸 이전 메시지
+                # 수(디버깅 신호 보존). 나머지 실제 발화만 role+본문 프리뷰(앞 N건 + "+N건").
+                removes = sum(1 for m in val if _msg_role(m) == "remove")
+                rest = [m for m in val if _msg_role(m) != "remove"]
                 previews: list[str] = []
-                for m in val[:_MSG_PREVIEW_N]:
+                if removes:
+                    previews.append(f"이전 맥락 {removes}개 정리 (격리)")
+                for m in rest[:_MSG_PREVIEW_N]:
                     raw = m.get("content") if isinstance(m, dict) else getattr(m, "content", None)
                     text = _cap(_mask(_content_text(raw), cap=1_000_000), _MSG_PREVIEW_CAP)
                     previews.append(f"{_msg_role(m)}: «{text}»" if text else _msg_role(m))
-                extra = len(val) - len(previews)
+                extra = max(0, len(rest) - _MSG_PREVIEW_N)
                 parts.append(" / ".join(previews) + (f" (+{extra}건)" if extra > 0 else ""))
                 continue
             if isinstance(val, str):
