@@ -100,6 +100,43 @@ async def _config_error_stream(impl_key: str):
 # 관리(수정/삭제)는 blocks.py의 assert_may_manage가 계속 게이트한다.
 
 
+async def _resolve_node_models(db, nodes: list, default_cfg: dict | None) -> list[dict]:
+    """노드형(스펙 259) 노드별 모델을 레지스트리에서 미리 해석해 `model_cfg`를 심는다(085 U2 — impl은
+    DB 미접촉). 에이전트 모델 해석과 **동일 조회**(`ModelConfig.name==name, kind=="chat"`, provider
+    상속) — 드리프트 0. 미지정/미존재 이름은 `default_cfg`(에이전트 기본 chat 모델)로 폴백. 같은 모델
+    이름은 1회만 조회해 재사용(N 노드 M 중복 모델 → distinct 쿼리). 순수 데이터 반환(잡 노드는 통과 —
+    정규화는 impl의 normalize_nodes가)."""
+    resolved: list[dict] = []
+    cache: dict[str, dict | None] = {}
+    for n in nodes:
+        if not isinstance(n, dict):
+            continue
+        name = n.get("model")
+        cfg = None
+        if isinstance(name, str) and name.strip():
+            if name in cache:
+                cfg = cache[name]
+            else:
+                m = (
+                    await db.execute(
+                        select(ModelConfig)
+                        .where(ModelConfig.name == name, ModelConfig.kind == "chat")
+                        .options(selectinload(ModelConfig.provider))
+                    )
+                ).scalar_one_or_none()
+                if m is not None and m.provider and m.provider.base_url and m.model_id:
+                    cfg = {
+                        "base_url": m.provider.base_url,
+                        "api_key": crypto.decrypt(m.provider.api_key),
+                        "model_id": m.model_id,
+                        "params": dict(m.params or {}),
+                    }
+                cache[name] = cfg
+        # 심은 model_cfg는 해석된 노드 모델(없으면 에이전트 기본으로 폴백 — impl의 _model_from_node).
+        resolved.append({**n, "model_cfg": cfg or default_cfg})
+    return resolved
+
+
 async def _load_context(
     agent_id: uuid.UUID,
     session_str_id: str | None,
@@ -171,6 +208,7 @@ async def _load_context(
             "source": agent.source,
             "impl": cfg.get("impl"),  # in-process 커스텀 구현 키(스펙 085) — 신뢰 레지스트리 조회용
             "artifact_spec": cfg.get("artifactSpec"),  # 노코드 산출물형 필드 명세(스펙 190) — impl_config로 주입
+            "nodes": cfg.get("nodes"),  # 노드형 파이프라인 노드 명세(스펙 259) — 아래서 노드별 모델 해석 후 impl_config로 주입
 
             # 원본 오버라이드 — in-process 커스텀 에이전트가 화이트리스트 밖 키도 읽을 수 있게 전달
             # (스펙 085 AgentBuildContext.overrides). 원격은 None(로컬 설정 주입 무의미, bypass 보존).
@@ -245,6 +283,14 @@ async def _load_context(
             }
         else:
             ctx["model_cfg"] = None
+
+        # 노드형(스펙 259) — 노드별 모델을 **플랫폼이 미리 해석**해 심는다(085 U2: build_graph는 DB
+        # 미접촉이라 노드 모델을 여기서 해석). 각 노드 model 이름 → cfg(에이전트 모델과 동일 조회),
+        # 미지정/미존재면 에이전트 기본 model_cfg로 폴백. 로컬(ui) 경로에서만 의미(원격은 건너뜀).
+        if not _is_remote(agent.source) and isinstance(ctx.get("nodes"), list):
+            ctx["nodes_resolved"] = await _resolve_node_models(db, ctx["nodes"], ctx["model_cfg"])
+        else:
+            ctx["nodes_resolved"] = None
 
         # mem0용 모델 설정(레지스트리). llm=해석된 chat 모델, embedder=기본 embedding 모델.
         # 임베딩 모델이 없으면 mem_cfg=None → 메모리 비활성(graceful).
@@ -853,7 +899,13 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
         memories=mem_hits,
         overrides=ctx.get("overrides"),
         broker=build_broker_scoped,
-        impl_config=ctx.get("artifact_spec"),  # 스펙 190 — 노코드 산출물형 필드 명세 주입(그 외 impl은 무시)
+        # impl_config — 노코드 impl용 설정 통로. 노드형(259)=해석된 노드, 산출물형(190)=필드 명세.
+        # 에이전트당 impl 하나라 상호배타(둘 중 해당하는 것만 실림, 그 외 impl은 무시).
+        impl_config=(
+            {"nodes": ctx["nodes_resolved"]}
+            if ctx.get("nodes_resolved") is not None
+            else ctx.get("artifact_spec")
+        ),
     )
     graph = impl.build_graph(build_ctx)
     # thread_id는 **턴별 고유**(세션-안정 아님): 세션-안정으로 두고 매 턴 전체 히스토리를 넘기면
@@ -1425,6 +1477,12 @@ async def resume_approval(approval: Approval, decision: str) -> None:
         memories=mem_hits,
         overrides=ctx.get("overrides"),
         broker=resume_broker,
+        # 재개도 원 턴과 동일 impl_config 재주입(노드형 노드 도구 HIL 재개·산출물형 폼 재개, 259/190).
+        impl_config=(
+            {"nodes": ctx["nodes_resolved"]}
+            if ctx.get("nodes_resolved") is not None
+            else ctx.get("artifact_spec")
+        ),
     )
     graph = impl.build_graph(build_ctx)
     config = {"configurable": {"thread_id": thread_id}}

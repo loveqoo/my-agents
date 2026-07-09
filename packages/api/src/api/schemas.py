@@ -459,6 +459,9 @@ class AgentConfig(BaseModel):
     # 이 명세를 읽어 폼을 돈다(chat.py가 impl_config로 주입). 라운드트립 보존 필수(model_dump가 드롭하면
     # 폼 재로드 시 명세 소실 — learning 101 seed-bypasses-write-schema 동형).
     artifactSpec: dict[str, Any] | None = None
+    # 노드형(스펙 259) — 일렬 파이프라인 노드 명세 [{name?, prompt, model?, tools?:[str]}]. impl=pipeline이
+    # 이 리스트를 읽어 순서대로 실행(chat.py가 노드별 모델 해석 후 impl_config로 주입). 라운드트립 보존 필수.
+    nodes: list[dict[str, Any]] | None = None
     # 컬렉션별 문서 검색 최소 유사도(스펙 191 v2) — {컬렉션명: 0~1}. 미만 문서는 검색 코어가 드롭.
     # 항목 없으면 그 컬렉션은 무필터. 값 0~1(1=완전 일치).
     ragMinScores: dict[str, float] = Field(default_factory=dict)
@@ -501,6 +504,22 @@ class AgentConfig(BaseModel):
             for f in fields:
                 if not isinstance(f, dict) or not isinstance(f.get("key"), str) or not f["key"].strip():
                     raise ValueError("artifactSpec.fields 항목은 비어있지 않은 문자열 key가 필요합니다.")
+        return v
+
+    @field_validator("nodes")
+    @classmethod
+    def _check_nodes(cls, v: list[dict[str, Any]] | None) -> list[dict[str, Any]] | None:
+        """노드형 노드 명세 얕은 검증(스펙 259) — 배열(≤50)·각 항목 dict에 비어있지 않은 문자열 prompt
+        필수. 의미 검증(모델 존재·도구 유효성)은 런타임(플랫폼 모델 해석·impl normalize_nodes)이 방어."""
+        if v is None:
+            return v
+        if not isinstance(v, list):
+            raise ValueError("nodes는 배열이어야 합니다.")
+        if len(v) > 50:
+            raise ValueError("nodes는 50개 이하여야 합니다.")
+        for n in v:
+            if not isinstance(n, dict) or not isinstance(n.get("prompt"), str) or not n["prompt"].strip():
+                raise ValueError("nodes 항목은 비어있지 않은 문자열 prompt가 필요합니다.")
         return v
 
     @field_validator("toolPolicy")
@@ -580,6 +599,7 @@ class AgentOut(BaseModel):
     capabilities: list[str] = Field(default_factory=list)  # 능력 브로커 allowlist(스펙 106, 폼 재로드용)
     toolPolicy: dict[str, Any] = Field(default_factory=dict)  # 도구 승인 오버라이드(스펙 177 P2, 폼 재로드용)
     artifactSpec: dict[str, Any] | None = None  # 노코드 산출물형 필드 명세(스펙 190, 폼 재로드/라운드트립 보존)
+    nodes: list[dict[str, Any]] | None = None  # 노드형 파이프라인 노드 명세(스펙 259, 폼 재로드/라운드트립 보존)
     ragMinScores: dict[str, float] = Field(default_factory=dict)  # 컬렉션별 문서 검색 최소 유사도(스펙 191 v2, 왕복 보존)
     owner_id: str | None = None  # 소유자(스펙 112). None=공유/레거시
     can_manage: bool = True  # 요청 주체 수정/삭제 가능(스펙 114, list/get서 계산·기본 True)

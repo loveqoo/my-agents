@@ -58,6 +58,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
     capabilities: [...(a.capabilities || [])],
     toolPolicy: { ...(a.toolPolicy || {}) },
     ...(a.artifactSpec ? { artifactSpec: a.artifactSpec } : {}),
+    ...(a.nodes ? { nodes: a.nodes } : {}), // 노드형 파이프라인 노드(스펙 259)
     ragMinScores: { ...(a.ragMinScores || {}) },
   })
   const draftOf = (a: Agent) => (a.versions || []).find((v) => v.status === 'draft')
@@ -173,6 +174,9 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
       toolPolicy: data.toolPolicy, // 도구 승인 오버라이드(스펙 177 P2) — 백엔드 완화 게이트가 admin 강제
       // 노코드 산출물형(스펙 190) — impl=artifact_form일 때만 명세 저장. 아니면 생략(무관 에이전트 오염 방지).
       ...(data.impl === 'artifact_form' && data.artifactSpec ? { artifactSpec: data.artifactSpec } : {}),
+      // 노드형(스펙 259) — impl=pipeline일 때만 노드 저장. mcps/vectorTables는 폼이 노드 도구 합집합에서
+      // 파생해 data에 이미 담아 보냄(finalizeForm) — 위 mcps/vectorTables 라인이 그 값을 저장.
+      ...(data.impl === 'pipeline' && data.nodes?.length ? { nodes: data.nodes } : {}),
       // 컬렉션별 문서 검색 최소 유사도(스펙 191 v2) — 배선된 컬렉션 중 값>0인 것만 저장(무관/0 제거).
       // 조율형은 capabilities의 `rag:*`가 배선 표면(스펙 239 codex #4 — vectorTables만 돌면 조율형
       // 슬라이더 값이 조용히 유실되던 버그).
@@ -644,6 +648,9 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
                   toolPolicy: { ...(c.toolPolicy || a.toolPolicy || {}) }, // 승인 오버라이드(스펙 177 P2)
                   ...(c.artifactSpec || a.artifactSpec
                     ? { artifactSpec: c.artifactSpec || a.artifactSpec } // 노코드 산출물형 명세(스펙 190) 재로드
+                    : {}),
+                  ...(c.nodes || a.nodes
+                    ? { nodes: c.nodes || a.nodes } // 노드형 파이프라인 노드(스펙 259) 재로드
                     : {}),
                   ragMinScores: { ...(c.ragMinScores || a.ragMinScores || {}) }, // 컬렉션별 최소 유사도(스펙 191 v2) 재로드
                 }

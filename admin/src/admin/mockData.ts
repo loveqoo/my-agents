@@ -20,7 +20,17 @@ export interface AgentConfig {
   capabilities?: string[] // 능력 브로커 allowlist(스펙 106). 오케스트레이터 impl에서 위임 대상.
   toolPolicy?: ToolPolicy // 도구 승인 오버라이드(스펙 177 P2).
   artifactSpec?: ArtifactSpec // 노코드 산출물형 필드 명세(스펙 190). impl=artifact_form일 때만 의미.
+  nodes?: PipelineNode[] // 노드형 일렬 파이프라인 노드(스펙 259). impl=pipeline일 때만 의미.
   ragMinScores?: Record<string, number> // 컬렉션별 문서 검색 최소 유사도(스펙 191 v2). {컬렉션명:0~1}, 미만 제외.
+}
+
+/** 노드형 파이프라인 노드(스펙 259) — 일렬로 이어 실행. 각 노드가 자기 프롬프트·모델·도구를 가짐.
+    tools는 ctx.tools의 도구 이름 부분집합(에이전트 밖 이름은 백엔드가 무시 = 권한 상승 0). */
+export interface PipelineNode {
+  name?: string // 표시 이름(비면 백엔드가 노드N 자동)
+  prompt: string // 이 노드의 시스템 프롬프트(비어있지 않아야 저장)
+  model: string // 이 노드가 쓸 등록 모델 이름(ModelConfig.name)
+  tools: string[] // 이 노드가 참고할 도구 이름(MCP 도구명 + 문서 검색 search_documents)
 }
 
 /** 노코드 산출물형 필드(스펙 190) — 후보 있으면 SelectBox(enum), 없으면 자유 입력. */
@@ -109,6 +119,7 @@ export interface Agent {
   capabilities?: string[] // 능력 브로커 allowlist(스펙 106)
   toolPolicy?: ToolPolicy // 도구 승인 오버라이드(스펙 177 P2) — cap_id→{approval:{required?,approver?}}
   artifactSpec?: ArtifactSpec // 노코드 산출물형 필드 명세(스펙 190) — 폼 재로드/라운드트립 보존
+  nodes?: PipelineNode[] // 노드형 파이프라인 노드(스펙 259) — 폼 재로드/라운드트립 보존
   ragMinScores?: Record<string, number> // 컬렉션별 문서 검색 최소 유사도(스펙 191 v2) — 폼 재로드/라운드트립 보존
   owner_id?: string | null // 소유자(스펙 112). null=공유/레거시
   can_manage?: boolean // 관리 가능(스펙 114) — false면 편집/삭제 숨김

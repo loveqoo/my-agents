@@ -7,6 +7,7 @@ import { PickerGroups, type PickerGroup } from '../../../PickerGroups'
 import { validateName, NAME_HINT } from '../../naming'
 import { Field, SectionHeader } from './primitives'
 import { ArtifactSpecEditor, artifactSpecValid } from './ArtifactSpecEditor'
+import { NodeListEditor, pipelineValid } from './NodeListEditor'
 import type { AgentFormData } from './types'
 
 /* 빈 폼 기본값 — persona는 로드된 blocks에서, model은 등록된 첫 chat 모델에서
@@ -40,6 +41,8 @@ export const AGENT_TYPES: { value: string; label: string; desc: string }[] = [
   { value: 'orchestrate', label: '조율형', desc: '일을 다른 에이전트·도구에 넘겨 처리합니다.' },
   // 노코드 산출물형(스펙 190) — 코드 없이 "모을 항목"만 정의(impl=artifact_form).
   { value: 'artifact_form', label: '산출물형', desc: '대화·폼으로 정보를 모아 결과물(JSON)을 만듭니다.' },
+  // 노드형 일렬 파이프라인(스펙 259) — 노드마다 프롬프트·모델·도구를 직접 정해 순서대로 이음(impl=pipeline).
+  { value: 'pipeline', label: '노드형', desc: '노드를 순서대로 이어, 노드마다 프롬프트·모델·도구를 직접 정합니다.' },
 ]
 export const typeDesc = (key: string) => AGENT_TYPES.find((t) => t.value === key)?.desc ?? ''
 
@@ -253,8 +256,33 @@ export function AgentForm({
   ]
   const orchestratorSelected = isOrchestratorImpl(form.impl)
   const isArtifactForm = form.impl === 'artifact_form'
+  const isPipeline = form.impl === 'pipeline'
   // 산출물형이면 유효 필드 ≥1을 저장 조건으로 강제(스펙 190) — 빈 명세 저장 방지.
   const artifactInvalid = isArtifactForm && !artifactSpecValid(form.artifactSpec)
+  // 노드형이면 노드 ≥1·각 노드 프롬프트+모델 채움을 저장 조건으로 강제(스펙 259) — 빈 파이프라인 방지.
+  const pipelineInvalid = isPipeline && !pipelineValid(form.nodes)
+
+  // 노드형 편집기 데이터(스펙 259). 모델=등록 chat 모델, 페르소나=blocks 본문(불러오기용),
+  // 도구=개별 MCP 도구명 + 문서 검색(search_documents 단일 도구, 컬렉션 전체 대상).
+  const chatModelOptions = models.filter((m) => m.kind === 'chat').map((m) => ({ label: m.name, value: m.name }))
+  const nodePersonas = (blocks.persona?.items ?? []).map((p) => ({ name: p.name, body: p.body ?? '' }))
+  const nodeToolOptions = [
+    ...(blocks.mcp?.items ?? []).flatMap((s) =>
+      (s.tools ?? []).map((t) => ({ label: `${s.name} · ${t}`, value: t }))
+    ),
+    ...(collections.length ? [{ label: '문서 검색 (컬렉션 전체)', value: 'search_documents' }] : []),
+  ]
+  // 저장 직전 파생(스펙 259) — 노드형은 에이전트-레벨 도구 풀(mcps/vectorTables)을 노드 도구 합집합에서
+  // 파생한다(에이전트-레벨 도구 UI를 숨기므로). 백엔드 ctx.tools는 이 풀로 빌드되고, 노드는 자기 tools로
+  // 다시 필터한다(권한 상승 0). 문서 검색은 단일 도구라 컬렉션 스코핑 불가 → 쓰면 전체 컬렉션이 풀에.
+  const finalizeForm = (): AgentFormData => {
+    const base = { ...form, name: form.name.trim(), description: form.description.trim() }
+    if (!isPipeline) return base
+    const used = new Set((form.nodes ?? []).flatMap((n) => n.tools))
+    const mcps = (blocks.mcp?.items ?? []).filter((s) => (s.tools ?? []).some((t) => used.has(t))).map((s) => s.name)
+    const vectorTables = used.has('search_documents') ? collections.map((c) => c.name) : []
+    return { ...base, mcps, vectorTables }
+  }
   // 식별 이름 규칙(스펙 148) — 서버 400의 프론트 힌트. 빈 값은 입력 전이라 조용히(제출만 막음).
   const nameErr = form.name.trim() ? validateName(form.name.trim()) : null
 
@@ -271,7 +299,7 @@ export function AgentForm({
   }, [open, isEdit])
   const stepOk = (s: number): boolean => {
     if (s === 0) return !!form.name.trim() && !nameErr
-    if (s === 1) return !artifactInvalid
+    if (s === 1) return !artifactInvalid && !pipelineInvalid
     return true
   }
   const goNext = () => {
@@ -283,7 +311,7 @@ export function AgentForm({
   const goTo = (n: number) => {
     if (n <= maxVisited) setStep(n)
   }
-  const saveDisabled = !form.name.trim() || !!nameErr || artifactInvalid
+  const saveDisabled = !form.name.trim() || !!nameErr || artifactInvalid || pipelineInvalid
   const typeLabel = AGENT_TYPES.find((t) => t.value === form.impl)?.label ?? (form.impl || '직접 응답')
 
   return (
@@ -306,7 +334,7 @@ export function AgentForm({
               <Button
                 type="primary"
                 disabled={saveDisabled}
-                onClick={() => onSave({ ...form, name: form.name.trim(), description: form.description.trim() })}
+                onClick={() => onSave(finalizeForm())}
               >
                 {isEdit ? '초안 저장' : '에이전트 생성'}
               </Button>
@@ -360,6 +388,13 @@ export function AgentForm({
             <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>화면에는 이름만 표시되며, 이 설명은 마우스 오버 시에만 노출됩니다</span>
           </Field>
         </div>
+        {/* 노드형(스펙 259)은 모델·페르소나를 노드마다 직접 정하므로 에이전트-레벨 모델/페르소나를 숨긴다
+            (결정 #1·#2). 대신 안내 한 줄로 다음 단계("하는 일")에서 노드를 만들도록 유도. */}
+        {isPipeline ? (
+          <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+            노드형은 노드마다 모델·프롬프트·도구를 직접 정합니다 — 다음 "하는 일" 단계에서 노드를 추가하세요.
+          </span>
+        ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))', gap: 16 }}>
           <Field label="모델">
             <Select
@@ -384,6 +419,7 @@ export function AgentForm({
             />
           </Field>
         </div>
+        )}
         {/* 종류 선택 rich화(스펙 238 #3) — 드롭다운 옵션마다 설명을 내장(단순 라벨 선택박스 지양). */}
         <Field label="에이전트 종류">
           <Select
@@ -430,9 +466,17 @@ export function AgentForm({
             산출물형(스펙 190)은 도구/문서 대신 "모을 항목" 편집기를 띄운다. ── */}
         {step === 1 && (
           <>
-        <SectionHeader first>{isArtifactForm ? '모을 항목' : '이 에이전트가 할 수 있는 일'}</SectionHeader>
+        <SectionHeader first>{isArtifactForm ? '모을 항목' : isPipeline ? '처리 단계 (노드)' : '이 에이전트가 할 수 있는 일'}</SectionHeader>
         {isArtifactForm ? (
           <ArtifactSpecEditor value={form.artifactSpec} onChange={(s) => set('artifactSpec', s)} />
+        ) : isPipeline ? (
+          <NodeListEditor
+            value={form.nodes}
+            onChange={(nodes) => set('nodes', nodes)}
+            modelOptions={chatModelOptions}
+            personas={nodePersonas}
+            toolOptions={nodeToolOptions}
+          />
         ) : orchestratorSelected ? (
           <>
             <PickerGroups groups={capGroups} selected={form.capabilities} onToggle={toggleCap} />
@@ -736,6 +780,16 @@ export function AgentForm({
                       : '(없음 — 최소 1개 필요)'
                   }
                   bad={artifactInvalid}
+                />
+              ) : isPipeline ? (
+                <SummaryRow
+                  k="처리 단계"
+                  v={
+                    (form.nodes ?? []).length
+                      ? `${form.nodes!.length}단계 — ${form.nodes!.map((n, i) => n.name?.trim() || `노드${i + 1}`).join(' → ')}`
+                      : '(없음 — 최소 1개 필요)'
+                  }
+                  bad={pipelineInvalid}
                 />
               ) : orchestratorSelected ? (
                 <SummaryRow

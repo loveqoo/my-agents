@@ -229,6 +229,7 @@ def _bootstrap_builtins() -> None:
     from .examples.plan_execute import PlanExecuteAgent
     from .flows.artifact import ConfigDrivenArtifactAgent, SlotFillDemoAgent, TargetingDemoAgent
     from .flows.orchestrate import FirstMatchOrchestrateAgent, RankedOrchestrateAgent
+    from .flows.pipeline import LinearPipelineAgent
     from .flows.route import RouteAgent
 
     register_agent("plan_execute", PlanExecuteAgent)
@@ -242,6 +243,8 @@ def _bootstrap_builtins() -> None:
     register_agent("artifact_targeting", TargetingDemoAgent)
     # 노코드 산출물형(스펙 190) — 설정(config.artifactSpec) 주도 범용 구현(셋째 구현·뼈대 무변경).
     register_agent("artifact_form", ConfigDrivenArtifactAgent)
+    # 노드형(스펙 259) — 설정(config.nodes) 주도 일렬 파이프라인. 노드마다 프롬프트·모델·도구.
+    register_agent("pipeline", LinearPipelineAgent)
 
 
 _bootstrap_builtins()
