@@ -46,7 +46,7 @@ def _canonical_tokens(observed_nodes: list[str], calls_sink: list[dict], broker_
 
 
 async def eval_run_agent(agent_pk, user_text: str, principal, overrides: dict | None = None,
-                         version: str | None = None) -> dict:
+                         version: str | None = None, deny_agent_delegation: bool = False) -> dict:
     """케이스 1건 실행 → obs {"output", "trace_nodes", "error", "detail"?}.
 
     overrides(스펙 141): 모델 비교 실행용 — 기존 화이트리스트 경로(_load_context)를 그대로 태워
@@ -64,6 +64,11 @@ async def eval_run_agent(agent_pk, user_text: str, principal, overrides: dict | 
     if impl is None or ctx["model_cfg"] is None:
         return {"output": "", "trace_nodes": [], "error": True,
                 "detail": "로컬(ui) 에이전트가 아니거나 채팅 모델이 없습니다(평가는 로컬 에이전트만)"}
+
+    if deny_agent_delegation:
+        # 위임 깊이 1(스펙 256) — 위임받은 하위 실행에서는 agent-kind 능력을 제거해 재위임(A→B→A
+        # 순환)을 구조로 차단. agent cap = 콜론 없는 bare id(broker._kind_of와 동일 규칙).
+        ctx["capabilities"] = [c for c in (ctx.get("capabilities") or []) if isinstance(c, str) and ":" in c]
 
     # 메모리 회상(읽기 전용 — 무오염). add는 절대 안 함.
     used_memory = memory.memory_enabled(ctx["memories"]) and ctx["mem_cfg"] is not None

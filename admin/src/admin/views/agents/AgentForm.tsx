@@ -166,10 +166,12 @@ export function AgentForm({
     {
       key: '다른 에이전트',
       title: '다른 에이전트',
-      // 원격(code/external) 에이전트만 위임 대상(로컬 UI 에이전트는 대상 아님).
+      // 위임 대상(스펙 256): 원격(code/external=A2A) + 로컬 ui(활성 버전 보유, 자기 자신 제외 —
+      // 인프로세스 직접 호출).
       items: agents
-        .filter((a) => a.source === 'code' || a.source === 'external')
-        .map((a) => ({ id: a.agentId, label: a.name })),
+        .filter((a) => (a.source === 'code' || a.source === 'external')
+          || (((a.source ?? 'ui') === 'ui') && !!a.activeVersion && a.name !== initial?.name))
+        .map((a) => ({ id: a.agentId, label: (a.source === 'code' || a.source === 'external') ? `${a.name} · A2A` : `${a.name} · 로컬` })),
     },
     {
       key: '도구',

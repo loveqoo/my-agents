@@ -75,6 +75,7 @@ export interface Trace {
   // 브로커 호출 상세(스펙 130) — 조율형 위임 호출의 표시용 메타. rag:* 는 RAG 섹션이 렌더.
   // resultPreview(스펙 131): 결과 본문 프리뷰(2000자 캡·비밀 마스킹, args는 계속 미포함).
   brokerCalls?: {
+    node?: string // 그래프 노드명(broker_invoke:<kind>:<이름>) — agent kind는 cap_id(agt_)와 달라 매칭에 필수(스펙 256)
     cap_id: string
     ms: number
     hits?: number
@@ -85,6 +86,8 @@ export interface Trace {
     hitsDetail?: RagHit[]
     minScore?: number
     query?: string
+    local?: boolean // 로컬 인프로세스 위임(스펙 256) — A2A와 호출 방식 구분 표식
+    subTraceNodes?: string[] // 하위 실행 흐름(canonical 노드, 상한 50 — 트레이싱 관통)
   }[]
   // 전송 프롬프트 전문(스펙 131) — 실제 그래프에 넣은 배열(조립 system=persona+회상 포함), 메시지당
   // 2000자 캡. 재개 턴은 N/A(체크포인트 내부 재개 — 스펙 131 경계).

@@ -247,9 +247,11 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
       key: '다른 에이전트',
       title: '다른 에이전트',
       items: agents
-        .filter((a) => a.source === 'code' || a.source === 'external')
-        .map((a) => ({ id: a.agentId, label: a.name })),
-      emptyText: '위임할 원격 에이전트 없음',
+        // 로컬 ui(활성 버전 보유·자기 제외)도 위임 대상(스펙 256 — 인프로세스 직접 호출)
+        .filter((a) => (a.source === 'code' || a.source === 'external')
+          || (((a.source ?? 'ui') === 'ui') && !!a.activeVersion && a.id !== agent?.id))
+        .map((a) => ({ id: a.agentId, label: (a.source === 'code' || a.source === 'external') ? `${a.name} · A2A` : `${a.name} · 로컬` })),
+      emptyText: '위임할 에이전트 없음',
     },
     {
       key: '도구',

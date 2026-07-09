@@ -361,7 +361,8 @@ function nodeEventContent(
   }
   // 브로커 위임(조율형) — broker_invoke:<cap_id> 노드에 그 cap 호출 귀속.
   if (node.startsWith('broker_invoke:')) {
-    const calls = (t.brokerCalls ?? []).filter((b) => `broker_invoke:${b.cap_id}` === node)
+    // agent kind는 노드명(broker_invoke:agent:<이름>)과 cap_id(agt_…)가 달라 node 필드로 매칭(스펙 256).
+    const calls = (t.brokerCalls ?? []).filter((b) => (b.node ?? `broker_invoke:${b.cap_id}`) === node)
     if (!calls.length) return null
     return (
       <div>
@@ -372,10 +373,23 @@ function nodeEventContent(
             <div key={i} style={{ marginBottom: 4 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 13 }}>
                 <Tag color="gold" style={{ fontFamily: 'var(--font-family-code)' }}>{b.cap_id}</Tag>
+                {b.local ? <Tag color="green">로컬 · 인프로세스</Tag> : null}
                 {b.error ? <Tag color="red">실패</Tag> : null}
                 {typeof b.hits === 'number' ? <span>{b.hits}건</span> : null}
                 <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>{b.ms}ms</span>
               </div>
+              {b.subTraceNodes?.length ? (
+                // 하위 실행 흐름(스펙 256, 사용자 결정 — 트레이싱 관점): 위임받은 에이전트가 안에서
+                // 무엇을 했나(rag:X·mcp:s/t·memory:used …). 비영속이지만 관측은 온전.
+                <Collapse size="small" style={{ marginTop: 4 }}
+                  items={[{ key: 's', label: <span style={{ fontSize: 12 }}>하위 실행 흐름 ({b.subTraceNodes.length}단계)</span>, children: (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                      {b.subTraceNodes.map((n, k) => (
+                        <Tag key={k} style={{ margin: 0, fontFamily: 'var(--font-family-code)', fontSize: 11 }}>{n}</Tag>
+                      ))}
+                    </div>
+                  ) }]} />
+              ) : null}
               {b.resultPreview ? (
                 <Collapse size="small" style={{ marginTop: 4 }}
                   items={[{ key: 'r', label: <span style={{ fontSize: 12 }}>결과 본문</span>, children: <pre style={codeBox}>{b.resultPreview}</pre> }]} />

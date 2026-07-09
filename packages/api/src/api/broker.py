@@ -219,8 +219,9 @@ class AgentProvider:
 
     kind = CAP_KIND_AGENT
 
-    def __init__(self, session_factory):
+    def __init__(self, session_factory, principal=None):
         self._session_factory = session_factory
+        self._principal = principal  # 로컬 위임(스펙 256) — 하위 실행의 RBAC 주체(호출자와 동일)
 
     async def candidates(self, allow: set[str]) -> list[Capability]:
         agent_ids = {a for a in allow if _kind_of(a) == CAP_KIND_AGENT}
@@ -233,8 +234,11 @@ class AgentProvider:
             )
         caps: list[Capability] = []
         for a in rows:
-            if not is_remote_source(a.source) or not a.endpoint:
-                continue  # Phase 1 provider = A2A(원격 + 호출 가능한 엔드포인트)만
+            if is_remote_source(a.source):
+                if not a.endpoint:
+                    continue  # 원격은 호출 가능한 엔드포인트 필수(A2A)
+            elif not a.active_version:
+                continue  # 로컬 ui 위임(스펙 256) — 서빙 중(활성 버전 보유)만. 초안-only는 후보 아님.
             caps.append(Capability(id=a.agent_id, kind=CAP_KIND_AGENT, name=a.name, hook=_hook_for(a)))
         return caps
 
@@ -243,8 +247,13 @@ class AgentProvider:
             a = (
                 await db.execute(select(Agent).where(Agent.agent_id == cap_id))
             ).scalar_one_or_none()
-        if a is None or not is_remote_source(a.source) or not a.endpoint:
-            return None  # 미존재/비-A2A → 존재 비노출로 접힘
+        if a is None:
+            return None  # 미존재 → 존재 비노출로 접힘
+        if is_remote_source(a.source):
+            if not a.endpoint:
+                return None
+        elif not a.active_version:
+            return None  # 로컬 ui(스펙 256) — 서빙 중만
         return a
 
     def describe(self, row: Agent) -> Capability:
@@ -262,6 +271,25 @@ class AgentProvider:
 
     async def invoke(self, row: Agent, args: dict) -> InvokeResult:
         user_text = _a2a_text(args)  # approval_for와 동일 헬퍼(승인한 것 == 전송되는 것)
+        if not is_remote_source(row.source):
+            # 로컬 ui 위임(스펙 256) — A2A(HTTP) 대신 인프로세스 직접 실행(I/O 최소, 사용자 결정).
+            # 평가 러너 재사용: 무오염(세션·memory.add 없음)·승인 걸리면 error obs(정직 실패)·
+            # deny_agent_delegation=깊이 1(하위에서 재위임 불가 — A→B→A 순환 구조 차단).
+            from .eval_runner import eval_run_agent  # 함수 내 임포트 — chat→broker 순환 회피
+
+            obs = await eval_run_agent(row.id, user_text, self._principal, deny_agent_delegation=True)
+            return InvokeResult(
+                text=str(obs.get("output") or ""),
+                trust="untrusted",  # 로컬이어도 결과는 데이터(지시 아님) — 채널 격리 불변(설계결정 5)
+                error=(str(obs.get("detail") or "하위 실행 실패") if obs.get("error") else None),
+                raw={
+                    "cap_id": row.agent_id,
+                    "kind": CAP_KIND_AGENT,
+                    "local": True,  # 인스펙터 표식(호출 방식이 다름을 정직하게)
+                    # 하위 실행 흐름(사용자 결정 — 트레이싱 관점): canonical 노드 상한 50개
+                    "subTraceNodes": list(obs.get("trace_nodes") or [])[:50],
+                },
+            )
         card = (row.config or {}).get("card")
         acc: list[str] = []
         errored: str | None = None
@@ -1013,6 +1041,7 @@ class PolicyScopedBroker:
         user_id: str | None = None,
         tool_policy: dict | None = None,
         rag_min_scores: dict | None = None,
+        principal=None,  # 로컬 위임(스펙 256) — 하위 실행 브로커의 RBAC 주체(호출자 그대로)
     ):
         self._allow: set[str] = set(allowlist or [])
         self._rbac_allows = rbac_allows
@@ -1021,7 +1050,7 @@ class PolicyScopedBroker:
         # user_id = 실행 주체(principal) 도출값 — MemoryProvider가 per-user 스코프에 씀(스펙 104).
         # cap_id·args가 아니라 여기서만 주입돼, 능력 이름으로 남을 가리킬 방법이 없다(anti-leak).
         self._providers: list[_CapabilityProvider] = [
-            AgentProvider(session_factory),
+            AgentProvider(session_factory, principal),
             McpProvider(session_factory),
             RagProvider(session_factory, rag_min_scores),  # 스펙 191 v2 컬렉션별 최소 유사도
             MemoryProvider(session_factory, user_id),
@@ -1125,6 +1154,10 @@ class PolicyScopedBroker:
         # 스펙 191: 히트별 카드 + 이 에이전트 최소 유사도 기준선 + 검색 질의(RAG 위임 검색 가독성).
         if "hitsDetail" in raw:
             inv["hitsDetail"] = raw["hitsDetail"]
+        if raw.get("local"):
+            inv["local"] = True  # 로컬 인프로세스 위임(스펙 256)
+        if "subTraceNodes" in raw:
+            inv["subTraceNodes"] = raw["subTraceNodes"]
         if "minScore" in raw:
             inv["minScore"] = raw["minScore"]
         if "query" in raw:
@@ -1198,4 +1231,4 @@ def build_broker(principal, allowlist, tool_policy: dict | None = None, rag_min_
     # user_id = 주체 도출값(스펙 104 MemoryProvider self-scope). 머신 토큰(str)은 id 없음 → None →
     # 메모리 능력 없음(rbac_allows도 deny). 어드민이어도 자기 id라 타인 기억 위임 접근 불가(에스컬레이션 X).
     uid = None if isinstance(principal, str) else str(principal.id)
-    return PolicyScopedBroker(allowlist, rbac_allows, user_id=uid, tool_policy=tool_policy, rag_min_scores=rag_min_scores)
+    return PolicyScopedBroker(allowlist, rbac_allows, user_id=uid, tool_policy=tool_policy, rag_min_scores=rag_min_scores, principal=principal)

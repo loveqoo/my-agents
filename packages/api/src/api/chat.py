@@ -533,7 +533,7 @@ def _broker_calls_trace(invocations: list[dict]) -> list[dict]:
     """브로커 호출 이력 → 트레이스 표시용 투영(스펙 130) — **키 화이트리스트 단일 출처**(메인/승인대기/
     재개 세 경로 공유, drift 0). 본문·args 불포함(087/092 원문 누출 0 유지)."""
     return [
-        {k: v for k, v in inv.items() if k in ("cap_id", "ms", "hits", "topScore", "error", "resultPreview", "hitsDetail", "minScore", "query")}
+        {k: v for k, v in inv.items() if k in ("node", "cap_id", "ms", "hits", "topScore", "error", "resultPreview", "hitsDetail", "minScore", "query", "local", "subTraceNodes")}
         for inv in invocations
     ]
 
