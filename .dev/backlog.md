@@ -313,3 +313,5 @@
 
 ## antd v6 deprecation 전면 마이그레이션 (스펙 207서 관측 → ✅스펙 208 완료, 2026-07-07)
 - ✅**스펙 208 완료**(회고 196): 관측 3종 전수 처리(Alert message→title 30·Drawer width→size 13·List→Flex 4), 완료기준=콘솔 deprecation 경고 0건 달성. 공용 래퍼 Drawer는 내부 1곳만 고쳐 소비자 무변경 커버. **후속 씨앗(OUT)**: 다른 v6 deprecation(bodyStyle·destroyOnClose·Card bordered 등)이 감사에 새로 뜨면 그때 처리.
+
+- [ ] 노드형 인스펙터 노드 행 정보 확충(추후, 스펙 262 후속) — 노드별 모델·출력형식(JSON) 배지·carry/clean 표식 등. 지금은 실행 흐름에 이름·시간·요약·격리 노트까지.
