@@ -126,6 +126,7 @@ function AssertEditor({ value, onChange, kind, filenames }: { value: EvalAssert[
             {filenames && filenames.length ? (
               /* 스펙 195: 등록된 파일에서 고르기(오타 방지). contains 매칭이라 자유입력도 허용(AutoComplete). */
               <AutoComplete size="small" style={{ flex: 1, minWidth: 130 }} placeholder="파일 선택 또는 입력"
+                popupMatchSelectWidth={false}
                 options={filenames.map((f) => ({ value: f }))} value={a.arg ?? ''}
                 onChange={(v) => set(i, { arg: v })}
                 filterOption={(inp, opt) => String(opt?.value ?? '').toLowerCase().includes(inp.toLowerCase())} />
@@ -159,8 +160,9 @@ function AssertEditor({ value, onChange, kind, filenames }: { value: EvalAssert[
                 onChange={(v) => set(i, { type: v, arg: ASSERT_TYPES.find((t) => t.value === v)?.needsArg ? '' : undefined })}
                 options={grouped} />
               {inline(a, i)}
-              <div style={{ flex: 1 }} />
-              <Button size="small" type="text" danger icon={<Icon name="delete" />} onClick={() => onChange(value.filter((_, j) => j !== i))} />
+              {/* 스페이서 제거(스펙 252 3차) — flex:1 스페이서가 값 입력과 남는 폭을 반씩 나눠
+                  긴 파일명이 잘렸다. 입력이 전부 갖고 삭제 버튼만 우측 고정. */}
+              <Button size="small" type="text" danger icon={<Icon name="delete" />} style={{ marginLeft: 'auto', flex: 'none' }} onClick={() => onChange(value.filter((_, j) => j !== i))} />
             </div>
           </div>
         )
