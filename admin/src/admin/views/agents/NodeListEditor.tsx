@@ -155,54 +155,55 @@ export function NodeListEditor({
               </div>
             </div>
 
-            {/* 맥락 모드(스펙 260) — 앞 노드 결과를 어떻게 받을지. 폴더 규칙: 모드 전환=Segmented. */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <span style={{ fontSize: 13, color: 'var(--color-text)', fontWeight: 500 }}>맥락</span>
-              <Segmented
-                value={n.context ?? 'carry'}
-                onChange={(v) => setNode(i, { context: v as 'carry' | 'clean' })}
-                options={[
-                  { label: '대화 이어가기', value: 'carry' },
-                  { label: '깨끗이 받기', value: 'clean' },
-                ]}
-              />
-              <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-                {(n.context ?? 'carry') === 'clean'
-                  ? '앞의 대화를 걷어내고 바로 앞 노드의 결과만 받습니다 — 형식을 고정하는(예: JSON) 노드에 적합합니다.'
-                  : '지금까지의 대화(사용자 입력 + 앞 노드 결과)를 모두 보고 이어서 처리합니다.'}
-              </span>
+            {/* 받기/내보내기 한 줄(스펙 267 — 사용자 정의 문구): "이전 결과 받기"=이전 노드의 결과를
+                어떻게 받을까(260 context), "응답 형식"=이 노드가 어떻게 출력할까(261 format).
+                첫 노드에도 받기 노출 — A2A 연계 시 앞 에이전트의 결과가 대화로 들어오므로(사용자 확인). */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))', gap: 10 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <span style={{ fontSize: 13, color: 'var(--color-text)', fontWeight: 500 }}>이전 결과 받기</span>
+                <Segmented
+                  value={n.context ?? 'carry'}
+                  onChange={(v) => setNode(i, { context: v as 'carry' | 'clean' })}
+                  options={[
+                    { label: '대화 전체와 함께', value: 'carry' },
+                    { label: '이전 결과만', value: 'clean' },
+                  ]}
+                />
+                <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+                  {(n.context ?? 'carry') === 'clean'
+                    ? '앞의 대화는 걷어내고 바로 앞 결과만 받습니다.'
+                    : '지금까지의 대화 전체를 보고 처리합니다.'}
+                </span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <span style={{ fontSize: 13, color: 'var(--color-text)', fontWeight: 500 }}>응답 형식</span>
+                <Segmented
+                  value={n.format ?? 'text'}
+                  onChange={(v) => setNode(i, { format: v as 'text' | 'json' })}
+                  options={[
+                    { label: '자유 텍스트', value: 'text' },
+                    { label: 'JSON', value: 'json' },
+                  ]}
+                />
+                <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+                  {(n.format ?? 'text') === 'json'
+                    ? 'JSON 객체로만 답하게 강제합니다(어긋나면 1회 교정, 실패 시 원문).'
+                    : '모델이 쓰는 대로 내보냅니다.'}
+                </span>
+              </div>
             </div>
-
-            {/* 출력 형식(스펙 261) — 자유 텍스트 / JSON 강제. JSON이면 필수 키(선택) 태그 입력. */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <span style={{ fontSize: 13, color: 'var(--color-text)', fontWeight: 500 }}>출력 형식</span>
-              <Segmented
-                value={n.format ?? 'text'}
-                onChange={(v) => setNode(i, { format: v as 'text' | 'json' })}
-                options={[
-                  { label: '자유 텍스트', value: 'text' },
-                  { label: 'JSON', value: 'json' },
-                ]}
+            {(n.format ?? 'text') === 'json' && (
+              <Select
+                mode="tags"
+                allowClear
+                value={n.fields ?? []}
+                onChange={(vals) => setNode(i, { fields: vals })}
+                placeholder="JSON 필수 키 (선택 — 입력 후 Enter, 예: title, summary)"
+                options={[]}
+                style={{ width: '100%' }}
+                tokenSeparators={[',']}
               />
-              {(n.format ?? 'text') === 'json' && (
-                <>
-                  <Select
-                    mode="tags"
-                    allowClear
-                    value={n.fields ?? []}
-                    onChange={(vals) => setNode(i, { fields: vals })}
-                    placeholder="필수 키 (선택 — 입력 후 Enter, 예: title, summary)"
-                    options={[]}
-                    style={{ width: '100%' }}
-                    tokenSeparators={[',']}
-                  />
-                  <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-                    유효한 JSON 객체로만 답하도록 강제합니다. 키를 넣으면 그 키의 존재까지 검증하고, 형식이
-                    어긋나면 한 번 자동 교정합니다(그래도 실패하면 원문을 그대로 넘깁니다).
-                  </span>
-                </>
-              )}
-            </div>
+            )}
           </div>
         </div>
       ))}

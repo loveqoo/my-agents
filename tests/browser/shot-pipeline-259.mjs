@@ -105,8 +105,8 @@ try {
   }
   if (!(await promptBoxes.nth(1).inputValue()).trim()) await promptBoxes.nth(1).fill('요약해서 한 문단으로 정리하라')
   await page.waitForTimeout(200)
-  // 맥락 모드(스펙 260): 노드2를 "깨끗이 받기"(clean)로 전환 — 왕복 보존 검증용.
-  await page.getByText('깨끗이 받기', { exact: true }).last().click({ force: true })
+  // 맥락 모드(스펙 260): 노드2를 "이전 결과만"(clean)으로 전환 — 왕복 보존 검증용.
+  await page.getByText('이전 결과만', { exact: true }).last().click({ force: true })
   await page.waitForTimeout(200)
   // 두 노드 다 채워지면 "다음" 활성(모델 자동채움 + 프롬프트 입력 → pipelineValid)
   check(!(await nextBtn.isDisabled().catch(() => true)), '단계1: 노드 채우면 다음 활성(pipelineValid)')
