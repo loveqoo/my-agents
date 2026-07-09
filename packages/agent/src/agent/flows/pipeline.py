@@ -160,13 +160,28 @@ class LinearPipelineAgent:
             # 최소 동작). 기본 모델도 없으면 build 시점에 명확히 실패(_model_from_node).
             nodes = [{"name": "노드1", "prompt": "사용자 입력에 답하세요.", "model_cfg": None, "tools": [], "context": "carry"}]
 
+        # 노드 도구 해석(스펙 265) — 정확 일치 우선. MCP 도구의 런타임 이름은 `서버__도구`(_safe_name)라
+        # UI/설정이 민이름("wiki_search")으로 저장한 경우 정확 일치가 0이 되고, 도구가 조용히 미바인딩돼
+        # 모델이 "호출한 척" 환각하는 버그가 났다(스펙 264 후속 실측). 접미가 유일하면 매칭(자가치유),
+        # 두 서버에 동명 도구면 모호 → 스킵(정직 — 아무거나 바인딩 금지). 후보는 전부 ctx.tools(이미
+        # RBAC 스코프) 안이라 권한 영향 0.
         by_name = {t.name: t for t in (ctx.tools or [])}
+        by_suffix: dict[str, list] = {}
+        for t in ctx.tools or []:
+            if "__" in t.name:
+                by_suffix.setdefault(t.name.split("__", 1)[1], []).append(t)
+
+        def _resolve_tool(name: str):
+            if name in by_name:
+                return by_name[name]
+            cands = by_suffix.get(name) or []
+            return cands[0] if len(cands) == 1 else None
         ids = _unique_node_ids(nodes)
         g = StateGraph(_State)
 
         def _make_step(node: dict):
             model = _model_from_node(node, ctx)
-            node_tools = [by_name[name] for name in node["tools"] if name in by_name]
+            node_tools = [t for t in (_resolve_tool(name) for name in node["tools"]) if t is not None]
             bound = model.bind_tools(node_tools) if node_tools else model
             prompt = node["prompt"]
             clean = node.get("context") == "clean"

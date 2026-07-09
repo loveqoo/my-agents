@@ -263,23 +263,31 @@ export function AgentForm({
   const pipelineInvalid = isPipeline && !pipelineValid(form.nodes)
 
   // 노드형 편집기 데이터(스펙 259). 모델=등록 chat 모델, 페르소나=blocks 본문(불러오기용),
-  // 도구=개별 MCP 도구명 + 문서 검색(search_documents 단일 도구, 컬렉션 전체 대상).
+  // 도구=개별 MCP 도구 + 문서 검색(search_documents 단일 도구, 컬렉션 전체 대상).
   const chatModelOptions = models.filter((m) => m.kind === 'chat').map((m) => ({ label: m.name, value: m.name }))
   const nodePersonas = (blocks.persona?.items ?? []).map((p) => ({ name: p.name, body: p.body ?? '' }))
+  // MCP 도구의 **런타임 이름**(스펙 265) — 백엔드 _safe_name(`서버__도구`, 비허용문자 _ 치환, 60자 캡)
+  // 미러(변경 시 함께). 민이름("wiki_search")으로 저장하면 런타임 by_name 매칭이 0이 돼 도구가 조용히
+  // 미바인딩(모델이 호출한 척 환각, 스펙 264 실측) + 서버 간 동명 도구의 Select value 충돌도 해소.
+  const safeToolName = (server: string, tool: string) =>
+    `${server}__${tool}`.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 60) || 'tool'
   const nodeToolOptions = [
     ...(blocks.mcp?.items ?? []).flatMap((s) =>
-      (s.tools ?? []).map((t) => ({ label: `${s.name} · ${t}`, value: t }))
+      (s.tools ?? []).map((t) => ({ label: `${s.name} · ${t}`, value: safeToolName(s.name, t) }))
     ),
     ...(collections.length ? [{ label: '문서 검색 (컬렉션 전체)', value: 'search_documents' }] : []),
   ]
   // 저장 직전 파생(스펙 259) — 노드형은 에이전트-레벨 도구 풀(mcps/vectorTables)을 노드 도구 합집합에서
   // 파생한다(에이전트-레벨 도구 UI를 숨기므로). 백엔드 ctx.tools는 이 풀로 빌드되고, 노드는 자기 tools로
   // 다시 필터한다(권한 상승 0). 문서 검색은 단일 도구라 컬렉션 스코핑 불가 → 쓰면 전체 컬렉션이 풀에.
+  // 매칭은 런타임 이름 기준(스펙 265) — 민이름 구저장분은 엔진 접미 폴백이 자가치유.
   const finalizeForm = (): AgentFormData => {
     const base = { ...form, name: form.name.trim(), description: form.description.trim() }
     if (!isPipeline) return base
     const used = new Set((form.nodes ?? []).flatMap((n) => n.tools))
-    const mcps = (blocks.mcp?.items ?? []).filter((s) => (s.tools ?? []).some((t) => used.has(t))).map((s) => s.name)
+    const mcps = (blocks.mcp?.items ?? [])
+      .filter((s) => (s.tools ?? []).some((t) => used.has(safeToolName(s.name, t)) || used.has(t)))
+      .map((s) => s.name)
     const vectorTables = used.has('search_documents') ? collections.map((c) => c.name) : []
     return { ...base, mcps, vectorTables }
   }
