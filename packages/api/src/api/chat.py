@@ -766,6 +766,13 @@ async def stream_local_reply(agent_id: uuid.UUID, user_text: str):
         checkpointer=None,
         params=run_params,
         overrides=ctx.get("overrides"),
+        # impl_config — 노코드 impl 설정 통로(codex P2 후속: A2A 서빙이 이 세 번째 입구를 빠뜨려 노드형/
+        # 산출물형 에이전트가 A2A 노출 시 기본 단일 노드로 퇴화하던 버그). 메인 채팅·승인 재개와 동일 주입.
+        impl_config=(
+            {"nodes": ctx["nodes_resolved"]}
+            if ctx.get("nodes_resolved") is not None
+            else ctx.get("artifact_spec")
+        ),
     )
     graph = impl.build_graph(build_ctx)
     # 노출 호출은 호출당 단일 메시지(맥락은 A2A contextId가 호출측 책임 — v1 서빙은 무상태).

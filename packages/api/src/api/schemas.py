@@ -509,18 +509,44 @@ class AgentConfig(BaseModel):
     @field_validator("nodes")
     @classmethod
     def _check_nodes(cls, v: list[dict[str, Any]] | None) -> list[dict[str, Any]] | None:
-        """노드형 노드 명세 얕은 검증(스펙 259) — 배열(≤50)·각 항목 dict에 비어있지 않은 문자열 prompt
-        필수. 의미 검증(모델 존재·도구 유효성)은 런타임(플랫폼 모델 해석·impl normalize_nodes)이 방어."""
+        """노드형 노드 명세 검증·정규화(스펙 259/260/261 + codex 259-261 후속 하드닝) — 배열(≤50)·각
+        항목 dict에 비어있지 않은 문자열 prompt 필수. **키 화이트리스트**로 알려진 필드만 보존한다
+        (model_cfg 등 임의 키 저장·에코 차단 = 저장-비밀 풋건 봉인, codex P3) + 필드별 상한(무한
+        페이로드 DoS 표면 축소, codex P2 — nodes 개수만 캡하면 필드 크기는 무제한이었음). 의미 검증
+        (모델 존재·도구 유효성)은 런타임(플랫폼 모델 해석·impl normalize_nodes)이 방어."""
         if v is None:
             return v
         if not isinstance(v, list):
             raise ValueError("nodes는 배열이어야 합니다.")
         if len(v) > 50:
             raise ValueError("nodes는 50개 이하여야 합니다.")
+        out: list[dict[str, Any]] = []
         for n in v:
             if not isinstance(n, dict) or not isinstance(n.get("prompt"), str) or not n["prompt"].strip():
                 raise ValueError("nodes 항목은 비어있지 않은 문자열 prompt가 필요합니다.")
-        return v
+            if len(n["prompt"]) > 20000:
+                raise ValueError("nodes 항목 prompt는 20000자 이하여야 합니다.")
+            node: dict[str, Any] = {"prompt": n["prompt"]}
+            for key in ("name", "model"):  # 문자열 필드(선택) — 길이 캡
+                val = n.get(key)
+                if isinstance(val, str) and val.strip():
+                    if len(val) > 200:
+                        raise ValueError(f"nodes 항목 {key}은 200자 이하여야 합니다.")
+                    node[key] = val
+            ctx_mode = n.get("context")  # 맥락 모드(스펙 260) — 화이트리스트 값만
+            if ctx_mode in ("carry", "clean"):
+                node["context"] = ctx_mode
+            fmt = n.get("format")  # 출력 형식(스펙 261) — 화이트리스트 값만
+            if fmt in ("text", "json"):
+                node["format"] = fmt
+            for key in ("tools", "fields"):  # 문자열 리스트(선택) — 개수·각 길이 캡
+                lst = n.get(key)
+                if isinstance(lst, list):
+                    if len(lst) > 100:
+                        raise ValueError(f"nodes 항목 {key}은 100개 이하여야 합니다.")
+                    node[key] = [x for x in lst if isinstance(x, str) and len(x) <= 200]
+            out.append(node)  # model_cfg 등 화이트리스트 밖 키는 여기서 드롭(저장 안 됨 → 에코 0)
+        return out
 
     @field_validator("toolPolicy")
     @classmethod

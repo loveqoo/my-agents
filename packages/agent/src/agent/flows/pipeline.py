@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Annotated, TypedDict
 
 from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage, SystemMessage, ToolMessage
@@ -23,6 +24,8 @@ from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 
 from ..runtime import AgentBuildContext, AgentManifest
+
+log = logging.getLogger(__name__)
 
 
 class _State(TypedDict):
@@ -192,7 +195,10 @@ class LinearPipelineAgent:
                     obj = _coerce_json(_text_of(repair), fields)
                 if obj is not None:
                     return AIMessage(content=json.dumps(obj, ensure_ascii=False))
-                return resp  # 강제 실패 — 원문 통과(크래시 0·거짓 JSON 조작 안 함, 정직)
+                # 강제 실패 — 원문 통과(크래시 0·거짓 JSON 조작 안 함). codex P3: "조용한 퇴화"를
+                # 관측 가능하게 로그(소비층이 format=json을 신뢰하다 실패하는 계약 위험을 운영이 인지).
+                log.warning("노드형 JSON 강제 실패 — 원문 통과(형식 미충족). fields=%s", fields)
+                return resp
 
             async def _step(state: _State) -> dict:
                 sys = SystemMessage(content=sys_content)
