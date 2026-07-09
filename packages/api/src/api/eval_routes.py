@@ -459,7 +459,11 @@ async def _execute_run(run_id: uuid.UUID, dataset_id: uuid.UUID, agent_pk, princ
                 from .eval_runner import eval_run_rag
                 obs = await eval_run_rag(rag_collection, case.input)
             else:
-                obs = await eval_run_agent(agent_pk, case.input, principal, overrides, version=version)
+                # 위임 총량 예산 루트 주입(스펙 256, codex 후속) — 평가도 조율형 팬아웃(A→B/C/D…)이
+                # 가능하므로 chat 루트와 대칭으로 카운터를 심어 breadth 폭주를 DELEGATION_MAX_TOTAL로 상한.
+                # 케이스마다 새 예산(케이스 간 독립).
+                obs = await eval_run_agent(agent_pk, case.input, principal, overrides, version=version,
+                                           delegation_budget={"n": 0})
             # 이 케이스의 llm_judge 기준만 순차 심판(스펙 139) — 결과를 obs에 주입, scorer는 읽기만.
             criteria = [a.get("arg") for a in case.meta.get("raw_asserts", [])
                         if isinstance(a, dict) and a.get("type") == "llm_judge" and a.get("arg")]

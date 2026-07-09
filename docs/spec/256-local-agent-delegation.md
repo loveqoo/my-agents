@@ -106,6 +106,28 @@ principal None invoke 정직 에러·예산 초과 정직 에러). 기존 스위
 위임·101 브로커 전부 통과(외부 A2A 게이트 무회귀 확인). codex가 큰 구멍 아니라 본 것: discover→invoke
 TOCTOU(load가 active/depth 재검증)·DelegationGraph 프론트 누출(백엔드 /agents가 이미 may_use_agent 필터).
 
+## codex 리뷰 2라운드 (2026-07-09) — 미푸시 커밋 일반 정합성 검토
+
+1라운드(보안 여집합) 후 사용자 요청으로 미푸시 diff 전체(256+257+2fe0cbc)를 **일반 버그/정합성**
+관점으로 재검토(`git diff origin/feat/agent-service..HEAD`). 지난 초점 밖이던 프론트 그래프 로직·방금
+적용한 수정의 정확성 중심. 2건 발견 → 둘 다 코드 대조 확인·수정.
+
+- **[P2 확정·수정] 평가 루트에 위임 총량 예산 미주입** (eval_routes.py). chat 루트는
+  `delegation_budget={"n":0}`를 심는데 평가 경로(`eval_run_agent(...)`)는 기본 None → 조율형 팬아웃
+  평가 케이스가 `DELEGATION_MAX_TOTAL` 상한을 안 탐(1라운드 P2 예산이 chat만 덮고 eval은 새는 짝).
+  **수정**: 평가 루트 호출에도 케이스마다 `delegation_budget={"n":0}` 주입(chat과 대칭). 1라운드에서
+  "eval은 admin 단발이라 무예산 허용"으로 판단했으나, DAG 팬아웃은 admin 단발이어도 폭주라 봉합.
+- **[P2 확정·수정] 인스펙터가 같은 broker 노드 다회 호출을 N×M 중복 렌더** (Inspector.tsx). 한 턴에
+  같은 cap을 2번 호출하면 `broker_invoke:*` 노드가 2번 등장하는데, 각 등장마다 `brokerCalls.filter(node)`가
+  **매칭 전부**를 붙여 2×2=4장으로 보임. **스펙 202/203이 `tools` 노드에서 이미 고친 도시락 버그와
+  동종** — broker 노드에만 처방이 안 들어가 있었다(1라운드 node-우선 매칭 수정이 노출). **수정**:
+  tools와 동일하게 노드명별 등장 순번(`brokerOcc`)으로 1:1 귀속(brokerCalls·graph 모두 실행 순서라
+  k번째 등장=k번째 호출). tsc 0.
+
+**판정 기록**: codex가 프론트 `DelegationGraph.walk`(순환·다이아몬드)·재개 detached User 접근은
+"문제 없음"으로 확인 — 내 사전 검토(합성 루트 self-add 비대칭은 미저장 id라 실질 무위험)와 일치.
+검증: verify_256 9/9 무회귀·admin tsc 0·eval 예산 주입 실측.
+
 ## v2 — 깊이 N (사용자 결정, 2026-07-09)
 - 깊이 1 폐기 → 호출 체인(방문 집합) 방식: chat이 루트 id로 체인 시작, 하위 실행마다 자기 id를
   덧붙여 관통. 체인 내 재방문만 금지 — A→B→C→… 다단 협업 가능.

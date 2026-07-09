@@ -47,6 +47,18 @@
 - **재개 컨텍스트 체크리스트**: 새 실행 축(chain·budget·principal 객체)을 추가하면 chat 신규 경로와
   resume 경로 **양쪽**에 배선했는지 grep으로 대조(대칭 강제).
 
+## 2라운드(미푸시 전체 일반 리뷰) 추가 교훈
+
+6. **알려진 버그 부류를 새 형제 노드에 옮기지 않으면 그 자리만 샌다.** 인스펙터 N×M 중복(같은 노드
+   다회 등장 시 전부-귀속)은 스펙 202/203이 `tools` 노드에서 이미 고친 "도시락 버그"였는데,
+   `broker_invoke:*`라는 형제 노드가 생길 때 그 처방(등장 순번 귀속)을 같이 안 옮겨 재발. → 기존
+   해결책이 있는 버그 부류는 "이 부류가 닿는 *모든* 노드/경로"를 grep해 새 형제에도 적용(단일 처방을
+   부류 전체에). [[installed-guard-isnt-covering-guard]]의 렌더판.
+
+7. **1라운드 판정을 2라운드가 뒤집을 수 있다 — "admin 단발이라 무예산 허용"은 DAG 팬아웃을 못 봤다.**
+   1라운드에서 eval 경로 무예산을 "admin 단발"로 정당화했으나, admin 단발이어도 팬아웃 폭주는 성립.
+   경계 판정의 근거("단발이라")가 다른 축(너비)을 못 덮으면 재검토. 여집합 리뷰도 축이 다르면 새로 샌다.
+
 관련: [[verification-ladder-three-rungs]] [[gate-on-intent-value-not-mutable-baseline]]
 [[sync-wholesale-replace-drops-admin-fields]] [[complement-attack-can-be-honest-boundary]]
 [[installed-guard-isnt-covering-guard]] — "설치≠전체 덮음"의 위임판(본경로 설치·브로커 미덮음).

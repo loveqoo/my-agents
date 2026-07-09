@@ -313,6 +313,7 @@ function nodeEventContent(
   t: Trace,
   node: string,
   tctx?: { summary?: string; toolsIdx: number; toolsTotal: number },
+  brokerOcc?: { idx: number; total: number },
 ): ReactNode | null {
   // 메모리 회상 — retrieve_memory 노드.
   if (node === 'retrieve_memory' && (t.memoryQuery != null || t.memories.length)) {
@@ -362,7 +363,13 @@ function nodeEventContent(
   // 브로커 위임(조율형) — broker_invoke:<cap_id> 노드에 그 cap 호출 귀속.
   if (node.startsWith('broker_invoke:')) {
     // agent kind는 노드명(broker_invoke:agent:<이름>)과 cap_id(agt_…)가 달라 node 필드로 매칭(스펙 256).
-    const calls = (t.brokerCalls ?? []).filter((b) => (b.node ?? `broker_invoke:${b.cap_id}`) === node)
+    const all = (t.brokerCalls ?? []).filter((b) => (b.node ?? `broker_invoke:${b.cap_id}`) === node)
+    // 같은 cap을 한 턴에 여러 번 호출하면 노드도 여러 번 등장 — 전부-귀속이면 등장마다 전 호출이
+    // 붙어 N×M 중복(스펙 202/203 tools 도시락 버그와 동종, codex 후속). 다회면 등장 순번으로 1:1 귀속
+    // (brokerCalls·graph 노드 모두 실행 순서라 k번째 등장=k번째 호출).
+    const calls = brokerOcc && brokerOcc.total > 1
+      ? (all[brokerOcc.idx] ? [all[brokerOcc.idx]] : [])
+      : all
     if (!calls.length) return null
     return (
       <div>
@@ -429,12 +436,25 @@ function NodeTimeline({ t }: { t: Trace }) {
           // tools 라운드 순번(스펙 202/203 후속) — 다회 도구 루프의 카드 중복 귀속 방지.
           const toolsTotal = t.graph.filter((x) => x.node === 'tools').length
           let toolsSeen = 0
+          // broker_invoke 노드도 같은 cap 다회 호출 시 중복(202/203 동종, codex 후속) — 노드명별 등장
+          // 총수를 미리 세고, 순회하며 등장 순번을 매겨 nodeEventContent가 1:1 귀속하게 한다.
+          const brokerTotals = new Map<string, number>()
+          for (const x of t.graph) {
+            if (x.node.startsWith('broker_invoke:')) brokerTotals.set(x.node, (brokerTotals.get(x.node) ?? 0) + 1)
+          }
+          const brokerSeen = new Map<string, number>()
           return t.graph.map((n) => {
           const meta = nodeMeta(n.node)
           const tctx = n.node === 'tools'
             ? { summary: n.summary, toolsIdx: toolsSeen++, toolsTotal }
             : undefined
-          const content = nodeEventContent(t, n.node, tctx)
+          let brokerOcc: { idx: number; total: number } | undefined
+          if (n.node.startsWith('broker_invoke:')) {
+            const idx = brokerSeen.get(n.node) ?? 0
+            brokerSeen.set(n.node, idx + 1)
+            brokerOcc = { idx, total: brokerTotals.get(n.node) ?? 1 }
+          }
+          const content = nodeEventContent(t, n.node, tctx, brokerOcc)
           return {
             dot: <Icon name={meta.icon} size={13} style={{ color: meta.color }} />,
             children: (
