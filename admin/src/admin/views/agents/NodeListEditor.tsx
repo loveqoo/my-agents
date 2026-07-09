@@ -1,4 +1,4 @@
-import { Input, Select, Button } from 'antd'
+import { Input, Select, Button, Segmented } from 'antd'
 import type { PipelineNode } from '../../mockData'
 
 /* 노드형 일렬 파이프라인 편집기(스펙 259) — impl=pipeline일 때 "하는 일" 자리에 뜬다.
@@ -25,7 +25,7 @@ export function NodeListEditor({
   const setNode = (i: number, patch: Partial<PipelineNode>) =>
     update(nodes.map((n, j) => (j === i ? { ...n, ...patch } : n)))
   const add = () =>
-    update([...nodes, { name: '', prompt: '', model: modelOptions[0]?.value ?? '', tools: [] }])
+    update([...nodes, { name: '', prompt: '', model: modelOptions[0]?.value ?? '', tools: [], context: 'carry' }])
   const remove = (i: number) => update(nodes.filter((_, j) => j !== i))
   const move = (i: number, dir: -1 | 1) => {
     const j = i + dir
@@ -153,6 +153,24 @@ export function NodeListEditor({
                   style={{ width: '100%' }}
                 />
               </div>
+            </div>
+
+            {/* 맥락 모드(스펙 260) — 앞 노드 결과를 어떻게 받을지. 폴더 규칙: 모드 전환=Segmented. */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <span style={{ fontSize: 13, color: 'var(--color-text)', fontWeight: 500 }}>맥락</span>
+              <Segmented
+                value={n.context ?? 'carry'}
+                onChange={(v) => setNode(i, { context: v as 'carry' | 'clean' })}
+                options={[
+                  { label: '대화 이어가기', value: 'carry' },
+                  { label: '깨끗이 받기', value: 'clean' },
+                ]}
+              />
+              <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+                {(n.context ?? 'carry') === 'clean'
+                  ? '앞의 대화를 걷어내고 바로 앞 노드의 결과만 받습니다 — 형식을 고정하는(예: JSON) 노드에 적합합니다.'
+                  : '지금까지의 대화(사용자 입력 + 앞 노드 결과)를 모두 보고 이어서 처리합니다.'}
+              </span>
             </div>
           </div>
         </div>

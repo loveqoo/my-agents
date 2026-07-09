@@ -31,6 +31,7 @@ export interface PipelineNode {
   prompt: string // 이 노드의 시스템 프롬프트(비어있지 않아야 저장)
   model: string // 이 노드가 쓸 등록 모델 이름(ModelConfig.name)
   tools: string[] // 이 노드가 참고할 도구 이름(MCP 도구명 + 문서 검색 search_documents)
+  context?: 'carry' | 'clean' // 맥락 모드(스펙 260). carry=대화 이어받기(기본), clean=앞 결과만 격리
 }
 
 /** 노코드 산출물형 필드(스펙 190) — 후보 있으면 SelectBox(enum), 없으면 자유 입력. */

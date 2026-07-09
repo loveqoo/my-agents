@@ -100,6 +100,9 @@ try {
   }
   if (!(await promptBoxes.nth(1).inputValue()).trim()) await promptBoxes.nth(1).fill('요약해서 한 문단으로 정리하라')
   await page.waitForTimeout(200)
+  // 맥락 모드(스펙 260): 노드2를 "깨끗이 받기"(clean)로 전환 — 왕복 보존 검증용.
+  await page.getByText('깨끗이 받기', { exact: true }).last().click({ force: true })
+  await page.waitForTimeout(200)
   // 두 노드 다 채워지면 "다음" 활성(모델 자동채움 + 프롬프트 입력 → pipelineValid)
   check(!(await nextBtn.isDisabled().catch(() => true)), '단계1: 노드 채우면 다음 활성(pipelineValid)')
   await page.screenshot({ path: `${OUT}-step1.png`, fullPage: true })
@@ -133,6 +136,9 @@ try {
   check(Array.isArray(roundtrip?.nodes) && roundtrip.nodes.length === 2, `왕복: nodes 2개 보존 (got ${roundtrip?.nodes?.length})`)
   check(roundtrip?.nodes?.[0]?.prompt?.includes('핵심 3가지'), '왕복: 노드1 프롬프트 보존')
   check(!!roundtrip?.nodes?.[0]?.model, '왕복: 노드1 모델 보존')
+  // 맥락 모드 왕복(스펙 260): 노드1 기본 carry·노드2 clean 보존
+  check((roundtrip?.nodes?.[0]?.context ?? 'carry') === 'carry', `왕복: 노드1 맥락=carry (got ${roundtrip?.nodes?.[0]?.context})`)
+  check(roundtrip?.nodes?.[1]?.context === 'clean', `왕복: 노드2 맥락=clean 보존 (got ${roundtrip?.nodes?.[1]?.context})`)
   check(roundtrip?.conformance === 'conforming', `왕복: conformance=conforming (got ${roundtrip?.conformance})`)
   if (toolPicked) {
     const derivedPool = (roundtrip?.mcps?.length ?? 0) + (roundtrip?.vectorTables?.length ?? 0)

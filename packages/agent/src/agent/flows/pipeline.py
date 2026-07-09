@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Annotated, TypedDict
 
-from langchain_core.messages import SystemMessage
+from langchain_core.messages import HumanMessage, RemoveMessage, SystemMessage, ToolMessage
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
@@ -26,6 +26,17 @@ from ..runtime import AgentBuildContext, AgentManifest
 
 class _State(TypedDict):
     messages: Annotated[list, add_messages]
+
+
+def _text_of(m: object) -> str:
+    """메시지의 텍스트 내용 추출(clean 모드가 앞 결과를 새 입력으로 심을 때). content가 문자열이면
+    그대로, 멀티모달 리스트면 text 파트만 이어붙임."""
+    c = getattr(m, "content", "")
+    if isinstance(c, str):
+        return c
+    if isinstance(c, list):
+        return "\n".join(str(p.get("text", "")) if isinstance(p, dict) else str(p) for p in c)
+    return str(c)
 
 
 def _model_from_node(node: dict, ctx: AgentBuildContext) -> ChatOpenAI:
@@ -64,11 +75,15 @@ def normalize_nodes(raw: object) -> list[dict]:
         name = name.strip() if isinstance(name, str) and name.strip() else f"노드{i + 1}"
         tools = n.get("tools")
         tools = [t for t in tools if isinstance(t, str)] if isinstance(tools, list) else []
+        # 맥락 모드(스펙 260): carry=누적 대화 이어받기(기본), clean=앞 결과만 격리 입력. 잡값→carry.
+        context = n.get("context")
+        context = context if context in ("carry", "clean") else "carry"
         out.append({
             "name": name,
             "prompt": prompt,
             "model_cfg": n.get("model_cfg") if isinstance(n.get("model_cfg"), dict) else None,
             "tools": tools,
+            "context": context,
         })
     return out
 
@@ -108,7 +123,7 @@ class LinearPipelineAgent:
         if not nodes:
             # 노드 없음 — 조용한 빈 그래프 대신 단일 패스스루로 정직하게(입력을 그대로 모델에 태워
             # 최소 동작). 기본 모델도 없으면 build 시점에 명확히 실패(_model_from_node).
-            nodes = [{"name": "노드1", "prompt": "사용자 입력에 답하세요.", "model_cfg": None, "tools": []}]
+            nodes = [{"name": "노드1", "prompt": "사용자 입력에 답하세요.", "model_cfg": None, "tools": [], "context": "carry"}]
 
         by_name = {t.name: t for t in (ctx.tools or [])}
         ids = _unique_node_ids(nodes)
@@ -119,10 +134,22 @@ class LinearPipelineAgent:
             node_tools = [by_name[name] for name in node["tools"] if name in by_name]
             bound = model.bind_tools(node_tools) if node_tools else model
             prompt = node["prompt"]
+            clean = node.get("context") == "clean"
 
             async def _step(state: _State) -> dict:
                 sys = SystemMessage(content=prompt)
-                resp = await bound.ainvoke([sys, *state["messages"]])
+                msgs = state["messages"]
+                # clean 첫 진입(스펙 260): 쌓인 대화를 걷어내고 앞 결과만 새 입력으로 격리. 재진입
+                # (도구 루프 뒤 = 마지막이 ToolMessage)은 격리 buffer 위에서 정상 누적(carry 경로).
+                reentry = bool(msgs) and isinstance(msgs[-1], ToolMessage)
+                if clean and not reentry:
+                    prev_text = _text_of(msgs[-1]) if msgs else ""
+                    human = HumanMessage(content=prev_text)
+                    resp = await bound.ainvoke([sys, human])
+                    # 이전 메시지 전부 제거 + [앞 결과 입력, 응답]만 남김(격리 경계 — 하류도 여기부터 봄).
+                    removals = [RemoveMessage(id=m.id) for m in msgs if getattr(m, "id", None)]
+                    return {"messages": [*removals, human, resp]}
+                resp = await bound.ainvoke([sys, *msgs])
                 return {"messages": [resp]}
 
             return _step, node_tools
