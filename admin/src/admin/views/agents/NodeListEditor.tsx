@@ -225,19 +225,21 @@ export function NodeListEditor({
               </div>
               {(n.memories?.length ?? 0) > 0 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  <span style={{ fontSize: 13, color: 'var(--color-text)', fontWeight: 500 }}>회상 키워드</span>
+                  {/* 문구(스펙 268 후속, 사용자 합의): "회상 키워드"·"이 노드의 입력"은 내부어 —
+                      "기억 찾는 기준"·"앞 단계 결과로"로 평이화. 저장값(user/input)은 불변. */}
+                  <span style={{ fontSize: 13, color: 'var(--color-text)', fontWeight: 500 }}>기억 찾는 기준</span>
                   <Segmented
                     value={n.memoryQuery ?? 'user'}
                     onChange={(v) => setNode(i, { memoryQuery: v as 'user' | 'input' })}
                     options={[
-                      { label: '사용자 입력', value: 'user' },
-                      { label: '이 노드의 입력', value: 'input' },
+                      { label: '사용자 질문으로', value: 'user' },
+                      { label: '앞 단계 결과로', value: 'input' },
                     ]}
                   />
                   <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
                     {(n.memoryQuery ?? 'user') === 'input'
-                      ? '이 노드가 받은 내용으로 기억을 찾습니다.'
-                      : '사용자 질문으로 기억을 찾습니다(다른 노드와 조회 공유).'}
+                      ? '이 노드가 받은 앞 단계 결과로 기억을 찾습니다.'
+                      : '사용자의 원래 질문으로 기억을 찾습니다(다른 노드와 조회 공유).'}
                   </span>
                 </div>
               )}
