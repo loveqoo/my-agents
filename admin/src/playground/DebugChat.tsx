@@ -772,7 +772,8 @@ function ChatHeader({
             // 랩 가로(스펙 248 후속12, 사용자: "3줄이 되었네요") — 에이전트만 전폭 1줄, 버전·세션·
             // 검사 도구는 한 줄을 나눠 쓴다(세션이 남는 폭을 흡수). 좁으면 flexWrap이 자연 줄바꿈.
             ? { display: 'flex', flexWrap: 'wrap', alignItems: 'stretch', gap: 8, padding: '10px 12px' }
-            : { height: 64, display: 'flex', alignItems: 'center', gap: 12, padding: '0 20px' }
+            // minHeight+wrap(스펙 253, 사용자 실기기: 인스펙터 병행 폭에서 칩 밀림) — 좁으면 둘째 줄로.
+            : { minHeight: 64, display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 12, padding: '8px 20px' }
         }
       >
         <AgentCombo agent={agent} agents={agents} onSwitch={onSwitchAgent} fullWidth={isMobile} />
@@ -926,18 +927,26 @@ function TraceChips({ trace, active, onClick }: { trace?: Trace; active: boolean
       }}
     >
       <Chip icon="bulb" color="var(--purple-6)" n={trace.memories.length} label="mem" />
-      {/* rag 칩(스펙 130) — 직접형(mcp server='rag') + 조율형(브로커 rag:*) 합산. mcp 칩은 rag를
-          제외해 중복 계산 방지(인스펙터 섹션 카운트와 동일 기준). */}
-      <Chip
-        icon="search"
-        color="var(--geekblue-6)"
-        n={
-          trace.mcp.filter((c) => c.server === 'rag').length +
-          (trace.brokerCalls?.filter((b) => b.cap_id.startsWith('rag:')).length ?? 0)
-        }
-        label="rag"
-      />
-      <Chip icon="thunderbolt" color="var(--cyan-7)" n={trace.mcp.filter((c) => c.server !== 'rag').length} label="mcp" />
+      {/* rag 칩(스펙 130→253 시맨틱 교정): 직접형(mcp server='rag')+조율형(브로커 rag:*) 합산하되
+          **성공만 센다** — 실패한 시도를 +1하면 "검색을 썼다"로 읽혀 거짓 신호(사용자 지적: 라이브
+          장애 중 검색 실패가 1 rag로 표시). 실패는 지우지 않고 빨간 별도 칩(정밀 디버그 채널 —
+          시도·실패 신호는 성공보다 중요). mcp도 동일 원리. */}
+      {(() => {
+        const ragOk = trace.mcp.filter((c) => c.server === 'rag' && c.status !== 'error').length +
+          (trace.brokerCalls?.filter((b) => b.cap_id.startsWith('rag:') && !b.error).length ?? 0)
+        const ragFail = trace.mcp.filter((c) => c.server === 'rag' && c.status === 'error').length +
+          (trace.brokerCalls?.filter((b) => b.cap_id.startsWith('rag:') && b.error).length ?? 0)
+        const mcpOk = trace.mcp.filter((c) => c.server !== 'rag' && c.status !== 'error').length
+        const mcpFail = trace.mcp.filter((c) => c.server !== 'rag' && c.status === 'error').length
+        return (
+          <>
+            <Chip icon="search" color="var(--geekblue-6)" n={ragOk} label="rag" />
+            {ragFail > 0 && <Chip icon="close-circle" color="var(--red-6)" n={ragFail} label="rag 실패" />}
+            <Chip icon="thunderbolt" color="var(--cyan-7)" n={mcpOk} label="mcp" />
+            {mcpFail > 0 && <Chip icon="close-circle" color="var(--red-6)" n={mcpFail} label="mcp 실패" />}
+          </>
+        )
+      })()}
       <Chip icon="clock-circle" color="var(--color-text-tertiary)" label={(trace.latencyMs / 1000).toFixed(2) + 's'} />
       <span style={{ fontSize: 12, color: 'var(--color-primary)', fontWeight: 500 }}>인스펙터{active ? ' ✓' : ''}</span>
     </Tag>
