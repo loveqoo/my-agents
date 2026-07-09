@@ -3,7 +3,7 @@
    수치 검증→자율 반복(Ralph) 로드맵의 제품 표면. 러너는 오염 제로(백엔드 eval_runner) —
    실행해도 세션/메모리에 흔적이 남지 않는다. */
 import { useState, useEffect, useCallback, type CSSProperties } from 'react'
-import { Tabs, Button, Input, InputNumber, AutoComplete, Select, Tag, Modal, Popconfirm, Alert, Collapse, Checkbox, Tooltip, message, Descriptions, Skeleton } from 'antd'
+import { Tabs, Button, Input, InputNumber, AutoComplete, Select, Tag, Modal, Popconfirm, Alert, Collapse, Checkbox, Tooltip, message, Skeleton } from 'antd'
 import { Page, DataTable, Drawer, type Column } from '../shared'
 import { Icon } from '../icons'
 import { TrendChart, CompareDrawer } from './EvalTrend'
@@ -484,7 +484,8 @@ function DatasetDrawer({
                 <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 6 }}>
                   {/* 스펙 194: raw type 대신 사람이 읽는 문장(assertLabel) — 편집 폼과 같은 어휘(드리프트 0). */}
                   {c.asserts.map((a, i) => (
-                    <Tag key={i} color={CAT_META[catOf(a.type)].color}>{assertLabel(a)}</Tag>
+                    // 긴 판정문(AI 판정 등)이 드로어 폭을 관통(오버플로 실측) — 줄바꿈 허용.
+                    <Tag key={i} color={CAT_META[catOf(a.type)].color} style={{ whiteSpace: 'normal', height: 'auto' }}>{assertLabel(a)}</Tag>
                   ))}
                 </div>
               </div>
@@ -525,7 +526,10 @@ function RunDrawer({ runId, onClose }: { runId: string | null; onClose: () => vo
           <div style={{ display: 'flex', gap: 10, alignItems: 'baseline', flexWrap: 'wrap' }}>
             <span style={{ fontSize: 28, fontWeight: 700 }}>{detail.score != null ? Math.round(detail.score * 100) + '%' : '—'}</span>
             <span style={{ color: 'var(--color-text-secondary)' }}>{detail.passed}/{detail.total} 통과</span>
-            <Tag color={detail.status === 'ok' ? 'green' : detail.status === 'error' ? 'red' : 'blue'}>{detail.status}</Tag>
+            {/* raw enum(ok/error) 노출 금지 — 컬렉션 상태 태그와 같은 한글 매핑(카피 일관). */}
+            <Tag color={detail.status === 'ok' ? 'green' : detail.status === 'error' ? 'red' : 'blue'}>
+              {detail.status === 'ok' ? '완료' : detail.status === 'error' ? '오류' : '실행 중'}
+            </Tag>
             {/* 도구 정직성 집계(스펙 170) — 통과 중 도구 미호출 건수를 한눈에(거짓 초록 규모). */}
             {(() => {
               const toolless = detail.results.filter((r) => r.case_passed && r.obs && !firedTool(r.obs.trace_nodes)).length
@@ -536,20 +540,12 @@ function RunDrawer({ runId, onClose }: { runId: string | null; onClose: () => vo
               ) : null
             })()}
           </div>
-          <Descriptions
-            column={1}
-            size="small"
-            items={[{
-              key: 'agent',
-              label: '에이전트',
-              children: (
-                <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
-                  {detail.agent_name ?? '—'}
-                  {detail.agent_version && <Tag style={{ margin: 0 }}>{detail.agent_version}</Tag>}
-                </span>
-              ),
-            }]}
-          />
+          {/* 1행짜리 Descriptions는 컨테이너 과잉(스펙 252) — 라벨+값 한 줄로. */}
+          <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center', fontSize: 13 }}>
+            <span style={{ color: 'var(--color-text-tertiary)' }}>에이전트</span>
+            {detail.agent_name ?? '—'}
+            {detail.agent_version && <Tag style={{ margin: 0 }}>{detail.agent_version}</Tag>}
+          </div>
           {/* 실행 환경(스펙 240) — 재현 보장이 아니라 진단 단서(왜 점수가 달라졌나의 대조 축). */}
           {detail.env && Object.keys(detail.env).length > 0 && (
             <Collapse
@@ -804,7 +800,7 @@ export default function EvalView({ initialCollectionId, onConsumedInitial }: {
             <Icon name="loading" spin size={12} /> 실행 중
           </span>
         ) : (
-          <Tag color={r.status === 'ok' ? 'green' : 'red'}>{r.status}</Tag>
+          <Tag color={r.status === 'ok' ? 'green' : 'red'}>{r.status === 'ok' ? '완료' : '오류'}</Tag>
         ),
     },
     {

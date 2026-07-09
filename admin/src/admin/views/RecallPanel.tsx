@@ -37,7 +37,7 @@ export function RecallPanel({
         />
       }
       queryPlaceholder="예: 내가 선호하는 보고서 형식은?"
-      limitLabel="limit (1–10)"
+      limitLabel="최대 몇 개 (1–10)" // 내부어 limit 비노출(스펙 252)
       runLabel="조회"
       scoreLabel="관련도"
       countLabel={(n) => `회상 ${n}건`}

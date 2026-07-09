@@ -557,7 +557,7 @@ function SearchDrawer({
         ) : null
       }
       queryPlaceholder="예: 환불 정책이 어떻게 되나요?"
-      limitLabel="top_k (1–10)"
+      limitLabel="상위 몇 개 (1–10)" // 내부어 top_k 비노출(스펙 252 — 평이한 언어)
       runLabel="검색"
       scoreLabel="유사도"
       countLabel={(n) => `결과 ${n}건`}
@@ -694,7 +694,7 @@ export default function CollectionsView({ onEvaluate }: { onEvaluate?: (cid: str
       key: 'embedding_model_name',
       title: '임베딩 모델',
       hideBelow: 'xl',
-      render: (c) => <Tag color="cyan">{c.embedding_model_name}</Tag>,
+      render: (c) => <Tag color="cyan" title={c.embedding_model_name} style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', verticalAlign: 'bottom' }}>{c.embedding_model_name}</Tag>,
     },
     {
       key: 'dims',

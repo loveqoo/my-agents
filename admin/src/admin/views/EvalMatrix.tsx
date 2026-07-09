@@ -146,7 +146,7 @@ export function MatrixView({ runs, onOpenRun }: { runs: EvalRunT[]; onOpenRun: (
                       <Icon name="loading" spin size={12} /> 실행 중
                     </span>
                   ) : d.status === 'error' ? (
-                    <Tag color="red" style={{ margin: 0 }}>error</Tag>
+                    <Tag color="red" style={{ margin: 0 }}>오류</Tag>
                   ) : (
                     <span style={{ fontWeight: 600, fontSize: 13 }}>
                       {`${d.score != null ? Math.round(d.score * 100) : '—'}% (${d.passed}/${d.total})`}
