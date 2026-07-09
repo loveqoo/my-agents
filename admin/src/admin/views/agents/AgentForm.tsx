@@ -389,12 +389,8 @@ export function AgentForm({
           </Field>
         </div>
         {/* 노드형(스펙 259)은 모델·페르소나를 노드마다 직접 정하므로 에이전트-레벨 모델/페르소나를 숨긴다
-            (결정 #1·#2). 대신 안내 한 줄로 다음 단계("하는 일")에서 노드를 만들도록 유도. */}
-        {isPipeline ? (
-          <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-            노드형은 노드마다 모델·프롬프트·도구를 직접 정합니다 — 다음 "하는 일" 단계에서 노드를 추가하세요.
-          </span>
-        ) : (
+            (결정 #1·#2). 안내는 종류 필드 아래 설명에 합류(스펙 263 — 떠 있는 중복 문구 제거). */}
+        {isPipeline ? null : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))', gap: 16 }}>
           <Field label="모델">
             <Select
@@ -438,6 +434,8 @@ export function AgentForm({
           />
           <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
             {typeDesc(form.impl)}
+            {/* 노드형(스펙 263): 원인 필드(종류) 아래에 다음 행동 안내 — 위에 떠 있던 중복 문구 대체. */}
+            {isPipeline ? ' 노드는 다음 "하는 일" 단계에서 추가합니다.' : ''}
           </span>
         </Field>
         {/* 저장 방식(스펙 238 #1) — 영속/비영속은 부가정보가 아니라 1급 정보(사용자 지적). 기본=영속.
@@ -764,8 +762,16 @@ export function AgentForm({
               <SummaryRow k="이름" v={form.name.trim() || '(미입력)'} bad={!form.name.trim() || !!nameErr} />
               {form.description.trim() && <SummaryRow k="설명" v={form.description.trim()} />}
               <SummaryRow k="종류" v={`${typeLabel} — ${typeDesc(form.impl)}`} />
-              <SummaryRow k="모델" v={form.model || '(없음)'} />
-              <SummaryRow k="페르소나" v={form.persona || '(없음)'} />
+              {/* 노드형(스펙 263): 에이전트-레벨 모델/페르소나는 안 쓰이는데(페르소나=미사용, 모델=노드
+                  폴백뿐) 요약에 1급처럼 뜨면 거짓 확인(사용자가 정하지 않은 숨은 기본값). 정직하게 대체. */}
+              {isPipeline ? (
+                <SummaryRow k="모델·프롬프트" v="노드마다 설정 — 아래 처리 단계 참고" />
+              ) : (
+                <>
+                  <SummaryRow k="모델" v={form.model || '(없음)'} />
+                  <SummaryRow k="페르소나" v={form.persona || '(없음)'} />
+                </>
+              )}
               <SummaryRow k="저장 방식" v={form.ephemeral ? '비영속 (1회성) — 대화·기록을 남기지 않음' : '영속 — 대화와 기록 저장'} />
             </SummaryCard>
             <SummaryCard title="하는 일" onEdit={() => setStep(1)}>
@@ -786,7 +792,9 @@ export function AgentForm({
                   k="처리 단계"
                   v={
                     (form.nodes ?? []).length
-                      ? `${form.nodes!.length}단계 — ${form.nodes!.map((n, i) => n.name?.trim() || `노드${i + 1}`).join(' → ')}`
+                      ? `${form.nodes!.length}단계 — ${form.nodes!
+                          .map((n, i) => `${n.name?.trim() || `노드${i + 1}`}${n.model ? `(${n.model})` : ''}`)
+                          .join(' → ')}`
                       : '(없음 — 최소 1개 필요)'
                   }
                   bad={pipelineInvalid}

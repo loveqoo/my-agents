@@ -54,9 +54,10 @@ try {
   await page.getByPlaceholder('예: research-assistant').fill(NAME)
   await pickFieldSelect('에이전트 종류', '노드형')
   await page.waitForTimeout(400)
-  // 노드형이면 모델/페르소나 숨김 + 안내 노출
-  const noteVisible = await page.getByText('노드형은 노드마다 모델·프롬프트·도구를 직접 정합니다', { exact: false }).isVisible().catch(() => false)
-  check(noteVisible, '단계0: 노드형 선택 시 모델/페르소나 숨김 + 안내 노출')
+  // 노드형이면 모델/페르소나 숨김 + 안내(종류 필드 아래 합류, 스펙 263) 노출
+  const noteVisible = await page.getByText('노드는 다음 "하는 일" 단계에서 추가합니다', { exact: false }).isVisible().catch(() => false)
+  const modelFieldHidden = !(await page.locator('label', { hasText: '페르소나' }).first().isVisible().catch(() => false))
+  check(noteVisible && modelFieldHidden, '단계0: 노드형 선택 시 모델/페르소나 숨김 + 안내 노출(종류 아래)')
   await page.screenshot({ path: `${OUT}-step0.png` })
 
   // 다음 → 단계 1 하는 일
