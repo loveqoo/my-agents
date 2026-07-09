@@ -29,6 +29,11 @@
   `계획→실행→실행__tools→실행→실행__tools→실행`(도구 루프 2회), mcp 기록 `wiki_search: ok`+
   `wiki_page: ok`, 답변이 실제 위키 근거(마틴 파울러 명명·식물 유래 — 문서를 읽어야 나오는 내용). 10.2s.
 - 무회귀: 259(15)·260(10)·261(14) + tsc 0.
+- **RAG 축**(사용자 요청 후속, `verify-pipeline-rag.mjs` — 필수 단언): 노드형 1노드(tools=
+  ['search_documents'], docs-kb, 실모델) → 그래프 `문서답변→문서답변__tools→문서답변`(도구 루프 발화),
+  호출 기록 `{server: rag, tool: search_documents, status: ok, args: {query, top_k: 4}}`, 답변이 docs-kb
+  청크 원문("가입 페이지에서 이메일과 비밀번호…") 그대로 근거. 4.0s ALL GREEN. search_documents는
+  무접두라 정확 일치 경로(T2b 예측대로) — MCP(접두명)·RAG(민이름) 두 이름 체계 모두 실발화 검증 완료.
 
 ## 교훈 (회고 240)
 - "그린인데 핵심 행동이 한 번도 발화 안 됨"은 그린이 아니다 — 데모의 존재 이유(위키 검색)는 재량으로
