@@ -8,6 +8,7 @@ import { VersionHistory, ExposeSwitch } from '../../shared'
 import { Icon } from '../../icons'
 import { AgentMemoryPanel } from '../AgentMemoryPanel'
 import { isOrchestratorImpl, type Agent, type VersionMeta } from '../../mockData'
+import { DelegationGraph } from '../../DelegationGraph'
 import { displayName } from '../../naming'
 import { PersonaStaleNote } from './PersonaStaleNote'
 import { FeedbackHarvestButton } from './FeedbackHarvestButton'
@@ -23,6 +24,7 @@ function a2aCardUrl(agentPk: string): string {
 
 export function AgentDetailPage({
   agent,
+  agents,
   onBack,
   onEdit,
   onDelete,
@@ -36,6 +38,7 @@ export function AgentDetailPage({
   onRefreshPersona,
 }: {
   agent: Agent
+  agents?: Agent[] // 위임 구조 조립용(스펙 257 — 전체 목록의 capabilities 그래프)
   onBack: () => void
   onEdit: (a: Agent) => void
   onDelete: (a: Agent) => void
@@ -208,13 +211,15 @@ export function AgentDetailPage({
                       ),
                     }]
                   : []),
-                ...((agent.capabilities || []).length
+                // "위임 대상" raw id 행 제거(스펙 257) — 아래 위임 구조 그래프가 canonical(이름·
+                // 계층·순환까지). 에이전트 외 능력(mcp:/rag:)만 남긴다.
+                ...((agent.capabilities || []).filter((c) => c.includes(':')).length
                   ? [{
                       key: 'caps',
-                      label: '위임 대상',
+                      label: '위임 능력',
                       children: (
                         <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6 }}>
-                          {(agent.capabilities || []).map((c) => <Tag key={c} color="geekblue">{c}</Tag>)}
+                          {(agent.capabilities || []).filter((c) => c.includes(':')).map((c) => <Tag key={c} color="geekblue">{c}</Tag>)}
                         </span>
                       ),
                     }]
@@ -232,6 +237,16 @@ export function AgentDetailPage({
                 </div>
               ) : null
             })()}
+            {/* 위임 구조(스펙 257) — 조율형이면 누구에게 맡길 수 있고 그 아래가 어떻게 이어지는지.
+                설정상 순환은 빨간 마커(실행 시 자동 차단 — 256 v2 체인)로 정직 표시. */}
+            {isOrchestratorImpl(agent.impl) && agents ? (
+              <div style={{ marginTop: 14 }}>
+                <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginBottom: 8 }}>위임 구조</div>
+                <div style={{ border: '1px solid var(--color-border-secondary)', borderRadius: 'var(--radius-lg)', padding: '10px 14px' }}>
+                  <DelegationGraph rootAgentId={agent.agentId} agents={agents} />
+                </div>
+              </div>
+            ) : null}
             {/* 에이전트 지식(mem0) — 내부에 탭·검색·목록을 가진 복합 위젯이라 Descriptions 값 칸에
                 넣으면 모바일(360px)에서 레이블 옆 셀로 밀려 우측이 뚫린다(사용자 신고) → 전체폭 블록. */}
             {(agent.memories || []).includes('장기 기억 (mem0)') && (agent.source || 'ui') === 'ui' && (

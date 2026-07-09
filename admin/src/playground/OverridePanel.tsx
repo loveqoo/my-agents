@@ -8,6 +8,7 @@ import { Drawer, Select, Input, Slider, Switch, Button, Alert, Tag, Tooltip, Ste
 import { isOrchestratorImpl, type Agent, type BlockCategory } from '../admin/mockData'
 import type { Collection, Model } from '../api'
 import { PickerGroups, type PickerGroup } from '../PickerGroups'
+import { DelegationGraph } from '../admin/DelegationGraph'
 
 export interface Overrides {
   model: string
@@ -428,6 +429,14 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
               )}
             </div>
           </Field>
+          {isOrchestrator && agent ? (
+            // 위임 구조 미리보기(스펙 257) — 편집 중 값(draft.capabilities) 기준: 체크를 바꾸면
+            // 적용 전에 구조가 어떻게 되는지 즉시 보인다. 순환은 빨간 마커(실행 시 자동 차단).
+            <div style={{ border: '1px solid var(--color-border-secondary)', borderRadius: 8, padding: '10px 14px' }}>
+              <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginBottom: 6 }}>위임 구조 미리보기</div>
+              <DelegationGraph rootAgentId={agent.agentId} agents={agents} rootCapsOverride={draft.capabilities} />
+            </div>
+          ) : null}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
           {/* 세부(스펙 249: 단계가 이미 구획이라 Collapse 해제·평면 나열) — Temperature·채팅 히스토리. */}

@@ -486,6 +486,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
         /* 에이전트 상세 풀페이지(스펙 245) — 목록을 대체 렌더(뒤로가기로 복귀). ui + 레거시(source 미기록). */
         <AgentDetailPage
           agent={detail}
+          agents={agents}
           onBack={() => setDetailId(null)}
           onEdit={openEdit}
           onDelete={setConfirmDel}
