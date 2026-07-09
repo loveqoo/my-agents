@@ -636,9 +636,7 @@ export default function ProviderModelView() {
                       {p.description}
                     </div>
                   ) : null}
-                  <code style={{ ...codeStyle, color: 'var(--color-text-quaternary)', display: 'block', marginTop: 4 }}>
-                    {p.base_url}
-                  </code>
+                  {/* URL은 우측 상세가 canonical(스펙 250 #9) — 목록 카드의 반복 표기 제거(식별자 강등). */}
                 </div>
               )
             })

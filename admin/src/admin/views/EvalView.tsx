@@ -729,7 +729,7 @@ export default function EvalView({ initialCollectionId, onConsumedInitial }: {
 
   const dsCols: Column<EvalDataset>[] = [
     {
-      key: 'name', title: '문제집',
+      key: 'name', title: '이름', // 탭 라벨 반복 제거(스펙 250 #6)
       render: (d) => (
         <div>
           <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>

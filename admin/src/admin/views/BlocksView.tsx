@@ -985,7 +985,7 @@ export default function BlocksView() {
     return [
       {
         key: 'name',
-        title: (def?.label ?? '').replace(/s$/, ''),
+        title: '이름', // 탭 라벨 반복 제거(스펙 250 #6) — 탭이 이미 카테고리를 말한다
         render: (r) => (
           <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
             <Tooltip title={r.description || undefined}>
@@ -1148,17 +1148,7 @@ export default function BlocksView() {
                 ...(detail.model
                   ? [{ key: 'model', label: '임베딩 모델', children: <Tag color="geekblue">{detail.model}</Tag> }]
                   : []),
-                ...(detail.source
-                  ? [
-                      {
-                        key: 'origin',
-                        label: '출처',
-                        children: (
-                          <code style={{ fontFamily: 'var(--font-family-code)', fontSize: 12 }}>{detail.source}</code>
-                        ),
-                      },
-                    ]
-                  : []),
+                // raw "출처"(source 코드값) 행 제거(스펙 250 #5) — 아래 인간화 "소스" 행과 같은 필드 이중.
                 ...(detail.dims ? [{ key: 'dims', label: '차원', children: `${detail.dims.toLocaleString()}차원` }] : []),
                 ...(detail.rows != null
                   ? [{ key: 'rows', label: '행 수', children: `${detail.rows.toLocaleString()}개 벡터` }]

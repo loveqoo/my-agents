@@ -45,7 +45,7 @@ export default function SettingsView() {
             </div>
           </div>
           <label style={{ display: 'flex', flexDirection: 'column', gap: 6, maxWidth: 360 }}>
-            <span style={{ fontSize: 13, fontWeight: 500 }}>organization 이름</span>
+            {/* 입력 라벨 제거(스펙 250 #8) — 단일 필드라 카드 제목("A2A organization")+설명이 라벨 역할. */}
             <Input
               placeholder="예: acme-lab"
               value={orgName}

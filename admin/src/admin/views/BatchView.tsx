@@ -330,7 +330,8 @@ export default function BatchView() {
       {/* 세션 보존정리 설정 (스펙 038) */}
       {job === 'session' && (
       <Panel style={{ padding: 20, marginBottom: 20 }}>
-        <h4 style={{ margin: '0 0 4px', fontSize: 16 }}>세션 보존정리 (session-cleanup)</h4>
+        {/* 탭이 곧 제목(스펙 250 #7) — 반복 어구 제거, 잡 식별자(코드명)만 유지(서버 로그 대조용). */}
+        <code style={{ fontFamily: 'var(--font-family-code)', fontSize: 12, color: 'var(--color-text-quaternary)' }}>session-cleanup</code>
         <div style={{ color: 'var(--color-text-tertiary)', fontSize: 13, marginBottom: 16 }}>
           마지막 활동이 보존일수보다 오래된 세션, 또는 최소 턴 수에 못 미친 이탈 세션과 그 메시지를 삭제합니다.
           장기기억(mem0)은 건드리지 않습니다. 두 기준 모두 비우면 비활성(삭제 안 함)입니다.
@@ -427,7 +428,8 @@ export default function BatchView() {
       {/* 유저 메모리 통합 설정 (스펙 039) */}
       {job === 'memory' && (
       <Panel style={{ padding: 20, marginBottom: 20 }}>
-        <h4 style={{ margin: '0 0 4px', fontSize: 16 }}>유저 메모리 통합 (memory-consolidation)</h4>
+        {/* 탭이 곧 제목(스펙 250 #7) — 반복 어구 제거, 잡 식별자(코드명)만 유지(서버 로그 대조용). */}
+        <code style={{ fontFamily: 'var(--font-family-code)', fontSize: 12, color: 'var(--color-text-quaternary)' }}>memory-consolidation</code>
         <div style={{ color: 'var(--color-text-tertiary)', fontSize: 13, marginBottom: 16 }}>
           장기기억(mem0 user_id 축)이 임계치를 넘은 유저의 기억을 LLM으로 더 적고 일관된 사실로 통합합니다.
           원본은 삭제 전 스냅샷에 백업합니다(롤백 가능). 임계치를 비우면 비활성입니다.
@@ -503,7 +505,8 @@ export default function BatchView() {
       {/* A2A 정크 정리 (스펙 050, #1) — 설정 없음, dry-run/실행만 */}
       {job === 'a2a' && (
       <Panel style={{ padding: 20, marginBottom: 20 }}>
-        <h4 style={{ margin: '0 0 4px', fontSize: 16 }}>A2A 정크 정리 (a2a-cleanup)</h4>
+        {/* 탭이 곧 제목(스펙 250 #7) — 반복 어구 제거, 잡 식별자(코드명)만 유지(서버 로그 대조용). */}
+        <code style={{ fontFamily: 'var(--font-family-code)', fontSize: 12, color: 'var(--color-text-quaternary)' }}>a2a-cleanup</code>
         <div style={{ color: 'var(--color-text-tertiary)', fontSize: 13, marginBottom: 16 }}>
           외부(A2A 카드) 소스이면서 endpoint 호스트가 루프백/사설망(127.*·localhost·10.*·192.168.*·
           172.16~31.*)인 에이전트를 삭제합니다 — 테스트가 등록한 프로브 카드만 해당됩니다. 공개 endpoint의
@@ -537,7 +540,8 @@ export default function BatchView() {
       {/* 테스트 유저 정리 (스펙 050, #13) — 가장 비가역, 바닥 3겹 */}
       {job === 'user' && (
       <Panel style={{ padding: 20, marginBottom: 20 }}>
-        <h4 style={{ margin: '0 0 4px', fontSize: 16 }}>테스트 유저 정리 (user-cleanup)</h4>
+        {/* 탭이 곧 제목(스펙 250 #7) — 반복 어구 제거, 잡 식별자(코드명)만 유지(서버 로그 대조용). */}
+        <code style={{ fontFamily: 'var(--font-family-code)', fontSize: 12, color: 'var(--color-text-quaternary)' }}>user-cleanup</code>
         <div style={{ color: 'var(--color-text-tertiary)', fontSize: 13, marginBottom: 16 }}>
           이메일이 아래 SQL LIKE 패턴에 일치하는 유저를 삭제합니다(액세스 토큰·권한 grant 함께 정리).
           가장 비가역한 작업이라 안전장치 3겹: 패턴을 비우면 비활성, <code>%</code>·빈 패턴 등 전체 삭제
