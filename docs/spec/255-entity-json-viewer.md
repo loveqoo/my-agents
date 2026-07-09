@@ -15,3 +15,9 @@
 ## 검증
 - 검색 시험 e2e 8/8(JsonTree 계약: 키·null 표시) + 인스펙터 2/2(구조화·빈 라벨 나열 부재,
   엔티티 vectorTables 에이전트로 실검색) + 칩 스위트 무회귀. 시드 정리. tsc 0.
+
+## 후속 (사용자 — 인스펙터 RAG 결과에도 JsonTree: "디버깅 영역이라 제대로")
+- RagHit엔 meta가 실려 있지 않았음 — 백엔드 _hits_detail에 **meta 관통**(엔티티 hit의 원본 행
+  데이터, JSON 2000자 캡 — 마스킹으로 JSON을 깨느니 상한으로, 스펙 149 검색 응답과 동일 정밀도).
+- 인스펙터 HitCard 하단에 JsonTree(meta) — 구조화 필드+빈 필드 한 줄+원본 JSON 트리 3층 구성.
+- e2e I1~I3(구조화·빈 라벨 부재·meta JsonTree) + 검색 시험 8/8 무회귀. tsc 0.

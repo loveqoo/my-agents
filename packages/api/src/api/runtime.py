@@ -467,6 +467,15 @@ def _hits_detail(results: list[dict], cap: int = 240) -> list[dict]:
             "collection": h.get("collection", ""),
             "textPreview": snippet,
         }
+        # 엔티티 meta 관통(스펙 255 후속) — 인스펙터=디버그 영역이라 원본 행 데이터를 JSON 뷰어로
+        # 제대로 보여준다. JSON 직렬화 2000자 캡(폭주 방지 — 표시-안전 규율의 상한 축), 원문 그대로
+        # (스펙 149의 검색 응답과 동일 정밀도 — 마스킹으로 JSON을 깨느니 상한으로 지킨다).
+        meta = h.get("meta")
+        if isinstance(meta, dict) and meta:
+            import json as _json
+
+            if len(_json.dumps(meta, ensure_ascii=False)) <= 2000:
+                item["meta"] = meta
         # 스펙 192: 커트라인 표시(used/dropped). belowCutoff/cutoff가 있으면 그대로 전달(인스펙터가
         # "커트라인 미달로 못 쓴 문서"를 회색으로 구분). 커트라인 없는 히트는 키 없음(=used).
         if "belowCutoff" in h:

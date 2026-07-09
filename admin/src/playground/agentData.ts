@@ -20,6 +20,7 @@ export interface RagHit {
   filename: string
   collection?: string
   textPreview: string
+  meta?: Record<string, unknown> | null // 엔티티 원본 행 데이터(스펙 255 — 인스펙터 JsonTree용, 2000자 캡)
   belowCutoff?: boolean // 스펙 192: 커트라인 미달로 에이전트가 못 쓴 문서
   cutoff?: number // 그 컬렉션 커트라인 값(belowCutoff 판정 기준)
 }

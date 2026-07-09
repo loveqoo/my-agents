@@ -5,6 +5,7 @@ import { useState, useEffect, type CSSProperties, type ReactNode } from 'react'
 import { Tag, Button, Collapse, Timeline, Tabs, Modal, Progress, Alert } from 'antd'
 import { Icon } from '../admin/icons'
 import { parseEntityText, EntityFields } from '../admin/EntityFields'
+import { JsonTree } from './JsonTree'
 import type { ChatMsg, Memory, McpCallT, Trace, RagHit } from './agentData'
 import type { Agent } from '../admin/mockData'
 
@@ -147,12 +148,22 @@ function HitCard({ hit, idx }: { hit: RagHit; idx: number }) {
   const dropped = hit.belowCutoff === true // 스펙 192: 커트라인 미달로 에이전트가 못 쓴 문서
   // 엔티티 직렬화 텍스트(스펙 255) — 검색 시험 카드와 같은 구조화 렌더(빈 필드 접기). 공용 EntityFields.
   const parsed = hit.textPreview ? parseEntityText(hit.textPreview) : null
-  const body = parsed ? (
-    <EntityFields rows={parsed.rows} empty={parsed.empty} size={12} />
-  ) : (
-    <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', overflowWrap: 'anywhere', whiteSpace: 'pre-wrap' }}>
-      {hit.textPreview || '(본문 없음)'}
-    </div>
+  const body = (
+    <>
+      {parsed ? (
+        <EntityFields rows={parsed.rows} empty={parsed.empty} size={12} />
+      ) : (
+        <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', overflowWrap: 'anywhere', whiteSpace: 'pre-wrap' }}>
+          {hit.textPreview || '(본문 없음)'}
+        </div>
+      )}
+      {hit.meta && Object.keys(hit.meta).length > 0 ? (
+        // 엔티티 원본 행 데이터(스펙 255 후속) — 디버그 영역이므로 JSON 뷰어로 제대로(사용자 지시).
+        <div style={{ marginTop: 6 }}>
+          <JsonTree value={hit.meta} />
+        </div>
+      ) : null}
+    </>
   )
   return (
     <div
