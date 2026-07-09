@@ -608,6 +608,11 @@ export const clearMessageFeedback = (sessionId: string, messageId: string) =>
   del(`/sessions/${sessionId}/messages/${messageId}/feedback`)
 export const listApprovals = (status?: string) =>
   j<Approval[]>(`/approvals${status ? `?status=${encodeURIComponent(status)}` : ''}`)
+// 승인 페이지 목록(스펙 251) — {items,total}. status: pending=대기 큐, resolved=처리 내역.
+export const listApprovalsPage = (status: 'pending' | 'resolved', q: string, limit: number, offset: number) =>
+  j<{ items: Approval[]; total: number }>(
+    `/approvals/page?status=${status}&q=${encodeURIComponent(q)}&limit=${limit}&offset=${offset}`,
+  )
 export const resolveApproval = (id: string, decision: 'approve' | 'reject') =>
   post(`/approvals/${id}/resolve`, { decision }) as Promise<Approval>
 

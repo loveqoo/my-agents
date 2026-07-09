@@ -696,6 +696,12 @@ class ApprovalOut(BaseModel):
     resolvedBySelf: bool | None = None  # 처리자=요청자면 True(본인), 다르면 False(관리자), 미처리 None
 
 
+class ApprovalPage(BaseModel):
+    # 승인 페이지 응답(스펙 251) — 세션 페이지와 같은 계약({items, total}).
+    items: list[ApprovalOut]
+    total: int
+
+
 class ResolveIn(BaseModel):
     decision: Literal["approve", "reject"]
 

@@ -1,231 +1,112 @@
-/* my-agents admin — Approvals queue: admin-approver permission requests where a
-   LangGraph run is paused at a checkpoint (interrupt) awaiting an admin decision.
-   Approve → resume from checkpoint; Reject → abort the run. */
-import { useState, useEffect, type ReactNode } from 'react'
-import { Tag, Button, Avatar, message, Tabs } from 'antd'
-import { Page, Panel } from '../shared'
-import { Icon } from '../icons'
+/* my-agents admin — 승인 큐(스펙 251 개편). 복잡도 1위(전건 카드 그리드·화면 22배)를
+   서버 페이지네이션(PagedListShell, 스펙 128) + 3층 위계로 처방:
+   - 주 과업 = 대기 건 판정 → 행은 판정 요약만(권한·요약·에이전트·시각·액션)
+   - 인자 JSON 등 상세 = 행 클릭 드로어(3층)
+   - 대기/처리됨 Tabs(판정 큐 vs 감사 기록 — 성격 다른 도구, 212 규칙)
+   Approve → 체크포인트에서 재개, Reject → 실행 중단(기존 resolve API 그대로). */
+import { useState } from 'react'
+import { Tag, Button, message, Tabs, Drawer, Descriptions, Grid } from 'antd'
+import { Page } from '../shared'
 import { fmtDateTime } from '../format'
 import { type Approval } from '../mockData'
-import { listApprovals, resolveApproval } from '../../api'
+import { listApprovalsPage, resolveApproval } from '../../api'
+import { PagedListShell, type ListController } from './PagedListShell'
 
-// 두 카드(ApprovalCard·HistoryCard) 공통 조각(스펙 182 중복 추출).
-// 헤더: 아바타+에이전트명+세션id + 우측 태그 슬롯. 카드별 상단 패딩(14/12)·부제(요청시각 유무)·태그가
-// 달라 파라미터로 픽셀 보존.
-function CardHeaderRow({ agent, sessionId, extra, pad, rightTag }: {
-  agent: string; sessionId: string; extra?: ReactNode; pad: string; rightTag: ReactNode
-}) {
+function ResultTag({ item }: { item: Approval }) {
+  const approved = item.status === 'approved'
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: pad, borderBottom: '1px solid var(--color-border-secondary)' }}>
-      <Avatar size="small" style={{ background: 'var(--gray-12)' }}>
-        <Icon name="robot" size={13} />
-      </Avatar>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontWeight: 500, color: 'var(--color-text-heading)' }}>{agent}</div>
-        <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-          <code style={{ fontFamily: 'var(--font-family-code)' }}>{sessionId}</code>{extra}
-        </div>
+    <span style={{ display: 'inline-flex', gap: 4, flexWrap: 'wrap' }}>
+      <Tag color={approved ? 'green' : 'red'} style={{ margin: 0 }}>{approved ? '승인' : '거부'}</Tag>
+      {item.resolvedBySelf != null && (
+        <Tag style={{ margin: 0 }}>{item.resolvedBySelf ? '본인' : '관리자'}</Tag>
+      )}
+    </span>
+  )
+}
+
+/* 요약 셀 — 1차: 요약문, 2차: 에이전트 · 체크포인트(대기) / 에이전트(처리). */
+function SummaryCell({ item, showCheckpoint }: { item: Approval; showCheckpoint?: boolean }) {
+  return (
+    <div style={{ minWidth: 0 }}>
+      <div style={{ color: 'var(--color-text-heading)', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.summary}</div>
+      <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', overflowWrap: 'anywhere' }}>
+        {item.agent}
+        {showCheckpoint && item.checkpoint ? (
+          // 긴 식별자가 모바일 카드 폭을 관통(오버플로 실측 20건) — 줄바꿈 허용. full은 드로어.
+          <> · <code style={{ fontFamily: 'var(--font-family-code)', overflowWrap: 'anywhere' }}>{item.checkpoint}</code></>
+        ) : null}
       </div>
-      {rightTag}
     </div>
   )
 }
 
-// 권한·액션 태그 쌍(두 카드 완전 동일).
-function PermActionTags({ permission, action }: { permission: string; action: string }) {
-  return (
-    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-      <Tag color="geekblue">{permission}</Tag>
-      <Tag color="cyan">
-        <code style={{ fontFamily: 'var(--font-family-code)' }}>{action}</code>
-      </Tag>
-    </div>
-  )
-}
-
-function ApprovalCard({
-  item,
-  onResolve,
-}: {
-  item: Approval
-  onResolve: (item: Approval, decision: 'approve' | 'reject') => Promise<void>
-}) {
+export default function ApprovalsView({ onPendingChange }: { onPendingChange?: (n: number) => void }) {
+  const screens = Grid.useBreakpoint()
+  const isMobile = !screens.md
+  const [tab, setTab] = useState<'pending' | 'resolved'>('pending')
+  const [pendingTotal, setPendingTotal] = useState<number | null>(null)
+  const [detail, setDetail] = useState<Approval | null>(null)
   const [busy, setBusy] = useState<'approve' | 'reject' | null>(null)
-  const act = async (decision: 'approve' | 'reject') => {
+  // resolve 후 재조회(처리 건이 대기→처리로 이동) — refreshKey로 셸에 신호.
+  const [refreshKey, setRefreshKey] = useState(0)
+
+  const resolve = async (item: Approval, decision: 'approve' | 'reject', ctl?: ListController) => {
     setBusy(decision)
-    const delay = new Promise<void>((r) => setTimeout(r, 360))
     try {
-      await Promise.all([onResolve(item, decision), delay])
+      await resolveApproval(item.id, decision)
+      if (decision === 'approve') message.success(`승인됨 — ${item.checkpoint}에서 ${item.agent} 재개 중`)
+      else message.warning(`거부됨 — ${item.agent} 실행 중단`)
+      setDetail(null)
+      setRefreshKey((k) => k + 1)
+      // 마지막 항목을 처리해 페이지가 비면 이전 페이지로(셸 관례 — ctl 있을 때만).
+      if (ctl && ctl.rowCount === 1 && ctl.page > 1) ctl.setPage(ctl.page - 1)
+    } catch (e: unknown) {
+      message.error(e instanceof Error ? e.message : '결정을 처리하지 못했습니다.')
     } finally {
       setBusy(null)
     }
   }
-  return (
-    <Panel style={{ padding: 0 }}>
-      <CardHeaderRow
-        agent={item.agent}
-        sessionId={item.sessionId}
-        extra={<> · {fmtDateTime(item.requestedAt)}</>}
-        pad="14px 18px"
-        rightTag={
-          <Tag color={item.approver === 'self' ? 'blue' : 'purple'}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-              <Icon name={item.approver === 'self' ? 'user' : 'lock'} size={11} />
-              {item.approver === 'self' ? '본인 승인' : '관리자 승인'}
-            </span>
-          </Tag>
-        }
-      />
 
-      <div style={{ padding: '16px 18px' }}>
-        <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--color-text-heading)', marginBottom: 10 }}>{item.summary}</div>
-        <PermActionTags permission={item.permission} action={item.action} />
-        <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginBottom: 4 }}>인자</div>
-        <pre
-          style={{
-            fontFamily: 'var(--font-family-code)',
-            fontSize: 12,
-            lineHeight: 1.6,
-            color: 'var(--color-text)',
-            background: 'var(--gray-2)',
-            border: '1px solid var(--color-border-secondary)',
-            borderRadius: 6,
-            padding: '10px 12px',
-            margin: 0,
-            whiteSpace: 'pre-wrap',
-          }}
-        >
-          {JSON.stringify(item.args, null, 2)}
-        </pre>
-        {/* flex row → 인라인 흐름(스펙 133 모바일 점검): flex 항목화된 텍스트 조각들이 좁은 폭에서
-            긴 <code>에 밀려 한 글자씩 세로로 짜부라졌다(390px 판독 불가). 일반 텍스트 흐름 + code만
-            줄바꿈 허용으로 어떤 폭에서도 자연스럽게 감긴다. */}
-        <div style={{ marginTop: 12, fontSize: 12, color: 'var(--color-text-tertiary)', lineHeight: 1.7 }}>
-          <Icon name="clock-circle" size={12} style={{ marginRight: 6, verticalAlign: '-2px' }} />
-          체크포인트{' '}
-          <code style={{ fontFamily: 'var(--font-family-code)', color: 'var(--color-text-secondary)', overflowWrap: 'anywhere' }}>
-            {item.checkpoint}
-          </code>
-          에서 일시정지됨 — 승인하면 여기서 재개됩니다.
-        </div>
-      </div>
+  const pendingColumns = (ctl: ListController) => [
+    {
+      key: 'permission',
+      title: '권한',
+      width: 150,
+      render: (r: Approval) => <Tag color="geekblue" style={{ margin: 0 }}>{r.permission}</Tag>,
+    },
+    { key: 'summary', title: '요청', render: (r: Approval) => <SummaryCell item={r} showCheckpoint /> },
+    {
+      key: 'requestedAt',
+      title: '요청 시각',
+      width: 150,
+      hideBelow: 'lg' as const,
+      render: (r: Approval) => <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>{fmtDateTime(r.requestedAt)}</span>,
+    },
+    {
+      key: 'actions',
+      title: '',
+      width: 190,
+      align: 'right' as const,
+      render: (r: Approval) => (
+        <span style={{ display: 'inline-flex', gap: 6 }} onClick={(e) => e.stopPropagation()}>
+          <Button size="small" danger onClick={() => void resolve(r, 'reject', ctl)}>거부</Button>
+          <Button size="small" type="primary" onClick={() => void resolve(r, 'approve', ctl)}>승인 및 재개</Button>
+        </span>
+      ),
+    },
+  ]
 
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '0 18px 16px' }}>
-        <Button danger icon={<Icon name="close" />} loading={busy === 'reject'} disabled={!!busy} onClick={() => act('reject')}>
-          거부
-        </Button>
-        <Button type="primary" icon={<Icon name="check" />} loading={busy === 'approve'} disabled={!!busy} onClick={() => act('approve')}>
-          승인 및 재개
-        </Button>
-      </div>
-    </Panel>
-  )
-}
-
-// 처리됨(감사) 카드 — 읽기 전용. 결과·처리 시각·처리자(본인/관리자)를 보여준다(스펙 181).
-function HistoryCard({ item }: { item: Approval }) {
-  const approved = item.status === 'approved'
-  return (
-    <Panel style={{ padding: 0 }}>
-      <CardHeaderRow
-        agent={item.agent}
-        sessionId={item.sessionId}
-        pad="12px 18px"
-        rightTag={
-          <Tag color={approved ? 'green' : 'red'}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-              <Icon name={approved ? 'check' : 'close'} size={11} />
-              {approved ? '승인됨' : '거부됨'}
-            </span>
-          </Tag>
-        }
-      />
-      <div style={{ padding: '14px 18px' }}>
-        <div style={{ fontSize: 14, color: 'var(--color-text-heading)', marginBottom: 10 }}>{item.summary}</div>
-        <PermActionTags permission={item.permission} action={item.action} />
-        {/* 스펙 223: 요청 → 처리 흐름 순서(위=요청, 아래=처리자·처리 시각). 라벨 뒤 공백은 {' '}로 보장. */}
-        <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', lineHeight: 1.8 }}>
-          <div>
-            <Icon name="clock-circle" size={12} style={{ marginRight: 6, verticalAlign: '-2px' }} />
-            요청{' '}{fmtDateTime(item.requestedAt)}
-          </div>
-          <div>
-            <Icon name={item.resolvedBySelf ? 'user' : 'lock'} size={12} style={{ marginRight: 6, verticalAlign: '-2px' }} />
-            {item.resolvedBySelf ? '본인 처리' : '관리자 처리'}
-          </div>
-          <div>
-            <Icon name="clock-circle" size={12} style={{ marginRight: 6, verticalAlign: '-2px' }} />
-            처리 시각{' '}{fmtDateTime(item.resolvedAt) || '—'}
-          </div>
-        </div>
-      </div>
-    </Panel>
-  )
-}
-
-export default function ApprovalsView({ onPendingChange }: { onPendingChange?: (n: number) => void } = {}) {
-  const [queue, setQueue] = useState<Approval[]>([])
-  const [tab, setTab] = useState<'pending' | 'resolved'>('pending') // 대기 중 / 처리됨(스펙 181)
-  const [history, setHistory] = useState<Approval[]>([])
-  const [historyLoaded, setHistoryLoaded] = useState(false)
-  useEffect(() => {
-    let alive = true
-    // 승인 큐는 pending만 — resolved 항목이 재로드 시 재등장하지 않도록 서버에서 필터(045).
-    listApprovals('pending')
-      .then((items) => {
-        if (alive) {
-          setQueue(items)
-          onPendingChange?.(items.length)
-        }
-      })
-      .catch((e: unknown) => {
-        if (alive) message.error(e instanceof Error ? e.message : '승인 목록을 불러오지 못했습니다.')
-      })
-    return () => {
-      alive = false
-    }
-  }, [])
-
-  // 처리됨 탭 진입 시(또는 처리 후 무효화되면) 이력 로드 — 전체 조회에서 pending 제외, 처리 시각 최근순.
-  // listApprovals는 소유 스코프(일반 유저=자기 것)라 이력도 자동으로 자기 것만.
-  useEffect(() => {
-    if (tab !== 'resolved' || historyLoaded) return
-    let alive = true
-    listApprovals()
-      .then((items) => {
-        if (!alive) return
-        const done = items
-          .filter((a) => a.status && a.status !== 'pending')
-          .sort((a, b) => (b.resolvedAt ?? '').localeCompare(a.resolvedAt ?? ''))
-        setHistory(done)
-        setHistoryLoaded(true)
-      })
-      .catch((e: unknown) => alive && message.error(e instanceof Error ? e.message : '승인 내역을 불러오지 못했습니다.'))
-    return () => {
-      alive = false
-    }
-  }, [tab, historyLoaded])
-
-  const resolve = async (item: Approval, decision: 'approve' | 'reject') => {
-    try {
-      await resolveApproval(item.id, decision)
-      setHistoryLoaded(false) // 처리됨 목록 무효화 — 다음 진입 시 이 건 포함해 재조회
-      // 함수형 updater로 최신 큐에서 제거(연속 resolve 시 stale 클로저가 항목을 되살리지
-      // 않게) + 외부 콜백 onPendingChange는 리듀서 밖에서 1회 호출(StrictMode 이중 호출
-      // 노출 방지). 길이는 멱등한 로컬 캡처로 전달(적대 리뷰 045).
-      let nextLen = 0
-      setQueue((q) => {
-        const next = q.filter((x) => x.id !== item.id)
-        nextLen = next.length
-        return next
-      })
-      onPendingChange?.(nextLen)
-      if (decision === 'approve') message.success(`승인됨 — ${item.checkpoint}에서 ${item.agent} 재개 중`)
-      else message.warning(`거부됨 — ${item.agent} 실행 중단`)
-    } catch (e: unknown) {
-      message.error(e instanceof Error ? e.message : '결정을 처리하지 못했습니다.')
-    }
-  }
+  const resolvedColumns = [
+    { key: 'result', title: '결과', width: 130, render: (r: Approval) => <ResultTag item={r} /> },
+    { key: 'summary', title: '요청', render: (r: Approval) => <SummaryCell item={r} /> },
+    {
+      key: 'resolvedAt',
+      title: '처리 시각',
+      width: 150,
+      hideBelow: 'lg' as const,
+      render: (r: Approval) => <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>{r.resolvedAt ? fmtDateTime(r.resolvedAt) : '—'}</span>,
+    },
+  ]
 
   return (
     <Page title="승인" subtitle="체크포인트에서 일시정지된 승인 작업 — 대기 중 결정 + 처리 내역">
@@ -233,36 +114,109 @@ export default function ApprovalsView({ onPendingChange }: { onPendingChange?: (
         activeKey={tab}
         onChange={(v) => setTab(v as 'pending' | 'resolved')}
         items={[
-          { key: 'pending', label: `대기 중${queue.length ? ` (${queue.length})` : ''}` },
+          { key: 'pending', label: `대기 중${pendingTotal != null && pendingTotal > 0 ? ` (${pendingTotal})` : ''}` },
           { key: 'resolved', label: '처리됨' },
         ]}
       />
-
+      {/* 탭별 셸 — scopeKey=탭(전환 시 검색·페이지 리셋). 서버가 {items,total}을 소유(스펙 251). */}
       {tab === 'pending' ? (
-        queue.length === 0 ? (
-          <Panel style={{ padding: '56px 24px', textAlign: 'center', color: 'var(--color-text-tertiary)' }}>
-            <Icon name="check-circle" size={30} style={{ color: 'var(--color-success)' }} />
-            <div style={{ marginTop: 10, fontSize: 14 }}>대기 중인 승인이 없습니다. 모두 처리됐어요.</div>
-          </Panel>
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: 16, alignItems: 'start' }}>
-            {queue.map((item) => (
-              <ApprovalCard key={item.id} item={item} onResolve={resolve} />
-            ))}
-          </div>
-        )
-      ) : history.length === 0 ? (
-        <Panel style={{ padding: '56px 24px', textAlign: 'center', color: 'var(--color-text-tertiary)' }}>
-          <Icon name="clock-circle" size={30} />
-          <div style={{ marginTop: 10, fontSize: 14 }}>처리된 승인 내역이 아직 없습니다.</div>
-        </Panel>
+        <PagedListShell<Approval>
+          scopeKey="approvals-pending"
+          refreshKey={refreshKey}
+          fetchPage={async (q, limit, offset) => {
+            const page = await listApprovalsPage('pending', q, limit, offset)
+            setPendingTotal(page.total)
+            onPendingChange?.(page.total)
+            return page
+          }}
+          columns={pendingColumns}
+          onRowClick={(r) => setDetail(r)}
+          searchPlaceholder="요약·권한·액션 검색"
+          countLabel={(n) => `대기 ${n}건`}
+          emptyText="대기 중인 승인이 없습니다. 모두 처리됐어요."
+          errorTitle="승인 목록 조회 실패"
+        />
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: 16, alignItems: 'start' }}>
-          {history.map((item) => (
-            <HistoryCard key={item.id} item={item} />
-          ))}
-        </div>
+        <PagedListShell<Approval>
+          scopeKey="approvals-resolved"
+          refreshKey={refreshKey}
+          fetchPage={(q, limit, offset) => listApprovalsPage('resolved', q, limit, offset)}
+          columns={resolvedColumns}
+          onRowClick={(r) => setDetail(r)}
+          searchPlaceholder="요약·권한·액션 검색"
+          countLabel={(n) => `처리 ${n}건`}
+          emptyText="처리된 승인 내역이 아직 없습니다."
+          errorTitle="승인 내역 조회 실패"
+        />
       )}
+
+      {/* 상세 드로어(3층) — 인자 JSON·식별자는 여기로. 대기 건이면 판정도 가능. */}
+      <Drawer
+        open={!!detail}
+        onClose={() => setDetail(null)}
+        size={isMobile ? undefined : 480}
+        title={detail?.permission}
+        footer={
+          detail?.status === 'pending' ? (
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <Button danger loading={busy === 'reject'} onClick={() => detail && void resolve(detail, 'reject')}>거부</Button>
+              <Button type="primary" loading={busy === 'approve'} onClick={() => detail && void resolve(detail, 'approve')}>승인 및 재개</Button>
+            </div>
+          ) : detail ? (
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}><ResultTag item={detail} /></div>
+          ) : null
+        }
+      >
+        {detail && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div style={{ fontSize: 14, color: 'var(--color-text-heading)' }}>{detail.summary}</div>
+            <Descriptions
+              column={1}
+              size="small"
+              bordered
+              layout={isMobile ? 'vertical' : 'horizontal'}
+              labelStyle={{ width: 110 }}
+              items={[
+                { key: 'agent', label: '에이전트', children: detail.agent },
+                {
+                  key: 'action',
+                  label: '액션',
+                  children: <code style={{ fontFamily: 'var(--font-family-code)', fontSize: 12 }}>{detail.action}</code>,
+                },
+                ...(detail.checkpoint
+                  ? [{
+                      key: 'checkpoint',
+                      label: '체크포인트',
+                      children: <code style={{ fontFamily: 'var(--font-family-code)', fontSize: 12 }}>{detail.checkpoint}</code>,
+                    }]
+                  : []),
+                {
+                  key: 'session',
+                  label: '세션',
+                  children: <code style={{ fontFamily: 'var(--font-family-code)', fontSize: 12, overflowWrap: 'anywhere' }}>{detail.sessionId}</code>,
+                },
+                { key: 'requested', label: '요청 시각', children: fmtDateTime(detail.requestedAt) },
+                ...(detail.resolvedAt
+                  ? [{ key: 'resolved', label: '처리 시각', children: fmtDateTime(detail.resolvedAt) }]
+                  : []),
+              ]}
+            />
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-tertiary)', marginBottom: 6 }}>인자</div>
+              <pre
+                style={{
+                  fontFamily: 'var(--font-family-code)', fontSize: 12, lineHeight: 1.6,
+                  background: 'var(--gray-2)', border: '1px solid var(--color-border-secondary)',
+                  borderRadius: 8, padding: '10px 12px', margin: 0, whiteSpace: 'pre-wrap',
+                  maxHeight: 280, overflow: 'auto',
+                }}
+              >
+                {JSON.stringify(detail.args ?? {}, null, 2)}
+              </pre>
+            </div>
+          </div>
+        )}
+      </Drawer>
     </Page>
   )
 }

@@ -4,8 +4,8 @@
 approve면 위험 도구 실행 후 마무리, reject면 미실행 마무리. 재개 기전은 chat.resume_approval.
 """
 
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import case, func, select, update
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import case, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from . import authz
@@ -13,7 +13,7 @@ from .auth import current_principal
 from .chat import resume_approval
 from .db import get_session
 from .models import Agent, Approval
-from .schemas import ApprovalOut, ResolveIn
+from .schemas import ApprovalOut, ApprovalPage, ResolveIn
 from .serializers import approval_to_out
 
 router = APIRouter(prefix="/approvals", tags=["approvals"])
@@ -62,6 +62,51 @@ def _own_scope(principal) -> str | None:
 async def _agent_id_map(session: AsyncSession) -> dict:
     rows = (await session.execute(select(Agent.id, Agent.agent_id))).all()
     return {row.id: row.agent_id for row in rows}
+
+
+@router.get("/page", response_model=ApprovalPage)
+async def list_approvals_page(
+    status: str = Query("pending", pattern="^(pending|resolved)$"),
+    q: str = Query("", max_length=200),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    session: AsyncSession = Depends(get_session),
+    principal=Depends(current_principal),
+) -> ApprovalPage:
+    """승인 페이지 목록(스펙 251) — 무페이지네이션 전건 렌더(복잡도 1위)의 서버측 처방.
+
+    - status=pending: 대기 큐(요청 내림차순). resolved: 처리 내역(처리 시각 내림차순).
+    - q: 요약·권한·액션 부분일치(ILIKE).
+    - 소유 스코프는 기존 목록과 동일(일반 유저=자기 것만, 066 D5).
+    - 기존 GET /approvals(전건)는 배지 등 소비처 무회귀를 위해 유지.
+    """
+    conds = []
+    if status == "pending":
+        conds.append(Approval.status == "pending")
+        order = [Approval.requested_at.desc(), Approval.id.desc()]
+    else:
+        conds.append(Approval.status != "pending")
+        order = [Approval.resolved_at.desc().nulls_last(), Approval.id.desc()]
+    if q.strip():
+        needle = f"%{q.strip()}%"
+        conds.append(
+            or_(
+                Approval.summary.ilike(needle),
+                Approval.permission.ilike(needle),
+                Approval.action.ilike(needle),
+            )
+        )
+    own = _own_scope(principal)
+    if own is not None:
+        conds.append(Approval.user_id == own)
+    total = (
+        await session.execute(select(func.count()).select_from(Approval).where(*conds))
+    ).scalar_one()
+    stmt = select(Approval).where(*conds).order_by(*order).limit(limit).offset(offset)
+    result = await session.execute(stmt)
+    amap = await _agent_id_map(session)
+    items = [approval_to_out(p, amap.get(p.agent_pk)) for p in result.scalars().all()]
+    return ApprovalPage(items=items, total=total)
 
 
 @router.get("", response_model=list[ApprovalOut])
