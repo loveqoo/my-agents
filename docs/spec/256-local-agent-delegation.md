@@ -71,6 +71,41 @@
   이력의 단일 소유자 = 호출한(첫) 에이전트의 세션.
 
 
+## codex 적대 리뷰 후속 (2026-07-09) — P1 1건·P2 3건 트리아지
+
+`codex exec --sandbox read-only`로 `git diff 2114833..HEAD`(위임 256/257) 적대 검토. 4건 발견 →
+전부 코드 대조로 검증(검증자 검증), 확정 결함 수정·나머지 판정 기록.
+
+- **[P1 확정·수정] 브로커 로컬 위임에 `may_use_agent` 게이트 누락** (broker.py candidates/load).
+  공격: member가 자기 조율형 config/override의 `capabilities`에 **타인 private 로컬 에이전트** agt_id를
+  심고 RBAC `capability:agent`가 있으면, `AgentProvider.candidates/load`가 사용 게이트 없이 row를 로드 →
+  discover에 이름/hook 노출·invoke로 **실행**·미존재/비활성 시 `not found` 접힘으로 존재 오라클. chat
+  본경로는 `may_use_agent`로 404-fold하는데 **브로커 경로만 정합이 깨져 있었음**(스펙 147 위반, 정직한
+  경계 아님 — 본경로와의 불일치). **수정**: candidates·load 양쪽에 `may_use_agent(a, self._principal)`
+  게이트(external=항상·public=모두·private=소유자/특권만). principal None(재개 유실)이면 private 자동
+  제외(fail-closed). 원격 A2A도 동일 게이트 적용(external은 무회귀, private code 에이전트 정합).
+- **[P2 확정·수정] 승인 재개 경로가 delegation_chain·principal 유실** (chat.py `_build_resume_broker`).
+  로컬 에이전트도 `config.requires_approval`면 `approval_for`가 승인 인터럽트를 만든다(로컬/원격 구분
+  없음). 승인 후 `resume_approval`이 재구성한 브로커는 **principal도 chain도 안 넘겨** →
+  `eval_run_agent(... principal=None, chain=())`: (a) `build_broker(None)`이 `str(principal.id)`에서
+  **즉시 크래시** → 승인된 로컬 위임이 조용히 미실행(approved-but-not-executed = 거부 방향 오류),
+  (b) 루트 agent_id가 체인에서 빠져 재개 후 재위임의 순환 불변식 약화. **수정**: `_build_resume_broker`가
+  원 요청자 User를 로드해 principal로 관통 + 루트 agent_id로 chain 시작(chat 신규 경로와 대칭).
+  방어: `AgentProvider.invoke`가 principal None 로컬 위임에서 크래시 대신 정직 에러로 접음.
+- **[P2 확정·수정] 깊이 캡만 있고 위임 총량 예산 부재 → breadth 폭주** (orchestrate delegate 루프).
+  방문 집합은 *깊이*만 막고 *너비*는 안 막아, 새 에이전트로의 팬아웃 곱(최악 분기^깊이=3^8)으로 모델
+  호출 폭주 가능(순환 아님). **수정**: 턴 단위 공유 카운터(`delegation_budget={"n":…}`)를 루트→하위
+  브로커까지 참조로 관통, `DELEGATION_MAX_TOTAL=32` 초과 시 정직 에러로 접음. 원격 A2A는 HTTP 왕복
+  자연 상한이라 제외. eval 경로(admin 단발)는 예산 미주입 = 깊이 캡만(무회귀).
+- **[P2 P1에 종속·별도 수정 불요] resultPreview/subTraceNodes 누출**. codex도 "P1을 먼저 닫으라"고
+  명시 — 사용 게이트가 서면 위임 대상은 public/자기 소유뿐이라 preview/trace가 남의 것이 아니게 된다.
+  P1 봉합으로 소멸(잔여 = public 에이전트를 내 입력으로 실행한 내 trace, 누출 아님).
+
+**검증**: `tests/verify_256_delegation_gate.py` 9/9(P1 후보·로드 게이트·principal None fail-closed·
+principal None invoke 정직 에러·예산 초과 정직 에러). 기존 스위트 무회귀 — 147(16/16)·117 A2A·116 재개
+위임·101 브로커 전부 통과(외부 A2A 게이트 무회귀 확인). codex가 큰 구멍 아니라 본 것: discover→invoke
+TOCTOU(load가 active/depth 재검증)·DelegationGraph 프론트 누출(백엔드 /agents가 이미 may_use_agent 필터).
+
 ## v2 — 깊이 N (사용자 결정, 2026-07-09)
 - 깊이 1 폐기 → 호출 체인(방문 집합) 방식: chat이 루트 id로 체인 시작, 하위 실행마다 자기 id를
   덧붙여 관통. 체인 내 재방문만 금지 — A→B→C→… 다단 협업 가능.

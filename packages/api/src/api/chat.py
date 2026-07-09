@@ -843,7 +843,7 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
     # 로컬(ui) 실행 경로에만 준다: 원격 통째 프록시(_a2a_stream)는 broker 미주입(bypass 보존).
     # broker를 쓰는 flow(예: orchestrate)만 소비하고, 안 쓰면 무해(deny-by-default).
     # 스펙 256 v2: 루트 실행도 자기 id로 체인 시작 — 하위 어디서도 루트 재호출(순환) 불가.
-    build_broker_scoped = build_broker(principal, ctx["capabilities"], ctx.get("toolPolicy"), ctx.get("rag_min_scores"), delegation_chain=((ctx.get("ext_agent_id"),) if ctx.get("ext_agent_id") else ()))
+    build_broker_scoped = build_broker(principal, ctx["capabilities"], ctx.get("toolPolicy"), ctx.get("rag_min_scores"), delegation_chain=((ctx.get("ext_agent_id"),) if ctx.get("ext_agent_id") else ()), delegation_budget={"n": 0})
     build_ctx = AgentBuildContext(
         persona=persona_prompt,
         model_cfg=ctx["model_cfg"],
@@ -1249,17 +1249,31 @@ async def _create_approval(
     return apid
 
 
-async def _build_resume_broker(user_id: str | None, capabilities, tool_policy: dict | None = None) -> PolicyScopedBroker:
+async def _build_resume_broker(
+    user_id: str | None,
+    capabilities,
+    tool_policy: dict | None = None,
+    *,
+    delegation_chain: tuple = (),
+    delegation_budget=None,
+) -> PolicyScopedBroker:
     """재개용 스코프 브로커 — 원 요청자(user_id)의 RBAC를 재구성해 request-time 게이트를 그대로 복원.
 
     build_broker(principal, ...)와 **동일 술어**를 principal 객체 없이 재현한다: superuser면 우회(원
     요청과 동일 안전판), 아니면 casbin `enforce(user_id, capability:{kind}, invoke)`. user_id가 없으면
-    deny(머신 발 — 이 경로는 애초에 브로커 interrupt를 못 만들므로 실질 미도달, 안전측 기본)."""
+    deny(머신 발 — 이 경로는 애초에 브로커 interrupt를 못 만들므로 실질 미도달, 안전측 기본).
+
+    로컬 위임(스펙 256) 봉합(codex 256 [P2]): 재개도 원 턴과 동일하게 (1) **원 요청자 principal 객체**를
+    AgentProvider에 관통해야 하위 eval_run_agent→build_broker가 principal.id로 스코프를 재구성한다
+    (없으면 크래시 → 승인된 로컬 위임이 조용히 미실행). (2) **delegation_chain**(루트 agent_id)을
+    관통해야 재개 후 재위임에서도 순환·깊이 게이트가 원 턴과 동일하게 성립한다."""
     is_super = False
+    requester = None  # 원 요청자 User 객체(AgentProvider가 로컬 위임 하위 실행의 RBAC 주체로 사용)
     if user_id:
         try:
             async with SessionLocal() as s:
                 u = await s.get(User, uuid.UUID(user_id))
+                requester = u  # 로드된 속성(id·is_superuser)은 세션 종료 후 접근 가능
                 is_super = bool(u and u.is_superuser)
         except (ValueError, TypeError):
             is_super = False  # user_id가 UUID 형식이 아니면 casbin 경로로만(우회 없음)
@@ -1275,7 +1289,16 @@ async def _build_resume_broker(user_id: str | None, capabilities, tool_policy: d
 
     # user_id 주입(스펙 104) — MemoryProvider가 재개 경로에서도 원 요청자 스코프를 복원한다. 없으면
     # 재개 시 `memory:user`가 사라져 자기 기억 접근이 깨진다(fail-closed지만 기능 회귀, 적대 리뷰 104 P2).
-    return PolicyScopedBroker(capabilities, rbac_allows, user_id=user_id, tool_policy=tool_policy)
+    # principal(원 요청자)·delegation_chain(루트) 관통 — 로컬 위임 재개 봉합(codex 256 [P2]).
+    return PolicyScopedBroker(
+        capabilities,
+        rbac_allows,
+        user_id=user_id,
+        tool_policy=tool_policy,
+        principal=requester,
+        delegation_chain=delegation_chain,
+        delegation_budget=delegation_budget,
+    )
 
 
 def _impl_drifted(snap_impl: str | None, cur_impl: str | None) -> bool:
@@ -1384,7 +1407,15 @@ async def resume_approval(approval: Approval, decision: str) -> None:
     # config(결정적). RBAC 축은 **원 요청자**(approval.user_id)로 재확인 — 요청 시 이미 통과했고 유저
     # 축은 재개 사이 불변. user_id None(머신 발)은 요청 시 build_broker가 이미 거부해 브로커 interrupt
     # 자체가 안 생기므로 여기 도달 시 항상 존재(그 경우만 deny로 안전측). superuser 우회도 원 요청과 동일 보존.
-    resume_broker = await _build_resume_broker(approval.user_id, ctx["capabilities"], ctx.get("toolPolicy"))
+    resume_broker = await _build_resume_broker(
+        approval.user_id,
+        ctx["capabilities"],
+        ctx.get("toolPolicy"),
+        # 루트 agent_id로 체인 시작(chat 신규 경로와 대칭, 스펙 256 v2) — 재개 후 재위임의 순환·깊이
+        # 게이트가 원 턴과 동일하게 성립(codex 256 [P2]). 없으면 루트 재방문이 허용돼 불변식이 깨진다.
+        delegation_chain=((ctx.get("ext_agent_id"),) if ctx.get("ext_agent_id") else ()),
+        delegation_budget={"n": 0},  # 재개 턴도 자체 예산(너비 폭주 상한, codex [P2])
+    )
     build_ctx = AgentBuildContext(
         persona=persona_prompt,
         model_cfg=ctx["model_cfg"],

@@ -46,7 +46,8 @@ def _canonical_tokens(observed_nodes: list[str], calls_sink: list[dict], broker_
 
 
 async def eval_run_agent(agent_pk, user_text: str, principal, overrides: dict | None = None,
-                         version: str | None = None, delegation_chain: tuple = ()) -> dict:
+                         version: str | None = None, delegation_chain: tuple = (),
+                         delegation_budget=None) -> dict:
     """케이스 1건 실행 → obs {"output", "trace_nodes", "error", "detail"?}.
 
     overrides(스펙 141): 모델 비교 실행용 — 기존 화이트리스트 경로(_load_context)를 그대로 태워
@@ -86,7 +87,8 @@ async def eval_run_agent(agent_pk, user_text: str, principal, overrides: dict | 
     # 스펙 256 v2(깊이 N): 호출 체인에 자기 자신을 덧붙여 하위 브로커에 관통 — 체인 내 재방문만
     # 차단(순환 0), 새 에이전트로는 계속 하강 가능.
     chain = tuple(delegation_chain) + ((ctx["ext_agent_id"],) if ctx.get("ext_agent_id") else ())
-    broker = build_broker(principal, ctx["capabilities"], ctx.get("toolPolicy"), delegation_chain=chain)
+    broker = build_broker(principal, ctx["capabilities"], ctx.get("toolPolicy"),
+                          delegation_chain=chain, delegation_budget=delegation_budget)
     run_params = {} if ctx["temperature"] is None else {"temperature": ctx["temperature"]}
     build_ctx = AgentBuildContext(
         persona=persona_prompt,
