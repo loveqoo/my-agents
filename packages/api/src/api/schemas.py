@@ -542,6 +542,11 @@ class AgentConfig(BaseModel):
             mem_q = n.get("memoryQuery")  # 회상 키워드 모드(스펙 268 P2) — 화이트리스트 값만
             if mem_q in ("user", "input"):
                 node["memoryQuery"] = mem_q
+            hd = n.get("historyDepth")  # 노드별 단기 기억 창(스펙 270) — 미지정=에이전트 상속.
+            if isinstance(hd, int) and not isinstance(hd, bool):  # bool은 int 하위형 — 배제
+                if hd > 1000:
+                    raise ValueError("nodes 항목 historyDepth는 1000 이하여야 합니다.")
+                node["historyDepth"] = hd  # 음수·0 허용(음수/전체·0=대화 없음)
             for key in ("tools", "fields", "memories"):  # 문자열 리스트(선택) — 개수·각 길이 캡
                 lst = n.get(key)
                 if isinstance(lst, list):

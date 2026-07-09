@@ -22,6 +22,7 @@ from agent.runtime import (
 )
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.types import Command
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -185,6 +186,74 @@ class _MemoryRecallProxy:
         # 출력이라 비밀이 섞일 수 있음(_sanitize가 sk-… 등 마스킹, 캡 120).
         self.records.append({"node": node, "query": memory._sanitize(q, cap=120), "hits": n, "cached": cached})
         return text
+
+
+def _to_base_messages(dicts: list[dict]) -> list:
+    """{role, content} dict 리스트 → BaseMessage 리스트(스펙 270 히스토리 프록시용). 엔진이 ainvoke에
+    splat하므로 노드 상태의 BaseMessage와 정합해야 함. role: assistant→AI, system→System, 그 외→Human."""
+    out: list = []
+    for m in dicts:
+        role = m.get("role")
+        content = m.get("content") or ""
+        if role == "assistant":
+            out.append(AIMessage(content=content))
+        elif role == "system":
+            out.append(SystemMessage(content=content))
+        else:
+            out.append(HumanMessage(content=content))
+    return out
+
+
+class _HistoryWindowProxy:
+    """단기 기억 창 프록시(스펙 270, _MemoryRecallProxy의 형제) — 노드형 노드가 **각자** 자기 depth로
+    이전 대화를 슬라이스한다. 원본 대화를 생성 시 고정하고 depth로 캐싱(같은 depth=같은 슬라이스 공유).
+
+    - 수명 = 한 턴(요청). 스코프 = 원본 대화(요청 것)로 **고정**(RBAC — 노드가 남의 대화 못 봄).
+    - 슬라이스 = `_window(전체대화, depth)[:-1]` — 현재 턴은 그래프가 별도 시드하므로 분리(회귀 등가:
+      depth=D면 D-1개 이전 대화 + 시드된 현재 턴 = 총 D개, 오늘 _window(conv, D)와 동일 집합).
+    - depth=None → 기본(에이전트 historyDepth) 상속. 반환은 **BaseMessage 리스트**(엔진이 splat).
+    - 조회마다 (node, depth, count) 기록 → trace["historyWindows"](082 조회 계측). **내용 아닌 건수만**
+      기록 → 대화 누출 0(243 ③ 형제 표면 마스킹 규약). record=False면 기록 생략(도구 루프 재진입용)."""
+
+    def __init__(self, conversation: list, default_depth: int | None, records: list[dict], drop_last: bool = True):
+        # drop_last(codex 270 High): 메인 경로의 conversation은 **현재 턴 포함**(body.messages 끝=현재 턴,
+        # 그래프가 별도 시드)이라 [:-1]로 분리. 재개 경로의 conversation은 세션 DB서 로드한 **이전 대화만**
+        # (현재 턴은 아직 미영속 — 체크포인트가 보유)이라 drop_last=False(안 버림). 이 구분이 없으면 재개가
+        # 직전 assistant 메시지를 잘못 떨궈 원 턴과 다른 창을 본다.
+        self._conv = conversation
+        self._default = default_depth
+        self._drop = drop_last
+        self._cache: dict = {}  # depth 키 → 슬라이스(BaseMessage 리스트)
+        self.records = records
+
+    async def __call__(self, depth: int | None = None, node: str = "", record: bool = True) -> list:
+        d = self._default if depth is None else depth
+        key = "all" if (d is None or d < 0) else d
+        if key not in self._cache:
+            win = _window(self._conv, d) if self._conv else []
+            self._cache[key] = win[:-1] if (self._drop and win) else win
+        sliced = self._cache[key]
+        if record:
+            self.records.append({"node": node, "depth": d, "count": len(sliced)})
+        return sliced
+
+
+async def _load_session_conversation(session_id: str | None, agent_pk: uuid.UUID) -> list[dict]:
+    """세션의 영속 대화를 {role, content} 리스트로 로드(스펙 270 재개 히스토리 재구성용). 재개는 그래프에
+    대화를 재시드하지 않으므로(시드 축소) 이전 대화를 DB서 재구성해 프록시에 준다(learning 149 미러 —
+    메인에 더한 대화 축을 재개도 승계). 세션·메시지 없으면 빈 리스트(graceful — 현재 턴은 체크포인트가 보유)."""
+    if not session_id:
+        return []
+    async with SessionLocal() as db:
+        q = (
+            select(Session)
+            .where(Session.session_id == session_id, Session.agent_pk == agent_pk)
+            .options(selectinload(Session.messages))
+        )
+        sess = (await db.execute(q)).scalar_one_or_none()
+        if sess is None:
+            return []
+        return [{"role": m.role, "content": m.content} for m in sess.messages]
 
 
 async def _load_context(
@@ -824,6 +893,8 @@ async def stream_local_reply(agent_id: uuid.UUID, user_text: str):
             if ctx.get("nodes_resolved") is not None
             else ctx.get("artifact_spec")
         ),
+        # 단기 기억 창(스펙 270): A2A 서빙은 무상태 단일 메시지(스펙 061 — 이전 대화 없음)라 history_window
+        # 미주입(None). 메모리 프록시 미주입(위 855)과 같은 결 — 대화 축이 없으니 "재개 축 누락" 버그 아님.
     )
     graph = impl.build_graph(build_ctx)
     # 노출 호출은 호출당 단일 메시지(맥락은 A2A contextId가 호출측 책임 — v1 서빙은 무상태).
@@ -929,6 +1000,17 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
         if (used_memory and _pipeline_mem)
         else None
     )
+    # 단기 기억 창 프록시(스펙 270) — 노드형에만 주입. 전체 대화를 쥐고 노드별 depth로 슬라이스(현재 턴은
+    # 그래프가 별도 시드하므로 프록시는 [:-1]로 분리). 기본 depth=에이전트 historyDepth(노드 미지정 시 상속).
+    history_windows: list[dict] = []
+    hist_proxy = (
+        _HistoryWindowProxy(
+            _to_base_messages([{"role": m.role, "content": m.content} for m in body.messages]),
+            ctx["history_depth"], history_windows,
+        )
+        if _pipeline_mem
+        else None
+    )
 
     calls_sink: list[dict] = []
     tools = await runtime.build_mcp_tools(ctx["mcp_servers"], calls_sink, ctx.get("toolPolicy"))
@@ -967,6 +1049,7 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
         overrides=ctx.get("overrides"),
         broker=build_broker_scoped,
         memory_recall=mem_proxy,  # 노드별 캐싱 회상 프록시(스펙 268 P2) — 비노드형은 None(무회귀)
+        history_window=hist_proxy,  # 단기 기억 창 프록시(스펙 270) — 비노드형은 None(에이전트 _window 경로 유지)
         # impl_config — 노코드 impl용 설정 통로. 노드형(259)=해석된 노드, 산출물형(190)=필드 명세.
         # 에이전트당 impl 하나라 상호배타(둘 중 해당하는 것만 실림, 그 외 impl은 무시).
         impl_config=(
@@ -1023,6 +1106,10 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
     # 조율형의 synthesize 내부 데이터 채널 재조립은 delegated 노드 값(131 #3)으로 관측. 재개 턴은
     # 체크포인트 내부 재개라 조립본이 여기 없음 — N/A(스펙 131 경계).
     sent_messages = _build_sent_messages(persona_prompt, messages)
+    # 노드형(스펙 270): 대화를 히스토리 프록시가 노드별 depth로 슬라이스하므로 그래프엔 **현재 턴만**
+    # 시드(이전 대화는 프록시가 각 노드에 주입). 비노드형은 윈도된 전체를 그대로 시드(무회귀). sent_messages
+    # 는 에이전트-레벨 뷰로 유지(상속 노드=동일 집합, 커스텀 depth는 node timeline 192·historyWindows로 관측).
+    seed_messages = messages[-1:] if (_pipeline_mem and messages) else messages
 
     async def event_stream():
         t0 = time.perf_counter()
@@ -1038,7 +1125,7 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
             # 감지(위험 도구가 그래프를 멈춘 신호). probe로 검증한 형태. 한 업데이트가 다중 interrupt를
             # 담을 수 있어(한 턴에 위험 도구 여러 개) 모두 모은다 — [0]만 보면 나머지가 조용히 샌다.
             async for stream_mode, chunk in graph.astream(
-                graph_input if graph_input is not None else {"messages": messages},
+                graph_input if graph_input is not None else {"messages": seed_messages},
                 config=config, stream_mode=["messages", "updates"]
             ):
                 if stream_mode == "messages":
@@ -1218,6 +1305,9 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
             if build_broker_scoped.invocations:
                 # 일시정지 **이전에 이미 실행된** 선행 브로커 호출 표면화(스펙 130, codex #2).
                 pending_trace["brokerCalls"] = _broker_calls_trace(build_broker_scoped.invocations)
+            if history_windows:
+                # 일시정지 이전 carry 노드가 이미 기록한 단기 기억 창 표면화(codex 270 Low — 관측 일관).
+                pending_trace["historyWindows"] = history_windows
             pending_trace["sentMessages"] = sent_messages  # 승인대기 턴도 전송 전문(스펙 131)
             ov_trace_p = _overrides_trace(ctx.get("overrides"))
             if ov_trace_p:
@@ -1302,6 +1392,10 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
             # 노드별 회상 기록(스펙 268 P2) — (node, query, hits, cached). 프록시가 조회마다 남김
             # (082 조회 행위 계측). 인스펙터가 노드 행에 귀속 렌더.
             trace["memoryRecalls"] = memory_recalls
+        if history_windows:
+            # 노드별 단기 기억 창 기록(스펙 270) — (node, depth, count). 프록시가 첫 진입에 남김
+            # (082 조회 계측). 내용 아닌 건수만(누출 0). 인스펙터가 노드 행에 귀속 렌더.
+            trace["historyWindows"] = history_windows
         # 오류 턴은 영속/메모리 저장하지 않는다 (부분/실패 응답 오염 방지).
         mid = None
         if not errored:
@@ -1533,6 +1627,17 @@ async def resume_approval(approval: Approval, decision: str) -> None:
         if (used_memory and ctx.get("nodes_resolved") is not None)
         else None
     )
+    # 단기 기억 창 프록시(스펙 270) — 재개는 대화를 재시드 않으므로 세션 DB서 이전 대화 재구성해 주입
+    # (learning 149 미러 — 재개 후 다음 노드도 이전 대화를 봄, 무회귀). 노드형에만. 세션 없으면 빈 대화.
+    resume_history_windows: list[dict] = []
+    resume_hist_proxy = None
+    if ctx.get("nodes_resolved") is not None:
+        _resume_prior = await _load_session_conversation(approval.session_id, approval.agent_pk)
+        # drop_last=False(codex 270 High): 세션 DB는 이전 대화만(현재 턴 미영속·체크포인트가 보유)이라
+        # 마지막을 안 버린다 — 메인 경로처럼 버리면 직전 assistant 메시지를 잃는다.
+        resume_hist_proxy = _HistoryWindowProxy(
+            _to_base_messages(_resume_prior), ctx["history_depth"], resume_history_windows, drop_last=False
+        )
 
     persona_prompt = ctx["persona"]
     if mem_hits:
@@ -1565,6 +1670,7 @@ async def resume_approval(approval: Approval, decision: str) -> None:
         overrides=ctx.get("overrides"),
         broker=resume_broker,
         memory_recall=resume_mem_proxy,  # 노드형 회상 프록시(스펙 268 P2) — 재개 후 다음 노드 첫 진입용
+        history_window=resume_hist_proxy,  # 단기 기억 창 프록시(스펙 270) — 재개 후 다음 노드 대화 슬라이스
         # 재개도 원 턴과 동일 impl_config 재주입(노드형 노드 도구 HIL 재개·산출물형 폼 재개, 259/190).
         impl_config=(
             {"nodes": ctx["nodes_resolved"]}
@@ -1614,6 +1720,9 @@ async def resume_approval(approval: Approval, decision: str) -> None:
         # 재개 후 노드 회상도 표면화(codex 268 P3 — 메인 경로 미러): 없으면 재개 답이 왜 기억을
         # 썼는지 인스펙터가 설명 못 함.
         trace["memoryRecalls"] = resume_recalls
+    if resume_history_windows:
+        # 재개 후 단기 기억 창도 표면화(스펙 270 — 메인 경로 미러, 재개 축 전수 재구성 규율).
+        trace["historyWindows"] = resume_history_windows
     await _persist(
         ctx, user_text, reply, trace, tokens, ctx["persist_history"], user_id=None
     )

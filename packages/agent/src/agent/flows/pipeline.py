@@ -117,6 +117,11 @@ def normalize_nodes(raw: object) -> list[dict]:
         node_mem = [m for m in raw_mem if isinstance(m, str) and m.strip()] if isinstance(raw_mem, list) else []
         mem_q = n.get("memoryQuery")
         mem_q = mem_q if mem_q in ("user", "input") else "user"
+        # 노드별 단기 기억 창(스펙 270): int면 그 값, 아니면 None=에이전트-레벨 상속. bool은 int
+        # 하위형이라 배제(True/False가 1/0으로 새는 것 방지). 상한 1000 캡을 여기서도 강제(codex 270 —
+        # 스키마가 쓰기 시 캡하나 엔진=최종 신뢰경계라 legacy/직접DB 우회 대비 미러). 음수=전체(유지).
+        hd = n.get("historyDepth")
+        node_hd = min(hd, 1000) if (isinstance(hd, int) and not isinstance(hd, bool)) else None
         out.append({
             "name": name,
             "prompt": prompt,
@@ -127,6 +132,7 @@ def normalize_nodes(raw: object) -> list[dict]:
             "fields": node_fields,
             "memories": node_mem,
             "memoryQuery": mem_q,
+            "historyDepth": node_hd,
         })
     return out
 
@@ -204,6 +210,19 @@ class LinearPipelineAgent:
             fields = node.get("fields") or []
             node_mem = node.get("memories") or []
             mem_mode = node.get("memoryQuery") or "user"
+            node_hd = node.get("historyDepth")  # 단기 기억 창(스펙 270) — None=에이전트 상속(프록시 기본값)
+
+            async def _history_block(reentry: bool) -> list:
+                # 단기 기억(스펙 270) — 이전 대화 슬라이스를 프롬프트 앞에 주입. clean은 대화 격리(결정 가),
+                # 프록시 없으면(비노드형) 빈 리스트. 재진입(도구 루프)에도 주입해 대화가 루프 내내 보이게
+                # (무회귀 — 오늘은 시드된 대화가 도구 루프 내내 보임), 단 기록은 첫 진입만(트레이스 스팸 방지).
+                if clean or ctx.history_window is None:
+                    return []
+                try:
+                    return await ctx.history_window(node_hd, node=nid, record=not reentry)
+                except Exception:  # noqa: BLE001 — 창 장애는 대화 없이 진행(graceful, 회상과 동결)
+                    log.warning("노드 단기 기억 실패(node=%s) — 대화 없이 진행", nid)
+                    return []
 
             async def _recall_block(msgs: list, reentry: bool) -> str:
                 # 노드별 회상(스펙 268 P2) — 첫 진입에만(재진입=도구 루프 중간, 자체 문맥 보유).
@@ -260,7 +279,10 @@ class LinearPipelineAgent:
                     # 이전 메시지 전부 제거 + [앞 결과 입력, 응답]만 남김(격리 경계 — 하류도 여기부터 봄).
                     removals = [RemoveMessage(id=m.id) for m in msgs if getattr(m, "id", None)]
                     return {"messages": [*removals, human, resp]}
-                resp = await _finalize(await bound.ainvoke([sys, *msgs]))
+                # 단기 기억(스펙 270) — 이전 대화 슬라이스를 sys와 누적 msgs 사이에 주입([sys, 대화, 입력…]).
+                # 슬라이스는 상태에 누적 안 함(노드마다 자기 depth로 새로 주입) — carry/clean은 턴내 흐름만 관장.
+                history = await _history_block(reentry)
+                resp = await _finalize(await bound.ainvoke([sys, *history, *msgs]))
                 return {"messages": [resp]}
 
             return _step, node_tools

@@ -177,6 +177,31 @@ export function NodeListEditor({
                     : '지금까지의 대화 전체를 보고 처리합니다.'}
                 </span>
               </div>
+              {/* 단기 기억(스펙 270) — 이 노드가 볼 이전 대화 턴 수. 상속=에이전트 설정 따름(기본).
+                  "이전 결과만"(clean)이면 대화를 안 보므로 비활성(결정 (가) — 맥락 컨트롤이 어포던스 승계). */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <span style={{ fontSize: 13, color: 'var(--color-text)', fontWeight: 500 }}>단기 기억</span>
+                <Select
+                  value={n.historyDepth == null ? 'inherit' : n.historyDepth}
+                  onChange={(v) => setNode(i, { historyDepth: v === 'inherit' ? null : (v as number) })}
+                  disabled={(n.context ?? 'carry') === 'clean'}
+                  style={{ width: '100%' }}
+                  options={[
+                    { label: '상속 (에이전트 설정)', value: 'inherit' },
+                    { label: '대화 없음 (0개)', value: 0 },
+                    { label: '최근 6개', value: 6 },
+                    { label: '최근 10개', value: 10 },
+                    { label: '최근 20개', value: 20 },
+                    { label: '최근 40개', value: 40 },
+                    { label: '최근 100개', value: 100 },
+                  ]}
+                />
+                <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+                  {(n.context ?? 'carry') === 'clean'
+                    ? '"이전 결과만"이라 이전 대화를 보지 않습니다.'
+                    : '이 노드가 볼 이전 대화 턴 수(상속=에이전트 설정).'}
+                </span>
+              </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <span style={{ fontSize: 13, color: 'var(--color-text)', fontWeight: 500 }}>응답 형식</span>
                 <Segmented
