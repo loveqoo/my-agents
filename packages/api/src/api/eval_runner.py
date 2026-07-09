@@ -46,7 +46,7 @@ def _canonical_tokens(observed_nodes: list[str], calls_sink: list[dict], broker_
 
 
 async def eval_run_agent(agent_pk, user_text: str, principal, overrides: dict | None = None,
-                         version: str | None = None, deny_agent_delegation: bool = False) -> dict:
+                         version: str | None = None, delegation_chain: tuple = ()) -> dict:
     """케이스 1건 실행 → obs {"output", "trace_nodes", "error", "detail"?}.
 
     overrides(스펙 141): 모델 비교 실행용 — 기존 화이트리스트 경로(_load_context)를 그대로 태워
@@ -65,10 +65,6 @@ async def eval_run_agent(agent_pk, user_text: str, principal, overrides: dict | 
         return {"output": "", "trace_nodes": [], "error": True,
                 "detail": "로컬(ui) 에이전트가 아니거나 채팅 모델이 없습니다(평가는 로컬 에이전트만)"}
 
-    if deny_agent_delegation:
-        # 위임 깊이 1(스펙 256) — 위임받은 하위 실행에서는 agent-kind 능력을 제거해 재위임(A→B→A
-        # 순환)을 구조로 차단. agent cap = 콜론 없는 bare id(broker._kind_of와 동일 규칙).
-        ctx["capabilities"] = [c for c in (ctx.get("capabilities") or []) if isinstance(c, str) and ":" in c]
 
     # 메모리 회상(읽기 전용 — 무오염). add는 절대 안 함.
     used_memory = memory.memory_enabled(ctx["memories"]) and ctx["mem_cfg"] is not None
@@ -87,7 +83,10 @@ async def eval_run_agent(agent_pk, user_text: str, principal, overrides: dict | 
     if ctx["rag_collections"]:
         tools.append(runtime.build_rag_tool(ctx["rag_collections"], calls_sink))
     # 브로커 주입(조율형 위임 채점) — 실행 주체(principal)의 RBAC로 스코프(chat 경로와 동일 술어).
-    broker = build_broker(principal, ctx["capabilities"], ctx.get("toolPolicy"))
+    # 스펙 256 v2(깊이 N): 호출 체인에 자기 자신을 덧붙여 하위 브로커에 관통 — 체인 내 재방문만
+    # 차단(순환 0), 새 에이전트로는 계속 하강 가능.
+    chain = tuple(delegation_chain) + ((ctx["ext_agent_id"],) if ctx.get("ext_agent_id") else ())
+    broker = build_broker(principal, ctx["capabilities"], ctx.get("toolPolicy"), delegation_chain=chain)
     run_params = {} if ctx["temperature"] is None else {"temperature": ctx["temperature"]}
     build_ctx = AgentBuildContext(
         persona=persona_prompt,

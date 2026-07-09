@@ -842,7 +842,8 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
     # 능력 브로커(스펙 100) — 정책(에이전트 allowlist ∩ 유저 RBAC)으로 **미리 스코프**해 주입.
     # 로컬(ui) 실행 경로에만 준다: 원격 통째 프록시(_a2a_stream)는 broker 미주입(bypass 보존).
     # broker를 쓰는 flow(예: orchestrate)만 소비하고, 안 쓰면 무해(deny-by-default).
-    build_broker_scoped = build_broker(principal, ctx["capabilities"], ctx.get("toolPolicy"), ctx.get("rag_min_scores"))
+    # 스펙 256 v2: 루트 실행도 자기 id로 체인 시작 — 하위 어디서도 루트 재호출(순환) 불가.
+    build_broker_scoped = build_broker(principal, ctx["capabilities"], ctx.get("toolPolicy"), ctx.get("rag_min_scores"), delegation_chain=((ctx.get("ext_agent_id"),) if ctx.get("ext_agent_id") else ()))
     build_ctx = AgentBuildContext(
         persona=persona_prompt,
         model_cfg=ctx["model_cfg"],

@@ -54,6 +54,11 @@ class CapabilityNotFound(Exception):
 # ------------------------------- 네임스페이싱(스펙 101 §3.3) -------------------------------
 # allowlist·cap_id 항목은 `"<kind>:<id>"`. `mcp:<server>/<tool>`(툴 단위) 또는 `mcp:<server>`(서버 전체).
 # **접두사 없는 bare 항목 = kind agent**(하위호환 — spec 100 config 불변, agent_id는 `agt_...`라 콜론 없음).
+# 위임 깊이 상한(스펙 256 v2 — 사용자: 깊이 N). 종료 보장의 핵심은 방문 집합(체인 내 재방문 금지 —
+# 유한 에이전트 수로 종료 보장)이고, 이 캡은 비용 폭주 방지용 여유 상한.
+DELEGATION_MAX_DEPTH = 8
+
+
 def _kind_of(item: str) -> str:
     """cap_id/allowlist 항목에서 kind 파싱(별도 조회 없이 id만으로).
     `mcp:`/`rag:` 접두사 → 해당 kind, 그 외(콜론 없는 bare `agt_...`) → agent(하위호환)."""
@@ -219,9 +224,12 @@ class AgentProvider:
 
     kind = CAP_KIND_AGENT
 
-    def __init__(self, session_factory, principal=None):
+    def __init__(self, session_factory, principal=None, delegation_chain: tuple = ()):
         self._session_factory = session_factory
         self._principal = principal  # 로컬 위임(스펙 256) — 하위 실행의 RBAC 주체(호출자와 동일)
+        # 호출 체인(스펙 256 v2 — 깊이 N): 이 실행 경로에서 이미 실행 중인 agent_id들(루트 포함).
+        # 체인 내 재방문 금지 = 순환 차단, 새 에이전트로는 계속 하강 가능(종료는 유한성으로 보장).
+        self._chain: tuple = tuple(delegation_chain)
 
     async def candidates(self, allow: set[str]) -> list[Capability]:
         agent_ids = {a for a in allow if _kind_of(a) == CAP_KIND_AGENT}
@@ -237,8 +245,13 @@ class AgentProvider:
             if is_remote_source(a.source):
                 if not a.endpoint:
                     continue  # 원격은 호출 가능한 엔드포인트 필수(A2A)
-            elif not a.active_version:
-                continue  # 로컬 ui 위임(스펙 256) — 서빙 중(활성 버전 보유)만. 초안-only는 후보 아님.
+            else:
+                if not a.active_version:
+                    continue  # 로컬 ui 위임(스펙 256) — 서빙 중(활성 버전 보유)만. 초안-only는 후보 아님.
+                if a.agent_id in self._chain:
+                    continue  # 순환 차단(스펙 256 v2) — 이 경로에서 이미 실행 중인 에이전트는 후보 제외
+                if len(self._chain) >= DELEGATION_MAX_DEPTH:
+                    continue  # 비용 폭주 상한(여유 캡 — 종료 자체는 방문 집합이 보장)
             caps.append(Capability(id=a.agent_id, kind=CAP_KIND_AGENT, name=a.name, hook=_hook_for(a)))
         return caps
 
@@ -252,8 +265,11 @@ class AgentProvider:
         if is_remote_source(a.source):
             if not a.endpoint:
                 return None
-        elif not a.active_version:
-            return None  # 로컬 ui(스펙 256) — 서빙 중만
+        else:
+            if not a.active_version:
+                return None  # 로컬 ui(스펙 256) — 서빙 중만
+            if a.agent_id in self._chain or len(self._chain) >= DELEGATION_MAX_DEPTH:
+                return None  # 호출 시점 재검증(discover 결과 신뢰 안 함 — 순환·깊이 게이트 동일 적용)
         return a
 
     def describe(self, row: Agent) -> Capability:
@@ -277,7 +293,7 @@ class AgentProvider:
             # deny_agent_delegation=깊이 1(하위에서 재위임 불가 — A→B→A 순환 구조 차단).
             from .eval_runner import eval_run_agent  # 함수 내 임포트 — chat→broker 순환 회피
 
-            obs = await eval_run_agent(row.id, user_text, self._principal, deny_agent_delegation=True)
+            obs = await eval_run_agent(row.id, user_text, self._principal, delegation_chain=self._chain)
             return InvokeResult(
                 text=str(obs.get("output") or ""),
                 trust="untrusted",  # 로컬이어도 결과는 데이터(지시 아님) — 채널 격리 불변(설계결정 5)
@@ -1042,6 +1058,7 @@ class PolicyScopedBroker:
         tool_policy: dict | None = None,
         rag_min_scores: dict | None = None,
         principal=None,  # 로컬 위임(스펙 256) — 하위 실행 브로커의 RBAC 주체(호출자 그대로)
+        delegation_chain: tuple = (),  # 스펙 256 v2 — 실행 경로의 agent_id 체인(순환·깊이 게이트)
     ):
         self._allow: set[str] = set(allowlist or [])
         self._rbac_allows = rbac_allows
@@ -1050,7 +1067,7 @@ class PolicyScopedBroker:
         # user_id = 실행 주체(principal) 도출값 — MemoryProvider가 per-user 스코프에 씀(스펙 104).
         # cap_id·args가 아니라 여기서만 주입돼, 능력 이름으로 남을 가리킬 방법이 없다(anti-leak).
         self._providers: list[_CapabilityProvider] = [
-            AgentProvider(session_factory, principal),
+            AgentProvider(session_factory, principal, delegation_chain),
             McpProvider(session_factory),
             RagProvider(session_factory, rag_min_scores),  # 스펙 191 v2 컬렉션별 최소 유사도
             MemoryProvider(session_factory, user_id),
@@ -1210,7 +1227,7 @@ def _rbac_check(enforcer, subject: str, kind: str, name: str | None) -> bool:
     )
 
 
-def build_broker(principal, allowlist, tool_policy: dict | None = None, rag_min_scores: dict | None = None) -> PolicyScopedBroker:
+def build_broker(principal, allowlist, tool_policy: dict | None = None, rag_min_scores: dict | None = None, delegation_chain: tuple = ()) -> PolicyScopedBroker:
     """chat.py 배선용 — principal(유저/머신)에서 RBAC 판정 클로저를 만들어 스코프된 브로커 구성.
 
     RBAC: `is_superuser` 우회(authz 패턴) 아니면 `enforce(str(id), f"capability:{kind}", "invoke")`.
@@ -1231,4 +1248,4 @@ def build_broker(principal, allowlist, tool_policy: dict | None = None, rag_min_
     # user_id = 주체 도출값(스펙 104 MemoryProvider self-scope). 머신 토큰(str)은 id 없음 → None →
     # 메모리 능력 없음(rbac_allows도 deny). 어드민이어도 자기 id라 타인 기억 위임 접근 불가(에스컬레이션 X).
     uid = None if isinstance(principal, str) else str(principal.id)
-    return PolicyScopedBroker(allowlist, rbac_allows, user_id=uid, tool_policy=tool_policy, rag_min_scores=rag_min_scores, principal=principal)
+    return PolicyScopedBroker(allowlist, rbac_allows, user_id=uid, tool_policy=tool_policy, rag_min_scores=rag_min_scores, principal=principal, delegation_chain=delegation_chain)
