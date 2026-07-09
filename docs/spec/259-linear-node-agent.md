@@ -120,8 +120,10 @@ chat.py `_resolve_node_models`(노드 model 이름→cfg 미리 해석, 플랫�
     (learning 080 재확인).
 - **적대(codex)**: 커밋 후 권장(이 세션 리듬 — 커밋→코덱스). 추가적 additive 경로라 파괴/인가 경계 아님.
 
-**잔여(기록)**: (1) execute e2e(활성화+chat로 노드 순서 실행)는 미실행 — draft만 생성해 확인. 다음
-확장에서 활성화+chat 타임라인. (2) `describe().consumes`에 `memories` 선언되나 노드 프롬프트가 회상을
+**잔여(기록)**: (1) ~~execute e2e 미실행~~ → **완료**(tests/browser/shot-pipeline-exec.mjs): 생성→활성화
+→chat SSE 트레이스가 `__start__ → 분석 → 요약 → __end__`(2노드 순서)·clean 격리 remove 흔적·JSON 강제
+system 주입·노드별 mock-llm 해석·무크래시 실증(정상 채팅 경로. A2A 서빙 경로는 codex 후속서 봉합, 코드-미러).
+(2) `describe().consumes`에 `memories` 선언되나 노드 프롬프트가 회상을
 안 실음(에이전트 persona 경로를 pipeline이 무시) — 노드별 메모리는 미래 확장, v1은 memories 사실상 미사용.
 (3) RAG는 `search_documents` 단일 도구라 노드별 컬렉션 스코핑 불가 — "문서 검색" 쓰면 vectorTables=전체
 컬렉션 파생(문서화된 v1 한계).
