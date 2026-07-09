@@ -69,6 +69,8 @@ class AgentBuildContext:
     # 발견 공집합(deny-by-default). 에이전트는 이 핸들만 보고 능력을 오케스트레이션한다(정책·DB 미접촉).
     impl_config: dict | None = None  # 스펙 190 — 에이전트별 impl 설정(예: 노코드 산출물형의 필드
     # 명세 config.artifactSpec). 코드 저작 에이전트는 대개 안 본다. 플랫폼이 config에서 뽑아 주입.
+    memory_recall: Any = None  # 캐싱 회상 프록시(스펙 268 P2) — async callable(query|None, node)→포맷
+    # 텍스트. 스코프는 플랫폼이 고정(브로커 주입 선례). None=회상 없음(비노드형·비영속 — 무회귀).
 
 
 @dataclass

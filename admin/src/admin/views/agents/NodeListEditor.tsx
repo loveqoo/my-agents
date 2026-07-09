@@ -13,12 +13,14 @@ export function NodeListEditor({
   modelOptions,
   personas,
   toolOptions,
+  memoryOptions,
 }: {
   value: PipelineNode[] | undefined
   onChange: (nodes: PipelineNode[]) => void
   modelOptions: { label: string; value: string }[]
   personas: { name: string; body: string }[]
   toolOptions: { label: string; value: string }[]
+  memoryOptions: { label: string; value: string }[]
 }) {
   const nodes = value ?? []
   const update = (next: PipelineNode[]) => onChange(next)
@@ -204,6 +206,42 @@ export function NodeListEditor({
                 tokenSeparators={[',']}
               />
             )}
+
+            {/* 노드별 기억(스펙 268 P2) — 선택하면 이 노드가 회상을 받음. 키워드는 프록시가 캐싱
+                (같은 키워드=조회 1회 공유). 기억을 골랐을 때만 키워드 모드 노출(간결 기조 267). */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))', gap: 10 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <span style={{ fontSize: 13, color: 'var(--color-text)', fontWeight: 500 }}>기억 (선택)</span>
+                <Select
+                  mode="multiple"
+                  allowClear
+                  value={n.memories ?? []}
+                  onChange={(vals) => setNode(i, { memories: vals })}
+                  options={memoryOptions}
+                  placeholder={memoryOptions.length ? '이 노드가 회상할 기억' : '등록된 기억 없음'}
+                  disabled={memoryOptions.length === 0}
+                  style={{ width: '100%' }}
+                />
+              </div>
+              {(n.memories?.length ?? 0) > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <span style={{ fontSize: 13, color: 'var(--color-text)', fontWeight: 500 }}>회상 키워드</span>
+                  <Segmented
+                    value={n.memoryQuery ?? 'user'}
+                    onChange={(v) => setNode(i, { memoryQuery: v as 'user' | 'input' })}
+                    options={[
+                      { label: '사용자 입력', value: 'user' },
+                      { label: '이 노드의 입력', value: 'input' },
+                    ]}
+                  />
+                  <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+                    {(n.memoryQuery ?? 'user') === 'input'
+                      ? '이 노드가 받은 내용으로 기억을 찾습니다.'
+                      : '사용자 질문으로 기억을 찾습니다(다른 노드와 조회 공유).'}
+                  </span>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       ))}

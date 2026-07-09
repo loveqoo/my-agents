@@ -220,7 +220,7 @@ function RagCall({ c }: { c: McpCallT }) {
           style={{ color: c.status === 'ok' ? 'var(--color-success)' : 'var(--color-error)', flex: 'none' }}
         />
         <span style={{ fontSize: 13, fontFamily: 'var(--font-family-code)', color: 'var(--color-text-heading)' }}>
-          search_documents
+          {c.tool || 'search_documents'} {/* 컬렉션별 도구(스펙 268 P1)면 search_documents__<컬렉션> */}
         </span>
         <Tag color={n > 0 ? 'green' : 'default'} style={{ marginInlineStart: 2 }}>{n}건</Tag>
         <div style={{ flex: 1 }} />
@@ -417,6 +417,22 @@ function nodeEventContent(
     return (
       <div style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>
         입력 {t.tokens.in.toLocaleString()} · 출력 {t.tokens.out.toLocaleString()} 토큰
+      </div>
+    )
+  }
+  // 노드형 노드별 회상(스펙 268 P2) — 프록시 기록을 그 노드 행에 귀속. cached=조회 공유(캐시 반환).
+  const recalls = (t.memoryRecalls ?? []).filter((r) => r.node === node)
+  if (recalls.length) {
+    return (
+      <div>
+        {recalls.map((r, i) => (
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 12, marginTop: 4 }}>
+            <Icon name="bulb" size={12} style={{ color: 'var(--purple-6)' }} />
+            <span>기억 회상 {r.hits}건</span>
+            {r.cached ? <Tag color="purple" style={{ margin: 0 }}>조회 공유(캐시)</Tag> : null}
+            <span style={{ fontFamily: 'var(--font-family-code)', color: 'var(--color-text-tertiary)', overflowWrap: 'anywhere' }}>«{r.query}»</span>
+          </div>
+        ))}
       </div>
     )
   }

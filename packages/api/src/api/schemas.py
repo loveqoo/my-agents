@@ -539,7 +539,10 @@ class AgentConfig(BaseModel):
             fmt = n.get("format")  # 출력 형식(스펙 261) — 화이트리스트 값만
             if fmt in ("text", "json"):
                 node["format"] = fmt
-            for key in ("tools", "fields"):  # 문자열 리스트(선택) — 개수·각 길이 캡
+            mem_q = n.get("memoryQuery")  # 회상 키워드 모드(스펙 268 P2) — 화이트리스트 값만
+            if mem_q in ("user", "input"):
+                node["memoryQuery"] = mem_q
+            for key in ("tools", "fields", "memories"):  # 문자열 리스트(선택) — 개수·각 길이 캡
                 lst = n.get(key)
                 if isinstance(lst, list):
                     if len(lst) > 100:

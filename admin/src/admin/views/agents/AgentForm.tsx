@@ -271,12 +271,17 @@ export function AgentForm({
   // 미바인딩(모델이 호출한 척 환각, 스펙 264 실측) + 서버 간 동명 도구의 Select value 충돌도 해소.
   const safeToolName = (server: string, tool: string) =>
     `${server}__${tool}`.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 60) || 'tool'
+  // 문서 검색은 컬렉션별 도구(스펙 268 P1) — "검색 노드는 A만, 검증 노드는 B만". 런타임 이름
+  // search_documents__<컬렉션>(백엔드 _rag_tools_for 미러). 구저장 민이름(search_documents=전체)은
+  // 백엔드가 계속 해석(무회귀) — 새 저작은 컬렉션별만 노출.
   const nodeToolOptions = [
     ...(blocks.mcp?.items ?? []).flatMap((s) =>
       (s.tools ?? []).map((t) => ({ label: `${s.name} · ${t}`, value: safeToolName(s.name, t) }))
     ),
-    ...(collections.length ? [{ label: '문서 검색 (컬렉션 전체)', value: 'search_documents' }] : []),
+    ...collections.map((c) => ({ label: `문서 검색 · ${c.name}`, value: safeToolName('search_documents', c.name) })),
   ]
+  // 노드별 기억 선택지(스펙 268 P2) — 직접형 "기억" 그룹과 같은 원천(blocks.memory).
+  const nodeMemoryOptions = (blocks.memory?.items ?? []).map((m) => ({ label: m.name, value: m.name }))
   // 저장 직전 파생(스펙 259) — 노드형은 에이전트-레벨 도구 풀(mcps/vectorTables)을 노드 도구 합집합에서
   // 파생한다(에이전트-레벨 도구 UI를 숨기므로). 백엔드 ctx.tools는 이 풀로 빌드되고, 노드는 자기 tools로
   // 다시 필터한다(권한 상승 0). 문서 검색은 단일 도구라 컬렉션 스코핑 불가 → 쓰면 전체 컬렉션이 풀에.
@@ -288,8 +293,13 @@ export function AgentForm({
     const mcps = (blocks.mcp?.items ?? [])
       .filter((s) => (s.tools ?? []).some((t) => used.has(safeToolName(s.name, t)) || used.has(t)))
       .map((s) => s.name)
-    const vectorTables = used.has('search_documents') ? collections.map((c) => c.name) : []
-    return { ...base, mcps, vectorTables }
+    // 컬렉션 풀(스펙 268 P1): 노드가 참조한 컬렉션별 도구의 합집합 + 구저장 민이름이면 전체(무회귀).
+    const vectorTables = used.has('search_documents')
+      ? collections.map((c) => c.name)
+      : collections.filter((c) => used.has(safeToolName('search_documents', c.name))).map((c) => c.name)
+    // 기억 풀(스펙 268 P2): 노드 선택 합집합 — 백엔드 회상 게이트(memory_enabled)·스코프의 원천.
+    const memories = [...new Set((form.nodes ?? []).flatMap((n) => n.memories ?? []))]
+    return { ...base, mcps, vectorTables, memories }
   }
   // 식별 이름 규칙(스펙 148) — 서버 400의 프론트 힌트. 빈 값은 입력 전이라 조용히(제출만 막음).
   const nameErr = form.name.trim() ? validateName(form.name.trim()) : null
@@ -482,6 +492,7 @@ export function AgentForm({
             modelOptions={chatModelOptions}
             personas={nodePersonas}
             toolOptions={nodeToolOptions}
+            memoryOptions={nodeMemoryOptions}
           />
         ) : orchestratorSelected ? (
           <>

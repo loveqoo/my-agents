@@ -1,7 +1,6 @@
-# 268 — 노드별 RAG(컬렉션)·메모리 설계 초안 (검토 대기)
+# 268 — 노드별 RAG(컬렉션)·메모리: 캐싱 회상 프록시 (구현 완료)
 
-> 상태: **초안(사용자 검토 대기)** — 2026-07-09 사용자 요청 "RAG, Memory를 각 노드마다 설정할 수
-> 있도록 고민이 필요합니다"에 대한 설계 제안. 승인 후 구현.
+> 상태: **done**(2026-07-10 사용자 승인 후 구현·검증). P2 프록시 설계는 사용자 안(2026-07-10).
 
 ## 현재 상태 (제약의 뿌리)
 - **RAG**: 플랫폼이 배선된 컬렉션 *전체*를 하나의 `search_documents` 도구로 묶어 빌드(runtime.
@@ -52,3 +51,23 @@
 메모리는 (a) 같은 키워드 2노드 → 검색 1회+캐시 히트 1회(프록시 카운터), (b) 키워드 모드 다른 노드 →
 검색 2회, (c) 회상 블록이 선택 노드의 프롬프트에만 존재, (d) 스코프가 플랫폼 고정값과 일치(노드가
 못 바꿈)를 단언.
+
+## 결과 (구현·검증, 2026-07-10)
+**백엔드**: build_rag_tool `name` 파라미터 + `_rag_tools_for`(노드형=전체 1+컬렉션별 N, 비노드형=1 무회귀,
+세 입구 main/재개/A2A 정합 — learning 149) + `_MemoryRecallProxy`(턴 스코프 키워드 캐시·스코프 고정·
+records) + AgentBuildContext.memory_recall + pipeline `_recall_block`(첫 진입만·graceful) +
+normalize(memories/memoryQuery) + 스키마 화이트리스트 확장 + trace["memoryRecalls"].
+**프론트**: 노드 도구 옵션 컬렉션별("문서 검색 · docs-kb") + 기억 멀티선택+회상 키워드 Segmented(선택
+시에만) + 풀 파생(vectorTables=참조 컬렉션 합집합+구저장 전체 무회귀, memories=노드 합집합) +
+인스펙터(memoryRecalls 노드 귀속 카드·RagCall 도구명 실값).
+
+**검증**:
+- 단위 verify_268 20/20(P1 분기·프록시 캐시/스코프 고정·엔진 선택 노드만·input 키워드·graceful·스키마)
+  + 259/260/261/262/265/하드닝 전 무회귀 + tsc 0.
+- **실모델+실 mem0 e2e**(verify-pipeline-268, 필수 단언 ALL GREEN): 검색 노드가
+  `search_documents__docs-kb`로 docs-kb만 검색(히트 스코프 단언) · memoryRecalls 2건 — 기억확인 노드
+  실회상 1건(cached:false)→마무리 노드 **캐시 공유(cached:true)** · 노드 귀속 · 8.3s.
+- 폼 저작 왕복 무회귀 ALL GREEN + 카드 육안(기억 행 합류·키워드 모드 조건 노출).
+
+**주의(시맨틱, e2e서 실측)**: mem0 회상 게이트는 기억 블록 `장기 기억 (mem0)` 선택 시만
+(memory_enabled — 직접형과 동일 규칙). `단기(세션)`만 고른 노드는 회상 없음.

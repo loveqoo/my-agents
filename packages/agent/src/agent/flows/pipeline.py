@@ -111,6 +111,12 @@ def normalize_nodes(raw: object) -> list[dict]:
         fmt = fmt if fmt in ("text", "json") else "text"
         raw_fields = n.get("fields")
         node_fields = [f for f in raw_fields if isinstance(f, str) and f.strip()] if isinstance(raw_fields, list) else []
+        # 노드별 기억(스펙 268 P2): memories=선택한 기억 블록(비면 회상 안 받음), memoryQuery=회상
+        # 키워드 모드(user=사용자 입력[캐시 공유], input=이 노드의 입력[개별 키워드]). 잡값→user.
+        raw_mem = n.get("memories")
+        node_mem = [m for m in raw_mem if isinstance(m, str) and m.strip()] if isinstance(raw_mem, list) else []
+        mem_q = n.get("memoryQuery")
+        mem_q = mem_q if mem_q in ("user", "input") else "user"
         out.append({
             "name": name,
             "prompt": prompt,
@@ -119,6 +125,8 @@ def normalize_nodes(raw: object) -> list[dict]:
             "context": context,
             "format": fmt,
             "fields": node_fields,
+            "memories": node_mem,
+            "memoryQuery": mem_q,
         })
     return out
 
@@ -179,7 +187,7 @@ class LinearPipelineAgent:
         ids = _unique_node_ids(nodes)
         g = StateGraph(_State)
 
-        def _make_step(node: dict):
+        def _make_step(nid: str, node: dict):
             model = _model_from_node(node, ctx)
             node_tools = [t for t in (_resolve_tool(name) for name in node["tools"]) if t is not None]
             bound = model.bind_tools(node_tools) if node_tools else model
@@ -187,6 +195,22 @@ class LinearPipelineAgent:
             clean = node.get("context") == "clean"
             fmt = node.get("format") or "text"
             fields = node.get("fields") or []
+            node_mem = node.get("memories") or []
+            mem_mode = node.get("memoryQuery") or "user"
+
+            async def _recall_block(msgs: list, reentry: bool) -> str:
+                # 노드별 회상(스펙 268 P2) — 첫 진입에만(재진입=도구 루프 중간, 자체 문맥 보유).
+                # 프록시(플랫폼 주입·스코프 고정)를 키워드로 호출 — user=사용자 입력(캐시 공유),
+                # input=이 노드가 받은 마지막 메시지(개별 키워드). 실패는 노드를 죽이지 않음(graceful).
+                if reentry or not node_mem or ctx.memory_recall is None:
+                    return ""
+                q = None if mem_mode == "user" else (_text_of(msgs[-1]) if msgs else None)
+                try:
+                    text = await ctx.memory_recall(q, node=nid)
+                except Exception:  # noqa: BLE001 — 회상 장애는 회상 없이 진행(기존 graceful 결)
+                    log.warning("노드 회상 실패(node=%s) — 회상 없이 진행", nid)
+                    return ""
+                return f"\n\n# 관련 기억(회상됨)\n{text}" if text else ""
             # 출력 형식 강제(스펙 261): JSON이면 시스템 프롬프트에 지시를 덧붙여 첫 시도부터 JSON 지향.
             sys_content = prompt
             if fmt == "json":
@@ -216,11 +240,12 @@ class LinearPipelineAgent:
                 return resp
 
             async def _step(state: _State) -> dict:
-                sys = SystemMessage(content=sys_content)
                 msgs = state["messages"]
                 # clean 첫 진입(스펙 260): 쌓인 대화를 걷어내고 앞 결과만 새 입력으로 격리. 재진입
                 # (도구 루프 뒤 = 마지막이 ToolMessage)은 격리 buffer 위에서 정상 누적(carry 경로).
                 reentry = bool(msgs) and isinstance(msgs[-1], ToolMessage)
+                # 노드별 회상 블록(스펙 268 P2) — 첫 진입에만 시스템 프롬프트에 덧붙임.
+                sys = SystemMessage(content=sys_content + await _recall_block(msgs, reentry))
                 if clean and not reentry:
                     prev_text = _text_of(msgs[-1]) if msgs else ""
                     human = HumanMessage(content=prev_text)
@@ -236,7 +261,7 @@ class LinearPipelineAgent:
         # 노드 등록 + 노드별 도구 루프(도구 있으면 <id>__tools ToolNode 자기 루프).
         steps: list[tuple] = []
         for nid, node in zip(ids, nodes):
-            step, node_tools = _make_step(node)
+            step, node_tools = _make_step(nid, node)
             g.add_node(nid, step)
             steps.append((nid, node_tools))
 

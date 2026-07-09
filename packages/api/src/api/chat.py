@@ -137,6 +137,54 @@ async def _resolve_node_models(db, nodes: list, default_cfg: dict | None) -> lis
     return resolved
 
 
+def _rag_tools_for(ctx: dict, calls_sink: list[dict]) -> list:
+    """RAG 검색 도구 목록. 기본=전체 컬렉션 단일 도구(search_documents, 무회귀). 노드형(스펙 268 P1)은
+    **컬렉션별 도구**(`search_documents__<컬렉션>`, _safe_name — 265 이름 체계)를 추가로 빌드해 노드가
+    컬렉션을 골라 참조한다("검색 노드는 A만, 검증 노드는 B만"). 참조 안 된 도구는 노드 필터에서 그냥
+    안 쓰임(무해). 구저장 민이름(search_documents)은 전체-컬렉션 도구로 계속 해석."""
+    tools: list = []
+    if not ctx.get("rag_collections"):
+        return tools
+    ms = ctx.get("rag_min_scores")
+    tools.append(runtime.build_rag_tool(ctx["rag_collections"], calls_sink, ms))
+    if ctx.get("nodes_resolved") is not None:
+        for c in ctx["rag_collections"]:
+            tools.append(runtime.build_rag_tool(
+                [c], calls_sink, ms, name=runtime._safe_name("search_documents", c["name"]),
+            ))
+    return tools
+
+
+class _MemoryRecallProxy:
+    """노드별 회상 프록시(스펙 268 P2, 사용자 설계) — 노드형 노드가 **각자** 회상을 조회하고, 여기서
+    **키워드로 캐싱**한다(같은 키워드=캐시 반환 → 비용 자연 수렴 1회, 다른 키워드=개별 조회). 이로써
+    "1회 조회→노드 매핑"과 "노드별 키워드 조회"가 한 메커니즘으로 통일된다.
+
+    - 수명 = **한 턴**(요청) — 턴을 넘겨 캐시하면 새 기억이 안 보이므로 금지.
+    - 스코프는 플랫폼이 생성 시 **고정**(RBAC — 노드가 남의 기억을 못 봄, 브로커 주입 선례).
+    - 조회마다 (node, query, hits, cached)를 기록(스펙 082 — 조회 행위 계측) → trace["memoryRecalls"].
+    - 반환은 **포맷된 텍스트**(format_memory_hits) — 엔진(agent 패키지)이 api 모듈에 비의존."""
+
+    def __init__(self, scope: dict, mem_cfg: dict | None, default_query: str, records: list[dict]):
+        self._scope = dict(scope)
+        self._cfg = mem_cfg
+        self._default = default_query or ""
+        self._cache: dict[str, tuple[str, int]] = {}  # query → (포맷 텍스트, 건수)
+        self.records = records
+
+    async def __call__(self, query: str | None = None, node: str = "") -> str:
+        q = (query if isinstance(query, str) and query.strip() else self._default).strip()[:300]
+        if not q:
+            return ""
+        cached = q in self._cache
+        if not cached:
+            hits = await asyncio.to_thread(memory.search, self._scope, q, self._cfg)
+            self._cache[q] = (memory.format_memory_hits(hits) if hits else "", len(hits))
+        text, n = self._cache[q]
+        self.records.append({"node": node, "query": q[:120], "hits": n, "cached": cached})
+        return text
+
+
 async def _load_context(
     agent_id: uuid.UUID,
     session_str_id: str | None,
@@ -756,8 +804,9 @@ async def stream_local_reply(agent_id: uuid.UUID, user_text: str):
         raise ValueError("로컬(ui) 에이전트가 아니거나 채팅 모델이 없습니다(A2A 노출 불가)")
     calls_sink: list[dict] = []
     tools = await runtime.build_mcp_tools(ctx["mcp_servers"], calls_sink, ctx.get("toolPolicy"))
-    if ctx["rag_collections"]:
-        tools.append(runtime.build_rag_tool(ctx["rag_collections"], calls_sink, ctx.get("rag_min_scores")))
+    # 노드형 컬렉션별 도구 포함(스펙 268 P1 — 세 입구 정합, learning 149). 메모리 프록시는 미주입:
+    # A2A 서빙은 v1부터 메모리 자체가 범위 밖(스펙 061 — 순수 컴퓨트), 기존과 동일.
+    tools.extend(_rag_tools_for(ctx, calls_sink))
     run_params = {} if ctx["temperature"] is None else {"temperature": ctx["temperature"]}
     build_ctx = AgentBuildContext(
         persona=ctx["persona"],
@@ -864,18 +913,27 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
         and memory.memory_enabled(ctx["memories"])
         and ctx["mem_cfg"] is not None
     )
+    # 노드형(스펙 268 P2): 선(先)조회 대신 **캐싱 회상 프록시**를 주입 — 노드가 각자 조회하고 같은
+    # 키워드는 캐시로 수렴(비용 1회). 선조회를 함께 돌리면 이중 검색이라 노드형은 mem_hits=[].
+    _pipeline_mem = ctx.get("nodes_resolved") is not None
     mem_hits = (
         await asyncio.to_thread(memory.search, recall_scope, user_text, ctx["mem_cfg"])
-        if used_memory
+        if used_memory and not _pipeline_mem
         else []
+    )
+    memory_recalls: list[dict] = []
+    mem_proxy = (
+        _MemoryRecallProxy(recall_scope, ctx["mem_cfg"], user_text, memory_recalls)
+        if (used_memory and _pipeline_mem)
+        else None
     )
 
     calls_sink: list[dict] = []
     tools = await runtime.build_mcp_tools(ctx["mcp_servers"], calls_sink, ctx.get("toolPolicy"))
     # 채팅 자가기록 도구는 제거됨(스펙 051) — agent_id 메모리는 어드민 저작 전용. 회상은 아래 유지.
-    # RAG 검색 도구 — vectorTables가 실 컬렉션으로 해석됐을 때만 주입(스펙 037). mem0 비종속.
-    if ctx["rag_collections"]:
-        tools.append(runtime.build_rag_tool(ctx["rag_collections"], calls_sink, ctx.get("rag_min_scores")))
+    # RAG 검색 도구 — vectorTables가 실 컬렉션으로 해석됐을 때만(스펙 037). 노드형은 컬렉션별 도구
+    # 추가(스펙 268 P1 — _rag_tools_for).
+    tools.extend(_rag_tools_for(ctx, calls_sink))
 
     # 회상된 기억은 persona(시스템 프롬프트)에 합친다. 별도 system 메시지로 주입하면
     # create_agent의 system_prompt와 충돌해 모델 채팅 템플릿이 거부한다
@@ -906,6 +964,7 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
         memories=mem_hits,
         overrides=ctx.get("overrides"),
         broker=build_broker_scoped,
+        memory_recall=mem_proxy,  # 노드별 캐싱 회상 프록시(스펙 268 P2) — 비노드형은 None(무회귀)
         # impl_config — 노코드 impl용 설정 통로. 노드형(259)=해석된 노드, 산출물형(190)=필드 명세.
         # 에이전트당 impl 하나라 상호배타(둘 중 해당하는 것만 실림, 그 외 impl은 무시).
         impl_config=(
@@ -1237,6 +1296,10 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
             # 회상에 쓴 쿼리(=user_text)를 에코 — 0건 회상이어도 "조회 행위"를 인스펙터에 남긴다(스펙 079).
             # 표시 전용·길이상한(방금 그 유저가 보낸 텍스트라 경계 이동 없음).
             trace["memoryQuery"] = user_text[:300]
+        if memory_recalls:
+            # 노드별 회상 기록(스펙 268 P2) — (node, query, hits, cached). 프록시가 조회마다 남김
+            # (082 조회 행위 계측). 인스펙터가 노드 행에 귀속 렌더.
+            trace["memoryRecalls"] = memory_recalls
         # 오류 턴은 영속/메모리 저장하지 않는다 (부분/실패 응답 오염 방지).
         mid = None
         if not errored:
@@ -1442,17 +1505,26 @@ async def resume_approval(approval: Approval, decision: str) -> None:
     )
     # user_id가 없으니(재개 주체=admin) user/run 축 회상은 의미가 약하나, 페르소나 톤 유지를 위해
     # agent 축 회상만이라도 접목(없어도 무해). 자동 메모리 add는 user_id 부재로 생략(빚).
+    # 노드형은 선조회 생략(메인 경로 대칭, 스펙 268 P2) — 프록시가 노드별 조회(아래 주입).
     mem_hits = (
         await asyncio.to_thread(memory.search, recall_scope, approval.summary or "", ctx["mem_cfg"])
-        if used_memory
+        if used_memory and ctx.get("nodes_resolved") is None
         else []
     )
 
     calls_sink: list[dict] = []
     tools = await runtime.build_mcp_tools(ctx["mcp_servers"], calls_sink, ctx.get("toolPolicy"))
     # 채팅 자가기록 도구 제거됨(스펙 051) — agent_id 메모리는 어드민 저작 전용. 회상(recall_scope)은 유지.
-    if ctx["rag_collections"]:
-        tools.append(runtime.build_rag_tool(ctx["rag_collections"], calls_sink, ctx.get("rag_min_scores")))
+    # 노드형 컬렉션별 도구 포함(스펙 268 P1 — 세 입구 정합, learning 149). 재개 라운드의 노드 재진입은
+    # 회상을 생략하므로(pipeline 첫 진입만 회상) 메모리 프록시는 재개에 불요 — 다만 재개 후 *다음*
+    # 노드의 첫 진입은 회상이 필요해 프록시를 주입한다(기본 키워드=approval.summary, 원 턴과 동일 재료).
+    tools.extend(_rag_tools_for(ctx, calls_sink))
+    resume_recalls: list[dict] = []
+    resume_mem_proxy = (
+        _MemoryRecallProxy(recall_scope, ctx["mem_cfg"], approval.summary or "", resume_recalls)
+        if (used_memory and ctx.get("nodes_resolved") is not None)
+        else None
+    )
 
     persona_prompt = ctx["persona"]
     if mem_hits:
@@ -1484,6 +1556,7 @@ async def resume_approval(approval: Approval, decision: str) -> None:
         memories=mem_hits,
         overrides=ctx.get("overrides"),
         broker=resume_broker,
+        memory_recall=resume_mem_proxy,  # 노드형 회상 프록시(스펙 268 P2) — 재개 후 다음 노드 첫 진입용
         # 재개도 원 턴과 동일 impl_config 재주입(노드형 노드 도구 HIL 재개·산출물형 폼 재개, 259/190).
         impl_config=(
             {"nodes": ctx["nodes_resolved"]}

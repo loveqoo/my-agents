@@ -34,6 +34,8 @@ export interface PipelineNode {
   context?: 'carry' | 'clean' // 맥락 모드(스펙 260). carry=대화 이어받기(기본), clean=앞 결과만 격리
   format?: 'text' | 'json' // 출력 형식(스펙 261). text=자유(기본), json=유효 JSON 강제
   fields?: string[] // JSON 필수 키(스펙 261, 선택) — format=json일 때만 의미
+  memories?: string[] // 회상 받을 기억 블록(스펙 268 P2, 선택) — 비면 이 노드는 회상 없음
+  memoryQuery?: 'user' | 'input' // 회상 키워드(268). user=사용자 입력(캐시 공유, 기본), input=이 노드의 입력
 }
 
 /** 노코드 산출물형 필드(스펙 190) — 후보 있으면 SelectBox(enum), 없으면 자유 입력. */

@@ -501,12 +501,19 @@ def _norm_min_scores(min_scores: dict | None, names: list[str] | None = None) ->
     return out
 
 
-def build_rag_tool(collections: list[dict], calls_sink: list[dict], min_scores: dict | None = None) -> StructuredTool:
+def build_rag_tool(
+    collections: list[dict], calls_sink: list[dict], min_scores: dict | None = None,
+    name: str = "search_documents",
+) -> StructuredTool:
     """RAG 문서 검색 도구(스펙 037). `search_collections` 코어를 호출해 결과를 문자열로 포맷한다.
 
     이 함수는 **얇은 포맷터**다 — 검색 로직은 `search_collections`에 있고(시험 엔드포인트와 공유),
     여기서는 도구 계약(graceful 문자열 + calls_sink 기록)만 책임진다. 실패는 코어가 `RagSearchError`로
     올리고, 도구는 그 `tool_msg`/`record_label`로 매핑해 에이전트를 죽이지 않는다.
+
+    `name`(스펙 268 P1): 노드형은 컬렉션별 도구(`search_documents__<컬렉션>`)로 분리 빌드해 노드가
+    컬렉션을 골라 참조한다 — 기본값은 기존 단일 도구 이름(무회귀). calls_sink 기록도 이 이름을 실어
+    인스펙터가 어느 컬렉션 검색인지 구분한다.
     """
     names = ", ".join(c["name"] for c in collections)
     # 컬렉션별 임계값 맵 정규화(스펙 191 v2) — 배선된 컬렉션으로 한정, 값 0<x≤1만 유효.
@@ -518,7 +525,7 @@ def build_rag_tool(collections: list[dict], calls_sink: list[dict], min_scores: 
         def _record(status: str, result: str, n: int = 0, detail: list[dict] | None = None) -> None:
             entry = {
                 "server": "rag",
-                "tool": "search_documents",
+                "tool": name,
                 "status": status,
                 "ms": int((time.perf_counter() - t0) * 1000) + 1,
                 "args": _redact_args({"query": (query or "").strip(), "top_k": top_k}),
@@ -547,7 +554,7 @@ def build_rag_tool(collections: list[dict], calls_sink: list[dict], min_scores: 
 
     return StructuredTool.from_function(
         coroutine=_search,
-        name="search_documents",
+        name=name,
         description=(
             f"등록된 문서 컬렉션({names})에서 관련 구절을 의미(semantic) 검색한다. 사용자의 질문이 "
             "특정 문서·지식베이스의 내용을 요구하면 **답하기 전에 먼저** 이 도구로 근거 구절을 찾아라. "
