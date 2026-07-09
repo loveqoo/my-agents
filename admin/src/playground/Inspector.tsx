@@ -266,6 +266,9 @@ function nodeMeta(node: string): { text: string; icon: string; color: string } {
     resume: { text: '재개', icon: 'clock-circle', color: 'var(--purple-6)' },
   }
   if (known[node]) return known[node]
+  // 노드형(스펙 259/266) 도구 노드 — `<노드명>__tools`. 'tools'와 같은 시각 계열로.
+  if (node.endsWith('__tools'))
+    return { text: `도구·문서 검색 실행 · ${node.slice(0, -'__tools'.length)}`, icon: 'thunderbolt', color: 'var(--cyan-7)' }
   if (node.startsWith('broker_invoke:rag:'))
     return { text: `문서 검색 위임 · ${node.slice('broker_invoke:rag:'.length)}`, icon: 'search', color: 'var(--geekblue-6)' }
   if (node.startsWith('broker_invoke:mcp:'))
@@ -340,7 +343,9 @@ function nodeEventContent(
   // 전부-귀속(옛 가정 "ReAct 다중 tools는 한 노드로 접힘")이면 라운드마다 같은 카드가 중복 렌더된다
   // (3회 호출 턴 = 카드 9장). 다회면 ① 결과 본문 머리가 이 라운드 summary에 포함되는 호출만(내용
   // 매칭), ② 매칭 0건이면 순번 폴백(라운드 수=호출 수인 통상 케이스)으로 라운드별 귀속한다.
-  if (node === 'tools') {
+  // 노드형(스펙 266)의 `<노드명>__tools`도 도구 노드 — 'tools'(ReAct/plan_execute)와 동일 귀속.
+  // calls_sink(t.mcp)는 턴 전체 실행 순서 리스트라, 도구 노드 등장 순번(전역)으로 1:1 귀속이 성립.
+  if (node === 'tools' || node.endsWith('__tools')) {
     let calls = t.mcp
     if (tctx && tctx.toolsTotal > 1) {
       const sum = tctx.summary || ''
@@ -434,7 +439,9 @@ function NodeTimeline({ t }: { t: Trace }) {
       <Timeline
         items={(() => {
           // tools 라운드 순번(스펙 202/203 후속) — 다회 도구 루프의 카드 중복 귀속 방지.
-          const toolsTotal = t.graph.filter((x) => x.node === 'tools').length
+          // 노드형(스펙 266)의 `<노드명>__tools`도 도구 노드 — 전역 등장 순번으로 t.mcp(실행 순)와 1:1.
+          const isToolNode = (name: string) => name === 'tools' || name.endsWith('__tools')
+          const toolsTotal = t.graph.filter((x) => isToolNode(x.node)).length
           let toolsSeen = 0
           // broker_invoke 노드도 같은 cap 다회 호출 시 중복(202/203 동종, codex 후속) — 노드명별 등장
           // 총수를 미리 세고, 순회하며 등장 순번을 매겨 nodeEventContent가 1:1 귀속하게 한다.
@@ -445,7 +452,7 @@ function NodeTimeline({ t }: { t: Trace }) {
           const brokerSeen = new Map<string, number>()
           return t.graph.map((n) => {
           const meta = nodeMeta(n.node)
-          const tctx = n.node === 'tools'
+          const tctx = isToolNode(n.node)
             ? { summary: n.summary, toolsIdx: toolsSeen++, toolsTotal }
             : undefined
           let brokerOcc: { idx: number; total: number } | undefined
