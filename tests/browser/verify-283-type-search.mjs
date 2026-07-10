@@ -39,20 +39,30 @@ try {
   check(made.d && made.p && made.o, `픽스처 생성 (${JSON.stringify(made)})`)
   await page.reload({ waitUntil: 'networkidle' }); await page.waitForTimeout(800)
 
-  const search = page.getByPlaceholder('이름·종류·모델 검색').first()
-  check(await search.count() > 0, `placeholder '이름·종류·모델 검색'`)
+  // 종류 필터는 텍스트 검색이 아니라 명시 Select(스펙 284 후속3 — 283의 텍스트 축을 대체).
+  const search = page.getByPlaceholder('이름 검색').first()
+  check(await search.count() > 0, `placeholder '이름 검색'`)
+  // 선택하면 표시값이 바뀌므로 값 무관 정규식으로 매번 재조회(고정 텍스트 locator는 1회용 함정).
+  const typeSel = () => page.locator('.ant-select').filter({ hasText: /종류: 전체|직접 응답|조율형|산출물형|노드형/ }).first()
+  check(await typeSel().count() > 0, `종류 Select 존재`)
 
   const visible = async (name) => (await page.getByText(name, { exact: false }).count()) > 0
-
+  const pickType = async (label) => {
+    await typeSel().click(); await page.waitForTimeout(300)
+    await page.locator('.ant-select-dropdown:visible .ant-select-item-option', { hasText: label }).first().click()
+    await page.waitForTimeout(400)
+  }
   // ① 노드형
-  await search.fill('노드형'); await page.waitForTimeout(500)
-  check(await visible(P), `① '노드형' 검색 → 노드형 노출`)
-  check(!(await visible(D)), `① '노드형' 검색 → 직접형 미노출`)
+  await pickType('노드형')
+  check(await visible(P), `① 종류=노드형 → 노드형 노출`)
+  check(!(await visible(D)), `① 종류=노드형 → 직접형 미노출`)
   // ② 조율형
-  await search.fill('조율형'); await page.waitForTimeout(500)
-  check(await visible(O), `② '조율형' 검색 → 조율형 노출`)
-  check(!(await visible(P)), `② '조율형' 검색 → 노드형 미노출`)
-  // ③ 이름 무회귀
+  await pickType('조율형')
+  check(await visible(O), `② 종류=조율형 → 조율형 노출`)
+  check(!(await visible(P)), `② 종류=조율형 → 노드형 미노출`)
+  // ③ 이름 검색(종류 전체 복원 후)
+  await pickType('종류: 전체')
+  await page.waitForTimeout(300)
   await search.fill(D); await page.waitForTimeout(500)
   check(await visible(D), `③ 이름 검색 무회귀`)
 

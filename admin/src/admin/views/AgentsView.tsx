@@ -1,7 +1,7 @@
 /* my-agents admin — Agents view: list created agents, view detail, and
    create / edit / delete (composing building blocks). */
 import { useState } from 'react'
-import { Tag, Button, Avatar, Select, Input, Switch, Tooltip, Popover, Modal, message, Tabs } from 'antd'
+import { Tag, Button, Avatar, Select, Input, Switch, Tooltip, Popover, Modal, message, Tabs, Checkbox } from 'antd'
 import { Page, DataTable, type Column } from '../shared'
 import { Icon } from '../icons'
 import {
@@ -29,9 +29,23 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
   const [detailId, setDetailId] = useState<string | null>(null)
   const [query, setQuery] = useState('') // 리스트 검색(스펙 144 #3)
   const [sortKey, setSortKey] = useState<'name' | 'recent'>('name')
-  // 출처 탭(스펙 284 — 소유/소스 Select를 탭+내것 tint가 대체). 상태 필터는 유지.
+  // 출처 탭(스펙 284 — 소유/소스 Select를 탭+내것 tint가 대체).
   const [tab, setTab] = useState<'ui' | 'code' | 'external'>('ui')
+  // 탭별 검색 요소(스펙 284 후속3, 사용자 지시): UI=이름+종류(Select)+A2A(Checkbox)+상태(Select),
+  // Code=이름+A2A(Select)+상태(Select), External=이름만. 텍스트 검색은 이름 전용으로 정리.
   const [statusFilter, setStatusFilter] = useState<'all' | 'online' | 'idle' | 'offline'>('all')
+  const [typeFilter, setTypeFilter] = useState<string>('all') // UI 탭 — typeLabel 값
+  const [a2aOnly, setA2aOnly] = useState(false) // UI 탭 — 체크=공개만
+  const [a2aFilter, setA2aFilter] = useState<'all' | 'on' | 'off'>('all') // Code 탭
+  const switchTab = (k: 'ui' | 'code' | 'external') => {
+    // 탭마다 검색 요소가 달라 잔존 필터가 보이지 않게 작동하는 것을 막는다 — 전환 시 초기화.
+    setTab(k)
+    setQuery('')
+    setTypeFilter('all')
+    setA2aOnly(false)
+    setA2aFilter('all')
+    setStatusFilter('all')
+  }
   const detail = agents.find((a) => a.id === detailId) || null
   // 풀페이지(스펙 245→246 후속) — 사용자 지적("SDK 에이전트는 드로어 그대로")으로 **전 소스** 페이지.
   // source 미기록 레거시 행은 목록과 동일하게 ui 취급.
@@ -270,13 +284,17 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
   const ownerKind = (a: Agent) =>
     a.owner_id == null ? 'shared' : meId !== undefined ? (a.owner_id === meId ? 'mine' : 'others') : a.can_manage === false ? 'others' : 'mine'
   const visibleAgents = agents
-    // 검색 축(스펙 283·284): 이름·설명·모델 + 종류 라벨(UI) + 커밋(Code).
-    .filter((a) => !q || [a.name, a.description, a.model, typeLabel(a.impl), a.commit].some((f) => (f || '').toLowerCase().includes(q)))
+    // 텍스트 검색=이름 전용(스펙 284 후속3 — 종류·A2A·상태는 명시 컨트롤로 이동).
+    .filter((a) => !q || a.name.toLowerCase().includes(q))
     // 타인 private는 기본 숨김(스펙 147 — 소유자에게만 보임). opt-in 해제는 285(가시성 재설계)로 이관.
     .filter((a) => ownerKind(a) !== 'others')
     // 출처 탭(스펙 284) — 소스 필터 Select 대체.
     .filter((a) => (a.source || 'ui') === tab)
-    .filter((a) => statusFilter === 'all' || a.status === statusFilter)
+    // 탭별 필터(스펙 284 후속3)
+    .filter((a) => tab !== 'ui' || typeFilter === 'all' || typeLabel(a.impl) === typeFilter)
+    .filter((a) => tab !== 'ui' || !a2aOnly || !!a.exposed.a2a)
+    .filter((a) => tab !== 'code' || a2aFilter === 'all' || (a2aFilter === 'on') === !!a.exposed.a2a)
+    .filter((a) => tab === 'external' || statusFilter === 'all' || a.status === statusFilter)
     .slice()
     .sort((x, y) =>
       sortKey === 'name' ? x.name.localeCompare(y.name, 'ko') : 0 /* recent=서버 응답 순서(최신 생성이 앞) 보존 */
@@ -407,7 +425,8 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
           </span>
         ),
     },
-    {
+    // 상태 컬럼은 External 제외(스펙 284 후속3, 사용자: 외부는 우리가 상태 관리하지 않음).
+    ...(tab === 'external' ? [] : [{
       key: 'status',
       width: 64,
       title: '상태',
@@ -426,7 +445,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
           </Tooltip>
         )
       },
-    },
+    } satisfies Column<Agent>]),
     {
       key: 'actions',
       width: 80,
@@ -513,7 +532,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
       {/* 출처 탭(스펙 284 ②) — 데이터 집합 전환=Tabs(212 규칙). 소유/소스 Select 대체. */}
       <Tabs
         activeKey={tab}
-        onChange={(k) => setTab(k as 'ui' | 'code' | 'external')}
+        onChange={(k) => switchTab(k as 'ui' | 'code' | 'external')}
         items={[
           { key: 'ui', label: 'Internal (UI)' },
           { key: 'code', label: 'Internal (Code)' },
@@ -525,11 +544,58 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
         <Input
           allowClear
           prefix={<Icon name="search" size={13} />}
-          placeholder={tab === 'ui' ? '이름·종류·모델 검색' : tab === 'code' ? '이름·모델·커밋 검색' : '이름·모델 검색'}
+          placeholder="이름 검색"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          style={{ maxWidth: 260 }}
+          style={{ maxWidth: 220 }}
         />
+        {tab === 'ui' && (
+          <Select
+            value={typeFilter}
+            onChange={setTypeFilter}
+            style={{ width: 130 }}
+            popupMatchSelectWidth={false}
+            options={[
+              { value: 'all', label: '종류: 전체' },
+              { value: '직접 응답', label: '직접 응답' },
+              { value: '조율형', label: '조율형' },
+              { value: '산출물형', label: '산출물형' },
+              { value: '노드형', label: '노드형' },
+            ]}
+          />
+        )}
+        {tab === 'ui' && (
+          <Checkbox checked={a2aOnly} onChange={(e) => setA2aOnly(e.target.checked)}>
+            A2A 공개만
+          </Checkbox>
+        )}
+        {tab === 'code' && (
+          <Select
+            value={a2aFilter}
+            onChange={setA2aFilter}
+            style={{ width: 120 }}
+            popupMatchSelectWidth={false}
+            options={[
+              { value: 'all', label: 'A2A: 전체' },
+              { value: 'on', label: 'A2A 켬' },
+              { value: 'off', label: 'A2A 꺼짐' },
+            ]}
+          />
+        )}
+        {tab !== 'external' && (
+          <Select
+            value={statusFilter}
+            onChange={setStatusFilter}
+            style={{ width: 130 }}
+            popupMatchSelectWidth={false}
+            options={[
+              { value: 'all', label: '상태: 전체' },
+              { value: 'online', label: '온라인' },
+              { value: 'idle', label: '유휴' },
+              { value: 'offline', label: '오프라인' },
+            ]}
+          />
+        )}
         <Select
           value={sortKey}
           onChange={setSortKey}
@@ -538,18 +604,6 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
           options={[
             { value: 'name', label: '이름순' },
             { value: 'recent', label: '최근 등록순' },
-          ]}
-        />
-        <Select
-          value={statusFilter}
-          onChange={setStatusFilter}
-          style={{ width: 130 }}
-          popupMatchSelectWidth={false}
-          options={[
-            { value: 'all', label: '상태: 전체' },
-            { value: 'online', label: '온라인' },
-            { value: 'idle', label: '유휴' },
-            { value: 'offline', label: '오프라인' },
           ]}
         />
         <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>

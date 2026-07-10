@@ -52,10 +52,12 @@ try {
   const headTxt = await page.locator('.dt-antd thead').first().innerText().catch(() => '')
   check(!headTxt.includes('페르소나'), `④ 페르소나 컬럼 부재 (head=${JSON.stringify(headTxt.replace(/\n/g, ' '))})`)
   check(headTxt.includes('종류'), `③ UI 탭에 '종류' 컬럼`)
-  check((await page.getByPlaceholder('이름·종류·모델 검색').count()) > 0, `⑤ UI 탭 placeholder`)
+  check((await page.getByPlaceholder('이름 검색').count()) > 0, `⑤ 이름 검색 placeholder`)
+  check((await page.locator('.ant-select', { hasText: '종류: 전체' }).count()) > 0, `⑤ UI 탭 종류 Select`)
+  check((await page.getByText('A2A 공개만', { exact: true }).count()) > 0, `⑤ UI 탭 A2A 체크박스`)
 
   // ── ⑤ 종류 검색(283 무회귀) + ③ 종류 Tag ──
-  await page.getByPlaceholder('이름·종류·모델 검색').fill(MINE)
+  await page.getByPlaceholder('이름 검색').fill(MINE)
   await page.waitForTimeout(500)
   const row = page.locator('.dt-antd tbody tr', { has: page.getByText(MINE, { exact: false }) }).first()
   check((await row.count()) > 0, `픽스처 행 노출`)
@@ -77,7 +79,17 @@ try {
   await page.waitForTimeout(500)
   const headTxt2 = await page.locator('.dt-antd thead').first().innerText().catch(() => '')
   check(!headTxt2.includes('종류'), `③ Code 탭엔 '종류' 컬럼 없음`)
-  check((await page.getByPlaceholder('이름·모델·커밋 검색').count()) > 0, `⑤ Code 탭 placeholder`)
+  check((await page.locator('.ant-select', { hasText: 'A2A: 전체' }).count()) > 0, `⑤ Code 탭 A2A Select`)
+  check((await page.getByText('A2A 공개만', { exact: true }).count()) === 0, `⑤ Code 탭엔 A2A 체크박스 없음`)
+  // External: 이름만 + 상태 컬럼/필터 부재(사용자: 외부는 상태 관리 안 함)
+  await page.getByRole('tab', { name: 'External' }).click()
+  await page.waitForTimeout(500)
+  check((await page.getByPlaceholder('이름 검색').count()) > 0, `⑤ External 이름 검색만`)
+  check((await page.locator('.ant-select', { hasText: '상태: 전체' }).count()) === 0, `⑤ External 상태 필터 부재`)
+  const headTxt3 = await page.locator('.dt-antd thead').first().innerText().catch(() => '')
+  check(!headTxt3.includes('상태'), `⑥ External 상태 컬럼 부재`)
+  await page.getByRole('tab', { name: 'Internal (Code)' }).click()
+  await page.waitForTimeout(400)
   // UI 픽스처는 Code 탭에 안 보임
   check((await page.getByText(MINE, { exact: false }).count()) === 0, `① 탭 분리: UI 에이전트가 Code 탭에 없음`)
 
