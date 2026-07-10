@@ -295,6 +295,15 @@ export function AgentForm({
         <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
           도구 호출 전 승인을 이 에이전트에 한해 덮어씁니다. 완화(본인 승인·승인 없음)는 관리자만 저장됩니다.
         </span>
+        {/* 비영속 제약(스펙 281, 사용자 질문) — 승인 대기는 DB 기록·재개가 필요해 비영속은 실행
+            거부(chat.py:1290 fail-closed). 숨기지 않는 이유: '승인 없음' 완화가 승인 기본 도구를
+            비영속에서 쓸 유일한 레버라서(의미 반전을 명시로 해소). */}
+        {form.ephemeral && (
+          <span style={{ fontSize: 12, color: 'var(--color-warning)' }}>
+            비영속(1회성)은 승인 대기를 만들 수 없어, 승인이 필요한 도구는 실행이 거부됩니다 —
+            '승인 없음'(관리자 저장)만 그 도구를 쓸 수 있게 합니다.
+          </span>
+        )}
         {rows.map(({ server, tool }) => {
           const capId = `mcp:${server}/${tool}`
           return (
@@ -543,23 +552,38 @@ export function AgentForm({
               : '대화와 기록을 저장합니다 — 세션·이력·기억을 사용할 수 있습니다.'}
           </span>
         </Field>
-        {/* 대화 저장(persistHistory) — 저장 방식의 하위 옵션이라 바로 아래에(스펙 280, 사용자 질문
-            "둘의 차이?"가 신호: 떨어져 있으면 포함 관계가 안 보임). 비영속=실효값 off+disabled(238). */}
-        <Field label="대화 저장">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <Switch
-              checked={!form.ephemeral && form.persistHistory}
-              disabled={form.ephemeral}
-              onChange={(v) => set('persistHistory', v)}
-            />
-            <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-              {form.ephemeral
-                ? '비영속(1회성)은 대화를 저장하지 않습니다'
-                : form.persistHistory
-                  ? '대화 내용(메시지)을 DB에 저장합니다 — 세션 재개·인스펙터 소급 열람 가능'
-                  : '대화 내용만 저장하지 않습니다 — 세션·기억·통계는 유지되고, 재개·소급 열람만 불가'}
-            </span>
-          </div>
+        {/* 저장 항목 리스트(스펙 281, 280 대체) — 대화는 저장 대상 중 하나(사용자: 상태가 늘어도
+            확장 가능해야). 행=[토글·이름·설명], 확장=행 추가. 비영속=리스트 소멸+요약(전부 off가
+            구조로 표현)+승인 제약 안내(chat.py:1290 — 승인 대기는 DB가 필요해 비영속은 실행 거부). */}
+        <Field label="저장 항목">
+          {form.ephemeral ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+                저장 항목 없음 — 아무것도 기록하지 않습니다.
+              </span>
+              <span style={{ fontSize: 12, color: 'var(--color-warning)' }}>
+                승인이 필요한 도구는 실행이 거부됩니다 — '승인 없음' 오버라이드(관리자 저장)만 예외입니다.
+              </span>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <Switch
+                  size="small"
+                  checked={form.persistHistory}
+                  onChange={(v) => set('persistHistory', v)}
+                />
+                <span style={{ fontSize: 13, minWidth: 64 }}>대화 내용</span>
+                <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+                  {form.persistHistory
+                    ? '세션 재개·인스펙터 소급 열람 가능'
+                    : '저장 안 함 — 세션·기억·통계는 유지, 재개·소급 열람만 불가'}
+                </span>
+              </div>
+              {/* 확장 지점(스펙 281): 기억 추출·승인 기록·트레이스 등 저장 대상이 늘면 위와 같은
+                  행을 추가한다 — 마스터(저장 방식)는 그대로, 항목만 성장. */}
+            </div>
+          )}
         </Field>
 
           </>
