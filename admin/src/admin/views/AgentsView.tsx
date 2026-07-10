@@ -559,8 +559,13 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
             <div style={{ fontSize: 13, maxWidth: 380 }}>
               {/* 범례(스펙 284) — 출처=탭, 내 것=행 배경, 상태=신호등, 태그는 예외·연결만. */}
               <div style={{ display: 'grid', gridTemplateColumns: '128px 1fr', columnGap: 12, rowGap: 12, alignItems: 'start' }}>
-                <span style={{ background: 'rgba(82,196,26,0.14)', borderRadius: 4, padding: '2px 8px', fontSize: 12 }}>연한 초록 행</span>
-                <span style={{ color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>내가 만든 에이전트</span>
+                <span style={{ display: 'inline-flex', gap: 6 }}>
+                  <span style={{ background: 'rgba(255,77,79,0.12)', borderRadius: 4, padding: '2px 8px', fontSize: 12 }}>연한 빨강</span>
+                  <span style={{ background: 'rgba(82,196,26,0.14)', borderRadius: 4, padding: '2px 8px', fontSize: 12 }}>연한 초록</span>
+                </span>
+                <span style={{ color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>
+                  내가 만든 에이전트 — 빨강=비공개(나만 사용), 초록=공개
+                </span>
 
                 <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
                   <span style={{ width: 10, height: 10, borderRadius: '50%', background: 'var(--blue-6)', display: 'inline-block' }} />
@@ -597,8 +602,13 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
         rows={visibleAgents}
         onRowClick={(a) => setDetailId(a.id)}
         subRow={agentSubRow}
-        // 내 것 tint(스펙 284 ①) — 소유 태그 대신 행 배경(연한 초록, 본행+보조행).
-        rowTint={(a) => a.owner_id != null && meId !== undefined && a.owner_id === meId}
+        // 내 것 tint(스펙 284 ①, 후속: 사용자 지시) — private(남들이 못 씀)=연한 레드(주의),
+        // 공개된 내 것=연한 그린. 현 모델은 공개=owner 소멸이라 그린은 285(생성자 축) 이후 등장.
+        rowTint={(a) =>
+          a.owner_id != null && meId !== undefined && a.owner_id === meId
+            ? 'red' // 내 것 + private(owner_id 있음 = 비공개, 147 의미론)
+            : undefined
+        }
       />
       </>
       )}

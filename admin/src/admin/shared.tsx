@@ -108,8 +108,9 @@ export function DataTable<T>({
   onRowClick?: (row: T) => void
   rowKey?: string
   empty?: ReactNode
-  /* 행 강조(스펙 284 — 내 것 tint). 데탑=본행+보조행(tr 클래스), 모바일=카드 배경. */
-  rowTint?: (row: T) => boolean
+  /* 행 강조(스펙 284) — 'green'=내 것(공개), 'red'=내 것(비공개, 주의). 데탑=본행+보조행(tr 클래스),
+     모바일=카드 배경. */
+  rowTint?: (row: T) => 'green' | 'red' | undefined
   /* 행당 보조 줄(스펙 146) — 메타 태그처럼 컬럼 격자에 안 맞는 내용을 두 번째 줄에 폭 전체로.
      마지막 액션 컬럼은 rowSpan=2로 두 줄에 걸친다. 모바일 카드에선 하단 섹션으로 합류. */
   subRow?: (row: T) => ReactNode
@@ -137,7 +138,7 @@ export function DataTable<T>({
           </Panel>
         ) : (
           rows.map((r) => (
-            <Panel key={String(cell(r, rowKey))} style={{ padding: 14, ...(rowTint?.(r) ? { background: 'rgba(82,196,26,0.09)' } : {}) }}>
+            <Panel key={String(cell(r, rowKey))} style={{ padding: 14, ...(rowTint?.(r) === 'green' ? { background: 'rgba(82,196,26,0.09)' } : rowTint?.(r) === 'red' ? { background: 'rgba(255,77,79,0.07)' } : {}) }}>
               <div
                 onClick={onRowClick ? () => onRowClick(r) : undefined}
                 style={{ cursor: onRowClick ? 'pointer' : 'default' }}
@@ -200,7 +201,7 @@ export function DataTable<T>({
         pagination={false}
         tableLayout="fixed"
         locale={{ emptyText: empty }}
-        rowClassName={(r) => (rowTint?.(r as unknown as T) ? 'dt-row-tint' : '')}
+        rowClassName={(r) => { const t = rowTint?.(r as unknown as T); return t ? `dt-row-tint dt-row-tint-${t}` : '' }}
         onRow={(r) => ({
           onClick: onRowClick ? () => onRowClick(r as unknown as T) : undefined,
           style: onRowClick ? { cursor: 'pointer' } : undefined,
@@ -218,7 +219,7 @@ export function DataTable<T>({
                 ),
                 // defaultExpandAllRows는 최초 렌더만 반영 — 생성으로 추가된 행도 펼치려면 controlled.
                 expandedRowKeys: data.map((r) => String(r[rowKey])),
-                expandedRowClassName: (r: Row) => (rowTint?.(r as unknown as T) ? 'dt-row-tint' : ''),
+                expandedRowClassName: (r: Row) => { const t = rowTint?.(r as unknown as T); return t ? `dt-row-tint dt-row-tint-${t}` : '' },
                 showExpandColumn: false,
               }
             : undefined
