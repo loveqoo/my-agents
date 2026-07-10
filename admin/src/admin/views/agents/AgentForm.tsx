@@ -59,6 +59,12 @@ export const AGENT_TYPES: { value: string; label: string; desc: string }[] = [
   { value: 'pipeline', label: '노드형', desc: '노드를 순서대로 이어, 노드마다 프롬프트·모델·도구를 직접 정합니다.' },
 ]
 export const typeDesc = (key: string) => AGENT_TYPES.find((t) => t.value === key)?.desc ?? ''
+/* 에이전트 종류의 사용자 라벨(스펙 283, 검색 축용) — AGENT_TYPES와 단일 출처. orchestrate 계열
+   (orchestrate_ranked 등 AGENT_TYPES 밖 변형 포함)은 isOrchestratorImpl로 '조율형'에 접는다. */
+export const typeLabel = (impl?: string) =>
+  isOrchestratorImpl(impl)
+    ? '조율형'
+    : AGENT_TYPES.find((t) => t.value === (impl ?? ''))?.label ?? (impl || '직접 응답')
 
 /* ---- Create / edit form (composes blocks into a version config) ---- */
 export function AgentForm({

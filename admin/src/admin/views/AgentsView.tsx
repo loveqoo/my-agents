@@ -14,7 +14,7 @@ import {
 } from '../mockData'
 import { displayName } from '../naming'
 import type { AgentFormData } from './agents/types'
-import { AgentForm } from './agents/AgentForm'
+import { AgentForm, typeLabel } from './agents/AgentForm'
 import { AgentDetailPage } from './agents/AgentDetailPage'
 import { CodeAgentDetailPage } from './agents/detail/CodeAgentDetail'
 import { ExternalAgentDetailPage } from './agents/detail/ExternalAgentDetail'
@@ -272,7 +272,8 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
   const ownerKind = (a: Agent) =>
     a.owner_id == null ? 'shared' : meId !== undefined ? (a.owner_id === meId ? 'mine' : 'others') : a.can_manage === false ? 'others' : 'mine'
   const visibleAgents = agents
-    .filter((a) => !q || [a.name, a.description, a.model, a.source].some((f) => (f || '').toLowerCase().includes(q)))
+    // 종류 라벨(직접 응답/조율형/산출물형/노드형)도 검색 축(스펙 283, 사용자 지시).
+    .filter((a) => !q || [a.name, a.description, a.model, a.source, typeLabel(a.impl)].some((f) => (f || '').toLowerCase().includes(q)))
     // 타인 private는 기본 숨김(스펙 147 — 소유자에게만 보임): admin도 '소유: private · 타인'을
     // 명시 선택해야 표시(정리·지원용 opt-in). 일반 사용자는 백엔드가 애초에 안 준다.
     .filter((a) => (ownerFilter === 'all' ? ownerKind(a) !== 'others' : ownerKind(a) === ownerFilter))
@@ -512,7 +513,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
         <Input
           allowClear
           prefix={<Icon name="search" size={13} />}
-          placeholder="이름·모델·소스 검색"
+          placeholder="이름·종류·모델 검색"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           style={{ maxWidth: 260 }}
