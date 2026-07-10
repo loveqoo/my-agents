@@ -341,7 +341,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
     {
       key: 'name',
       title: '에이전트',
-      width: '26%', // 내용 최다(아바타+이름+모델) — MCP 컬럼 제거분 흡수(스펙 145 후속3)
+      width: '26%', // 내용 최다(아바타+이름) — MCP 컬럼 제거분 흡수(스펙 145 후속3)
       render: (a) => {
         const isCode = a.source === 'code'
         return (
@@ -356,14 +356,11 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
             >
               <Icon name={isCode ? 'code' : 'robot'} size={14} />
             </Avatar>
-            <div>
-              <Tooltip title={a.description || undefined}>
-                <div style={{ fontWeight: 500, color: 'var(--color-text-heading)' }}>{displayName(a)}</div>
-              </Tooltip>
-              <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-family-code)' }}>
-                {a.model}
-              </div>
-            </div>
+            {/* 모델 부제 제거(2026-07-10 지시) — 노드형은 노드마다 모델이 달라 대표값 하나가 거짓 정보.
+                모델은 상세/편집에서 확인. */}
+            <Tooltip title={a.description || undefined}>
+              <div style={{ fontWeight: 500, color: 'var(--color-text-heading)' }}>{displayName(a)}</div>
+            </Tooltip>
           </div>
         )
       },
