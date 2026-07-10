@@ -1,12 +1,11 @@
 /* my-agents admin — Agents view: list created agents, view detail, and
    create / edit / delete (composing building blocks). */
 import { useState } from 'react'
-import { Tag, Button, Avatar, Select, Input, Switch, Tooltip, Popover, Modal, message } from 'antd'
-import { Page, StatusPill, DataTable, OwnerTag, type Column } from '../shared'
+import { Tag, Button, Avatar, Select, Input, Switch, Tooltip, Popover, Modal, message, Tabs } from 'antd'
+import { Page, DataTable, type Column } from '../shared'
 import { Icon } from '../icons'
 import {
   AGENT_STATUS,
-  AGENT_SOURCE,
   AGENT_CONFORMANCE,
   type Agent,
   type AgentConfig,
@@ -30,9 +29,8 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
   const [detailId, setDetailId] = useState<string | null>(null)
   const [query, setQuery] = useState('') // 리스트 검색(스펙 144 #3)
   const [sortKey, setSortKey] = useState<'name' | 'recent'>('name')
-  // 속성 필터(스펙 146 후속 — 사용자: 소유/소스/상태로 조회 가능해야)
-  const [ownerFilter, setOwnerFilter] = useState<'all' | 'shared' | 'mine' | 'others'>('all')
-  const [sourceFilter, setSourceFilter] = useState<'all' | 'ui' | 'code' | 'external'>('all')
+  // 출처 탭(스펙 284 — 소유/소스 Select를 탭+내것 tint가 대체). 상태 필터는 유지.
+  const [tab, setTab] = useState<'ui' | 'code' | 'external'>('ui')
   const [statusFilter, setStatusFilter] = useState<'all' | 'online' | 'idle' | 'offline'>('all')
   const detail = agents.find((a) => a.id === detailId) || null
   // 풀페이지(스펙 245→246 후속) — 사용자 지적("SDK 에이전트는 드로어 그대로")으로 **전 소스** 페이지.
@@ -272,31 +270,19 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
   const ownerKind = (a: Agent) =>
     a.owner_id == null ? 'shared' : meId !== undefined ? (a.owner_id === meId ? 'mine' : 'others') : a.can_manage === false ? 'others' : 'mine'
   const visibleAgents = agents
-    // 종류 라벨(직접 응답/조율형/산출물형/노드형)도 검색 축(스펙 283, 사용자 지시).
-    .filter((a) => !q || [a.name, a.description, a.model, a.source, typeLabel(a.impl)].some((f) => (f || '').toLowerCase().includes(q)))
-    // 타인 private는 기본 숨김(스펙 147 — 소유자에게만 보임): admin도 '소유: private · 타인'을
-    // 명시 선택해야 표시(정리·지원용 opt-in). 일반 사용자는 백엔드가 애초에 안 준다.
-    .filter((a) => (ownerFilter === 'all' ? ownerKind(a) !== 'others' : ownerKind(a) === ownerFilter))
-    .filter((a) => sourceFilter === 'all' || (a.source || 'ui') === sourceFilter)
+    // 검색 축(스펙 283·284): 이름·설명·모델 + 종류 라벨(UI) + 커밋(Code).
+    .filter((a) => !q || [a.name, a.description, a.model, typeLabel(a.impl), a.commit].some((f) => (f || '').toLowerCase().includes(q)))
+    // 타인 private는 기본 숨김(스펙 147 — 소유자에게만 보임). opt-in 해제는 285(가시성 재설계)로 이관.
+    .filter((a) => ownerKind(a) !== 'others')
+    // 출처 탭(스펙 284) — 소스 필터 Select 대체.
+    .filter((a) => (a.source || 'ui') === tab)
     .filter((a) => statusFilter === 'all' || a.status === statusFilter)
     .slice()
     .sort((x, y) =>
       sortKey === 'name' ? x.name.localeCompare(y.name, 'ko') : 0 /* recent=서버 응답 순서(최신 생성이 앞) 보존 */
     )
 
-  // 보조 줄 구성 요소(스펙 146 — 2줄 행): 소유·소스·준수·MCP·RAG를 컬럼 격자 밖 두 번째 줄로.
-  const renderSource = (a: Agent) => {
-    if ((a.source || 'ui') === 'ui') return null // 기본값은 무표시(예외만 표시 원칙 — 분류 과밀 완화)
-    const src = AGENT_SOURCE[a.source || 'ui'] || AGENT_SOURCE.ui
-    return (
-      <Tag color={src.tag === 'default' ? undefined : src.tag}>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-          {src.icon ? <Icon name={src.icon} size={11} /> : null}
-          {src.label}
-        </span>
-      </Tag>
-    )
-  }
+  // 보조 줄 구성 요소(스펙 146 — 2줄 행): 준수·MCP·RAG만(소유·출처는 284에서 tint·탭으로).
   const renderConformance = (a: Agent) => {
     if ((a.conformance || 'conforming') === 'conforming') return null // 정상은 무표시(예외만 표시)
     const c = AGENT_CONFORMANCE[a.conformance || 'conforming'] || AGENT_CONFORMANCE.conforming
@@ -319,8 +305,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
     ]
     return (
       <>
-        {a.source !== 'external' ? <OwnerTag ownerId={a.owner_id} canManage={a.can_manage} meId={meId} /> : null}
-        {renderSource(a)}
+        {/* 소유·출처 태그는 소멸(스펙 284) — 출처=탭, 내 것=행 tint가 대체. 예외(준수)만 표시. */}
         {renderConformance(a)}
         {a.mcps.map((m) => (
           <Tag key={`m-${m}`} color="cyan">{m}</Tag>
@@ -363,11 +348,15 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
         )
       },
     },
-    {
-      key: 'persona',
-      title: '페르소나',
-      render: (a) => <span style={{ color: 'var(--color-text-secondary)' }}>{a.persona}</span>,
-    },
+    // 페르소나 컬럼 제거(스펙 284 ④). UI 탭엔 에이전트 종류(283 typeLabel 단일 출처, 284 ③).
+    ...(tab === 'ui'
+      ? [{
+          key: 'type',
+          title: '종류',
+          width: 110,
+          render: (a: Agent) => <Tag style={{ margin: 0 }}>{typeLabel(a.impl)}</Tag>,
+        } satisfies Column<Agent>]
+      : []),
     {
       key: 'version',
       width: 96, // 짧고 고정적인 내용 — 비율 대신 고정폭(v6+초안이 세로로 깨지던 것)
@@ -418,11 +407,22 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
     },
     {
       key: 'status',
-      width: '10%',
+      width: 64,
       title: '상태',
+      align: 'center' as const,
       render: (a) => {
-        const st = AGENT_STATUS[a.status]
-        return <StatusPill color={st.color || 'var(--gray-6)'} label={st.label} />
+        // 신호등(스펙 284 ⑥) — 고정 슬롯의 색 점 + 툴팁. 색=사용자 지정: 파랑(온라인)/노랑(유휴)/빨강(오프라인).
+        const LIGHT: Record<string, { color: string; desc: string }> = {
+          online: { color: 'var(--blue-6)', desc: '온라인 — 활성 버전이 서빙 중' },
+          idle: { color: 'var(--gold-6)', desc: '유휴 — 초안만 있음(활성화 전)' },
+          offline: { color: 'var(--red-6)', desc: '오프라인 — 원격에 연결되지 않음' },
+        }
+        const st = LIGHT[a.status] ?? LIGHT.offline
+        return (
+          <Tooltip title={st.desc}>
+            <span aria-label={AGENT_STATUS[a.status]?.label ?? a.status} style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: st.color }} />
+          </Tooltip>
+        )
       },
     },
     {
@@ -508,12 +508,22 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
         />
       ) : (
       <>
-      {/* 검색+정렬(스펙 144 #3) — 컬럼은 전부 상시 표시(hideBelow 제거, 좁으면 가로 스크롤). */}
+      {/* 출처 탭(스펙 284 ②) — 데이터 집합 전환=Tabs(212 규칙). 소유/소스 Select 대체. */}
+      <Tabs
+        activeKey={tab}
+        onChange={(k) => setTab(k as 'ui' | 'code' | 'external')}
+        items={[
+          { key: 'ui', label: 'Internal (UI)' },
+          { key: 'code', label: 'Internal (Code)' },
+          { key: 'external', label: 'External' },
+        ]}
+      />
+      {/* 탭 안 검색(스펙 284 ⑤) — 탭별로 꼭 필요한 조건만(placeholder가 축을 안내). */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
         <Input
           allowClear
           prefix={<Icon name="search" size={13} />}
-          placeholder="이름·종류·모델 검색"
+          placeholder={tab === 'ui' ? '이름·종류·모델 검색' : tab === 'code' ? '이름·모델·커밋 검색' : '이름·모델 검색'}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           style={{ maxWidth: 260 }}
@@ -526,30 +536,6 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
           options={[
             { value: 'name', label: '이름순' },
             { value: 'recent', label: '최근 등록순' },
-          ]}
-        />
-        <Select
-          value={ownerFilter}
-          onChange={setOwnerFilter}
-          style={{ width: 140 }}
-          popupMatchSelectWidth={false}
-          options={[
-            { value: 'all', label: '소유: 전체' },
-            { value: 'shared', label: 'public (모두 사용)' },
-            { value: 'mine', label: 'private (내 것)' },
-            { value: 'others', label: 'private · 타인 (숨김 해제)' },
-          ]}
-        />
-        <Select
-          value={sourceFilter}
-          onChange={setSourceFilter}
-          style={{ width: 130 }}
-          popupMatchSelectWidth={false}
-          options={[
-            { value: 'all', label: '소스: 전체' },
-            { value: 'ui', label: 'internal (UI 구성)' },
-            { value: 'code', label: 'internal (code)' },
-            { value: 'external', label: 'external' },
           ]}
         />
         <Select
@@ -568,23 +554,21 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
           {visibleAgents.length}/{agents.length}개
         </span>
         <Popover
-          title="태그 안내"
+          title="표시 안내"
           content={
             <div style={{ fontSize: 13, maxWidth: 380 }}>
-              {/* 2열 그리드 — 태그 열 고정폭으로 설명 시작선을 정렬(스펙 214, 흐름 wrap 정돈). */}
+              {/* 범례(스펙 284) — 출처=탭, 내 것=행 배경, 상태=신호등, 태그는 예외·연결만. */}
               <div style={{ display: 'grid', gridTemplateColumns: '128px 1fr', columnGap: 12, rowGap: 12, alignItems: 'start' }}>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                  <Tag>public</Tag><Tag color="blue">private</Tag><Tag color="orange">private · 타인</Tag>
-                </div>
-                <span style={{ color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>
-                  public=모두 도구처럼 사용 · private=소유자만 사용(A2A 불가)
-                </span>
+                <span style={{ background: 'rgba(82,196,26,0.14)', borderRadius: 4, padding: '2px 8px', fontSize: 12 }}>연한 초록 행</span>
+                <span style={{ color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>내가 만든 에이전트</span>
 
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                  <Tag color="geekblue">code</Tag><Tag color="purple">external</Tag>
-                </div>
+                <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
+                  <span style={{ width: 10, height: 10, borderRadius: '50%', background: 'var(--blue-6)', display: 'inline-block' }} />
+                  <span style={{ width: 10, height: 10, borderRadius: '50%', background: 'var(--gold-6)', display: 'inline-block' }} />
+                  <span style={{ width: 10, height: 10, borderRadius: '50%', background: 'var(--red-6)', display: 'inline-block' }} />
+                </span>
                 <span style={{ color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>
-                  출처 — 없으면 이 콘솔 제작(internal). external=가져다 쓰는 것(항상 public)
+                  상태 — 파랑=온라인(서빙 중) · 노랑=유휴(초안만) · 빨강=오프라인(연결 안 됨)
                 </span>
 
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
@@ -598,17 +582,24 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
                 <span style={{ color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>연결된 도구·문서</span>
               </div>
               <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--color-border-secondary)', color: 'var(--color-text-tertiary)', lineHeight: 1.5 }}>
-                상태(온라인·유휴)=최근 사용 여부 · A2A 스위치=다른 에이전트의 호출 허용(public만 켤 수 있음)
+                출처는 상단 탭으로 구분 · A2A 스위치=다른 에이전트의 호출 허용(public만 켤 수 있음)
               </div>
             </div>
           }
         >
           <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)', cursor: 'help', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-            <Icon name="info-circle" size={13} /> 태그 안내
+            <Icon name="info-circle" size={13} /> 표시 안내
           </span>
         </Popover>
       </div>
-      <DataTable columns={columns} rows={visibleAgents} onRowClick={(a) => setDetailId(a.id)} subRow={agentSubRow} />
+      <DataTable
+        columns={columns}
+        rows={visibleAgents}
+        onRowClick={(a) => setDetailId(a.id)}
+        subRow={agentSubRow}
+        // 내 것 tint(스펙 284 ①) — 소유 태그 대신 행 배경(연한 초록, 본행+보조행).
+        rowTint={(a) => a.owner_id != null && meId !== undefined && a.owner_id === meId}
+      />
       </>
       )}
 
