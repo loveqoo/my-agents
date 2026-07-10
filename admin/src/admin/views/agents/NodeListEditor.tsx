@@ -8,19 +8,32 @@ import { ShortTermMemoryField, LongTermMemoryField } from './MemoryFields'
    - learning 078: 라벨+설명은 세로 스택(형제 flex 폭 다툼 금지) — 프롬프트 라벨 줄에 페르소나 불러오기.
    - beauty=trust: 단계 번호 배지 + 노드 사이 ↓ 연결로 "일렬" 흐름을 시각화.
    - 에이전트-레벨 도구는 숨김(스펙 259 결정 #2) — 도구는 노드가 직접 고르고, 풀은 합집합에서 파생. */
+// 문서 검색 도구 판별(스펙 272) — 노드 tools에 컬렉션은 search_documents__<컬렉션>(268 P1)으로 저장.
+// 구저장 민이름(search_documents=전체 컬렉션)도 문서로 인식(무회귀). 그 외는 MCP 도구(server__tool).
+//
+// ⚠ 예약 이름공간 불변식(codex 272 High=측정상 도달불가 확인, 243 ① "파생 id는 이름공간 예약"):
+// MCP 런타임명=safeToolName(server,tool)=`server__tool`인데, server가 'search_documents'면 충돌한다.
+// 그러나 (a) NAME_RULE(naming.ts·서버 naming.py)이 **밑줄 금지**(영소문자·숫자·대시만)라 이름
+// 'search_documents'(밑줄)는 생성 불가, (b) safeToolName은 **대시를 보존**하므로 유효명
+// 'search-documents'→'search-documents__…'(대시)라 이 접두에 안 걸린다. 두 보증이 충돌을 원천 차단.
+// **NAME_RULE에 밑줄을 허용하게 바꾸면 이 불변식이 깨지므로 여기 isDocTool을 재검토할 것.**
+const isDocTool = (t: string) => t === 'search_documents' || t.startsWith('search_documents__')
+
 export function NodeListEditor({
   value,
   onChange,
   modelOptions,
   personas,
-  toolOptions,
+  mcpOptions,
+  docOptions,
   memoryOptions,
 }: {
   value: PipelineNode[] | undefined
   onChange: (nodes: PipelineNode[]) => void
   modelOptions: { label: string; value: string }[]
   personas: { name: string; body: string }[]
-  toolOptions: { label: string; value: string }[]
+  mcpOptions: { label: string; value: string }[] // MCP 도구(server__tool)
+  docOptions: { label: string; value: string }[] // 문서 컬렉션(search_documents__<col>)
   memoryOptions: { label: string; value: string }[]
 }) {
   const nodes = value ?? []
@@ -143,19 +156,35 @@ export function NodeListEditor({
                   style={{ width: '100%' }}
                 />
               </div>
+              {/* 도구(MCP) — n.tools 중 문서 아닌 것. 변경 시 문서 항목은 보존해 합쳐 저장(스펙 272 병합). */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <span style={{ fontSize: 13, color: 'var(--color-text)', fontWeight: 500 }}>도구 (선택)</span>
                 <Select
                   mode="multiple"
                   allowClear
-                  value={n.tools}
-                  onChange={(vals) => setNode(i, { tools: vals })}
-                  options={toolOptions}
-                  placeholder={toolOptions.length ? '이 노드가 참고할 도구' : '등록된 도구·문서 없음'}
-                  disabled={toolOptions.length === 0}
+                  value={n.tools.filter((t) => !isDocTool(t))}
+                  onChange={(vals) => setNode(i, { tools: [...vals, ...n.tools.filter(isDocTool)] })}
+                  options={mcpOptions}
+                  placeholder={mcpOptions.length ? '이 노드가 쓸 MCP 도구' : '등록된 MCP 도구 없음'}
+                  disabled={mcpOptions.length === 0}
                   style={{ width: '100%' }}
                 />
               </div>
+            </div>
+            {/* 문서(RAG 컬렉션) — n.tools 중 문서만. 변경 시 도구 항목은 보존(스펙 272 병합). 도구에서
+                분리해 에이전트 구조와 정렬 — "도구" 고를 때 문서 검색이 섞이던 혼란 해소(저장은 268 P1 유지). */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <span style={{ fontSize: 13, color: 'var(--color-text)', fontWeight: 500 }}>문서 (선택)</span>
+              <Select
+                mode="multiple"
+                allowClear
+                value={n.tools.filter(isDocTool)}
+                onChange={(vals) => setNode(i, { tools: [...n.tools.filter((t) => !isDocTool(t)), ...vals] })}
+                options={docOptions}
+                placeholder={docOptions.length ? '이 노드가 검색할 문서 컬렉션' : '등록된 컬렉션 없음'}
+                disabled={docOptions.length === 0}
+                style={{ width: '100%' }}
+              />
             </div>
 
             {/* 받기/내보내기 한 줄(스펙 267 — 사용자 정의 문구): "이전 결과 받기"=이전 노드의 결과를

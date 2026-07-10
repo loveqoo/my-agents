@@ -270,12 +270,12 @@ export function AgentForm({
   // 문서 검색은 컬렉션별 도구(스펙 268 P1) — "검색 노드는 A만, 검증 노드는 B만". 런타임 이름
   // search_documents__<컬렉션>(백엔드 _rag_tools_for 미러). 구저장 민이름(search_documents=전체)은
   // 백엔드가 계속 해석(무회귀) — 새 저작은 컬렉션별만 노출.
-  const nodeToolOptions = [
-    ...(blocks.mcp?.items ?? []).flatMap((s) =>
-      (s.tools ?? []).map((t) => ({ label: `${s.name} · ${t}`, value: safeToolName(s.name, t) }))
-    ),
-    ...collections.map((c) => ({ label: `문서 검색 · ${c.name}`, value: safeToolName('search_documents', c.name) })),
-  ]
+  // 도구/문서 분리(스펙 272) — 노드가 둘을 별개 컨트롤로. 저장은 여전히 n.tools 한 배열(문서=
+  // search_documents__<컬렉션>, 268 P1 무회귀) — UI만 나눈다.
+  const nodeMcpOptions = (blocks.mcp?.items ?? []).flatMap((s) =>
+    (s.tools ?? []).map((t) => ({ label: `${s.name} · ${t}`, value: safeToolName(s.name, t) }))
+  )
+  const nodeDocOptions = collections.map((c) => ({ label: c.name, value: safeToolName('search_documents', c.name) }))
   // 노드별 기억 선택지(스펙 268 P2) — 직접형 "기억" 그룹과 같은 원천(blocks.memory). 단기(세션)은
   // 제외(스펙 269): 노드 회상은 장기(mem0)만 대상이라, 죽은 선택지를 빼면 회상 경고(268 P3)도 소멸.
   const nodeMemoryOptions = (blocks.memory?.items ?? [])
@@ -490,7 +490,8 @@ export function AgentForm({
             onChange={(nodes) => set('nodes', nodes)}
             modelOptions={chatModelOptions}
             personas={nodePersonas}
-            toolOptions={nodeToolOptions}
+            mcpOptions={nodeMcpOptions}
+            docOptions={nodeDocOptions}
             memoryOptions={nodeMemoryOptions}
           />
         ) : orchestratorSelected ? (
