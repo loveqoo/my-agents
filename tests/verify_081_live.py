@@ -29,8 +29,12 @@ from api.agents import connect_agent, resync_agent  # noqa: E402
 from api.db import SessionLocal  # noqa: E402
 from api.models import Agent  # noqa: E402
 from api.schemas import ConnectAgentIn  # noqa: E402
+from types import SimpleNamespace  # noqa: E402
 
 net_guard._set_allowed_hosts_for_test(["127.0.0.1"])
+
+# 라우트 직호출용 superuser principal — 스펙 112 관리 게이트 이후 필요(285 턴에서 노후 수리).
+PRINCIPAL = SimpleNamespace(id="00000000-0000-0000-0000-000000000081", is_superuser=True)
 
 PREFIX = "/proxy/ccab"
 CARD = {
@@ -94,7 +98,7 @@ class _Handler(BaseHTTPRequestHandler):
 
 async def _connect(url):
     async with SessionLocal() as s:
-        return await connect_agent(ConnectAgentIn(url=url, token=None), s)
+        return await connect_agent(ConnectAgentIn(url=url, token=None), s, PRINCIPAL)
 
 
 async def _corrupt_endpoint(pk, bad):
@@ -115,7 +119,7 @@ async def _strip_card_url(pk):
 
 async def _resync(pk):
     async with SessionLocal() as s:
-        return await resync_agent(pk, s)
+        return await resync_agent(pk, s, PRINCIPAL)
 
 
 async def _get(pk):

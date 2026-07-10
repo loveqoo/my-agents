@@ -1203,5 +1203,31 @@ async def resync_agent(
     agent.endpoint = _norm_endpoint(card.get("url"))
     agent.status = "online" if live else "offline"
     agent.last_sync = "방금"
+    # 배포 메타 재보고(스펙 285) — 상태는 실측인데 버전(commit)은 등록 시점 신고라 낡던 비대칭 해소.
+    # code(확장 보유)만: repo·runtime은 값 있을 때만 갱신(카드에서 사라지면 기존 보존 — merge-preserve),
+    # commit 변경 시 버전 행을 057 F4 불변식대로 전이(active_version은 항상 실재 active 행).
+    ext = agent_card.extract_my_agents(card)
+    if agent.source == "code" and ext is not None:
+        deploy = ext.get("deploy") or {}
+        new_repo = _clip(deploy.get("repo"), 200)
+        new_runtime = _clip(deploy.get("runtime"), 200)
+        if new_repo:
+            agent.repo = new_repo
+        if new_runtime:
+            agent.runtime = new_runtime
+        new_commit = _clip(deploy.get("commit"), 80)  # 길이 하드닝(057 F3 동일)
+        if new_commit and new_commit != agent.commit:
+            agent.commit = new_commit
+            existing = _find_version(agent, new_commit)
+            for v in agent.versions:
+                if v.status == "active":
+                    v.status = "archived"
+            if existing is not None:
+                existing.status = "active"  # A→B→A 재왕복: 기존 행 승격(중복 행 금지)
+            else:
+                agent.versions.append(
+                    AgentVersion(version=new_commit, status="active", note="resync 재보고(스펙 285)", config=dict(cfg))
+                )
+            agent.active_version = new_commit
     await session.commit()
     return await _reload_out(session, agent.id)
