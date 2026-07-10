@@ -21,11 +21,15 @@ export function ToolTree({
   value,
   onChange,
   emptyText = '등록된 MCP 도구 없음 — 빌딩 블록에서 서버를 등록하세요.',
+  bare = false,
 }: {
   servers: ServerInfo[]
   value: string[] // 런타임명(server__tool) 목록
   onChange: (next: string[]) => void
   emptyText?: string
+  // bare=true(스펙 279 ③): Collapse 래퍼·헤더 없이 검색+트리만 — 부모가 자기 구획(도구·문서 단일
+  // Collapse)에 임베드할 때. 기본(false)=자체 아코디언(노드 카드·오버라이드).
+  bare?: boolean
 }) {
   const [q, setQ] = useState('')
   // 1 depth 초기화(스펙 278) — 처음엔 서버만 보이고, 스위처(블릿)로 서버별 확장. 277은 expandedKeys를
@@ -115,6 +119,8 @@ export function ToolTree({
         )}
       </div>
     )
+
+  if (bare) return body
 
   // 아코디언(스펙 278) — PickerGroups와 같은 룩: 헤더=도구+선택/전체 배지, 선택 있으면 기본 펼침.
   return (

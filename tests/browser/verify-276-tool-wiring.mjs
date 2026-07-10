@@ -78,7 +78,7 @@ try {
   await page.getByPlaceholder('예: research-assistant').fill(uiName)
   // 모델 mock-llm 선택(공용 ModelField)
   const modelWrap = page.locator('.ant-modal div', { has: page.getByText('모델', { exact: true }) })
-    .filter({ has: page.locator('.ant-select') }).first()
+    .filter({ has: page.locator('.ant-select') }).last() // 279: 종류가 모델보다 앞 — 최내곽으로
   await modelWrap.locator('.ant-select').first().click()
   await page.waitForTimeout(300)
   await page.locator('.ant-select-dropdown:visible .ant-select-item-option', { hasText: 'mock-llm' }).first().click()

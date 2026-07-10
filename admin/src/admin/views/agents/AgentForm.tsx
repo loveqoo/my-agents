@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Select, Input, Switch, Slider, Tooltip, Collapse, Alert, Modal, Segmented, Button, Tag, Steps } from 'antd'
+import { Select, Input, Switch, Slider, Tooltip, Collapse, Alert, Modal, Segmented, Button, Tag, Steps, Checkbox } from 'antd'
 import { isOrchestratorImpl, SHORT_TERM_MEMORY, type BlockCategory, type ToolPolicy, type Agent } from '../../mockData'
 import { DelegationGraph } from '../../DelegationGraph'
 import { listAgentImpls, type Model, type Collection, type ImplMeta } from '../../../api'
@@ -121,12 +121,15 @@ export function AgentForm({
     setSpDraft('')
   }
 
-  // 저장 방식 전환(스펙 238) — 비영속으로 바꾸면 DB 쓰기 능력(memwrite/memedit)을 자동 해제한다.
-  // disabled 상태로 남겨두면 "해제하라"는 요구와 "해제할 수 없다"는 상태가 모순되기 때문(경고 지양).
+  // 저장 방식 전환(스펙 238·279 ②) — 비영속으로 바꾸면 DB 쓰기 능력(memwrite/memedit)에 더해
+  // **장기 기억 설정을 제거**한다(memories=[]): 비영속은 회상·저장을 안 하므로 남은 선택은 "선택했는데
+  // 무동작" 함정(사용자 지시). **단기(historyDepth)는 유지** — 요청에 담겨 온 대화를 자르는 실행 창이라
+  // (chat.py _window(body.messages)) DB 저장과 무관, 비영속에서도 동작한다(사용자 확인 질문으로 재확정).
   const setEphemeral = (v: boolean) =>
     setForm((f) => ({
       ...f,
       ephemeral: v,
+      memories: v ? [] : f.memories,
       capabilities: v
         ? f.capabilities.filter((c) => !c.startsWith('memwrite:') && !c.startsWith('memedit:'))
         : f.capabilities,
@@ -239,36 +242,84 @@ export function AgentForm({
   // 직접 응답 "하는 일" 그룹 — 3개 form 배열(memories/vectorTables/mcps)을 PickerGroups
   // 하나로 묶으려 id를 카테고리 prefix로 네임스페이스(스펙 109). 저장은 기존 배열 그대로, prefix는
   // UI 라우팅용. 리치 렌더 보존: 메모리/컬렉션→hint(설명).
-  const DIRECT_FIELD: Record<string, 'memories' | 'vectorTables'> = {
-    mem: 'memories',
-    col: 'vectorTables',
-  }
-  const directSelected = [
-    ...form.memories.map((x) => `mem:${x}`),
-    ...form.vectorTables.map((x) => `col:${x}`),
-  ]
-  // 도구 단위 배선(스펙 276) 교체 — 도구는 PickerGroups가 아니라 ToolTree(서버→도구 계층, 스펙 277)가
-  // 소유. setTools=tools 교체 + mcps 서버 합집합 파생(토글과 동일 규칙).
+  // 도구 단위 배선(스펙 276) — 도구는 ToolTree(서버→도구 계층, 스펙 277)가 소유.
+  // setTools=tools 교체 + mcps 서버 합집합 파생(토글과 동일 규칙).
   const setTools = (next: string[]) => setForm((f) => ({ ...f, tools: next, mcps: deriveMcps(next, f.mcps) }))
-  const toggleDirect = (id: string) => {
-    const i = id.indexOf(':')
-    const field = DIRECT_FIELD[id.slice(0, i)]
-    if (field) toggle(field, id.slice(i + 1))
+  // (문서 토글은 toggle('vectorTables')를 직접 사용 — doGroups/PickerGroups는 279 ③서 도구·문서 단일
+  //  구획으로 대체. 기억 그룹은 271부터 공용 "기억" 구획이 소유.)
+
+  // 도구 승인 오버라이드(스펙 177 P2·276·279 ③) — 목록=실배선 도구만: 직접형=선택 도구, 노드형=노드
+  // 합집합, 조율형=위임 서버 전체. 직접형은 도구·문서 구획 안(도구와 문서 사이, 도구 선택 시만)에,
+  // 조율형·노드형은 기존 위치의 독립 Collapse로 렌더(279 ③ 사용자 흐름: 도구→승인→문서).
+  const toolPolicyRows = (): { server: string; tool: string }[] => {
+    const rows: { server: string; tool: string }[] = []
+    if (orchestratorSelected) {
+      const wired = new Set<string>()
+      form.capabilities.forEach((c) => {
+        if (c.startsWith('mcp:') && !c.includes('/')) wired.add(c.slice(4))
+      })
+      ;[...wired].forEach((srv) => {
+        const item = blocks.mcp?.items?.find((m) => m.name === srv)
+        ;(item?.tools ?? []).forEach((t) => rows.push({ server: srv, tool: t }))
+      })
+    } else {
+      const used = new Set(isPipeline ? (form.nodes ?? []).flatMap((n) => n.tools) : form.tools)
+      ;(blocks.mcp?.items ?? []).forEach((s) =>
+        (s.tools ?? []).forEach((t) => {
+          if (used.has(safeToolName(s.name, t))) rows.push({ server: s.name, tool: t })
+        })
+      )
+    }
+    return rows
   }
-  const doGroups: PickerGroup[] = [
-    {
-      key: '문서',
-      title: '문서',
-      items: collections.map((c) => ({
-        id: `col:${c.name}`,
-        label: c.name,
-        hint: `${c.embedding_model_name} · 청크 ${c.chunk_count}개`,
-      })),
-      emptyText: '컬렉션 없음 — RAG 컬렉션 메뉴에서 문서를 적재하세요.',
-    },
-    // 기억 그룹은 PickerGroups에서 빠짐(스펙 271) — 아래 직접형 branch의 공용 "기억" 구획(단기+장기
-    // ShortTerm/LongTermMemoryField)이 소유. 269 이후 장기는 단일 옵션이라 접이식 카탈로그가 과했다.
-  ]
+  const toolPolicyBody = (rows: { server: string; tool: string }[]) => {
+    const valOf = (capId: string): string => {
+      const a = form.toolPolicy[capId]?.approval
+      if (!a) return ''
+      if (a.required === false) return 'off'
+      if (a.approver === 'self') return 'self'
+      if (a.required === true) return 'admin'
+      return ''
+    }
+    const setVal = (capId: string, v: string) =>
+      setForm((f) => {
+        const tp: ToolPolicy = { ...f.toolPolicy }
+        if (v === 'admin') tp[capId] = { approval: { required: true, approver: 'admin' } }
+        else if (v === 'self') tp[capId] = { approval: { required: true, approver: 'self' } }
+        else if (v === 'off') tp[capId] = { approval: { required: false } }
+        else delete tp[capId]
+        return { ...f, toolPolicy: tp }
+      })
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+          도구 호출 전 승인을 이 에이전트에 한해 덮어씁니다. 완화(본인 승인·승인 없음)는 관리자만 저장됩니다.
+        </span>
+        {rows.map(({ server, tool }) => {
+          const capId = `mcp:${server}/${tool}`
+          return (
+            <div key={capId} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+              <span style={{ fontSize: 13 }}>
+                <code>{server}</code> · {tool}
+              </span>
+              <Select
+                size="small"
+                style={{ width: 190 }}
+                value={valOf(capId)}
+                onChange={(v) => setVal(capId, v)}
+                options={[
+                  { value: '', label: '기본값 사용' },
+                  { value: 'admin', label: '승인 필요 · 관리자' },
+                  { value: 'self', label: '승인 필요 · 본인' },
+                  { value: 'off', label: '승인 없음' },
+                ]}
+              />
+            </div>
+          )
+        })}
+      </div>
+    )
+  }
   const orchestratorSelected = isOrchestratorImpl(form.impl)
   // 직접형(스펙 271) — 기억 구획(단기+장기 공용 컨트롤)을 스텝 ②에 놓고 세부 ③ 단기는 숨긴다.
   // 조율형·산출물형·노드형은 단기를 세부 ③에 유지(노드형은 상속 원천, 조율형은 오케스트레이터 컨텍스트).
@@ -425,8 +476,30 @@ export function AgentForm({
             <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>화면에는 이름만 표시되며, 이 설명은 마우스 오버 시에만 노출됩니다</span>
           </Field>
         </div>
-        {/* 노드형(스펙 259)은 모델·페르소나를 노드마다 직접 정하므로 에이전트-레벨 모델/페르소나를 숨긴다
-            (결정 #1·#2). 안내는 종류 필드 아래 설명에 합류(스펙 263 — 떠 있는 중복 문구 제거). */}
+        {/* 종류 선행(스펙 279 ①, 사용자 지시) — 종류가 모델·페르소나 설정의 위치(에이전트 레벨 vs
+            노드)를 결정하므로 이름·설명 바로 뒤에 온다. 옵션마다 설명 내장(스펙 238 #3). */}
+        <Field label="에이전트 종류">
+          <Select
+            value={form.impl}
+            onChange={(v) => set('impl', v)}
+            options={typeOptions}
+            style={{ width: '100%' }}
+            optionRender={(o) => (
+              <span style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '2px 0' }}>
+                <span style={{ fontWeight: 600 }}>{o.label}</span>
+                <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)', whiteSpace: 'normal' }}>
+                  {typeDesc(String(o.value ?? ''))}
+                </span>
+              </span>
+            )}
+          />
+          <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+            {typeDesc(form.impl)}
+            {/* 노드형(스펙 263): 원인 필드(종류) 아래에 다음 행동 안내 — 모델·페르소나도 노드가 소유. */}
+            {isPipeline ? ' 노드는 다음 "하는 일" 단계에서 추가합니다(모델·페르소나도 노드마다).' : ''}
+          </span>
+        </Field>
+        {/* 모델·페르소나는 종류 다음(스펙 279 ①) — 노드형은 노드가 소유하므로 숨김(스펙 259 결정 #1·#2). */}
         {isPipeline ? null : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))', gap: 16 }}>
           {/* 공용 모델 컨트롤(스펙 274) — chat 필터·미등록 보존이 ModelField 한 곳(274 이전엔 여기만
@@ -453,28 +526,6 @@ export function AgentForm({
           </Field>
         </div>
         )}
-        {/* 종류 선택 rich화(스펙 238 #3) — 드롭다운 옵션마다 설명을 내장(단순 라벨 선택박스 지양). */}
-        <Field label="에이전트 종류">
-          <Select
-            value={form.impl}
-            onChange={(v) => set('impl', v)}
-            options={typeOptions}
-            style={{ width: '100%' }}
-            optionRender={(o) => (
-              <span style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '2px 0' }}>
-                <span style={{ fontWeight: 600 }}>{o.label}</span>
-                <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)', whiteSpace: 'normal' }}>
-                  {typeDesc(String(o.value ?? ''))}
-                </span>
-              </span>
-            )}
-          />
-          <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-            {typeDesc(form.impl)}
-            {/* 노드형(스펙 263): 원인 필드(종류) 아래에 다음 행동 안내 — 위에 떠 있던 중복 문구 대체. */}
-            {isPipeline ? ' 노드는 다음 "하는 일" 단계에서 추가합니다.' : ''}
-          </span>
-        </Field>
         {/* 저장 방식(스펙 238 #1) — 영속/비영속은 부가정보가 아니라 1급 정보(사용자 지적). 기본=영속.
             비영속 전환은 금지 능력(memwrite/memedit)을 자동 해제한다(setEphemeral — disabled+checked 모순 방지). */}
         <Field label="저장 방식">
@@ -543,13 +594,81 @@ export function AgentForm({
                 title={`이 실행 방식은 ${ignoredCounts.map(([k]) => k).join('·')} 설정을 읽지 않습니다 — 저장된 연결 ${ignoredCounts.reduce((s, [, n]) => s + n, 0)}개는 무시됩니다(연결은 보존되며, 실행 방식을 되돌리면 다시 적용됩니다).`}
               />
             ) : null}
-            {/* 도구=서버→도구 계층 트리(스펙 277). 문서=평면 PickerGroups(컬렉션은 계층 없음). */}
-            {surfaceVisible('도구') && (
-              <div style={{ marginBottom: 12 }}>
-                <ToolTree servers={blocks.mcp?.items ?? []} value={form.tools} onChange={setTools} />
-              </div>
-            )}
-            <PickerGroups groups={doGroups.filter((g) => surfaceVisible(g.key))} selected={directSelected} onToggle={toggleDirect} />
+            {/* 도구/승인/문서 = Collapse 하나에 아이템 3개(스펙 279 ③, 사용자 지시 — 별개 Collapse를
+                쌓으면 의미 없는 뉴라인, 한 패널에 다 넣으면 구획이 안 보임. Collapse(Item,Item,Item)).
+                승인 아이템은 기본 부재 — 도구를 선택하면 도구와 문서 **사이에** 나타난다(자연 흐름). */}
+            {(surfaceVisible('도구') || surfaceVisible('문서')) && (() => {
+              const rows = toolPolicyRows()
+              const badge = (n: number, total: number) => (
+                <Tag color={n > 0 ? 'blue' : 'default'} style={{ marginInlineEnd: 0 }}>
+                  {n}/{total}
+                </Tag>
+              )
+              const items = [
+                ...(surfaceVisible('도구')
+                  ? [{
+                      key: 'tools',
+                      label: (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                          도구 {badge(form.tools.length, (blocks.mcp?.items ?? []).reduce((n, s) => n + (s.tools?.length ?? 0), 0))}
+                        </span>
+                      ),
+                      children: <ToolTree bare servers={blocks.mcp?.items ?? []} value={form.tools} onChange={setTools} />,
+                    }]
+                  : []),
+                ...(surfaceVisible('도구') && rows.length > 0
+                  ? [{
+                      key: 'toolpolicy',
+                      label: `도구 승인 오버라이드 (${rows.length}개 · 선택)`,
+                      children: toolPolicyBody(rows),
+                    }]
+                  : []),
+                ...(surfaceVisible('문서')
+                  ? [{
+                      key: 'docs',
+                      label: (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                          문서 {badge(form.vectorTables.length, collections.length)}
+                        </span>
+                      ),
+                      children:
+                        collections.length === 0 ? (
+                          <span style={{ fontSize: 12, color: 'var(--color-text-quaternary)' }}>
+                            컬렉션 없음 — RAG 컬렉션 메뉴에서 문서를 적재하세요.
+                          </span>
+                        ) : (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            {collections.map((c) => (
+                              <Checkbox
+                                key={c.name}
+                                checked={form.vectorTables.includes(c.name)}
+                                onChange={() => toggle('vectorTables', c.name)}
+                                style={{ alignItems: 'flex-start', marginInlineStart: 0 }}
+                              >
+                                <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                  <span style={{ fontSize: 13 }}>{c.name}</span>
+                                  <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+                                    {c.embedding_model_name} · 청크 {c.chunk_count}개
+                                  </span>
+                                </span>
+                              </Checkbox>
+                            ))}
+                          </div>
+                        ),
+                    }]
+                  : []),
+              ]
+              return (
+                <Collapse
+                  size="small"
+                  defaultActiveKey={[
+                    ...(form.tools.length ? ['tools'] : []),
+                    ...(form.vectorTables.length ? ['docs'] : []),
+                  ]}
+                  items={items}
+                />
+              )
+            })()}
             {/* 하이브리드 도구 접근 안내(스펙 203, 사용자 요청) — 임계값 10은 백엔드
                 agent/toolbox.py DISCOVER_THRESHOLD 미러(변경 시 함께). */}
             <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)', display: 'block', marginTop: 6 }}>
@@ -565,7 +684,7 @@ export function AgentForm({
                 <ShortTermMemoryField
                   value={form.historyDepth}
                   onChange={(v) => set('historyDepth', v ?? 0)}
-                  hint="최근 N개 대화(채팅 히스토리)를 모델에 넣습니다."
+                  hint={`최근 N개 대화(채팅 히스토리)를 모델에 넣습니다${form.ephemeral ? ' — 비영속에서도 요청에 담긴 대화에 적용됩니다' : ''}.`}
                 />
                 {surfaceVisible('기억') && (
                   <LongTermMemoryField
@@ -623,48 +742,11 @@ export function AgentForm({
           )
         })()}
 
-        {/* 도구 승인 오버라이드(스펙 177 P2) — 배선된 MCP 도구별로 승인 정책을 이 에이전트에 한해 덮어씀.
-            완화(본인 승인·승인 없음)는 백엔드 완화 게이트가 admin만 저장 허용(비-admin 저장 시 403). */}
-        {(() => {
-          // 목록 = 실배선 도구만(스펙 276, 사용자 관찰 후속): 직접형=선택 도구, 노드형=노드 합집합,
-          // 조율형=위임 서버의 전체 도구(서버 단위 위임이라 전체가 정확). 안 쓰는 형제 도구의
-          // 정책 행(무의미)을 없앤다.
-          const rows: { server: string; tool: string }[] = []
-          if (orchestratorSelected) {
-            const wired = new Set<string>()
-            form.capabilities.forEach((c) => {
-              if (c.startsWith('mcp:') && !c.includes('/')) wired.add(c.slice(4))
-            })
-            ;[...wired].forEach((srv) => {
-              const item = blocks.mcp?.items?.find((m) => m.name === srv)
-              ;(item?.tools ?? []).forEach((t) => rows.push({ server: srv, tool: t }))
-            })
-          } else {
-            const used = new Set(isPipeline ? (form.nodes ?? []).flatMap((n) => n.tools) : form.tools)
-            ;(blocks.mcp?.items ?? []).forEach((s) =>
-              (s.tools ?? []).forEach((t) => {
-                if (used.has(safeToolName(s.name, t))) rows.push({ server: s.name, tool: t })
-              })
-            )
-          }
+        {/* 도구 승인 오버라이드(스펙 177 P2) — 직접형은 위 도구·문서 구획 안(도구와 문서 사이)이
+            소유(스펙 279 ③). 조율형·노드형만 여기 독립 Collapse(위임/노드가 도구를 소유해 구획이 없음). */}
+        {!isDirect && (() => {
+          const rows = toolPolicyRows()
           if (!rows.length) return null
-          const valOf = (capId: string): string => {
-            const a = form.toolPolicy[capId]?.approval
-            if (!a) return ''
-            if (a.required === false) return 'off'
-            if (a.approver === 'self') return 'self'
-            if (a.required === true) return 'admin'
-            return ''
-          }
-          const setVal = (capId: string, v: string) =>
-            setForm((f) => {
-              const tp: ToolPolicy = { ...f.toolPolicy }
-              if (v === 'admin') tp[capId] = { approval: { required: true, approver: 'admin' } }
-              else if (v === 'self') tp[capId] = { approval: { required: true, approver: 'self' } }
-              else if (v === 'off') tp[capId] = { approval: { required: false } }
-              else delete tp[capId]
-              return { ...f, toolPolicy: tp }
-            })
           return (
             <Collapse
               size="small"
@@ -672,38 +754,7 @@ export function AgentForm({
                 {
                   key: 'toolpolicy',
                   label: `도구 승인 오버라이드 (${rows.length}개 · 선택)`,
-                  children: (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-                        도구 호출 전 승인을 이 에이전트에 한해 덮어씁니다. 완화(본인 승인·승인 없음)는 관리자만 저장됩니다.
-                      </span>
-                      {rows.map(({ server, tool }) => {
-                        const capId = `mcp:${server}/${tool}`
-                        return (
-                          <div
-                            key={capId}
-                            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}
-                          >
-                            <span style={{ fontSize: 13 }}>
-                              <code>{server}</code> · {tool}
-                            </span>
-                            <Select
-                              size="small"
-                              style={{ width: 190 }}
-                              value={valOf(capId)}
-                              onChange={(v) => setVal(capId, v)}
-                              options={[
-                                { value: '', label: '기본값 사용' },
-                                { value: 'admin', label: '승인 필요 · 관리자' },
-                                { value: 'self', label: '승인 필요 · 본인' },
-                                { value: 'off', label: '승인 없음' },
-                              ]}
-                            />
-                          </div>
-                        )
-                      })}
-                    </div>
-                  ),
+                  children: toolPolicyBody(rows),
                 },
               ]}
             />
@@ -750,7 +801,8 @@ export function AgentForm({
                   </Field>
                   {/* 단기 기억(스펙 271 공용 컨트롤) — 직접형은 스텝 ②의 "기억" 구획이 소유하므로 여기선
                       숨긴다(!isDirect). 조율형=오케스트레이터 컨텍스트, 노드형=노드 상속 원천, 산출물형=모델
-                      컨텍스트로 각각 세부에 유지. 저장 설정이 아니라 모델 컨텍스트라 비영속에도 활성(스펙 238). */}
+                      컨텍스트로 각각 세부에 유지. 단기는 **요청에 담긴 대화를 자르는 실행 창**이라 비영속에도
+                      활성(스펙 238 유지 — 279 ②서 사용자 재확인: 잠그는 건 저장이 필요한 장기만). */}
                   {!isDirect && (
                     <ShortTermMemoryField
                       value={form.historyDepth}
