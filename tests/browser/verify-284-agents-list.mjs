@@ -63,7 +63,7 @@ try {
 
   // ── ② 내 것 tint ──
   const tintClass = await row.evaluate((el) => el.className)
-  check(tintClass.includes('dt-row-tint-red'), `② 내 것(private) 행 red tint (class=${tintClass})`)
+  check(tintClass.includes('dt-row-tint-blue'), `② 내 것(private) 행 blue tint (class=${tintClass})`)
   const rowTxt = await row.innerText()
   check(!/private|public|내 것|공유/.test(rowTxt), `② 가시성/소유 태그 부재 (row=${JSON.stringify(rowTxt.slice(0, 80))})`)
 

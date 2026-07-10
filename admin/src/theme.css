@@ -136,12 +136,12 @@ body {
 }
 
 /* 내 것 행 tint(스펙 284) — 본행+보조행(expanded)을 한 몸으로. green=내 것(공개),
-   red=내 것(비공개, 주의 — 남들이 못 씀). expanded-row 배경 규칙보다 특이성 상향. */
+   blue=내 것(비공개 — 사용자: 레드는 거부감). expanded-row 배경 규칙보다 특이성 상향. */
 .dt-antd .ant-table-tbody > tr.dt-row-tint-green > td,
 .dt-antd-sub .ant-table-tbody > tr.ant-table-expanded-row.dt-row-tint-green > td {
   background: rgba(82, 196, 26, 0.09);
 }
-.dt-antd .ant-table-tbody > tr.dt-row-tint-red > td,
-.dt-antd-sub .ant-table-tbody > tr.ant-table-expanded-row.dt-row-tint-red > td {
-  background: rgba(255, 77, 79, 0.07);
+.dt-antd .ant-table-tbody > tr.dt-row-tint-blue > td,
+.dt-antd-sub .ant-table-tbody > tr.ant-table-expanded-row.dt-row-tint-blue > td {
+  background: rgba(22, 119, 255, 0.07);
 }

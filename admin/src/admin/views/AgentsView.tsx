@@ -284,7 +284,9 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
 
   // 보조 줄 구성 요소(스펙 146 — 2줄 행): 준수·MCP·RAG만(소유·출처는 284에서 tint·탭으로).
   const renderConformance = (a: Agent) => {
-    if ((a.conformance || 'conforming') === 'conforming') return null // 정상은 무표시(예외만 표시)
+    // 비준수(non_conforming)는 code/external의 **정상 상태**(원격=다른 종류)라 전 행 표시=정보 0
+    // (사용자 지적, 284 후속2) — 진짜 문제(설정 실패)만 예외 표시.
+    if ((a.conformance || 'conforming') !== 'config_error') return null
     const c = AGENT_CONFORMANCE[a.conformance || 'conforming'] || AGENT_CONFORMANCE.conforming
     const isError = a.conformance === 'config_error'
     return (
@@ -560,11 +562,11 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
               {/* 범례(스펙 284) — 출처=탭, 내 것=행 배경, 상태=신호등, 태그는 예외·연결만. */}
               <div style={{ display: 'grid', gridTemplateColumns: '128px 1fr', columnGap: 12, rowGap: 12, alignItems: 'start' }}>
                 <span style={{ display: 'inline-flex', gap: 6 }}>
-                  <span style={{ background: 'rgba(255,77,79,0.12)', borderRadius: 4, padding: '2px 8px', fontSize: 12 }}>연한 빨강</span>
+                  <span style={{ background: 'rgba(22,119,255,0.12)', borderRadius: 4, padding: '2px 8px', fontSize: 12 }}>연한 파랑</span>
                   <span style={{ background: 'rgba(82,196,26,0.14)', borderRadius: 4, padding: '2px 8px', fontSize: 12 }}>연한 초록</span>
                 </span>
                 <span style={{ color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>
-                  내가 만든 에이전트 — 빨강=비공개(나만 사용), 초록=공개
+                  내가 만든 에이전트 — 파랑=비공개(나만 사용), 초록=공개
                 </span>
 
                 <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
@@ -577,7 +579,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
                 </span>
 
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                  <Tag color="red">설정 오류</Tag><Tag color="gold">비준수</Tag>
+                  <Tag color="red">설정 오류</Tag>
                 </div>
                 <span style={{ color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>문제가 있을 때만 표시</span>
 
@@ -602,11 +604,11 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
         rows={visibleAgents}
         onRowClick={(a) => setDetailId(a.id)}
         subRow={agentSubRow}
-        // 내 것 tint(스펙 284 ①, 후속: 사용자 지시) — private(남들이 못 씀)=연한 레드(주의),
-        // 공개된 내 것=연한 그린. 현 모델은 공개=owner 소멸이라 그린은 285(생성자 축) 이후 등장.
+        // 내 것 tint(스펙 284 ①, 후속2) — private=연한 파랑(레드는 거부감, 사용자 지시),
+        // 공개된 내 것=연한 그린(285 생성자 축 이후 등장).
         rowTint={(a) =>
           a.owner_id != null && meId !== undefined && a.owner_id === meId
-            ? 'red' // 내 것 + private(owner_id 있음 = 비공개, 147 의미론)
+            ? 'blue' // 내 것 + private(owner_id 있음 = 비공개, 147 의미론)
             : undefined
         }
       />
