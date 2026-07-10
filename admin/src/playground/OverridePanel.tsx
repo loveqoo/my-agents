@@ -87,10 +87,10 @@ export function overridePayload(
    컨트롤 여러 개(PickerGroups 등)를 담을 땐 <div>로 감싼다 — <label>은 컨트롤 하나에만 붙어야 하고,
    여러 컨트롤을 label로 감싸면 라벨 어디를 클릭하든 브라우저가 **첫 하위 컨트롤로 클릭을 전달**해
    엉뚱한 항목이 토글된다(스펙 123: 그룹 헤더 클릭→첫 체크박스 오토글 버그). */
-function Field({ label, hint, children, group = false }: { label: string; hint?: string; children: React.ReactNode; group?: boolean }) {
+function Field({ label, hint, children, group = false }: { label?: string; hint?: string; children: React.ReactNode; group?: boolean }) {
   const inner = (
     <>
-      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text)' }}>{label}</span>
+      {label ? <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text)' }}>{label}</span> : null}
       {children}
       {hint ? <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>{hint}</span> : null}
     </>
@@ -393,8 +393,7 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
           {isPipeline ? (
             /* 노드형(스펙 287) — 폼과 같은 공용 노드 에디터(273 원칙)를 구조 불변 모드로.
                노드 추가/삭제/이동·이름은 잠금(테스트 범위 밖 — 서버도 길이 일치 merge로 강제). */
-            <Field group label="노드 (프롬프트·모델·도구를 이 대화에서만 변경)"
-              hint="노드 추가·삭제·순서는 여기서 바꿀 수 없습니다 — 에이전트 편집에서 변경하세요.">
+            <Field group hint="노드 추가·삭제·순서는 여기서 바꿀 수 없습니다 — 에이전트 편집에서 변경하세요.">
               <div style={{ maxHeight: screens.md ? 400 : undefined, overflowY: 'auto' }}>
                 <NodeListEditor
                   fixedStructure

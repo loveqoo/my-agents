@@ -85,10 +85,13 @@ export function NodeListEditor({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-      <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginBottom: 12 }}>
-        노드를 위에서 아래로 순서대로 이어 실행합니다. 노드마다 프롬프트·모델·참고할 도구를 직접 정합니다.
-        앞 노드의 결과가 다음 노드로 전달됩니다.
-      </span>
+      {/* 동작 설명은 저작(편집) 화면에만 — 오버라이드(구조 잠금)에서는 이미 아는 내용의 반복이라 생략(스펙 287 후속). */}
+      {!fixedStructure && (
+        <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginBottom: 12 }}>
+          노드를 위에서 아래로 순서대로 이어 실행합니다. 노드마다 프롬프트·모델·참고할 도구를 직접 정합니다.
+          앞 노드의 결과가 다음 노드로 전달됩니다.
+        </span>
+      )}
       {nodes.length === 0 && (
         <span style={{ fontSize: 13, color: 'var(--color-text-tertiary)', marginBottom: 12 }}>
           {fixedStructure
