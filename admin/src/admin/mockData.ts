@@ -311,10 +311,12 @@ export const VECTOR_STATUS: Record<string, StatusMeta> = {
   indexing: { label: '재색인 중', tag: 'blue' },
   stale: { label: '갱신 필요', tag: 'gold' },
 }
+/* 신호등 단일 출처(스펙 284 ⑥→286) — 색=사용자 지정: 파랑(온라인)/노랑(유휴)/빨강(오프라인).
+   목록 점·상세 헤더·대시보드 StatusPill이 모두 여기서 읽는다. */
 export const AGENT_STATUS: Record<string, StatusMeta> = {
-  online: { label: '온라인', color: 'var(--color-success)', tag: 'green' },
-  idle: { label: '유휴', color: 'var(--gold-6)', tag: 'gold' },
-  offline: { label: '오프라인', color: 'var(--gray-6)', tag: 'default' },
+  online: { label: '온라인', color: 'var(--blue-6)', tag: 'blue', desc: '온라인 — 활성 버전이 서빙 중' },
+  idle: { label: '유휴', color: 'var(--gold-6)', tag: 'gold', desc: '유휴 — 초안만 있음(활성화 전)' },
+  offline: { label: '오프라인', color: 'var(--red-6)', tag: 'red', desc: '오프라인 — 원격에 연결되지 않음' },
 }
 /* 에이전트가 만들어진 출처. UI 구성(이 콘솔에서 블록으로 조립) vs Code 정의(SDK로 선언해
    코드베이스에서 배포, 엔드포인트로 등록). Code 에이전트는 여기서 읽기 전용 — 구성은 코드가 소유. */

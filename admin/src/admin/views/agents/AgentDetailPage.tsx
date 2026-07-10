@@ -3,11 +3,12 @@
    복사 강등). 개요 탭=요약 대시보드(각 관심사 한 줄+클릭 점프 — 지도이지 또 다른 상세가 아님).
    로컬(ui) 전용(code/external은 드로어 유지 — 후속). */
 import { useEffect, useState } from 'react'
-import { Tag, Button, Alert, Modal, Descriptions, Grid, Typography } from 'antd'
+import { Tag, Button, Alert, Modal, Descriptions, Grid, Typography, Tooltip } from 'antd'
 import { VersionHistory, ExposeSwitch } from '../../shared'
 import { Icon } from '../../icons'
 import { AgentMemoryPanel } from '../AgentMemoryPanel'
-import { isOrchestratorImpl, SHORT_TERM_MEMORY, type Agent, type VersionMeta } from '../../mockData'
+import { AGENT_STATUS, isOrchestratorImpl, SHORT_TERM_MEMORY, type Agent, type VersionMeta } from '../../mockData'
+import { typeLabel } from './AgentForm'
 import { DelegationGraph } from '../../DelegationGraph'
 import { displayName } from '../../naming'
 import { PersonaStaleNote } from './PersonaStaleNote'
@@ -65,8 +66,9 @@ export function AgentDetailPage({
 
   const draft = (agent.versions || []).find((v) => v.status === 'draft')
   const canManage = agent.can_manage !== false
-  // 종류 라벨(사용자 언어, 스펙 108과 동일 매핑)
-  const typeLabel = !agent.impl ? '직접 응답' : agent.impl.startsWith('artifact') ? '산출물형' : isOrchestratorImpl(agent.impl) ? '조율형' : agent.impl
+  // 종류 라벨 — AgentForm typeLabel 단일 출처(스펙 283/286). 로컬 사본은 pipeline 등
+  // AGENT_TYPES 신설 키를 놓쳐 내부 키를 그대로 노출했다(스펙 108 위반).
+  const kindLabel = typeLabel(agent.impl)
 
   const sections: DetailSection[] = [
     {
@@ -99,9 +101,17 @@ export function AgentDetailPage({
                     <JumpCell onJump={() => jump('config')}>
                       {(() => {
                         const parts: string[] = []
-                        if ((agent.mcps || []).length) parts.push(`도구 ${agent.mcps.length}`)
+                        // 노드형은 도구·프롬프트가 노드 소유 — 노드 수가 구성 요약(스펙 286).
+                        if (agent.impl === 'pipeline') {
+                          if ((agent.nodes || []).length) parts.push(`노드 ${(agent.nodes || []).length}`)
+                        } else if ((agent.tools || []).length) {
+                          // 276 이후 진실원=tools(도구 단위). mcps는 서버 합집합 파생이라 카운트 부정확.
+                          parts.push(`도구 ${(agent.tools || []).length}`)
+                        } else if ((agent.mcps || []).length) {
+                          parts.push(`도구 서버 ${agent.mcps.length}(전체)`)
+                        }
                         if ((agent.vectorTables || []).length) parts.push(`문서 ${agent.vectorTables.length}`)
-                        { const liveMem = (agent.memories || []).filter((m) => m !== SHORT_TERM_MEMORY); if (liveMem.length) parts.push(`메모리 ${liveMem.length}`) }
+                        { const liveMem = (agent.memories || []).filter((m) => m !== SHORT_TERM_MEMORY); if (liveMem.length) parts.push(`기억 ${liveMem.length}`) }
                         if ((agent.capabilities || []).length) parts.push(`위임 대상 ${(agent.capabilities || []).length}`)
                         return parts.length ? parts.join(' · ') : '연결 없음 — 모델만으로 응답'
                       })()}
@@ -133,13 +143,13 @@ export function AgentDetailPage({
                   children: (
                     <JumpCell onJump={() => jump('operations')}>
                       {(() => {
-                        if (!ops) return '지표 없음'
+                        if (!ops) return '피드백 아직 없음'
                         const vs = Object.values(ops.versions || {})
                         const up = vs.reduce((n, v) => n + v.up, 0) + ops.unversionedUp
                         const down = vs.reduce((n, v) => n + v.down, 0) + ops.unversionedDown
                         const cur = agent.activeVersion ? ops.versions?.[agent.activeVersion] : undefined
                         const score = cur?.lastScore != null ? ` · 최근 평가 ${Math.round(cur.lastScore * 100)}%` : ''
-                        return (up || down || score) ? `👍${up} 👎${down}${score}` : '지표 없음'
+                        return (up || down || score) ? `👍${up} 👎${down}${score}` : '피드백 아직 없음'
                       })()}
                     </JumpCell>
                   ),
@@ -191,7 +201,7 @@ export function AgentDetailPage({
                 ...((agent.vectorTables || []).length
                   ? [{
                       key: 'vectors',
-                      label: '벡터 테이블',
+                      label: '문서',
                       children: (
                         <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6 }}>
                           {agent.vectorTables.map((t) => (
@@ -201,13 +211,46 @@ export function AgentDetailPage({
                       ),
                     }]
                   : []),
-                ...((agent.mcps || []).length
+                // 도구(스펙 276/286) — tools(도구 단위 배선)가 진실원. 빈 tools+mcps=서버 전체 폴백을
+                // 정직 표기. 라벨은 폼과 같은 사용자 어휘('도구' — MCP는 내부어).
+                ...((agent.tools || []).length
                   ? [{
-                      key: 'mcps',
-                      label: 'MCP',
+                      key: 'tools',
+                      label: '도구',
                       children: (
                         <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6 }}>
+                          {(agent.tools || []).map((rt) => {
+                            const [srv, ...rest] = rt.split('__')
+                            return <Tag key={rt} color="cyan">{srv} · {rest.join('__') || rt}</Tag>
+                          })}
+                        </span>
+                      ),
+                    }]
+                  : (agent.mcps || []).length
+                  ? [{
+                      key: 'tools',
+                      label: '도구',
+                      children: (
+                        <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
                           {agent.mcps.map((m) => <Tag key={m} color="cyan">{m}</Tag>)}
+                          <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>서버의 모든 도구 사용</span>
+                        </span>
+                      ),
+                    }]
+                  : []),
+                // 노드형 파이프라인 요약(스펙 286) — 노드 이름(모델)을 실행 순서대로.
+                ...(agent.impl === 'pipeline' && (agent.nodes || []).length
+                  ? [{
+                      key: 'nodes',
+                      label: '노드',
+                      children: (
+                        <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
+                          {(agent.nodes || []).map((n, i) => (
+                            <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                              {i > 0 && <Icon name="right" size={10} style={{ color: 'var(--color-text-quaternary)' }} />}
+                              <Tag style={{ margin: 0 }}>{n.name}<span style={{ color: 'var(--color-text-tertiary)' }}> · {n.model}</span></Tag>
+                            </span>
+                          ))}
                         </span>
                       ),
                     }]
@@ -229,9 +272,12 @@ export function AgentDetailPage({
             />
             {(() => {
               const empty: string[] = []
-              if (!(agent.memories || []).length) empty.push('메모리')
-              if (!(agent.vectorTables || []).length) empty.push('문서(벡터)')
-              if (!(agent.mcps || []).length) empty.push('도구(MCP)')
+              if (!(agent.memories || []).length) empty.push('기억')
+              // 노드형은 도구·문서가 노드 소유(스펙 259) — 에이전트 수준 부재는 정상이라 미표기.
+              if (agent.impl !== 'pipeline') {
+                if (!(agent.vectorTables || []).length) empty.push('문서')
+                if (!(agent.mcps || []).length && !(agent.tools || []).length) empty.push('도구')
+              }
               return empty.length ? (
                 <div style={{ fontSize: 12, color: 'var(--color-text-quaternary)', marginTop: 8 }}>
                   연결 없음: {empty.join(' · ')}
@@ -279,10 +325,11 @@ export function AgentDetailPage({
                         const diffs: string[] = []
                         if (cfg.model !== agent.model) diffs.push('모델 → ' + cfg.model)
                         if (cfg.persona !== agent.persona) diffs.push('페르소나 → ' + cfg.persona)
-                        if ((cfg.memories || []).join() !== (agent.memories || []).join()) diffs.push('메모리 변경됨')
+                        if ((cfg.memories || []).join() !== (agent.memories || []).join()) diffs.push('장기 기억 변경됨')
                         if (cfg.historyDepth !== agent.historyDepth) diffs.push('단기 기억 → ' + (cfg.historyDepth || 0))
-                        if ((cfg.vectorTables || []).join() !== (agent.vectorTables || []).join()) diffs.push('벡터 테이블 변경됨')
-                        if ((cfg.mcps || []).join() !== (agent.mcps || []).join()) diffs.push('MCP 변경됨')
+                        if ((cfg.vectorTables || []).join() !== (agent.vectorTables || []).join()) diffs.push('문서 변경됨')
+                        // 도구는 tools(276 도구 단위)와 mcps(파생) 어느 쪽이 달라도 한 번만 보고.
+                        if ((cfg.tools || []).join() !== (agent.tools || []).join() || (cfg.mcps || []).join() !== (agent.mcps || []).join()) diffs.push('도구 변경됨')
                         return diffs.length ? (
                           diffs.map((d, i) => <Tag key={i} color="geekblue">{d}</Tag>)
                         ) : (
@@ -471,21 +518,26 @@ export function AgentDetailPage({
       agentId={agent.agentId}
       badges={
         <>
+          {/* 배지 슬림화(스펙 286, 284 계승) — 신호등(상태)+종류+예외 태그만. 공개 범위·A2A·
+              초안·서빙 버전은 각 탭/개요 행이 소유(중복 태그 제거). */}
           {agent.conformance === 'config_error' ? (
             <Tag color="red" style={{ margin: 0 }}>
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 600 }}>
                 <Icon name="exclamation-circle" size={11} /> 설정 실패
               </span>
             </Tag>
-          ) : agent.activeVersion ? (
-            <Tag color="green" style={{ margin: 0 }}>서빙 {agent.activeVersion}</Tag>
-          ) : (
-            <Tag style={{ margin: 0 }}>미서빙 · 초안만</Tag>
-          )}
-          <Tag style={{ margin: 0 }}>{typeLabel}</Tag>
-          {draft && <Tag color="gold" style={{ margin: 0 }}>초안 {draft.version}</Tag>}
-          <Tag style={{ margin: 0 }}>{agent.owner_id == null ? 'public' : 'private'}</Tag>
-          {agent.exposed?.a2a && <Tag color="green" style={{ margin: 0 }}>A2A</Tag>}
+          ) : (() => {
+            const st = AGENT_STATUS[agent.status] ?? AGENT_STATUS.offline
+            return (
+              <Tooltip title={st.desc}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, color: 'var(--color-text-secondary)' }}>
+                  <span aria-label={st.label} style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: st.color }} />
+                  {st.label}
+                </span>
+              </Tooltip>
+            )
+          })()}
+          <Tag style={{ margin: 0 }}>{kindLabel}</Tag>
           {agent.ephemeral && <Tag color="orange" style={{ margin: 0 }}>비영속</Tag>}
         </>
       }

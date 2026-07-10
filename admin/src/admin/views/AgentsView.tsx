@@ -432,16 +432,11 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
       title: '상태',
       align: 'center' as const,
       render: (a) => {
-        // 신호등(스펙 284 ⑥) — 고정 슬롯의 색 점 + 툴팁. 색=사용자 지정: 파랑(온라인)/노랑(유휴)/빨강(오프라인).
-        const LIGHT: Record<string, { color: string; desc: string }> = {
-          online: { color: 'var(--blue-6)', desc: '온라인 — 활성 버전이 서빙 중' },
-          idle: { color: 'var(--gold-6)', desc: '유휴 — 초안만 있음(활성화 전)' },
-          offline: { color: 'var(--red-6)', desc: '오프라인 — 원격에 연결되지 않음' },
-        }
-        const st = LIGHT[a.status] ?? LIGHT.offline
+        // 신호등(스펙 284 ⑥) — 고정 슬롯의 색 점 + 툴팁. 색·라벨·의미=AGENT_STATUS 단일 출처(스펙 286).
+        const st = AGENT_STATUS[a.status] ?? AGENT_STATUS.offline
         return (
           <Tooltip title={st.desc}>
-            <span aria-label={AGENT_STATUS[a.status]?.label ?? a.status} style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: st.color }} />
+            <span aria-label={st.label} style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: st.color }} />
           </Tooltip>
         )
       },
