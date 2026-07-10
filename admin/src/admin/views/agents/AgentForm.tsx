@@ -310,13 +310,18 @@ export function AgentForm({
           const capId = `mcp:${server}/${tool}`
           return (
             <div key={capId} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+              {/* 평문 13px(스펙 282 ②) — 트리·다른 목록과 동일 서체(<code> 서버명이 튀었음). */}
               <span style={{ fontSize: 13 }}>
-                <code>{server}</code> · {tool}
+                {server} · {tool}
               </span>
+              {/* 비영속 고정(스펙 282 ①) — 문구("'승인 없음' 상태의 도구만 실행")가 약속한 상태를
+                  UI가 만든다: 값='승인 없음'·잠금. 폼 상태 toolPolicy는 불변(영속 복귀 시 복원),
+                  실제 기록은 finalize가 저장 직전에 파생. */}
               <Select
                 size="small"
                 style={{ width: 190 }}
-                value={valOf(capId)}
+                value={form.ephemeral ? 'off' : valOf(capId)}
+                disabled={form.ephemeral}
                 onChange={(v) => setVal(capId, v)}
                 options={[
                   { value: '', label: '기본값 사용' },
@@ -362,7 +367,16 @@ export function AgentForm({
   // 다시 필터한다(권한 상승 0). 문서 검색은 단일 도구라 컬렉션 스코핑 불가 → 쓰면 전체 컬렉션이 풀에.
   // 매칭은 런타임 이름 기준(스펙 265) — 민이름 구저장분은 엔진 접미 폴백이 자가치유.
   const finalizeForm = (): AgentFormData => {
-    const base = { ...form, name: form.name.trim(), description: form.description.trim() }
+    let base = { ...form, name: form.name.trim(), description: form.description.trim() }
+    // 비영속 승인 고정(스펙 282) — UI가 '승인 없음'으로 고정 표시한 것을 저장에 반영: 배선 도구
+    // 전부 {approval:{required:false}}. 폼 상태는 불변(영속 복귀 시 원래 값 복원 — 저장 직전 파생).
+    // 완화 게이트(177, 관리자만 저장)는 서버가 계속 강제 — 비영속+도구 저장은 관리자 전용이 된다.
+    if (form.ephemeral) {
+      const pinned = Object.fromEntries(
+        toolPolicyRows().map(({ server, tool }) => [`mcp:${server}/${tool}`, { approval: { required: false } }])
+      )
+      base = { ...base, toolPolicy: { ...form.toolPolicy, ...pinned } }
+    }
     if (!isPipeline) {
       // 조율형은 capabilities가 소유(도구 단위 배선 비적용) — tools를 비워 저장 오염 방지(스펙 276).
       if (orchestratorSelected) return { ...base, tools: [] }
@@ -664,7 +678,7 @@ export function AgentForm({
                 ...(surfaceVisible('도구') && rows.length > 0
                   ? [{
                       key: 'toolpolicy',
-                      label: `도구 승인 오버라이드 (${rows.length}개 · 선택)`,
+                      label: `도구 승인 오버라이드 (${rows.length}개 · ${form.ephemeral ? "'승인 없음' 고정" : '선택'})`,
                       children: toolPolicyBody(rows),
                     }]
                   : []),
@@ -798,7 +812,7 @@ export function AgentForm({
               items={[
                 {
                   key: 'toolpolicy',
-                  label: `도구 승인 오버라이드 (${rows.length}개 · 선택)`,
+                  label: `도구 승인 오버라이드 (${rows.length}개 · ${form.ephemeral ? "'승인 없음' 고정" : '선택'})`,
                   children: toolPolicyBody(rows),
                 },
               ]}

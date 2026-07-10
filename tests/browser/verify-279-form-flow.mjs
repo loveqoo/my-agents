@@ -69,6 +69,11 @@ try {
     .filter({ has: page.locator('.ant-select') }).last().locator('.ant-select').first()
   const shortDisabled = await shortSel.evaluate((el) => el.className.includes('ant-select-disabled'))
   check(!shortDisabled, `② 단기 Select 활성(disabled 아님)`)
+  // 영속 복귀(스펙 282 갱신) — 비영속은 승인 Select가 '승인 없음'으로 고정되므로, ③의 승인 값
+  // 설정은 영속 상태에서 수행한다(비영속 고정 자체는 verify-282가 단언).
+  await page.getByRole('button', { name: '이전', exact: true }).click(); await page.waitForTimeout(400)
+  await modal.getByText('영속 (기본)', { exact: true }).click(); await page.waitForTimeout(300)
+  await page.getByRole('button', { name: '다음' }).click(); await page.waitForTimeout(500)
 
   // ── ③ Collapse 하나에 아이템(도구/승인/문서) — 승인은 도구 선택 시 사이에 출현 ──
   // step② 도구/문서 아이템은 한 Collapse의 형제 헤더(사용자 지시: Collapse(Item,Item,...)).
@@ -123,8 +128,8 @@ try {
   }, uiName)
   if (saved?.id) cleanup.agents.push(saved.id)
   log('SAVED=' + JSON.stringify(saved))
-  check(!!saved && saved.eph === true, `저장: ephemeral=true`)
-  check(!!saved && (saved.mem ?? []).length === 0, `② 저장: memories 제거됨 (got ${JSON.stringify(saved?.mem)})`)
+  check(!!saved && saved.eph === false, `저장: ephemeral=false(영속 복귀 후 저장 — 282 갱신)`)
+  check(!!saved && (saved.mem ?? []).length === 0, `② 저장: memories 비어 있음 (got ${JSON.stringify(saved?.mem)})`)
   check(!!saved && JSON.stringify(saved.tools) === JSON.stringify(['local-tools__delete_record']), `③ 저장: tools (got ${JSON.stringify(saved?.tools)})`)
   check(!!saved && (saved.vt ?? []).includes(docName), `③ 저장: vectorTables에 '${docName}' (got ${JSON.stringify(saved?.vt)})`)
   check(!!saved && saved.tp?.['mcp:local-tools/delete_record']?.approval?.required === true,
