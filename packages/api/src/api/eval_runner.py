@@ -80,7 +80,7 @@ async def eval_run_agent(agent_pk, user_text: str, principal, overrides: dict | 
         persona_prompt = f"{persona_prompt}\n\n# 관련 기억(회상됨)\n{memory.format_memory_hits(mem_hits)}"
 
     calls_sink: list[dict] = []
-    tools = await runtime.build_mcp_tools(ctx["mcp_servers"], calls_sink, ctx.get("toolPolicy"))
+    tools = await runtime.build_mcp_tools(ctx["mcp_servers"], calls_sink, ctx.get("toolPolicy"), ctx.get("tool_names"))
     if ctx["rag_collections"]:
         tools.append(runtime.build_rag_tool(ctx["rag_collections"], calls_sink))
     # 브로커 주입(조율형 위임 채점) — 실행 주체(principal)의 RBAC로 스코프(chat 경로와 동일 술어).

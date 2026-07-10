@@ -12,24 +12,28 @@ import { DelegationGraph } from '../admin/DelegationGraph'
 import { ShortTermMemoryField, LongTermMemoryField } from '../admin/views/agents/MemoryFields'
 import { ModelField } from '../admin/views/agents/ModelFields'
 import { PromptField } from '../admin/views/agents/PromptFields'
+import { safeToolName } from '../admin/views/agents/AgentForm'
 
 export interface Overrides {
   model: string
   temperature: number | null // null = 자동(모델 등록 params 적용)
   systemPrompt: string
   mcps: string[]
+  tools: string[] // 도구 단위 배선(스펙 276) — 런타임명 목록. mcps는 서버 합집합 파생.
   memories: string[]
   capabilities: string[] // 조율형 위임 대상(cap id 목록, 스펙 122). 직접형은 항상 빈 배열.
   historyDepth: number
 }
 
-/* 에이전트 저장 설정에서 패널 기본값을 만든다. Agent엔 temperature 필드가 없어 자동(null). */
+/* 에이전트 저장 설정에서 패널 기본값을 만든다. Agent엔 temperature 필드가 없어 자동(null).
+   tools 구저장 하이드레이션(스펙 276)은 컴포넌트가 blocks 카탈로그로 수행(여기선 저장값 그대로). */
 export function overrideDefaults(a: Agent): Overrides {
   return {
     model: a.model ?? '',
     temperature: null,
     systemPrompt: a.systemPrompt ?? '',
     mcps: [...(a.mcps ?? [])],
+    tools: [...(a.tools ?? [])],
     memories: [...(a.memories ?? [])],
     capabilities: [...(a.capabilities ?? [])],
     historyDepth: a.historyDepth ?? 20,
@@ -48,6 +52,8 @@ export function overridePayload(applied: Overrides, base: Overrides): Record<str
   // 빈 systemPrompt로 persona를 지우지 않도록 — 비어있지 않고 달라진 경우만.
   if (applied.systemPrompt.trim() && applied.systemPrompt !== base.systemPrompt) p.systemPrompt = applied.systemPrompt
   if (!sameSet(applied.mcps, base.mcps)) p.mcps = applied.mcps
+  // 도구 단위 배선(스펙 276) — tools가 달라지면 mcps(서버 로드 원천)도 함께 보낸다(토글이 파생 유지).
+  if (!sameSet(applied.tools, base.tools)) p.tools = applied.tools
   if (!sameSet(applied.memories, base.memories)) p.memories = applied.memories
   // 조율형 위임 대상(스펙 122) — 변경 시만 전송. 안 건드리면 저장분 그대로(무회귀).
   if (!sameSet(applied.capabilities, base.capabilities)) p.capabilities = applied.capabilities
@@ -180,9 +186,19 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
   const [draft, setDraft] = useState<Overrides | null>(null)
 
   // 열릴 때(또는 에이전트가 바뀔 때) 드래프트를 적용값 ?? 기본값으로 시드.
+  // tools 구저장 하이드레이션(스펙 276): tools 빈값+mcps 있음 = 도구 단위 도입 전 — 카탈로그에서
+  // 그 서버들의 전체 도구로 확장(폼과 동일 규칙, 안 하면 편집 적용 시 배선 유실).
   useEffect(() => {
     if (!open || !agent) return
-    setDraft(applied ? { ...applied } : overrideDefaults(agent))
+    const base = applied ? { ...applied } : overrideDefaults(agent)
+    if (!base.tools.length && base.mcps.length) {
+      const items = blocks.mcp?.items ?? []
+      base.tools = base.mcps.flatMap((srv) => {
+        const it = items.find((m) => m.name === srv)
+        return (it?.tools ?? []).map((t) => safeToolName(srv, t))
+      })
+    }
+    setDraft(base)
     // applied는 의도적으로 deps에서 제외 — 열려 있는 동안 외부 적용으로 드래프트가 튀지 않게.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, agent?.id])
@@ -191,28 +207,35 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
 
   const set = <K extends keyof Overrides>(k: K, v: Overrides[K]) =>
     setDraft((d) => (d ? { ...d, [k]: v } : d))
-  const toggleMcp = (name: string) =>
+  // 도구 단위 토글(스펙 276) — mcps(서버 로드 원천)를 서버 합집합으로 파생 유지. 카탈로그에 도구
+  // 목록 없는 서버는 mcps에 보존(런타임 폴백=전체 노출 — 폼과 동일 규칙).
+  const toggleTool = (rt: string) =>
     setDraft((d) => {
       if (!d) return d
-      const cur = d.mcps
-      return { ...d, mcps: cur.includes(name) ? cur.filter((x) => x !== name) : [...cur, name] }
+      const tools = d.tools.includes(rt) ? d.tools.filter((x) => x !== rt) : [...d.tools, rt]
+      const items = blocks.mcp?.items ?? []
+      const preserved = d.mcps.filter((srv) => !(items.find((m) => m.name === srv)?.tools?.length))
+      const mcps = [...new Set([...tools.map((x) => x.split('__')[0]), ...preserved])]
+      return { ...d, tools, mcps }
     })
 
   // 모델 옵션화(chat 필터·미등록 값 보존)는 공용 ModelField가 담당(스펙 274 — 사본 소멸).
 
-  // "이 대화에서 쓸 것"(스펙 109) — 도구(mcps)만 PickerGroups. 기억은 273에서 우측 세부의 공용
-  // 컨트롤(MemoryFields — AgentForm 271과 같은 구조)로 이동해 이 피커에서 뺐다.
+  // "이 대화에서 쓸 것"(스펙 109) — 도구만 PickerGroups(기억은 273에서 우측 세부 공용 컨트롤로).
+  // 항목=개별 도구(스펙 276, 폼·노드와 같은 어휘) — 서버가 아니라 기능 단위로 세션 오버라이드.
   const ovGroups: PickerGroup[] = [
     {
       key: '도구',
       title: '도구',
-      items: (blocks.mcp?.items ?? []).map((m) => ({ id: `tool:${m.name}`, label: m.name })),
-      emptyText: '등록된 MCP 서버 없음',
+      items: (blocks.mcp?.items ?? []).flatMap((s) =>
+        (s.tools ?? []).map((t) => ({ id: `tool:${safeToolName(s.name, t)}`, label: `${s.name} · ${t}` }))
+      ),
+      emptyText: '등록된 MCP 도구 없음',
     },
   ]
-  const ovSelected = draft ? draft.mcps.map((x) => `tool:${x}`) : []
+  const ovSelected = draft ? draft.tools.map((x) => `tool:${x}`) : []
   const ovToggle = (id: string) => {
-    if (id.startsWith('tool:')) toggleMcp(id.slice(5))
+    if (id.startsWith('tool:')) toggleTool(id.slice(5))
   }
   // 장기 기억 옵션(273 공용 컨트롤용) — 단기(세션)은 선택지에서 제외(스펙 269, historyDepth가 소유).
   // 비영속 미선택-잠금(235·codex 238 #2)은 LongTermMemoryField의 ephemeral prop이 담당(중복 구현 소멸).

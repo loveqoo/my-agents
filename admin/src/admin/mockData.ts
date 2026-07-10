@@ -20,6 +20,7 @@ export interface AgentConfig {
   suggestedPrompts?: string[]
   vectorTables?: string[]
   mcps?: string[]
+  tools?: string[] // 직접형 도구 단위 배선(스펙 276) — 런타임명 목록. 비면 배선 서버 전체.
   impl?: string // 실행 방식(런타임 키, 스펙 085/106). 빈값/미지정=기본 UI 에이전트.
   capabilities?: string[] // 능력 브로커 allowlist(스펙 106). 오케스트레이터 impl에서 위임 대상.
   toolPolicy?: ToolPolicy // 도구 승인 오버라이드(스펙 177 P2).
@@ -125,6 +126,7 @@ export interface Agent {
   suggestedPrompts?: string[]
   vectorTables: string[]
   mcps: string[]
+  tools?: string[] // 직접형 도구 단위 배선(스펙 276) — 런타임명(server__tool) 목록. 비면 배선 서버 전체.
   impl?: string // 실행 방식 런타임 키(스펙 085/106) — 폼 재로드/라운드트립 보존
   capabilities?: string[] // 능력 브로커 allowlist(스펙 106)
   toolPolicy?: ToolPolicy // 도구 승인 오버라이드(스펙 177 P2) — cap_id→{approval:{required?,approver?}}

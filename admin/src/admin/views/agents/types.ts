@@ -14,6 +14,9 @@ export interface AgentFormData {
   suggestedPrompts: string[] // 플그 추천 명령어(스펙 238, 옵셔널·최대 8)
   vectorTables: string[]
   mcps: string[]
+  // 직접형 도구 단위 배선(스펙 276) — 런타임명(server__tool) 목록. mcps는 이것의 서버 합집합 파생
+  // (+카탈로그 미열거 서버 보존). 빈 목록=배선 서버 전체(구저장 무회귀).
+  tools: string[]
   impl: string // 실행 방식(런타임 키). ''=기본 UI 에이전트(스펙 106).
   capabilities: string[] // 능력 브로커 allowlist(cap id 목록, 스펙 106).
   toolPolicy: ToolPolicy // 도구 승인 오버라이드(스펙 177 P2) — cap_id→{approval:{required?,approver?}}.

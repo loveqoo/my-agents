@@ -223,8 +223,25 @@ def mcp_connection(server: dict) -> dict | None:
     }
 
 
+def selected_for_server(server: str, selected: list[str] | None) -> set[str] | None:
+    """이 서버에 대한 도구 노출 필터(스펙 276) — None=전체 노출(폴백), set=그 런타임명만.
+
+    selected 항목은 런타임명(`server__tool`, _safe_name 산출). 서버명은 NAME_RULE(영소문자·숫자·대시,
+    밑줄 금지)이라 `server__` 접두 분리가 모호하지 않다(272 불변식 공유). **이 서버 항목이 하나도
+    없으면 None(전체)** — 이 폴백 하나가 세 무회귀를 담당: ①구저장(tools 빈 목록)=기존과 동일,
+    ②오버라이드로 서버 통째 추가, ③카탈로그에 도구 목록이 없는 서버의 보존."""
+    if not selected:
+        return None
+    prefix = f"{server}__"
+    mine = {s for s in selected if isinstance(s, str) and s.startswith(prefix)}
+    return mine or None
+
+
 async def build_mcp_tools(
-    servers: list[dict], calls_sink: list[dict], tool_policy: dict | None = None
+    servers: list[dict],
+    calls_sink: list[dict],
+    tool_policy: dict | None = None,
+    selected_tools: list[str] | None = None,
 ) -> list[StructuredTool]:
     """등록 MCP 서버에 **실제로 연결**(MultiServerMCPClient)해 활성 도구를 LangChain 툴로 만든다.
 
@@ -261,9 +278,12 @@ async def build_mcp_tools(
         except Exception:  # noqa: BLE001 — 서버 다운/프로토콜 오류는 그 서버만 스킵
             continue
         enabled = set(s.get("enabled_tools") or [])
+        sel = selected_for_server(name, selected_tools)  # 도구 단위 배선 필터(스펙 276)
         for rt in raw_tools:
             if enabled and rt.name not in enabled:
                 continue  # enabled_tools 밖 도구는 노출 안 함(서버측 강제)
+            if sel is not None and _safe_name(name, rt.name) not in sel:
+                continue  # 에이전트가 고른 도구 밖 — 노출 안 함(스펙 276 도구 단위 배선)
             # 스펙 177 단일 리졸버 — 도구 기본(tools_meta) ◁덮음◁ 에이전트 오버라이드(tool_policy).
             appr = resolve_tool_approval(name, rt.name, s.get("tools_meta"), tool_policy)
             tools.append(_wrap_mcp_tool(name, rt, calls_sink, appr))

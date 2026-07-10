@@ -422,6 +422,10 @@ class AgentConfig(BaseModel):
     memories: list[str] = Field(default_factory=list)
     vectorTables: list[str] = Field(default_factory=list)
     mcps: list[str] = Field(default_factory=list)
+    # 직접형 도구 단위 배선(스펙 276) — 런타임명(`server__tool`) 목록. **mcps(서버 목록)가 서버 배선의
+    # 진실원**이고 tools는 그 위의 노출 필터: 서버별로 이 목록에 항목이 있으면 그 도구만, 없으면 전체
+    # (구저장 빈 목록=지금과 동일=무회귀). model_dump 드롭 방지 위해 스키마 필드 필수(learning 101 동형).
+    tools: list[str] = Field(default_factory=list)
     # 능력 브로커 allowlist(스펙 100 §69·101) — 오케스트레이터가 서브스텝 위임할 수 있는 능력 id.
     # 규약: bare=agent cap, `mcp:<server>`=서버 전체, `mcp:<server>/<tool>`=툴 단위. 없으면 []=deny-by-
     # default. 실제 인가는 요청 시 RBAC와 교집합(build_broker). UI 편집은 Phase 2-d로 이연(스펙 101).
@@ -630,6 +634,7 @@ class AgentOut(BaseModel):
     memories: list[str] = Field(default_factory=list)
     vectorTables: list[str] = Field(default_factory=list)
     mcps: list[str] = Field(default_factory=list)
+    tools: list[str] = Field(default_factory=list)  # 직접형 도구 단위 배선(스펙 276, 폼 재로드/왕복 보존)
     capabilities: list[str] = Field(default_factory=list)  # 능력 브로커 allowlist(스펙 106, 폼 재로드용)
     toolPolicy: dict[str, Any] = Field(default_factory=dict)  # 도구 승인 오버라이드(스펙 177 P2, 폼 재로드용)
     artifactSpec: dict[str, Any] | None = None  # 노코드 산출물형 필드 명세(스펙 190, 폼 재로드/라운드트립 보존)

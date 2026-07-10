@@ -104,6 +104,7 @@ def agent_to_out(a: Agent, persona_bodies: dict[str, str] | None = None) -> Agen
         memories=cfg.get("memories", []),
         vectorTables=cfg.get("vectorTables", []),
         mcps=cfg.get("mcps", []),
+        tools=cfg.get("tools", []),  # 직접형 도구 단위 배선(스펙 276, 폼 재로드용)
         capabilities=cfg.get("capabilities", []),  # 능력 브로커 allowlist(스펙 106, 폼 재로드용)
         toolPolicy=cfg.get("toolPolicy", {}),  # 도구 승인 오버라이드(스펙 177 P2, 폼 재로드용)
         artifactSpec=cfg.get("artifactSpec"),  # 노코드 산출물형 필드 명세(스펙 190, 폼 재로드용)

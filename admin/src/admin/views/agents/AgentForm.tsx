@@ -28,12 +28,20 @@ export function blankForm(blocks: Record<string, BlockCategory>, models: Model[]
     suggestedPrompts: [],
     vectorTables: [],
     mcps: [],
+    tools: [], // 도구 단위 배선(스펙 276) — mcps는 이것의 서버 합집합 파생
     impl: '',
     capabilities: [],
     toolPolicy: {},
     ragMinScores: {}, // 컬렉션별 문서 검색 최소 유사도(스펙 191 v2) — 기본 무필터
   }
 }
+
+/* MCP 도구의 **런타임 이름**(스펙 265) — 백엔드 _safe_name(`서버__도구`, 비허용문자 _ 치환, 60자 캡)
+   미러(변경 시 함께). 민이름 저장은 런타임 by_name 매칭 0 → 조용한 미바인딩(스펙 264 실측). */
+export const safeToolName = (server: string, tool: string) =>
+  `${server}__${tool}`.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 60) || 'tool'
+/* 런타임명 → 서버명(스펙 276) — 서버명은 NAME_RULE(밑줄 금지)이라 첫 `__` 분리가 모호하지 않다. */
+const serverOfTool = (rt: string) => rt.split('__')[0]
 
 /* SHORT_TERM_MEMORY(스펙 269)는 mockData가 단일 출처 — 백엔드 memory_enabled()가 무시하는 죽은
    라벨이라 기억 선택지·표시에서 제외한다(단기는 historyDepth가 소유). 저장값은 보존(finalize 무변경). */
@@ -134,6 +142,34 @@ export function AgentForm({
       ...f,
       [k]: f[k].includes(v) ? f[k].filter((x) => x !== v) : [...f[k], v],
     }))
+  // 도구 단위 배선(스펙 276) — tools 토글 시 mcps(서버 합집합)를 함께 파생 유지. 카탈로그에 도구
+  // 목록이 없는 서버(연결 불가 등)는 열거 불가 → mcps에 보존(런타임 폴백=전체 노출이라 동작 보존).
+  const deriveMcps = (tools: string[], prevMcps: string[]): string[] => {
+    const items = blocks.mcp?.items ?? []
+    const preserved = prevMcps.filter((srv) => !(items.find((m) => m.name === srv)?.tools?.length))
+    return [...new Set([...tools.map(serverOfTool), ...preserved])]
+  }
+  const toggleTool = (rt: string) =>
+    setForm((f) => {
+      const tools = f.tools.includes(rt) ? f.tools.filter((x) => x !== rt) : [...f.tools, rt]
+      return { ...f, tools, mcps: deriveMcps(tools, f.mcps) }
+    })
+  // 구저장 하이드레이션(스펙 276) — tools 빈값+mcps 있음 = 도구 단위 도입 전 저장분. 카탈로그에서
+  // 그 서버들의 전체 도구로 확장(안 하면 편집 저장 시 배선이 통째 유실 — merge-preserve). 노드형·
+  // 조율형은 대상 아님(노드형=노드가 도구 소유·mcps는 합집합 파생, 조율형=capabilities 소유).
+  useEffect(() => {
+    const items = blocks.mcp?.items
+    if (!items?.length) return
+    setForm((f) => {
+      if (f.impl === 'pipeline' || isOrchestratorImpl(f.impl)) return f
+      if (f.tools.length || !f.mcps.length) return f
+      const expanded = f.mcps.flatMap((srv) => {
+        const it = items.find((m) => m.name === srv)
+        return (it?.tools ?? []).map((t) => safeToolName(srv, t))
+      })
+      return expanded.length ? { ...f, tools: expanded } : f
+    })
+  }, [blocks.mcp, initial])
   const isEdit = mode === 'edit'
 
   // 실행 방식 소비 표면(스펙 206) — impl이 "나는 이 설정을 읽는다"를 선언(consumes). 미선언(null)
@@ -206,27 +242,32 @@ export function AgentForm({
   // 직접 응답 "하는 일" 그룹 — 3개 form 배열(memories/vectorTables/mcps)을 PickerGroups
   // 하나로 묶으려 id를 카테고리 prefix로 네임스페이스(스펙 109). 저장은 기존 배열 그대로, prefix는
   // UI 라우팅용. 리치 렌더 보존: 메모리/컬렉션→hint(설명).
-  const DIRECT_FIELD: Record<string, 'memories' | 'vectorTables' | 'mcps'> = {
+  const DIRECT_FIELD: Record<string, 'memories' | 'vectorTables'> = {
     mem: 'memories',
     col: 'vectorTables',
-    tool: 'mcps',
   }
   const directSelected = [
     ...form.memories.map((x) => `mem:${x}`),
     ...form.vectorTables.map((x) => `col:${x}`),
-    ...form.mcps.map((x) => `tool:${x}`),
+    ...form.tools.map((x) => `tool:${x}`),
   ]
   const toggleDirect = (id: string) => {
     const i = id.indexOf(':')
-    const field = DIRECT_FIELD[id.slice(0, i)]
+    const prefix = id.slice(0, i)
+    if (prefix === 'tool') return toggleTool(id.slice(i + 1)) // 도구 단위 배선(스펙 276) — mcps 파생 동반
+    const field = DIRECT_FIELD[prefix]
     if (field) toggle(field, id.slice(i + 1))
   }
   const doGroups: PickerGroup[] = [
     {
       key: '도구',
       title: '도구',
-      items: (blocks.mcp?.items ?? []).map((m) => ({ id: `tool:${m.name}`, label: m.name })),
-      emptyText: 'MCP 서버 없음 — 빌딩 블록에서 등록하세요.',
+      // 도구 단위 배선(스펙 276) — 서버가 아니라 개별 도구를 고른다(노드 카드와 같은 어휘).
+      // MCP는 클라이언트가 노출을 고르는 구조라 원격/로컬 무관하게 도구 단위가 가능(설계 선택).
+      items: (blocks.mcp?.items ?? []).flatMap((s) =>
+        (s.tools ?? []).map((t) => ({ id: `tool:${safeToolName(s.name, t)}`, label: `${s.name} · ${t}` }))
+      ),
+      emptyText: 'MCP 도구 없음 — 빌딩 블록에서 서버를 등록하세요.',
     },
     {
       key: '문서',
@@ -253,13 +294,9 @@ export function AgentForm({
   const pipelineInvalid = isPipeline && !pipelineValid(form.nodes)
 
   // 노드형 편집기 데이터(스펙 259). 모델 옵션화는 공용 ModelField(274)가 — models를 그대로 넘긴다.
-  // 페르소나=blocks 본문(불러오기용), 도구=개별 MCP 도구 + 문서 검색.
+  // 페르소나=blocks 본문(불러오기용), 도구=개별 MCP 도구 + 문서 검색. safeToolName은 모듈 스코프
+  // (스펙 276 — 직접형 피커도 공유).
   const nodePersonas = (blocks.persona?.items ?? []).map((p) => ({ name: p.name, body: p.body ?? '' }))
-  // MCP 도구의 **런타임 이름**(스펙 265) — 백엔드 _safe_name(`서버__도구`, 비허용문자 _ 치환, 60자 캡)
-  // 미러(변경 시 함께). 민이름("wiki_search")으로 저장하면 런타임 by_name 매칭이 0이 돼 도구가 조용히
-  // 미바인딩(모델이 호출한 척 환각, 스펙 264 실측) + 서버 간 동명 도구의 Select value 충돌도 해소.
-  const safeToolName = (server: string, tool: string) =>
-    `${server}__${tool}`.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 60) || 'tool'
   // 문서 검색은 컬렉션별 도구(스펙 268 P1) — "검색 노드는 A만, 검증 노드는 B만". 런타임 이름
   // search_documents__<컬렉션>(백엔드 _rag_tools_for 미러). 구저장 민이름(search_documents=전체)은
   // 백엔드가 계속 해석(무회귀) — 새 저작은 컬렉션별만 노출.
@@ -280,7 +317,12 @@ export function AgentForm({
   // 매칭은 런타임 이름 기준(스펙 265) — 민이름 구저장분은 엔진 접미 폴백이 자가치유.
   const finalizeForm = (): AgentFormData => {
     const base = { ...form, name: form.name.trim(), description: form.description.trim() }
-    if (!isPipeline) return base
+    if (!isPipeline) {
+      // 조율형은 capabilities가 소유(도구 단위 배선 비적용) — tools를 비워 저장 오염 방지(스펙 276).
+      if (orchestratorSelected) return { ...base, tools: [] }
+      // 직접형: mcps = tools의 서버 합집합 ∪ 카탈로그 미열거 보존(토글 파생과 동일 규칙, 저장 직전 재확인).
+      return { ...base, mcps: deriveMcps(base.tools, base.mcps) }
+    }
     const used = new Set((form.nodes ?? []).flatMap((n) => n.tools))
     const mcps = (blocks.mcp?.items ?? [])
       .filter((s) => (s.tools ?? []).some((t) => used.has(safeToolName(s.name, t)) || used.has(t)))
@@ -291,7 +333,8 @@ export function AgentForm({
       : collections.filter((c) => used.has(safeToolName('search_documents', c.name))).map((c) => c.name)
     // 기억 풀(스펙 268 P2): 노드 선택 합집합 — 백엔드 회상 게이트(memory_enabled)·스코프의 원천.
     const memories = [...new Set((form.nodes ?? []).flatMap((n) => n.memories ?? []))]
-    return { ...base, mcps, vectorTables, memories }
+    // 노드형은 도구를 노드가 소유 — 에이전트-레벨 tools는 비워 풀 필터 오염 방지(스펙 276).
+    return { ...base, mcps, vectorTables, memories, tools: [] }
   }
   // 식별 이름 규칙(스펙 148) — 서버 400의 프론트 힌트. 빈 값은 입력 전이라 조용히(제출만 막음).
   const nameErr = form.name.trim() ? validateName(form.name.trim()) : null
@@ -593,15 +636,27 @@ export function AgentForm({
         {/* 도구 승인 오버라이드(스펙 177 P2) — 배선된 MCP 도구별로 승인 정책을 이 에이전트에 한해 덮어씀.
             완화(본인 승인·승인 없음)는 백엔드 완화 게이트가 admin만 저장 허용(비-admin 저장 시 403). */}
         {(() => {
-          const wired = new Set<string>(form.mcps)
-          form.capabilities.forEach((c) => {
-            if (c.startsWith('mcp:') && !c.includes('/')) wired.add(c.slice(4))
-          })
+          // 목록 = 실배선 도구만(스펙 276, 사용자 관찰 후속): 직접형=선택 도구, 노드형=노드 합집합,
+          // 조율형=위임 서버의 전체 도구(서버 단위 위임이라 전체가 정확). 안 쓰는 형제 도구의
+          // 정책 행(무의미)을 없앤다.
           const rows: { server: string; tool: string }[] = []
-          ;[...wired].forEach((srv) => {
-            const item = blocks.mcp?.items?.find((m) => m.name === srv)
-            ;(item?.tools ?? []).forEach((t) => rows.push({ server: srv, tool: t }))
-          })
+          if (orchestratorSelected) {
+            const wired = new Set<string>()
+            form.capabilities.forEach((c) => {
+              if (c.startsWith('mcp:') && !c.includes('/')) wired.add(c.slice(4))
+            })
+            ;[...wired].forEach((srv) => {
+              const item = blocks.mcp?.items?.find((m) => m.name === srv)
+              ;(item?.tools ?? []).forEach((t) => rows.push({ server: srv, tool: t }))
+            })
+          } else {
+            const used = new Set(isPipeline ? (form.nodes ?? []).flatMap((n) => n.tools) : form.tools)
+            ;(blocks.mcp?.items ?? []).forEach((s) =>
+              (s.tools ?? []).forEach((t) => {
+                if (used.has(safeToolName(s.name, t))) rows.push({ server: s.name, tool: t })
+              })
+            )
+          }
           if (!rows.length) return null
           const valOf = (capId: string): string => {
             const a = form.toolPolicy[capId]?.approval

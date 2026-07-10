@@ -312,7 +312,8 @@ async def _load_context(
             # capabilities(스펙 122): 조율형 MCP는 config.capabilities로 담기므로 오버라이드도 이 키를
             # 허용해야 세션에 반영된다. 브로커가 build_broker(principal=호출자, capabilities)로
             # 호출자 RBAC 게이트(_permitted = allowlist ∩ RBAC)하므로 주입분도 안전(confused-deputy 무관).
-            allowed = {"model", "temperature", "historyDepth", "mcps", "memories", "capabilities"}
+            # tools(스펙 276): 직접형 도구 단위 배선 오버라이드 — 노출 축소/서버별 필터라 완화 아님.
+            allowed = {"model", "temperature", "historyDepth", "mcps", "memories", "capabilities", "tools"}
             cfg.update({k: v for k, v in overrides.items() if k in allowed})
             # systemPrompt는 비어있지 않을 때만 persona를 덮어쓴다 — 빈/공백 문자열로
             # 저장된 페르소나를 지우지 않도록(백엔드 자체 가드, 클라이언트 신뢰 안 함. codex P1).
@@ -465,6 +466,16 @@ async def _load_context(
                     }
                 )
         ctx["mcp_servers"] = mcp_servers
+        # 도구 단위 배선(스펙 276) — tools(런타임명 목록)는 위 서버 풀 위의 노출 필터.
+        # build_mcp_tools가 서버별 시맨틱(항목 있으면 그것만·없으면 전체=구저장 무회귀)으로 적용.
+        # **직접형(DefaultUiAgent) 전용**: 노드형(pipeline)은 노드가 자기 tools로 ctx.tools 풀을
+        # 필터하므로 에이전트-레벨 tools로 풀을 좁히면 노드 도구가 조용히 미바인딩된다(codex 276 Low —
+        # curl 직접 저작 회귀). 조율형은 capabilities가 도구를 관장. 그래서 이 둘은 tools 필터 미적용
+        # (풀=전체). UI finalize의 "pipeline/조율형은 tools:[] 저장" 규칙을 백엔드에서도 강제(의도 값
+        # 게이트 — 클라이언트 신뢰 안 함, gate-on-intent-value 패턴).
+        _impl = cfg.get("impl")
+        _tool_filter_applies = _impl not in ("pipeline", "orchestrate", "orchestrate_ranked")
+        ctx["tool_names"] = config_names(cfg, "tools") if _tool_filter_applies else []
 
         # RAG 컬렉션 해석(스펙 037) — vectorTables(이름 목록) → 검색 도구 배선용 dict.
         # 질의는 **각 컬렉션이 인제스트에 쓴 임베딩 모델**로 임베딩해야 같은 벡터 공간이 된다
@@ -665,7 +676,7 @@ def _format_sent_measured(call: list[dict]) -> list[dict]:
 
 
 # 트레이스에 기록할 오버라이드 허용 키(스펙 134) — _load_context 병합 allowlist + systemPrompt.
-_OVERRIDE_TRACE_KEYS = ("model", "temperature", "historyDepth", "mcps", "memories", "capabilities", "systemPrompt")
+_OVERRIDE_TRACE_KEYS = ("model", "temperature", "historyDepth", "mcps", "memories", "capabilities", "tools", "systemPrompt")
 
 
 def _overrides_trace(overrides: dict | None) -> dict | None:
@@ -874,7 +885,7 @@ async def stream_local_reply(agent_id: uuid.UUID, user_text: str):
     if impl is None or ctx["model_cfg"] is None:
         raise ValueError("로컬(ui) 에이전트가 아니거나 채팅 모델이 없습니다(A2A 노출 불가)")
     calls_sink: list[dict] = []
-    tools = await runtime.build_mcp_tools(ctx["mcp_servers"], calls_sink, ctx.get("toolPolicy"))
+    tools = await runtime.build_mcp_tools(ctx["mcp_servers"], calls_sink, ctx.get("toolPolicy"), ctx.get("tool_names"))
     # 노드형 컬렉션별 도구 포함(스펙 268 P1 — 세 입구 정합, learning 149). 메모리 프록시는 미주입:
     # A2A 서빙은 v1부터 메모리 자체가 범위 밖(스펙 061 — 순수 컴퓨트), 기존과 동일.
     tools.extend(_rag_tools_for(ctx, calls_sink))
@@ -1013,7 +1024,7 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
     )
 
     calls_sink: list[dict] = []
-    tools = await runtime.build_mcp_tools(ctx["mcp_servers"], calls_sink, ctx.get("toolPolicy"))
+    tools = await runtime.build_mcp_tools(ctx["mcp_servers"], calls_sink, ctx.get("toolPolicy"), ctx.get("tool_names"))
     # 채팅 자가기록 도구는 제거됨(스펙 051) — agent_id 메모리는 어드민 저작 전용. 회상은 아래 유지.
     # RAG 검색 도구 — vectorTables가 실 컬렉션으로 해석됐을 때만(스펙 037). 노드형은 컬렉션별 도구
     # 추가(스펙 268 P1 — _rag_tools_for).
@@ -1615,7 +1626,7 @@ async def resume_approval(approval: Approval, decision: str) -> None:
     )
 
     calls_sink: list[dict] = []
-    tools = await runtime.build_mcp_tools(ctx["mcp_servers"], calls_sink, ctx.get("toolPolicy"))
+    tools = await runtime.build_mcp_tools(ctx["mcp_servers"], calls_sink, ctx.get("toolPolicy"), ctx.get("tool_names"))
     # 채팅 자가기록 도구 제거됨(스펙 051) — agent_id 메모리는 어드민 저작 전용. 회상(recall_scope)은 유지.
     # 노드형 컬렉션별 도구 포함(스펙 268 P1 — 세 입구 정합, learning 149). 재개 라운드의 노드 재진입은
     # 회상을 생략하므로(pipeline 첫 진입만 회상) 메모리 프록시는 재개에 불요 — 다만 재개 후 *다음*

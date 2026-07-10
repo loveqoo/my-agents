@@ -54,6 +54,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
     suggestedPrompts: a.suggestedPrompts ?? [],
     vectorTables: [...(a.vectorTables || [])],
     mcps: [...a.mcps],
+    tools: [...(a.tools || [])], // 도구 단위 배선(스펙 276)
     impl: a.impl,
     capabilities: [...(a.capabilities || [])],
     toolPolicy: { ...(a.toolPolicy || {}) },
@@ -168,6 +169,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
       suggestedPrompts: data.suggestedPrompts,
       vectorTables: data.vectorTables,
       mcps: data.mcps,
+      tools: data.tools, // 도구 단위 배선(스펙 276) — mcps는 폼이 서버 합집합으로 파생
       // 빈 impl은 config에서 생략(기본 UI 에이전트 동작 보존 — undefined면 백엔드가 default 경로).
       ...(data.impl ? { impl: data.impl } : {}),
       capabilities: data.capabilities,
@@ -643,6 +645,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
                   suggestedPrompts: c.suggestedPrompts ?? a.suggestedPrompts ?? [],
                   vectorTables: [...(c.vectorTables || [])],
                   mcps: [...(c.mcps || [])],
+                  tools: [...(c.tools || [])], // 도구 단위 배선(스펙 276) — 구저장 빈값은 폼이 하이드레이션
                   impl: c.impl ?? a.impl ?? '',
                   capabilities: [...(c.capabilities || a.capabilities || [])],
                   toolPolicy: { ...(c.toolPolicy || a.toolPolicy || {}) }, // 승인 오버라이드(스펙 177 P2)
