@@ -52,7 +52,7 @@ try {
   await modal.getByText('비영속', { exact: false }).first().click(); await page.waitForTimeout(300)
   const t2 = await modal.innerText()
   check(t2.includes('저장 항목 없음 — 아무것도 기록하지 않습니다'), `② 비영속: 요약 문구`)
-  check(t2.includes("승인이 필요한 도구는 실행이 거부됩니다"), `② 비영속: 승인 제약 문구`)
+  check(t2.includes("승인이 필요하지 않은 도구만 실행할 수 있습니다"), `② 비영속: 승인 제약 문구(긍정형)`)
   check(!t2.includes('대화 내용'), `② 비영속: '대화 내용' 행 소멸`)
   // 영속 복귀 → 리스트 복원(OFF 값 유지)
   await modal.getByText('영속 (기본)', { exact: true }).click(); await page.waitForTimeout(300)
@@ -78,7 +78,7 @@ try {
   await modal.locator('.ant-collapse-header').filter({ hasText: '도구 승인 오버라이드' }).first().click()
   await page.waitForTimeout(400)
   const t4 = await modal.innerText()
-  check(t4.includes('승인 대기를 만들 수 없어'), `③ 승인 아이템에 비영속 제약 문구`)
+  check(t4.includes('승인이 필요하지 않은 도구만 실행할 수 있습니다'), `③ 승인 아이템에 비영속 제약 문구(긍정형)`)
 
   // ── ④ 저장 왕복: 영속+대화 내용 off (①에서 끈 값이 유지되는지) ──
   // 위에서 비영속으로 저장하면 persistHistory 검증이 안 되므로 이전으로 돌아가 영속으로 저장
