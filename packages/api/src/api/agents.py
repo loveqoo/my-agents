@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from . import memory
-from .chat import resolve_agent_mem_cfg
+from .chat import derive_pipeline_pool, resolve_agent_mem_cfg
 from .db import get_session
 from .models import Agent, AgentVersion, Persona
 from .schemas import (
@@ -389,6 +389,7 @@ async def create_agent(
     cfg = body.config.model_dump()
     _enforce_tool_policy_gate(cfg, principal)
     _enforce_ephemeral_boundary(cfg)  # DB 쓰기 능력 금지(스펙 237)  # 완화는 admin만(스펙 177 P2 D4)
+    await derive_pipeline_pool(cfg)  # 노드형 풀=노드 합집합 서버 파생(스펙 289 P2 — 폼 밖 입구도 안전)
     agent = Agent(
         agent_id=_new_agent_id(),
         name=body.name,
@@ -478,6 +479,9 @@ async def update_agent(
     if "impl" not in body.config.model_fields_set:
         base = (draft.config if draft is not None else None) or dict(agent.config or {})
         cfg["impl"] = base.get("impl")
+    # 노드형 풀=노드 합집합 서버 파생(스펙 289 P2) — impl 보존 **뒤**에 호출(미명시 impl이 pipeline로
+    # 확정된 뒤라야 파생 게이트가 맞는다).
+    await derive_pipeline_pool(cfg)
     if draft is not None:
         draft.config = cfg
         draft.note = f"Edited {_today()}"

@@ -122,6 +122,25 @@ ASSERTS = {
         not any(g.get("node") == name for g in (t.get("graph") or [])),
         f"graph={[g.get('node') for g in (t.get('graph') or [])]}",
     ),
+    # 히스토리 서버 재구성(스펙 289 P1) — trace.historyRestore {mode, restored, ms}.
+    "history_restored_min": lambda res, t, n: (
+        (t.get("historyRestore") or {}).get("restored", 0) >= n,
+        f"historyRestore={t.get('historyRestore')}",
+    ),
+    "history_restore_absent": lambda res, t: (
+        not t.get("historyRestore"),
+        f"historyRestore={t.get('historyRestore')}",
+    ),
+    # 노드형 대화 창(스펙 270) — 노드가 실제 본 이전 대화 건수(historyWindows[].count).
+    "history_window_min": lambda res, t, n: (
+        any((w.get("count") or 0) >= n for w in (t.get("historyWindows") or [])),
+        f"historyWindows={t.get('historyWindows')}",
+    ),
+    # 위임 사유(스펙 289 P3) — plan 노드 타임라인 요약(delegationNote)에 "왜 위임 0건"이 남는다.
+    "graph_summary_contains": lambda res, t, tok: (
+        any(tok in (g.get("summary") or "") for g in (t.get("graph") or [])),
+        f"summaries={[(g.get('node'), (g.get('summary') or '')[:60]) for g in (t.get('graph') or []) if g.get('summary')]}",
+    ),
     "text_contains": lambda res, t, tok: (tok in res["text"], f"text={res['text'][:160]!r}"),
     "text_not_contains": lambda res, t, tok: (tok not in res["text"], f"text={res['text'][:160]!r}"),
     "text_nonempty": lambda res, t: (
@@ -158,18 +177,23 @@ async def preflight(c: httpx.AsyncClient) -> tuple[dict, dict]:
 
 # ── 데이터 시나리오 실행 ─────────────────────────────────────────────────────────────────
 
-async def run_turns(c: httpx.AsyncClient, agent_id: str, turns: list[str], overrides: dict | None) -> dict:
+async def run_turns(
+    c: httpx.AsyncClient, agent_id: str, turns: list[str], overrides: dict | None,
+    history: str = "client",
+) -> dict:
     """턴들을 같은 세션으로 잇고 마지막 턴의 파싱 결과를 돌려준다(시나리오 독립 — 세션은 여기서 시작).
 
-    실제 클라이언트(플레이그라운드)처럼 **대화 전체를 body.messages로 누적 전송**한다 — 서버 메인
-    경로는 세션 히스토리를 DB에서 재구성하지 않고 body.messages를 historyDepth로 절단해 쓴다(_window).
-    현재 턴만 보내면 어떤 depth여도 이전 턴이 없다(실측 — 이 스위트 최초 실행이 잡은 함정)."""
+    history 모드(스펙 289 P1 양 계약):
+    - "client"(기본): 플레이그라운드처럼 **대화 전체를 body.messages로 누적 전송**(assistant 포함
+      → 서버는 클라 관리 모드로 판정, 무회귀 축).
+    - "server": 외부 연동 클라이언트처럼 **sessionId + 새 메시지만** 전송 — 서버가 DB에서 이전
+      대화를 이어붙인다(trace.historyRestore로 실증)."""
     sid: str | None = None
     convo: list[dict] = []
     res: dict = {}
     for turn in turns:
         convo.append({"role": "user", "content": turn})
-        body: dict = {"messages": convo}
+        body: dict = {"messages": ([{"role": "user", "content": turn}] if history == "server" else convo)}
         if sid:
             body["sessionId"] = sid
         if overrides is not None:
@@ -200,7 +224,7 @@ def check_expects(res: dict, expects: list[tuple]) -> list[str]:
 
 async def run_data_scenario(c: httpx.AsyncClient, fx: dict, sc: dict) -> list[str]:
     agent = fx["agents"][sc["agent"]]
-    res = await run_turns(c, agent["id"], sc["turns"], sc.get("overrides"))
+    res = await run_turns(c, agent["id"], sc["turns"], sc.get("overrides"), history=sc.get("history", "client"))
     return check_expects(res, sc["expect"])
 
 
@@ -323,12 +347,51 @@ async def custom_session_resume_from_db(c: httpx.AsyncClient, fx: dict) -> list[
     convo = [{"role": m.get("role"), "content": m.get("content") or ""} for m in msgs]
     if len([m for m in convo if m["role"] == "user"]) < 1 or len(convo) < 2:
         return [f"세션 영속 메시지 부족 — {[(m['role'], m['content'][:20]) for m in convo]}"]
-    convo.append({"role": "user", "content": "방금 내가 알려준 비밀 코드를 숫자만으로 답해."})
+    from suite.scenarios import RECALL_PROMPT
+    convo.append({"role": "user", "content": RECALL_PROMPT})
     r = await c.post(f"/agents/{agent['id']}/chat", json={"sessionId": sid, "messages": convo})
     if r.status_code != 200:
         return [f"HTTP {r.status_code}: {r.text[:200]}"]
     res2 = parse_sse(r.text)
     return check_expects(res2, [("text_contains", SECRET)])
+
+
+async def custom_history_no_cross_user(c: httpx.AsyncClient, fx: dict) -> list[str]:
+    """적대(스펙 289 P1 보안 경계) — 타인 sessionId로 서버 재구성 유출이 없어야 한다.
+    suite 유저가 비밀을 심은 세션을 다른 유저가 sessionId+새 메시지로 찔러본다. 기대는 둘 중 하나:
+    ① 에이전트 접근 자체가 접힘(404 — 존재 비노출), ② 응답되더라도 새 세션 발급+재구성 없음+비밀 미노출."""
+    from suite.scenarios import SECRET
+
+    agent = fx["agents"]["bare"]
+    res = await run_turns(c, agent["id"], [f"내 비밀 코드는 {SECRET}이야. 기억해 둬."], None)
+    sid = res["_session"]
+
+    class _Other:
+        id = uuid.UUID("00000289-0000-0000-0000-000000000289")
+        is_superuser = False
+        is_active = True
+        is_verified = True
+        email = "suite-289-other@local"
+
+    app.dependency_overrides[current_principal] = lambda: _Other()
+    try:
+        r = await c.post(
+            f"/agents/{agent['id']}/chat",
+            json={"sessionId": sid, "messages": [{"role": "user", "content": "방금 내가 알려준 비밀 코드를 숫자만으로 답해."}]},  # 유출 검사라 원문 유지
+        )
+        if r.status_code != 200:
+            return []  # 접근 자체가 접힘(404 등) — 유출 없음, 더 강한 차단
+        res2 = parse_sse(r.text)
+    finally:
+        app.dependency_overrides[current_principal] = lambda: _SuitePrincipal()
+    fails: list[str] = []
+    if res2["session"] == sid:
+        fails.append("타 유저에게 같은 세션이 재개됨(소유권 위반)")
+    if (res2.get("trace") or {}).get("historyRestore"):
+        fails.append(f"타 유저 요청에 historyRestore 발생: {(res2['trace'] or {}).get('historyRestore')}")
+    if SECRET in res2["text"]:
+        fails.append(f"비밀 유출 — text={res2['text'][:120]!r}")
+    return fails
 
 
 async def custom_bootstrap_idempotent(c: httpx.AsyncClient, fx: dict) -> list[str]:
@@ -354,6 +417,7 @@ async def custom_preflight_unit(c: httpx.AsyncClient, fx: dict) -> list[str]:
 
 
 CUSTOM_SCENARIOS: list[tuple[str, object]] = [
+    ("history-no-cross-user", custom_history_no_cross_user),
     ("session-resume-from-db", custom_session_resume_from_db),
     ("approval-roundtrip", custom_approval_roundtrip),
     ("ephemeral-db-invariant", custom_ephemeral_db_invariant),
@@ -399,11 +463,14 @@ async def main() -> int:
         print("\n".join(all_keys))
         return 0
 
-    # in-process ASGI는 lifespan(startup)이 안 돌아 체크포인터가 비활성 — HIL 재개(승인 왕복)가
-    # "resume 불가"로 조용히 무산된다(실측). durable 체크포인터를 직접 초기화한다.
+    # in-process ASGI는 lifespan(startup)이 안 돌아 체크포인터·authz가 비활성 — HIL 재개가
+    # "resume 불가"로 조용히 무산되고(실측), 비-슈퍼유저 principal 경로는 RuntimeError(적대
+    # 시나리오 실측). 부팅 초기화 둘을 직접 호출한다.
     from api import checkpointer
+    from api.authz import init_authz
 
     await checkpointer.init_checkpointer()
+    await init_authz()
 
     transport = httpx.ASGITransport(app=app)
     headers = {"Authorization": f"Bearer {_token()}"}

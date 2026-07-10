@@ -13,6 +13,9 @@ from __future__ import annotations
 from .fixtures import FACT_TOKEN, KB_NAME, PREF_TOKEN, TOOL_ECHO
 
 SECRET = "9427"
+# 실모델 변덕 대응(실측): "비밀 코드" 회수 질문에 가짜 함수호출 구문을 내는 경우가 있어
+# 도구·함수 금지를 명시한다(기록 단언과 무관 — 텍스트 회수 안정화용).
+RECALL_PROMPT = "방금 내가 알려준 비밀 코드를 숫자만으로 답해. 도구나 함수 호출은 하지 마."
 
 SCENARIOS: list[dict] = [
     # ── 직접형: 도구/RAG/기억 축 ──
@@ -31,11 +34,19 @@ SCENARIOS: list[dict] = [
 
     # ── 단기 기억(세션) 축 — 기억 간섭이 없는 bare 에이전트로 격리 ──
     dict(key="bare-session-recall", agent="bare",
-         turns=[f"내 비밀 코드는 {SECRET}이야. 기억해 둬.", "방금 내가 알려준 비밀 코드를 숫자만으로 답해."],
-         expect=[("text_contains", SECRET)]),
+         turns=[f"내 비밀 코드는 {SECRET}이야. 기억해 둬.", RECALL_PROMPT],
+         expect=[("text_contains", SECRET), ("history_restore_absent",)]),  # 클라 모드=서버 재구성 없음(289 무회귀 축)
+    # 히스토리 서버 재구성(스펙 289 P1) — 외부 연동 계약: sessionId+새 메시지만으로 이전 대화 승계.
+    dict(key="bare-server-history", agent="bare", history="server",
+         turns=[f"내 비밀 코드는 {SECRET}이야. 기억해 둬.", RECALL_PROMPT],
+         expect=[("text_contains", SECRET), ("history_restored_min", 2)]),
+    # 노드형도 자동 승계(사용자 확인 질문) — 노드 대화 창(historyWindows)이 재구성분을 실제로 봤는지.
+    dict(key="pipeline-server-history", agent="pipeline", history="server",
+         turns=[f"내 비밀 코드는 {SECRET}이야. 기억해 둬.", "방금 내가 알려준 비밀 코드를 알려줘. 문서 검색이나 도구 호출은 하지 마."],
+         expect=[("history_restored_min", 2), ("history_window_min", 2)]),
     dict(key="bare-historydepth0-override", agent="bare",
          overrides={"historyDepth": 0},
-         turns=[f"내 비밀 코드는 {SECRET}이야. 기억해 둬.", "방금 내가 알려준 비밀 코드를 숫자만으로 답해."],
+         turns=[f"내 비밀 코드는 {SECRET}이야. 기억해 둬.", RECALL_PROMPT],
          expect=[("text_not_contains", SECRET), ("override_key", "historyDepth")]),
 
     # ── 오버라이드 축 (base=suite-direct) + 저장 설정 대조군 ──
@@ -78,8 +89,9 @@ SCENARIOS: list[dict] = [
          expect=[("memory_recall_min", 1), ("text_nonempty",)]),
 
     # ── 조율형(스킬: orchestrate) — 위임 기록 + 오버라이드 대조 ──
-    # 발견(discover)은 lexical 랭킹(rank_candidates — 겹침 0 후보 제외)이라 프롬프트에 위임 대상
-    # 이름("suite-direct")이 있어야 후보가 뜬다(실측 — 일반어 프롬프트는 위임 0).
+    # 발견 실측 교정(289 P3): 후보 0의 주원인은 **미서빙**(스펙 256 게이트)이었다. lexical 탈락은
+    # FirstMatch(orchestrate)에는 없고(첫 후보 무조건 위임) **orchestrate_ranked에만** 있다
+    # (rank_candidates 겹침 0 제외 — 영숫자 토큰이 있는데 안 겹칠 때만, 한글-only=빈 쿼리 취급 통과).
     dict(key="orch-delegate", agent="orchestrate",
          turns=["suite-direct 에이전트에게 위임해서 답을 받아줘: 1 더하기 1은?"],
          expect=[("broker_min", 1), ("text_nonempty",)]),
@@ -87,6 +99,14 @@ SCENARIOS: list[dict] = [
          overrides={"capabilities": []},
          turns=["suite-direct 에이전트에게 위임해서 답을 받아줘: 1 더하기 1은?"],
          expect=[("broker_zero",), ("override_key", "capabilities")]),
+    # 위임 0건 사유 표면화(스펙 289 P3) — 실행 후에라도 "왜"가 기록에 남는다(토큰만 쓰고 침묵 금지).
+    dict(key="orch-unserved-reason", agent="orch_dead",
+         turns=["suite-direct-bare 에이전트에게 위임해서 답해줘: 1 더하기 1은?"],
+         expect=[("broker_zero",), ("graph_summary_contains", "위임 후보 0")]),
+    # ranked 전략: 영숫자 토큰("9999" 등)이 있는데 겹침 0이면 select 탈락 — 사유가 기록돼야 한다.
+    dict(key="orch-ranked-no-match-reason", agent="orch_ranked",
+         turns=["9999 곱하기 8888은 얼마야?"],
+         expect=[("broker_zero",), ("graph_summary_contains", "선택 0")]),
     dict(key="orch-memory-recall", agent="orchestrate",
          turns=["내 커피 취향이 뭐였지? 기억을 확인해서 답해줘."],
          expect=[("memory_hit", PREF_TOKEN)]),

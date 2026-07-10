@@ -259,22 +259,29 @@ class _HistoryWindowProxy:
         return sliced
 
 
-async def _load_session_conversation(session_id: str | None, agent_pk: uuid.UUID) -> list[dict]:
-    """세션의 영속 대화를 {role, content} 리스트로 로드(스펙 270 재개 히스토리 재구성용). 재개는 그래프에
-    대화를 재시드하지 않으므로(시드 축소) 이전 대화를 DB서 재구성해 프록시에 준다(learning 149 미러 —
-    메인에 더한 대화 축을 재개도 승계). 세션·메시지 없으면 빈 리스트(graceful — 현재 턴은 체크포인트가 보유)."""
+async def _load_session_conversation(
+    session_id: str | None, agent_pk: uuid.UUID, limit: int | None = None
+) -> list[dict]:
+    """세션의 영속 대화를 {role, content} 리스트로 로드(스펙 270 재개 + 289 P1 서버 재구성 공용).
+
+    limit(스펙 289 — 캐시 대신 읽기량 상수 고정): 최신 N개만 역순 조회 후 정순 반환. None=전체
+    (재개 경로 무회귀). 세션·메시지 없으면 빈 리스트(graceful — 새/타인 세션 id는 해석 단계에서
+    이미 빈 새 세션으로 접혀 있어 여기서 자연히 [])."""
     if not session_id:
         return []
     async with SessionLocal() as db:
-        q = (
-            select(Session)
-            .where(Session.session_id == session_id, Session.agent_pk == agent_pk)
-            .options(selectinload(Session.messages))
-        )
-        sess = (await db.execute(q)).scalar_one_or_none()
-        if sess is None:
+        sess_pk = (
+            await db.execute(
+                select(Session.id).where(Session.session_id == session_id, Session.agent_pk == agent_pk)
+            )
+        ).scalar_one_or_none()
+        if sess_pk is None:
             return []
-        return [{"role": m.role, "content": m.content} for m in sess.messages]
+        q = select(Message).where(Message.session_pk == sess_pk).order_by(Message.id.desc())
+        if limit is not None and limit >= 0:
+            q = q.limit(limit)
+        rows = list((await db.execute(q)).scalars().all())
+        return [{"role": m.role, "content": m.content} for m in reversed(rows)]
 
 
 async def _load_context(
@@ -357,6 +364,11 @@ async def _load_context(
                 cfg["nodes"], nodes_status = _merge_node_overrides(cfg["nodes"], overrides["nodes"])
             else:
                 nodes_status = "mismatch"  # 노드형이 아닌 에이전트에 nodes를 보냄
+        # 노드형 풀 서버 파생(스펙 289 P2) — 로드 시 무조건 재파생: 폼 밖 입구(API 직생성·구저장·
+        # 오버라이드)로 풀이 비었거나 낡았어도 노드 참조대로 도구·문서·기억이 빌드된다(learning 151).
+        # 저장 시 파생(agents.py)과 같은 규칙이라 폼 저장분엔 무변화(멱등).
+        if not _is_remote(agent.source):
+            await derive_pipeline_pool(cfg)
         ctx = {
             "persona": persona,
             "ext_agent_id": agent.agent_id,
@@ -618,6 +630,63 @@ async def resolve_agent_mem_cfg(db, agent) -> dict | None:
     if m is None:
         m = await _default_chat_model(db)
     return _build_mem_cfg(m, await _default_embed_model(db))
+
+
+async def derive_pipeline_pool(cfg: dict) -> None:
+    """노드형 풀 서버 파생(스펙 289 P2) — impl=pipeline이면 mcps/vectorTables/memories를 **노드 참조의
+    합집합**으로 재계산해 대체한다. 폼 derivePipelinePool과 동일 규칙(단일 의미): MCP=서버 도구 중
+    사용된 것이 있는 서버, 문서=컬렉션별 도구(_safe_name 매칭, 민이름 'search_documents'=전체),
+    기억=노드 memories 합집합. 파생 필드는 denormalization이라 관리자 저작 의미 없음 → merge-preserve
+    불요(스펙 289 근거). 이로써 폼 밖 입구(API 생성·오버라이드)도 노드 도구가 조용히 미바인딩되지
+    않는다(learning 151 구조적 봉합). 권한 비상승: 풀은 노드가 이미 참조하는 것의 합집합 — 필터
+    대상=합집합 자신."""
+    if cfg.get("impl") != "pipeline":
+        return
+    nodes = [n for n in (cfg.get("nodes") or []) if isinstance(n, dict)]
+    used = {t for n in nodes for t in (n.get("tools") or []) if isinstance(t, str)}
+    async with SessionLocal() as db:
+        servers = (await db.execute(select(McpServer))).scalars().all()
+        cols = list((await db.execute(select(Collection.name))).scalars().all())
+    # 민이름(bare, 구저장 'echo'류) 매칭은 **전역 유일할 때만**(codex 289 #4) — 같은 도구명이 여러
+    # 서버에 있으면 모두 풀에 열려 불필요한 MCP 접속이 생긴다. 모호=제외(fail-closed — 런타임
+    # _resolve_tool의 모호 스킵(265)과 같은 결). 접두명(srv__tool)은 모호성이 없어 그대로.
+    bare_owners: dict[str, set[str]] = {}
+    for s in servers:
+        for t in s.tools or []:
+            bare_owners.setdefault(t, set()).add(s.name)
+    cfg["mcps"] = [
+        s.name for s in servers
+        if any(
+            runtime._safe_name(s.name, t) in used
+            or (t in used and len(bare_owners.get(t) or ()) == 1)
+            for t in (s.tools or [])
+        )
+    ]
+    cfg["vectorTables"] = (
+        list(cols) if "search_documents" in used
+        else [c for c in cols if runtime._safe_name("search_documents", c) in used]
+    )
+    cfg["memories"] = sorted({m for n in nodes for m in (n.get("memories") or []) if isinstance(m, str)})
+
+
+def _history_load_limit(ctx: dict) -> int | None:
+    """서버 재구성 시 읽을 이전 대화 상한(스펙 289 P1) — 에이전트·노드가 요구할 수 있는 최대 depth.
+    None(전체)·음수(전체) depth가 하나라도 있으면 전량(None). 노드 depth None은 '상속'이라
+    에이전트 값으로 이미 대표된다."""
+    depths: list[int] = []
+    agent_d = ctx.get("history_depth")
+    if agent_d is None or (isinstance(agent_d, int) and agent_d < 0):
+        return None
+    depths.append(int(agent_d))
+    for n in ctx.get("nodes_resolved") or []:
+        d = n.get("historyDepth")
+        if d is None:
+            continue  # 상속 — 에이전트 depth가 대표
+        if isinstance(d, int) and d < 0:
+            return None
+        if isinstance(d, int):
+            depths.append(d)
+    return max(depths) if depths else None
 
 
 def _window(messages: list[dict], depth: int | None) -> list[dict]:
@@ -1017,6 +1086,30 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
             _a2a_stream(ctx, user_text, user_id), media_type="text/event-stream"
         )
 
+    # ── 히스토리 서버 재구성(스펙 289 P1) — 플랫폼 계약: "sessionId + 새 메시지"만 보내는
+    # 클라이언트는 서버가 영속 대화를 이어붙인다(에이전트 플랫폼 관행 — Assistants/A2A contextId류).
+    # 판정(auto): ① 재개에 성공한 소유 세션(session_pk 존재 — 타인/미존재 id는 해석이 새 세션으로
+    # 접어 재구성 대상이 없음, 068 열거 오라클 보존) ② **body가 정확히 user 메시지 1개**.
+    # codex 289 #1~#3으로 조인 규칙: "assistant 부재"만 보면 빈 배열(재구성분만으로 이전 턴 재실행)·
+    # user-only 누적 클라(이중 카운트)·assistant 위조(모드 오판)가 샌다 — "새 턴 1개"가 계약 그 자체.
+    # 그 외 형태(누적 전송 등)=클라 관리 모드(플레이그라운드 무회귀).
+    # 캐시는 두지 않는다(스펙 289 합의) — 조회를 필요 최대 depth로 LIMIT해 읽기량 상수 고정,
+    # 소요 ms를 trace.historyRestore로 실측(병목으로 측정되면 그때 재론).
+    conversation = [{"role": m.role, "content": m.content} for m in body.messages]
+    history_restore: dict | None = None
+    if ctx.get("session_pk") is not None and len(body.messages) == 1 and body.messages[0].role == "user":
+        _t_hr = time.perf_counter()
+        prior = await _load_session_conversation(
+            ctx["session_id"], ctx["agent_pk"], limit=_history_load_limit(ctx)
+        )
+        if prior:
+            conversation = prior + conversation
+            history_restore = {
+                "mode": "server",
+                "restored": len(prior),
+                "ms": int((time.perf_counter() - _t_hr) * 1000),
+            }
+
     # 메모리 스코프(다층 — 스펙 020/029). 회상(search)과 자동 쓰기(add)는 **축이 다르다**:
     # - recall_scope: user_id(세션 가로지름)+run_id(세션 단기)+agent_id(에이전트 전용 — 스펙 029).
     #   search는 축별로 따로 검색해 합집합 병합(mem0 필터는 AND이므로 — memory.py 참고).
@@ -1058,7 +1151,8 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
     history_windows: list[dict] = []
     hist_proxy = (
         _HistoryWindowProxy(
-            _to_base_messages([{"role": m.role, "content": m.content} for m in body.messages]),
+            # 스펙 289 P1: 서버 재구성분 포함 conversation — 노드형도 첫 노드부터 이어진 대화 승계.
+            _to_base_messages(conversation),
             ctx["history_depth"], history_windows,
         )
         if _pipeline_mem
@@ -1151,10 +1245,9 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
     capture = trace_capture.TraceCaptureHandler()
     config["callbacks"] = list(config.get("callbacks") or []) + [capture]
 
-    # 실행 컨텍스트를 historyDepth로 절단(최근 N개만 모델에 전달).
-    messages = _window(
-        [{"role": m.role, "content": m.content} for m in body.messages], ctx["history_depth"]
-    )
+    # 실행 컨텍스트를 historyDepth로 절단(최근 N개만 모델에 전달). 스펙 289 P1: 원천=conversation
+    # (서버 모드면 DB 재구성분 포함) — 절단 규칙은 동일.
+    messages = _window(conversation, ctx["history_depth"])
     # 전송 프롬프트 전문(스펙 131) — 실제 그래프 입력을 캡·마스킹해 캡처(_build_sent_messages).
     # 조율형의 synthesize 내부 데이터 채널 재조립은 delegated 노드 값(131 #3)으로 관측. 재개 턴은
     # 체크포인트 내부 재개라 조립본이 여기 없음 — N/A(스펙 131 경계).
@@ -1425,6 +1518,9 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
         if ov_trace:
             # 이 턴에 적용된 오버라이드(스펙 134) — 세션에 설정 다른 턴이 섞여도 턴별 구분 가능.
             trace["overrides"] = ov_trace
+        if history_restore:
+            # 히스토리 서버 재구성 실측(스펙 289 P1) — 몇 개를 몇 ms에 이어붙였나(캐시 재론의 근거 데이터).
+            trace["historyRestore"] = history_restore
         if build_broker_scoped.invocations:
             # 브로커 호출 상세(스펙 130) — 조율형의 RAG 검색이 인스펙터에 "N건·최고 유사도"로 보이게.
             # 위임 없던 턴은 필드 자체가 없음(무회귀).

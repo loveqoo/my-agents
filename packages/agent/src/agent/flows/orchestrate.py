@@ -44,6 +44,9 @@ class _State(TypedDict):
     # interrupt(승인 대기)로 노드가 재실행돼도 이미 done에 커밋된 선행 cap은 재호출되지 않는다(재개 멱등).
     pending: list  # 처리 대기 [{"id","name"}] — plan이 1회 확정, delegate가 매 턴 앞 하나 소비
     done: Annotated[list, operator.add]  # 완료 결과 [{"id","name","text"}] 누적(체크포인트 보존)
+    # 위임 0건 사유 표면화(스펙 289 P3) — plan이 심는 안전 문자열(사용자 데이터 없음). 타임라인
+    # 요약(_VALUE_SAFE_KEYS)으로 노출돼 "왜 위임이 안 됐나"를 실행 직후 인스펙터에서 확인.
+    delegationNote: str
 
 
 def _model_from_cfg(ctx: AgentBuildContext) -> ChatOpenAI:
@@ -251,14 +254,23 @@ class OrchestrationAgentBase(ABC):
             남긴다 → 뒤이어 첫 cap이 interrupt해도 재개 시 **재-discover되지 않는다**(재개 전 카탈로그·정책이
             바뀌어 승인 대상이 뒤바뀌는 위험 차단)."""
             if broker is None:
-                return {"pending": []}  # deny-by-default(발견 공집합)
+                # deny-by-default(발견 공집합) — 사유도 표면화(스펙 289 P3).
+                return {"pending": [], "delegationNote": "위임 후보 0 — 능력 미부여(브로커 없음)"}
             candidates = await broker.discover(state["query"], limit=self.DISCOVER_LIMIT)
             # select는 후보 중 **고를** 뿐 — 조상이 candidates로 교집합(id)해 canonical로 되돌린다
             # (임의 Capability 날조·스푸핑 구조 차단, codex 102 [P2]). broker.invoke도 재검증(TOCTOU).
             allowed = {c.id: c for c in candidates}
             chosen = [allowed[c.id]
                       for c in self.select(state["query"], list(candidates)) if c.id in allowed]
-            return {"pending": [{"id": c.id, "name": c.name} for c in chosen]}
+            # 위임 사유 표면화(스펙 289 P3) — 후보/선택이 0인 "왜"를 사람이 읽게. 브로커 후보 0=
+            # 허용 대상 부재·미서빙(서빙 게이트 스펙 256), 선택 0=lexical 발견 실패(질문에 대상 단서 없음).
+            if not candidates:
+                note = "위임 후보 0 — 허용된 대상이 없거나 미서빙"
+            elif not chosen:
+                note = f"위임 후보 {len(candidates)} · 선택 0 — 질문에 대상 단서 없음(발견 실패)"
+            else:
+                note = f"위임 후보 {len(candidates)} · 선택 {len(chosen)}"
+            return {"pending": [{"id": c.id, "name": c.name} for c in chosen], "delegationNote": note}
 
         async def delegate(state: _State) -> dict:
             """plan이 확정한 pending을 **cap 하나씩 자기 노드 실행**으로 소비(스펙 116 — 재개 멱등). 매 턴

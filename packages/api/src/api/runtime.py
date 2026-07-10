@@ -628,7 +628,7 @@ _REDACTED = "«redacted»"
 # 스펙 131 확대: query(analyze가 뽑은 유저 질의)·route(분류 라벨)·delegated(위임 결과 fold, 인스펙터
 # brokerCalls resultPreview와 같은 내용) — 출하 그래프(route/plan_execute/orchestrate)의 닫힌 상태 키로
 # 전부 비-비밀임을 코드로 확인(131 조사). 미지 키는 여전히 길이만(F2 유지 — 커스텀 플로우 안전).
-_VALUE_SAFE_KEYS = frozenset({"plan", "query", "route", "delegated"})
+_VALUE_SAFE_KEYS = frozenset({"plan", "query", "route", "delegated", "delegationNote"})  # delegationNote=스펙 289 P3(우리가 생성한 사유 문자열)
 
 # 스펙 087: MCP 호출 인자·결과 redaction(형제 trace 표면). 086 노드델타와 달리 args는 *보여주는 게
 # 목적*(인스펙터 디버깅 가치)이라 평범한 키의 값은 보존하고 민감 *키*만 마스킹한다(value-allowlist

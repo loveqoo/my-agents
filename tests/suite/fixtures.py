@@ -209,11 +209,8 @@ async def ensure_all(c: httpx.AsyncClient) -> dict[str, Any]:
     agents["pipeline"] = await _ensure_agent(c, "suite-pipeline", {
         **base,
         "impl": "pipeline",
-        # 풀 = 노드 참조의 합집합(폼 derivePipelinePool 미러) — 풀이 비면 컬렉션별 rag 도구 자체가
-        # 안 빌드돼 노드 도구가 조용히 미바인딩된다(실측 — learning 151류 함정).
-        "mcps": ["local-tools"],
-        "vectorTables": [KB_NAME],
-        "memories": [MEM_LONG],
+        # 풀(mcps/vectorTables/memories)은 **의도적으로 미지정** — 서버 파생(스펙 289 P2)의 실증.
+        # 예전엔 폼만 파생해 API 직생성이 조용히 미바인딩됐다(288 실측 → 289가 서버 파생으로 봉합).
         "nodes": [
             {"name": "검색", "model": model, "tools": [doc_tool(KB_NAME)],
              "prompt": f"반드시 먼저 {doc_tool(KB_NAME)} 도구로 사용자 질문을 검색하고, 검색 결과의 핵심을 인용해 답하세요."},
@@ -228,6 +225,18 @@ async def ensure_all(c: httpx.AsyncClient) -> dict[str, Any]:
         "impl": "orchestrate",
         "capabilities": [agents["direct"]["agentId"]],
         "memories": [MEM_LONG],
+    }, counts)
+    # ranked 전략(스펙 102) — lexical 겹침 0 후보를 select서 탈락시키는 유일한 전략(289 P3 사유 시나리오용).
+    agents["orch_ranked"] = await _ensure_agent(c, "suite-orchestrate-ranked", {
+        **base,
+        "impl": "orchestrate_ranked",
+        "capabilities": [agents["direct"]["agentId"]],
+    }, counts)
+    # 미서빙 위임 대상(스펙 289 P3) — bare는 초안-only(serve 안 함)라 브로커 후보에서 제외된다.
+    agents["orch_dead"] = await _ensure_agent(c, "suite-orchestrate-dead", {
+        **base,
+        "impl": "orchestrate",
+        "capabilities": [agents["bare"]["agentId"]],
     }, counts)
     agents["route"] = await _ensure_agent(c, "suite-route", {
         **base,
