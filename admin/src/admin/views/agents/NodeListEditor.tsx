@@ -68,21 +68,8 @@ export function NodeListEditor({
     update(next)
   }
 
-  // 접힘 헤더 요약(스펙 275) — 설정을 한 줄로: 도구/문서/기억 수 · 비기본값 표시.
-  // 모델은 표기하지 않는다 — 노드마다 반복되는 노이즈, 노드 구별은 프롬프트 발췌가 한다(2026-07-10).
-  // 모델 미설정은 "작성 필요" Tag가 이미 알린다.
-  const summarize = (n: PipelineNode) => {
-    const mcp = n.tools.filter((t) => !isDocTool(t)).length
-    const doc = n.tools.filter(isDocTool).length
-    const parts: string[] = []
-    if (mcp) parts.push(`도구 ${mcp}`)
-    if (doc) parts.push(`문서 ${doc}`)
-    if (n.memories?.length) parts.push(`장기 기억 ${n.memories.length}`)
-    if (n.historyDepth != null) parts.push(n.historyDepth === 0 ? '단기 안 씀' : `단기 ${n.historyDepth}개`)
-    if ((n.context ?? 'carry') === 'clean') parts.push('이전 결과만')
-    if ((n.format ?? 'text') === 'json') parts.push('JSON')
-    return parts.join(' · ')
-  }
+  // 접힘 헤더(스펙 275→287 후속) — 프롬프트 발췌만. 모델·도구 수 등 설정 나열은 노이즈라 뺐다
+  // (2026-07-10 지시). 설정은 펼쳐서 보고, 미완성은 "작성 필요" Tag가 알린다.
   const nodeInvalid = (n: PipelineNode) => !n.prompt.trim() || !n.model.trim()
 
   return (
@@ -173,7 +160,7 @@ export function NodeListEditor({
                             textOverflow: 'ellipsis',
                           }}
                         >
-                          {[summarize(n), n.prompt.trim().slice(0, 60)].filter(Boolean).join(' — ')}
+                          {n.prompt.trim().slice(0, 60)}
                         </span>
                       </>
                     )}

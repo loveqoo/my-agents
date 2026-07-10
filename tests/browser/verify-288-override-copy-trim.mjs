@@ -32,9 +32,9 @@ try {
   await page.getByText('에이전트', { exact: true }).first().waitFor({ timeout: 10000 })
 
   const ar = await page.request.post(`${URL}/api/agents`, {
-    data: { name: AGENT, config: { model: 'mock-llm', persona: '', impl: 'pipeline', mcps: [],
+    data: { name: AGENT, config: { model: 'mock-llm', persona: '', impl: 'pipeline', mcps: ['local-tools'],
       nodes: [
-        { name: 'n1', prompt: '분석해라', model: 'mock-llm', tools: [] },
+        { name: 'n1', prompt: '분석해라', model: 'mock-llm', tools: ['local-tools__echo'] },
         { name: 'n2', prompt: '요약해라', model: 'mock-llm', tools: [] },
       ] } },
   })
@@ -57,9 +57,10 @@ try {
   check((await drawer.getByText(DESC, { exact: false }).count()) === 0, `① 설명문 "${DESC}..." 부재`)
   check((await drawer.getByText(HINT, { exact: false }).count()) === 1, `① 힌트 "${HINT}..." 1건 존재`)
   check((await drawer.getByText('n1', { exact: true }).count()) > 0, `① 노드 카드는 그대로(n1)`)
-  // 접힘 헤더 요약에 모델 미표기(프롬프트 발췌만) — 2026-07-10 지시
+  // 접힘 헤더=프롬프트 발췌만(모델·도구 수 등 설정 나열 없음) — 2026-07-10 지시
   const header1 = await drawer.locator('.ant-collapse-header').first().textContent()
   check(!header1.includes('mock-llm'), `① 헤더에 모델명 부재 (got ${JSON.stringify(header1)})`)
+  check(!/도구|문서|장기 기억|단기/.test(header1), `① 헤더에 설정 나열 부재`)
   check(header1.includes('분석해라'), `① 헤더에 프롬프트 발췌 존재`)
   await page.screenshot({ path: 'tests/browser/out-288-override-drawer.png', fullPage: false })
 
