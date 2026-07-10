@@ -177,7 +177,7 @@ try {
 
   // ================= K4: Doc Translator(code) 행 클릭 → "A2A로 공개 (중계)" 스위치(꺼짐) =================
   // code 에이전트는 Internal (Code) 탭(스펙 284) — 탭 전환 후 진입.
-  await page.getByRole('tab', { name: 'Internal (Code)' }).click()
+  await page.getByRole('tab', { name: '내부 (Code)' }).click()
   await page.waitForTimeout(500)
   await openAgentDrawer('doc-translator')
   // A2A 스위치는 공개·연동 탭에 렌더(246 탭 구조) — 라벨도 현행('A2A 공개' 행 + 중계 설명)으로.

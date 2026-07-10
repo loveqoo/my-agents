@@ -529,9 +529,9 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
         activeKey={tab}
         onChange={(k) => switchTab(k as 'ui' | 'code' | 'external')}
         items={[
-          { key: 'ui', label: 'Internal (UI)' },
-          { key: 'code', label: 'Internal (Code)' },
-          { key: 'external', label: 'External' },
+          { key: 'ui', label: '내부 (UI)' },
+          { key: 'code', label: '내부 (Code)' },
+          { key: 'external', label: '외부' },
         ]}
       />
       {/* 탭 안 검색(스펙 284 ⑤) — 탭별로 꼭 필요한 조건만(placeholder가 축을 안내). */}

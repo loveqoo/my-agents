@@ -40,10 +40,10 @@ try {
   await page.reload({ waitUntil: 'networkidle' }); await page.waitForTimeout(800)
 
   // ── ① 탭 3개 + 기본 UI ──
-  for (const t of ['Internal (UI)', 'Internal (Code)', 'External']) {
+  for (const t of ['내부 (UI)', '내부 (Code)', '외부']) {
     check((await page.getByRole('tab', { name: t }).count()) > 0, `① 탭 '${t}' 존재`)
   }
-  const uiSelected = await page.getByRole('tab', { name: 'Internal (UI)' }).getAttribute('aria-selected')
+  const uiSelected = await page.getByRole('tab', { name: '내부 (UI)' }).getAttribute('aria-selected')
   check(uiSelected === 'true', `① 기본 탭=Internal (UI)`)
   const pageText = await page.locator('main, body').first().innerText()
   check(!pageText.includes('소유: 전체') && !pageText.includes('소스: 전체'), `① 소유/소스 Select 부재`)
@@ -75,20 +75,20 @@ try {
   check(dotLabel > 0, `⑥ 상태 점(aria-label=유휴) 존재`)
 
   // ── ① 탭 전환: Code 탭 — 종류 컬럼 없음·placeholder 변경 ──
-  await page.getByRole('tab', { name: 'Internal (Code)' }).click()
+  await page.getByRole('tab', { name: '내부 (Code)' }).click()
   await page.waitForTimeout(500)
   const headTxt2 = await page.locator('.dt-antd thead').first().innerText().catch(() => '')
   check(!headTxt2.includes('종류'), `③ Code 탭엔 '종류' 컬럼 없음`)
   check((await page.locator('.ant-select', { hasText: 'A2A: 전체' }).count()) > 0, `⑤ Code 탭 A2A Select`)
   check((await page.getByText('A2A 공개만', { exact: true }).count()) === 0, `⑤ Code 탭엔 A2A 체크박스 없음`)
   // External: 이름만 + 상태 컬럼/필터 부재(사용자: 외부는 상태 관리 안 함)
-  await page.getByRole('tab', { name: 'External' }).click()
+  await page.getByRole('tab', { name: '외부' }).click()
   await page.waitForTimeout(500)
   check((await page.getByPlaceholder('이름 검색').count()) > 0, `⑤ External 이름 검색만`)
   check((await page.locator('.ant-select', { hasText: '상태: 전체' }).count()) === 0, `⑤ External 상태 필터 부재`)
   const headTxt3 = await page.locator('.dt-antd thead').first().innerText().catch(() => '')
   check(!headTxt3.includes('상태'), `⑥ External 상태 컬럼 부재`)
-  await page.getByRole('tab', { name: 'Internal (Code)' }).click()
+  await page.getByRole('tab', { name: '내부 (Code)' }).click()
   await page.waitForTimeout(400)
   // UI 픽스처는 Code 탭에 안 보임
   check((await page.getByText(MINE, { exact: false }).count()) === 0, `① 탭 분리: UI 에이전트가 Code 탭에 없음`)
