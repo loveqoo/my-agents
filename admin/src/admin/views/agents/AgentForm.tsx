@@ -4,6 +4,7 @@ import { isOrchestratorImpl, SHORT_TERM_MEMORY, type BlockCategory, type ToolPol
 import { DelegationGraph } from '../../DelegationGraph'
 import { listAgentImpls, type Model, type Collection, type ImplMeta } from '../../../api'
 import { PickerGroups, type PickerGroup } from '../../../PickerGroups'
+import { ShortTermMemoryField, LongTermMemoryField } from './MemoryFields'
 import { validateName, NAME_HINT } from '../../naming'
 import { Field, SectionHeader } from './primitives'
 import { ArtifactSpecEditor, artifactSpecValid } from './ArtifactSpecEditor'
@@ -243,24 +244,15 @@ export function AgentForm({
       })),
       emptyText: '컬렉션 없음 — RAG 컬렉션 메뉴에서 문서를 적재하세요.',
     },
-    {
-      key: '기억',
-      title: '기억',
-      // 비영속은 회상하지 않는다(스펙 235) — 새 선택은 disabled(codex 238 #1), 기선택은 해제만 가능
-      // ("선택했는데 무동작" 함정과 "해제 불가" 모순을 동시에 피하는 미선택-잠금 패턴).
-      // 단기(세션)은 선택지에서 제외(스펙 269) — 단기는 세부 ③ "단기 기억"(historyDepth)이 소유.
-      items: (blocks.memory?.items ?? []).filter((m) => m.name !== SHORT_TERM_MEMORY).map((m) => ({
-        id: `mem:${m.name}`,
-        label: m.name,
-        hint: form.ephemeral && form.memories.includes(m.name) ? '비영속에서는 회상되지 않습니다 — 해제 가능' : m.body,
-        disabled: form.ephemeral && !form.memories.includes(m.name),
-        disabledHint: '비영속(1회성) 에이전트는 기억을 쓰지 않습니다.',
-      })),
-    },
+    // 기억 그룹은 PickerGroups에서 빠짐(스펙 271) — 아래 직접형 branch의 공용 "기억" 구획(단기+장기
+    // ShortTerm/LongTermMemoryField)이 소유. 269 이후 장기는 단일 옵션이라 접이식 카탈로그가 과했다.
   ]
   const orchestratorSelected = isOrchestratorImpl(form.impl)
+  // 직접형(스펙 271) — 기억 구획(단기+장기 공용 컨트롤)을 스텝 ②에 놓고 세부 ③ 단기는 숨긴다.
+  // 조율형·산출물형·노드형은 단기를 세부 ③에 유지(노드형은 상속 원천, 조율형은 오케스트레이터 컨텍스트).
   const isArtifactForm = form.impl === 'artifact_form'
   const isPipeline = form.impl === 'pipeline'
+  const isDirect = !isArtifactForm && !isPipeline && !orchestratorSelected  // 직접형(스펙 271 기억 구획)
   // 산출물형이면 유효 필드 ≥1을 저장 조건으로 강제(스펙 190) — 빈 명세 저장 방지.
   const artifactInvalid = isArtifactForm && !artifactSpecValid(form.artifactSpec)
   // 노드형이면 노드 ≥1·각 노드 프롬프트+모델 채움을 저장 조건으로 강제(스펙 259) — 빈 파이프라인 방지.
@@ -537,6 +529,27 @@ export function AgentForm({
               도구를 많이 연결하면(총 10개 초과) 컨텍스트(프롬프트) 보호를 위해 도구를 검색해 쓰는
               방식으로 자동 전환됩니다 — 기능은 동일합니다.
             </span>
+            {/* 기억 구획(스펙 271) — 단기(채팅 히스토리)+장기(mem0)를 한 자리에서(269 과도기 해소).
+                노드 카드와 같은 공용 컨트롤. **단기는 항상**(모델 컨텍스트 창이라 memories 소비와 무관 —
+                codex 271 Low 결합 해소), **장기만 surfaceVisible('기억')로 소비 게이트**. */}
+            <div style={{ marginTop: 16 }}>
+              <SectionHeader>기억</SectionHeader>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))', gap: 16 }}>
+                <ShortTermMemoryField
+                  value={form.historyDepth}
+                  onChange={(v) => set('historyDepth', v ?? 0)}
+                  hint="최근 N개 대화(채팅 히스토리)를 모델에 넣습니다."
+                />
+                {surfaceVisible('기억') && (
+                  <LongTermMemoryField
+                    value={form.memories}
+                    onChange={(arr) => set('memories', arr)}
+                    options={nodeMemoryOptions}
+                    ephemeral={form.ephemeral}
+                  />
+                )}
+              </div>
+            </div>
           </>
         )}
 
@@ -696,27 +709,16 @@ export function AgentForm({
                       {form.temperature == null ? '자동 — 모델 등록 기본값을 사용합니다.' : '에이전트에 저장됩니다(세션마다 동일).'}
                     </span>
                   </Field>
-                  {/* 채팅 히스토리(스펙 238 재검토) — 저장 설정이 아니라 **모델 컨텍스트** 설정
-                      (모델에 넣을 최근 N개). 런타임 _window는 비영속에도 적용되므로(클라이언트가 보낸
-                      대화 기준) 비영속에서도 활성 — "적용 안 됨"으로 잠갔던 건 거짓이었다. */}
-                  <Field label="단기 기억">
-                    <Select
+                  {/* 단기 기억(스펙 271 공용 컨트롤) — 직접형은 스텝 ②의 "기억" 구획이 소유하므로 여기선
+                      숨긴다(!isDirect). 조율형=오케스트레이터 컨텍스트, 노드형=노드 상속 원천, 산출물형=모델
+                      컨텍스트로 각각 세부에 유지. 저장 설정이 아니라 모델 컨텍스트라 비영속에도 활성(스펙 238). */}
+                  {!isDirect && (
+                    <ShortTermMemoryField
                       value={form.historyDepth}
-                      onChange={(v) => set('historyDepth', v)}
-                      style={{ width: '100%' }}
-                      options={[
-                        { label: '기억 안 함 (0개)', value: 0 },
-                        { label: '최근 6개 메시지', value: 6 },
-                        { label: '최근 10개 메시지', value: 10 },
-                        { label: '최근 20개 메시지', value: 20 },
-                        { label: '최근 40개 메시지', value: 40 },
-                        { label: '최근 100개 메시지', value: 100 },
-                      ]}
+                      onChange={(v) => set('historyDepth', v ?? 0)}
+                      hint={`최근 N개 대화(채팅 히스토리)를 모델에 넣습니다${form.ephemeral ? ' — 비영속에서도 요청에 담긴 대화에 적용됩니다' : ''}.`}
                     />
-                    <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-                      최근 N개 대화(채팅 히스토리)를 모델에 넣습니다{form.ephemeral ? ' — 비영속에서도 요청에 담긴 대화에 적용됩니다' : ''}. 장기 기억(mem0)은 "하는 일"의 기억에서 켭니다.
-                    </span>
-                  </Field>
+                  )}
                   <SectionHeader>저장·영속</SectionHeader>
                   {/* 영속/비영속 자체는 상단 "저장 방식"이 소유(스펙 238 — 1급 정보 승격). 여기는
                       영속일 때의 세부만. */}

@@ -1,5 +1,6 @@
 import { Input, Select, Button, Segmented } from 'antd'
 import type { PipelineNode } from '../../mockData'
+import { ShortTermMemoryField, LongTermMemoryField } from './MemoryFields'
 
 /* 노드형 일렬 파이프라인 편집기(스펙 259) — impl=pipeline일 때 "하는 일" 자리에 뜬다.
    ArtifactSpecEditor(190) 관용구 계승: 테두리 카드 + add/remove + per-item 설정 + xxxValid 게이트.
@@ -177,31 +178,17 @@ export function NodeListEditor({
                     : '지금까지의 대화 전체를 보고 처리합니다.'}
                 </span>
               </div>
-              {/* 단기 기억(스펙 270) — 이 노드가 볼 이전 대화 턴 수. 상속=에이전트 설정 따름(기본).
+              {/* 단기 기억(스펙 270·271 공용 컨트롤) — 이 노드가 볼 이전 대화 턴 수. 상속=에이전트 설정.
                   "이전 결과만"(clean)이면 대화를 안 보므로 비활성(결정 (가) — 맥락 컨트롤이 어포던스 승계). */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <span style={{ fontSize: 13, color: 'var(--color-text)', fontWeight: 500 }}>단기 기억</span>
-                <Select
-                  value={n.historyDepth == null ? 'inherit' : n.historyDepth}
-                  onChange={(v) => setNode(i, { historyDepth: v === 'inherit' ? null : (v as number) })}
-                  disabled={(n.context ?? 'carry') === 'clean'}
-                  style={{ width: '100%' }}
-                  options={[
-                    { label: '상속 (에이전트 설정)', value: 'inherit' },
-                    { label: '대화 없음 (0개)', value: 0 },
-                    { label: '최근 6개', value: 6 },
-                    { label: '최근 10개', value: 10 },
-                    { label: '최근 20개', value: 20 },
-                    { label: '최근 40개', value: 40 },
-                    { label: '최근 100개', value: 100 },
-                  ]}
-                />
-                <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-                  {(n.context ?? 'carry') === 'clean'
-                    ? '"이전 결과만"이라 이전 대화를 보지 않습니다.'
-                    : '이 노드가 볼 이전 대화 턴 수(상속=에이전트 설정).'}
-                </span>
-              </div>
+              <ShortTermMemoryField
+                value={n.historyDepth}
+                onChange={(v) => setNode(i, { historyDepth: v })}
+                allowInherit
+                disabled={(n.context ?? 'carry') === 'clean'}
+                hint={(n.context ?? 'carry') === 'clean'
+                  ? '"이전 결과만"이라 이전 대화를 보지 않습니다.'
+                  : '이 노드가 볼 이전 대화 턴 수(상속=에이전트 설정).'}
+              />
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <span style={{ fontSize: 13, color: 'var(--color-text)', fontWeight: 500 }}>응답 형식</span>
                 <Segmented
@@ -232,45 +219,15 @@ export function NodeListEditor({
               />
             )}
 
-            {/* 노드별 기억(스펙 268 P2) — 선택하면 이 노드가 회상을 받음. 키워드는 프록시가 캐싱
-                (같은 키워드=조회 1회 공유). 기억을 골랐을 때만 키워드 모드 노출(간결 기조 267). */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))', gap: 10 }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <span style={{ fontSize: 13, color: 'var(--color-text)', fontWeight: 500 }}>기억 (선택)</span>
-                <Select
-                  mode="multiple"
-                  allowClear
-                  value={n.memories ?? []}
-                  onChange={(vals) => setNode(i, { memories: vals })}
-                  options={memoryOptions}
-                  placeholder={memoryOptions.length ? '이 노드가 회상할 기억' : '등록된 기억 없음'}
-                  disabled={memoryOptions.length === 0}
-                  style={{ width: '100%' }}
-                />
-                {/* 스펙 269: 회상 경고 제거 — 단기(세션) 선택지를 뺐으니 고를 수 있는 건 장기(mem0)뿐.
-                    죽은 선택지에 대한 경고(268 P3)가 필요 없어졌다. */}
-              </div>
-              {(n.memories?.length ?? 0) > 0 && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {/* 문구(스펙 268 후속, 사용자 합의): "회상 키워드"·"이 노드의 입력"은 내부어 —
-                      "기억 찾는 기준"·"앞 단계 결과로"로 평이화. 저장값(user/input)은 불변. */}
-                  <span style={{ fontSize: 13, color: 'var(--color-text)', fontWeight: 500 }}>기억 찾는 기준</span>
-                  <Segmented
-                    value={n.memoryQuery ?? 'user'}
-                    onChange={(v) => setNode(i, { memoryQuery: v as 'user' | 'input' })}
-                    options={[
-                      { label: '사용자 질문으로', value: 'user' },
-                      { label: '앞 단계 결과로', value: 'input' },
-                    ]}
-                  />
-                  <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-                    {(n.memoryQuery ?? 'user') === 'input'
-                      ? '이 노드가 받은 앞 단계 결과로 기억을 찾습니다.'
-                      : '사용자의 원래 질문으로 기억을 찾습니다(다른 노드와 조회 공유).'}
-                  </span>
-                </div>
-              )}
-            </div>
+            {/* 노드별 기억(스펙 268 P2·271 공용 컨트롤) — 장기 회상 + 회상 키워드. 프록시가 캐싱
+                (같은 키워드=조회 1회 공유). memoryQuery는 기억 선택 시만 노출(컨트롤 내부). */}
+            <LongTermMemoryField
+              value={n.memories ?? []}
+              onChange={(vals) => setNode(i, { memories: vals })}
+              options={memoryOptions}
+              queryMode={n.memoryQuery ?? 'user'}
+              onQueryModeChange={(v) => setNode(i, { memoryQuery: v })}
+            />
           </div>
         </div>
       ))}

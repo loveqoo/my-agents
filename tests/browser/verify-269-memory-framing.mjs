@@ -31,6 +31,16 @@ async function login() {
   await page.waitForTimeout(500)
 }
 
+async function closeModal() {
+  const cancel = page.getByRole('button', { name: /취소|닫기/ }).first()
+  if (await cancel.count()) await cancel.click({ force: true }).catch(() => {})
+  const x = page.locator('.ant-modal-close').first()
+  if (await x.count()) await x.click({ force: true }).catch(() => {})
+  await page.keyboard.press('Escape').catch(() => {})
+  await page.locator('.ant-modal-wrap').first().waitFor({ state: 'hidden', timeout: 4000 }).catch(() => {})
+  await page.waitForTimeout(300)
+}
+
 async function openNewForm(typeLabel) {
   await page.getByRole('button', { name: /새 에이전트/ }).first().click()
   await page.waitForTimeout(700)
@@ -47,36 +57,30 @@ async function openNewForm(typeLabel) {
 try {
   await login()
 
-  // ── ① 직접 응답: "하는 일" 기억 그룹 ──
+  // ── ① 직접 응답: "하는 일" 기억 구획의 장기 Select(스펙 271 — PickerGroup→공용 컨트롤) ──
   await openNewForm(null) // 기본=직접 응답
   await page.getByRole('button', { name: '다음' }).click() // 정체성 → 하는 일
   await page.waitForTimeout(500)
 
-  // 기억 Collapse 패널 펼치기(헤더 텍스트 "기억")
-  const memHeader = page.locator('.ant-collapse-header', { hasText: '기억' }).first()
-  await memHeader.click()
+  // 장기 기억 multi-Select 열기(스펙 271 공용 LongTermMemoryField) — 죽은 선택지 부재 단언은 옵션에서.
+  const longWrap = page.locator('div', { has: page.getByText('장기 기억', { exact: true }) }).filter({ has: page.locator('.ant-select') }).last()
+  await longWrap.locator('.ant-select').first().click()
   await page.waitForTimeout(400)
+  const dd1 = page.locator('.ant-select-dropdown:visible')
+  const shortInDirect = await dd1.getByText('단기(세션)', { exact: false }).count()
+  check(shortInDirect === 0, `직접 폼 장기 기억 옵션에 단기(세션) 없음 (found ${shortInDirect})`)
+  const longInDirect = await dd1.getByText('장기 기억 (mem0)', { exact: false }).count()
+  check(longInDirect > 0, `직접 폼 장기 기억 옵션에 장기 기억(mem0) 있음 (found ${longInDirect})`)
+  await page.keyboard.press('Escape').catch(() => {})
+  await page.waitForTimeout(200)
 
-  const shortInDirect = await page.getByText('단기(세션)', { exact: false }).count()
-  check(shortInDirect === 0, `직접 폼 기억 그룹에 단기(세션) 선택지 없음 (found ${shortInDirect})`)
-  const longVisible = await page.getByText('장기 기억 (mem0)', { exact: false }).first().isVisible().catch(() => false)
-  check(longVisible, '직접 폼 기억 그룹에 장기 기억(mem0) 선택지 있음')
-  // 그룹 카운트 태그 = "/1"(단기 제외 후 장기 1개만)
-  const memHeaderText = await memHeader.innerText().catch(() => '')
-  check(/\/\s*1\b/.test(memHeaderText), `기억 그룹 카운트 총 1 (단기 제외) (header="${memHeaderText.replace(/\n/g, ' ')}")`)
-
-  // ── ② 세부: 단기 기억 라벨 / 채팅 히스토리 라벨 부재 ──
+  // ── ② 세부: 단기 기억은 직접형에선 하는 일로 이동(스펙 271) — 세부엔 없음, 채팅 히스토리 라벨도 없음 ──
   await page.getByRole('button', { name: '다음' }).click() // 하는 일 → 세부
   await page.waitForTimeout(500)
-  // 라벨 span은 정확 매칭으로 본다 — Field가 <label>로 설명문까지 감싸므로 hasText는 설명 괄호
-  // "(채팅 히스토리)"까지 잡는다(그건 의도된 메커니즘 명시). 필드 *라벨*만 검사.
-  const shortTermLabel = await page.getByText('단기 기억', { exact: true }).count()
-  check(shortTermLabel > 0, `세부에 "단기 기억" 필드 라벨 있음 (found ${shortTermLabel})`)
+  // "채팅 히스토리" 라벨 부재(269 rename 불변식) — 직접형 세부엔 단기 기억도 없음(271이 하는 일로 이동).
   const chatHistLabel = await page.getByText('채팅 히스토리', { exact: true }).count()
   check(chatHistLabel === 0, `세부에 "채팅 히스토리" 필드 라벨 없음(설명문 괄호는 허용) (found ${chatHistLabel})`)
-  // 닫기
-  await page.keyboard.press('Escape').catch(() => {})
-  await page.waitForTimeout(400)
+  await closeModal()
 
   // ── ③ 노드형: 노드 기억 Select 옵션 ──
   await openNewForm('노드형')
@@ -84,8 +88,8 @@ try {
   await page.waitForTimeout(500)
   await page.getByRole('button', { name: /노드 추가/ }).click()
   await page.waitForTimeout(400)
-  // 노드 카드의 "기억 (선택)" Select 열기
-  const memSelect = page.locator('.ant-select').filter({ hasText: /이 노드가 회상할 기억|등록된 기억 없음/ }).first()
+  // 노드 카드의 장기 기억 Select 열기(스펙 271 공용 컨트롤 placeholder)
+  const memSelect = page.locator('.ant-select').filter({ hasText: /mem0 장기 기억에서 회상|등록된 기억 없음/ }).first()
   const hasMemSelect = await memSelect.count()
   check(hasMemSelect > 0, `노드 카드에 기억 Select 존재 (found ${hasMemSelect})`)
   if (hasMemSelect > 0) {
