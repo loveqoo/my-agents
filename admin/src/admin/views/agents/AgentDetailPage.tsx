@@ -89,8 +89,15 @@ export function AgentDetailPage({
                   label: '실행',
                   children: (
                     // 모델·활성 세션만(스펙 286 후속 — 페르소나는 구성 탭이 소유).
+                    // 노드형은 모델이 노드마다 달라 대표 모델 표기가 거짓(2026-07-10) — 노드 흐름으로 대체.
                     <span>
-                      <span style={{ fontFamily: 'var(--font-family-code)' }}>{agent.model}</span>
+                      {agent.impl === 'pipeline' ? (
+                        <span>
+                          {(agent.nodes || []).map((n, i) => n.name?.trim() || `노드 ${i + 1}`).join(' → ') || '노드 없음'}
+                        </span>
+                      ) : (
+                        <span style={{ fontFamily: 'var(--font-family-code)' }}>{agent.model}</span>
+                      )}
                       <span style={{ color: 'var(--color-text-tertiary)' }}> · 활성 세션 {agent.sessions ?? 0}개</span>
                     </span>
                   ),
@@ -203,8 +210,14 @@ export function AgentDetailPage({
               layout={isMobile ? 'vertical' : 'horizontal'}
               labelStyle={{ width: 120 }}
               items={[
-                { key: 'model', label: '모델', children: <span style={{ fontFamily: 'var(--font-family-code)' }}>{agent.model}</span> },
-                { key: 'persona', label: '페르소나', children: agent.persona || '없음' },
+                // 노드형은 모델·페르소나도 노드 소유(실행=노드별 model_cfg, 최상위 persona 미참조 —
+                // pipeline.py) — 행 자체를 두지 않는다(2026-07-10). 노드별 모델은 아래 "노드" 행이 표시.
+                ...(agent.impl !== 'pipeline'
+                  ? [
+                      { key: 'model', label: '모델', children: <span style={{ fontFamily: 'var(--font-family-code)' }}>{agent.model}</span> },
+                      { key: 'persona', label: '페르소나', children: agent.persona || '없음' },
+                    ]
+                  : []),
                 {
                   key: 'history',
                   label: '단기 기억',

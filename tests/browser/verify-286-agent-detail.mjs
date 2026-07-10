@@ -103,11 +103,17 @@ try {
   check((await page.locator('.ant-tag').filter({ hasText: /^pipeline$/ }).count()) === 0, `② 내부 키 'pipeline' 미노출`)
   const ov2 = await page.locator('.ant-descriptions').first().innerText()
   check(ov2.includes('노드 2'), `② 개요 구성 행 '노드 2' (got ${JSON.stringify(ov2.match(/노드 ?\S*/)?.[0] ?? '')})`)
+  // 후속(2026-07-10): 노드형 개요 실행 행=노드 흐름(대표 모델 표기는 거짓 정보라 제거)
+  check(ov2.includes('n1 → n2'), `⑨ 개요 실행 행=노드 흐름 'n1 → n2' (got ${JSON.stringify(ov2.match(/n1[^\n]*/)?.[0] ?? '')})`)
+  check(!ov2.includes('mock-llm'), `⑨ 개요에 최상위 모델 부재`)
   await page.getByRole('tab', { name: '구성' }).click()
   await page.waitForTimeout(500)
   const cfg2 = await page.locator('.ant-descriptions').first().innerText()
   check(cfg2.includes('n1') && cfg2.includes('n2') && cfg2.includes('mock-llm'), `② 구성 탭 노드 행(이름·모델)`)
   check(!cfg2.includes('장기 기억') && !(await page.getByText('연결 없음', { exact: false }).count()), `⑦ 노드형: 에이전트 수준 행·각주 없음(노드 소유)`)
+  // 후속(2026-07-10): 노드형 구성 탭에 최상위 모델·페르소나 행 부재(노드 소유 — pipeline.py 미참조)
+  check(!cfg2.includes('페르소나'), `⑨ 구성 탭 페르소나 행 부재(노드형)`)
+  check(!/^모델\t|\n모델\t|\n모델\n/.test(cfg2), `⑨ 구성 탭 최상위 모델 행 부재(노드형)`)
 
   // ── 조율형 상세: 위임 대상=이름 노출(수만으론 빈약 — 후속) ──
   await page.getByRole('button', { name: /에이전트 목록/ }).click()
