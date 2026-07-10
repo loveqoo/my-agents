@@ -43,7 +43,7 @@ export function FeedbackHarvestButton({ agentId }: { agentId: string }) {
     <Tooltip
       title={
         nothing
-          ? '수확할 응답 피드백(👍/👎)이 아직 없습니다 — 세션에서 피드백을 받으면 여기서 평가 케이스로 수확합니다'
+          ? '수확할 응답 피드백이 없습니다 — 세션에서 피드백을 받으면 여기서 평가 케이스로 수확합니다'
           : count > 0
             ? `미수확 피드백 ${count}건을 초안 평가 케이스로 수확합니다`
             : '새 피드백이 없습니다 — 기존 수확 문제집은 평가에서 볼 수 있습니다'

@@ -2,8 +2,8 @@
    (K1) 에이전트 목록 → "Plan-Execute Demo"(ui, public·A2A 꺼짐) 행 클릭 → 드로어에
         "공개 범위" 박스("public · " 문구)와 "비공개로 전환" 버튼이 보인다.
    (K2) "비공개로 전환" 클릭 → 확인 모달 → 전환 토스트 → 박스 문구가
-        "private · 소유자만 사용(A2A 불가)"로 바뀐다.
-   (K3) "공개로 전환" 클릭 → 확인 → 문구가 public으로 복귀(원복).
+        "비공개 · 소유자만 사용(A2A 불가)"로 바뀐다.
+   (K3) "공개로 전환" 클릭 → 확인 → 문구가 공개로 복귀(원복).
    (K4) "Doc Translator"(code) 행 클릭 → 드로어에 "A2A로 공개 (중계)" 스위치가 보인다(꺼짐 상태).
         스크린샷만 남기고 켜지 않는다(상태 변경 최소화 — 존재·라벨 확인만).
    (K5) 원복 실측 — curl GET /agents(Bearer=.env API_AUTH_TOKEN)로
@@ -78,6 +78,9 @@ function forceVisibility(internalId, isPublic) {
 
 // 에이전트 메뉴 진입 후 alias 텍스트로 행을 찾아 클릭 → 드로어 오픈 대기.
 async function openAgentDrawer(alias) {
+  // 목록이 커져 페이지네이션 밖일 수 있음(스펙 286서 수리) — 이름 검색으로 좁힌 뒤 클릭.
+  await page.getByPlaceholder('이름 검색').fill(alias)
+  await page.waitForTimeout(500)
   const row = page.locator('tr', { hasText: alias }).first()
   await row.waitFor({ timeout: 10000 })
   await row.click()
@@ -85,7 +88,9 @@ async function openAgentDrawer(alias) {
 }
 
 async function closeDrawer() {
-  await page.keyboard.press('Escape')
+  // 상세가 드로어→풀페이지(스펙 245)로 바뀜 — 돌아가기 버튼으로 목록 복귀(286서 수리).
+  const back = page.getByRole('button', { name: /에이전트 목록/ })
+  if (await back.count()) { await back.click() } else { await page.keyboard.press('Escape') }
   await page.waitForTimeout(400)
 }
 
@@ -115,11 +120,14 @@ try {
   await page.waitForTimeout(500)
 
   // ================= K1: Plan-Execute Demo 행 클릭 → "공개 범위" 박스 + "비공개로 전환" 버튼 =================
-  await openAgentDrawer('Plan-Execute Demo')
+  await openAgentDrawer('plan-execute-demo')
+  // 공개 범위 박스는 공개·연동 탭에만 렌더(스펙 246 탭 하나만 렌더 — 286서 수리).
+  await page.getByRole('tab', { name: '공개·연동' }).click()
+  await page.waitForTimeout(400)
   await shot('00-plex-drawer-public')
   const bodyText1 = await page.locator('body').innerText()
   check(bodyText1.includes('공개 범위'), 'K1a: "공개 범위" 박스 표시')
-  check(bodyText1.includes('public ·'), 'K1b: "public · " 문구 표시(현재 public)')
+  check(bodyText1.includes('공개 ·'), 'K1b: "공개 · " 문구 표시(현재 공개)')
   const demoteBtn = page.getByRole('button', { name: '비공개로 전환' })
   check((await demoteBtn.count()) > 0, 'K1c: "비공개로 전환" 버튼 표시')
 
@@ -128,18 +136,22 @@ try {
   await demoteBtn.first().click()
   await page.getByRole('dialog').waitFor({ timeout: 5000 })
   const modalText = await page.getByRole('dialog').innerText()
-  check(modalText.includes('비공개(private)로 전환할까요?'), 'K2a: 확인 모달 문구 표시')
+  check(modalText.includes('비공개로 전환할까요?'), 'K2a: 확인 모달 문구 표시')
   await shot('01-plex-confirm-modal')
   await page.getByRole('button', { name: '전환', exact: true }).click()
 
-  const demoteToast = page.locator('.ant-alert-success', { hasText: '비공개(private)로 전환됨' })
+  // 전환 알림은 message(토스트)로 렌더 — .ant-alert가 아니라 .ant-message(286서 수리).
+  const demoteToast = page.locator('.ant-message', { hasText: '비공개로 전환됨' })
   const demoteToastShown = await demoteToast.waitFor({ timeout: 10000 }).then(() => true).catch(() => false)
-  check(demoteToastShown, 'K2b: "비공개(private)로 전환됨" 토스트 표시')
+  check(demoteToastShown, 'K2b: "비공개로 전환됨" 토스트 표시')
   await page.waitForTimeout(300)
   await shot('02-plex-private-toast')
 
+  // 전환 후 상세가 갱신·리셋될 수 있어 공개·연동 탭 재확인(활성 아니면 클릭).
+  await page.getByRole('tab', { name: '공개·연동' }).click()
+  await page.waitForTimeout(400)
   const bodyText2 = await page.locator('body').innerText()
-  check(bodyText2.includes('private · 소유자만 사용(A2A 불가)'), `K2c: 박스 문구가 private로 변경(실측 포함 여부=${bodyText2.includes('private · 소유자만 사용(A2A 불가)')})`)
+  check(bodyText2.includes('비공개 · 소유자만 사용(A2A 불가)'), `K2c: 박스 문구가 비공개로 변경(실측 포함 여부=${bodyText2.includes('비공개 · 소유자만 사용(A2A 불가)')})`)
   await shot('03-plex-drawer-private')
 
   // ================= K3: "공개로 전환" → 확인 → public 복귀(원복) =================
@@ -148,26 +160,32 @@ try {
   await promoteBtn.first().click()
   await page.getByRole('dialog').waitFor({ timeout: 5000 })
   const modalText2 = await page.getByRole('dialog').innerText()
-  check(modalText2.includes('공개(public)로 전환할까요?'), 'K3b: 확인 모달 문구 표시(승격)')
+  check(modalText2.includes('공개로 전환할까요?'), 'K3b: 확인 모달 문구 표시(승격)')
   await page.getByRole('button', { name: '전환', exact: true }).click()
 
-  const promoteToast = page.locator('.ant-alert-success', { hasText: '공개(public)로 전환됨' })
+  const promoteToast = page.locator('.ant-message', { hasText: '공개로 전환됨' })
   const promoteToastShown = await promoteToast.waitFor({ timeout: 10000 }).then(() => true).catch(() => false)
-  check(promoteToastShown, 'K3c: "공개(public)로 전환됨" 토스트 표시')
+  check(promoteToastShown, 'K3c: "공개로 전환됨" 토스트 표시')
   await page.waitForTimeout(300)
 
   const bodyText3 = await page.locator('body').innerText()
-  check(bodyText3.includes('public ·'), 'K3d: 박스 문구가 public으로 복귀(원복)')
+  check(bodyText3.includes('공개 ·'), 'K3d: 박스 문구가 공개로 복귀(원복)')
   await shot('04-plex-drawer-restored-public')
   reachedMutation = false // 원복 저장까지 도달 — 아래 curl 실측이 최종 확인
 
   await closeDrawer()
 
   // ================= K4: Doc Translator(code) 행 클릭 → "A2A로 공개 (중계)" 스위치(꺼짐) =================
-  await openAgentDrawer('Doc Translator')
+  // code 에이전트는 Internal (Code) 탭(스펙 284) — 탭 전환 후 진입.
+  await page.getByRole('tab', { name: 'Internal (Code)' }).click()
+  await page.waitForTimeout(500)
+  await openAgentDrawer('doc-translator')
+  // A2A 스위치는 공개·연동 탭에 렌더(246 탭 구조) — 라벨도 현행('A2A 공개' 행 + 중계 설명)으로.
+  await page.getByRole('tab', { name: '공개·연동' }).click()
+  await page.waitForTimeout(400)
   await shot('05-xlt-drawer')
   const bodyText4 = await page.locator('body').innerText()
-  check(bodyText4.includes('A2A로 공개 (중계)'), 'K4a: "A2A로 공개 (중계)" 스위치 라벨 표시')
+  check(bodyText4.includes('A2A 공개') && bodyText4.includes('꺼짐 · 노출되지 않음'), 'K4a: "A2A 공개" 행 + 꺼짐 스위치 라벨 표시')
   const xltSwitch = page.locator('button.ant-switch, [role="switch"]').filter({ hasText: '' })
   // ExposeSwitch 구현이 어떤 요소든(버튼/스위치) label과 인접 — aria-checked로 꺼짐 상태 확인.
   const switchNearLabel = page.locator('text=A2A로 공개 (중계)').locator('xpath=ancestor::*[1]')

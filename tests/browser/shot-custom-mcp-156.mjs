@@ -110,7 +110,7 @@ try {
   await calcRow.click()
   await page.waitForTimeout(600)
   const bodyText1 = await page.locator('body').innerText()
-  check(bodyText1.includes('외부 공개'), 'K2a: "외부 공개" 섹션 표시')
+  check(bodyText1.includes('외부 서빙'), 'K2a: "외부 서빙" 섹션 표시')
   const publishSwitch = page.locator('.ant-switch').last()
   const switchCount = await publishSwitch.count()
   const ariaChecked = switchCount > 0 ? await publishSwitch.getAttribute('aria-checked').catch(() => null) : null
@@ -124,7 +124,7 @@ try {
   await publishSwitch.click()
   await page.waitForTimeout(800)
   const bodyText2 = await page.locator('body').innerText()
-  check(bodyText2.includes('public'), 'K3a: "public" 태그 표시')
+  check(bodyText2.includes('공개'), 'K3a: "공개" 태그 표시')
   check(bodyText2.includes(SERVED_URL), `K3b: 서빙 URL 표시(실측 포함 여부=${bodyText2.includes(SERVED_URL)}, url=${SERVED_URL})`)
   const copyBtnCount = await page.locator('button[class*="ant-btn"] .anticon-copy, button:has(.anticon-copy)').count()
   check(copyBtnCount > 0, `K3c: 복사 버튼 표시(실측 개수=${copyBtnCount})`)

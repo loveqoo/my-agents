@@ -1331,7 +1331,7 @@ export default function BlocksView() {
                   const url = detail.served_url ?? detail.endpoint
                   return detail.published && url ? (
                     <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <Tag color="green">public</Tag>
+                      <Tag color="green">공개</Tag>
                       <code
                         style={{
                           fontFamily: 'var(--font-family-code)',

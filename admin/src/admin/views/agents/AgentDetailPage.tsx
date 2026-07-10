@@ -88,9 +88,10 @@ export function AgentDetailPage({
                   key: 'run',
                   label: '실행',
                   children: (
+                    // 모델·활성 세션만(스펙 286 후속 — 페르소나는 구성 탭이 소유).
                     <span>
                       <span style={{ fontFamily: 'var(--font-family-code)' }}>{agent.model}</span>
-                      <span style={{ color: 'var(--color-text-tertiary)' }}> · 페르소나 {agent.persona || '없음'} · 활성 세션 {agent.sessions ?? 0}개</span>
+                      <span style={{ color: 'var(--color-text-tertiary)' }}> · 활성 세션 {agent.sessions ?? 0}개</span>
                     </span>
                   ),
                 },
@@ -112,7 +113,16 @@ export function AgentDetailPage({
                         }
                         if ((agent.vectorTables || []).length) parts.push(`문서 ${agent.vectorTables.length}`)
                         { const liveMem = (agent.memories || []).filter((m) => m !== SHORT_TERM_MEMORY); if (liveMem.length) parts.push(`기억 ${liveMem.length}`) }
-                        if ((agent.capabilities || []).length) parts.push(`위임 대상 ${(agent.capabilities || []).length}`)
+                        // 위임 대상은 수만으론 빈약(사용자 지적) — 이름으로(agents 목록에서 해석).
+                        const caps = agent.capabilities || []
+                        if (caps.length) {
+                          const names = caps.map((c) => {
+                            if (c.includes(':')) return c // mcp:/rag: 능력은 키 그대로
+                            const hit = (agents || []).find((x) => x.agentId === c)
+                            return hit ? displayName(hit) : c
+                          })
+                          parts.push(`위임 대상 ${caps.length} — ${names.slice(0, 3).join(', ')}${caps.length > 3 ? ` 외 ${caps.length - 3}` : ''}`)
+                        }
                         return parts.length ? parts.join(' · ') : '연결 없음 — 모델만으로 응답'
                       })()}
                     </JumpCell>
@@ -123,8 +133,12 @@ export function AgentDetailPage({
                   label: '버전·배포',
                   children: (
                     <JumpCell onJump={() => jump('versions')}>
-                      {agent.activeVersion ? `서빙 ${agent.activeVersion}` : '미서빙(초안만 — 활성화 필요)'}
-                      {draft ? ` · 초안 ${draft.version} 대기 중` : agent.activeVersion ? ' · 초안 없음' : ''}
+                      {/* `vN · 상태` 압축(스펙 286 후속) — 설명형 문장은 버전 탭이 소유. */}
+                      {agent.activeVersion
+                        ? `${agent.activeVersion} · 서빙 중${draft ? ` · 초안 ${draft.version} 대기` : ''}`
+                        : draft
+                        ? `${draft.version} · 미서빙`
+                        : '버전 없음'}
                     </JumpCell>
                   ),
                 },
@@ -133,7 +147,17 @@ export function AgentDetailPage({
                   label: '공개·연동',
                   children: (
                     <JumpCell onJump={() => jump('sharing')}>
-                      {agent.owner_id == null ? 'public(모두 사용 가능)' : 'private(소유자만)'} · A2A {agent.exposed?.a2a ? '켬' : '꺼짐'}
+                      {/* 압축 표기(스펙 286 후속) — 설명은 공개·연동 탭이 소유. A2A는 상태 점. */}
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                        {agent.owner_id == null ? '공개' : '비공개'}
+                        <span style={{ color: 'var(--color-text-quaternary)' }}>·</span>
+                        <Tooltip title={agent.exposed?.a2a ? 'A2A 켬 — 다른 에이전트가 호출 가능' : 'A2A 꺼짐 — 노출되지 않음'}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                            <span aria-label={agent.exposed?.a2a ? 'A2A 켬' : 'A2A 꺼짐'} style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: agent.exposed?.a2a ? 'var(--green-6)' : 'var(--gray-5)' }} />
+                            A2A
+                          </span>
+                        </Tooltip>
+                      </span>
                     </JumpCell>
                   ),
                 },
@@ -143,13 +167,13 @@ export function AgentDetailPage({
                   children: (
                     <JumpCell onJump={() => jump('operations')}>
                       {(() => {
-                        if (!ops) return '피드백 아직 없음'
+                        if (!ops) return '피드백 없음'
                         const vs = Object.values(ops.versions || {})
                         const up = vs.reduce((n, v) => n + v.up, 0) + ops.unversionedUp
                         const down = vs.reduce((n, v) => n + v.down, 0) + ops.unversionedDown
                         const cur = agent.activeVersion ? ops.versions?.[agent.activeVersion] : undefined
                         const score = cur?.lastScore != null ? ` · 최근 평가 ${Math.round(cur.lastScore * 100)}%` : ''
-                        return (up || down || score) ? `👍${up} 👎${down}${score}` : '피드백 아직 없음'
+                        return (up || down || score) ? `👍${up} 👎${down}${score}` : '피드백 없음'
                       })()}
                     </JumpCell>
                   ),
@@ -385,19 +409,19 @@ export function AgentDetailPage({
                     <span style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                       <span style={{ flex: 1, minWidth: 180 }}>
                         {agent.owner_id == null
-                          ? 'public · 모두 도구처럼 사용 가능(A2A 켜기 가능)'
-                          : 'private · 소유자만 사용(A2A 불가)'}
+                          ? '공개 · 모두 도구처럼 사용 가능(A2A 켜기 가능)'
+                          : '비공개 · 소유자만 사용(A2A 불가)'}
                       </span>
                       {canManage && (
                         <Button
                           size="small"
                           onClick={() =>
                             Modal.confirm({
-                              title: agent.owner_id == null ? '비공개(private)로 전환할까요?' : '공개(public)로 전환할까요?',
+                              title: agent.owner_id == null ? '비공개로 전환할까요?' : '공개로 전환할까요?',
                               content:
                                 agent.owner_id == null
-                                  ? 'private가 되면 소유자만 사용할 수 있고, 켜져 있던 A2A 공개는 자동으로 꺼집니다.'
-                                  : 'public이 되면 모든 사용자가 이 에이전트를 도구처럼 사용할 수 있고 A2A 공개도 켤 수 있게 됩니다.',
+                                  ? '비공개가 되면 소유자만 사용할 수 있고, 켜져 있던 A2A 공개는 자동으로 꺼집니다.'
+                                  : '공개가 되면 모든 사용자가 이 에이전트를 도구처럼 사용할 수 있고 A2A 공개도 켤 수 있게 됩니다.',
                               okText: '전환',
                               cancelText: '취소',
                               onOk: () => onSetVisibility(agent, agent.owner_id != null),
@@ -478,7 +502,7 @@ export function AgentDetailPage({
                     children: (
                       <span style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                         <span style={{ flex: 1, minWidth: 180, fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-                          응답 피드백(👍/👎)을 초안 평가 케이스로 — 에이전트 변경 회귀 지표
+                          응답 피드백을 초안 평가 케이스로 — 에이전트 변경 회귀 지표
                         </span>
                         <FeedbackHarvestButton agentId={agent.id} />
                       </span>

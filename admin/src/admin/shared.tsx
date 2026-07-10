@@ -55,16 +55,7 @@ export function StatusPill({ color, label }: { color: string; label: ReactNode }
   return <Badge color={color} text={<span style={{ fontSize: 14, color: 'var(--color-text)' }}>{label}</span>} />
 }
 
-/* 소유 표시 태그(스펙 114) — owner_id·can_manage로 파생. 백엔드가 판정을 소유하므로(learning 113)
-   프론트는 재계산 없이 표시만: null=공유, 관리 불가=다른 사용자, 관리 가능+소유=null(태그 없음). */
-export function OwnerTag({ ownerId, canManage, meId }: { ownerId?: string | null; canManage?: boolean; meId?: string }) {
-  // 최소 어휘(스펙 147): public/private/private·타인. '타인' 판정은 meId 비교 우선 —
-  // can_manage는 admin에게 항상 true라 admin 시야에서 타인 구분이 사라진다(e2e 147 실측).
-  if (ownerId == null) return <Tag>public</Tag>
-  const others = meId !== undefined ? ownerId !== meId : canManage === false
-  if (others) return <Tag color="orange">private · 타인</Tag>
-  return <Tag color="blue">private</Tag>
-}
+/* OwnerTag(스펙 114)는 284(내 것=행 tint)에서 마지막 소비처가 사라져 제거(스펙 286 후속). */
 
 /* 테두리가 있는 카드 표면(테이블 패널 등) — antd Card로 통일(스펙 204). body 패딩 0 = 구 Panel과
    동일 시맨틱(내용물이 표 등 자체 패딩 보유), overflow hidden은 루트 스타일로 보존. */

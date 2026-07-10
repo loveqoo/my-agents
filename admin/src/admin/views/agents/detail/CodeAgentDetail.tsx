@@ -1,7 +1,7 @@
 /* 코드(SDK) 에이전트 상세 — 풀페이지(스펙 246 후속5). ui 상세와 **같은 뼈대**(DetailPageShell:
    좌측 탭 네비+개요 지도+활성 탭만 렌더) — 사용자 지적("소스별 상세 컴포넌트 차이가 크다") 반영.
    구성은 코드가 소유(읽기 전용), 배포는 코드 푸시로 생성. */
-import { Tag, Button, Alert, Modal, Descriptions, Grid, Typography } from 'antd'
+import { Tag, Button, Alert, Modal, Descriptions, Grid, Typography, Tooltip } from 'antd'
 import { ExposeSwitch } from '../../../shared'
 import { Icon } from '../../../icons'
 import { SHORT_TERM_MEMORY, type Agent } from '../../../mockData'
@@ -46,9 +46,10 @@ export function CodeAgentDetailPage({
                 key: 'run',
                 label: '실행',
                 children: (
+                  // 모델·활성 세션만(스펙 286 후속 — ui 상세와 같은 문법, 페르소나는 구성 탭이 소유).
                   <span>
                     <span style={{ fontFamily: 'var(--font-family-code)' }}>{agent.model}</span>
-                    <span style={{ color: 'var(--color-text-tertiary)' }}> · 페르소나 {agent.persona || '없음'} · 활성 세션 {agent.sessions ?? 0}개</span>
+                    <span style={{ color: 'var(--color-text-tertiary)' }}> · 활성 세션 {agent.sessions ?? 0}개</span>
                   </span>
                 ),
               },
@@ -59,8 +60,9 @@ export function CodeAgentDetailPage({
                   <JumpCell onJump={() => jump('config')}>
                     {(() => {
                       const parts: string[] = []
-                      if ((agent.mcps || []).length) parts.push(`도구 ${agent.mcps.length}`)
-                      { const liveMem = (agent.memories || []).filter((m) => m !== SHORT_TERM_MEMORY); if (liveMem.length) parts.push(`메모리 ${liveMem.length}`) }
+                      // code 에이전트 manifest의 mcps=서버 목록 — 서버 수임을 정직 표기(스펙 286).
+                      if ((agent.mcps || []).length) parts.push(`도구 서버 ${agent.mcps.length}`)
+                      { const liveMem = (agent.memories || []).filter((m) => m !== SHORT_TERM_MEMORY); if (liveMem.length) parts.push(`기억 ${liveMem.length}`) }
                       return parts.length ? `${parts.join(' · ')} (읽기 전용)` : '연결 없음 (읽기 전용)'
                     })()}
                   </JumpCell>
@@ -80,7 +82,17 @@ export function CodeAgentDetailPage({
                 label: '공개·연동',
                 children: (
                   <JumpCell onJump={() => jump('sharing')}>
-                    {agent.owner_id == null ? 'public(모두 사용 가능)' : 'private(소유자만)'} · A2A {agent.exposed?.a2a ? '켬(중계)' : '꺼짐'}
+                    {/* 압축 표기(스펙 286 후속) — ui 상세와 같은 문법. A2A는 상태 점(중계는 툴팁). */}
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      {agent.owner_id == null ? '공개' : '비공개'}
+                      <span style={{ color: 'var(--color-text-quaternary)' }}>·</span>
+                      <Tooltip title={agent.exposed?.a2a ? 'A2A 켬 — 우리 A2A 주소로 호출을 중계' : 'A2A 꺼짐 — 노출되지 않음'}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                          <span aria-label={agent.exposed?.a2a ? 'A2A 켬' : 'A2A 꺼짐'} style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: agent.exposed?.a2a ? 'var(--green-6)' : 'var(--gray-5)' }} />
+                          A2A
+                        </span>
+                      </Tooltip>
+                    </span>
                   </JumpCell>
                 ),
               },
@@ -251,18 +263,18 @@ export function CodeAgentDetailPage({
                 children: (
                   <span style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                     <span style={{ flex: 1, minWidth: 180 }}>
-                      {agent.owner_id == null ? 'public · 모두 사용 가능(A2A 켜기 가능)' : 'private · 소유자만 사용(A2A 불가)'}
+                      {agent.owner_id == null ? '공개 · 모두 사용 가능(A2A 켜기 가능)' : '비공개 · 소유자만 사용(A2A 불가)'}
                     </span>
                     {canManage && (
                       <Button
                         size="small"
                         onClick={() =>
                           Modal.confirm({
-                            title: agent.owner_id == null ? '비공개(private)로 전환할까요?' : '공개(public)로 전환할까요?',
+                            title: agent.owner_id == null ? '비공개로 전환할까요?' : '공개로 전환할까요?',
                             content:
                               agent.owner_id == null
-                                ? 'private가 되면 소유자만 사용할 수 있고, 켜져 있던 A2A 공개는 자동으로 꺼집니다.'
-                                : 'public이 되면 모든 사용자가 사용할 수 있고 A2A 공개(서버가 1홉 중계)도 켤 수 있습니다.',
+                                ? '비공개가 되면 소유자만 사용할 수 있고, 켜져 있던 A2A 공개는 자동으로 꺼집니다.'
+                                : '공개가 되면 모든 사용자가 사용할 수 있고 A2A 공개(서버가 1홉 중계)도 켤 수 있습니다.',
                             okText: '전환',
                             cancelText: '취소',
                             onOk: () => onSetVisibility(agent, agent.owner_id != null),

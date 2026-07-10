@@ -20,7 +20,7 @@ const log = (...a) => console.log(...a)
 const fails = []
 const check = (c, m) => { log((c ? '  ok  ' : ' FAIL ') + m); if (!c) fails.push(m) }
 const rand = Date.now().toString(36)
-const D = 'dt286-direct-' + rand, P = 'dt286-pipe-' + rand
+const D = 'dt286-direct-' + rand, P = 'dt286-pipe-' + rand, O = 'dt286-orch-' + rand
 const cleanup = { agents: [] }
 
 const openDetail = async (name) => {
@@ -40,17 +40,17 @@ try {
   await page.getByText('에이전트', { exact: true }).first().waitFor({ timeout: 10000 })
   await page.waitForTimeout(500)
 
-  // 픽스처: 직접형(도구 2개=서버 1개 — 카운트 구분자) + 노드형(노드 2개)
-  const made = await page.evaluate(async ({ D, P }) => {
+  // 픽스처: 직접형(도구 2개=서버 1개 — 카운트 구분자) + 노드형(노드 2개) + 조율형(위임 대상=직접형)
+  const made = await page.evaluate(async ({ D, P, O }) => {
     const H = { 'Content-Type': 'application/json' }
-    const jf = async (body) => { const r = await fetch('/api/agents', { method: 'POST', credentials: 'include', headers: H, body: JSON.stringify(body) }); return r.ok ? (await r.json()).id : null }
-    return {
-      d: await jf({ name: D, config: { model: 'mock-llm', persona: 't', mcps: ['local-tools'], tools: ['local-tools__echo', 'local-tools__web_search'], memories: ['장기 기억 (mem0)'] } }),
-      p: await jf({ name: P, config: { model: 'mock-llm', persona: '', impl: 'pipeline', nodes: [{ name: 'n1', prompt: 'p', model: 'mock-llm', tools: [] }, { name: 'n2', prompt: 'p', model: 'mock-llm', tools: [] }] } }),
-    }
-  }, { D, P })
+    const jf = async (body) => { const r = await fetch('/api/agents', { method: 'POST', credentials: 'include', headers: H, body: JSON.stringify(body) }); return r.ok ? await r.json() : null }
+    const d = await jf({ name: D, config: { model: 'mock-llm', persona: 't', mcps: ['local-tools'], tools: ['local-tools__echo', 'local-tools__web_search'], memories: ['장기 기억 (mem0)'] } })
+    const p = await jf({ name: P, config: { model: 'mock-llm', persona: '', impl: 'pipeline', nodes: [{ name: 'n1', prompt: 'p', model: 'mock-llm', tools: [] }, { name: 'n2', prompt: 'p', model: 'mock-llm', tools: [] }] } })
+    const o = d?.agentId ? await jf({ name: O, config: { model: 'mock-llm', persona: 't', impl: 'orchestrate', capabilities: [d.agentId] } }) : null
+    return { d: d?.id, p: p?.id, o: o?.id }
+  }, { D, P, O })
   for (const id of Object.values(made)) if (id) cleanup.agents.push(id)
-  check(made.d && made.p, `픽스처 생성 (${JSON.stringify(made)})`)
+  check(!!(made.d && made.p && made.o), `픽스처 생성 (${JSON.stringify(made)})`)
   await page.reload({ waitUntil: 'networkidle' }); await page.waitForTimeout(800)
 
   // ── 직접형 상세 ──
@@ -59,7 +59,12 @@ try {
   check(overview.includes('도구 2'), `① 개요 구성 행 '도구 2'(tools 기준) (got ${JSON.stringify(overview.match(/도구 ?\S*/)?.[0] ?? '')})`)
   check(!overview.includes('도구 1'), `① '도구 1'(서버 수) 미노출`)
   check(overview.includes('기억 1') && !overview.includes('메모리'), `④ 개요 '기억 1'(메모리 아님)`)
-  check(overview.includes('피드백 아직 없음') && !overview.includes('지표 없음'), `④ 운영 행 '피드백 아직 없음'`)
+  check(overview.includes('피드백 없음') && !overview.includes('아직') && !overview.includes('지표 없음'), `④ 운영 행 '피드백 없음'('아직' 제거)`)
+  // 후속: 개요 요약 행 압축(사용자 5지시)
+  check(!overview.includes('페르소나'), `⑤ 실행 행 페르소나 제거(모델·세션만)`)
+  check(overview.includes('v1 · 미서빙') && !overview.includes('활성화 필요'), `⑤ 버전 행 'v1 · 미서빙' 압축 (got ${JSON.stringify(overview.match(/v1[^\n]*/)?.[0] ?? '')})`)
+  check(overview.includes('비공개') && !overview.includes('private') && !overview.includes('소유자만'), `⑤ 공개 행 '비공개'(한국어 어휘) 압축`)
+  check((await page.locator('span[aria-label="A2A 꺼짐"]').count()) > 0, `⑤ A2A 상태 점(회색=꺼짐) 존재`)
   // 헤더 배지 슬림화 — 신호등 점 + 종류만, 구 태그 부재
   check((await page.locator('span[aria-label="유휴"]').count()) > 0, `③ 신호등 점(유휴) 존재`)
   check((await page.locator('.ant-tag', { hasText: '직접 응답' }).count()) > 0, `③ 종류 태그 '직접 응답'`)
@@ -73,6 +78,11 @@ try {
   const cfgTxt = await page.locator('.ant-descriptions').first().innerText()
   check(cfgTxt.includes('local-tools · echo') && cfgTxt.includes('local-tools · web_search'), `① 구성 탭 도구 태그 2(서버 · 도구)`)
   check(!cfgTxt.includes('벡터 테이블') && !cfgTxt.includes('MCP'), `④ 구성 탭 '벡터 테이블'/'MCP' 라벨 부재`)
+  // 운영 탭 — 피드백 수확 문구 이모지 제거(후속 지시)
+  await page.getByRole('tab', { name: '운영' }).click()
+  await page.waitForTimeout(400)
+  const opsTxt = await page.locator('.ant-descriptions').first().innerText()
+  check(opsTxt.includes('응답 피드백을 초안 평가 케이스로') && !opsTxt.includes('👍') && !opsTxt.includes('👎'), `⑥ 피드백 수확 행 이모지 제거`)
 
   // ── 노드형 상세 ──
   await page.getByRole('button', { name: /에이전트 목록/ }).click()
@@ -86,6 +96,13 @@ try {
   await page.waitForTimeout(500)
   const cfg2 = await page.locator('.ant-descriptions').first().innerText()
   check(cfg2.includes('n1') && cfg2.includes('n2') && cfg2.includes('mock-llm'), `② 구성 탭 노드 행(이름·모델)`)
+
+  // ── 조율형 상세: 위임 대상=이름 노출(수만으론 빈약 — 후속) ──
+  await page.getByRole('button', { name: /에이전트 목록/ }).click()
+  await page.waitForTimeout(500)
+  await openDetail(O)
+  const ov3 = await page.locator('.ant-descriptions').first().innerText()
+  check(ov3.includes(`위임 대상 1 — ${D}`), `⑤ 구성 행 위임 대상 이름 노출 (got ${JSON.stringify(ov3.match(/위임[^\n]*/)?.[0] ?? '')})`)
 
   log('\n' + (fails.length ? `FAILED ${fails.length}: ${fails.join(' | ')}` : 'ALL GREEN'))
   if (fails.length) process.exitCode = 1

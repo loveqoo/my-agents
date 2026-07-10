@@ -99,7 +99,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
   const setVisibility = async (agent: Agent, pub: boolean) => {
     try {
       await A.setVisibility(agent.id, pub)
-      message.success(pub ? `${displayName(agent)} — 공개(public)로 전환됨` : `${displayName(agent)} — 비공개(private)로 전환됨`)
+      message.success(pub ? `${displayName(agent)} — 공개로 전환됨` : `${displayName(agent)} — 비공개로 전환됨`)
     } catch (e) {
       message.error(String(e))
     }
@@ -638,7 +638,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
                 <span style={{ color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>연결된 도구·문서</span>
               </div>
               <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--color-border-secondary)', color: 'var(--color-text-tertiary)', lineHeight: 1.5 }}>
-                출처는 상단 탭으로 구분 · A2A 스위치=다른 에이전트의 호출 허용(public만 켤 수 있음)
+                출처는 상단 탭으로 구분 · A2A 스위치=다른 에이전트의 호출 허용(공개만 켤 수 있음)
               </div>
             </div>
           }

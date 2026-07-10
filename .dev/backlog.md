@@ -320,3 +320,5 @@
 - [ ] 노드형 기억: 장기 미선택(단기만) 노드의 "조용한 회상 없음" 안내(스펙 268 주의 — memory_enabled는 장기 블록만). UI 힌트 or 게이트 표시 검토.
 - [후보] 기본 public + 생성자 축 분리(번호 미정 — 285는 resync가 사용) — 284에서 분리(2026-07-10): 현 모델 공개=owner_id 소멸이라 "기본 public+내 것 tint" 양립 불가. created_by 신설(마이그레이션)+147 가시성 게이트(404-fold·복제·A2A·메모리) 재설계. RBAC 체크리스트+codex 적대 필수.
 - 네비 메뉴명 "메모리" vs 화면 어휘 "기억" 통일 검토(회고 261 — 286서 상세만 통일, 반쪽 상태)
+- shot-agent-policy-147·shot-naming-148 e2e — 284(소유 태그·필터 소멸)로 대상 표면 소멸, 수리 또는 폐기 판단 필요(286서 발견)
+- antd v6 deprecation 신규 관측: Descriptions labelStyle→styles.label (154 콘솔, 208 규칙에 따라 후속)
