@@ -13,6 +13,7 @@ import { ShortTermMemoryField, LongTermMemoryField } from '../admin/views/agents
 import { ModelField } from '../admin/views/agents/ModelFields'
 import { PromptField } from '../admin/views/agents/PromptFields'
 import { safeToolName } from '../admin/views/agents/AgentForm'
+import { ToolTree } from '../admin/views/agents/ToolTree'
 
 export interface Overrides {
   model: string
@@ -207,36 +208,20 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
 
   const set = <K extends keyof Overrides>(k: K, v: Overrides[K]) =>
     setDraft((d) => (d ? { ...d, [k]: v } : d))
-  // 도구 단위 토글(스펙 276) — mcps(서버 로드 원천)를 서버 합집합으로 파생 유지. 카탈로그에 도구
-  // 목록 없는 서버는 mcps에 보존(런타임 폴백=전체 노출 — 폼과 동일 규칙).
-  const toggleTool = (rt: string) =>
-    setDraft((d) => {
-      if (!d) return d
-      const tools = d.tools.includes(rt) ? d.tools.filter((x) => x !== rt) : [...d.tools, rt]
-      const items = blocks.mcp?.items ?? []
-      const preserved = d.mcps.filter((srv) => !(items.find((m) => m.name === srv)?.tools?.length))
-      const mcps = [...new Set([...tools.map((x) => x.split('__')[0]), ...preserved])]
-      return { ...d, tools, mcps }
-    })
+  // (도구 토글은 스펙 277 ToolTree가 wholesale onChange=setDraftTools로 대체 — 위에서 mcps 파생.)
 
   // 모델 옵션화(chat 필터·미등록 값 보존)는 공용 ModelField가 담당(스펙 274 — 사본 소멸).
 
-  // "이 대화에서 쓸 것"(스펙 109) — 도구만 PickerGroups(기억은 273에서 우측 세부 공용 컨트롤로).
-  // 항목=개별 도구(스펙 276, 폼·노드와 같은 어휘) — 서버가 아니라 기능 단위로 세션 오버라이드.
-  const ovGroups: PickerGroup[] = [
-    {
-      key: '도구',
-      title: '도구',
-      items: (blocks.mcp?.items ?? []).flatMap((s) =>
-        (s.tools ?? []).map((t) => ({ id: `tool:${safeToolName(s.name, t)}`, label: `${s.name} · ${t}` }))
-      ),
-      emptyText: '등록된 MCP 도구 없음',
-    },
-  ]
-  const ovSelected = draft ? draft.tools.map((x) => `tool:${x}`) : []
-  const ovToggle = (id: string) => {
-    if (id.startsWith('tool:')) toggleTool(id.slice(5))
-  }
+  // "이 대화에서 쓸 것"(스펙 109/277) — 도구는 서버→도구 계층 트리(ToolTree). 기억은 273에서 우측
+  // 세부 공용 컨트롤로 이동. 세션 한정으로 도구 단위 배선을 덮어쓴다(스펙 276).
+  const setDraftTools = (next: string[]) =>
+    setDraft((d) => {
+      if (!d) return d
+      const items = blocks.mcp?.items ?? []
+      const preserved = d.mcps.filter((srv) => !(items.find((m) => m.name === srv)?.tools?.length))
+      const mcps = [...new Set([...next.map((x) => x.split('__')[0]), ...preserved])]
+      return { ...d, tools: next, mcps }
+    })
   // 장기 기억 옵션(273 공용 컨트롤용) — 단기(세션)은 선택지에서 제외(스펙 269, historyDepth가 소유).
   // 비영속 미선택-잠금(235·codex 238 #2)은 LongTermMemoryField의 ephemeral prop이 담당(중복 구현 소멸).
   const memoryOptions = (blocks.memory?.items ?? [])
@@ -410,7 +395,7 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
               {isOrchestrator ? (
                 <PickerGroups groups={capGroups} selected={draft.capabilities} onToggle={capToggle} />
               ) : (
-                <PickerGroups groups={ovGroups} selected={ovSelected} onToggle={ovToggle} />
+                <ToolTree servers={blocks.mcp?.items ?? []} value={draft.tools} onChange={setDraftTools} />
               )}
             </div>
           </Field>

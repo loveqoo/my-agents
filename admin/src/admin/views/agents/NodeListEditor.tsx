@@ -4,6 +4,7 @@ import type { PipelineNode } from '../../mockData'
 import { ShortTermMemoryField, LongTermMemoryField } from './MemoryFields'
 import { ModelField, chatModelOptions } from './ModelFields'
 import { PromptField } from './PromptFields'
+import { ToolTree } from './ToolTree'
 
 /* 노드형 일렬 파이프라인 편집기(스펙 259) — impl=pipeline일 때 "하는 일" 자리에 뜬다.
    ArtifactSpecEditor(190) 관용구 계승: 테두리 카드 + add/remove + per-item 설정 + xxxValid 게이트.
@@ -27,7 +28,7 @@ export function NodeListEditor({
   onChange,
   models,
   personas,
-  mcpOptions,
+  mcpServers,
   docOptions,
   memoryOptions,
 }: {
@@ -35,7 +36,7 @@ export function NodeListEditor({
   onChange: (nodes: PipelineNode[]) => void
   models: { name: string; kind: string }[] // 등록 모델(필터·옵션화는 공용 ModelField가, 스펙 274)
   personas: { name: string; body: string }[]
-  mcpOptions: { label: string; value: string }[] // MCP 도구(server__tool)
+  mcpServers: { name: string; tools?: string[] }[] // MCP 서버 카탈로그(ToolTree용, 스펙 277)
   docOptions: { label: string; value: string }[] // 문서 컬렉션(search_documents__<col>)
   memoryOptions: { label: string; value: string }[]
 }) {
@@ -217,34 +218,25 @@ export function NodeListEditor({
               />
             </div>
 
-            {/* 도구·문서 나란히 — 둘 다 n.tools 한 배열을 나눠 소비, 변경 시 상대 항목 보존(스펙 272 병합). */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))', gap: 10 }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <span style={{ fontSize: 13, color: 'var(--color-text)', fontWeight: 500 }}>도구 (선택)</span>
-                <Select
-                  mode="multiple"
-                  allowClear
-                  value={n.tools.filter((t) => !isDocTool(t))}
-                  onChange={(vals) => setNode(i, { tools: [...vals, ...n.tools.filter(isDocTool)] })}
-                  options={mcpOptions}
-                  placeholder={mcpOptions.length ? '이 노드가 쓸 MCP 도구' : '등록된 MCP 도구 없음'}
-                  disabled={mcpOptions.length === 0}
-                  style={{ width: '100%' }}
-                />
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <span style={{ fontSize: 13, color: 'var(--color-text)', fontWeight: 500 }}>문서 (선택)</span>
-                <Select
-                  mode="multiple"
-                  allowClear
-                  value={n.tools.filter(isDocTool)}
-                  onChange={(vals) => setNode(i, { tools: [...n.tools.filter((t) => !isDocTool(t)), ...vals] })}
-                  options={docOptions}
-                  placeholder={docOptions.length ? '이 노드가 검색할 문서 컬렉션' : '등록된 컬렉션 없음'}
-                  disabled={docOptions.length === 0}
-                  style={{ width: '100%' }}
-                />
-              </div>
+            {/* 도구=서버→도구 계층 트리(스펙 277) — 문서 항목은 보존해 합쳐 저장(스펙 272 병합). */}
+            <ToolTree
+              servers={mcpServers}
+              value={n.tools.filter((t) => !isDocTool(t))}
+              onChange={(vals) => setNode(i, { tools: [...vals, ...n.tools.filter(isDocTool)] })}
+            />
+            {/* 문서(RAG 컬렉션) — 평면 카탈로그라 트리 아님. 변경 시 도구 항목 보존(스펙 272 병합). */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <span style={{ fontSize: 13, color: 'var(--color-text)', fontWeight: 500 }}>문서 (선택)</span>
+              <Select
+                mode="multiple"
+                allowClear
+                value={n.tools.filter(isDocTool)}
+                onChange={(vals) => setNode(i, { tools: [...n.tools.filter((t) => !isDocTool(t)), ...vals] })}
+                options={docOptions}
+                placeholder={docOptions.length ? '이 노드가 검색할 문서 컬렉션' : '등록된 컬렉션 없음'}
+                disabled={docOptions.length === 0}
+                style={{ width: '100%' }}
+              />
             </div>
 
             {/* 받기/내보내기 한 줄(스펙 267 — 사용자 정의 문구): "이전 결과 받기"=이전 노드의 결과를

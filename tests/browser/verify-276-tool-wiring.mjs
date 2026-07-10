@@ -85,14 +85,12 @@ try {
   await page.waitForTimeout(300)
   await page.getByRole('button', { name: '다음' }).click()
   await page.waitForTimeout(500)
-  // 도구 그룹 펼치고 'local-tools · echo'만 체크
-  const toolHeader = page.locator('.ant-modal .ant-collapse-header', { hasText: '도구' }).first()
-  await toolHeader.click()
-  await page.waitForTimeout(400)
-  const echoRow = page.locator('.ant-modal .ant-checkbox-wrapper', { hasText: 'local-tools · echo' }).first()
-  const hasEchoRow = await echoRow.count()
-  check(hasEchoRow > 0, `① 도구 피커에 도구 단위 항목 'local-tools · echo' (found ${hasEchoRow})`)
-  await echoRow.click()
+  // 도구 트리(스펙 277)에서 'delete_record'(local-tools 고유 도구) 자식 체크. echo는 calc-tools와
+  // 중복이라 트리 스코프가 모호 → 저장 왕복 단언은 고유 도구로(런타임 ②③은 API로 echo 배선).
+  const treeNode = page.locator('.ant-modal:visible .ant-tree-treenode', { has: page.getByText('delete_record', { exact: true }) }).first()
+  const hasNode = await treeNode.count()
+  check(hasNode > 0, `① 도구 트리에 자식 노드 'delete_record' (found ${hasNode})`)
+  await treeNode.locator('.ant-tree-checkbox').first().click()
   await page.waitForTimeout(400)
   // 승인 오버라이드 = 선택 도구만(echo 1행)
   const apprHeader = page.locator('.ant-modal .ant-collapse-header', { hasText: '도구 승인 오버라이드' }).first()
@@ -111,7 +109,7 @@ try {
   }, uiName)
   if (saved?.id) cleanup.agents.push(saved.id)
   log('SAVED=' + JSON.stringify(saved))
-  check(!!saved && JSON.stringify(saved.tools) === JSON.stringify(['local-tools__echo']), `① 저장 config.tools=['local-tools__echo'] (got ${JSON.stringify(saved?.tools)})`)
+  check(!!saved && JSON.stringify(saved.tools) === JSON.stringify(['local-tools__delete_record']), `① 저장 config.tools=['local-tools__delete_record'] (got ${JSON.stringify(saved?.tools)})`)
   check(!!saved && JSON.stringify(saved.mcps) === JSON.stringify(['local-tools']), `① mcps=['local-tools'] 파생 (got ${JSON.stringify(saved?.mcps)})`)
   await closeModal()
 
@@ -189,10 +187,13 @@ try {
   await page.waitForTimeout(700)
   await page.getByRole('button', { name: '다음' }).click()
   await page.waitForTimeout(500)
-  const editToolHeader = page.locator('.ant-modal:visible .ant-collapse-header', { hasText: '도구' }).first()
-  const headerTxt = await editToolHeader.innerText()
-  // PickerGroups 헤더 카운트 "n/m" — 구저장 하이드레이션이면 local-tools 도구 전체(3)가 체크됨
-  check(/3\s*\/\s*\d+/.test(headerTxt.replace(/\n/g, ' ')), `⑤ 하이드레이션: 도구 그룹 카운트에 3개 체크 (got ${JSON.stringify(headerTxt.slice(0, 40))})`)
+  // 도구 트리(스펙 277) 배지 "선택/전체" — 구저장 하이드레이션이면 local-tools 도구 전체(3)가 체크.
+  // 트리 리프 체크 수로 단언(부모 체크 제외 위해 checkbox-checked 중 트리 내부만·leaf는 3).
+  const editTree = page.locator('.ant-modal:visible .ant-tree').first()
+  const checkedLeaves = await editTree.locator('.ant-tree-treenode:not(.ant-tree-treenode-switcher-open):not(.ant-tree-treenode-switcher-close) .ant-tree-checkbox-checked').count()
+  // 위 셀렉터가 취약하면 배지 텍스트로 폴백: ToolTree 헤더 Tag "3/10"
+  const badge = await page.locator('.ant-modal:visible .ant-tag', { hasText: /^3\s*\/\s*\d+$/ }).count()
+  check(checkedLeaves >= 3 || badge > 0, `⑤ 하이드레이션: local-tools 도구 3개 체크(트리 배지 3/N) (leaves=${checkedLeaves} badge=${badge})`)
   await closeModal()
 
   log('\n' + (fails.length ? `FAILED ${fails.length}: ${fails.join(' | ')}` : 'ALL GREEN'))

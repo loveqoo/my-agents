@@ -50,20 +50,14 @@ try {
   await page.getByRole('button', { name: /노드 추가/ }).click()
   await page.waitForTimeout(400)
 
-  // ① 분리 — 도구·문서 라벨 각각 존재
-  const toolLabel = await page.getByText('도구 (선택)', { exact: true }).count()
+  // ① 분리 — 도구=트리(스펙 277), 문서=Select 각각 존재
+  const toolTree = page.locator('.ant-modal:visible .ant-tree').first()
   const docLabel = await page.getByText('문서 (선택)', { exact: true }).count()
-  check(toolLabel > 0, `노드 카드에 "도구 (선택)" 컨트롤 (found ${toolLabel})`)
+  check(await toolTree.count() > 0, `노드 카드에 도구 트리(스펙 277)`)
   check(docLabel > 0, `노드 카드에 "문서 (선택)" 컨트롤 (found ${docLabel})`)
 
-  // 도구 옵션에 "문서 검색 …" 안 섞임
-  const toolWrap = selWrap('도구 (선택)')
-  await toolWrap.locator('.ant-select').first().click()
-  await page.waitForTimeout(300)
-  const foldedInTools = await page.locator('.ant-select-dropdown:visible .ant-select-item-option', { hasText: '문서 검색' }).count()
-  check(foldedInTools === 0, `도구 옵션에 "문서 검색 …" 안 섞임(분리) (found ${foldedInTools})`)
-  const mcpOptCount = await page.locator('.ant-select-dropdown:visible .ant-select-item-option').count()
-  await page.keyboard.press('Escape'); await page.waitForTimeout(200)
+  // 트리엔 서버 노드만·컬렉션(문서) 안 섞임(분리) — 트리 텍스트에 컬렉션명 없음은 문서 옵션과 대조로 확인
+  const mcpNodeCount = await toolTree.locator('.ant-tree-treenode').count()
 
   // 문서 옵션 = 컬렉션명
   const docWrap = selWrap('문서 (선택)')
@@ -78,18 +72,16 @@ try {
   const docChosen = await docWrap.locator('.ant-select-selection-item').count()
   check(docChosen >= 1, `문서 선택됨 (${docChosen})`)
 
-  // 도구도 하나 선택(옵션 있을 때) → 문서 유지되는지
-  if (mcpOptCount > 0) {
-    await toolWrap.locator('.ant-select').first().click()
+  // 도구 트리에서 자식 하나 체크 → 문서 유지되는지(병합 보존, 272 무회귀)
+  if (mcpNodeCount > 0) {
+    const leaf = toolTree.locator('.ant-tree-treenode', { has: page.getByText('add', { exact: true }) }).first()
+    await leaf.locator('.ant-tree-checkbox').first().click()
     await page.waitForTimeout(300)
-    await page.locator('.ant-select-dropdown:visible .ant-select-item-option').first().click()
-    await page.waitForTimeout(300)
-    await page.keyboard.press('Escape'); await page.waitForTimeout(200)
-    const toolChosen = await toolWrap.locator('.ant-select-selection-item').count()
+    const toolChecked = await toolTree.locator('.ant-tree-checkbox-checked').count()
     const docStill = await docWrap.locator('.ant-select-selection-item').count()
-    check(toolChosen >= 1 && docStill >= 1, `병합 보존: 도구 선택 후에도 문서 유지 (도구 ${toolChosen}·문서 ${docStill})`)
+    check(toolChecked >= 1 && docStill >= 1, `병합 보존: 도구 트리 체크 후에도 문서 유지 (도구 ${toolChecked}·문서 ${docStill})`)
   } else {
-    log('  ..  MCP 도구 옵션 없음 — 도구↔문서 병합 UI 테스트 스킵(등록 MCP 없음)')
+    log('  ..  MCP 도구 트리 노드 없음 — 도구↔문서 병합 UI 테스트 스킵(등록 MCP 없음)')
   }
   // 닫기
   const cancel = page.getByRole('button', { name: /취소|닫기/ }).first()

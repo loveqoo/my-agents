@@ -97,9 +97,12 @@ try {
   await page.waitForTimeout(400)
 
   const modalText = await page.locator('.ant-modal').first().innerText()
-  const order = ['프롬프트', '모델', '단기 기억', '장기 기억', '도구 (선택)', '문서 (선택)', '이전 결과 받기', '응답 형식']
-  const idx = order.map((l) => modalText.indexOf(l))
-  const sorted = idx.every((v, k) => v >= 0 && (k === 0 || v > idx[k - 1]))
+  // '도구'(스펙 277 ToolTree 헤더 라벨)·'프롬프트'·'모델'은 상단 안내 문구에도 등장하므로 **순차 커서
+  // 탐색**(이전 매치 뒤부터)으로 필드 순서를 검증 — 단순 indexOf(0부터)는 안내 문구에 걸린다.
+  const order = ['프롬프트', '모델', '단기 기억', '장기 기억', '도구', '문서 (선택)', '이전 결과 받기', '응답 형식']
+  let cursor = 0
+  const idx = order.map((l) => { const at = modalText.indexOf(l, cursor); if (at >= 0) cursor = at + l.length; return at })
+  const sorted = idx.every((v) => v >= 0)
   check(sorted, `노드 카드 배치 순서(사용자 지시) ${order.join('→')} (idx=${JSON.stringify(idx)})`)
 
   // ③ 페르소나 로더: 가져오기 → TextArea 채워짐

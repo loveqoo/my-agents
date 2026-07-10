@@ -6,6 +6,7 @@ import { listAgentImpls, type Model, type Collection, type ImplMeta } from '../.
 import { PickerGroups, type PickerGroup } from '../../../PickerGroups'
 import { ShortTermMemoryField, LongTermMemoryField } from './MemoryFields'
 import { ModelField } from './ModelFields'
+import { ToolTree } from './ToolTree'
 import { validateName, NAME_HINT } from '../../naming'
 import { Field, SectionHeader } from './primitives'
 import { ArtifactSpecEditor, artifactSpecValid } from './ArtifactSpecEditor'
@@ -149,11 +150,7 @@ export function AgentForm({
     const preserved = prevMcps.filter((srv) => !(items.find((m) => m.name === srv)?.tools?.length))
     return [...new Set([...tools.map(serverOfTool), ...preserved])]
   }
-  const toggleTool = (rt: string) =>
-    setForm((f) => {
-      const tools = f.tools.includes(rt) ? f.tools.filter((x) => x !== rt) : [...f.tools, rt]
-      return { ...f, tools, mcps: deriveMcps(tools, f.mcps) }
-    })
+  // (도구 토글은 스펙 277 ToolTree가 wholesale onChange로 대체 — setTools가 mcps 파생.)
   // 구저장 하이드레이션(스펙 276) — tools 빈값+mcps 있음 = 도구 단위 도입 전 저장분. 카탈로그에서
   // 그 서버들의 전체 도구로 확장(안 하면 편집 저장 시 배선이 통째 유실 — merge-preserve). 노드형·
   // 조율형은 대상 아님(노드형=노드가 도구 소유·mcps는 합집합 파생, 조율형=capabilities 소유).
@@ -249,26 +246,16 @@ export function AgentForm({
   const directSelected = [
     ...form.memories.map((x) => `mem:${x}`),
     ...form.vectorTables.map((x) => `col:${x}`),
-    ...form.tools.map((x) => `tool:${x}`),
   ]
+  // 도구 단위 배선(스펙 276) 교체 — 도구는 PickerGroups가 아니라 ToolTree(서버→도구 계층, 스펙 277)가
+  // 소유. setTools=tools 교체 + mcps 서버 합집합 파생(토글과 동일 규칙).
+  const setTools = (next: string[]) => setForm((f) => ({ ...f, tools: next, mcps: deriveMcps(next, f.mcps) }))
   const toggleDirect = (id: string) => {
     const i = id.indexOf(':')
-    const prefix = id.slice(0, i)
-    if (prefix === 'tool') return toggleTool(id.slice(i + 1)) // 도구 단위 배선(스펙 276) — mcps 파생 동반
-    const field = DIRECT_FIELD[prefix]
+    const field = DIRECT_FIELD[id.slice(0, i)]
     if (field) toggle(field, id.slice(i + 1))
   }
   const doGroups: PickerGroup[] = [
-    {
-      key: '도구',
-      title: '도구',
-      // 도구 단위 배선(스펙 276) — 서버가 아니라 개별 도구를 고른다(노드 카드와 같은 어휘).
-      // MCP는 클라이언트가 노출을 고르는 구조라 원격/로컬 무관하게 도구 단위가 가능(설계 선택).
-      items: (blocks.mcp?.items ?? []).flatMap((s) =>
-        (s.tools ?? []).map((t) => ({ id: `tool:${safeToolName(s.name, t)}`, label: `${s.name} · ${t}` }))
-      ),
-      emptyText: 'MCP 도구 없음 — 빌딩 블록에서 서버를 등록하세요.',
-    },
     {
       key: '문서',
       title: '문서',
@@ -300,11 +287,8 @@ export function AgentForm({
   // 문서 검색은 컬렉션별 도구(스펙 268 P1) — "검색 노드는 A만, 검증 노드는 B만". 런타임 이름
   // search_documents__<컬렉션>(백엔드 _rag_tools_for 미러). 구저장 민이름(search_documents=전체)은
   // 백엔드가 계속 해석(무회귀) — 새 저작은 컬렉션별만 노출.
-  // 도구/문서 분리(스펙 272) — 노드가 둘을 별개 컨트롤로. 저장은 여전히 n.tools 한 배열(문서=
-  // search_documents__<컬렉션>, 268 P1 무회귀) — UI만 나눈다.
-  const nodeMcpOptions = (blocks.mcp?.items ?? []).flatMap((s) =>
-    (s.tools ?? []).map((t) => ({ label: `${s.name} · ${t}`, value: safeToolName(s.name, t) }))
-  )
+  // 도구/문서 분리(스펙 272) — 노드가 둘을 별개 컨트롤로(도구=ToolTree 스펙 277, 문서=Select). 저장은
+  // 여전히 n.tools 한 배열(문서=search_documents__<컬렉션>, 268 P1 무회귀) — UI만 나눈다.
   const nodeDocOptions = collections.map((c) => ({ label: c.name, value: safeToolName('search_documents', c.name) }))
   // 노드별 기억 선택지(스펙 268 P2) — 직접형 "기억" 그룹과 같은 원천(blocks.memory). 단기(세션)은
   // 제외(스펙 269): 노드 회상은 장기(mem0)만 대상이라, 죽은 선택지를 빼면 회상 경고(268 P3)도 소멸.
@@ -526,7 +510,7 @@ export function AgentForm({
             onChange={(nodes) => set('nodes', nodes)}
             models={models}
             personas={nodePersonas}
-            mcpOptions={nodeMcpOptions}
+            mcpServers={blocks.mcp?.items ?? []}
             docOptions={nodeDocOptions}
             memoryOptions={nodeMemoryOptions}
           />
@@ -559,6 +543,12 @@ export function AgentForm({
                 title={`이 실행 방식은 ${ignoredCounts.map(([k]) => k).join('·')} 설정을 읽지 않습니다 — 저장된 연결 ${ignoredCounts.reduce((s, [, n]) => s + n, 0)}개는 무시됩니다(연결은 보존되며, 실행 방식을 되돌리면 다시 적용됩니다).`}
               />
             ) : null}
+            {/* 도구=서버→도구 계층 트리(스펙 277). 문서=평면 PickerGroups(컬렉션은 계층 없음). */}
+            {surfaceVisible('도구') && (
+              <div style={{ marginBottom: 12 }}>
+                <ToolTree servers={blocks.mcp?.items ?? []} value={form.tools} onChange={setTools} />
+              </div>
+            )}
             <PickerGroups groups={doGroups.filter((g) => surfaceVisible(g.key))} selected={directSelected} onToggle={toggleDirect} />
             {/* 하이브리드 도구 접근 안내(스펙 203, 사용자 요청) — 임계값 10은 백엔드
                 agent/toolbox.py DISCOVER_THRESHOLD 미러(변경 시 함께). */}
