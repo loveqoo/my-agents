@@ -4,12 +4,14 @@
    리셋되고 이후 턴이 그 설정대로 실행된다.
    code 에이전트: 원격 실행이라 오버라이드 미적용 — read-only 안내만. */
 import { useEffect, useState } from 'react'
-import { Drawer, Select, Input, Slider, Switch, Button, Alert, Tag, Tooltip, Steps, Grid } from 'antd'
+import { Drawer, Slider, Switch, Button, Alert, Tag, Tooltip, Steps, Grid } from 'antd'
 import { isOrchestratorImpl, SHORT_TERM_MEMORY, type Agent, type BlockCategory } from '../admin/mockData'
 import type { Collection, Model } from '../api'
 import { PickerGroups, type PickerGroup } from '../PickerGroups'
 import { DelegationGraph } from '../admin/DelegationGraph'
 import { ShortTermMemoryField, LongTermMemoryField } from '../admin/views/agents/MemoryFields'
+import { ModelField } from '../admin/views/agents/ModelFields'
+import { PromptField } from '../admin/views/agents/PromptFields'
 
 export interface Overrides {
   model: string
@@ -196,11 +198,7 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
       return { ...d, mcps: cur.includes(name) ? cur.filter((x) => x !== name) : [...cur, name] }
     })
 
-  // 등록 chat 모델 옵션 — 현재 모델이 목록에 없으면(예: 미등록 이름) 그대로 추가해 선택 유지.
-  const modelOptions = models.filter((m) => m.kind === 'chat').map((m) => ({ label: m.name, value: m.name }))
-  if (draft?.model && !modelOptions.some((o) => o.value === draft.model)) {
-    modelOptions.push({ label: draft.model, value: draft.model })
-  }
+  // 모델 옵션화(chat 필터·미등록 값 보존)는 공용 ModelField가 담당(스펙 274 — 사본 소멸).
 
   // "이 대화에서 쓸 것"(스펙 109) — 도구(mcps)만 PickerGroups. 기억은 273에서 우측 세부의 공용
   // 컨트롤(MemoryFields — AgentForm 271과 같은 구조)로 이동해 이 피커에서 뺐다.
@@ -357,40 +355,22 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
             </div>
           )}
 
-          <Field label="모델" hint="mock-llm을 고르면 라이브 모델 없이 결정적으로 응답합니다.">
-            <Select
-              value={draft.model}
-              onChange={(v) => set('model', v)}
-              style={{ width: '100%' }}
-              options={modelOptions}
-            />
-          </Field>
-
-          {/* 페르소나 블록에서 채우기(스펙 077) — 생성 폼의 페르소나 Select와 대칭.
-              블록을 고르면 그 본문이 아래 시스템 프롬프트에 채워지고, 이후 자유편집 가능. */}
-          <Field label="페르소나 블록에서 채우기" hint="등록된 페르소나를 고르면 아래 시스템 프롬프트가 채워집니다.">
-            <Select
-              value={undefined}
-              placeholder="페르소나 블록 선택…"
-              style={{ width: '100%' }}
-              allowClear
-              options={(blocks.persona?.items ?? []).map((p) => ({ label: p.name, value: p.id }))}
-              onChange={(id) => {
-                const p = (blocks.persona?.items ?? []).find((x) => x.id === id)
-                if (p?.body != null) set('systemPrompt', p.body)
-              }}
-              notFoundContent="등록된 페르소나 블록 없음"
-            />
-          </Field>
-
-          <Field label="시스템 프롬프트" hint="비워두면 저장된 페르소나가 그대로 쓰입니다.">
-            <Input.TextArea
-              value={draft.systemPrompt}
-              onChange={(e) => set('systemPrompt', e.target.value)}
-              autoSize={{ minRows: 3, maxRows: 10 }}
-              placeholder={agent.systemPrompt ? undefined : '(저장된 시스템 프롬프트 없음)'}
-            />
-          </Field>
+          {/* 모델·시스템 프롬프트 = 공용 컨트롤(스펙 274) — chat 필터·미등록 보존·페르소나 로더가
+              단일 출처. 프롬프트의 "가져오기"는 라벨 줄 콤팩트 로더로 축약(별도 Field 2개→1구획, 077 대칭 유지). */}
+          <ModelField
+            value={draft.model}
+            onChange={(v) => set('model', v)}
+            models={models}
+            hint="mock-llm을 고르면 라이브 모델 없이 결정적으로 응답합니다."
+          />
+          <PromptField
+            label="시스템 프롬프트"
+            value={draft.systemPrompt}
+            onChange={(v) => set('systemPrompt', v)}
+            personas={(blocks.persona?.items ?? []).map((p) => ({ name: p.name, body: p.body ?? '' }))}
+            placeholder={agent.systemPrompt ? undefined : '(저장된 시스템 프롬프트 없음)'}
+            hint="비워두면 저장된 페르소나가 그대로 쓰입니다."
+          />
           </>)}
 
           {step === 1 && (

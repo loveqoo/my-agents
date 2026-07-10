@@ -1,6 +1,8 @@
 import { Input, Select, Button, Segmented } from 'antd'
 import type { PipelineNode } from '../../mockData'
 import { ShortTermMemoryField, LongTermMemoryField } from './MemoryFields'
+import { ModelField, chatModelOptions } from './ModelFields'
+import { PromptField } from './PromptFields'
 
 /* 노드형 일렬 파이프라인 편집기(스펙 259) — impl=pipeline일 때 "하는 일" 자리에 뜬다.
    ArtifactSpecEditor(190) 관용구 계승: 테두리 카드 + add/remove + per-item 설정 + xxxValid 게이트.
@@ -22,7 +24,7 @@ const isDocTool = (t: string) => t === 'search_documents' || t.startsWith('searc
 export function NodeListEditor({
   value,
   onChange,
-  modelOptions,
+  models,
   personas,
   mcpOptions,
   docOptions,
@@ -30,7 +32,7 @@ export function NodeListEditor({
 }: {
   value: PipelineNode[] | undefined
   onChange: (nodes: PipelineNode[]) => void
-  modelOptions: { label: string; value: string }[]
+  models: { name: string; kind: string }[] // 등록 모델(필터·옵션화는 공용 ModelField가, 스펙 274)
   personas: { name: string; body: string }[]
   mcpOptions: { label: string; value: string }[] // MCP 도구(server__tool)
   docOptions: { label: string; value: string }[] // 문서 컬렉션(search_documents__<col>)
@@ -41,7 +43,7 @@ export function NodeListEditor({
   const setNode = (i: number, patch: Partial<PipelineNode>) =>
     update(nodes.map((n, j) => (j === i ? { ...n, ...patch } : n)))
   const add = () =>
-    update([...nodes, { name: '', prompt: '', model: modelOptions[0]?.value ?? '', tools: [], context: 'carry' }])
+    update([...nodes, { name: '', prompt: '', model: chatModelOptions(models)[0]?.value ?? '', tools: [], context: 'carry' }])
   const remove = (i: number) => update(nodes.filter((_, j) => j !== i))
   const move = (i: number, dir: -1 | 1) => {
     const j = i + dir
@@ -116,47 +118,47 @@ export function NodeListEditor({
               </Button>
             </div>
 
-            {/* 프롬프트(라벨 줄에 페르소나 불러오기 — learning 078: 세로 스택, 형제 폭 다툼 금지) */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                <span style={{ fontSize: 13, color: 'var(--color-text)', fontWeight: 500 }}>프롬프트</span>
-                {personas.length > 0 && (
-                  <Select
-                    size="small"
-                    style={{ width: 200 }}
-                    value={undefined}
-                    placeholder="등록 페르소나에서 가져오기"
-                    options={personas.map((p) => ({ label: p.name, value: p.name }))}
-                    onChange={(name) => {
-                      const p = personas.find((x) => x.name === name)
-                      if (p) setNode(i, { prompt: p.body })
-                    }}
-                  />
-                )}
-              </div>
-              <Input.TextArea
-                placeholder="이 노드가 할 일을 지시하세요 (예: 입력을 분석해 핵심 3가지를 뽑아라)"
-                value={n.prompt}
-                onChange={(e) => setNode(i, { prompt: e.target.value })}
-                autoSize={{ minRows: 3, maxRows: 10 }}
-                status={n.prompt.trim() ? undefined : 'error'}
+            {/* 카드 배치(사용자 지시 2026-07-10): 프롬프트 → 모델 → 기억(단기·장기) → 도구·문서 →
+                받기·형식. 프롬프트·모델·기억은 공용 컨트롤(스펙 271/274 — 라벨·옵션·가드 단일 출처). */}
+            <PromptField
+              label="프롬프트"
+              value={n.prompt}
+              onChange={(v) => setNode(i, { prompt: v })}
+              personas={personas}
+              placeholder="이 노드가 할 일을 지시하세요 (예: 입력을 분석해 핵심 3가지를 뽑아라)"
+              required
+            />
+            <ModelField
+              value={n.model}
+              onChange={(v) => setNode(i, { model: v })}
+              models={models}
+              placeholder="이 노드가 쓸 모델 선택"
+              required
+            />
+
+            {/* 기억(단기+장기) — 에이전트 폼 기억 구획(271)과 같은 나란히 배치.
+                단기는 "이전 결과만"(clean)이면 대화를 안 보므로 비활성(270 결정 (가)). */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))', gap: 10 }}>
+              <ShortTermMemoryField
+                value={n.historyDepth}
+                onChange={(v) => setNode(i, { historyDepth: v })}
+                allowInherit
+                disabled={(n.context ?? 'carry') === 'clean'}
+                hint={(n.context ?? 'carry') === 'clean'
+                  ? '"이전 결과만"이라 이전 대화를 보지 않습니다.'
+                  : '이 노드가 볼 이전 대화 턴 수(상속=에이전트 설정).'}
+              />
+              <LongTermMemoryField
+                value={n.memories ?? []}
+                onChange={(vals) => setNode(i, { memories: vals })}
+                options={memoryOptions}
+                queryMode={n.memoryQuery ?? 'user'}
+                onQueryModeChange={(v) => setNode(i, { memoryQuery: v })}
               />
             </div>
 
-            {/* 모델(필수) + 도구(선택) */}
+            {/* 도구·문서 나란히 — 둘 다 n.tools 한 배열을 나눠 소비, 변경 시 상대 항목 보존(스펙 272 병합). */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))', gap: 10 }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <span style={{ fontSize: 13, color: 'var(--color-text)', fontWeight: 500 }}>모델</span>
-                <Select
-                  value={n.model || undefined}
-                  onChange={(v) => setNode(i, { model: v })}
-                  options={modelOptions}
-                  placeholder="이 노드가 쓸 모델 선택"
-                  status={n.model.trim() ? undefined : 'error'}
-                  style={{ width: '100%' }}
-                />
-              </div>
-              {/* 도구(MCP) — n.tools 중 문서 아닌 것. 변경 시 문서 항목은 보존해 합쳐 저장(스펙 272 병합). */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <span style={{ fontSize: 13, color: 'var(--color-text)', fontWeight: 500 }}>도구 (선택)</span>
                 <Select
@@ -170,21 +172,19 @@ export function NodeListEditor({
                   style={{ width: '100%' }}
                 />
               </div>
-            </div>
-            {/* 문서(RAG 컬렉션) — n.tools 중 문서만. 변경 시 도구 항목은 보존(스펙 272 병합). 도구에서
-                분리해 에이전트 구조와 정렬 — "도구" 고를 때 문서 검색이 섞이던 혼란 해소(저장은 268 P1 유지). */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <span style={{ fontSize: 13, color: 'var(--color-text)', fontWeight: 500 }}>문서 (선택)</span>
-              <Select
-                mode="multiple"
-                allowClear
-                value={n.tools.filter(isDocTool)}
-                onChange={(vals) => setNode(i, { tools: [...n.tools.filter((t) => !isDocTool(t)), ...vals] })}
-                options={docOptions}
-                placeholder={docOptions.length ? '이 노드가 검색할 문서 컬렉션' : '등록된 컬렉션 없음'}
-                disabled={docOptions.length === 0}
-                style={{ width: '100%' }}
-              />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <span style={{ fontSize: 13, color: 'var(--color-text)', fontWeight: 500 }}>문서 (선택)</span>
+                <Select
+                  mode="multiple"
+                  allowClear
+                  value={n.tools.filter(isDocTool)}
+                  onChange={(vals) => setNode(i, { tools: [...n.tools.filter((t) => !isDocTool(t)), ...vals] })}
+                  options={docOptions}
+                  placeholder={docOptions.length ? '이 노드가 검색할 문서 컬렉션' : '등록된 컬렉션 없음'}
+                  disabled={docOptions.length === 0}
+                  style={{ width: '100%' }}
+                />
+              </div>
             </div>
 
             {/* 받기/내보내기 한 줄(스펙 267 — 사용자 정의 문구): "이전 결과 받기"=이전 노드의 결과를
@@ -207,17 +207,6 @@ export function NodeListEditor({
                     : '지금까지의 대화 전체를 보고 처리합니다.'}
                 </span>
               </div>
-              {/* 단기 기억(스펙 270·271 공용 컨트롤) — 이 노드가 볼 이전 대화 턴 수. 상속=에이전트 설정.
-                  "이전 결과만"(clean)이면 대화를 안 보므로 비활성(결정 (가) — 맥락 컨트롤이 어포던스 승계). */}
-              <ShortTermMemoryField
-                value={n.historyDepth}
-                onChange={(v) => setNode(i, { historyDepth: v })}
-                allowInherit
-                disabled={(n.context ?? 'carry') === 'clean'}
-                hint={(n.context ?? 'carry') === 'clean'
-                  ? '"이전 결과만"이라 이전 대화를 보지 않습니다.'
-                  : '이 노드가 볼 이전 대화 턴 수(상속=에이전트 설정).'}
-              />
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <span style={{ fontSize: 13, color: 'var(--color-text)', fontWeight: 500 }}>응답 형식</span>
                 <Segmented
@@ -247,16 +236,6 @@ export function NodeListEditor({
                 tokenSeparators={[',']}
               />
             )}
-
-            {/* 노드별 기억(스펙 268 P2·271 공용 컨트롤) — 장기 회상 + 회상 키워드. 프록시가 캐싱
-                (같은 키워드=조회 1회 공유). memoryQuery는 기억 선택 시만 노출(컨트롤 내부). */}
-            <LongTermMemoryField
-              value={n.memories ?? []}
-              onChange={(vals) => setNode(i, { memories: vals })}
-              options={memoryOptions}
-              queryMode={n.memoryQuery ?? 'user'}
-              onQueryModeChange={(v) => setNode(i, { memoryQuery: v })}
-            />
           </div>
         </div>
       ))}

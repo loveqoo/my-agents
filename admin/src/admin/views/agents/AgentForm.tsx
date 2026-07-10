@@ -5,6 +5,7 @@ import { DelegationGraph } from '../../DelegationGraph'
 import { listAgentImpls, type Model, type Collection, type ImplMeta } from '../../../api'
 import { PickerGroups, type PickerGroup } from '../../../PickerGroups'
 import { ShortTermMemoryField, LongTermMemoryField } from './MemoryFields'
+import { ModelField } from './ModelFields'
 import { validateName, NAME_HINT } from '../../naming'
 import { Field, SectionHeader } from './primitives'
 import { ArtifactSpecEditor, artifactSpecValid } from './ArtifactSpecEditor'
@@ -155,13 +156,6 @@ export function AgentForm({
     ['기억', consumes.includes('memories') ? 0 : form.memories.length],
   ] as [string, number][]).filter(([, n]) => n > 0)
 
-  // 등록된 chat 모델로 옵션 구성. 목록이 비었거나 현재 model이 목록에 없으면
-  // 현재 값을 옵션에 보존해 편집 시 선택이 사라지지 않게 한다.
-  const modelOptions = models.map((m) => ({ label: m.name, value: m.name }))
-  if (form.model && !modelOptions.some((o) => o.value === form.model)) {
-    modelOptions.push({ label: form.model, value: form.model })
-  }
-
   // 종류 선택지 2개(직접 응답/조율형). 구 저장분이 exotic impl이면 값 보존해 편집 시 안 사라지게.
   const typeOptions = AGENT_TYPES.map((t) => ({ label: t.label, value: t.value }))
   if (form.impl && !typeOptions.some((o) => o.value === form.impl)) {
@@ -258,9 +252,8 @@ export function AgentForm({
   // 노드형이면 노드 ≥1·각 노드 프롬프트+모델 채움을 저장 조건으로 강제(스펙 259) — 빈 파이프라인 방지.
   const pipelineInvalid = isPipeline && !pipelineValid(form.nodes)
 
-  // 노드형 편집기 데이터(스펙 259). 모델=등록 chat 모델, 페르소나=blocks 본문(불러오기용),
-  // 도구=개별 MCP 도구 + 문서 검색(search_documents 단일 도구, 컬렉션 전체 대상).
-  const chatModelOptions = models.filter((m) => m.kind === 'chat').map((m) => ({ label: m.name, value: m.name }))
+  // 노드형 편집기 데이터(스펙 259). 모델 옵션화는 공용 ModelField(274)가 — models를 그대로 넘긴다.
+  // 페르소나=blocks 본문(불러오기용), 도구=개별 MCP 도구 + 문서 검색.
   const nodePersonas = (blocks.persona?.items ?? []).map((p) => ({ name: p.name, body: p.body ?? '' }))
   // MCP 도구의 **런타임 이름**(스펙 265) — 백엔드 _safe_name(`서버__도구`, 비허용문자 _ 치환, 60자 캡)
   // 미러(변경 시 함께). 민이름("wiki_search")으로 저장하면 런타임 by_name 매칭이 0이 돼 도구가 조용히
@@ -409,20 +402,20 @@ export function AgentForm({
             (결정 #1·#2). 안내는 종류 필드 아래 설명에 합류(스펙 263 — 떠 있는 중복 문구 제거). */}
         {isPipeline ? null : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))', gap: 16 }}>
-          <Field label="모델">
-            <Select
-              value={form.model}
-              onChange={(v) => set('model', v)}
-              style={{ width: '100%' }}
-              options={modelOptions}
-            />
-            {/* mock+도구 안내(스펙 236→238): 큰 경고 Alert에서 보조 문구로 강등 — 놀래키지 않되 정보는 유지. */}
-            {models.find((m) => m.name === form.model)?.provider_kind === 'mock' && form.mcps.length > 0 && (
-              <span style={{ fontSize: 12, color: 'var(--color-warning)' }}>
-                mock 모델은 정해진 키워드·도구 이름에만 도구를 호출합니다 — 도구를 제대로 쓰려면 실제 모델을 선택하세요.
-              </span>
-            )}
-          </Field>
+          {/* 공용 모델 컨트롤(스펙 274) — chat 필터·미등록 보존이 ModelField 한 곳(274 이전엔 여기만
+              무필터라 임베딩 모델이 노출되는 버그). mock+도구 안내(236→238)는 이 표면 조건이라 hint로. */}
+          <ModelField
+            value={form.model}
+            onChange={(v) => set('model', v)}
+            models={models}
+            hint={
+              models.find((m) => m.name === form.model)?.provider_kind === 'mock' && form.mcps.length > 0 ? (
+                <span style={{ fontSize: 12, color: 'var(--color-warning)' }}>
+                  mock 모델은 정해진 키워드·도구 이름에만 도구를 호출합니다 — 도구를 제대로 쓰려면 실제 모델을 선택하세요.
+                </span>
+              ) : undefined
+            }
+          />
           <Field label="페르소나">
             <Select
               value={form.persona}
@@ -488,7 +481,7 @@ export function AgentForm({
           <NodeListEditor
             value={form.nodes}
             onChange={(nodes) => set('nodes', nodes)}
-            modelOptions={chatModelOptions}
+            models={models}
             personas={nodePersonas}
             mcpOptions={nodeMcpOptions}
             docOptions={nodeDocOptions}
