@@ -31,6 +31,7 @@ export function NodeListEditor({
   mcpServers,
   docOptions,
   memoryOptions,
+  fixedStructure = false,
 }: {
   value: PipelineNode[] | undefined
   onChange: (nodes: PipelineNode[]) => void
@@ -39,6 +40,9 @@ export function NodeListEditor({
   mcpServers: { name: string; tools?: string[] }[] // MCP 서버 카탈로그(ToolTree용, 스펙 277)
   docOptions: { label: string; value: string }[] // 문서 컬렉션(search_documents__<col>)
   memoryOptions: { label: string; value: string }[]
+  /** 구조 불변 모드(스펙 287, 오버라이드용) — 추가/삭제/이동 숨김·이름 읽기 전용. 필드만 편집.
+      서버도 같은 규칙을 강제(길이 일치 merge)하므로 이 prop은 UX일 뿐 보안 경계가 아니다. */
+  fixedStructure?: boolean
 }) {
   const nodes = value ?? []
   const update = (next: PipelineNode[]) => onChange(next)
@@ -87,7 +91,9 @@ export function NodeListEditor({
       </span>
       {nodes.length === 0 && (
         <span style={{ fontSize: 13, color: 'var(--color-text-tertiary)', marginBottom: 12 }}>
-          아직 노드가 없습니다 — 아래 "노드 추가"로 첫 단계를 만드세요(최소 1개 필요).
+          {fixedStructure
+            ? '노드가 없습니다 — 에이전트 편집에서 노드를 먼저 만드세요.'
+            : '아직 노드가 없습니다 — 아래 "노드 추가"로 첫 단계를 만드세요(최소 1개 필요).'}
         </span>
       )}
       {nodes.map((n, i) => (
@@ -130,13 +136,18 @@ export function NodeListEditor({
                     >
                       {i + 1}
                     </span>
-                    {open.includes(i) ? (
+                    {open.includes(i) && !fixedStructure ? (
                       <Input
                         placeholder={`노드 ${i + 1} 이름 (선택 — 예: 분석)`}
                         value={n.name}
                         onChange={(e) => setNode(i, { name: e.target.value })}
                         style={{ flex: 1 }}
                       />
+                    ) : open.includes(i) ? (
+                      // 구조 불변 모드(스펙 287): 이름=구조 식별자라 읽기 전용(서버가 저장본 유지).
+                      <span style={{ flex: 'none', fontSize: 13, fontWeight: 500 }}>
+                        {n.name?.trim() || `노드 ${i + 1}`}
+                      </span>
                     ) : (
                       <>
                         <span style={{ flex: 'none', fontSize: 13, fontWeight: 500 }}>
@@ -164,7 +175,7 @@ export function NodeListEditor({
                     )}
                   </div>
                 ),
-                extra: (
+                extra: fixedStructure ? undefined : (
                   <div style={{ display: 'flex', gap: 0, alignItems: 'center' }}>
                     <Button size="small" type="text" disabled={i === 0} onClick={() => move(i, -1)} title="위로">
                       ↑
@@ -295,9 +306,11 @@ export function NodeListEditor({
           />
         </div>
       ))}
-      <Button onClick={add} style={{ alignSelf: 'flex-start', marginTop: nodes.length ? 12 : 0 }}>
-        + 노드 추가
-      </Button>
+      {!fixedStructure && (
+        <Button onClick={add} style={{ alignSelf: 'flex-start', marginTop: nodes.length ? 12 : 0 }}>
+          + 노드 추가
+        </Button>
+      )}
     </div>
   )
 }

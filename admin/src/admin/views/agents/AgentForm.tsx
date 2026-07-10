@@ -44,6 +44,25 @@ export const safeToolName = (server: string, tool: string) =>
 /* 런타임명 → 서버명(스펙 276) — 서버명은 NAME_RULE(밑줄 금지)이라 첫 `__` 분리가 모호하지 않다. */
 const serverOfTool = (rt: string) => rt.split('__')[0]
 
+/* 노드형 풀 파생(스펙 259/268→287 단일 출처) — 에이전트-레벨 mcps/vectorTables/memories를 노드
+   합집합에서 파생한다. 폼 저장(finalize)과 오버라이드 페이로드가 공유(사본이면 드리프트 — 회고 261).
+   문서: 구저장 민이름(search_documents)=전체 컬렉션(무회귀), 그 외 search_documents__<col>. */
+export function derivePipelinePool(
+  nodes: { tools: string[]; memories?: string[] }[] | undefined,
+  mcpItems: { name: string; tools?: string[] }[],
+  collections: { name: string }[],
+): { mcps: string[]; vectorTables: string[]; memories: string[] } {
+  const used = new Set((nodes ?? []).flatMap((n) => n.tools))
+  const mcps = mcpItems
+    .filter((s) => (s.tools ?? []).some((t) => used.has(safeToolName(s.name, t)) || used.has(t)))
+    .map((s) => s.name)
+  const vectorTables = used.has('search_documents')
+    ? collections.map((c) => c.name)
+    : collections.filter((c) => used.has(safeToolName('search_documents', c.name))).map((c) => c.name)
+  const memories = [...new Set((nodes ?? []).flatMap((n) => n.memories ?? []))]
+  return { mcps, vectorTables, memories }
+}
+
 /* SHORT_TERM_MEMORY(스펙 269)는 mockData가 단일 출처 — 백엔드 memory_enabled()가 무시하는 죽은
    라벨이라 기억 선택지·표시에서 제외한다(단기는 historyDepth가 소유). 저장값은 보존(finalize 무변경). */
 
@@ -387,18 +406,10 @@ export function AgentForm({
       // 직접형: mcps = tools의 서버 합집합 ∪ 카탈로그 미열거 보존(토글 파생과 동일 규칙, 저장 직전 재확인).
       return { ...base, mcps: deriveMcps(base.tools, base.mcps) }
     }
-    const used = new Set((form.nodes ?? []).flatMap((n) => n.tools))
-    const mcps = (blocks.mcp?.items ?? [])
-      .filter((s) => (s.tools ?? []).some((t) => used.has(safeToolName(s.name, t)) || used.has(t)))
-      .map((s) => s.name)
-    // 컬렉션 풀(스펙 268 P1): 노드가 참조한 컬렉션별 도구의 합집합 + 구저장 민이름이면 전체(무회귀).
-    const vectorTables = used.has('search_documents')
-      ? collections.map((c) => c.name)
-      : collections.filter((c) => used.has(safeToolName('search_documents', c.name))).map((c) => c.name)
-    // 기억 풀(스펙 268 P2): 노드 선택 합집합 — 백엔드 회상 게이트(memory_enabled)·스코프의 원천.
-    const memories = [...new Set((form.nodes ?? []).flatMap((n) => n.memories ?? []))]
+    // 풀 파생은 derivePipelinePool 단일 출처(스펙 287 — 오버라이드 페이로드와 공유, 회고 261).
+    const pool = derivePipelinePool(form.nodes, blocks.mcp?.items ?? [], collections)
     // 노드형은 도구를 노드가 소유 — 에이전트-레벨 tools는 비워 풀 필터 오염 방지(스펙 276).
-    return { ...base, mcps, vectorTables, memories, tools: [] }
+    return { ...base, ...pool, tools: [] }
   }
   // 식별 이름 규칙(스펙 148) — 서버 400의 프론트 힌트. 빈 값은 입력 전이라 조용히(제출만 막음).
   const nameErr = form.name.trim() ? validateName(form.name.trim()) : null

@@ -94,7 +94,8 @@ export function Playground({
   const appliedOv = activeAgent ? appliedByAgent[activeAgent.id] ?? null : null
   const ovPayload =
     activeAgent && appliedOv && activeAgent.source !== 'code'
-      ? overridePayload(appliedOv, overrideDefaults(activeAgent))
+      ? // catalog(스펙 287): 노드형 노드 변경 시 풀(mcps/vectorTables/memories) 파생에 필요.
+        overridePayload(appliedOv, overrideDefaults(activeAgent), { mcpItems: blocks.mcp?.items ?? [], collections })
       : {}
   const overrideActive = Object.keys(ovPayload).length > 0
 

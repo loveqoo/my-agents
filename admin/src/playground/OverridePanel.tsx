@@ -5,15 +5,16 @@
    code 에이전트: 원격 실행이라 오버라이드 미적용 — read-only 안내만. */
 import { useEffect, useState } from 'react'
 import { Drawer, Slider, Switch, Button, Alert, Tag, Tooltip, Steps, Grid } from 'antd'
-import { isOrchestratorImpl, SHORT_TERM_MEMORY, type Agent, type BlockCategory } from '../admin/mockData'
+import { isOrchestratorImpl, SHORT_TERM_MEMORY, type Agent, type BlockCategory, type PipelineNode } from '../admin/mockData'
 import type { Collection, Model } from '../api'
 import { PickerGroups, type PickerGroup } from '../PickerGroups'
 import { DelegationGraph } from '../admin/DelegationGraph'
 import { ShortTermMemoryField, LongTermMemoryField } from '../admin/views/agents/MemoryFields'
 import { ModelField } from '../admin/views/agents/ModelFields'
 import { PromptField } from '../admin/views/agents/PromptFields'
-import { safeToolName } from '../admin/views/agents/AgentForm'
+import { safeToolName, derivePipelinePool } from '../admin/views/agents/AgentForm'
 import { ToolTree } from '../admin/views/agents/ToolTree'
+import { NodeListEditor } from '../admin/views/agents/NodeListEditor'
 
 export interface Overrides {
   model: string
@@ -24,6 +25,8 @@ export interface Overrides {
   memories: string[]
   capabilities: string[] // 조율형 위임 대상(cap id 목록, 스펙 122). 직접형은 항상 빈 배열.
   historyDepth: number
+  /** 노드형 노드 필드 오버라이드(스펙 287) — 구조 불변(개수·순서·이름은 서버가 저장본 유지). */
+  nodes?: PipelineNode[]
 }
 
 /* 에이전트 저장 설정에서 패널 기본값을 만든다. Agent엔 temperature 필드가 없어 자동(null).
@@ -38,6 +41,8 @@ export function overrideDefaults(a: Agent): Overrides {
     memories: [...(a.memories ?? [])],
     capabilities: [...(a.capabilities ?? [])],
     historyDepth: a.historyDepth ?? 20,
+    // 노드형(스펙 287) — 저장 노드의 깊은 복사(에디터가 필드를 편집해도 원본 불변).
+    nodes: a.impl === 'pipeline' && a.nodes ? structuredClone(a.nodes) : undefined,
   }
 }
 
@@ -45,8 +50,14 @@ const sameSet = (a: string[], b: string[]) =>
   a.length === b.length && [...a].sort().join('\n') === [...b].sort().join('\n')
 
 /* 적용된 오버라이드를 에이전트 기본값과 비교해 **변경된 키만** 담은 전송 페이로드.
-   비어 있으면(=변경 없음) 호출부가 overrides를 안 보내 저장 설정 그대로 실행(무회귀). */
-export function overridePayload(applied: Overrides, base: Overrides): Record<string, unknown> {
+   비어 있으면(=변경 없음) 호출부가 overrides를 안 보내 저장 설정 그대로 실행(무회귀).
+   catalog(스펙 287): 노드형 노드가 바뀌면 풀(mcps/vectorTables/memories)을 파생해 동봉해야
+   실효(백엔드 ctx.tools/rag가 풀에서 빌드) — 폼 저장과 같은 derivePipelinePool 단일 출처. */
+export function overridePayload(
+  applied: Overrides,
+  base: Overrides,
+  catalog?: { mcpItems: { name: string; tools?: string[] }[]; collections: { name: string }[] },
+): Record<string, unknown> {
   const p: Record<string, unknown> = {}
   if (applied.model && applied.model !== base.model) p.model = applied.model
   if (applied.temperature != null && applied.temperature !== base.temperature) p.temperature = applied.temperature
@@ -59,6 +70,16 @@ export function overridePayload(applied: Overrides, base: Overrides): Record<str
   // 조율형 위임 대상(스펙 122) — 변경 시만 전송. 안 건드리면 저장분 그대로(무회귀).
   if (!sameSet(applied.capabilities, base.capabilities)) p.capabilities = applied.capabilities
   if (applied.historyDepth !== base.historyDepth) p.historyDepth = applied.historyDepth
+  // 노드형(스펙 287) — 노드 필드가 바뀌면 nodes(서버가 구조 불변 merge) + 파생 풀 동봉.
+  if (applied.nodes && base.nodes && JSON.stringify(applied.nodes) !== JSON.stringify(base.nodes)) {
+    p.nodes = applied.nodes
+    if (catalog) {
+      const pool = derivePipelinePool(applied.nodes, catalog.mcpItems, catalog.collections)
+      p.mcps = pool.mcps
+      p.vectorTables = pool.vectorTables
+      p.memories = pool.memories
+    }
+  }
   return p
 }
 
@@ -180,6 +201,7 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
   const isCode = agent?.source === 'code'
   const isExternal = agent?.source === 'external' // 외부 A2A — 코드처럼 read-only(026)
   const isOrchestrator = isOrchestratorImpl(agent?.impl) // 조율형 — capabilities로 위임(스펙 108/122)
+  const isPipeline = agent?.impl === 'pipeline' // 노드형(스펙 287) — 노드가 프롬프트·모델·도구 소유
   // 비영속(스펙 238 #4) — 편집 폼과 오버라이드 폼의 규칙 정합. 저장 방식 자체는 세션 오버라이드
   // **불가**(서버 allowed 키에 없음 — 근본 모드)이므로 read-only로 표시하고, 비영속이 무시/금지하는
   // 표면(기억 회상=235, memwrite/memedit=237)은 여기서도 disabled.
@@ -343,7 +365,12 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
             current={step}
             onChange={setStep}
             // 2단계 제목은 kind별 실내용(스펙 273): 직접형=도구 피커+기억 공용 컨트롤, 조율형=위임 피커.
-            items={[{ title: '모델 · 프롬프트' }, { title: isOrchestrator ? '맡길 것 · 세부' : '도구 · 기억 · 세부' }]}
+            // 노드형(스펙 287)=노드 필드 편집(1단계) — 에이전트-레벨 모델·프롬프트는 런타임 미사용(108).
+            items={
+              isPipeline
+                ? [{ title: '노드' }, { title: '세부' }]
+                : [{ title: '모델 · 프롬프트' }, { title: isOrchestrator ? '맡길 것 · 세부' : '도구 · 기억 · 세부' }]
+            }
             style={{ maxWidth: 520 }}
           />
           {step === 0 && (<>
@@ -363,6 +390,25 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
             </div>
           )}
 
+          {isPipeline ? (
+            /* 노드형(스펙 287) — 폼과 같은 공용 노드 에디터(273 원칙)를 구조 불변 모드로.
+               노드 추가/삭제/이동·이름은 잠금(테스트 범위 밖 — 서버도 길이 일치 merge로 강제). */
+            <Field group label="노드 (프롬프트·모델·도구를 이 대화에서만 변경)"
+              hint="노드 추가·삭제·순서는 여기서 바꿀 수 없습니다 — 에이전트 편집에서 변경하세요.">
+              <div style={{ maxHeight: screens.md ? 400 : undefined, overflowY: 'auto' }}>
+                <NodeListEditor
+                  fixedStructure
+                  value={draft.nodes ?? []}
+                  onChange={(nodes) => set('nodes', nodes)}
+                  models={models}
+                  personas={(blocks.persona?.items ?? []).map((p) => ({ name: p.name, body: p.body ?? '' }))}
+                  mcpServers={blocks.mcp?.items ?? []}
+                  docOptions={collections.map((c) => ({ label: c.name, value: safeToolName('search_documents', c.name) }))}
+                  memoryOptions={memoryOptions}
+                />
+              </div>
+            </Field>
+          ) : (<>
           {/* 모델·시스템 프롬프트 = 공용 컨트롤(스펙 274) — chat 필터·미등록 보존·페르소나 로더가
               단일 출처. 프롬프트의 "가져오기"는 라벨 줄 콤팩트 로더로 축약(별도 Field 2개→1구획, 077 대칭 유지). */}
           <ModelField
@@ -380,8 +426,19 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
             hint="비워두면 저장된 페르소나가 그대로 쓰입니다."
           />
           </>)}
+          </>)}
 
-          {step === 1 && (
+          {step === 1 && isPipeline && (
+            /* 노드형 세부(스펙 287) — 에이전트-레벨에서 노드형 런타임이 실제로 쓰는 것만(108):
+               단기 기억(노드 "상속" 선택의 원천값, 스펙 270). 모델·프롬프트·도구·장기 기억은
+               노드가 소유(1단계). temperature는 노드 모델 등록 params가 소유라 미노출. */
+            <ShortTermMemoryField
+              value={draft.historyDepth}
+              onChange={(v) => set('historyDepth', v ?? 0)}
+              hint="노드의 단기 기억이 '상속'일 때 쓰이는 기본값입니다."
+            />
+          )}
+          {step === 1 && !isPipeline && (
           // 데탑 2열(스펙 249 후속1, 사용자: 2단계가 서랍 세로를 넘음) — top 드로어는 가로가 넓다:
           // 좌=쓸 것, 우=세부. 모바일은 1열+스크롤.
           <div style={{ display: 'grid', gridTemplateColumns: screens.md ? '1fr 1fr' : '1fr', gap: screens.md ? 28 : 18, alignItems: 'start' }}>

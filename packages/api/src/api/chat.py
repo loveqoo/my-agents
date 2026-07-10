@@ -138,6 +138,27 @@ async def _resolve_node_models(db, nodes: list, default_cfg: dict | None) -> lis
     return resolved
 
 
+# 노드 오버라이드 필드 화이트리스트(스펙 287) — 구조 식별자(name)는 제외해 저장본 유지.
+# 노드 추가/삭제는 테스트 범위 밖(사용자 결정): 오버라이드는 "이 에이전트 그대로, 설정만 바꿔
+# 테스트"가 목적이라 구조 변경 요청은 받지 않는다(서버 강제 — 클라이언트 신뢰 금지).
+_NODE_OVERRIDE_FIELDS = {"prompt", "model", "tools", "historyDepth", "memories", "memoryQuery", "context", "format", "fields"}
+
+
+def _merge_node_overrides(saved: list, ov: object) -> tuple[list, str]:
+    """노드형 세션 오버라이드 merge(스펙 287). 길이(=구조)가 같을 때만 인덱스별로 필드
+    화이트리스트를 저장 노드 위에 덮는다. 불일치·형식 오류는 저장본 그대로 + "mismatch"
+    (조용한 드롭 금지 — 트레이스가 표면화, 스펙 125 계열). 순수 함수(테스트 단위)."""
+    if not isinstance(ov, list) or len(ov) != len(saved):
+        return saved, "mismatch"
+    merged: list = []
+    for base_n, ov_n in zip(saved, ov):
+        if not isinstance(base_n, dict) or not isinstance(ov_n, dict):
+            return saved, "mismatch"
+        patch = {k: v for k, v in ov_n.items() if k in _NODE_OVERRIDE_FIELDS}
+        merged.append({**base_n, **patch})
+    return merged, "applied"
+
+
 def _rag_tools_for(ctx: dict, calls_sink: list[dict]) -> list:
     """RAG 검색 도구 목록. 기본=전체 컬렉션 단일 도구(search_documents, 무회귀). 노드형(스펙 268 P1)은
     **컬렉션별 도구**(`search_documents__<컬렉션>`, _safe_name — 265 이름 체계)를 추가로 빌드해 노드가
@@ -313,13 +334,29 @@ async def _load_context(
             # 허용해야 세션에 반영된다. 브로커가 build_broker(principal=호출자, capabilities)로
             # 호출자 RBAC 게이트(_permitted = allowlist ∩ RBAC)하므로 주입분도 안전(confused-deputy 무관).
             # tools(스펙 276): 직접형 도구 단위 배선 오버라이드 — 노출 축소/서버별 필터라 완화 아님.
-            allowed = {"model", "temperature", "historyDepth", "mcps", "memories", "capabilities", "tools"}
+            # vectorTables(스펙 287): 노드형 문서 풀 파생의 실효 축 — RAG 읽기(사용=공용 정책 211).
+            allowed = {"model", "temperature", "historyDepth", "mcps", "memories", "capabilities", "tools", "vectorTables"}
             cfg.update({k: v for k, v in overrides.items() if k in allowed})
+            # 형 가드(codex 287 Low) — historyDepth 비정수(예: 문자열)는 _window의 `depth < 0`
+            # 비교에서 TypeError 500. 정수화 실패 시 저장값 폴백(요청 하나로 500 못 만들게).
+            if "historyDepth" in overrides and not isinstance(cfg.get("historyDepth"), int):
+                try:
+                    cfg["historyDepth"] = int(cfg["historyDepth"])
+                except (TypeError, ValueError):
+                    cfg["historyDepth"] = (agent.config or {}).get("historyDepth", 20)
             # systemPrompt는 비어있지 않을 때만 persona를 덮어쓴다 — 빈/공백 문자열로
             # 저장된 페르소나를 지우지 않도록(백엔드 자체 가드, 클라이언트 신뢰 안 함. codex P1).
             sp = overrides.get("systemPrompt")
             if isinstance(sp, str) and sp.strip():
                 persona = sp
+        # 노드형 노드 오버라이드(스펙 287) — 구조 불변 강제 merge. allowed 경로와 분리: 통짜 교체가
+        # 아니라 저장 노드 위 필드 merge(추가/삭제=범위 밖). 미적용 사유는 트레이스가 표면화.
+        nodes_status: str | None = None
+        if overrides and not _is_remote(agent.source) and overrides.get("nodes") is not None:
+            if isinstance(cfg.get("nodes"), list):
+                cfg["nodes"], nodes_status = _merge_node_overrides(cfg["nodes"], overrides["nodes"])
+            else:
+                nodes_status = "mismatch"  # 노드형이 아닌 에이전트에 nodes를 보냄
         ctx = {
             "persona": persona,
             "ext_agent_id": agent.agent_id,
@@ -329,6 +366,7 @@ async def _load_context(
             "impl": cfg.get("impl"),  # in-process 커스텀 구현 키(스펙 085) — 신뢰 레지스트리 조회용
             "artifact_spec": cfg.get("artifactSpec"),  # 노코드 산출물형 필드 명세(스펙 190) — impl_config로 주입
             "nodes": cfg.get("nodes"),  # 노드형 파이프라인 노드 명세(스펙 259) — 아래서 노드별 모델 해석 후 impl_config로 주입
+            "overrides_nodes_status": nodes_status,  # 노드 오버라이드 적용 상태(스펙 287) — 트레이스 표면화용
 
             # 원본 오버라이드 — in-process 커스텀 에이전트가 화이트리스트 밖 키도 읽을 수 있게 전달
             # (스펙 085 AgentBuildContext.overrides). 원격은 None(로컬 설정 주입 무의미, bypass 보존).
@@ -676,10 +714,10 @@ def _format_sent_measured(call: list[dict]) -> list[dict]:
 
 
 # 트레이스에 기록할 오버라이드 허용 키(스펙 134) — _load_context 병합 allowlist + systemPrompt.
-_OVERRIDE_TRACE_KEYS = ("model", "temperature", "historyDepth", "mcps", "memories", "capabilities", "tools", "systemPrompt")
+_OVERRIDE_TRACE_KEYS = ("model", "temperature", "historyDepth", "mcps", "memories", "capabilities", "tools", "vectorTables", "systemPrompt")
 
 
-def _overrides_trace(overrides: dict | None) -> dict | None:
+def _overrides_trace(overrides: dict | None, nodes_status: str | None = None) -> dict | None:
     """이 턴에 적용된 오버라이드를 트레이스 표시용으로 정화(스펙 134) — 한 세션에 설정이 다른 턴이
     섞여도 턴별로 구분 가능하게 영구 기록. 값 정화는 131 프레임 재사용: 문자열=비밀 마스킹+캡 300,
     리스트=항목별 캡 100·개수 20, 숫자 통과. 실제 온 허용 키만 — 없으면 None(필드 미기록=무회귀)."""
@@ -702,6 +740,10 @@ def _overrides_trace(overrides: dict | None) -> dict | None:
             out[k] = v
         elif isinstance(v, list):
             out[k] = [_sanitize(str(it), cap=100) for it in v[:20]]
+    # 노드 오버라이드(스펙 287) — 프롬프트 전문 대신 요약(개수+적용 상태). mismatch도 기록해
+    # "왜 안 먹었는지"를 표면화(스펙 125 계열 — 조용한 드롭 금지).
+    if nodes_status is not None and isinstance(overrides.get("nodes"), list):
+        out["nodes"] = {"count": len(overrides["nodes"]), "status": nodes_status}
     return out or None
 
 
@@ -1320,7 +1362,7 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
                 # 일시정지 이전 carry 노드가 이미 기록한 단기 기억 창 표면화(codex 270 Low — 관측 일관).
                 pending_trace["historyWindows"] = history_windows
             pending_trace["sentMessages"] = sent_messages  # 승인대기 턴도 전송 전문(스펙 131)
-            ov_trace_p = _overrides_trace(ctx.get("overrides"))
+            ov_trace_p = _overrides_trace(ctx.get("overrides"), ctx.get("overrides_nodes_status"))
             if ov_trace_p:
                 pending_trace["overrides"] = ov_trace_p  # 스펙 134
             if ctx["rag_collections"]:
@@ -1379,7 +1421,7 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
         else:
             trace["sentMessages"] = sent_messages  # 전송 프롬프트 전문(스펙 131, 메시지당 2000자 캡)
             trace["sentMessagesSource"] = "reconstructed"
-        ov_trace = _overrides_trace(ctx.get("overrides"))
+        ov_trace = _overrides_trace(ctx.get("overrides"), ctx.get("overrides_nodes_status"))
         if ov_trace:
             # 이 턴에 적용된 오버라이드(스펙 134) — 세션에 설정 다른 턴이 섞여도 턴별 구분 가능.
             trace["overrides"] = ov_trace
