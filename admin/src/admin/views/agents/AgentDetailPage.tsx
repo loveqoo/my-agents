@@ -111,15 +111,15 @@ export function AgentDetailPage({
                         const parts: string[] = []
                         // 노드형은 도구·프롬프트가 노드 소유 — 노드 수가 구성 요약(스펙 286).
                         if (agent.impl === 'pipeline') {
-                          if ((agent.nodes || []).length) parts.push(`노드 ${(agent.nodes || []).length}`)
+                          if ((agent.nodes || []).length) parts.push(`노드 ${(agent.nodes || []).length}개`)
                         } else if ((agent.tools || []).length) {
                           // 276 이후 진실원=tools(도구 단위). mcps는 서버 합집합 파생이라 카운트 부정확.
-                          parts.push(`도구 ${(agent.tools || []).length}`)
+                          parts.push(`도구 ${(agent.tools || []).length}개`)
                         } else if ((agent.mcps || []).length) {
-                          parts.push(`도구 서버 ${agent.mcps.length}(전체)`)
+                          parts.push(`도구 서버 ${agent.mcps.length}개(전체)`)
                         }
-                        if ((agent.vectorTables || []).length) parts.push(`문서 ${agent.vectorTables.length}`)
-                        { const liveMem = (agent.memories || []).filter((m) => m !== SHORT_TERM_MEMORY); if (liveMem.length) parts.push(`기억 ${liveMem.length}`) }
+                        if ((agent.vectorTables || []).length) parts.push(`문서 ${agent.vectorTables.length}개`)
+                        { const liveMem = (agent.memories || []).filter((m) => m !== SHORT_TERM_MEMORY); if (liveMem.length) parts.push(`기억 ${liveMem.length}개`) }
                         // 위임 대상은 수만으론 빈약(사용자 지적) — 이름으로(agents 목록에서 해석).
                         const caps = agent.capabilities || []
                         if (caps.length) {
@@ -128,7 +128,7 @@ export function AgentDetailPage({
                             const hit = (agents || []).find((x) => x.agentId === c)
                             return hit ? displayName(hit) : c
                           })
-                          parts.push(`위임 대상 ${caps.length} — ${names.slice(0, 3).join(', ')}${caps.length > 3 ? ` 외 ${caps.length - 3}` : ''}`)
+                          parts.push(`위임 대상 ${caps.length}개 — ${names.slice(0, 3).join(', ')}${caps.length > 3 ? ` 외 ${caps.length - 3}개` : ''}`)
                         }
                         return parts.length ? parts.join(' · ') : '연결 없음 — 모델만으로 응답'
                       })()}

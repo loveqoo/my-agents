@@ -61,8 +61,8 @@ export function CodeAgentDetailPage({
                     {(() => {
                       const parts: string[] = []
                       // code 에이전트 manifest의 mcps=서버 목록 — 서버 수임을 정직 표기(스펙 286).
-                      if ((agent.mcps || []).length) parts.push(`도구 서버 ${agent.mcps.length}`)
-                      { const liveMem = (agent.memories || []).filter((m) => m !== SHORT_TERM_MEMORY); if (liveMem.length) parts.push(`기억 ${liveMem.length}`) }
+                      if ((agent.mcps || []).length) parts.push(`도구 서버 ${agent.mcps.length}개`)
+                      { const liveMem = (agent.memories || []).filter((m) => m !== SHORT_TERM_MEMORY); if (liveMem.length) parts.push(`기억 ${liveMem.length}개`) }
                       return parts.length ? `${parts.join(' · ')} (읽기 전용)` : '연결 없음 (읽기 전용)'
                     })()}
                   </JumpCell>

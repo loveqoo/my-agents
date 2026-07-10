@@ -17,8 +17,8 @@ function capSummary(caps: string[]): string {
   const rag = caps.filter((c) => c.startsWith('rag:')).length
   const mem = caps.some((c) => c.startsWith('memory'))
   const parts: string[] = []
-  if (mcp) parts.push(`도구 ${mcp}`)
-  if (rag) parts.push(`문서 ${rag}`)
+  if (mcp) parts.push(`도구 ${mcp}개`)
+  if (rag) parts.push(`문서 ${rag}개`)
   if (mem) parts.push('기억')
   return parts.join(' · ')
 }

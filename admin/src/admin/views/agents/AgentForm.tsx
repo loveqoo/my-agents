@@ -995,11 +995,11 @@ export function AgentForm({
               {(() => {
                 const hidden: string[] = []
                 if (isArtifactForm || orchestratorSelected) {
-                  if (form.mcps.length) hidden.push(`도구 ${form.mcps.length}`)
-                  if (form.vectorTables.length) hidden.push(`문서 ${form.vectorTables.length}`)
-                  { const liveMem = form.memories.filter((m) => m !== SHORT_TERM_MEMORY); if (liveMem.length) hidden.push(`기억 ${liveMem.length}`) }
+                  if (form.mcps.length) hidden.push(`도구 ${form.mcps.length}개`)
+                  if (form.vectorTables.length) hidden.push(`문서 ${form.vectorTables.length}개`)
+                  { const liveMem = form.memories.filter((m) => m !== SHORT_TERM_MEMORY); if (liveMem.length) hidden.push(`기억 ${liveMem.length}개`) }
                 }
-                if (!orchestratorSelected && form.capabilities.length) hidden.push(`위임 대상 ${form.capabilities.length}`)
+                if (!orchestratorSelected && form.capabilities.length) hidden.push(`위임 대상 ${form.capabilities.length}개`)
                 return hidden.length ? (
                   <span style={{ fontSize: 12, color: 'var(--color-text-quaternary)' }}>
                     보존된 연결(현재 종류에선 사용 안 함): {hidden.join(' · ')} — 종류를 되돌리면 다시 적용됩니다.
