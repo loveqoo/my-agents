@@ -777,9 +777,18 @@ export function AgentForm({
             직접=vectorTables, 조율형=capabilities의 rag:*. 산출물형은 문서 검색 없음. */}
         {(() => {
           if (isArtifactForm) return null
+          // 노드형은 저장된 풀(form.vectorTables) 말고 **지금 편집 중인 노드의 문서 도구**에서 실시간
+          // 파생(2026-07-10) — 저장 전 노드에 문서를 넣고 빼도 슬라이더 목록이 따라온다(파생 규칙은
+          // derivePipelinePool과 동일: safeToolName 매칭). min_scores는 노드형도 소비(chat.py _rag_tools_for).
+          const nodeDocCols = isPipeline
+            ? (() => {
+                const used = new Set((form.nodes ?? []).flatMap((n) => n.tools))
+                return collections.filter((c) => used.has(safeToolName('search_documents', c.name))).map((c) => c.name)
+              })()
+            : null
           const cols = orchestratorSelected
             ? form.capabilities.filter((c) => c.startsWith('rag:')).map((c) => c.slice(4))
-            : form.vectorTables
+            : nodeDocCols ?? form.vectorTables
           if (!cols.length) return null
           const scores = form.ragMinScores || {}
           const setScore = (col: string, val: number) =>
@@ -871,6 +880,8 @@ export function AgentForm({
                     </div>
                     <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
                       {form.temperature == null ? '자동 — 모델 등록 기본값을 사용합니다.' : '에이전트에 저장됩니다(세션마다 동일).'}
+                      {/* 노드형도 소비(pipeline.py:79 — ctx.params가 노드 모델 params보다 우선). 적용 범위 명시. */}
+                      {isPipeline ? ' 모든 노드의 모델에 적용됩니다.' : ''}
                     </span>
                   </Field>
                   {/* 단기 기억(스펙 271 공용 컨트롤) — 직접형은 스텝 ②의 "기억" 구획이 소유하므로 여기선
