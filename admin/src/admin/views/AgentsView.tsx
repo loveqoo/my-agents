@@ -631,10 +631,8 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
                   </div>
                 )
               })()}
-              {/* "출처는 상단 탭" 안내는 삭제(사용자 지시) — 탭 이름이 바로 위에 항상 보여 재설명이 군더더기. */}
-              <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--color-border-secondary)', color: 'var(--color-text-tertiary)', lineHeight: 1.5 }}>
-                A2A는 공개 에이전트만 켤 수 있습니다
-              </div>
+              {/* 푸터 안내는 전부 삭제(사용자 지시) — 출처=탭 이름이 항상 보이고, A2A 제약은
+                  상세 A2A 행이 자리에서 설명. 범례는 기호 목록만. */}
             </div>
           }
         >
