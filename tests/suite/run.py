@@ -1,0 +1,482 @@
+"""기능 조합 시나리오 스위트 러너 (스펙 288) — 실모델 전제.
+
+실행: cd packages/api && uv run python ../../tests/suite/run.py [--only 부분키] [--list] [--bootstrap-only]
+종료코드: 0=전부 통과 / 1=실패 있음 / 2=사전조건 미충족(실모델·DB·mem0).
+
+원칙(스펙 288): 단언은 기록으로만(trace mcp/toolDiag/brokerCalls/graph·recall·DB 행 실측),
+시나리오 독립(각자 새 세션), 실패는 1회 재시도(통과 시 flaky로 정직 표기).
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import copy
+import json
+import pathlib
+import sys
+import time
+import uuid
+
+import httpx
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))  # tests/
+
+from suite import fixtures  # noqa: E402
+from suite._sse import parse_sse  # noqa: E402
+from suite.scenarios import (  # noqa: E402
+    NODE_OVERRIDE_ECHO_PROMPT,
+    NODE_OVERRIDE_TOKEN,
+    SCENARIOS,
+)
+
+from api.auth import _token, current_principal  # noqa: E402
+from api.main import app  # noqa: E402
+
+
+class _SuitePrincipal:
+    """스위트 principal — user_id(기억 스코프)·세션 소유권이 이 id로 흐른다(fixtures.SUITE_USER와 동일)."""
+
+    id = fixtures.SUITE_USER
+    is_superuser = True
+    is_active = True
+    is_verified = True
+    email = "suite-288@local"
+
+
+app.dependency_overrides[current_principal] = lambda: _SuitePrincipal()
+
+CHAT_TIMEOUT = httpx.Timeout(300.0, connect=10.0)  # 로컬 실모델(수십 B)은 노드형 다턴이 느릴 수 있다
+
+
+class PreflightError(RuntimeError):
+    pass
+
+
+# ── 단언 어휘 — (res, trace, *args) -> (ok, detail). 전부 기록 기반. ──────────────────────────
+
+def _mcp(trace: dict) -> list[dict]:
+    return trace.get("mcp") or []
+
+
+def _non_rag(trace: dict) -> list[dict]:
+    return [e for e in _mcp(trace) if e.get("server") != "rag"]
+
+
+ASSERTS = {
+    "tool_called": lambda res, t, sub, n=1: (
+        len([e for e in _non_rag(t) if sub in (e.get("tool") or "")]) >= n,
+        f"mcp={[(e.get('server'), e.get('tool')) for e in _mcp(t)]}",
+    ),
+    "tool_not_called": lambda res, t, sub: (
+        not any(sub in (e.get("tool") or "") for e in _non_rag(t)),
+        f"mcp={[(e.get('server'), e.get('tool')) for e in _mcp(t)]}",
+    ),
+    "tools_called_zero": lambda res, t: (
+        len(_non_rag(t)) == 0,
+        f"mcp={[(e.get('server'), e.get('tool')) for e in _mcp(t)]}",
+    ),
+    "rag_called": lambda res, t: (
+        any(e.get("server") == "rag" for e in _mcp(t)),
+        f"mcp={[(e.get('server'), e.get('tool')) for e in _mcp(t)]}",
+    ),
+    "rag_not_called": lambda res, t: (
+        not any(e.get("server") == "rag" for e in _mcp(t)),
+        f"mcp={[(e.get('server'), e.get('tool')) for e in _mcp(t)]}",
+    ),
+    "memory_hit": lambda res, t, token: (
+        any(token in str(h) for h in (t.get("memories") or [])),
+        f"memories={[str(h)[:80] for h in (t.get('memories') or [])]}",
+    ),
+    # 노드형 회상(스펙 268 P2) — 노드별 프록시 조회가 trace["memoryRecalls"]({node,query,hits,cached})로
+    # 표면화된다(내용 아닌 건수 — 243 마스킹 규약). 비노드형의 memories와 다른 표면.
+    "memory_recall_min": lambda res, t, n: (
+        any((r.get("hits") or 0) >= n for r in (t.get("memoryRecalls") or [])),
+        f"memoryRecalls={t.get('memoryRecalls')}",
+    ),
+    "memory_absent": lambda res, t: (
+        not (t.get("memories") or []) and not t.get("memoryQuery"),
+        f"memories={t.get('memories')}, memoryQuery={t.get('memoryQuery')!r}",
+    ),
+    "broker_min": lambda res, t, n: (
+        len(t.get("brokerCalls") or []) >= n,
+        f"brokerCalls={t.get('brokerCalls')}",
+    ),
+    "broker_zero": lambda res, t: (
+        not (t.get("brokerCalls") or []),
+        f"brokerCalls={t.get('brokerCalls')}",
+    ),
+    "override_key": lambda res, t, k: (
+        k in (t.get("overrides") or {}),
+        f"overrides={t.get('overrides')}",
+    ),
+    "override_absent": lambda res, t: (
+        not t.get("overrides"),
+        f"overrides={t.get('overrides')}",
+    ),
+    "graph_node": lambda res, t, name: (
+        any(g.get("node") == name for g in (t.get("graph") or [])),
+        f"graph={[g.get('node') for g in (t.get('graph') or [])]}",
+    ),
+    "graph_node_absent": lambda res, t, name: (
+        not any(g.get("node") == name for g in (t.get("graph") or [])),
+        f"graph={[g.get('node') for g in (t.get('graph') or [])]}",
+    ),
+    "text_contains": lambda res, t, tok: (tok in res["text"], f"text={res['text'][:160]!r}"),
+    "text_not_contains": lambda res, t, tok: (tok not in res["text"], f"text={res['text'][:160]!r}"),
+    "text_nonempty": lambda res, t: (
+        bool(res["text"].strip()) and not res["error"],
+        f"text={res['text'][:80]!r}, error={res['error']!r}",
+    ),
+}
+
+
+# ── 프리플라이트 (완료 기준 2 — 미충족이면 무엇이 없는지 말하고 exit 2) ─────────────────────
+
+async def preflight(c: httpx.AsyncClient) -> tuple[dict, dict]:
+    r = await c.get("/agents")
+    if r.status_code != 200:
+        raise PreflightError(f"API/DB 미가용 — GET /agents {r.status_code}")
+    try:
+        chat_m, embed_m = fixtures.pick_from((await c.get("/models")).json())
+    except RuntimeError as e:
+        raise PreflightError(str(e)) from e
+    # 실모델 서버 생존 핑 — 어떤 HTTP 응답이든(401 포함) 살아있음, 연결 실패만 미가용.
+    for base in {chat_m["base_url"], embed_m["base_url"]}:
+        try:
+            async with httpx.AsyncClient(timeout=5) as h:
+                await h.get(base.rstrip("/") + "/models")
+        except Exception as e:  # noqa: BLE001
+            raise PreflightError(f"실모델 서버 응답 없음: {base} ({type(e).__name__}: {e})") from e
+    # mem0 백엔드(회상 시나리오 전제) — recall_diag가 미가용 사유를 구조화해 준다(스펙 125).
+    d = (await c.post(f"/memory/user/{fixtures.SUITE_USER}/search", json={"query": "ping"})).json()
+    diag = d.get("diag") or {}
+    if not (diag.get("configured") and diag.get("backendReady")):
+        raise PreflightError(f"기억(mem0) 백엔드 미가용 — diag={diag}")
+    return chat_m, embed_m
+
+
+# ── 데이터 시나리오 실행 ─────────────────────────────────────────────────────────────────
+
+async def run_turns(c: httpx.AsyncClient, agent_id: str, turns: list[str], overrides: dict | None) -> dict:
+    """턴들을 같은 세션으로 잇고 마지막 턴의 파싱 결과를 돌려준다(시나리오 독립 — 세션은 여기서 시작).
+
+    실제 클라이언트(플레이그라운드)처럼 **대화 전체를 body.messages로 누적 전송**한다 — 서버 메인
+    경로는 세션 히스토리를 DB에서 재구성하지 않고 body.messages를 historyDepth로 절단해 쓴다(_window).
+    현재 턴만 보내면 어떤 depth여도 이전 턴이 없다(실측 — 이 스위트 최초 실행이 잡은 함정)."""
+    sid: str | None = None
+    convo: list[dict] = []
+    res: dict = {}
+    for turn in turns:
+        convo.append({"role": "user", "content": turn})
+        body: dict = {"messages": convo}
+        if sid:
+            body["sessionId"] = sid
+        if overrides is not None:
+            body["overrides"] = overrides
+        r = await c.post(f"/agents/{agent_id}/chat", json=body)
+        if r.status_code != 200:
+            raise AssertionError(f"HTTP {r.status_code}: {r.text[:200]}")
+        res = parse_sse(r.text)
+        res["_session"] = sid = res["session"] or sid
+        convo.append({"role": "assistant", "content": res["text"]})
+    return res
+
+
+def check_expects(res: dict, expects: list[tuple]) -> list[str]:
+    # trace 필수 게이트(codex 288 #1) — trace 프레임이 아예 없으면 부재(absence) 단언들이
+    # "관측 없음"을 "안 불렸음"으로 오독해 공허히 통과한다. 부재 단언은 관측 존재가 전제.
+    if res.get("trace") is None:
+        return [f"trace 프레임 없음 — 단언 불가(공허한 통과 방지). error={res.get('error')!r}"]
+    trace = res["trace"]
+    fails: list[str] = []
+    for exp in expects:
+        name, *args = exp
+        ok, detail = ASSERTS[name](res, trace, *args)
+        if not ok:
+            fails.append(f"{name}{tuple(args)} — {detail}")
+    return fails
+
+
+async def run_data_scenario(c: httpx.AsyncClient, fx: dict, sc: dict) -> list[str]:
+    agent = fx["agents"][sc["agent"]]
+    res = await run_turns(c, agent["id"], sc["turns"], sc.get("overrides"))
+    return check_expects(res, sc["expect"])
+
+
+# ── 커스텀 시나리오 (데이터 선언로 안 담기는 왕복들) ─────────────────────────────────────
+
+async def custom_approval_roundtrip(c: httpx.AsyncClient, fx: dict) -> list[str]:
+    """승인 도구 발동 → Approval 생성 → approve → 재개 턴이 도구를 실제 실행(기록)."""
+    agent = fx["agents"]["direct"]
+    res = await run_turns(c, agent["id"], ["반드시 delete_record 도구로 레코드 rec-288 을 삭제해줘."], None)
+    apid = res.get("approval")
+    if isinstance(apid, dict):
+        apid = apid.get("id")
+    if not apid:
+        return [f"approval 프레임 없음 — text={res['text'][:120]!r}, error={res['error']!r}"]
+    r = await c.post(f"/approvals/{apid}/resolve", json={"decision": "approve"})
+    if r.status_code != 200:
+        return [f"resolve HTTP {r.status_code}: {r.text[:200]}"]
+    # 재개는 서버가 수행(resume_approval) — 재개 턴의 도구 실행 기록이 세션 메시지 trace에 남는다.
+    sid = res.get("_session")
+    for _ in range(30):
+        msgs = (await c.get(f"/sessions/{sid}/messages")).json()
+        for m in msgs:
+            t = m.get("trace") or {}
+            if any("delete_record" in (e.get("tool") or "") for e in (t.get("mcp") or [])):
+                return []
+        await asyncio.sleep(1)
+    return ["재개 후 delete_record 실행 기록을 세션 메시지 trace에서 찾지 못함(30s)"]
+
+
+async def custom_ephemeral_db_invariant(c: httpx.AsyncClient, fx: dict) -> list[str]:
+    """비영속 채팅 1턴 전후 쓰기 대상 테이블 행 수 불변(verify_235 패턴 — 실측)."""
+    from sqlalchemy import text as sql_text
+
+    from api.db import SessionLocal
+
+    tables = ["sessions", "messages", "checkpoints", "checkpoint_writes", "checkpoint_blobs", "approvals"]
+
+    async def counts() -> dict[str, int]:
+        async with SessionLocal() as db:
+            out = {}
+            for t in tables:
+                out[t] = int((await db.execute(sql_text(f"SELECT COUNT(*) FROM {t}"))).scalar_one())
+            return out
+
+    before = await counts()
+    res = await run_turns(c, fx["agents"]["ephemeral"]["id"], ["1 더하기 1은? 숫자만 답해."], None)
+    if not res["text"].strip():
+        return [f"비영속 응답 없음 — error={res['error']!r}"]
+    after = await counts()
+    diff = {t: after[t] - before[t] for t in tables if after[t] != before[t]}
+    return [f"비영속인데 DB 행 증가: {diff}"] if diff else []
+
+
+async def custom_ephemeral_approval_refused(c: httpx.AsyncClient, fx: dict) -> list[str]:
+    """비영속 + 승인 필요 도구(오버라이드로 배선) → 승인 대기 대신 명시 거부(스펙 237 게이트)."""
+    ov = {"tools": [fixtures.TOOL_DELETE, fixtures.TOOL_ECHO], "mcps": ["local-tools"]}
+    res = await run_turns(
+        c, fx["agents"]["ephemeral"]["id"],
+        ["반드시 delete_record 도구로 레코드 rec-1 을 삭제해줘."], ov,
+    )
+    fails = []
+    if res.get("approval"):
+        fails.append(f"비영속인데 승인 대기 생성됨: {res['approval']}")
+    if not (res.get("error") and "비영속" in str(res["error"])):
+        fails.append(f"명시 거부 안내 없음 — error={res['error']!r}, text={res['text'][:120]!r}")
+    return fails
+
+
+async def _stored_nodes(c: httpx.AsyncClient, agent_id: str) -> list[dict]:
+    a = (await c.get(f"/agents/{agent_id}")).json()
+    nodes = a.get("nodes") or []
+    if not nodes:
+        raise AssertionError("저장 노드를 읽지 못함(GET /agents/{id}.nodes)")
+    return copy.deepcopy(nodes)
+
+
+async def custom_pipeline_node_override_prompt(c: httpx.AsyncClient, fx: dict) -> list[str]:
+    """노드 오버라이드(287): 검색 노드의 프롬프트·도구를 갈아 RAG 소멸 + echo 지시 실효."""
+    agent = fx["agents"]["pipeline"]
+    nodes = await _stored_nodes(c, agent["id"])
+    nodes[0]["prompt"] = "문서 검색 없이, 입력을 한 문장으로 요약해서 다음 단계로 넘기세요."
+    nodes[0]["tools"] = []
+    nodes[1]["prompt"] = NODE_OVERRIDE_ECHO_PROMPT
+    res = await run_turns(c, agent["id"], ["회사 표준 배포 코드네임이 뭐야?"], {"nodes": nodes})
+    fails = check_expects(res, [("rag_not_called",), ("tool_called", "echo", 1)])
+    ov = (res.get("trace") or {}).get("overrides") or {}
+    st = (ov.get("nodes") or {}).get("status")
+    if st in (None, "mismatch"):
+        fails.append(f"overrides.nodes 미적용/불일치 — overrides={ov}")
+    return fails
+
+
+async def custom_pipeline_node_override_notools(c: httpx.AsyncClient, fx: dict) -> list[str]:
+    """노드 오버라이드(287): 모든 노드 도구 제거 → echo·RAG 호출 소멸(구조는 불변)."""
+    agent = fx["agents"]["pipeline"]
+    nodes = await _stored_nodes(c, agent["id"])
+    for n in nodes:
+        n["tools"] = []
+    res = await run_turns(c, agent["id"], ["회사 표준 배포 코드네임이 뭐야?"], {"nodes": nodes})
+    fails = check_expects(res, [("rag_not_called",), ("tool_not_called", "echo")])
+    # 오버라이드 실적용 확인(codex 288 #2) — 미적용이면 위 부재 단언이 "도구 소멸"이 아니라
+    # "오버라이드 무시+원래도 안 부름" 같은 우연으로 초록이 될 수 있다.
+    ov = (res.get("trace") or {}).get("overrides") or {}
+    st = (ov.get("nodes") or {}).get("status")
+    if st in (None, "mismatch"):
+        fails.append(f"overrides.nodes 미적용/불일치 — overrides={ov}")
+    return fails
+
+
+async def custom_session_resume_from_db(c: httpx.AsyncClient, fx: dict) -> list[str]:
+    """세션 영속 왕복(codex 288 #7) — 누적 전송이 아니라 **DB에 영속된 메시지로 대화를 재구성**해
+    2턴을 잇는다(플레이그라운드 세션 재개와 같은 경로: GET /sessions/{id}/messages → body.messages).
+    bare-session-recall(클라 누적)과 달리 이 시나리오는 세션 영속이 깨지면 반드시 실패한다."""
+    from suite.scenarios import SECRET
+
+    agent = fx["agents"]["bare"]
+    res = await run_turns(c, agent["id"], [f"내 비밀 코드는 {SECRET}이야. 기억해 둬."], None)
+    sid = res.get("_session")
+    msgs = (await c.get(f"/sessions/{sid}/messages")).json()
+    convo = [{"role": m.get("role"), "content": m.get("content") or ""} for m in msgs]
+    if len([m for m in convo if m["role"] == "user"]) < 1 or len(convo) < 2:
+        return [f"세션 영속 메시지 부족 — {[(m['role'], m['content'][:20]) for m in convo]}"]
+    convo.append({"role": "user", "content": "방금 내가 알려준 비밀 코드를 숫자만으로 답해."})
+    r = await c.post(f"/agents/{agent['id']}/chat", json={"sessionId": sid, "messages": convo})
+    if r.status_code != 200:
+        return [f"HTTP {r.status_code}: {r.text[:200]}"]
+    res2 = parse_sse(r.text)
+    return check_expects(res2, [("text_contains", SECRET)])
+
+
+async def custom_bootstrap_idempotent(c: httpx.AsyncClient, fx: dict) -> list[str]:
+    """완료 기준 3 — 부트스트랩 재실행 시 생성/재생성 0(전부 재사용)."""
+    again = await fixtures.ensure_all(c)
+    cnt = again["counts"]
+    if cnt["created"] or cnt["recreated"]:
+        return [f"멱등 위반 — 2회차 counts={cnt}"]
+    return []
+
+
+async def custom_preflight_unit(c: httpx.AsyncClient, fx: dict) -> list[str]:
+    """완료 기준 2의 단위 검증 — mock만 있는 목록이면 실모델 선택이 명확히 실패해야."""
+    mock_only = [
+        {"name": "mock-llm", "kind": "chat", "provider_kind": "mock", "is_default": True},
+        {"name": "mock-embed", "kind": "embedding", "provider_kind": "mock", "is_default": True},
+    ]
+    try:
+        fixtures.pick_from(mock_only)
+        return ["mock만 있는데 실모델 선택이 성공(빈 초록 위험)"]
+    except RuntimeError:
+        return []
+
+
+CUSTOM_SCENARIOS: list[tuple[str, object]] = [
+    ("session-resume-from-db", custom_session_resume_from_db),
+    ("approval-roundtrip", custom_approval_roundtrip),
+    ("ephemeral-db-invariant", custom_ephemeral_db_invariant),
+    ("ephemeral-approval-refused", custom_ephemeral_approval_refused),
+    ("pipeline-node-override-prompt", custom_pipeline_node_override_prompt),
+    ("pipeline-node-override-notools", custom_pipeline_node_override_notools),
+    ("bootstrap-idempotent", custom_bootstrap_idempotent),
+    ("preflight-unit", custom_preflight_unit),
+]
+
+
+# ── 러너 ──────────────────────────────────────────────────────────────────────────────
+
+async def run_one(name: str, fn, retries: int = 1) -> tuple[str, str, list[str], float]:
+    """시나리오 1개 실행(+1회 재시도) → (key, status ok|flaky|FAIL, fails, sec).
+    flaky여도 1차 실패 내용을 보존해 리포트에 노출한다(codex 288 #4 — 재시도가 실패를 숨기지 않게)."""
+    t0 = time.monotonic()
+    last: list[str] = []
+    for attempt in range(retries + 1):
+        try:
+            fails = await fn()
+        except AssertionError as e:
+            fails = [str(e)]
+        except Exception as e:  # noqa: BLE001 — 시나리오 독립성: 예외도 실패로 접고 다음으로
+            fails = [f"{type(e).__name__}: {e}"]
+        if not fails:
+            status = "ok" if attempt == 0 else "flaky"
+            return name, status, last, time.monotonic() - t0
+        last = fails
+    return name, "FAIL", last, time.monotonic() - t0
+
+
+async def main() -> int:
+    ap = argparse.ArgumentParser(description="스펙 288 기능 조합 시나리오 스위트(실모델 전제)")
+    ap.add_argument("--only", default=None, help="키 부분일치 필터(쉼표로 여러 개)")
+    ap.add_argument("--list", action="store_true", help="시나리오 목록만 출력")
+    ap.add_argument("--bootstrap-only", action="store_true", help="픽스처 부트스트랩까지만")
+    ap.add_argument("--strict", action="store_true", help="flaky(재시도 통과)도 실패로 취급(exit 1)")
+    args = ap.parse_args()
+
+    all_keys = [s["key"] for s in SCENARIOS] + [k for k, _ in CUSTOM_SCENARIOS]
+    if args.list:
+        print("\n".join(all_keys))
+        return 0
+
+    # in-process ASGI는 lifespan(startup)이 안 돌아 체크포인터가 비활성 — HIL 재개(승인 왕복)가
+    # "resume 불가"로 조용히 무산된다(실측). durable 체크포인터를 직접 초기화한다.
+    from api import checkpointer
+
+    await checkpointer.init_checkpointer()
+
+    transport = httpx.ASGITransport(app=app)
+    headers = {"Authorization": f"Bearer {_token()}"}
+    t_start = time.monotonic()
+    async with httpx.AsyncClient(transport=transport, base_url="http://t", headers=headers, timeout=CHAT_TIMEOUT) as c:
+        try:
+            chat_m, embed_m = await preflight(c)
+        except PreflightError as e:
+            print(f"PREFLIGHT FAIL — {e}")
+            return 2
+        print(f"[preflight] chat={chat_m['name']} embedding={embed_m['name']} (실모델 확인)")
+
+        try:
+            fx = await fixtures.ensure_all(c)
+        except RuntimeError as e:
+            print(f"PREFLIGHT FAIL — 픽스처 실증 실패: {e}")
+            return 2
+        print(f"[fixtures] counts={fx['counts']} collection={fx['collection']['name']}"
+              f"(chunks={fx['collection'].get('chunk_count')}) memory={fx['memory']}")
+        # 딥 핑(codex 288 #9) — /models HTTP 생존만으론 추론 가능을 보장 못한다: 실제 chat 1회.
+        # (임베딩 추론은 ensure_collection의 검색 실증이 이미 수행 — FACT_TOKEN 히트까지 확인.)
+        ping = await run_turns(c, fx["agents"]["bare"]["id"], ["핑 — 아무 한 단어로만 답해."], None)
+        if not ping["text"].strip():
+            print(f"PREFLIGHT FAIL — chat 실모델 추론 실패(빈 응답): error={ping['error']!r}")
+            return 2
+        if args.bootstrap_only:
+            return 0
+
+        rows: list[tuple[str, str, list[str], float]] = []
+        def _want(key: str) -> bool:
+            return not args.only or any(tok.strip() in key for tok in args.only.split(",") if tok.strip())
+
+        for sc in SCENARIOS:
+            if not _want(sc["key"]):
+                continue
+            rows.append(await run_one(sc["key"], lambda sc=sc: run_data_scenario(c, fx, sc)))
+            _print_row(rows[-1])
+        for key, fn in CUSTOM_SCENARIOS:
+            if not _want(key):
+                continue
+            rows.append(await run_one(key, lambda fn=fn: fn(c, fx)))
+            _print_row(rows[-1])
+
+    await checkpointer.close_checkpointer()
+
+    failed = [r for r in rows if r[1] == "FAIL"]
+    flaky = [r for r in rows if r[1] == "flaky"]
+    total_s = time.monotonic() - t_start
+    print(f"\n==== 스위트 결과: {len(rows)}개 중 통과 {len(rows) - len(failed)}"
+          f" (flaky {len(flaky)}) · 실패 {len(failed)} · {total_s:.0f}s ====")
+    if total_s > 600:
+        print(f"참고: 목표 실행시간(600s) 초과 — {total_s:.0f}s (스펙 288 완료 기준 6, 보고만)")
+    # flaky 1차 실패도 노출(codex 288 #4) — 재시도 통과가 간헐 결함을 조용히 삼키지 않게.
+    for key, _, first_fails, _ in flaky:
+        print(f"  flaky {key} (1차 실패 → 재시도 통과)")
+        for f in first_fails:
+            print(f"       - {f}")
+    for key, _, fails, _ in failed:
+        print(f"  FAIL {key}")
+        for f in fails:
+            print(f"       - {f}")
+    if failed:
+        return 1
+    if flaky and args.strict:
+        return 1
+    return 0
+
+
+def _print_row(row: tuple[str, str, list[str], float]) -> None:
+    key, status, fails, sec = row
+    mark = {"ok": "  ok  ", "flaky": " flaky", "FAIL": " FAIL "}[status]
+    print(f"{mark} {key} ({sec:.1f}s)" + (f" — {fails[0]}" if fails else ""))
+
+
+if __name__ == "__main__":
+    raise SystemExit(asyncio.run(main()))
