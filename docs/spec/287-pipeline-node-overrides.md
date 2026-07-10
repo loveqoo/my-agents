@@ -63,6 +63,11 @@
   직접형 표면(시스템 프롬프트·도구 트리·장기 기억·Temperature) 부재, 추가/삭제/이동/이름 Input
   부재(필드 편집은 가능), 적용 → POST /chat body.overrides.nodes(길이 2·수정 프롬프트·타 노드
   저장값)+파생 풀 mcps 배선.
+- **verify-287-e2e-effect.mjs 5/5 ALL GREEN**(브라우저 종단 한 바퀴 — 사용자 질문 "테스트
+  해보셨나요?"로 추가): UI에서 노드 도구 체크 해제 → 적용 → **응답** trace에서 echo 호출 1→0 +
+  overrides.nodes=applied. 요청 payload 캡처가 아니라 응답 효과 단언(UI 검증은 기능적으로).
+  함정 1건: ToolTree는 선택 도구가 있으면 defaultActiveKey로 **기본 펼침** — 무조건 헤더를
+  클릭하면 열린 걸 닫는다(트리 가시성 조건부 클릭으로 수리).
 - 형제 회귀: verify-273(직접형 드로어)·275(노드 아코디언 폼)·278(트리)·279(폼 흐름) ALL GREEN.
   tsc 0.
 - **codex 적대(오버라이드=인가 인접)**: High 0. 판정 기록 —
