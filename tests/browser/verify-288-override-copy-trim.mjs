@@ -57,6 +57,10 @@ try {
   check((await drawer.getByText(DESC, { exact: false }).count()) === 0, `① 설명문 "${DESC}..." 부재`)
   check((await drawer.getByText(HINT, { exact: false }).count()) === 1, `① 힌트 "${HINT}..." 1건 존재`)
   check((await drawer.getByText('n1', { exact: true }).count()) > 0, `① 노드 카드는 그대로(n1)`)
+  // 접힘 헤더 요약에 모델 미표기(프롬프트 발췌만) — 2026-07-10 지시
+  const header1 = await drawer.locator('.ant-collapse-header').first().textContent()
+  check(!header1.includes('mock-llm'), `① 헤더에 모델명 부재 (got ${JSON.stringify(header1)})`)
+  check(header1.includes('분석해라'), `① 헤더에 프롬프트 발췌 존재`)
   await page.screenshot({ path: 'tests/browser/out-288-override-drawer.png', fullPage: false })
 
   // ── ② 저작(새 에이전트 → 노드형) 화면 — 설명문 유지 ──

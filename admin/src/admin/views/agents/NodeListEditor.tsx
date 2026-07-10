@@ -68,11 +68,13 @@ export function NodeListEditor({
     update(next)
   }
 
-  // 접힘 헤더 요약(스펙 275) — 설정을 한 줄로: 모델 · 도구/문서/기억 수 · 비기본값 표시.
+  // 접힘 헤더 요약(스펙 275) — 설정을 한 줄로: 도구/문서/기억 수 · 비기본값 표시.
+  // 모델은 표기하지 않는다 — 노드마다 반복되는 노이즈, 노드 구별은 프롬프트 발췌가 한다(2026-07-10).
+  // 모델 미설정은 "작성 필요" Tag가 이미 알린다.
   const summarize = (n: PipelineNode) => {
     const mcp = n.tools.filter((t) => !isDocTool(t)).length
     const doc = n.tools.filter(isDocTool).length
-    const parts = [n.model || '모델 미설정']
+    const parts: string[] = []
     if (mcp) parts.push(`도구 ${mcp}`)
     if (doc) parts.push(`문서 ${doc}`)
     if (n.memories?.length) parts.push(`장기 기억 ${n.memories.length}`)
@@ -171,8 +173,7 @@ export function NodeListEditor({
                             textOverflow: 'ellipsis',
                           }}
                         >
-                          {summarize(n)}
-                          {n.prompt.trim() ? ` — ${n.prompt.trim().slice(0, 60)}` : ''}
+                          {[summarize(n), n.prompt.trim().slice(0, 60)].filter(Boolean).join(' — ')}
                         </span>
                       </>
                     )}

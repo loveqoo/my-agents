@@ -393,7 +393,7 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
           {isPipeline ? (
             /* 노드형(스펙 287) — 폼과 같은 공용 노드 에디터(273 원칙)를 구조 불변 모드로.
                노드 추가/삭제/이동·이름은 잠금(테스트 범위 밖 — 서버도 길이 일치 merge로 강제). */
-            <Field group hint="노드 추가·삭제·순서는 여기서 바꿀 수 없습니다 — 에이전트 편집에서 변경하세요.">
+            <Field group>
               <div style={{ maxHeight: screens.md ? 400 : undefined, overflowY: 'auto' }}>
                 <NodeListEditor
                   fixedStructure
@@ -406,6 +406,10 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
                   memoryOptions={memoryOptions}
                 />
               </div>
+              {/* Field hint 대신 직접 렌더 — 노드 카드 간 여백(화살표 행)과 어울리게 위 여백을 더 준다. */}
+              <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginTop: 8 }}>
+                노드 추가·삭제·순서는 여기서 바꿀 수 없습니다 — 에이전트 편집에서 변경하세요.
+              </span>
             </Field>
           ) : (<>
           {/* 모델·시스템 프롬프트 = 공용 컨트롤(스펙 274) — chat 필터·미등록 보존·페르소나 로더가
