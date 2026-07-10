@@ -85,8 +85,12 @@ try {
   await page.waitForTimeout(300)
   await page.getByRole('button', { name: '다음' }).click()
   await page.waitForTimeout(500)
-  // 도구 트리(스펙 277)에서 'delete_record'(local-tools 고유 도구) 자식 체크. echo는 calc-tools와
-  // 중복이라 트리 스코프가 모호 → 저장 왕복 단언은 고유 도구로(런타임 ②③은 API로 echo 배선).
+  // 도구 트리(스펙 277·278)에서 'delete_record'(local-tools 고유 도구) 자식 체크 — 아코디언 열고
+  // 서버 스위처 확장(1 depth 초기화) 후. echo는 calc-tools와 중복이라 저장 왕복 단언은 고유 도구로.
+  const acc276 = page.locator('.ant-modal:visible .ant-collapse-header').filter({ hasText: '도구' }).filter({ hasNotText: '승인' }).first()
+  await acc276.click(); await page.waitForTimeout(400)
+  const srv276 = page.locator('.ant-modal:visible .ant-tree-treenode', { has: page.getByText('local-tools', { exact: true }) }).first()
+  await srv276.locator('.ant-tree-switcher').first().click(); await page.waitForTimeout(300)
   const treeNode = page.locator('.ant-modal:visible .ant-tree-treenode', { has: page.getByText('delete_record', { exact: true }) }).first()
   const hasNode = await treeNode.count()
   check(hasNode > 0, `① 도구 트리에 자식 노드 'delete_record' (found ${hasNode})`)

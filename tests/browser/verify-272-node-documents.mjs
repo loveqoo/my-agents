@@ -50,7 +50,9 @@ try {
   await page.getByRole('button', { name: /노드 추가/ }).click()
   await page.waitForTimeout(400)
 
-  // ① 분리 — 도구=트리(스펙 277), 문서=Select 각각 존재
+  // ① 분리 — 도구=트리(스펙 277·278 아코디언 — 열어야 DOM에 렌더), 문서=Select 각각 존재
+  const toolAcc = page.locator('.ant-modal:visible .ant-collapse-header').filter({ hasText: '도구' }).filter({ hasNotText: '승인' }).first()
+  await toolAcc.click(); await page.waitForTimeout(400)
   const toolTree = page.locator('.ant-modal:visible .ant-tree').first()
   const docLabel = await page.getByText('문서 (선택)', { exact: true }).count()
   check(await toolTree.count() > 0, `노드 카드에 도구 트리(스펙 277)`)
@@ -74,6 +76,8 @@ try {
 
   // 도구 트리에서 자식 하나 체크 → 문서 유지되는지(병합 보존, 272 무회귀)
   if (mcpNodeCount > 0) {
+    const srv = toolTree.locator('.ant-tree-treenode', { has: page.getByText('calc-tools', { exact: true }) }).first()
+    await srv.locator('.ant-tree-switcher').first().click(); await page.waitForTimeout(300)
     const leaf = toolTree.locator('.ant-tree-treenode', { has: page.getByText('add', { exact: true }) }).first()
     await leaf.locator('.ant-tree-checkbox').first().click()
     await page.waitForTimeout(300)

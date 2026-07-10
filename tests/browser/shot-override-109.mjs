@@ -63,7 +63,9 @@ try {
     const d1 = await drawer.innerText().catch(() => '')
     check(d1.includes('이 대화에서 쓸 것'), 'P2 1단계에 "이 대화에서 쓸 것" 피커')
     check(d1.includes('Temperature'), 'P3 세부 평면 나열(Temperature 노출, 스펙 249)')
-    // 도구=서버→도구 트리(스펙 277, 구 PickerGroups 도구 그룹). 기억은 세부 공용 컨트롤(273).
+    // 도구=서버→도구 트리(스펙 277·278 아코디언 — 열어야 렌더). 기억은 세부 공용 컨트롤(273).
+    await drawer.locator('.ant-collapse-header').filter({ hasText: '도구' }).first().click()
+    await page.waitForTimeout(400)
     const hasTree = await drawer.locator('.ant-tree').count()
     check(hasTree > 0, `P5 도구 트리(스펙 277) 존재 (found ${hasTree})`)
     check(d1.includes('단기 기억') && d1.includes('장기 기억'), 'P5b 공용 단기/장기 기억 컨트롤(스펙 271/273)')

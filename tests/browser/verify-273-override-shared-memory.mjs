@@ -50,7 +50,9 @@ try {
   await drawer.getByRole('button', { name: '다음' }).click()
   await page.waitForTimeout(500)
 
-  // ── ① 구조: 좌측=도구 트리(스펙 277), '기억' 그룹 없음(273 이동) ──
+  // ── ① 구조: 좌측=도구 트리(스펙 277·278 아코디언 — 열어야 렌더), '기억' 그룹 없음(273 이동) ──
+  const ovAcc = drawer.locator('.ant-collapse-header').filter({ hasText: '도구' }).first()
+  await ovAcc.click(); await page.waitForTimeout(400)
   const hasToolTree = await drawer.locator('.ant-tree').count()
   check(hasToolTree > 0, `좌측에 도구 트리(스펙 277) (found ${hasToolTree})`)
   const headers = await drawer.locator('.ant-collapse-header').allTextContents()

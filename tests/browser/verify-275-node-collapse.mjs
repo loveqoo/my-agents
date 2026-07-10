@@ -42,7 +42,8 @@ try {
   await page.waitForTimeout(500)
 
   const modal = page.locator('.ant-modal:visible').last()
-  const col = (idx) => modal.locator('.ant-collapse').nth(idx)
+  // 노드 카드 Collapse만(카드 안 도구 아코디언(278)이 중첩되므로 collapsible="icon" 헤더 보유로 구분)
+  const col = (idx) => modal.locator('.ant-collapse', { has: page.locator('.ant-collapse-collapsible-icon') }).nth(idx)
 
   // ① 추가 직후 펼침 — 본문 컨트롤(프롬프트 TextArea) 노출
   const bodyVisible1 = await col(0).locator('textarea').isVisible()
@@ -62,7 +63,7 @@ try {
   await page.waitForTimeout(400)
   const bodyGone = await col(0).locator('textarea').isVisible().catch(() => false)
   check(!bodyGone, '② 접힘 — 본문 숨김')
-  const header = await col(0).locator('.ant-collapse-header').innerText()
+  const header = await col(0).locator('.ant-collapse-header').first().innerText() // 중첩 도구 아코디언(278) 제외
   check(header.includes('분석'), `② 접힘 헤더에 이름 (got ${JSON.stringify(header.slice(0, 80))})`)
   check(/mock-llm|qwen/.test(header), '② 접힘 헤더 요약에 모델')
   check(header.includes('입력을 분석해'), '② 접힘 헤더 요약에 프롬프트 앞부분')
@@ -77,7 +78,7 @@ try {
   // ③ 미완성(프롬프트 빈) 둘째 노드 접기 → "작성 필요"
   await col(1).locator('.ant-collapse-expand-icon').first().click()
   await page.waitForTimeout(400)
-  const header2 = await col(1).locator('.ant-collapse-header').innerText()
+  const header2 = await col(1).locator('.ant-collapse-header').first().innerText() // 중첩 도구 아코디언(278) 제외
   check(header2.includes('작성 필요'), `③ 미완성 노드 접힘 헤더에 "작성 필요" (got ${JSON.stringify(header2.slice(0, 60))})`)
 
   // ⑤ 다시 펼치면 본문 복원·값 유지

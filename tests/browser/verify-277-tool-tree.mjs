@@ -34,6 +34,15 @@ const checkNode = async (scope, title) => {
   await node.locator('.ant-tree-checkbox').first().click()
   await page.waitForTimeout(300)
 }
+// 스펙 278: 트리가 아코디언 안+1 depth 초기화 — 열고 서버 스위처를 펼친 뒤 리프 상호작용.
+const openToolAccordion = async (scope) => {
+  const header = scope.locator('.ant-collapse-header').filter({ hasText: '도구' }).filter({ hasNotText: '승인' }).first()
+  await header.click(); await page.waitForTimeout(400)
+}
+const expandServer = async (tree, server) => {
+  const node = tree.locator('.ant-tree-treenode', { has: page.getByText(server, { exact: true }) }).first()
+  await node.locator('.ant-tree-switcher').first().click(); await page.waitForTimeout(300)
+}
 
 try {
   await page.goto(URL, { waitUntil: 'networkidle', timeout: 30000 })
@@ -56,7 +65,9 @@ try {
   await page.getByRole('button', { name: '다음' }).click()
   await page.waitForTimeout(600)
   const modal = page.locator('.ant-modal:visible').last()
+  await openToolAccordion(modal)
   const tree = modal.locator('.ant-tree').first()
+  await expandServer(tree, 'calc-tools')
   const parentNode = await tree.locator('.ant-tree-treenode', { has: page.getByText('calc-tools', { exact: true }) }).count()
   const childNode = await tree.locator('.ant-tree-treenode', { has: page.getByText('add', { exact: true }) }).count()
   check(parentNode > 0, `① 서버 부모 노드 'calc-tools' (found ${parentNode})`)
@@ -93,8 +104,9 @@ try {
   await page.locator('.ant-select-dropdown:visible .ant-select-item-option', { hasText: 'mock-llm' }).first().click()
   await page.waitForTimeout(300)
   await page.getByRole('button', { name: '다음' }).click(); await page.waitForTimeout(600)
+  await openToolAccordion(page.locator('.ant-modal:visible').last())
   const tree2 = page.locator('.ant-modal:visible .ant-tree').first()
-  // web-fetch 부모 체크(wiki_search+wiki_page 2개)
+  // web-fetch 부모 체크(wiki_search+wiki_page 2개) — 부모는 1 depth라 확장 불필요(스펙 278)
   await checkNode(tree2, 'web-fetch')
   await page.getByRole('button', { name: '다음' }).click(); await page.waitForTimeout(400)
   await page.getByRole('button', { name: '다음' }).click(); await page.waitForTimeout(400)
@@ -123,6 +135,7 @@ try {
   await page.getByRole('button', { name: '다음' }).click(); await page.waitForTimeout(500)
   await page.getByRole('button', { name: /노드 추가/ }).click(); await page.waitForTimeout(500)
   const nodeModal = page.locator('.ant-modal:visible').last()
+  await openToolAccordion(nodeModal)
   const nodeTree = nodeModal.locator('.ant-tree').first()
   check(await nodeTree.count() > 0, `④ 노드 카드에 도구 트리 존재`)
   // 문서 선택(있으면) → 도구 트리 체크 → 문서 유지
@@ -134,6 +147,7 @@ try {
     await page.locator('.ant-select-dropdown:visible .ant-select-item-option').first().click()
     await page.waitForTimeout(200)
     await page.keyboard.press('Escape'); await page.waitForTimeout(200)
+    await expandServer(nodeTree, 'calc-tools')
     await checkNode(nodeTree, 'add')
     const docStill = await docWrap.locator('.ant-select-selection-item').count()
     check(docStill >= 1, `④ 병합 보존: 도구 트리 체크 후 문서 유지 (${docStill})`)
@@ -154,6 +168,7 @@ try {
   await page.locator('button[title*="오버라이드"]').first().click(); await page.waitForTimeout(500)
   const drawer = page.getByRole('dialog')
   await drawer.getByRole('button', { name: '다음' }).click(); await page.waitForTimeout(500)
+  await openToolAccordion(drawer)
   check(await drawer.locator('.ant-tree').count() > 0, `⑤ 오버라이드에 도구 트리 존재`)
 
   log('\n' + (fails.length ? `FAILED ${fails.length}: ${fails.join(' | ')}` : 'ALL GREEN'))
