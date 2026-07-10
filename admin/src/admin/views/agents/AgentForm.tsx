@@ -543,6 +543,24 @@ export function AgentForm({
               : '대화와 기록을 저장합니다 — 세션·이력·기억을 사용할 수 있습니다.'}
           </span>
         </Field>
+        {/* 대화 저장(persistHistory) — 저장 방식의 하위 옵션이라 바로 아래에(스펙 280, 사용자 질문
+            "둘의 차이?"가 신호: 떨어져 있으면 포함 관계가 안 보임). 비영속=실효값 off+disabled(238). */}
+        <Field label="대화 저장">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <Switch
+              checked={!form.ephemeral && form.persistHistory}
+              disabled={form.ephemeral}
+              onChange={(v) => set('persistHistory', v)}
+            />
+            <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+              {form.ephemeral
+                ? '비영속(1회성)은 대화를 저장하지 않습니다'
+                : form.persistHistory
+                  ? '대화 내용(메시지)을 DB에 저장합니다 — 세션 재개·인스펙터 소급 열람 가능'
+                  : '대화 내용만 저장하지 않습니다 — 세션·기억·통계는 유지되고, 재개·소급 열람만 불가'}
+            </span>
+          </div>
+        </Field>
 
           </>
         )}
@@ -810,27 +828,8 @@ export function AgentForm({
                       hint={`최근 N개 대화(채팅 히스토리)를 모델에 넣습니다${form.ephemeral ? ' — 비영속에서도 요청에 담긴 대화에 적용됩니다' : ''}.`}
                     />
                   )}
-                  <SectionHeader>저장·영속</SectionHeader>
-                  {/* 영속/비영속 자체는 상단 "저장 방식"이 소유(스펙 238 — 1급 정보 승격). 여기는
-                      영속일 때의 세부만. */}
-                  <Field label="대화 저장">
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      {/* 표시값=실효값(사용자 지적: 비영속인데 ON 고정은 모순). 저장된 persistHistory는
-                          보존 — 영속으로 되돌리면 원래 값이 복원된다. */}
-                      <Switch
-                        checked={!form.ephemeral && form.persistHistory}
-                        disabled={form.ephemeral}
-                        onChange={(v) => set('persistHistory', v)}
-                      />
-                      <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-                        {form.ephemeral
-                          ? '비영속(1회성)은 대화를 저장하지 않습니다'
-                          : form.persistHistory
-                            ? '대화를 DB에 저장 (세션·인스펙터·재개)'
-                            : '대화를 저장하지 않음 (가볍고 기록이 남지 않음)'}
-                      </span>
-                    </div>
-                  </Field>
+                  {/* '저장·영속' 구획은 step ①로 이동(스펙 280) — 대화 저장은 저장 방식의 하위
+                      옵션이라 그 바로 아래가 자리. 여기는 플레이그라운드 구획만 남는다. */}
                   <SectionHeader>플레이그라운드</SectionHeader>
                   {/* 추천 명령어(스펙 238 #5, 후속2) — 태그형 Select(Enter 의존)는 모바일서 입력 불가·
                       발견성 나빠 명시적 입력창+추가 버튼+목록으로 교체(사용자 지적). 서버 캡: 8개·200자. */}
