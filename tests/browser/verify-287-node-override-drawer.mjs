@@ -79,9 +79,13 @@ try {
   await drawer.getByRole('button', { name: '다음' }).click()
   await page.waitForTimeout(500)
   check((await drawer.getByText('단기 기억', { exact: true }).count()) > 0, `① 세부=단기 기억(상속 원천)`)
-  check((await drawer.getByText('Temperature', { exact: true }).count()) === 0, `① 세부에 Temperature 부재(노드 모델 params 소유)`)
+  // Temperature 복귀(287 후속, 2026-07-10) — 실측상 노드형도 소비(pipeline.py:79 모든 노드 적용)
+  check((await drawer.getByText('Temperature', { exact: true }).count()) > 0, `① 세부에 Temperature 존재(모든 노드 적용)`)
   check((await drawer.getByText('장기 기억', { exact: true }).count()) === 0, `① 세부에 장기 기억 부재(노드 소유)`)
   check((await drawer.locator('.ant-tree').count()) === 0, `① 도구 트리 부재(노드 소유)`)
+  // Temperature 켬(0.7 기본) → 페이로드 동봉 확인용
+  await drawer.locator('.ant-switch').first().click()
+  await page.waitForTimeout(300)
 
   await drawer.getByRole('button', { name: /적용 — 새 대화/ }).click()
   await page.waitForTimeout(800)
@@ -103,6 +107,7 @@ try {
   check(ov?.nodes?.[0]?.prompt === NEW_PROMPT, `③ 노드 1 프롬프트 오버라이드 배선 (got ${JSON.stringify(ov?.nodes?.[0]?.prompt)})`)
   check(ov?.nodes?.[1]?.prompt === '요약해라', `③ 노드 2=저장값 유지`)
   check(Array.isArray(ov?.mcps) && ov.mcps.includes('local-tools'), `③ 파생 풀 mcps 동봉 (got ${JSON.stringify(ov?.mcps)})`)
+  check(ov?.temperature === 0.7, `③ temperature 오버라이드 동봉 (got ${JSON.stringify(ov?.temperature)})`)
 
   log('\n' + (fails.length ? `FAILED ${fails.length}: ${fails.join(' | ')}` : 'ALL GREEN'))
   if (fails.length) process.exitCode = 1

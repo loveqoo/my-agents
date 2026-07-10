@@ -83,6 +83,36 @@ export function overridePayload(
   return p
 }
 
+/* Temperature 컨트롤(스펙 077) — 직접형·노드형 세부가 공유(287 후속: 노드형도 소비 실측으로 복귀).
+   null=자동(모델 등록 params), 켜면 0–2 수동. */
+function TemperatureField({ value, onChange, hint }: { value: number | null; onChange: (v: number | null) => void; hint?: string }) {
+  return (
+    <Field
+      group
+      label="Temperature"
+      hint={hint ?? (value == null ? '자동 — 모델 등록 기본값을 사용합니다.' : undefined)}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <Tooltip title="끄면 모델 등록 기본값(자동)">
+          <Switch size="small" checked={value != null} onChange={(on) => onChange(on ? 0.7 : null)} />
+        </Tooltip>
+        <Slider
+          min={0}
+          max={2}
+          step={0.1}
+          disabled={value == null}
+          value={value ?? 0.7}
+          onChange={(v) => onChange(typeof v === 'number' ? v : 0.7)}
+          style={{ flex: 1 }}
+        />
+        <span style={{ width: 32, textAlign: 'right', fontFamily: 'var(--font-family-code)', fontSize: 13 }}>
+          {value == null ? '—' : value.toFixed(1)}
+        </span>
+      </div>
+    </Field>
+  )
+}
+
 /* group=false(기본): 단일 컨트롤용 <label> — 라벨 클릭이 그 컨트롤로 포커스 이동(UX). group=true:
    컨트롤 여러 개(PickerGroups 등)를 담을 땐 <div>로 감싼다 — <label>은 컨트롤 하나에만 붙어야 하고,
    여러 컨트롤을 label로 감싸면 라벨 어디를 클릭하든 브라우저가 **첫 하위 컨트롤로 클릭을 전달**해
@@ -433,13 +463,25 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
 
           {step === 1 && isPipeline && (
             /* 노드형 세부(스펙 287) — 에이전트-레벨에서 노드형 런타임이 실제로 쓰는 것만(108):
-               단기 기억(노드 "상속" 선택의 원천값, 스펙 270). 모델·프롬프트·도구·장기 기억은
-               노드가 소유(1단계). temperature는 노드 모델 등록 params가 소유라 미노출. */
-            <ShortTermMemoryField
-              value={draft.historyDepth}
-              onChange={(v) => set('historyDepth', v ?? 0)}
-              hint="노드의 단기 기억이 '상속'일 때 쓰이는 기본값입니다."
-            />
+               단기 기억(노드 "상속" 선택의 원천값, 스펙 270)과 Temperature. 모델·프롬프트·도구·
+               장기 기억은 노드가 소유(1단계). Temperature는 실측상 노드형도 소비(pipeline.py:79 —
+               ctx.params가 노드 모델 params보다 우선, 모든 노드에 적용)라 복귀(2026-07-10 사용자 결정). */
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <TemperatureField
+                value={draft.temperature}
+                onChange={(v) => set('temperature', v)}
+                hint={
+                  draft.temperature == null
+                    ? '자동 — 각 노드 모델의 등록 기본값을 사용합니다. 켜면 모든 노드의 모델에 적용됩니다.'
+                    : '모든 노드의 모델에 적용됩니다.'
+                }
+              />
+              <ShortTermMemoryField
+                value={draft.historyDepth}
+                onChange={(v) => set('historyDepth', v ?? 0)}
+                hint="노드의 단기 기억이 '상속'일 때 쓰이는 기본값입니다."
+              />
+            </div>
           )}
           {step === 1 && !isPipeline && (
           // 데탑 2열(스펙 249 후속1, 사용자: 2단계가 서랍 세로를 넘음) — top 드로어는 가로가 넓다:
@@ -470,33 +512,7 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
           {/* 세부(스펙 249: 단계가 이미 구획이라 Collapse 해제·평면 나열) — Temperature·채팅 히스토리. */}
-          <Field
-            group
-            label="Temperature"
-            hint={draft.temperature == null ? '자동 — 모델 등록 기본값을 사용합니다.' : undefined}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <Tooltip title="끄면 모델 등록 기본값(자동)">
-                <Switch
-                  size="small"
-                  checked={draft.temperature != null}
-                  onChange={(on) => set('temperature', on ? 0.7 : null)}
-                />
-              </Tooltip>
-              <Slider
-                min={0}
-                max={2}
-                step={0.1}
-                disabled={draft.temperature == null}
-                value={draft.temperature ?? 0.7}
-                onChange={(v) => set('temperature', v)}
-                style={{ flex: 1 }}
-              />
-              <span style={{ width: 32, textAlign: 'right', fontFamily: 'var(--font-family-code)', fontSize: 13 }}>
-                {draft.temperature == null ? '—' : draft.temperature.toFixed(1)}
-              </span>
-            </div>
-          </Field>
+          <TemperatureField value={draft.temperature} onChange={(v) => set('temperature', v)} />
           {/* 기억(스펙 273) — AgentForm 271과 같은 공용 컨트롤(MemoryFields). 단기=historyDepth,
               장기=memories(비영속 미선택-잠금은 ephemeral prop이 담당). 라벨·옵션 단일 출처=drift 0. */}
           <ShortTermMemoryField
