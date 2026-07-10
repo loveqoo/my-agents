@@ -1,4 +1,5 @@
-import { Input, Select, Button, Segmented } from 'antd'
+import { useState } from 'react'
+import { Input, Select, Button, Segmented, Collapse, Tag } from 'antd'
 import type { PipelineNode } from '../../mockData'
 import { ShortTermMemoryField, LongTermMemoryField } from './MemoryFields'
 import { ModelField, chatModelOptions } from './ModelFields'
@@ -42,16 +43,40 @@ export function NodeListEditor({
   const update = (next: PipelineNode[]) => onChange(next)
   const setNode = (i: number, patch: Partial<PipelineNode>) =>
     update(nodes.map((n, j) => (j === i ? { ...n, ...patch } : n)))
-  const add = () =>
+  // 펼침 상태(스펙 275) — UI 로컬(저장 무관), 인덱스 키. 기본 전부 접힘(개요 우선),
+  // 노드 추가 시 그 노드만 펼침(작성 동선). 이동/삭제 시 키 재매핑.
+  const [open, setOpen] = useState<number[]>([])
+  const add = () => {
+    setOpen((o) => [...o, nodes.length])
     update([...nodes, { name: '', prompt: '', model: chatModelOptions(models)[0]?.value ?? '', tools: [], context: 'carry' }])
-  const remove = (i: number) => update(nodes.filter((_, j) => j !== i))
+  }
+  const remove = (i: number) => {
+    setOpen((o) => o.filter((k) => k !== i).map((k) => (k > i ? k - 1 : k)))
+    update(nodes.filter((_, j) => j !== i))
+  }
   const move = (i: number, dir: -1 | 1) => {
     const j = i + dir
     if (j < 0 || j >= nodes.length) return
+    setOpen((o) => o.map((k) => (k === i ? j : k === j ? i : k)))
     const next = [...nodes]
     ;[next[i], next[j]] = [next[j], next[i]]
     update(next)
   }
+
+  // 접힘 헤더 요약(스펙 275) — 설정을 한 줄로: 모델 · 도구/문서/기억 수 · 비기본값 표시.
+  const summarize = (n: PipelineNode) => {
+    const mcp = n.tools.filter((t) => !isDocTool(t)).length
+    const doc = n.tools.filter(isDocTool).length
+    const parts = [n.model || '모델 미설정']
+    if (mcp) parts.push(`도구 ${mcp}`)
+    if (doc) parts.push(`문서 ${doc}`)
+    if (n.memories?.length) parts.push(`장기 기억 ${n.memories.length}`)
+    if (n.historyDepth != null) parts.push(n.historyDepth === 0 ? '단기 안 씀' : `단기 ${n.historyDepth}개`)
+    if ((n.context ?? 'carry') === 'clean') parts.push('이전 결과만')
+    if ((n.format ?? 'text') === 'json') parts.push('JSON')
+    return parts.join(' · ')
+  }
+  const nodeInvalid = (n: PipelineNode) => !n.prompt.trim() || !n.model.trim()
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
@@ -71,55 +96,90 @@ export function NodeListEditor({
               ↓
             </div>
           )}
-          <div
-            style={{
-              border: '1px solid var(--color-border)',
-              borderRadius: 8,
-              padding: 12,
-              marginTop: i > 0 ? 4 : 0,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 10,
-            }}
-          >
-            {/* 헤더: 단계 배지 + 이름 + 순서이동 + 삭제 */}
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <span
-                style={{
-                  flex: 'none',
-                  minWidth: 22,
-                  height: 22,
-                  padding: '0 6px',
-                  borderRadius: 11,
-                  background: 'var(--color-fill-tertiary)',
-                  color: 'var(--color-text-secondary)',
-                  fontSize: 12,
-                  fontWeight: 600,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                {i + 1}
-              </span>
-              <Input
-                placeholder={`노드 ${i + 1} 이름 (선택 — 예: 분석)`}
-                value={n.name}
-                onChange={(e) => setNode(i, { name: e.target.value })}
-              />
-              <Button size="small" type="text" disabled={i === 0} onClick={() => move(i, -1)} title="위로">
-                ↑
-              </Button>
-              <Button size="small" type="text" disabled={i === nodes.length - 1} onClick={() => move(i, 1)} title="아래로">
-                ↓
-              </Button>
-              <Button danger type="text" onClick={() => remove(i)}>
-                삭제
-              </Button>
-            </div>
-
-            {/* 카드 배치(사용자 지시 2026-07-10): 프롬프트 → 모델 → 기억(단기·장기) → 도구·문서 →
-                받기·형식. 프롬프트·모델·기억은 공용 컨트롤(스펙 271/274 — 라벨·옵션·가드 단일 출처). */}
+          {/* 접이식 카드(스펙 275) — collapsible="icon": 아이콘만 토글해 헤더의 이름 Input·버튼
+              클릭이 접힘을 오토글하지 않게(스펙 123 함정). 접힘 헤더=이름+요약 한 줄(+미완성 표시). */}
+          <Collapse
+            size="small"
+            collapsible="icon"
+            activeKey={open.includes(i) ? ['n'] : []}
+            onChange={(keys) =>
+              setOpen((o) => (keys.length ? [...new Set([...o, i])] : o.filter((k) => k !== i)))
+            }
+            style={{ marginTop: i > 0 ? 4 : 0 }}
+            items={[
+              {
+                key: 'n',
+                label: (
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', minWidth: 0 }}>
+                    <span
+                      style={{
+                        flex: 'none',
+                        minWidth: 22,
+                        height: 22,
+                        padding: '0 6px',
+                        borderRadius: 11,
+                        background: 'var(--color-fill-tertiary)',
+                        color: 'var(--color-text-secondary)',
+                        fontSize: 12,
+                        fontWeight: 600,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      {i + 1}
+                    </span>
+                    {open.includes(i) ? (
+                      <Input
+                        placeholder={`노드 ${i + 1} 이름 (선택 — 예: 분석)`}
+                        value={n.name}
+                        onChange={(e) => setNode(i, { name: e.target.value })}
+                        style={{ flex: 1 }}
+                      />
+                    ) : (
+                      <>
+                        <span style={{ flex: 'none', fontSize: 13, fontWeight: 500 }}>
+                          {n.name?.trim() || `노드 ${i + 1}`}
+                        </span>
+                        {nodeInvalid(n) && (
+                          <Tag color="red" style={{ flex: 'none', margin: 0 }}>
+                            작성 필요
+                          </Tag>
+                        )}
+                        <span
+                          style={{
+                            fontSize: 12,
+                            color: 'var(--color-text-tertiary)',
+                            minWidth: 0,
+                            overflow: 'hidden',
+                            whiteSpace: 'nowrap',
+                            textOverflow: 'ellipsis',
+                          }}
+                        >
+                          {summarize(n)}
+                          {n.prompt.trim() ? ` — ${n.prompt.trim().slice(0, 60)}` : ''}
+                        </span>
+                      </>
+                    )}
+                  </div>
+                ),
+                extra: (
+                  <div style={{ display: 'flex', gap: 0, alignItems: 'center' }}>
+                    <Button size="small" type="text" disabled={i === 0} onClick={() => move(i, -1)} title="위로">
+                      ↑
+                    </Button>
+                    <Button size="small" type="text" disabled={i === nodes.length - 1} onClick={() => move(i, 1)} title="아래로">
+                      ↓
+                    </Button>
+                    <Button size="small" danger type="text" onClick={() => remove(i)}>
+                      삭제
+                    </Button>
+                  </div>
+                ),
+                children: (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {/* 카드 배치(사용자 지시 2026-07-10): 프롬프트 → 모델 → 기억(단기·장기) → 도구·문서 →
+                        받기·형식. 프롬프트·모델·기억은 공용 컨트롤(스펙 271/274 — 라벨·옵션·가드 단일 출처). */}
             <PromptField
               label="프롬프트"
               value={n.prompt}
@@ -236,7 +296,11 @@ export function NodeListEditor({
                 tokenSeparators={[',']}
               />
             )}
-          </div>
+                  </div>
+                ),
+              },
+            ]}
+          />
         </div>
       ))}
       <Button onClick={add} style={{ alignSelf: 'flex-start', marginTop: nodes.length ? 12 : 0 }}>
