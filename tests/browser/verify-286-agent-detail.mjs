@@ -46,7 +46,9 @@ try {
     const jf = async (body) => { const r = await fetch('/api/agents', { method: 'POST', credentials: 'include', headers: H, body: JSON.stringify(body) }); return r.ok ? await r.json() : null }
     const d = await jf({ name: D, config: { model: 'mock-llm', persona: 't', mcps: ['local-tools'], tools: ['local-tools__echo', 'local-tools__web_search'], memories: ['장기 기억 (mem0)'] } })
     const p = await jf({ name: P, config: { model: 'mock-llm', persona: '', impl: 'pipeline', nodes: [{ name: 'n1', prompt: 'p', model: 'mock-llm', tools: [] }, { name: 'n2', prompt: 'p', model: 'mock-llm', tools: [] }] } })
-    const o = d?.agentId ? await jf({ name: O, config: { model: 'mock-llm', persona: 't', impl: 'orchestrate', capabilities: [d.agentId] } }) : null
+    const o = d?.agentId ? await jf({ name: O, config: { model: 'mock-llm', persona: 't', impl: 'orchestrate', capabilities: [d.agentId],
+      // 미소비 표면 데이터(스펙 206 — orchestrate consumes=capabilities·memories): 도구는 저장돼도 상세에 안 보여야 한다
+      mcps: ['local-tools'], tools: ['local-tools__echo'], memories: ['장기 기억 (mem0)'] } }) : null
     return { d: d?.id, p: p?.id, o: o?.id }
   }, { D, P, O })
   for (const id of Object.values(made)) if (id) cleanup.agents.push(id)
@@ -121,6 +123,14 @@ try {
   await openDetail(O)
   const ov3 = await page.locator('.ant-descriptions').first().innerText()
   check(ov3.includes(`위임 대상 1개 — ${D}`), `⑤ 구성 행 위임 대상 이름 노출 (got ${JSON.stringify(ov3.match(/위임[^\n]*/)?.[0] ?? '')})`)
+  // 후속(2026-07-10): 미소비 표면은 개요·구성에서 제외(consumes 게이트 — 조율형은 도구·문서 미소비)
+  check(!ov3.includes('도구'), `⑩ 조율형 개요에 도구 카운트 부재(미소비)`)
+  check(ov3.includes('기억 1개'), `⑩ 조율형 개요에 기억 카운트 존재(소비)`)
+  await page.getByRole('tab', { name: '구성' }).click()
+  await page.waitForTimeout(500)
+  const cfg3 = await page.locator('.ant-descriptions').first().innerText()
+  check(!cfg3.includes('도구') && !cfg3.includes('문서'), `⑩ 조율형 구성 탭 도구·문서 행 부재(미소비) (got ${JSON.stringify(cfg3.slice(0, 120))})`)
+  check(cfg3.includes('장기 기억') && cfg3.includes('페르소나') && cfg3.includes('모델'), `⑩ 조율형 구성 탭 모델·페르소나·장기 기억 행 존재(소비)`)
 
   log('\n' + (fails.length ? `FAILED ${fails.length}: ${fails.join(' | ')}` : 'ALL GREEN'))
   if (fails.length) process.exitCode = 1

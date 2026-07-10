@@ -13,7 +13,7 @@ import { DelegationGraph } from '../../DelegationGraph'
 import { displayName } from '../../naming'
 import { PersonaStaleNote } from './PersonaStaleNote'
 import { FeedbackHarvestButton } from './FeedbackHarvestButton'
-import { getAgentOps, type AgentOps } from '../../../api'
+import { getAgentOps, listAgentImpls, type AgentOps, type ImplMeta } from '../../../api'
 import { DetailPageShell, JumpCell, type DetailSection } from './detail/DetailPageShell'
 
 function a2aCardUrl(agentPk: string): string {
@@ -64,6 +64,18 @@ export function AgentDetailPage({
     }
   }, [agent.id, agent.can_manage])
 
+  // 실행 방식 소비 표면(스펙 206) — 폼과 같은 단일 출처(consumes). 안 읽는 표면의 행은
+  // 상세에서도 두지 않는다(예: 조율형은 도구·문서 미소비 — 노드형 행 제거와 같은 원칙, 2026-07-10).
+  // 미선언(null)·로드 실패=전부 노출(무회귀, 폼과 동일 best-effort).
+  const [implMetas, setImplMetas] = useState<Record<string, string[] | null>>({})
+  useEffect(() => {
+    listAgentImpls()
+      .then((ms: ImplMeta[]) => setImplMetas(Object.fromEntries(ms.map((m) => [m.key, m.consumes]))))
+      .catch(() => {})
+  }, [])
+  const consumes = agent.impl ? (implMetas[agent.impl] ?? null) : null
+  const consumed = (surface: string) => consumes == null || consumes.includes(surface)
+
   const draft = (agent.versions || []).find((v) => v.status === 'draft')
   const canManage = agent.can_manage !== false
   // 종류 라벨 — AgentForm typeLabel 단일 출처(스펙 283/286). 로컬 사본은 pipeline 등
@@ -110,16 +122,17 @@ export function AgentDetailPage({
                       {(() => {
                         const parts: string[] = []
                         // 노드형은 도구·프롬프트가 노드 소유 — 노드 수가 구성 요약(스펙 286).
+                        // 그 외는 consumes(스펙 206)가 안 읽는 표면 카운트 제외(구성 탭 행과 같은 게이트).
                         if (agent.impl === 'pipeline') {
                           if ((agent.nodes || []).length) parts.push(`노드 ${(agent.nodes || []).length}개`)
-                        } else if ((agent.tools || []).length) {
+                        } else if (consumed('mcps') && (agent.tools || []).length) {
                           // 276 이후 진실원=tools(도구 단위). mcps는 서버 합집합 파생이라 카운트 부정확.
                           parts.push(`도구 ${(agent.tools || []).length}개`)
-                        } else if ((agent.mcps || []).length) {
+                        } else if (consumed('mcps') && (agent.mcps || []).length) {
                           parts.push(`도구 서버 ${agent.mcps.length}개(전체)`)
                         }
-                        if ((agent.vectorTables || []).length) parts.push(`문서 ${agent.vectorTables.length}개`)
-                        { const liveMem = (agent.memories || []).filter((m) => m !== SHORT_TERM_MEMORY); if (liveMem.length) parts.push(`기억 ${liveMem.length}개`) }
+                        if (agent.impl !== 'pipeline' && consumed('vectorTables') && (agent.vectorTables || []).length) parts.push(`문서 ${agent.vectorTables.length}개`)
+                        { const liveMem = (agent.memories || []).filter((m) => m !== SHORT_TERM_MEMORY); if (agent.impl !== 'pipeline' && consumed('memories') && liveMem.length) parts.push(`기억 ${liveMem.length}개`) }
                         // 위임 대상은 수만으론 빈약(사용자 지적) — 이름으로(agents 목록에서 해석).
                         const caps = agent.capabilities || []
                         if (caps.length) {
@@ -224,9 +237,10 @@ export function AgentDetailPage({
                   children: agent.historyDepth ? `최근 ${agent.historyDepth}개 메시지` : '기억 안 함',
                 },
                 // 상설 행 + 값 '없음'(스펙 286 후속, 사용자 지시) — "연결 없음: …" 각주 대체.
-                // 노드형은 장기 기억·문서·도구가 노드 소유(259)라 에이전트 수준 행 자체를 두지 않는다.
+                // 노드형은 장기 기억·문서·도구가 노드 소유(259)라 에이전트 수준 행 자체를 두지 않고,
+                // 그 외 impl은 consumes 선언(스펙 206)이 안 읽는 표면의 행도 두지 않는다(예: 조율형=도구·문서 미소비).
                 // 단기(세션) 죽은 값은 제외(스펙 269) — 단기는 위 "단기 기억"이 소유.
-                ...(agent.impl !== 'pipeline'
+                ...(agent.impl !== 'pipeline' && consumed('memories')
                   ? [
                       {
                         key: 'memories',
@@ -239,6 +253,10 @@ export function AgentDetailPage({
                           '없음'
                         ),
                       },
+                    ]
+                  : []),
+                ...(agent.impl !== 'pipeline' && consumed('vectorTables')
+                  ? [
                       {
                         key: 'vectors',
                         label: '문서',
@@ -252,8 +270,12 @@ export function AgentDetailPage({
                           '없음'
                         ),
                       },
-                      // 도구(스펙 276/286) — tools(도구 단위 배선)가 진실원. 빈 tools+mcps=서버 전체
-                      // 폴백을 정직 표기. 라벨은 폼과 같은 사용자 어휘('도구' — MCP는 내부어).
+                    ]
+                  : []),
+                // 도구(스펙 276/286) — tools(도구 단위 배선)가 진실원. 빈 tools+mcps=서버 전체
+                // 폴백을 정직 표기. 라벨은 폼과 같은 사용자 어휘('도구' — MCP는 내부어).
+                ...(agent.impl !== 'pipeline' && consumed('mcps')
+                  ? [
                       {
                         key: 'tools',
                         label: '도구',
