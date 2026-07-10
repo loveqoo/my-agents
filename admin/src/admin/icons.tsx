@@ -48,6 +48,10 @@ import {
   SyncOutlined,
   LockOutlined,
   LinkOutlined,
+  ArrowLeftOutlined,
+  MessageOutlined,
+  PlayCircleOutlined,
+  DotChartOutlined,
 } from '@ant-design/icons'
 
 const MAP: Record<string, ComponentType<{ style?: CSSProperties; spin?: boolean }>> = {
@@ -86,6 +90,13 @@ const MAP: Record<string, ComponentType<{ style?: CSSProperties; spin?: boolean 
   down: DownOutlined,
   up: UpOutlined,
   right: RightOutlined,
+  // 미등록 이름은 AppstoreOutlined 폴백(조용) — 상세 돌아가기 버튼이 그리드로 보이던 원인(스펙 286).
+  // 아래 4건도 같은 계열(전수 측정으로 발견): Inspector 노드 아이콘·표시 안내·평가 뷰.
+  'arrow-left': ArrowLeftOutlined,
+  'info-circle': InfoCircleOutlined,
+  message: MessageOutlined,
+  'play-circle': PlayCircleOutlined,
+  'dot-chart': DotChartOutlined,
   file: FileOutlined,
   'paper-clip': PaperClipOutlined,
   'exclamation-circle': ExclamationCircleOutlined,

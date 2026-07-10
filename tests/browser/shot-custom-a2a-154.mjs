@@ -127,7 +127,7 @@ try {
   await shot('00-plex-drawer-public')
   const bodyText1 = await page.locator('body').innerText()
   check(bodyText1.includes('공개 범위'), 'K1a: "공개 범위" 박스 표시')
-  check(bodyText1.includes('공개 ·'), 'K1b: "공개 · " 문구 표시(현재 공개)')
+  check(bodyText1.includes('꺼짐 · 노출되지 않음'), 'K1b: 공개 상태의 A2A 행(켤 수 있음 — 꺼짐 안내)')
   const demoteBtn = page.getByRole('button', { name: '비공개로 전환' })
   check((await demoteBtn.count()) > 0, 'K1c: "비공개로 전환" 버튼 표시')
 
@@ -151,7 +151,7 @@ try {
   await page.getByRole('tab', { name: '공개·연동' }).click()
   await page.waitForTimeout(400)
   const bodyText2 = await page.locator('body').innerText()
-  check(bodyText2.includes('비공개 · 소유자만 사용(A2A 불가)'), `K2c: 박스 문구가 비공개로 변경(실측 포함 여부=${bodyText2.includes('비공개 · 소유자만 사용(A2A 불가)')})`)
+  check(bodyText2.includes('공개로 전환하면 켤 수 있습니다'), `K2c: 비공개 전환 반영 — A2A 행이 안내 소유`)
   await shot('03-plex-drawer-private')
 
   // ================= K3: "공개로 전환" → 확인 → public 복귀(원복) =================
@@ -169,7 +169,7 @@ try {
   await page.waitForTimeout(300)
 
   const bodyText3 = await page.locator('body').innerText()
-  check(bodyText3.includes('공개 ·'), 'K3d: 박스 문구가 공개로 복귀(원복)')
+  check(bodyText3.includes('꺼짐 · 노출되지 않음') && !bodyText3.includes('공개로 전환하면'), 'K3d: 공개 복귀 — A2A 행이 켤 수 있는 상태로(원복)')
   await shot('04-plex-drawer-restored-public')
   reachedMutation = false // 원복 저장까지 도달 — 아래 curl 실측이 최종 확인
 
@@ -185,7 +185,7 @@ try {
   await page.waitForTimeout(400)
   await shot('05-xlt-drawer')
   const bodyText4 = await page.locator('body').innerText()
-  check(bodyText4.includes('A2A 공개') && bodyText4.includes('꺼짐 · 노출되지 않음'), 'K4a: "A2A 공개" 행 + 꺼짐 스위치 라벨 표시')
+  check(bodyText4.includes('꺼짐 · 노출되지 않음') && !bodyText4.includes('A2A 공개'), 'K4a: A2A 행(라벨 A2A) + 꺼짐 스위치 라벨 표시')
   const xltSwitch = page.locator('button.ant-switch, [role="switch"]').filter({ hasText: '' })
   // ExposeSwitch 구현이 어떤 요소든(버튼/스위치) label과 인접 — aria-checked로 꺼짐 상태 확인.
   const switchNearLabel = page.locator('text=A2A로 공개 (중계)').locator('xpath=ancestor::*[1]')

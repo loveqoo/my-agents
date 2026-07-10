@@ -210,57 +210,57 @@ export function AgentDetailPage({
                   label: '단기 기억',
                   children: agent.historyDepth ? `최근 ${agent.historyDepth}개 메시지` : '기억 안 함',
                 },
+                // 상설 행 + 값 '없음'(스펙 286 후속, 사용자 지시) — "연결 없음: …" 각주 대체.
+                // 노드형은 장기 기억·문서·도구가 노드 소유(259)라 에이전트 수준 행 자체를 두지 않는다.
                 // 단기(세션) 죽은 값은 제외(스펙 269) — 단기는 위 "단기 기억"이 소유.
-                ...((agent.memories || []).filter((m) => m !== SHORT_TERM_MEMORY).length
-                  ? [{
-                      key: 'memories',
-                      label: '장기 기억',
-                      children: (
-                        <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6 }}>
-                          {agent.memories.filter((m) => m !== SHORT_TERM_MEMORY).map((m) => <Tag key={m} color="purple">{m}</Tag>)}
-                        </span>
-                      ),
-                    }]
-                  : []),
-                ...((agent.vectorTables || []).length
-                  ? [{
-                      key: 'vectors',
-                      label: '문서',
-                      children: (
-                        <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6 }}>
-                          {agent.vectorTables.map((t) => (
-                            <Tag key={t} color="cyan"><code style={{ fontFamily: 'var(--font-family-code)' }}>{t}</code></Tag>
-                          ))}
-                        </span>
-                      ),
-                    }]
-                  : []),
-                // 도구(스펙 276/286) — tools(도구 단위 배선)가 진실원. 빈 tools+mcps=서버 전체 폴백을
-                // 정직 표기. 라벨은 폼과 같은 사용자 어휘('도구' — MCP는 내부어).
-                ...((agent.tools || []).length
-                  ? [{
-                      key: 'tools',
-                      label: '도구',
-                      children: (
-                        <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6 }}>
-                          {(agent.tools || []).map((rt) => {
-                            const [srv, ...rest] = rt.split('__')
-                            return <Tag key={rt} color="cyan">{srv} · {rest.join('__') || rt}</Tag>
-                          })}
-                        </span>
-                      ),
-                    }]
-                  : (agent.mcps || []).length
-                  ? [{
-                      key: 'tools',
-                      label: '도구',
-                      children: (
-                        <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-                          {agent.mcps.map((m) => <Tag key={m} color="cyan">{m}</Tag>)}
-                          <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>서버의 모든 도구 사용</span>
-                        </span>
-                      ),
-                    }]
+                ...(agent.impl !== 'pipeline'
+                  ? [
+                      {
+                        key: 'memories',
+                        label: '장기 기억',
+                        children: (agent.memories || []).filter((m) => m !== SHORT_TERM_MEMORY).length ? (
+                          <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6 }}>
+                            {agent.memories.filter((m) => m !== SHORT_TERM_MEMORY).map((m) => <Tag key={m} color="purple">{m}</Tag>)}
+                          </span>
+                        ) : (
+                          '없음'
+                        ),
+                      },
+                      {
+                        key: 'vectors',
+                        label: '문서',
+                        children: (agent.vectorTables || []).length ? (
+                          <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6 }}>
+                            {agent.vectorTables.map((t) => (
+                              <Tag key={t} color="cyan"><code style={{ fontFamily: 'var(--font-family-code)' }}>{t}</code></Tag>
+                            ))}
+                          </span>
+                        ) : (
+                          '없음'
+                        ),
+                      },
+                      // 도구(스펙 276/286) — tools(도구 단위 배선)가 진실원. 빈 tools+mcps=서버 전체
+                      // 폴백을 정직 표기. 라벨은 폼과 같은 사용자 어휘('도구' — MCP는 내부어).
+                      {
+                        key: 'tools',
+                        label: '도구',
+                        children: (agent.tools || []).length ? (
+                          <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6 }}>
+                            {(agent.tools || []).map((rt) => {
+                              const [srv, ...rest] = rt.split('__')
+                              return <Tag key={rt} color="cyan">{srv} · {rest.join('__') || rt}</Tag>
+                            })}
+                          </span>
+                        ) : (agent.mcps || []).length ? (
+                          <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                            {agent.mcps.map((m) => <Tag key={m} color="cyan">{m}</Tag>)}
+                            <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>서버의 모든 도구 사용</span>
+                          </span>
+                        ) : (
+                          '없음'
+                        ),
+                      },
+                    ]
                   : []),
                 // 노드형 파이프라인 요약(스펙 286) — 노드 이름(모델)을 실행 순서대로.
                 ...(agent.impl === 'pipeline' && (agent.nodes || []).length
@@ -294,20 +294,7 @@ export function AgentDetailPage({
                   : []),
               ]}
             />
-            {(() => {
-              const empty: string[] = []
-              if (!(agent.memories || []).length) empty.push('기억')
-              // 노드형은 도구·문서가 노드 소유(스펙 259) — 에이전트 수준 부재는 정상이라 미표기.
-              if (agent.impl !== 'pipeline') {
-                if (!(agent.vectorTables || []).length) empty.push('문서')
-                if (!(agent.mcps || []).length && !(agent.tools || []).length) empty.push('도구')
-              }
-              return empty.length ? (
-                <div style={{ fontSize: 12, color: 'var(--color-text-quaternary)', marginTop: 8 }}>
-                  연결 없음: {empty.join(' · ')}
-                </div>
-              ) : null
-            })()}
+            {/* "연결 없음: …" 각주는 상설 행+'없음' 값으로 대체(스펙 286 후속, 사용자 지시). */}
             {/* 위임 구조(스펙 257) — 조율형이면 누구에게 맡길 수 있고 그 아래가 어떻게 이어지는지.
                 설정상 순환은 빨간 마커(실행 시 자동 차단 — 256 v2 체인)로 정직 표시. */}
             {isOrchestratorImpl(agent.impl) && agents ? (
@@ -407,10 +394,9 @@ export function AgentDetailPage({
                   label: '공개 범위',
                   children: (
                     <span style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                      {/* 값은 상태만(사용자 지시) — A2A 제약은 A2A 행이, 의미 설명은 전환 모달이 소유. */}
                       <span style={{ flex: 1, minWidth: 180 }}>
-                        {agent.owner_id == null
-                          ? '공개 · 모두 도구처럼 사용 가능(A2A 켜기 가능)'
-                          : '비공개 · 소유자만 사용(A2A 불가)'}
+                        {agent.owner_id == null ? '공개' : '비공개'}
                       </span>
                       {canManage && (
                         <Button
@@ -436,14 +422,16 @@ export function AgentDetailPage({
                 },
                 {
                   key: 'a2a',
-                  label: 'A2A 공개',
+                  // 라벨은 'A2A'만(사용자 지시) — 공개/비공개는 스위치 상태가 말한다.
+                  label: 'A2A',
                   children: (
                     <ExposeSwitch
                       on={!!agent.exposed.a2a}
                       onChange={() => onToggleExpose(agent)}
                       label=""
                       onText="켬 · 다른 에이전트가 호출 가능"
-                      offText="꺼짐 · 노출되지 않음"
+                      offText={agent.owner_id != null ? '공개로 전환하면 켤 수 있습니다' : '꺼짐 · 노출되지 않음'}
+                      disabled={agent.owner_id != null}
                     />
                   ),
                 },

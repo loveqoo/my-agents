@@ -364,12 +364,14 @@ export function ExposeSwitch({
   label,
   onText = '공개',
   offText = '비공개',
+  disabled,
 }: {
   on: boolean
   onChange?: (checked: boolean) => void
   label: ReactNode
   onText?: ReactNode
   offText?: ReactNode
+  disabled?: boolean // 켤 수 없는 상태(예: 비공개 에이전트의 A2A) — 사유는 offText가 설명
 }) {
   return (
     <div
@@ -387,7 +389,7 @@ export function ExposeSwitch({
         <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--color-text-heading)' }}>{label}</div>
         <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>{on ? onText : offText}</div>
       </div>
-      <Switch checked={on} onChange={onChange} />
+      <Switch checked={on} onChange={onChange} disabled={disabled} />
     </div>
   )
 }

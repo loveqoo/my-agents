@@ -123,42 +123,34 @@ export function CodeAgentDetailPage({
                 label: '단기 기억',
                 children: agent.historyDepth ? `최근 ${agent.historyDepth}개 메시지` : '기억 안 함',
               },
+              // 상설 행 + 값 '없음'(스펙 286 후속, ui 상세와 동일) — "연결 없음" 각주 대체.
               // 단기(세션) 죽은 값은 제외(스펙 269) — 단기는 위 "단기 기억"이 소유.
-              ...((agent.memories || []).filter((m) => m !== SHORT_TERM_MEMORY).length
-                ? [{
-                    key: 'memories',
-                    label: '장기 기억',
-                    children: (
-                      <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6 }}>
-                        {agent.memories.filter((m) => m !== SHORT_TERM_MEMORY).map((m) => <Tag key={m} color="purple">{m}</Tag>)}
-                      </span>
-                    ),
-                  }]
-                : []),
-              ...((agent.mcps || []).length
-                ? [{
-                    key: 'mcps',
-                    label: 'MCP',
-                    children: (
-                      <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6 }}>
-                        {agent.mcps.map((m) => <Tag key={m} color="cyan">{m}</Tag>)}
-                      </span>
-                    ),
-                  }]
-                : []),
+              {
+                key: 'memories',
+                label: '장기 기억',
+                children: (agent.memories || []).filter((m) => m !== SHORT_TERM_MEMORY).length ? (
+                  <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6 }}>
+                    {agent.memories.filter((m) => m !== SHORT_TERM_MEMORY).map((m) => <Tag key={m} color="purple">{m}</Tag>)}
+                  </span>
+                ) : (
+                  '없음'
+                ),
+              },
+              {
+                key: 'mcps',
+                // manifest의 mcps=서버 목록(도구 단위 아님) — '도구 서버'로 정직 표기(스펙 286).
+                label: '도구 서버',
+                children: (agent.mcps || []).length ? (
+                  <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6 }}>
+                    {agent.mcps.map((m) => <Tag key={m} color="cyan">{m}</Tag>)}
+                  </span>
+                ) : (
+                  '없음'
+                ),
+              },
               { key: 'sessions', label: '세션', children: <>활성 {agent.sessions ?? 0}개</> },
             ]}
           />
-          {(() => {
-            const empty: string[] = []
-            if (!(agent.memories || []).length) empty.push('메모리')
-            if (!(agent.mcps || []).length) empty.push('도구(MCP)')
-            return empty.length ? (
-              <div style={{ fontSize: 12, color: 'var(--color-text-quaternary)', marginTop: 8 }}>
-                연결 없음: {empty.join(' · ')}
-              </div>
-            ) : null
-          })()}
         </section>
       ),
     },
@@ -262,8 +254,9 @@ export function CodeAgentDetailPage({
                 label: '공개 범위',
                 children: (
                   <span style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                    {/* 값은 상태만(사용자 지시, ui 상세와 동일) — A2A 제약은 A2A 행이 소유. */}
                     <span style={{ flex: 1, minWidth: 180 }}>
-                      {agent.owner_id == null ? '공개 · 모두 사용 가능(A2A 켜기 가능)' : '비공개 · 소유자만 사용(A2A 불가)'}
+                      {agent.owner_id == null ? '공개' : '비공개'}
                     </span>
                     {canManage && (
                       <Button
@@ -289,14 +282,15 @@ export function CodeAgentDetailPage({
               },
               {
                 key: 'a2a',
-                label: 'A2A 공개',
+                label: 'A2A',
                 children: (
                   <ExposeSwitch
                     on={!!agent.exposed.a2a}
                     onChange={() => onToggleExpose(agent)}
                     label=""
                     onText="켬 · 우리 A2A 주소로 호출을 중계"
-                    offText="꺼짐 · 노출되지 않음"
+                    offText={agent.owner_id != null ? '공개로 전환하면 켤 수 있습니다' : '꺼짐 · 노출되지 않음'}
+                    disabled={agent.owner_id != null}
                   />
                 ),
               },

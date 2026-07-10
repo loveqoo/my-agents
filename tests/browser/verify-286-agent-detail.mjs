@@ -78,6 +78,17 @@ try {
   const cfgTxt = await page.locator('.ant-descriptions').first().innerText()
   check(cfgTxt.includes('local-tools · echo') && cfgTxt.includes('local-tools · web_search'), `① 구성 탭 도구 태그 2(서버 · 도구)`)
   check(!cfgTxt.includes('벡터 테이블') && !cfgTxt.includes('MCP'), `④ 구성 탭 '벡터 테이블'/'MCP' 라벨 부재`)
+  // 상설 행 + '없음' 값(후속 지시 — "연결 없음" 각주 대체). 픽스처는 문서 미연결 → 문서 행=없음.
+  check(cfgTxt.includes('문서') && cfgTxt.includes('없음'), `⑦ 문서 행 상설 + 값 '없음'`)
+  check(!(await page.getByText('연결 없음', { exact: false }).count()), `⑦ '연결 없음' 각주 부재`)
+  // 공개·연동 탭 — 값은 상태만, A2A 행이 제약을 소유(후속 지시)
+  await page.getByRole('tab', { name: '공개·연동' }).click()
+  await page.waitForTimeout(400)
+  const shareTxt = await page.locator('.ant-descriptions').first().innerText()
+  check(shareTxt.includes('비공개') && !shareTxt.includes('소유자만'), `⑧ 공개 범위 값='비공개'만`)
+  check(!shareTxt.includes('A2A 불가') && shareTxt.includes('공개로 전환하면 켤 수 있습니다'), `⑧ 불가 사유가 A2A 행으로 이동(간결 문구)`)
+  check(!shareTxt.includes('A2A 공개'), `⑧ 행 라벨 'A2A'(공개 접미 제거)`)
+  check((await page.locator('.ant-descriptions button[role="switch"][disabled], .ant-descriptions .ant-switch-disabled').count()) > 0, `⑧ 비공개면 A2A 스위치 비활성`)
   // 운영 탭 — 피드백 수확 문구 이모지 제거(후속 지시)
   await page.getByRole('tab', { name: '운영' }).click()
   await page.waitForTimeout(400)
@@ -96,6 +107,7 @@ try {
   await page.waitForTimeout(500)
   const cfg2 = await page.locator('.ant-descriptions').first().innerText()
   check(cfg2.includes('n1') && cfg2.includes('n2') && cfg2.includes('mock-llm'), `② 구성 탭 노드 행(이름·모델)`)
+  check(!cfg2.includes('장기 기억') && !(await page.getByText('연결 없음', { exact: false }).count()), `⑦ 노드형: 에이전트 수준 행·각주 없음(노드 소유)`)
 
   // ── 조율형 상세: 위임 대상=이름 노출(수만으론 빈약 — 후속) ──
   await page.getByRole('button', { name: /에이전트 목록/ }).click()

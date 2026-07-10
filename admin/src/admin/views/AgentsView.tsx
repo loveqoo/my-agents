@@ -607,38 +607,32 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
         <Popover
           title="표시 안내"
           content={
-            <div style={{ fontSize: 13, maxWidth: 380 }}>
-              {/* 범례(스펙 284) — 출처=탭, 내 것=행 배경, 상태=신호등, 태그는 예외·연결만. */}
-              <div style={{ display: 'grid', gridTemplateColumns: '128px 1fr', columnGap: 12, rowGap: 12, alignItems: 'start' }}>
-                <span style={{ display: 'inline-flex', gap: 6 }}>
-                  <span style={{ background: 'rgba(22,119,255,0.12)', borderRadius: 4, padding: '2px 8px', fontSize: 12 }}>연한 파랑</span>
-                  <span style={{ background: 'rgba(82,196,26,0.14)', borderRadius: 4, padding: '2px 8px', fontSize: 12 }}>연한 초록</span>
-                </span>
-                <span style={{ color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>
-                  내가 만든 에이전트 — 파랑=비공개(나만 사용), 초록=공개
-                </span>
-
-                <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
-                  <span style={{ width: 10, height: 10, borderRadius: '50%', background: 'var(--blue-6)', display: 'inline-block' }} />
-                  <span style={{ width: 10, height: 10, borderRadius: '50%', background: 'var(--gold-6)', display: 'inline-block' }} />
-                  <span style={{ width: 10, height: 10, borderRadius: '50%', background: 'var(--red-6)', display: 'inline-block' }} />
-                </span>
-                <span style={{ color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>
-                  상태 — 파랑=온라인(서빙 중) · 노랑=유휴(초안만) · 빨강=오프라인(연결 안 됨)
-                </span>
-
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                  <Tag color="red">설정 오류</Tag>
-                </div>
-                <span style={{ color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>문제가 있을 때만 표시</span>
-
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                  <Tag color="cyan">MCP 이름</Tag><Tag color="geekblue">rag:컬렉션</Tag>
-                </div>
-                <span style={{ color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>연결된 도구·문서</span>
-              </div>
+            <div style={{ fontSize: 13, maxWidth: 320 }}>
+              {/* 범례(스펙 284→286) — 기호 하나=뜻 하나(행마다 정렬). "파랑=온라인" 식 색이름 중복·
+                  괄호 군더더기 제거(기호가 색을 보여주므로). 초록(공개) 행은 미구현(285 대기) 죽은 안내라 제외. */}
+              {(() => {
+                const sym: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 40 }
+                const dot = (c: string) => <span style={sym}><span style={{ width: 10, height: 10, borderRadius: '50%', background: c, display: 'inline-block' }} /></span>
+                const txt: React.CSSProperties = { color: 'var(--color-text-secondary)', lineHeight: 1.5 }
+                return (
+                  <div style={{ display: 'grid', gridTemplateColumns: '40px 1fr', columnGap: 12, rowGap: 8, alignItems: 'center' }}>
+                    <span style={sym}><span style={{ background: 'rgba(22,119,255,0.12)', borderRadius: 4, width: 28, height: 14, display: 'inline-block' }} /></span>
+                    <span style={txt}>내가 만든 에이전트 · 비공개</span>
+                    {dot('var(--blue-6)')}
+                    <span style={txt}>온라인 — 서빙 중</span>
+                    {dot('var(--gold-6)')}
+                    <span style={txt}>유휴 — 초안만</span>
+                    {dot('var(--red-6)')}
+                    <span style={txt}>오프라인 — 연결 안 됨</span>
+                    <span style={sym}><Tag color="red" style={{ margin: 0 }}>설정 실패</Tag></span>
+                    <span style={txt}>문제가 있을 때만</span>
+                    <span style={sym}><Tag color="cyan" style={{ margin: 0 }}>도구</Tag></span>
+                    <span style={txt}>연결된 도구·문서</span>
+                  </div>
+                )
+              })()}
               <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--color-border-secondary)', color: 'var(--color-text-tertiary)', lineHeight: 1.5 }}>
-                출처는 상단 탭으로 구분 · A2A 스위치=다른 에이전트의 호출 허용(공개만 켤 수 있음)
+                출처는 상단 탭 · A2A는 공개 에이전트만
               </div>
             </div>
           }
