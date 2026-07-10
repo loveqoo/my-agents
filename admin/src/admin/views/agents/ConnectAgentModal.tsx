@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Button, Input, Modal, Alert } from 'antd'
+import { Button, Input, Modal } from 'antd'
 import { Icon } from '../../icons'
 import { Field } from './primitives'
 
@@ -53,37 +53,31 @@ export function ConnectAgentModal({
       }
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-        <Alert
-          type="info"
-          showIcon
-          style={{ marginBottom: 0 }}
-          title="A2A 에이전트의 URL 하나만 입력하세요. 서버가 카드를 가져와(well-known 관례 포함) 검증하고, 우리가 배포한 SDK 에이전트인지(코드) 제3자인지(외부) 자동으로 판별합니다."
-        />
         <Field label="에이전트 URL">
           <Input
             prefix={<Icon name="global" />}
-            placeholder="https://agents.acme.example/translate  (또는 /.well-known/agent-card.json)"
+            placeholder="https://agents.acme.example/translate"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             onPressEnter={() => canSubmit && submit()}
           />
+          <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginTop: 6, display: 'block' }}>
+            서버가 A2A 카드를 가져와 검증하고 내부 (Code)/외부를 자동 분류합니다. 베이스 URL이면{' '}
+            <code>/.well-known/agent-card.json</code>을 탐색합니다.
+          </span>
         </Field>
         <Field label="액세스 토큰 (선택)">
           <Input
             type="password"
             prefix={<Icon name="key" />}
-            placeholder="호출 시 Bearer 인증이 필요하면 입력 (없으면 비워두세요)"
+            placeholder="Bearer 인증이 필요할 때만 입력"
             value={token}
             onChange={(e) => setToken(e.target.value)}
           />
         </Field>
         <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-          URL은 카드 문서 또는 서비스 베이스를 가리킬 수 있습니다. 베이스면 서버가 `/.well-known/agent-card.json`을 탐색합니다.
-        </span>
-        <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-          로컬/사설 endpoint(127.0.0.1 · 10.x · 192.168.x · ::1)는 SSRF 보호로 기본 차단됩니다 — 서버 환경변수{' '}
-          <code>A2A_ALLOWED_HOSTS</code>에 해당 호스트를 추가(쉼표구분)하고 API를 재기동해야 호출됩니다. 내 로컬 에이전트를
-          A2A로 노출해 테스트할 때 필요합니다(예: <code>A2A_ALLOWED_HOSTS=127.0.0.1</code>).
+          로컬/사설 주소(127.0.0.1 등)는 서버 환경변수 <code>A2A_ALLOWED_HOSTS</code>에 추가하고 API를
+          재기동하면 연결됩니다.
         </span>
       </div>
     </Modal>
