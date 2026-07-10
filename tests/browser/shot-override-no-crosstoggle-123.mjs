@@ -54,6 +54,9 @@ try {
   await page.locator('button[title*="오버라이드"]').first().click()
   await page.waitForTimeout(600)
   const drawer = page.getByRole('dialog')
+  // 스펙 249: 드로어=Steps 2단계 — 피커·세부는 1단계에 있다(273 갱신).
+  await drawer.getByRole('button', { name: '다음' }).click()
+  await page.waitForTimeout(500)
 
   // (H) 그룹 헤더 클릭이 도구 체크박스를 오토글하지 않는다.
   const before = await toolChecks(drawer)
@@ -72,9 +75,7 @@ try {
   const nowChecked = (await localRow.getAttribute('class') ?? '').includes('ant-checkbox-wrapper-checked')
   check(wasChecked !== nowChecked, `T 실제 체크박스 클릭은 그 항목을 토글 (${wasChecked}→${nowChecked})`)
 
-  // (S) Temperature 라벨 클릭 → Switch 불변(세부 설정 펼친 뒤).
-  await drawer.getByText('세부 설정', { exact: false }).first().click()
-  await page.waitForTimeout(300)
+  // (S) Temperature 라벨 클릭 → Switch 불변 — 세부는 1단계에 평면 나열(스펙 249, 접이식 소멸).
   const sw = drawer.locator('.ant-switch').first()
   const swBefore = (await sw.getAttribute('aria-checked').catch(() => null))
   await drawer.getByText('Temperature', { exact: true }).first().click()

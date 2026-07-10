@@ -15,6 +15,8 @@ const page = await ctx.newPage()
 const log = (...a) => console.log(...a)
 let fails = 0
 const check = (c, m) => { log((c ? '  ok  ' : ' FAIL ') + m); if (!c) fails++ }
+const AGENT = 'ov109-' + Date.now().toString(36)
+const cleanup = { agents: [] }
 
 try {
   await page.goto(URL, { waitUntil: 'networkidle', timeout: 30000 })
@@ -25,18 +27,22 @@ try {
   await page.getByText('에이전트', { exact: true }).first().waitFor({ timeout: 10000 })
   await page.waitForTimeout(600)
 
-  // Playground 진입.
-  await page.getByText('Playground', { exact: true }).first().click()
-  await page.waitForTimeout(1200)
+  // ui(web) 직접형 에이전트를 직접 만든다 — 시드 에이전트명 의존은 낡는다(273 갱신).
+  const ar = await page.request.post(`${URL}/api/agents`, {
+    data: { name: AGENT, config: { model: 'mock-llm', persona: '테스트용', mcps: [], memories: [] } },
+  })
+  const a = await ar.json(); if (a?.id) cleanup.agents.push(a.id)
 
-  // ui(web) 에이전트 선택 — 기본 첫 에이전트가 code면 오버라이드가 read-only. 상단 선택기 드롭다운 열기.
-  await page.getByText('Doc Translator', { exact: true }).first().click()
-  await page.waitForTimeout(500)
-  await page.getByText('Research Assistant', { exact: true }).first().click()
+  // Playground 진입 + 에이전트 선택.
+  await page.getByRole('menuitem', { name: 'Playground' }).click()
+  await page.waitForTimeout(1200)
+  await page.locator('button:has(.ant-avatar)').first().click()
+  await page.waitForTimeout(400)
+  await page.getByText(AGENT, { exact: false }).first().click()
   await page.waitForTimeout(800)
 
   // 런타임 오버라이드 버튼(title) 클릭 → 드로어 open.
-  const ovBtn = page.locator('[title^="런타임 오버라이드"]').first()
+  const ovBtn = page.locator('button[title*="오버라이드"]').first()
   check(await ovBtn.count() > 0, 'P1 런타임 오버라이드 버튼 존재')
   await ovBtn.click()
   await page.waitForTimeout(800)
@@ -50,15 +56,21 @@ try {
     await page.screenshot({ path: `${OUT}-readonly.png`, fullPage: true })
   }
 
-  check(dtext.includes('이 대화에서 쓸 것') || readonly, 'P2 오버라이드에 "이 대화에서 쓸 것" 피커(또는 원격 read-only)')
   if (!readonly) {
-    check(dtext.includes('세부 설정 (선택)'), 'P3 오버라이드 "세부 설정 (선택)" 접이식')
-    check(!dtext.includes('Temperature'), 'P4 세부설정 기본 접힘(Temperature 숨김)')
-    // 하는 일 그룹 = 도구·기억.
+    // 스펙 249: 드로어=Steps 2단계(0=무엇으로, 1=쓸 것·세부 평면). "다음"으로 1단계 이동.
+    await page.getByRole('dialog').getByRole('button', { name: '다음' }).click()
+    await page.waitForTimeout(500)
+    const d1 = await drawer.innerText().catch(() => '')
+    check(d1.includes('이 대화에서 쓸 것'), 'P2 1단계에 "이 대화에서 쓸 것" 피커')
+    check(d1.includes('Temperature'), 'P3 세부 평면 나열(Temperature 노출, 스펙 249)')
+    // 피커 그룹 = 도구만(스펙 273 — 기억은 공용 컨트롤로 이동). 단기/장기 라벨은 세부 쪽에.
     const heads = (await drawer.locator('.ant-collapse-header').allInnerTexts()).join(' | ')
-    check(/도구/.test(heads) && /기억/.test(heads), `P5 피커 그룹=도구·기억 (=${heads})`)
+    check(/도구/.test(heads) && !/^기억|\| 기억/.test(heads), `P5 피커 그룹=도구만·기억 그룹 없음 (=${heads})`)
+    check(d1.includes('단기 기억') && d1.includes('장기 기억'), 'P5b 공용 단기/장기 기억 컨트롤(스펙 271/273)')
     // 기술 id 부재.
-    check(!/mcp:|memory:|tool:|mem:/.test(dtext), 'P6 기술 id 노출 없음')
+    check(!/mcp:|memory:|tool:|mem:/.test(d1), 'P6 기술 id 노출 없음')
+  } else {
+    check(readonly, 'P2 원격 read-only 안내')
   }
 
   await page.screenshot({ path: `${OUT}.png`, fullPage: true })
@@ -70,5 +82,7 @@ try {
   await page.screenshot({ path: `${OUT}-error.png`, fullPage: true }).catch(() => {})
   process.exitCode = 1
 } finally {
+  for (const id of cleanup.agents) { try { await page.request.delete(`${URL}/api/agents/${id}`) } catch {} }
   await browser.close()
+  if (_fx) _fx.teardown?.()
 }

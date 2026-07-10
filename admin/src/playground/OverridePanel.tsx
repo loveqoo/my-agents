@@ -9,6 +9,7 @@ import { isOrchestratorImpl, SHORT_TERM_MEMORY, type Agent, type BlockCategory }
 import type { Collection, Model } from '../api'
 import { PickerGroups, type PickerGroup } from '../PickerGroups'
 import { DelegationGraph } from '../admin/DelegationGraph'
+import { ShortTermMemoryField, LongTermMemoryField } from '../admin/views/agents/MemoryFields'
 
 export interface Overrides {
   model: string
@@ -51,15 +52,6 @@ export function overridePayload(applied: Overrides, base: Overrides): Record<str
   if (applied.historyDepth !== base.historyDepth) p.historyDepth = applied.historyDepth
   return p
 }
-
-const DEPTH_OPTS = [
-  { label: '기억 안 함 (0개)', value: 0 },
-  { label: '최근 6개 메시지', value: 6 },
-  { label: '최근 10개 메시지', value: 10 },
-  { label: '최근 20개 메시지', value: 20 },
-  { label: '최근 40개 메시지', value: 40 },
-  { label: '최근 100개 메시지', value: 100 },
-]
 
 /* group=false(기본): 단일 컨트롤용 <label> — 라벨 클릭이 그 컨트롤로 포커스 이동(UX). group=true:
    컨트롤 여러 개(PickerGroups 등)를 담을 땐 <div>로 감싼다 — <label>은 컨트롤 하나에만 붙어야 하고,
@@ -197,11 +189,11 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
 
   const set = <K extends keyof Overrides>(k: K, v: Overrides[K]) =>
     setDraft((d) => (d ? { ...d, [k]: v } : d))
-  const toggleList = (k: 'mcps' | 'memories', name: string) =>
+  const toggleMcp = (name: string) =>
     setDraft((d) => {
       if (!d) return d
-      const cur = d[k]
-      return { ...d, [k]: cur.includes(name) ? cur.filter((x) => x !== name) : [...cur, name] }
+      const cur = d.mcps
+      return { ...d, mcps: cur.includes(name) ? cur.filter((x) => x !== name) : [...cur, name] }
     })
 
   // 등록 chat 모델 옵션 — 현재 모델이 목록에 없으면(예: 미등록 이름) 그대로 추가해 선택 유지.
@@ -210,9 +202,8 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
     modelOptions.push({ label: draft.model, value: draft.model })
   }
 
-  // "이 대화에서 쓸 것"(스펙 109) — mcps·memories 두 배열을 PickerGroups 하나로. 등록 폼과 같은
-  // 효율 렌더(접이식+검색+카운트) 공용. id prefix로 라우팅, 저장은 기존 배열 그대로.
-  const OV_FIELD: Record<string, 'mcps' | 'memories'> = { tool: 'mcps', mem: 'memories' }
+  // "이 대화에서 쓸 것"(스펙 109) — 도구(mcps)만 PickerGroups. 기억은 273에서 우측 세부의 공용
+  // 컨트롤(MemoryFields — AgentForm 271과 같은 구조)로 이동해 이 피커에서 뺐다.
   const ovGroups: PickerGroup[] = [
     {
       key: '도구',
@@ -220,27 +211,16 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
       items: (blocks.mcp?.items ?? []).map((m) => ({ id: `tool:${m.name}`, label: m.name })),
       emptyText: '등록된 MCP 서버 없음',
     },
-    {
-      key: '기억',
-      title: '기억',
-      // 단기(세션)은 선택지에서 제외(스펙 269) — 단기는 아래 "단기 기억"(historyDepth)이 소유.
-      items: (blocks.memory?.items ?? []).filter((m) => m.name !== SHORT_TERM_MEMORY).map((m) => ({
-        id: `mem:${m.name}`,
-        label: m.name,
-        // 비영속은 회상·기록을 하지 않는다(스펙 235) — 새 선택만 잠근다(미선택-잠금, codex 238 #2:
-        // 이미 적용된 오버라이드에 남은 기선택은 해제할 수 있어야 함).
-        disabled: isEphemeral && !draft?.memories.includes(m.name),
-        disabledHint: isEphemeral ? '비영속(1회성) 에이전트는 기억을 쓰지 않습니다.' : undefined,
-      })),
-      emptyText: '등록된 메모리 블록 없음',
-    },
   ]
-  const ovSelected = draft ? [...draft.mcps.map((x) => `tool:${x}`), ...draft.memories.map((x) => `mem:${x}`)] : []
+  const ovSelected = draft ? draft.mcps.map((x) => `tool:${x}`) : []
   const ovToggle = (id: string) => {
-    const i = id.indexOf(':')
-    const field = OV_FIELD[id.slice(0, i)]
-    if (field) toggleList(field, id.slice(i + 1))
+    if (id.startsWith('tool:')) toggleMcp(id.slice(5))
   }
+  // 장기 기억 옵션(273 공용 컨트롤용) — 단기(세션)은 선택지에서 제외(스펙 269, historyDepth가 소유).
+  // 비영속 미선택-잠금(235·codex 238 #2)은 LongTermMemoryField의 ephemeral prop이 담당(중복 구현 소멸).
+  const memoryOptions = (blocks.memory?.items ?? [])
+    .filter((m) => m.name !== SHORT_TERM_MEMORY)
+    .map((m) => ({ label: m.name, value: m.name }))
 
   // 조율형 "무엇에 맡길까요?"(스펙 122) — 편집 폼(AgentsView capGroups)과 같은 4그룹. cap id는 값으로만,
   // 표시는 사람이 읽는 이름. draft.capabilities에 바인딩해 세션 오버라이드(백엔드 브로커가 호출자 RBAC 게이트).
@@ -356,7 +336,8 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
             size="small"
             current={step}
             onChange={setStep}
-            items={[{ title: '모델 · 프롬프트' }, { title: '도구 · 지식 · 세부' }]}
+            // 2단계 제목은 kind별 실내용(스펙 273): 직접형=도구 피커+기억 공용 컨트롤, 조율형=위임 피커.
+            items={[{ title: '모델 · 프롬프트' }, { title: isOrchestrator ? '맡길 것 · 세부' : '도구 · 기억 · 세부' }]}
             style={{ maxWidth: 520 }}
           />
           {step === 0 && (<>
@@ -468,14 +449,21 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
               </span>
             </div>
           </Field>
-          <Field label="단기 기억">
-            <Select
-              value={draft.historyDepth}
-              onChange={(v) => set('historyDepth', v)}
-              style={{ width: '100%' }}
-              options={DEPTH_OPTS}
+          {/* 기억(스펙 273) — AgentForm 271과 같은 공용 컨트롤(MemoryFields). 단기=historyDepth,
+              장기=memories(비영속 미선택-잠금은 ephemeral prop이 담당). 라벨·옵션 단일 출처=drift 0. */}
+          <ShortTermMemoryField
+            value={draft.historyDepth}
+            onChange={(v) => set('historyDepth', v ?? 0)}
+            hint="최근 N개 대화(채팅 히스토리)를 모델에 넣습니다."
+          />
+          {!isOrchestrator && (
+            <LongTermMemoryField
+              value={draft.memories}
+              onChange={(arr) => set('memories', arr)}
+              options={memoryOptions}
+              ephemeral={isEphemeral}
             />
-          </Field>
+          )}
           </div>
           </div>
           )}
