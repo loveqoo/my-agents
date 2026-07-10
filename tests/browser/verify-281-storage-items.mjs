@@ -78,7 +78,7 @@ try {
   await modal.locator('.ant-collapse-header').filter({ hasText: '도구 승인 오버라이드' }).first().click()
   await page.waitForTimeout(400)
   const t4 = await modal.innerText()
-  check(t4.includes("'승인 없음' 상태의 도구만 실행할 수 있습니다"), `③ 승인 아이템에 비영속 제약 문구(한 절·긍정형)`)
+  check(t4.includes("'승인 없음' 상태의 도구만 실행할 수 있어"), `③ 승인 아이템에 비영속 고정 안내(282 후속2 문구)`)
 
   // ── ④ 저장 왕복: 영속+대화 내용 off (①에서 끈 값이 유지되는지) ──
   // 위에서 비영속으로 저장하면 persistHistory 검증이 안 되므로 이전으로 돌아가 영속으로 저장
