@@ -137,3 +137,27 @@ NODE_OVERRIDE_ECHO_PROMPT = (
     f"반드시 echo 도구를 한 번 호출해 '{NODE_OVERRIDE_TOKEN}' 텍스트를 그대로 넣고, 결과를 전달하세요."
 )
 ECHO_TOOL = TOOL_ECHO
+
+# ── 엣지 티어(스펙 290) — 단언은 "실패의 품질": 명확한 거절/정직한 축소, 조용한 오동작 금지. ──
+EDGE_SCENARIOS: list[dict] = [
+    dict(key="edge-historydepth-1", agent="bare", tier="edge",
+         overrides={"historyDepth": 1},
+         turns=[f"내 비밀 코드는 {SECRET}이야. 기억해 둬.", RECALL_PROMPT],
+         expect=[("text_not_contains", SECRET), ("override_key", "historyDepth")]),
+    dict(key="edge-historydepth-typo", agent="bare", tier="edge",
+         overrides={"historyDepth": "abc"},
+         turns=["1 더하기 1은? 숫자만."],
+         expect=[("text_nonempty",)]),  # 형 가드(287) — 500 없이 저장값 폴백(실측)
+    dict(key="edge-empty-content", agent="bare", tier="edge",
+         turns=[""],
+         expect=[("text_nonempty",)]),  # 빈 입력=정상 턴(실측: 인사) — 500 금지
+    dict(key="edge-unknown-override-key", agent="bare", tier="edge",
+         overrides={"foo": "bar", "definitely_not_a_key": 1},
+         turns=["1 더하기 1은? 숫자만."],
+         expect=[("override_absent",), ("text_nonempty",)]),  # allowlist 밖 키=무시
+    dict(key="edge-deleted-delegate", agent="orchestrate", tier="edge",
+         overrides={"capabilities": ["agt_nonexist290"]},
+         turns=["위임해서 답해줘: 1 더하기 1은?"],
+         expect=[("broker_zero",), ("graph_summary_contains", "위임 후보 0")]),
+]
+SCENARIOS.extend(EDGE_SCENARIOS)

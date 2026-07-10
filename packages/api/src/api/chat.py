@@ -300,6 +300,12 @@ async def _load_context(
     None. `own is not None`이면 resume 바인딩이 `Session.user_id == own`을 요구해, *타인/NULL/추측*
     session_id는 매칭 실패 → 새 세션 발급(067 읽기 게이트와 동일 판정 — 열거 오라클·소유권 탈취 봉인).
     """
+    # 세션 id 위생(스펙 290 적대): Postgres text는 NUL(0x00)을 저장·조회할 수 없어, 오염된 id가
+    # WHERE에 닿으면 asyncpg가 DBAPIError(500)로 샌다. NUL 포함 id는 애초에 저장 행과 매칭 불가라
+    # 새 세션으로 fold하는 것이 계약("200+새 세션 발급")과 일치한다 — resume 자체를 건너뛴다.
+    # (다른 특수문자·긴 길이는 파라미터 바인딩이 안전 처리하므로 그대로 통과시켜 매칭 실패에 맡긴다.)
+    if session_str_id and "\x00" in session_str_id:
+        session_str_id = None
     async with SessionLocal() as db:
         agent = await db.get(Agent, agent_id)
         if agent is None:
@@ -428,6 +434,14 @@ async def _load_context(
                     )
                 ).scalar_one_or_none()
             if m is None:
+                # 명시 오버라이드 모델이 미등록이면 **시끄럽게 거절**(스펙 290 — learning 092: 조용한
+                # 폴백은 호출자가 다른 모델로 실행된 걸 모른 채 지나간다. 실측: 400 없이 기본 모델 응답).
+                # 저장 설정의 미지정·미등록은 기존 기본 폴백 유지(graceful — 범위 밖, 백로그).
+                if overrides and overrides.get("model") == model_name:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"오버라이드 모델 '{model_name}'이(가) 등록돼 있지 않습니다 — 모델 이름을 확인하세요.",
+                    )
                 m = (
                     await db.execute(
                         select(ModelConfig)

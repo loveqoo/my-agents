@@ -4,7 +4,7 @@
 종료코드: 0=전부 통과 / 1=실패 있음 / 2=사전조건 미충족(실모델·DB·mem0).
 
 원칙(스펙 288): 단언은 기록으로만(trace mcp/toolDiag/brokerCalls/graph·recall·DB 행 실측),
-시나리오 독립(각자 새 세션), 실패는 1회 재시도(통과 시 flaky로 정직 표기).
+시나리오 독립(각자 새 세션), 실패는 재시도(기본 2회, --retries — 통과 시 flaky로 정직 표기).
 """
 
 from __future__ import annotations
@@ -416,6 +416,178 @@ async def custom_preflight_unit(c: httpx.AsyncClient, fx: dict) -> list[str]:
         return []
 
 
+
+# ── 엣지 티어 커스텀(스펙 290) — 실패의 품질 단언 ─────────────────────────────────────
+
+async def edge_bad_model_400(c: httpx.AsyncClient, fx: dict) -> list[str]:
+    """무효 모델 오버라이드=400 명시 거절(스펙 290 수리 회귀 핀) — 실측상 기본 모델로 조용히
+    폴백하던 것을 refuse-loud로(learning 092)."""
+    r = await c.post(
+        f"/agents/{fx['agents']['bare']['id']}/chat",
+        json={"messages": [{"role": "user", "content": "안녕"}], "overrides": {"model": "no-such-model-290"}},
+    )
+    if r.status_code != 400:
+        return [f"400 기대, got {r.status_code}: {r.text[:120]}"]
+    return []
+
+
+async def edge_nodes_mismatch(c: httpx.AsyncClient, fx: dict) -> list[str]:
+    """노드 수 불일치 오버라이드 → 미적용을 mismatch로 표면화 + 저장 노드 그대로 실행(정직한 거절)."""
+    agent = fx["agents"]["pipeline"]
+    nodes = await _stored_nodes(c, agent["id"])
+    res = await run_turns(c, agent["id"], ["회사 표준 배포 코드네임이 뭐야?"], {"nodes": nodes[:1]})
+    fails = check_expects(res, [("rag_called",)])  # 저장 노드(검색 노드 포함)가 그대로 돈다
+    st = (((res.get("trace") or {}).get("overrides") or {}).get("nodes") or {}).get("status")
+    if st != "mismatch":
+        fails.append(f"nodes.status=mismatch 기대, got {st!r}")
+    return fails
+
+
+async def edge_long_session_limit(c: httpx.AsyncClient, fx: dict) -> list[str]:
+    """120턴 세션에서 서버 재구성이 필요 depth(20)만 읽는지 — LIMIT 실증(스펙 289 캐시 대체 결정)."""
+    from sqlalchemy import select as _select
+
+    from api.db import SessionLocal
+    from api.models import Message as _Msg, Session as _Sess
+
+    agent = fx["agents"]["bare"]
+    res = await run_turns(c, agent["id"], ["세션 시작."], None)
+    sid = res["_session"]
+    async with SessionLocal() as db:
+        pk = (await db.execute(_select(_Sess.id).where(_Sess.session_id == sid))).scalar_one()
+        for i in range(60):
+            db.add(_Msg(session_pk=pk, role="user", content=f"채움 질문 {i}"))
+            db.add(_Msg(session_pk=pk, role="assistant", content=f"채움 응답 {i}"))
+        await db.commit()
+    r = await c.post(f"/agents/{agent['id']}/chat", json={"sessionId": sid, "messages": [{"role": "user", "content": "1 더하기 1은? 숫자만."}]})
+    if r.status_code != 200:
+        return [f"HTTP {r.status_code}"]
+    hr = ((parse_sse(r.text).get("trace") or {}).get("historyRestore") or {})
+    if hr.get("restored") != 20:
+        return [f"restored=20(필요 depth) 기대 — LIMIT 미작동? got {hr}"]
+    return []
+
+
+async def edge_toolpolicy_noescalate(c: httpx.AsyncClient, fx: dict) -> list[str]:
+    """오버라이드로 승인 완화 시도 → allowlist 밖이라 무시, 승인 게이트 유지(권한 비상승)."""
+    agent = fx["agents"]["direct"]
+    ov = {"toolPolicy": {"mcp:local-tools/delete_record": {"approval": {"required": False}}}}
+    res = await run_turns(c, agent["id"], ["반드시 delete_record 도구로 레코드 rec-290 을 삭제해줘."], ov)
+    apid = res.get("approval")
+    if isinstance(apid, dict):
+        apid = apid.get("id")
+    if not apid:
+        return [f"승인 게이트가 사라짐(완화 오버라이드가 실효?) — text={res['text'][:100]!r}"]
+    await c.post(f"/approvals/{apid}/resolve", json={"decision": "reject"})  # 뒷정리(거부=부수효과 0)
+    return []
+
+
+async def edge_machine_token(c: httpx.AsyncClient, fx: dict) -> list[str]:
+    """머신 토큰 principal(유저 아님) — 외부 연동 클라 유형: 200+정상 응답(세션 단기 스코프)."""
+    app.dependency_overrides.pop(current_principal, None)  # Bearer _token → 머신 principal 경로
+    try:
+        r = await c.post(
+            f"/agents/{fx['agents']['bare']['id']}/chat",
+            json={"messages": [{"role": "user", "content": "1 더하기 1은? 숫자만."}]},
+        )
+        if r.status_code != 200:
+            return [f"HTTP {r.status_code}: {r.text[:120]}"]
+        res = parse_sse(r.text)
+        if not res["text"].strip():
+            return [f"빈 응답 — error={res['error']!r}"]
+        return []
+    finally:
+        app.dependency_overrides[current_principal] = lambda: _SuitePrincipal()
+
+
+async def edge_concurrent_session(c: httpx.AsyncClient, fx: dict) -> list[str]:
+    """같은 세션 동시 2요청 — 둘 다 200, 메시지 정합(+4행), 500 없음(get-or-create 경합 안전)."""
+    from sqlalchemy import func as _func, select as _select
+
+    from api.db import SessionLocal
+    from api.models import Message as _Msg, Session as _Sess
+
+    agent = fx["agents"]["bare"]
+    res = await run_turns(c, agent["id"], ["세션 시작."], None)
+    sid = res["_session"]
+
+    async def _count() -> int:
+        async with SessionLocal() as db:
+            pk = (await db.execute(_select(_Sess.id).where(_Sess.session_id == sid))).scalar_one()
+            return int((await db.execute(_select(_func.count()).select_from(_Msg).where(_Msg.session_pk == pk))).scalar_one())
+
+    before = await _count()
+    r1, r2 = await asyncio.gather(
+        c.post(f"/agents/{agent['id']}/chat", json={"sessionId": sid, "messages": [{"role": "user", "content": "동시 질문 하나."}]}),
+        c.post(f"/agents/{agent['id']}/chat", json={"sessionId": sid, "messages": [{"role": "user", "content": "동시 질문 둘."}]}),
+    )
+    fails = []
+    for i, r in enumerate((r1, r2), 1):
+        if r.status_code != 200:
+            fails.append(f"요청{i} HTTP {r.status_code}")
+    after = await _count()
+    if after - before != 4:
+        fails.append(f"메시지 증가 4 기대(2×user+assistant), got {after - before}")
+    return fails
+
+
+async def edge_approval_double_resolve(c: httpx.AsyncClient, fx: dict) -> list[str]:
+    """승인 이중 결재 — 첫 200·둘째 409(원자 조건부 UPDATE 실증, 스펙 041 TOCTOU 불변식)."""
+    agent = fx["agents"]["direct"]
+    res = await run_turns(c, agent["id"], ["반드시 delete_record 도구로 레코드 rec-291 을 삭제해줘."], None)
+    apid = res.get("approval")
+    if isinstance(apid, dict):
+        apid = apid.get("id")
+    if not apid:
+        return [f"approval 프레임 없음 — text={res['text'][:100]!r}"]
+    r1 = await c.post(f"/approvals/{apid}/resolve", json={"decision": "approve"})
+    r2 = await c.post(f"/approvals/{apid}/resolve", json={"decision": "approve"})
+    fails = []
+    if r1.status_code != 200:
+        fails.append(f"첫 결재 HTTP {r1.status_code}")
+    if r2.status_code != 409:
+        fails.append(f"둘째 결재 409 기대, got {r2.status_code}")
+    return fails
+
+
+async def edge_rag_query_cap(c: httpx.AsyncClient, fx: dict) -> list[str]:
+    """RAG 질의 4000자 초과=422(원시 입력 상한 — cap-the-raw-source)."""
+    r = await c.post(f"/collections/{fx['collection']['id']}/search", json={"query": "가" * 4001})
+    return [] if r.status_code == 422 else [f"422 기대, got {r.status_code}"]
+
+
+async def edge_upload_over_limit(c: httpx.AsyncClient, fx: dict) -> list[str]:
+    """업로드 상한 초과=4xx + 컬렉션 불변(부분 적재·500 금지)."""
+    before = (await c.get(f"/collections/{fx['collection']['id']}")).json().get("chunk_count")
+    big = b"x" * (25 * 1024 * 1024 + 1024)  # RAG_MAX_UPLOAD_MB 기본 25MB + 여유
+    r = await c.post(
+        f"/collections/{fx['collection']['id']}/documents",
+        files={"file": ("too-big.txt", big, "text/plain")},
+    )
+    fails = []
+    if not (400 <= r.status_code < 500):
+        fails.append(f"4xx 기대, got {r.status_code}")
+    after = (await c.get(f"/collections/{fx['collection']['id']}")).json().get("chunk_count")
+    if after != before:
+        fails.append(f"컬렉션 불변 위반 — chunks {before}→{after}")
+    return fails
+
+
+async def edge_session_fuzz(c: httpx.AsyncClient, fx: dict) -> list[str]:
+    """sessionId 오염(4KB+특수문자) — 200+새 세션 발급(fold), 500 없음."""
+    weird = "A" * 4096 + " '\";--\u0000δ"
+    r = await c.post(
+        f"/agents/{fx['agents']['bare']['id']}/chat",
+        json={"sessionId": weird, "messages": [{"role": "user", "content": "안녕"}]},
+    )
+    if r.status_code != 200:
+        return [f"HTTP {r.status_code}: {r.text[:120]}"]
+    res = parse_sse(r.text)
+    if not res["session"] or res["session"] == weird:
+        return [f"새 세션 발급 기대, got {res['session']!r}"]
+    return []
+
+
 CUSTOM_SCENARIOS: list[tuple[str, object]] = [
     ("history-no-cross-user", custom_history_no_cross_user),
     ("session-resume-from-db", custom_session_resume_from_db),
@@ -426,14 +598,32 @@ CUSTOM_SCENARIOS: list[tuple[str, object]] = [
     ("pipeline-node-override-notools", custom_pipeline_node_override_notools),
     ("bootstrap-idempotent", custom_bootstrap_idempotent),
     ("preflight-unit", custom_preflight_unit),
+    ("edge-bad-model-400", edge_bad_model_400),
+    ("edge-nodes-mismatch", edge_nodes_mismatch),
+    ("edge-long-session-limit", edge_long_session_limit),
+    ("edge-toolpolicy-noescalate", edge_toolpolicy_noescalate),
+    ("edge-machine-token", edge_machine_token),
+    ("edge-concurrent-session", edge_concurrent_session),
+    ("edge-approval-double-resolve", edge_approval_double_resolve),
+    ("edge-rag-query-cap", edge_rag_query_cap),
+    ("edge-upload-over-limit", edge_upload_over_limit),
+    ("edge-session-fuzz", edge_session_fuzz),
 ]
+
+# 티어(스펙 290): 데이터 시나리오는 dict.tier, 커스텀은 키 접두("edge-")로 판정 — 단일 규칙.
+def _tier_of(key: str, sc: dict | None = None) -> str:
+    if sc is not None and sc.get("tier"):
+        return sc["tier"]
+    return "edge" if key.startswith("edge-") else "core"
 
 
 # ── 러너 ──────────────────────────────────────────────────────────────────────────────
 
-async def run_one(name: str, fn, retries: int = 1) -> tuple[str, str, list[str], float]:
-    """시나리오 1개 실행(+1회 재시도) → (key, status ok|flaky|FAIL, fails, sec).
-    flaky여도 1차 실패 내용을 보존해 리포트에 노출한다(codex 288 #4 — 재시도가 실패를 숨기지 않게)."""
+async def run_one(name: str, fn, retries: int = 2) -> tuple[str, str, list[str], float]:
+    """시나리오 1개 실행(+재시도) → (key, status ok|flaky|FAIL, fails, sec).
+    flaky여도 1차 실패 내용을 보존해 리포트에 노출한다(codex 288 #4 — 재시도가 실패를 숨기지 않게).
+    재시도 예산(기본 2)은 약한 로컬 모델의 도구 호출 비결정성을 접기 위함 — 격리 4/4 통과가
+    전판에선 2회 연속 miss로 샜다(실측 2026-07-11). --strict면 flaky도 실패로 취급."""
     t0 = time.monotonic()
     last: list[str] = []
     for attempt in range(retries + 1):
@@ -456,6 +646,8 @@ async def main() -> int:
     ap.add_argument("--list", action="store_true", help="시나리오 목록만 출력")
     ap.add_argument("--bootstrap-only", action="store_true", help="픽스처 부트스트랩까지만")
     ap.add_argument("--strict", action="store_true", help="flaky(재시도 통과)도 실패로 취급(exit 1)")
+    ap.add_argument("--retries", type=int, default=2, help="실패 시 재시도 횟수(실모델 도구 호출 비결정성 흡수, 기본 2)")
+    ap.add_argument("--tier", default="all", choices=["all", "core", "edge"], help="시나리오 티어(스펙 290)")
     args = ap.parse_args()
 
     all_keys = [s["key"] for s in SCENARIOS] + [k for k, _ in CUSTOM_SCENARIOS]
@@ -500,18 +692,20 @@ async def main() -> int:
             return 0
 
         rows: list[tuple[str, str, list[str], float]] = []
-        def _want(key: str) -> bool:
+        def _want(key: str, sc: dict | None = None) -> bool:
+            if args.tier != "all" and _tier_of(key, sc) != args.tier:
+                return False
             return not args.only or any(tok.strip() in key for tok in args.only.split(",") if tok.strip())
 
         for sc in SCENARIOS:
-            if not _want(sc["key"]):
+            if not _want(sc["key"], sc):
                 continue
-            rows.append(await run_one(sc["key"], lambda sc=sc: run_data_scenario(c, fx, sc)))
+            rows.append(await run_one(sc["key"], lambda sc=sc: run_data_scenario(c, fx, sc), retries=args.retries))
             _print_row(rows[-1])
         for key, fn in CUSTOM_SCENARIOS:
             if not _want(key):
                 continue
-            rows.append(await run_one(key, lambda fn=fn: fn(c, fx)))
+            rows.append(await run_one(key, lambda fn=fn: fn(c, fx), retries=args.retries))
             _print_row(rows[-1])
 
     await checkpointer.close_checkpointer()
