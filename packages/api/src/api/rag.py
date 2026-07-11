@@ -405,6 +405,113 @@ async def list_documents(
     return DocumentPageOut(items=rows, total=total)
 
 
+def _parse_entity_rows(c: Collection, data: bytes) -> list[tuple[str, dict]] | None:
+    """엔티티 컬렉션이면 파싱된 (텍스트, 메타) 행 목록, 아니면 None.
+
+    엔티티 컬렉션(스펙 149): Document 영속화 **전에** 행 전수 파싱·검증 — 형식 위반은 error 문서를
+    남기지 않고 400으로 즉시 거부(fail-closed: 소스=SQL 추출물, 위반=파이프라인 버그. 부분 스킵은
+    비즈니스 데이터의 조용한 유실). 행 번호가 detail에 담긴다."""
+    if c.kind != "entity":
+        return None
+    try:
+        return rag_ingest.parse_entity_lines(data, schema=c.entity_schema)
+    except rag_ingest.EntityParseError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def _split_chunks(
+    c: Collection, doc: Document, data: bytes, entity_rows: list[tuple[str, dict]] | None
+) -> tuple[list[str], list[dict | None]]:
+    """청크·메타 목록 생성 → (chunks, metas). 빈 문서는 IngestError."""
+    if entity_rows is not None:
+        # 엔티티: 1행=1청크(분할 없음), metadata 동반(스펙 149)
+        chunks = [t for t, _m in entity_rows]
+        metas: list[dict | None] = [m for _t, m in entity_rows]
+    else:
+        text = rag_ingest.extract_text(doc.filename, doc.content_type, data)
+        chunks = rag_ingest.chunk_text(text, c.chunk_size, c.chunk_overlap)
+        metas = [None] * len(chunks)
+    if not chunks:
+        raise rag_ingest.IngestError("청크가 생성되지 않았습니다(빈 문서).")
+    return chunks, metas
+
+
+async def _embed_chunks(c: Collection, chunks: list[str]) -> list:
+    """청크 임베딩 → 벡터 목록. provider 부재·차원 불일치는 IngestError."""
+    ep = c.embedding_model.provider if c.embedding_model else None
+    if ep is None:
+        raise rag_ingest.IngestError("컬렉션의 임베딩 provider가 없습니다.")
+    vectors = await rag_ingest.embed_texts(
+        ep.base_url, crypto.decrypt(ep.api_key), c.embedding_model.model_id, chunks
+    )
+    # 가드2 — 인제스트 시점 차원 검증. 저장소 컬럼은 RAG_EMBED_DIMS로 고정이므로 그 값과,
+    # 그리고 컬렉션 박제값(c.dims) 둘 다와 일치해야 한다. 둘이 어긋난 drift(c.dims != 컬럼)도
+    # 차단해 잘못된 차원이 DB insert에서 500나는 일을 막는다(조용한 죽음 대신 status=error).
+    bad = next((len(v) for v in vectors if len(v) != RAG_EMBED_DIMS or len(v) != c.dims), None)
+    if bad is not None:
+        raise rag_ingest.IngestError(
+            f"임베딩 차원({bad})이 저장소 차원({RAG_EMBED_DIMS})/컬렉션 차원({c.dims})과 "
+            "다릅니다 — 적재 중단(차원 고정)."
+        )
+    return vectors
+
+
+async def _persist_chunks(
+    session: AsyncSession,
+    c: Collection,
+    doc: Document,
+    chunks: list[str],
+    metas: list[dict | None],
+    vectors: list,
+) -> None:
+    """청크 insert + 문서/컬렉션 집계 갱신 후 커밋(반환 없음 — doc 제자리 갱신)."""
+    for i, (t, v, m) in enumerate(zip(chunks, vectors, metas, strict=True)):
+        session.add(
+            Chunk(
+                document_id=doc.id,
+                collection_id=c.id,
+                ordinal=i,
+                text=t,
+                meta=m,  # 엔티티 metadata(스펙 149) — 문서형은 None
+                embedding=v,
+                token_count=len(t.split()),
+            )
+        )
+    doc.chunk_count = len(chunks)
+    doc.status = "ready"
+    # 집계 캐시는 원자적 SQL 증분 — 같은 컬렉션에 동시 인제스트해도 lost update 없음.
+    await session.execute(
+        update(Collection)
+        .where(Collection.id == c.id)
+        .values(
+            chunk_count=Collection.chunk_count + len(chunks),
+            doc_count=Collection.doc_count + 1,
+            status="ready",
+        )
+    )
+    await session.commit()
+    await session.refresh(doc)
+
+
+async def _mark_ingest_error(session: AsyncSession, doc_id, exc: Exception) -> Document | None:
+    """부분 적재 롤백 후 문서를 status=error로 박제 → 갱신된 문서(소실 시 None).
+
+    IngestError 외(crypto.decrypt RuntimeError·commit DB 오류 등)도 문서를 parsing에 방치하거나
+    500으로 흘리지 않는다. 비밀이 메시지에 섞일 수 있는 예외는 일반화해 노출 차단."""
+    await session.rollback()  # 부분 적재(청크/카운트) 되돌림 — 문서 행은 이미 커밋됨
+    doc = await session.get(Document, doc_id)
+    if doc is not None:
+        doc.status = "error"
+        doc.error = (
+            str(exc)
+            if isinstance(exc, rag_ingest.IngestError)
+            else f"인제스트 실패: {type(exc).__name__}"
+        )
+        await session.commit()
+        await session.refresh(doc)
+    return doc
+
+
 @router.post("/{cid}/documents", response_model=DocumentOut, status_code=201)
 async def ingest_document(
     cid: uuid.UUID,
@@ -426,15 +533,7 @@ async def ingest_document(
     if len(data) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail=f"파일이 너무 큽니다(최대 {limit_mb}MB).")
 
-    # 엔티티 컬렉션(스펙 149): Document 영속화 **전에** 행 전수 파싱·검증 — 형식 위반은 error 문서를
-    # 남기지 않고 400으로 즉시 거부(fail-closed: 소스=SQL 추출물, 위반=파이프라인 버그. 부분 스킵은
-    # 비즈니스 데이터의 조용한 유실). 행 번호가 detail에 담긴다.
-    entity_rows: list[tuple[str, dict]] | None = None
-    if c.kind == "entity":
-        try:
-            entity_rows = rag_ingest.parse_entity_lines(data, schema=c.entity_schema)
-        except rag_ingest.EntityParseError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    entity_rows = _parse_entity_rows(c, data)  # 엔티티 형식 위반은 여기서 400(스펙 149)
 
     doc = Document(
         collection_id=c.id,
@@ -449,71 +548,11 @@ async def ingest_document(
     doc_id = doc.id  # rollback 후 doc는 expire되므로 id를 미리 박제(동기 lazy-load 회피)
 
     try:
-        if entity_rows is not None:
-            # 엔티티: 1행=1청크(분할 없음), metadata 동반(스펙 149)
-            chunks = [t for t, _m in entity_rows]
-            metas: list[dict | None] = [m for _t, m in entity_rows]
-        else:
-            text = rag_ingest.extract_text(doc.filename, doc.content_type, data)
-            chunks = rag_ingest.chunk_text(text, c.chunk_size, c.chunk_overlap)
-            metas = [None] * len(chunks)
-        if not chunks:
-            raise rag_ingest.IngestError("청크가 생성되지 않았습니다(빈 문서).")
-        ep = c.embedding_model.provider if c.embedding_model else None
-        if ep is None:
-            raise rag_ingest.IngestError("컬렉션의 임베딩 provider가 없습니다.")
-        vectors = await rag_ingest.embed_texts(
-            ep.base_url, crypto.decrypt(ep.api_key), c.embedding_model.model_id, chunks
-        )
-        # 가드2 — 인제스트 시점 차원 검증. 저장소 컬럼은 RAG_EMBED_DIMS로 고정이므로 그 값과,
-        # 그리고 컬렉션 박제값(c.dims) 둘 다와 일치해야 한다. 둘이 어긋난 drift(c.dims != 컬럼)도
-        # 차단해 잘못된 차원이 DB insert에서 500나는 일을 막는다(조용한 죽음 대신 status=error).
-        bad = next((len(v) for v in vectors if len(v) != RAG_EMBED_DIMS or len(v) != c.dims), None)
-        if bad is not None:
-            raise rag_ingest.IngestError(
-                f"임베딩 차원({bad})이 저장소 차원({RAG_EMBED_DIMS})/컬렉션 차원({c.dims})과 "
-                "다릅니다 — 적재 중단(차원 고정)."
-            )
-        for i, (t, v, m) in enumerate(zip(chunks, vectors, metas, strict=True)):
-            session.add(
-                Chunk(
-                    document_id=doc.id,
-                    collection_id=c.id,
-                    ordinal=i,
-                    text=t,
-                    meta=m,  # 엔티티 metadata(스펙 149) — 문서형은 None
-                    embedding=v,
-                    token_count=len(t.split()),
-                )
-            )
-        doc.chunk_count = len(chunks)
-        doc.status = "ready"
-        # 집계 캐시는 원자적 SQL 증분 — 같은 컬렉션에 동시 인제스트해도 lost update 없음.
-        await session.execute(
-            update(Collection)
-            .where(Collection.id == c.id)
-            .values(
-                chunk_count=Collection.chunk_count + len(chunks),
-                doc_count=Collection.doc_count + 1,
-                status="ready",
-            )
-        )
-        await session.commit()
-        await session.refresh(doc)
+        chunks, metas = _split_chunks(c, doc, data, entity_rows)
+        vectors = await _embed_chunks(c, chunks)
+        await _persist_chunks(session, c, doc, chunks, metas, vectors)
     except Exception as exc:
-        # IngestError 외(crypto.decrypt RuntimeError·commit DB 오류 등)도 문서를 parsing에 방치하거나
-        # 500으로 흘리지 않는다. 비밀이 메시지에 섞일 수 있는 예외는 일반화해 노출 차단.
-        await session.rollback()  # 부분 적재(청크/카운트) 되돌림 — 문서 행은 이미 커밋됨
-        doc = await session.get(Document, doc_id)
-        if doc is not None:
-            doc.status = "error"
-            doc.error = (
-                str(exc)
-                if isinstance(exc, rag_ingest.IngestError)
-                else f"인제스트 실패: {type(exc).__name__}"
-            )
-            await session.commit()
-            await session.refresh(doc)
+        doc = await _mark_ingest_error(session, doc_id, exc)
     return doc
 
 

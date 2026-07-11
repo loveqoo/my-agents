@@ -50,6 +50,92 @@ def _canonical_tokens(
     return tokens
 
 
+async def _recall_memory(ctx: dict, user_text: str) -> tuple[bool, list, str]:
+    """메모리 회상(읽기 전용 — 무오염) → (used_memory, mem_hits, persona_prompt). add는 절대 안 함."""
+    used_memory = memory.memory_enabled(ctx["memories"]) and ctx["mem_cfg"] is not None
+    recall_scope = {"user_id": None, "run_id": None, "agent_id": ctx["ext_agent_id"]}
+    mem_hits = (
+        await asyncio.to_thread(memory.search, recall_scope, user_text, ctx["mem_cfg"])
+        if used_memory
+        else []
+    )
+    persona_prompt = ctx["persona"]
+    if mem_hits:
+        persona_prompt = (
+            f"{persona_prompt}\n\n# 관련 기억(회상됨)\n{memory.format_memory_hits(mem_hits)}"
+        )
+    return used_memory, mem_hits, persona_prompt
+
+
+async def _build_eval_graph(
+    ctx: dict,
+    impl,
+    persona_prompt: str,
+    mem_hits: list,
+    calls_sink: list[dict],
+    principal,
+    delegation_chain: tuple,
+    delegation_budget,
+):
+    """평가용 그래프를 도구·브로커 주입으로 빌드 → (graph, broker)."""
+    tools = await runtime.build_mcp_tools(
+        ctx["mcp_servers"], calls_sink, ctx.get("toolPolicy"), ctx.get("tool_names")
+    )
+    if ctx["rag_collections"]:
+        tools.append(runtime.build_rag_tool(ctx["rag_collections"], calls_sink))
+    # 브로커 주입(조율형 위임 채점) — 실행 주체(principal)의 RBAC로 스코프(chat 경로와 동일 술어).
+    # 스펙 256 v2(깊이 N): 호출 체인에 자기 자신을 덧붙여 하위 브로커에 관통 — 체인 내 재방문만
+    # 차단(순환 0), 새 에이전트로는 계속 하강 가능.
+    chain = tuple(delegation_chain) + ((ctx["ext_agent_id"],) if ctx.get("ext_agent_id") else ())
+    broker = build_broker(
+        principal,
+        ctx["capabilities"],
+        ctx.get("toolPolicy"),
+        delegation_chain=chain,
+        delegation_budget=delegation_budget,
+    )
+    run_params = {} if ctx["temperature"] is None else {"temperature": ctx["temperature"]}
+    build_ctx = AgentBuildContext(
+        persona=persona_prompt,
+        model_cfg=ctx["model_cfg"],
+        tools=tools,
+        checkpointer=None,  # HIL cap은 fail-closed(interrupt→예외→error 관측)
+        params=run_params,
+        memories=mem_hits,
+        broker=broker,
+    )
+    return impl.build_graph(build_ctx), broker
+
+
+async def _stream_observed(graph, messages, cfg) -> tuple[str, list[str], bool, str | None]:
+    """그래프 스트림 실행 + 관측 수집 → (output, observed_nodes, error, detail)."""
+    acc: list[str] = []
+    observed_nodes: list[str] = []
+    error = False
+    detail = None
+    try:
+        async for stream_mode, chunk in graph.astream(
+            {"messages": messages}, config=cfg, stream_mode=["messages", "updates"]
+        ):
+            if stream_mode == "messages":
+                msg_chunk, _meta = chunk
+                if runtime.is_tool_message(msg_chunk):
+                    continue
+                text = runtime._content_text(getattr(msg_chunk, "content", ""))
+                if text:
+                    acc.append(text)
+            elif stream_mode == "updates" and isinstance(chunk, dict):
+                if "__interrupt__" in chunk:
+                    # 승인 게이트 cap — 평가에선 진행 불가(fail-closed 관측).
+                    error = True
+                    detail = "승인 게이트 도구가 호출됨 — 평가 실행은 승인 없이 중단(fail-closed)"
+                observed_nodes.extend(n for n in chunk if not n.startswith("__"))
+    except Exception as exc:
+        error = True
+        detail = str(exc)[:500]
+    return "".join(acc), observed_nodes, error, detail
+
+
 async def eval_run_agent(
     agent_pk,
     user_text: str,
@@ -88,78 +174,26 @@ async def eval_run_agent(
             "detail": "로컬(ui) 에이전트가 아니거나 채팅 모델이 없습니다(평가는 로컬 에이전트만)",
         }
 
-    # 메모리 회상(읽기 전용 — 무오염). add는 절대 안 함.
-    used_memory = memory.memory_enabled(ctx["memories"]) and ctx["mem_cfg"] is not None
-    recall_scope = {"user_id": None, "run_id": None, "agent_id": ctx["ext_agent_id"]}
-    mem_hits = (
-        await asyncio.to_thread(memory.search, recall_scope, user_text, ctx["mem_cfg"])
-        if used_memory
-        else []
-    )
-    persona_prompt = ctx["persona"]
-    if mem_hits:
-        persona_prompt = (
-            f"{persona_prompt}\n\n# 관련 기억(회상됨)\n{memory.format_memory_hits(mem_hits)}"
-        )
+    used_memory, mem_hits, persona_prompt = await _recall_memory(ctx, user_text)
 
     calls_sink: list[dict] = []
-    tools = await runtime.build_mcp_tools(
-        ctx["mcp_servers"], calls_sink, ctx.get("toolPolicy"), ctx.get("tool_names")
-    )
-    if ctx["rag_collections"]:
-        tools.append(runtime.build_rag_tool(ctx["rag_collections"], calls_sink))
-    # 브로커 주입(조율형 위임 채점) — 실행 주체(principal)의 RBAC로 스코프(chat 경로와 동일 술어).
-    # 스펙 256 v2(깊이 N): 호출 체인에 자기 자신을 덧붙여 하위 브로커에 관통 — 체인 내 재방문만
-    # 차단(순환 0), 새 에이전트로는 계속 하강 가능.
-    chain = tuple(delegation_chain) + ((ctx["ext_agent_id"],) if ctx.get("ext_agent_id") else ())
-    broker = build_broker(
+    graph, broker = await _build_eval_graph(
+        ctx,
+        impl,
+        persona_prompt,
+        mem_hits,
+        calls_sink,
         principal,
-        ctx["capabilities"],
-        ctx.get("toolPolicy"),
-        delegation_chain=chain,
-        delegation_budget=delegation_budget,
+        delegation_chain,
+        delegation_budget,
     )
-    run_params = {} if ctx["temperature"] is None else {"temperature": ctx["temperature"]}
-    build_ctx = AgentBuildContext(
-        persona=persona_prompt,
-        model_cfg=ctx["model_cfg"],
-        tools=tools,
-        checkpointer=None,  # HIL cap은 fail-closed(interrupt→예외→error 관측)
-        params=run_params,
-        memories=mem_hits,
-        broker=broker,
-    )
-    graph = impl.build_graph(build_ctx)
     messages = _window([{"role": "user", "content": user_text}], ctx["history_depth"])
     cfg = observability.with_trace(None, name=f"eval:{ctx['ext_agent_id']}")
 
-    acc: list[str] = []
-    observed_nodes: list[str] = []
-    error = False
-    detail = None
-    try:
-        async for stream_mode, chunk in graph.astream(
-            {"messages": messages}, config=cfg, stream_mode=["messages", "updates"]
-        ):
-            if stream_mode == "messages":
-                msg_chunk, _meta = chunk
-                if runtime.is_tool_message(msg_chunk):
-                    continue
-                text = runtime._content_text(getattr(msg_chunk, "content", ""))
-                if text:
-                    acc.append(text)
-            elif stream_mode == "updates" and isinstance(chunk, dict):
-                if "__interrupt__" in chunk:
-                    # 승인 게이트 cap — 평가에선 진행 불가(fail-closed 관측).
-                    error = True
-                    detail = "승인 게이트 도구가 호출됨 — 평가 실행은 승인 없이 중단(fail-closed)"
-                observed_nodes.extend(n for n in chunk if not n.startswith("__"))
-    except Exception as exc:
-        error = True
-        detail = str(exc)[:500]
+    output, observed_nodes, error, detail = await _stream_observed(graph, messages, cfg)
 
     return {
-        "output": "".join(acc)[:_OUTPUT_CAP],
+        "output": output[:_OUTPUT_CAP],
         "trace_nodes": _canonical_tokens(
             observed_nodes, calls_sink, broker.invocations, used_memory
         ),

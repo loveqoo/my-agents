@@ -90,6 +90,115 @@ async def _org_name() -> str:
 _MAX_A2A_SKILLS = 50  # 거대 config 방어 — 카드 스킬 상한(chat이 항상 첫 항목이라 잘려도 chat 보존)
 
 
+def _mcp_server_wants(cfg: dict, caps: list[str]) -> dict[str, set | None]:
+    """MCP 서버→원하는 툴 집합(None=서버 전체)을 반환 — config.mcps(직접) + capabilities mcp:(조율) 병합."""
+    mcp_servers: dict[str, set | None] = {}
+    for name in cfg.get("mcps") or []:
+        if isinstance(name, str):
+            mcp_servers[name] = None  # 서버 전체
+    for item in caps:
+        if broker._kind_of(item) != broker.CAP_KIND_MCP:
+            continue
+        server, tool = broker._parse_mcp(item)
+        if tool is None:
+            mcp_servers[server] = None  # 서버 전체(툴 단위를 덮음)
+        elif server in mcp_servers and mcp_servers[server] is None:
+            pass  # 이미 서버 전체 — 툴 단위는 부분집합이라 무시
+        else:
+            wanted_tools = mcp_servers.get(server) or set()
+            wanted_tools.add(tool)
+            mcp_servers[server] = wanted_tools
+    return mcp_servers
+
+
+async def _mcp_skills(db, mcp_servers: dict[str, set | None]) -> list[dict]:
+    """살아있는 MCP 도구 스킬 목록을 반환(dangling·미지원 transport는 스킵)."""
+    if not mcp_servers:
+        return []
+    skills: list[dict] = []
+    rows = (
+        (await db.execute(select(McpServer).where(McpServer.name.in_(list(mcp_servers.keys())))))
+        .scalars()
+        .all()
+    )
+    by_name = {r.name: r for r in rows}
+    for server, wanted in mcp_servers.items():
+        row = by_name.get(server)
+        if row is None:
+            continue  # dangling 참조 — 스킵
+        # 런타임이 못 붙는 transport(stdio 등)는 광고 안 함(codex Med1 — runtime.mcp_connection이
+        # http/streamable_http만 연결. 광고=런타임 노출 도구와 일치시킨다). down/SSRF 라이브 프로브는
+        # 카드 fetch마다 하기엔 비싸 유예 — 카드는 "설정된 능력(지원 transport)"을 광고(경계).
+        if (row.transport or "").lower() not in ("http", "streamable_http"):
+            continue
+        meta = row.tools_meta or {}
+        # enabled_tools 비면 런타임은 "서버 전체 노출"(빈=필터 없음, runtime.py:213) — 발견
+        # 스냅샷(tools)으로 광고해 런타임과 일치시킨다(codex Med2).
+        available = list(row.enabled_tools or row.tools or [])
+        for tool in available:
+            if wanted is not None and tool not in wanted:
+                continue
+            desc = ((meta.get(tool) or {}).get("description") or f"{server}의 MCP 도구")[:200]
+            skills.append(
+                {
+                    "id": f"mcp:{server}/{tool}",
+                    "name": tool,
+                    "description": desc,
+                    "tags": ["mcp", server],
+                }
+            )
+    return skills
+
+
+async def _delegate_skills(db, agent_ids: list[str]) -> list[dict]:
+    """위임 가능한 서브에이전트 스킬 목록을 반환(dangling·비remote·무endpoint는 스킵)."""
+    skills: list[dict] = []
+    for aid in agent_ids:
+        sub = (await db.execute(select(Agent).where(Agent.agent_id == aid))).scalar_one_or_none()
+        if sub is None:
+            continue  # dangling — 스킵
+        # 실제 위임 가능한 remote(code/external+endpoint)만 광고(codex High). ui/미노출 서브에이전트를
+        # 광고하면 (1) 그 에이전트의 노출 게이트를 우회해 이름을 공개 카드에 누출하고(존재 비노출 위반),
+        # (2) AgentProvider는 remote+endpoint만 위임하므로(broker:236) 호출 불가한 거짓 능력이 된다.
+        if not is_remote_source(sub.source) or not sub.endpoint:
+            continue
+        skills.append(
+            {
+                "id": f"agent:{aid}",
+                "name": sub.name,
+                "description": "이 하위 에이전트에 위임한다(A2A 오케스트레이션).",
+                "tags": ["delegate"],
+            }
+        )
+    return skills
+
+
+async def _rag_skills(db, rag_colls: list[str]) -> list[dict]:
+    """살아있는 지식 컬렉션 스킬 목록을 반환(dangling은 스킵 — MCP·delegate와 일관)."""
+    if not rag_colls:
+        return []
+    from .models import Collection
+
+    skills: list[dict] = []
+    live = set(
+        (await db.execute(select(Collection.name).where(Collection.name.in_(rag_colls))))
+        .scalars()
+        .all()
+    )
+    for coll in rag_colls:
+        if coll not in live:
+            continue  # dangling 컬렉션 — 스킵
+        skills.append(
+            {
+                "id": f"rag:{coll}",
+                "name": coll,
+                "description": "지식 컬렉션을 검색한다.",
+                "tags": ["rag"],
+            }
+        )
+    return skills
+
+
 async def _agent_a2a_skills(agent: Agent) -> list[dict]:
     """카드 skills[](스펙 157) — chat + 에이전트의 실제 능력(MCP 도구·서브에이전트 위임·RAG)을 광고.
 
@@ -106,25 +215,7 @@ async def _agent_a2a_skills(agent: Agent) -> list[dict]:
         }
     ]
     caps = [c for c in (cfg.get("capabilities") or []) if isinstance(c, str)]
-
-    # MCP 서버→원하는 툴 집합(None=서버 전체). config.mcps(직접) + capabilities mcp:(조율) 병합.
-    mcp_servers: dict[str, set | None] = {}
-    for name in cfg.get("mcps") or []:
-        if isinstance(name, str):
-            mcp_servers[name] = None  # 서버 전체
-    for item in caps:
-        if broker._kind_of(item) != broker.CAP_KIND_MCP:
-            continue
-        server, tool = broker._parse_mcp(item)
-        if tool is None:
-            mcp_servers[server] = None  # 서버 전체(툴 단위를 덮음)
-        elif server in mcp_servers and mcp_servers[server] is None:
-            pass  # 이미 서버 전체 — 툴 단위는 부분집합이라 무시
-        else:
-            s = mcp_servers.get(server) or set()
-            s.add(tool)
-            mcp_servers[server] = s
-
+    mcp_servers = _mcp_server_wants(cfg, caps)
     agent_ids = [
         item[len("agent:") :] if item.startswith("agent:") else item
         for item in caps
@@ -135,80 +226,9 @@ async def _agent_a2a_skills(agent: Agent) -> list[dict]:
     ]
 
     async with SessionLocal() as db:
-        if mcp_servers:
-            rows = (
-                (
-                    await db.execute(
-                        select(McpServer).where(McpServer.name.in_(list(mcp_servers.keys())))
-                    )
-                )
-                .scalars()
-                .all()
-            )
-            by_name = {r.name: r for r in rows}
-            for server, wanted in mcp_servers.items():
-                row = by_name.get(server)
-                if row is None:
-                    continue  # dangling 참조 — 스킵
-                # 런타임이 못 붙는 transport(stdio 등)는 광고 안 함(codex Med1 — runtime.mcp_connection이
-                # http/streamable_http만 연결. 광고=런타임 노출 도구와 일치시킨다). down/SSRF 라이브 프로브는
-                # 카드 fetch마다 하기엔 비싸 유예 — 카드는 "설정된 능력(지원 transport)"을 광고(경계).
-                if (row.transport or "").lower() not in ("http", "streamable_http"):
-                    continue
-                meta = row.tools_meta or {}
-                # enabled_tools 비면 런타임은 "서버 전체 노출"(빈=필터 없음, runtime.py:213) — 발견
-                # 스냅샷(tools)으로 광고해 런타임과 일치시킨다(codex Med2).
-                available = list(row.enabled_tools or row.tools or [])
-                for t in available:
-                    if wanted is not None and t not in wanted:
-                        continue
-                    desc = ((meta.get(t) or {}).get("description") or f"{server}의 MCP 도구")[:200]
-                    skills.append(
-                        {
-                            "id": f"mcp:{server}/{t}",
-                            "name": t,
-                            "description": desc,
-                            "tags": ["mcp", server],
-                        }
-                    )
-        for aid in agent_ids:
-            sub = (
-                await db.execute(select(Agent).where(Agent.agent_id == aid))
-            ).scalar_one_or_none()
-            if sub is None:
-                continue  # dangling — 스킵
-            # 실제 위임 가능한 remote(code/external+endpoint)만 광고(codex High). ui/미노출 서브에이전트를
-            # 광고하면 (1) 그 에이전트의 노출 게이트를 우회해 이름을 공개 카드에 누출하고(존재 비노출 위반),
-            # (2) AgentProvider는 remote+endpoint만 위임하므로(broker:236) 호출 불가한 거짓 능력이 된다.
-            if not is_remote_source(sub.source) or not sub.endpoint:
-                continue
-            skills.append(
-                {
-                    "id": f"agent:{aid}",
-                    "name": sub.name,
-                    "description": "이 하위 에이전트에 위임한다(A2A 오케스트레이션).",
-                    "tags": ["delegate"],
-                }
-            )
-        if rag_colls:
-            from .models import Collection
-
-            live = set(
-                (await db.execute(select(Collection.name).where(Collection.name.in_(rag_colls))))
-                .scalars()
-                .all()
-            )
-            for coll in rag_colls:
-                if coll not in live:
-                    continue  # dangling 컬렉션 — 스킵(MCP·delegate와 일관)
-                skills.append(
-                    {
-                        "id": f"rag:{coll}",
-                        "name": coll,
-                        "description": "지식 컬렉션을 검색한다.",
-                        "tags": ["rag"],
-                    }
-                )
+        skills.extend(await _mcp_skills(db, mcp_servers))
+        skills.extend(await _delegate_skills(db, agent_ids))
+        skills.extend(await _rag_skills(db, rag_colls))
 
     return skills[:_MAX_A2A_SKILLS]
 

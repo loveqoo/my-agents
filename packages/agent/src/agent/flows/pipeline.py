@@ -93,6 +93,38 @@ def _model_from_node(node: dict, ctx: AgentBuildContext) -> ChatOpenAI:
     )
 
 
+def _norm_node_name(n: dict, i: int) -> str:
+    """노드 표시 이름 — 비문자열/공백이면 순번 기본값."""
+    name = n.get("name")
+    return name.strip() if isinstance(name, str) and name.strip() else f"노드{i + 1}"
+
+
+def _norm_node_tools(n: dict) -> list[str]:
+    """노드 도구 이름 목록 — 문자열만 통과(비리스트·잡값은 빈 리스트)."""
+    tools = n.get("tools")
+    return [t for t in tools if isinstance(t, str)] if isinstance(tools, list) else []
+
+
+def _stripped_str_list(raw: object) -> list[str]:
+    """비어 있지 않은 문자열만 남긴 목록(비리스트는 빈 리스트) — fields/memories 공용."""
+    if not isinstance(raw, list):
+        return []
+    return [s for s in raw if isinstance(s, str) and s.strip()]
+
+
+def _enum_or(value: object, allowed: tuple[str, ...], default: str) -> str:
+    """허용값이면 그대로, 잡값이면 기본값 — context/format/memoryQuery 공용."""
+    return value if value in allowed else default
+
+
+def _norm_history_depth(n: dict) -> int | None:
+    """노드별 단기 기억 창(스펙 270) — int면 상한 1000 캡, 아니면 None=에이전트-레벨 상속. bool은
+    int 하위형이라 배제(True/False가 1/0으로 새는 것 방지). 캡은 여기서도 강제(codex 270 — 스키마가
+    쓰기 시 캡하나 엔진=최종 신뢰경계라 legacy/직접DB 우회 대비 미러). 음수=전체(유지)."""
+    hd = n.get("historyDepth")
+    return min(hd, 1000) if (isinstance(hd, int) and not isinstance(hd, bool)) else None
+
+
 def normalize_nodes(raw: object) -> list[dict]:
     """impl_config의 노드 리스트를 방어적으로 정규화(순수 — 단위 검증 가능). dict 리스트만, prompt
     문자열 필수(빈 노드 제거), name/model/tools는 선택. 순서 보존. 잡값은 조용히 걸러 빈 리스트로."""
@@ -105,49 +137,22 @@ def normalize_nodes(raw: object) -> list[dict]:
         prompt = n.get("prompt")
         if not isinstance(prompt, str) or not prompt.strip():
             continue  # 프롬프트 없는 노드는 실행 의미 없음 — 정직하게 제외
-        name = n.get("name")
-        name = name.strip() if isinstance(name, str) and name.strip() else f"노드{i + 1}"
-        tools = n.get("tools")
-        tools = [t for t in tools if isinstance(t, str)] if isinstance(tools, list) else []
-        # 맥락 모드(스펙 260): carry=누적 대화 이어받기(기본), clean=앞 결과만 격리 입력. 잡값→carry.
-        context = n.get("context")
-        context = context if context in ("carry", "clean") else "carry"
-        # 출력 형식(스펙 261): text=자유(기본), json=유효 JSON 강제. fields=필수 키(선택). 잡값→text.
-        fmt = n.get("format")
-        fmt = fmt if fmt in ("text", "json") else "text"
-        raw_fields = n.get("fields")
-        node_fields = (
-            [f for f in raw_fields if isinstance(f, str) and f.strip()]
-            if isinstance(raw_fields, list)
-            else []
-        )
-        # 노드별 기억(스펙 268 P2): memories=선택한 기억 블록(비면 회상 안 받음), memoryQuery=회상
-        # 키워드 모드(user=사용자 입력[캐시 공유], input=이 노드의 입력[개별 키워드]). 잡값→user.
-        raw_mem = n.get("memories")
-        node_mem = (
-            [m for m in raw_mem if isinstance(m, str) and m.strip()]
-            if isinstance(raw_mem, list)
-            else []
-        )
-        mem_q = n.get("memoryQuery")
-        mem_q = mem_q if mem_q in ("user", "input") else "user"
-        # 노드별 단기 기억 창(스펙 270): int면 그 값, 아니면 None=에이전트-레벨 상속. bool은 int
-        # 하위형이라 배제(True/False가 1/0으로 새는 것 방지). 상한 1000 캡을 여기서도 강제(codex 270 —
-        # 스키마가 쓰기 시 캡하나 엔진=최종 신뢰경계라 legacy/직접DB 우회 대비 미러). 음수=전체(유지).
-        hd = n.get("historyDepth")
-        node_hd = min(hd, 1000) if (isinstance(hd, int) and not isinstance(hd, bool)) else None
         out.append(
             {
-                "name": name,
+                "name": _norm_node_name(n, i),
                 "prompt": prompt,
                 "model_cfg": n.get("model_cfg") if isinstance(n.get("model_cfg"), dict) else None,
-                "tools": tools,
-                "context": context,
-                "format": fmt,
-                "fields": node_fields,
-                "memories": node_mem,
-                "memoryQuery": mem_q,
-                "historyDepth": node_hd,
+                "tools": _norm_node_tools(n),
+                # 맥락 모드(스펙 260): carry=누적 대화 이어받기(기본), clean=앞 결과만 격리 입력.
+                "context": _enum_or(n.get("context"), ("carry", "clean"), "carry"),
+                # 출력 형식(스펙 261): text=자유(기본), json=유효 JSON 강제. fields=필수 키(선택).
+                "format": _enum_or(n.get("format"), ("text", "json"), "text"),
+                "fields": _stripped_str_list(n.get("fields")),
+                # 노드별 기억(스펙 268 P2): memories=선택한 기억 블록(비면 회상 안 받음), memoryQuery=
+                # 회상 키워드 모드(user=사용자 입력[캐시 공유], input=이 노드의 입력[개별 키워드]).
+                "memories": _stripped_str_list(n.get("memories")),
+                "memoryQuery": _enum_or(n.get("memoryQuery"), ("user", "input"), "user"),
+                "historyDepth": _norm_history_depth(n),
             }
         )
     return out

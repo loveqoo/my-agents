@@ -725,6 +725,58 @@ def _msg_role(m: Any) -> str:
     return r or "msg"
 
 
+def _summarize_messages_delta(val: list) -> str:
+    """messages 델타를 role+본문 프리뷰 한 줄로 요약해 반환(스펙 192 후속).
+
+    채팅 스트림과 일부 중복이라 프리뷰는 짧게 캡. 불변식(086) 유지: 마스킹은 캡 이전에 큰 cap으로
+    (무절단), 잘림은 _cap이 정직 표기. 앞 _MSG_PREVIEW_N건만 펼치고 나머지는 카운트(거대 리스트 방어)."""
+    if not val:
+        return "메시지 0건"
+    from .memory import _sanitize as _mask
+
+    # 맥락 격리(스펙 260/262) — clean 노드가 낸 RemoveMessage(role=="remove", 상태 삭제
+    # 지시)는 내부어라 사람 말로 접는다: "이전 맥락 N개 정리 (격리)". 개수=걷어낸 이전 메시지
+    # 수(디버깅 신호 보존). 나머지 실제 발화만 role+본문 프리뷰(앞 N건 + "+N건").
+    removes = sum(1 for m in val if _msg_role(m) == "remove")
+    rest = [m for m in val if _msg_role(m) != "remove"]
+    previews: list[str] = []
+    if removes:
+        previews.append(f"이전 맥락 {removes}개 정리 (격리)")
+    for m in rest[:_MSG_PREVIEW_N]:
+        raw = m.get("content") if isinstance(m, dict) else getattr(m, "content", None)
+        text = _cap(_mask(_content_text(raw), cap=1_000_000), _MSG_PREVIEW_CAP)
+        previews.append(f"{_msg_role(m)}: «{text}»" if text else _msg_role(m))
+    extra = max(0, len(rest) - _MSG_PREVIEW_N)
+    return " / ".join(previews) + (f" (+{extra}건)" if extra > 0 else "")
+
+
+def _summarize_delta_value(key: str, val: Any) -> str:
+    """단일 델타 값의 안전 요약 문자열을 반환(값-비밀 fail-closed, budgeted 캡)."""
+    if isinstance(val, str):
+        # 안전 키(plan)만 값 원문(budgeted 캡); 그 외 임의 키는 길이만(F2 값-비밀 fail-closed).
+        if key in _VALUE_SAFE_KEYS:
+            # 키 접두로 어떤 값인지 명시(131 — 안전 키가 4개로 늘어 구분 필요).
+            # delegated는 위임 결과(untrusted 본문) fold라 **비밀 마스킹 백스톱 필수**
+            # (codex 131 #1 — 캡은 크기 방어일 뿐). 마스킹은 캡 **이전에**(cap 크게 줘 무절단),
+            # 잘림은 기존 _cap이 담당 — "…N자 생략" 정직 표기 보존(086 U2 불변식).
+            from .memory import _sanitize as _mask
+
+            return f"{key}: {_cap(_mask(val, cap=1_000_000), _FIELD_CAP)}"
+        return f"{key}: <{len(val)}자>"
+    if isinstance(val, (list, tuple)):
+        return f"{key}[{len(val)}]"
+    if isinstance(val, dict):
+        # 중첩 dict도 키만(중첩 안의 비밀 누출 차단 — 값 펼치지 않음). 키 목록도 캡(거대 dict 방어).
+        inner = _cap(
+            ", ".join(_REDACTED if _SENSITIVE_KEY.search(str(k)) else str(k) for k in val),
+            80,
+        )
+        return f"{key}{{{inner}}}"
+    if val is None or isinstance(val, (bool, int, float)):
+        return f"{key}={val}"  # 스칼라(유한 길이, 비밀 위험 낮음)
+    return f"{key}=<{type(val).__name__}>"  # 미지 타입은 타입명만(fail-closed)
+
+
 def _summarize_node_update(_node: str, delta: Any) -> str | None:
     """노드가 발화하며 바꾼 상태 델타를 사람이 읽을 짧은 문자열로 요약(스펙 086).
 
@@ -745,56 +797,11 @@ def _summarize_node_update(_node: str, delta: Any) -> str | None:
             if _SENSITIVE_KEY.search(key):
                 parts.append(f"{key}={_REDACTED}")
                 continue
-            # messages: 그 단계가 낸 발화를 role+본문 프리뷰로(스펙 192 후속 — plan처럼 execute 등도
-            # "무슨 메시지를 냈나"를 타임라인에서 보이게). 채팅 스트림과 일부 중복이라 프리뷰는 짧게 캡.
-            # 불변식(086) 유지: 마스킹은 캡 이전에 큰 cap으로(무절단), 잘림은 _cap이 정직 표기. 앞
-            # _MSG_PREVIEW_N건만 펼치고 나머지는 카운트(거대 리스트 방어).
+            # messages: 그 단계가 낸 발화를 타임라인에서 보이게(plan처럼 execute 등도, 스펙 192 후속).
             if key == "messages" and isinstance(val, list):
-                if not val:
-                    parts.append("메시지 0건")
-                    continue
-                from .memory import _sanitize as _mask
-
-                # 맥락 격리(스펙 260/262) — clean 노드가 낸 RemoveMessage(role=="remove", 상태 삭제
-                # 지시)는 내부어라 사람 말로 접는다: "이전 맥락 N개 정리 (격리)". 개수=걷어낸 이전 메시지
-                # 수(디버깅 신호 보존). 나머지 실제 발화만 role+본문 프리뷰(앞 N건 + "+N건").
-                removes = sum(1 for m in val if _msg_role(m) == "remove")
-                rest = [m for m in val if _msg_role(m) != "remove"]
-                previews: list[str] = []
-                if removes:
-                    previews.append(f"이전 맥락 {removes}개 정리 (격리)")
-                for m in rest[:_MSG_PREVIEW_N]:
-                    raw = m.get("content") if isinstance(m, dict) else getattr(m, "content", None)
-                    text = _cap(_mask(_content_text(raw), cap=1_000_000), _MSG_PREVIEW_CAP)
-                    previews.append(f"{_msg_role(m)}: «{text}»" if text else _msg_role(m))
-                extra = max(0, len(rest) - _MSG_PREVIEW_N)
-                parts.append(" / ".join(previews) + (f" (+{extra}건)" if extra > 0 else ""))
+                parts.append(_summarize_messages_delta(val))
                 continue
-            if isinstance(val, str):
-                # 안전 키(plan)만 값 원문(budgeted 캡); 그 외 임의 키는 길이만(F2 값-비밀 fail-closed).
-                if key in _VALUE_SAFE_KEYS:
-                    # 키 접두로 어떤 값인지 명시(131 — 안전 키가 4개로 늘어 구분 필요).
-                    # delegated는 위임 결과(untrusted 본문) fold라 **비밀 마스킹 백스톱 필수**
-                    # (codex 131 #1 — 캡은 크기 방어일 뿐). 마스킹은 캡 **이전에**(cap 크게 줘 무절단),
-                    # 잘림은 기존 _cap이 담당 — "…N자 생략" 정직 표기 보존(086 U2 불변식).
-                    from .memory import _sanitize as _mask
-
-                    parts.append(f"{key}: {_cap(_mask(val, cap=1_000_000), _FIELD_CAP)}")
-                else:
-                    parts.append(f"{key}: <{len(val)}자>")
-            elif isinstance(val, (list, tuple)):
-                parts.append(f"{key}[{len(val)}]")
-            elif isinstance(val, dict):
-                # 중첩 dict도 키만(중첩 안의 비밀 누출 차단 — 값 펼치지 않음). 키 목록도 캡(거대 dict 방어).
-                inner = _cap(
-                    ", ".join(_REDACTED if _SENSITIVE_KEY.search(str(k)) else str(k) for k in val),
-                    80,
-                )
-                parts.append(f"{key}{{{inner}}}")
-            elif val is None or isinstance(val, (bool, int, float)):
-                parts.append(f"{key}={val}")  # 스칼라(유한 길이, 비밀 위험 낮음)
-            else:
-                parts.append(f"{key}=<{type(val).__name__}>")  # 미지 타입은 타입명만(fail-closed)
+            parts.append(_summarize_delta_value(key, val))
         text = _cap(" · ".join(p for p in parts if p))
         return text or None
     except Exception:

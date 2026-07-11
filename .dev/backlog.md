@@ -336,3 +336,4 @@
 - 네비 메뉴명 "메모리" vs 화면 어휘 "기억" 통일 검토(회고 261 — 286서 상세만 통일, 반쪽 상태)
 - shot-agent-policy-147·shot-naming-148 e2e — 284(소유 태그·필터 소멸)로 대상 표면 소멸, 수리 또는 폐기 판단 필요(286서 발견)
 - antd v6 deprecation 신규 관측: Descriptions labelStyle→styles.label (154 콘솔, 208 규칙에 따라 후속)
+- [후보] 낡은 verify 스크립트 3건 수리: verify_036_rag_ingest(KeyError 'id')·verify_038_batch_cleanup([5] summary 박제 FAIL)·verify_056_session_cleanup_counter(3건 FAIL) — 2026-07-11 스펙 291 Phase 3a 검증 중 발견, 리팩터 전(stash 차등)에도 동일 실패 = 기존 부채. 스펙 드리프트 or 스위트 픽스처 잔존 데이터와 충돌 추정.

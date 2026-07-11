@@ -538,6 +538,56 @@ class AgentConfig(BaseModel):
                     )
         return v
 
+    @staticmethod
+    def _apply_node_scalar_fields(n: dict[str, Any], node: dict[str, Any]) -> None:
+        """선택 스칼라 필드(name/model 길이 캡, 화이트리스트 enum, historyDepth 캡)를 node에 채운다."""
+        for key in ("name", "model"):  # 문자열 필드(선택) — 길이 캡
+            val = n.get(key)
+            if isinstance(val, str) and val.strip():
+                if len(val) > 200:
+                    raise ValueError(f"nodes 항목 {key}은 200자 이하여야 합니다.")
+                node[key] = val
+        ctx_mode = n.get("context")  # 맥락 모드(스펙 260) — 화이트리스트 값만
+        if ctx_mode in ("carry", "clean"):
+            node["context"] = ctx_mode
+        fmt = n.get("format")  # 출력 형식(스펙 261) — 화이트리스트 값만
+        if fmt in ("text", "json"):
+            node["format"] = fmt
+        mem_q = n.get("memoryQuery")  # 회상 키워드 모드(스펙 268 P2) — 화이트리스트 값만
+        if mem_q in ("user", "input"):
+            node["memoryQuery"] = mem_q
+        hd = n.get("historyDepth")  # 노드별 단기 기억 창(스펙 270) — 미지정=에이전트 상속.
+        if isinstance(hd, int) and not isinstance(hd, bool):  # bool은 int 하위형 — 배제
+            if hd > 1000:
+                raise ValueError("nodes 항목 historyDepth는 1000 이하여야 합니다.")
+            node["historyDepth"] = hd  # 음수·0 허용(음수/전체·0=대화 없음)
+
+    @staticmethod
+    def _apply_node_list_fields(n: dict[str, Any], node: dict[str, Any]) -> None:
+        """선택 문자열 리스트 필드(tools/fields/memories, 개수·각 길이 캡)를 node에 채운다."""
+        for key in ("tools", "fields", "memories"):
+            lst = n.get(key)
+            if isinstance(lst, list):
+                if len(lst) > 100:
+                    raise ValueError(f"nodes 항목 {key}은 100개 이하여야 합니다.")
+                node[key] = [x for x in lst if isinstance(x, str) and len(x) <= 200]
+
+    @staticmethod
+    def _normalize_node(n: Any) -> dict[str, Any]:
+        """단일 nodes 항목을 화이트리스트·상한 검증 후 정규화 dict로 반환."""
+        if (
+            not isinstance(n, dict)
+            or not isinstance(n.get("prompt"), str)
+            or not n["prompt"].strip()
+        ):
+            raise ValueError("nodes 항목은 비어있지 않은 문자열 prompt가 필요합니다.")
+        if len(n["prompt"]) > 20000:
+            raise ValueError("nodes 항목 prompt는 20000자 이하여야 합니다.")
+        node: dict[str, Any] = {"prompt": n["prompt"]}
+        AgentConfig._apply_node_scalar_fields(n, node)
+        AgentConfig._apply_node_list_fields(n, node)
+        return node  # model_cfg 등 화이트리스트 밖 키는 여기서 드롭(저장 안 됨 → 에코 0)
+
     @field_validator("nodes")
     @classmethod
     def _check_nodes(cls, v: list[dict[str, Any]] | None) -> list[dict[str, Any]] | None:
@@ -552,45 +602,7 @@ class AgentConfig(BaseModel):
             raise ValueError("nodes는 배열이어야 합니다.")
         if len(v) > 50:
             raise ValueError("nodes는 50개 이하여야 합니다.")
-        out: list[dict[str, Any]] = []
-        for n in v:
-            if (
-                not isinstance(n, dict)
-                or not isinstance(n.get("prompt"), str)
-                or not n["prompt"].strip()
-            ):
-                raise ValueError("nodes 항목은 비어있지 않은 문자열 prompt가 필요합니다.")
-            if len(n["prompt"]) > 20000:
-                raise ValueError("nodes 항목 prompt는 20000자 이하여야 합니다.")
-            node: dict[str, Any] = {"prompt": n["prompt"]}
-            for key in ("name", "model"):  # 문자열 필드(선택) — 길이 캡
-                val = n.get(key)
-                if isinstance(val, str) and val.strip():
-                    if len(val) > 200:
-                        raise ValueError(f"nodes 항목 {key}은 200자 이하여야 합니다.")
-                    node[key] = val
-            ctx_mode = n.get("context")  # 맥락 모드(스펙 260) — 화이트리스트 값만
-            if ctx_mode in ("carry", "clean"):
-                node["context"] = ctx_mode
-            fmt = n.get("format")  # 출력 형식(스펙 261) — 화이트리스트 값만
-            if fmt in ("text", "json"):
-                node["format"] = fmt
-            mem_q = n.get("memoryQuery")  # 회상 키워드 모드(스펙 268 P2) — 화이트리스트 값만
-            if mem_q in ("user", "input"):
-                node["memoryQuery"] = mem_q
-            hd = n.get("historyDepth")  # 노드별 단기 기억 창(스펙 270) — 미지정=에이전트 상속.
-            if isinstance(hd, int) and not isinstance(hd, bool):  # bool은 int 하위형 — 배제
-                if hd > 1000:
-                    raise ValueError("nodes 항목 historyDepth는 1000 이하여야 합니다.")
-                node["historyDepth"] = hd  # 음수·0 허용(음수/전체·0=대화 없음)
-            for key in ("tools", "fields", "memories"):  # 문자열 리스트(선택) — 개수·각 길이 캡
-                lst = n.get(key)
-                if isinstance(lst, list):
-                    if len(lst) > 100:
-                        raise ValueError(f"nodes 항목 {key}은 100개 이하여야 합니다.")
-                    node[key] = [x for x in lst if isinstance(x, str) and len(x) <= 200]
-            out.append(node)  # model_cfg 등 화이트리스트 밖 키는 여기서 드롭(저장 안 됨 → 에코 0)
-        return out
+        return [cls._normalize_node(n) for n in v]
 
     @field_validator("toolPolicy")
     @classmethod

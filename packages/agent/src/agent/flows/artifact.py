@@ -512,6 +512,44 @@ def entity_ids_from_rag_text(text: str) -> list[str]:
     return seen
 
 
+async def _load_targeting_catalog(ctx: ProduceContext, catalog_mcp: str) -> list[dict]:
+    """카탈로그 엔티티 목록을 도구로 조회 — 미배선/빈 응답이면 빈 리스트."""
+    listing = await ctx.tool(f"mcp:{catalog_mcp}/list_entities", {})
+    return _first_json_obj(getattr(listing, "text", "") or "").get("entities") or []
+
+
+def _merge_rag_hits(matched: list[dict], catalog: list[dict], rag_ids: list[str]) -> list[dict]:
+    """동의어 매칭에 rag 마커 히트를 합류한 매칭 목록(순서 보존·중복 제거)."""
+    merged = list(matched)
+    merged_ids = [e["id"] for e in merged]
+    for rid in rag_ids:
+        if rid not in merged_ids:
+            ent = next((e for e in catalog if e.get("id") == rid), None)
+            if ent:
+                merged.append(ent)
+                merged_ids.append(rid)
+    return merged
+
+
+async def _synthesize_entity_fields(
+    ctx: ProduceContext, catalog_mcp: str, matched: list[dict]
+) -> list[dict]:
+    """엔티티별 성격 조회(도구) 결과로 폼 필드 목록(후보 SelectBox) 합성."""
+    fields: list[dict] = []
+    for e in matched:
+        detail_res = await ctx.tool(f"mcp:{catalog_mcp}/get_entity", {"entity_id": e["id"]})
+        detail = _first_json_obj(getattr(detail_res, "text", "") or "")
+        fields.append(
+            {
+                "key": e["id"],
+                "label": detail.get("label") or e.get("label") or e["id"],
+                "candidates": detail.get("candidates") or [],
+                "required": True,
+            }
+        )
+    return fields
+
+
 class TargetingDemoAgent(ArtifactAgentBase):
     """타겟팅 조건 수집 데모(스펙 188 §E-1 — 사용자 시나리오 그대로): 발화→요소 매칭(RAG+카탈로그)→
     엔티티별 성격 조회(도구)→**폼 동적 합성**(후보 SelectBox+발화 프리필)→확인→conditions JSON.
@@ -529,8 +567,7 @@ class TargetingDemoAgent(ArtifactAgentBase):
     async def produce(self, ctx: ProduceContext) -> Artifact:
         utter = ctx.text or ctx.ask("어떤 유저를 타겟팅할까요? 조건을 문장으로 말씀해 주세요.")
         # ① 카탈로그 목록(도구) — 없으면 정직하게 종료(빈 폼을 조용히 띄우지 않는다).
-        listing = await ctx.tool(f"mcp:{self.CATALOG_MCP}/list_entities", {})
-        catalog = _first_json_obj(getattr(listing, "text", "") or "").get("entities") or []
+        catalog = await _load_targeting_catalog(ctx, self.CATALOG_MCP)
         if not catalog:
             return Artifact(
                 kind="targeting",
@@ -543,14 +580,7 @@ class TargetingDemoAgent(ArtifactAgentBase):
         # ② 매칭 = rag 마커 ∪ 동의어(결정적) — rag는 실 임베딩 환경의 1차 경로, 오류는 무시(폴백).
         rag_res = await ctx.rag(self.RAG_COLLECTION, utter)
         rag_ids = entity_ids_from_rag_text(getattr(rag_res, "text", "") or "")
-        matched = match_entities(utter, catalog)
-        matched_ids = [e["id"] for e in matched]
-        for rid in rag_ids:
-            if rid not in matched_ids:
-                ent = next((e for e in catalog if e.get("id") == rid), None)
-                if ent:
-                    matched.append(ent)
-                    matched_ids.append(rid)
+        matched = _merge_rag_hits(match_entities(utter, catalog), catalog, rag_ids)
         for _ in range(2):
             if matched:
                 break
@@ -561,20 +591,7 @@ class TargetingDemoAgent(ArtifactAgentBase):
         if not matched:
             return Artifact(kind="targeting", data={"conditions": []}, raw=utter)
         # ③ 엔티티별 성격 조회(도구) → 폼 필드 합성(후보 SelectBox).
-        fields: list[dict] = []
-        for e in matched:
-            detail_res = await ctx.tool(
-                f"mcp:{self.CATALOG_MCP}/get_entity", {"entity_id": e["id"]}
-            )
-            detail = _first_json_obj(getattr(detail_res, "text", "") or "")
-            fields.append(
-                {
-                    "key": e["id"],
-                    "label": detail.get("label") or e.get("label") or e["id"],
-                    "candidates": detail.get("candidates") or [],
-                    "required": True,
-                }
-            )
+        fields = await _synthesize_entity_fields(ctx, self.CATALOG_MCP, matched)
         # ④ 발화 프리필(결정적 후보 매칭) → 폼 제시(confirm=True: 프리필 완전해도 확인 1회).
         prefill = merge_text_into_fields(fields, {}, utter)
         values = await ctx.form(fields, prefill, confirm=True)

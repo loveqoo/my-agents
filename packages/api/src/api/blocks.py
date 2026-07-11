@@ -474,6 +474,30 @@ async def discover_mcp_tools(body: McpDiscoverIn) -> Any:
     return await _live_discover(url, token if token and "•" not in token else None)
 
 
+async def _assert_removed_tools_unreferenced(session, obj: McpServer, new_tools: list[str]) -> None:
+    """재탐색으로 사라질 도구를 참조하는 에이전트가 있으면 409(없으면 통과).
+
+    참조 보호(codex 151 Medium): 원격이 일시적으로 도구를 빠뜨리면 재탐색 한 번에 에이전트의
+    툴 단위 능력(`mcp:{서버}/{도구}`)이 조용히 사라진다 — 제거될 도구를 참조하는 에이전트가
+    있으면 409(rename/삭제 가드와 같은 operation-symmetry)."""
+    removed = [t for t in (obj.enabled_tools or []) if t not in set(new_tools)]
+    if not removed:
+        return
+    agents = list((await session.execute(select(Agent))).scalars().all())
+    refs = []
+    for agent in agents:
+        caps = (agent.config or {}).get("capabilities") if isinstance(agent.config, dict) else None
+        if isinstance(caps, list) and any(f"mcp:{obj.name}/{t}" in caps for t in removed):
+            refs.append({"agent": agent.name, "where": "active"})
+    if refs:
+        raise HTTPException(
+            status_code=409,
+            detail=referenced_message(
+                refs, f"MCP 도구({', '.join(removed[:5])})", action="재탐색(도구 제거)"
+            ),
+        )
+
+
 @router.post("/mcp-servers/{id}/rediscover", response_model=McpServerOut)
 async def rediscover_mcp_server(
     id: uuid.UUID,
@@ -493,35 +517,16 @@ async def rediscover_mcp_server(
             status_code=400, detail="http transport + URL이 있는 서버만 재탐색할 수 있습니다."
         )
     token = crypto.decrypt(obj.auth) if obj.auth else None
-    r = await _live_discover(obj.url, token)
-    if not r.ok:
-        raise HTTPException(status_code=502, detail=f"재탐색 실패 — {r.detail}")
-    # 참조 보호(codex 151 Medium): 원격이 일시적으로 도구를 빠뜨리면 재탐색 한 번에 에이전트의
-    # 툴 단위 능력(`mcp:{서버}/{도구}`)이 조용히 사라진다 — 제거될 도구를 참조하는 에이전트가
-    # 있으면 409(rename/삭제 가드와 같은 operation-symmetry).
-    removed = [t for t in (obj.enabled_tools or []) if t not in set(r.tools)]
-    if removed:
-        agents = list((await session.execute(select(Agent))).scalars().all())
-        refs = []
-        for agent in agents:
-            caps = (
-                (agent.config or {}).get("capabilities") if isinstance(agent.config, dict) else None
-            )
-            if isinstance(caps, list) and any(f"mcp:{obj.name}/{t}" in caps for t in removed):
-                refs.append({"agent": agent.name, "where": "active"})
-        if refs:
-            raise HTTPException(
-                status_code=409,
-                detail=referenced_message(
-                    refs, f"MCP 도구({', '.join(removed[:5])})", action="재탐색(도구 제거)"
-                ),
-            )
-    obj.tools = r.tools
+    result = await _live_discover(obj.url, token)
+    if not result.ok:
+        raise HTTPException(status_code=502, detail=f"재탐색 실패 — {result.detail}")
+    await _assert_removed_tools_unreferenced(session, obj, result.tools)
+    obj.tools = result.tools
     # 기존 tools_meta를 넘겨 관리자 승인 정책(approval, 스펙 177)을 이월 보존 — 재탐색이 게이트를 지우지 않게.
     obj.tools_meta = _tools_meta_from_details(
-        [d.model_dump() for d in r.toolsDetail], obj.tools_meta
+        [d.model_dump() for d in result.toolsDetail], obj.tools_meta
     )
-    obj.enabled_tools = [t for t in (obj.enabled_tools or []) if t in r.tools]
+    obj.enabled_tools = [t for t in (obj.enabled_tools or []) if t in result.tools]
     obj.status = "connected"
     await session.commit()
     await session.refresh(obj)

@@ -222,390 +222,415 @@ async def _empty(session: AsyncSession, model) -> bool:
     return (count or 0) == 0
 
 
-async def seed_if_empty(session: AsyncSession) -> None:
-    """각 카탈로그가 비어있으면 시드. 부분 시드 가능(독립적)."""
-    persona_body = {name: body for name, _description, _tone, body in PERSONAS}
+def _seed_personas(session: AsyncSession) -> None:
+    """PERSONAS 카탈로그를 행으로 적재."""
+    session.add_all([Persona(name=n, description=d, tone=t, body=b) for n, d, t, b in PERSONAS])
 
-    if await _empty(session, Persona):
-        session.add_all([Persona(name=n, description=d, tone=t, body=b) for n, d, t, b in PERSONAS])
-    if await _empty(session, MemoryType):
-        session.add_all([MemoryType(key=k, name=n, scope=s, body=b) for k, n, s, b in MEMORY_TYPES])
-    if await _empty(session, McpServer):
-        session.add_all(
-            [
-                McpServer(
-                    name=n,
-                    source=src,
-                    transport=tr,
-                    url=url,
-                    endpoint=ep,
-                    tools=list(tools),
-                    enabled_tools=list(tools),
-                    status=st,
-                    published=pub,
-                    auth=auth,
-                    # 도구 메타(스펙 151·156) — local-tools + 서빙 커스텀 MCP(calc-tools)가 정의 보유.
-                    tools_meta=(
-                        MOCK_MCP_TOOLS_META
-                        if n == MOCK_MCP_SERVER_NAME
-                        else SERVED_MCP_TOOLS_META.get(n)
-                    ),
-                )
-                for n, src, tr, url, ep, tools, st, pub, auth in MCP_SERVERS
-            ]
-        )
 
-    if await _empty(session, Provider):
-        # 기본 provider는 **Mock LLM 하나**(스펙 059). 외부 의존 0으로 첫 채팅/RAG가 바로 동작한다.
-        # 실 모델(MLX·OpenAI 호환 등)은 env가 아니라 admin Provider UI에서 추가하고 기본 전환한다
-        # (Provider는 1급 엔티티 — 스펙 035). base_url은 **이 API 자신의** OpenAI 호환 mock
-        # 엔드포인트(self-call). API를 다른 호스트/포트로 옮기면 MOCK_LLM_BASE_URL로 자기주소를 맞춘다.
-        # (이 블록은 create_all 폴백 경로에서만 도달 — 정상 alembic 경로는 f4a5+a1b2c3가 provider를
-        #  먼저 만들어 _empty가 False라 스킵되고, 그 경로의 기본값은 마이그레이션이 세운다. 스펙 059.)
-        mock_base = os.environ.get("MOCK_LLM_BASE_URL", "http://127.0.0.1:8000/_remote/v1")
-        mock_provider = Provider(
-            name="Mock LLM",
-            protocol="openai-compatible",
-            base_url=mock_base,
-            api_key=crypto.encrypt("sk-noauth"),
-            kind="mock",
-            description="라이브 없이 결정적 동작용 내장 목(스펙 024) — 기본 provider(059)",
-        )
-        session.add(mock_provider)
-        await session.flush()  # provider id 확보(모델 FK용)
-        session.add_all(
-            [
-                # 기본 chat — Mock(무외부, canned). CHAT_MODEL_NAME으로 에이전트 참조와 단일 소스.
-                ModelConfig(
-                    name=CHAT_MODEL_NAME,
-                    provider_id=mock_provider.id,
-                    model_id="mock-chat",
-                    kind="chat",
-                    is_default=True,
-                    params={},
+def _seed_memory_types(session: AsyncSession) -> None:
+    """MEMORY_TYPES 카탈로그를 행으로 적재."""
+    session.add_all([MemoryType(key=k, name=n, scope=s, body=b) for k, n, s, b in MEMORY_TYPES])
+
+
+def _seed_mcp_servers(session: AsyncSession) -> None:
+    """MCP_SERVERS 카탈로그를 행으로 적재."""
+    session.add_all(
+        [
+            McpServer(
+                name=n,
+                source=src,
+                transport=tr,
+                url=url,
+                endpoint=ep,
+                tools=list(tools),
+                enabled_tools=list(tools),
+                status=st,
+                published=pub,
+                auth=auth,
+                # 도구 메타(스펙 151·156) — local-tools + 서빙 커스텀 MCP(calc-tools)가 정의 보유.
+                tools_meta=(
+                    MOCK_MCP_TOOLS_META
+                    if n == MOCK_MCP_SERVER_NAME
+                    else SERVED_MCP_TOOLS_META.get(n)
                 ),
-                # 기본 embedding — mock-embed. `/_remote/v1/embeddings`가 RAG_EMBED_DIMS 차원 벡터를
-                # 입력 1건당 1개 반환 → 라이브 모델 없이 RAG 인제스트/검색이 결정적으로 통과한다(스펙 048).
-                ModelConfig(
-                    name="mock-embed",
-                    provider_id=mock_provider.id,
-                    model_id="mock-embed",
-                    kind="embedding",
-                    is_default=True,
-                    params={},
-                ),
-            ]
-        )
-
-    if await _empty(session, Collection):
-        # 임베딩 모델에 맞춰 컬렉션 생성(차원 고정). 같은 트랜잭션의 시드 모델을 flush로 가시화.
-        await session.flush()
-        embs = (
-            (await session.execute(select(ModelConfig).where(ModelConfig.kind == "embedding")))
-            .scalars()
-            .all()
-        )
-        # 게이트(스펙 048)는 _collection_seed_specs로 분리 — DB 없이 단위 테스트 가능.
-        session.add_all(
-            [
-                Collection(
-                    name=n,
-                    description=d,
-                    embedding_model_id=mid,
-                    dims=RAG_EMBED_DIMS,
-                    status="empty",
-                )
-                for n, d, mid in _collection_seed_specs(embs)
-            ]
-        )
-
-    if await _empty(session, Agent):
-        for (
-            aid,
-            name,
-            description,
-            source,
-            model,
-            persona,
-            mems,
-            hist,
-            vts,
-            mcps,
-            a2a,
-            status,
-            active,
-            versions,
-        ) in AGENTS:
-            cfg = {
-                "model": model,
-                "persona": persona,
-                "memories": list(mems),
-                "vectorTables": list(vts),
-                "mcps": list(mcps),
-                "historyDepth": hist,
-            }
-            agent = Agent(
-                agent_id=aid,
-                name=name,
-                description=description,
-                source=source,
-                model=model,
-                persona=persona_body.get(persona, persona),
-                history_depth=hist,
-                config=cfg,
-                exposed={"a2a": a2a},
-                status=status,
-                active_version=active,
             )
-            for ver, vstatus, _created, note in versions:
-                agent.versions.append(
-                    AgentVersion(version=ver, status=vstatus, note=note, config=dict(cfg))
-                )
-            session.add(agent)
+            for n, src, tr, url, ep, tools, st, pub, auth in MCP_SERVERS
+        ]
+    )
 
-        # in-process 커스텀 에이전트(스펙 085) — source=ui(로컬 실행)이되 config.impl로 신뢰
-        # 레지스트리의 plan→execute 그래프를 가리킨다. DefaultUiAgent(create_agent)와 *구조가 다른*
-        # 다노드 그래프라, 플레이그라운드 추적에 실 노드열([plan, execute])이 뜨고 오버라이드 주입도
-        # 동일하게 받는다(인터페이스가 create_agent에 과적합되지 않았음을 화면으로 증명).
-        pe_cfg = {
-            "model": CHAT_MODEL_NAME,
-            "persona": "methodical-researcher",
-            "memories": ["단기(세션)"],
+
+async def _seed_mock_provider_models(session: AsyncSession) -> None:
+    """기본 provider(Mock LLM 하나, 스펙 059)와 기본 chat/embedding 모델을 적재.
+
+    외부 의존 0으로 첫 채팅/RAG가 바로 동작한다. 실 모델(MLX·OpenAI 호환 등)은 env가 아니라
+    admin Provider UI에서 추가하고 기본 전환한다(Provider는 1급 엔티티 — 스펙 035). base_url은
+    **이 API 자신의** OpenAI 호환 mock 엔드포인트(self-call) — API를 다른 호스트/포트로 옮기면
+    MOCK_LLM_BASE_URL로 자기주소를 맞춘다. (이 경로는 create_all 폴백에서만 도달 — 정상 alembic
+    경로는 f4a5+a1b2c3가 provider를 먼저 만들어 _empty가 False라 스킵되고, 그 경로의 기본값은
+    마이그레이션이 세운다. 스펙 059.)
+    """
+    mock_base = os.environ.get("MOCK_LLM_BASE_URL", "http://127.0.0.1:8000/_remote/v1")
+    mock_provider = Provider(
+        name="Mock LLM",
+        protocol="openai-compatible",
+        base_url=mock_base,
+        api_key=crypto.encrypt("sk-noauth"),
+        kind="mock",
+        description="라이브 없이 결정적 동작용 내장 목(스펙 024) — 기본 provider(059)",
+    )
+    session.add(mock_provider)
+    await session.flush()  # provider id 확보(모델 FK용)
+    session.add_all(
+        [
+            # 기본 chat — Mock(무외부, canned). CHAT_MODEL_NAME으로 에이전트 참조와 단일 소스.
+            ModelConfig(
+                name=CHAT_MODEL_NAME,
+                provider_id=mock_provider.id,
+                model_id="mock-chat",
+                kind="chat",
+                is_default=True,
+                params={},
+            ),
+            # 기본 embedding — mock-embed. `/_remote/v1/embeddings`가 RAG_EMBED_DIMS 차원 벡터를
+            # 입력 1건당 1개 반환 → 라이브 모델 없이 RAG 인제스트/검색이 결정적으로 통과한다(스펙 048).
+            ModelConfig(
+                name="mock-embed",
+                provider_id=mock_provider.id,
+                model_id="mock-embed",
+                kind="embedding",
+                is_default=True,
+                params={},
+            ),
+        ]
+    )
+
+
+async def _seed_collections(session: AsyncSession) -> None:
+    """임베딩 모델에 맞춰 RAG 컬렉션 생성(차원 고정, 스펙 048)."""
+    # 같은 트랜잭션의 시드 모델을 flush로 가시화.
+    await session.flush()
+    embs = (
+        (await session.execute(select(ModelConfig).where(ModelConfig.kind == "embedding")))
+        .scalars()
+        .all()
+    )
+    # 게이트(스펙 048)는 _collection_seed_specs로 분리 — DB 없이 단위 테스트 가능.
+    session.add_all(
+        [
+            Collection(
+                name=n,
+                description=d,
+                embedding_model_id=mid,
+                dims=RAG_EMBED_DIMS,
+                status="empty",
+            )
+            for n, d, mid in _collection_seed_specs(embs)
+        ]
+    )
+
+
+def _seed_ui_agents(session: AsyncSession, persona_body: dict[str, str]) -> None:
+    """AGENTS 카탈로그(ui 소스)를 버전 이력과 함께 적재."""
+    for (
+        aid,
+        name,
+        description,
+        source,
+        model,
+        persona,
+        mems,
+        hist,
+        vts,
+        mcps,
+        a2a,
+        status,
+        active,
+        versions,
+    ) in AGENTS:
+        cfg = {
+            "model": model,
+            "persona": persona,
+            "memories": list(mems),
+            "vectorTables": list(vts),
+            "mcps": list(mcps),
+            "historyDepth": hist,
+        }
+        agent = Agent(
+            agent_id=aid,
+            name=name,
+            description=description,
+            source=source,
+            model=model,
+            persona=persona_body.get(persona, persona),
+            history_depth=hist,
+            config=cfg,
+            exposed={"a2a": a2a},
+            status=status,
+            active_version=active,
+        )
+        for ver, vstatus, _created, note in versions:
+            agent.versions.append(
+                AgentVersion(version=ver, status=vstatus, note=note, config=dict(cfg))
+            )
+        session.add(agent)
+
+
+def _seed_plan_execute_agent(session: AsyncSession, persona_body: dict[str, str]) -> None:
+    """in-process 커스텀 에이전트 시드(스펙 085) — source=ui(로컬 실행)이되 config.impl로 신뢰
+    레지스트리의 plan→execute 그래프를 가리킨다. DefaultUiAgent(create_agent)와 *구조가 다른*
+    다노드 그래프라, 플레이그라운드 추적에 실 노드열([plan, execute])이 뜨고 오버라이드 주입도
+    동일하게 받는다(인터페이스가 create_agent에 과적합되지 않았음을 화면으로 증명)."""
+    pe_cfg = {
+        "model": CHAT_MODEL_NAME,
+        "persona": "methodical-researcher",
+        "memories": ["단기(세션)"],
+        "vectorTables": [],
+        "mcps": [],
+        "historyDepth": 20,
+        "impl": "plan_execute",
+    }
+    plan_execute = Agent(
+        agent_id="agt_plex_b5e207",
+        name="plan-execute-demo",
+        description="Plan-Execute Demo",
+        source="ui",
+        model=CHAT_MODEL_NAME,
+        persona=persona_body.get("methodical-researcher", "methodical-researcher"),
+        history_depth=20,
+        config=pe_cfg,
+        exposed={"a2a": False},
+        status="online",
+        active_version="v1",
+    )
+    plan_execute.versions.append(
+        AgentVersion(
+            version="v1",
+            status="active",
+            note="plan→execute 커스텀 SDK 데모(스펙 085)",
+            config=dict(pe_cfg),
+        )
+    )
+    session.add(plan_execute)
+
+
+def _seed_code_agent(session: AsyncSession) -> None:
+    """코드 정의(SDK 배포) 에이전트 시드 — UI mock과 동일하게 1개.
+
+    스펙 057(A2A 단일화): code도 A2A로 호출한다. endpoint는 mock A2A JSON-RPC 서비스,
+    config["card"]는 connect가 빌드하는 것과 동형(x-my-agents 확장 포함)으로 스냅샷한다.
+    실 배포는 자기 A2A url을 쓴다(REMOTE_AGENT_BASE로 오버라이드 가능).
+    """
+    code_endpoint = os.environ.get("REMOTE_AGENT_BASE", "http://127.0.0.1:8000/_remote/a2a")
+    code_card = {
+        "name": "Doc Translator",
+        "description": "my-agents-sdk로 배포한 번역 에이전트(시드 스냅샷).",
+        "url": code_endpoint,
+        "version": "1.0.0",
+        "provider": {"organization": "acme", "url": "https://acme.example"},
+        "capabilities": {"streaming": True, "pushNotifications": False},
+        "defaultInputModes": ["text/plain"],
+        "defaultOutputModes": ["text/plain"],
+        "skills": [
+            {
+                "id": "translate",
+                "name": "문서 번역",
+                "description": "문서를 대상 언어로 번역",
+                "tags": ["translation", "i18n"],
+            },
+        ],
+        "x-my-agents": {
+            "manifest": {
+                "model": CHAT_MODEL_NAME,
+                "persona": "코드 정의 (SDK)",
+                "memories": ["단기(세션)"],
+                "mcps": [MOCK_MCP_SERVER_NAME],
+                "historyDepth": 10,
+            },
+            "deploy": {
+                "repo": "acme/doc-translator",
+                "commit": "f3a91c2",
+                "runtime": "my-agents-sdk · Python 2.4.1",
+                "versions": [
+                    {
+                        "version": "f3a91c2",
+                        "status": "active",
+                        "note": "Deploy · 용어집 조회 추가",
+                    },
+                    {"version": "9b22d01", "status": "archived", "note": "Deploy · 초기 배포"},
+                ],
+            },
+        },
+    }
+    code_cfg = {
+        "model": CHAT_MODEL_NAME,
+        "persona": "코드 정의 (SDK)",
+        "memories": ["단기(세션)"],
+        "vectorTables": [],
+        "mcps": [MOCK_MCP_SERVER_NAME],
+        "historyDepth": 10,
+        "card": code_card,
+    }
+    translator = Agent(
+        agent_id="agt_xlt_a17c33",
+        name="doc-translator",
+        description="Doc Translator",
+        source="code",
+        model=CHAT_MODEL_NAME,
+        persona="코드 정의 (SDK)",
+        history_depth=10,
+        config=code_cfg,
+        exposed={"a2a": False},
+        status="online",
+        active_version="f3a91c2",
+        endpoint=code_endpoint,
+        token=crypto.encrypt("sk_live_demo_doc_translator_a17c33"),
+        runtime="my-agents-sdk · Python 2.4.1",
+        repo="acme/doc-translator",
+        commit="f3a91c2",
+        registered_at="2026-06-18",
+        last_sync="12분 전",
+    )
+    translator.versions.append(
+        AgentVersion(
+            version="f3a91c2",
+            status="active",
+            note="Deploy · 용어집 조회 추가",
+            config=dict(code_cfg),
+        )
+    )
+    translator.versions.append(
+        AgentVersion(
+            version="9b22d01",
+            status="archived",
+            note="Deploy · 초기 배포",
+            config=dict(code_cfg),
+        )
+    )
+    session.add(translator)
+
+
+def _seed_external_agent(session: AsyncSession) -> None:
+    """외부(A2A) 에이전트 시드 — 카드 스냅샷 하드코딩(네트워크 self-call 없이 어드민에서 source
+    배지/카드 패널을 바로 시연). 실제 등록은 POST /agents/connect 경유(057, x-my-agents 확장이
+    없으니 external로 분류된다)."""
+    ext_card = {
+        "name": "Acme Translate (A2A)",
+        "description": "외부 조직이 A2A로 공개한 번역 에이전트(시드 스냅샷).",
+        "url": "https://agents.acme.example/translate/a2a",
+        "version": "2.1.0",
+        "provider": {"organization": "Acme", "url": "https://acme.example"},
+        "capabilities": {"streaming": True, "pushNotifications": False},
+        "defaultInputModes": ["text/plain"],
+        "defaultOutputModes": ["text/plain"],
+        "skills": [
+            {
+                "id": "translate",
+                "name": "문서 번역",
+                "description": "문서를 대상 언어로 번역",
+                "tags": ["translation", "i18n"],
+            },
+        ],
+    }
+    external = Agent(
+        # 원격 유래 카드명은 자동 변환 + 원문을 설명으로 보존(스펙 148, 210 — connect 경로와 동형)
+        agent_id="agt_ext_ac2e01",
+        name="acme-translate-a2a",
+        description=ext_card["name"],
+        source="external",
+        model="",
+        persona="",
+        history_depth=10,
+        config={
+            "model": "",
+            "persona": "",
+            "memories": [],
             "vectorTables": [],
             "mcps": [],
-            "historyDepth": 20,
-            "impl": "plan_execute",
-        }
-        plan_execute = Agent(
-            agent_id="agt_plex_b5e207",
-            name="plan-execute-demo",
-            description="Plan-Execute Demo",
-            source="ui",
-            model=CHAT_MODEL_NAME,
-            persona=persona_body.get("methodical-researcher", "methodical-researcher"),
-            history_depth=20,
-            config=pe_cfg,
-            exposed={"a2a": False},
-            status="online",
-            active_version="v1",
-        )
-        plan_execute.versions.append(
-            AgentVersion(
-                version="v1",
-                status="active",
-                note="plan→execute 커스텀 SDK 데모(스펙 085)",
-                config=dict(pe_cfg),
-            )
-        )
-        session.add(plan_execute)
-
-        # 코드 정의(SDK 배포) 에이전트 — UI mock과 동일하게 1개 시드.
-        # 스펙 057(A2A 단일화): code도 A2A로 호출한다. endpoint는 mock A2A JSON-RPC 서비스,
-        # config["card"]는 connect가 빌드하는 것과 동형(x-my-agents 확장 포함)으로 스냅샷한다.
-        # 실 배포는 자기 A2A url을 쓴다(REMOTE_AGENT_BASE로 오버라이드 가능).
-        code_endpoint = os.environ.get("REMOTE_AGENT_BASE", "http://127.0.0.1:8000/_remote/a2a")
-        code_card = {
-            "name": "Doc Translator",
-            "description": "my-agents-sdk로 배포한 번역 에이전트(시드 스냅샷).",
-            "url": code_endpoint,
-            "version": "1.0.0",
-            "provider": {"organization": "acme", "url": "https://acme.example"},
-            "capabilities": {"streaming": True, "pushNotifications": False},
-            "defaultInputModes": ["text/plain"],
-            "defaultOutputModes": ["text/plain"],
-            "skills": [
-                {
-                    "id": "translate",
-                    "name": "문서 번역",
-                    "description": "문서를 대상 언어로 번역",
-                    "tags": ["translation", "i18n"],
-                },
-            ],
-            "x-my-agents": {
-                "manifest": {
-                    "model": CHAT_MODEL_NAME,
-                    "persona": "코드 정의 (SDK)",
-                    "memories": ["단기(세션)"],
-                    "mcps": [MOCK_MCP_SERVER_NAME],
-                    "historyDepth": 10,
-                },
-                "deploy": {
-                    "repo": "acme/doc-translator",
-                    "commit": "f3a91c2",
-                    "runtime": "my-agents-sdk · Python 2.4.1",
-                    "versions": [
-                        {
-                            "version": "f3a91c2",
-                            "status": "active",
-                            "note": "Deploy · 용어집 조회 추가",
-                        },
-                        {"version": "9b22d01", "status": "archived", "note": "Deploy · 초기 배포"},
-                    ],
-                },
-            },
-        }
-        code_cfg = {
-            "model": CHAT_MODEL_NAME,
-            "persona": "코드 정의 (SDK)",
-            "memories": ["단기(세션)"],
-            "vectorTables": [],
-            "mcps": [MOCK_MCP_SERVER_NAME],
             "historyDepth": 10,
-            "card": code_card,
-        }
-        translator = Agent(
-            agent_id="agt_xlt_a17c33",
-            name="doc-translator",
-            description="Doc Translator",
-            source="code",
-            model=CHAT_MODEL_NAME,
-            persona="코드 정의 (SDK)",
-            history_depth=10,
-            config=code_cfg,
-            exposed={"a2a": False},
-            status="online",
-            active_version="f3a91c2",
-            endpoint=code_endpoint,
-            token=crypto.encrypt("sk_live_demo_doc_translator_a17c33"),
-            runtime="my-agents-sdk · Python 2.4.1",
-            repo="acme/doc-translator",
-            commit="f3a91c2",
-            registered_at="2026-06-18",
-            last_sync="12분 전",
-        )
-        translator.versions.append(
-            AgentVersion(
-                version="f3a91c2",
-                status="active",
-                note="Deploy · 용어집 조회 추가",
-                config=dict(code_cfg),
+            "card": ext_card,
+        },
+        exposed={"a2a": False},
+        status="online",
+        endpoint=ext_card["url"],
+        token=None,
+        registered_at="2026-06-26",
+        last_sync="방금",
+    )
+    session.add(external)
+
+
+def _seed_agents(session: AsyncSession) -> None:
+    """에이전트 카탈로그 시드 — ui 2종 + plan-execute(085) + code(SDK, 057) + external(A2A)."""
+    persona_body = {name: body for name, _description, _tone, body in PERSONAS}
+    _seed_ui_agents(session, persona_body)
+    _seed_plan_execute_agent(session, persona_body)
+    _seed_code_agent(session)
+    _seed_external_agent(session)
+
+
+async def _seed_sessions(session: AsyncSession) -> None:
+    """SESSIONS 데모 세션을 시드 에이전트의 agent_pk에 연결해 적재."""
+    # agent_pk 연결을 위해 먼저 flush 필요 — 시드 에이전트가 같은 트랜잭션에 있을 수 있음
+    await session.flush()
+    agents_by_aid = {a.agent_id: a for a in (await session.execute(select(Agent))).scalars().all()}
+    for sid, aid, aname, channel, status, turns, tokens in SESSIONS:
+        a = agents_by_aid.get(aid)
+        if a is None:
+            continue
+        session.add(
+            Session(
+                session_id=sid,
+                agent_pk=a.id,
+                agent_name=aname,
+                channel=channel,
+                status=status,
+                turns=turns,
+                tokens=tokens,
             )
         )
-        translator.versions.append(
-            AgentVersion(
-                version="9b22d01",
-                status="archived",
-                note="Deploy · 초기 배포",
-                config=dict(code_cfg),
+
+
+async def _seed_approvals(session: AsyncSession) -> None:
+    """APPROVALS 데모 승인 적재(현재 빈 카탈로그 — 스펙 046으로 트리거 도구 제거, 상단 주석 참고)."""
+    await session.flush()
+    agents_by_aid = {a.agent_id: a for a in (await session.execute(select(Agent))).scalars().all()}
+    for apid, sid, aid, aname, perm, action, args, summary, ckpt in APPROVALS:
+        a = agents_by_aid.get(aid)
+        session.add(
+            Approval(
+                approval_id=apid,
+                session_id=sid,
+                agent_pk=a.id if a else None,
+                agent_name=aname,
+                permission=perm,
+                action=action,
+                args=args,
+                summary=summary,
+                checkpoint=ckpt,
+                status="pending",
             )
         )
-        session.add(translator)
 
-        # 외부(A2A) 에이전트 시드 — 카드 스냅샷 하드코딩(네트워크 self-call 없이 어드민에서
-        # source 배지/카드 패널을 바로 시연). 실제 등록은 POST /agents/connect 경유(057, x-my-agents
-        # 확장이 없으니 external로 분류된다).
-        ext_card = {
-            "name": "Acme Translate (A2A)",
-            "description": "외부 조직이 A2A로 공개한 번역 에이전트(시드 스냅샷).",
-            "url": "https://agents.acme.example/translate/a2a",
-            "version": "2.1.0",
-            "provider": {"organization": "Acme", "url": "https://acme.example"},
-            "capabilities": {"streaming": True, "pushNotifications": False},
-            "defaultInputModes": ["text/plain"],
-            "defaultOutputModes": ["text/plain"],
-            "skills": [
-                {
-                    "id": "translate",
-                    "name": "문서 번역",
-                    "description": "문서를 대상 언어로 번역",
-                    "tags": ["translation", "i18n"],
-                },
-            ],
-        }
-        external = Agent(
-            # 원격 유래 카드명은 자동 변환 + 원문을 설명으로 보존(스펙 148, 210 — connect 경로와 동형)
-            agent_id="agt_ext_ac2e01",
-            name="acme-translate-a2a",
-            description=ext_card["name"],
-            source="external",
-            model="",
-            persona="",
-            history_depth=10,
-            config={
-                "model": "",
-                "persona": "",
-                "memories": [],
-                "vectorTables": [],
-                "mcps": [],
-                "historyDepth": 10,
-                "card": ext_card,
-            },
-            exposed={"a2a": False},
-            status="online",
-            endpoint=ext_card["url"],
-            token=None,
-            registered_at="2026-06-26",
-            last_sync="방금",
-        )
-        session.add(external)
 
-    if await _empty(session, Session):
-        # agent_pk 연결을 위해 먼저 flush 필요 — 시드 에이전트가 같은 트랜잭션에 있을 수 있음
-        await session.flush()
-        agents_by_aid = {
-            a.agent_id: a for a in (await session.execute(select(Agent))).scalars().all()
-        }
-        for sid, aid, aname, channel, status, turns, tokens in SESSIONS:
-            a = agents_by_aid.get(aid)
-            if a is None:
-                continue
-            session.add(
-                Session(
-                    session_id=sid,
-                    agent_pk=a.id,
-                    agent_name=aname,
-                    channel=channel,
-                    status=status,
-                    turns=turns,
-                    tokens=tokens,
-                )
-            )
-
-    if await _empty(session, BatchConfig):
-        # 배치 설정 싱글톤 1행(스펙 038) — 값은 NULL(보존창·cron 비활성). 운영자가 명시 설정 전엔
-        # 아무 것도 자동 삭제·발화하지 않는다(보수적 기본값).
-        session.add(BatchConfig())
-
-    if await _empty(session, Approval):
-        await session.flush()
-        agents_by_aid = {
-            a.agent_id: a for a in (await session.execute(select(Agent))).scalars().all()
-        }
-        for apid, sid, aid, aname, perm, action, args, summary, ckpt in APPROVALS:
-            a = agents_by_aid.get(aid)
-            session.add(
-                Approval(
-                    approval_id=apid,
-                    session_id=sid,
-                    agent_pk=a.id if a else None,
-                    agent_name=aname,
-                    permission=perm,
-                    action=action,
-                    args=args,
-                    summary=summary,
-                    checkpoint=ckpt,
-                    status="pending",
-                )
-            )
-
-    # 서빙 커스텀 MCP 행 멱등 reconcile(스펙 156, codex Medium/High) — _empty 게이트와 무관하게 매
-    # 부팅 실행. 이유 둘: (1) 기존 설치(테이블 비지 않음)에도 기능이 나타나게 한다(Medium), (2) custom
-    # 행은 오직 여기서만(owner_id=None, 시스템 소유) 생성 → create 라우트의 source=custom 차단(High)과
-    # 합쳐 "사용자가 custom을 자가선언해 선점·공개"하는 우회를 원천 봉인.
+async def _reconcile_served_mcp(session: AsyncSession) -> None:
+    """서빙 커스텀 MCP 행 멱등 reconcile(스펙 156, codex Medium/High) — _empty 게이트와 무관하게 매
+    부팅 실행. 이유 둘: (1) 기존 설치(테이블 비지 않음)에도 기능이 나타나게 한다(Medium), (2) custom
+    행은 오직 여기서만(owner_id=None, 시스템 소유) 생성 → create 라우트의 source=custom 차단(High)과
+    합쳐 "사용자가 custom을 자가선언해 선점·공개"하는 우회를 원천 봉인."""
     have = set((await session.execute(select(McpServer.name))).scalars().all())
-    for _sname, _stools in SERVED_MCP_TOOLS.items():
-        if _sname not in have:
+    for sname, stools in SERVED_MCP_TOOLS.items():
+        if sname not in have:
             session.add(
                 McpServer(
-                    name=_sname,
+                    name=sname,
                     source="custom",
                     transport="http",
-                    url=served_url(_sname),
-                    tools=list(_stools),
-                    enabled_tools=list(_stools),
+                    url=served_url(sname),
+                    tools=list(stools),
+                    enabled_tools=list(stools),
                     status="connected",
                     published=False,
-                    tools_meta=SERVED_MCP_TOOLS_META.get(_sname),
+                    tools_meta=SERVED_MCP_TOOLS_META.get(sname),
                     owner_id=None,
                 )
             )
@@ -615,12 +640,35 @@ async def seed_if_empty(session: AsyncSession) -> None:
         # (published·description·enabled_tools)는 보존 — 통째 교체는 관리자 저작을 지우는 함정
         # (learning: sync-wholesale-replace). source=custom 행만(같은 이름의 사용자 local 행이면 불변 —
         # custom 자가선언 봉인과 일관).
-        _row = (
-            await session.execute(select(McpServer).where(McpServer.name == _sname))
-        ).scalar_one()
-        if _row.source == "custom":
-            _row.tools = list(_stools)
-            _row.tools_meta = SERVED_MCP_TOOLS_META.get(_sname)
-            _row.url = served_url(_sname)
+        row = (await session.execute(select(McpServer).where(McpServer.name == sname))).scalar_one()
+        if row.source == "custom":
+            row.tools = list(stools)
+            row.tools_meta = SERVED_MCP_TOOLS_META.get(sname)
+            row.url = served_url(sname)
 
+
+async def seed_if_empty(session: AsyncSession) -> None:
+    """각 카탈로그가 비어있으면 시드. 부분 시드 가능(독립적)."""
+    if await _empty(session, Persona):
+        _seed_personas(session)
+    if await _empty(session, MemoryType):
+        _seed_memory_types(session)
+    if await _empty(session, McpServer):
+        _seed_mcp_servers(session)
+    if await _empty(session, Provider):
+        await _seed_mock_provider_models(session)
+    if await _empty(session, Collection):
+        await _seed_collections(session)
+    if await _empty(session, Agent):
+        _seed_agents(session)
+    if await _empty(session, Session):
+        await _seed_sessions(session)
+    if await _empty(session, BatchConfig):
+        # 배치 설정 싱글톤 1행(스펙 038) — 값은 NULL(보존창·cron 비활성). 운영자가 명시 설정 전엔
+        # 아무 것도 자동 삭제·발화하지 않는다(보수적 기본값).
+        session.add(BatchConfig())
+    if await _empty(session, Approval):
+        await _seed_approvals(session)
+
+    await _reconcile_served_mcp(session)
     await session.commit()

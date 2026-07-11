@@ -74,6 +74,97 @@ async def _gen_persona_questions(persona: str, n: int, llm_cfg: dict) -> list[st
     return out[:n]
 
 
+async def _resolve_collections(ctx: dict) -> list[dict]:
+    """출제 재료 컬렉션 목록({"id","name"})을 반환 — 직접형+조율형 union.
+
+    RAG 재료는 배선 방식이 둘(verify_143 실측 — 조율형은 rag_collections가 비고 capabilities에
+    "rag:{이름}"으로 있다): 직접형 목록 + 조율형 capabilities에서 이름 해석해 합친다."""
+    collections = list(ctx["rag_collections"] or [])
+    cap_names = [
+        c.split(":", 1)[1]
+        for c in (ctx.get("capabilities") or [])
+        if isinstance(c, str) and c.startswith("rag:")
+    ]
+    if not cap_names:
+        return collections
+    from sqlalchemy import select as _select
+
+    from .db import SessionLocal as _SessionLocal
+    from .models import Collection as _Col
+
+    async with _SessionLocal() as _s:
+        rows = (await _s.execute(_select(_Col).where(_Col.name.in_(cap_names)))).scalars().all()
+    known = {c.get("id") for c in collections}
+    collections.extend({"id": r.id, "name": r.name} for r in rows if r.id not in known)
+    return collections
+
+
+async def _gen_rag_cases(
+    collections: list[dict], want_rag: int, llm_cfg: dict, seen: set[str]
+) -> tuple[list[dict], int]:
+    """RAG형 케이스 최대 want_rag개 생성 → (cases, skipped). seen은 제자리 갱신."""
+    cases: list[dict] = []
+    skipped = 0
+    # 컬렉션들에서 라운드로빈 표본(142 표본기 재사용 — 컬렉션당 want_rag 후보씩)
+    candidates: list[tuple[str, str]] = []
+    for col in collections:
+        candidates.extend(await _sample_chunks(col["id"], want_rag))
+    for text, _filename in candidates:
+        if len(cases) >= want_rag:
+            break
+        question = await _gen_question(text, llm_cfg)
+        if question is None or question in seen:
+            skipped += 1
+            continue
+        seen.add(question)
+        cases.append(
+            {
+                "question": question,
+                "label": "rag",
+                # agent 런이므로 rag_* 아닌 trace 축(관측 union) — "도구를 실제로 썼는가".
+                "asserts": [
+                    {"type": "trace_has", "arg": "rag:"},
+                    {"type": "no_error"},
+                    {"type": "output_nonempty"},
+                ],
+            }
+        )
+    return cases, skipped
+
+
+async def _gen_persona_cases(
+    persona: str, need: int, llm_cfg: dict, seen: set[str]
+) -> tuple[list[dict], int]:
+    """페르소나형 케이스 최대 need개 생성 → (cases, skipped). seen은 제자리 갱신.
+
+    역할 충실은 llm_judge(비결정 축)로."""
+    judge_crit = f"'{' '.join(persona.split())[:200]}' 역할에 맞게 충실히 답했는가"
+    questions = await _gen_persona_questions(persona, need, llm_cfg)
+    # 1차가 모자라면 한 번 더(형식 이탈 여유) — 그 이상은 skipped로 정직 보고.
+    if len(questions) < need:
+        more = await _gen_persona_questions(persona, need - len(questions), llm_cfg)
+        questions.extend(q for q in more if q not in questions)
+    cases: list[dict] = []
+    skipped = max(0, need - len(questions))
+    for question in questions[:need]:
+        if question in seen:
+            skipped += 1
+            continue
+        seen.add(question)
+        cases.append(
+            {
+                "question": question,
+                "label": "persona",
+                "asserts": [
+                    {"type": "no_error"},
+                    {"type": "output_nonempty"},
+                    {"type": "llm_judge", "arg": judge_crit[:500]},
+                ],
+            }
+        )
+    return cases, skipped
+
+
 async def suggest_agent_cases(agent_pk, count: int, llm_cfg: dict) -> dict:
     """에이전트 문제집 출제 → {"cases": [{"question","asserts","label"}], "skipped": int}.
 
@@ -81,24 +172,7 @@ async def suggest_agent_cases(agent_pk, count: int, llm_cfg: dict) -> dict:
     RAG형이 재료 부족으로 모자라면 페르소나형으로 채운다(요청량 우선)."""
     ctx = await _load_context(agent_pk, None)  # 페르소나·해석된 RAG 컬렉션(id 포함)
     persona = ctx["persona"] or "범용 도우미"
-    # RAG 재료는 배선 방식이 둘(verify_143 실측 — 조율형은 rag_collections가 비고 capabilities에
-    # "rag:{이름}"으로 있다): 직접형 목록 + 조율형 capabilities에서 이름 해석해 합친다.
-    collections = list(ctx["rag_collections"] or [])
-    cap_names = [
-        c.split(":", 1)[1]
-        for c in (ctx.get("capabilities") or [])
-        if isinstance(c, str) and c.startswith("rag:")
-    ]
-    if cap_names:
-        from sqlalchemy import select as _select
-
-        from .db import SessionLocal as _SessionLocal
-        from .models import Collection as _Col
-
-        async with _SessionLocal() as _s:
-            rows = (await _s.execute(_select(_Col).where(_Col.name.in_(cap_names)))).scalars().all()
-        known = {c.get("id") for c in collections}
-        collections.extend({"id": r.id, "name": r.name} for r in rows if r.id not in known)
+    collections = await _resolve_collections(ctx)
 
     cases: list[dict] = []
     seen: set[str] = set()
@@ -107,56 +181,15 @@ async def suggest_agent_cases(agent_pk, count: int, llm_cfg: dict) -> dict:
     # 1) RAG형 — 능력이 있을 때 절반(재료 부족은 페르소나형이 흡수)
     want_rag = min(count // 2, count) if collections else 0
     if want_rag:
-        # 컬렉션들에서 라운드로빈 표본(142 표본기 재사용 — 컬렉션당 want_rag 후보씩)
-        candidates: list[tuple[str, str]] = []
-        for col in collections:
-            candidates.extend(await _sample_chunks(col["id"], want_rag))
-        for text, _filename in candidates:
-            if sum(1 for c in cases if c["label"] == "rag") >= want_rag:
-                break
-            q = await _gen_question(text, llm_cfg)
-            if q is None or q in seen:
-                skipped += 1
-                continue
-            seen.add(q)
-            cases.append(
-                {
-                    "question": q,
-                    "label": "rag",
-                    # agent 런이므로 rag_* 아닌 trace 축(관측 union) — "도구를 실제로 썼는가".
-                    "asserts": [
-                        {"type": "trace_has", "arg": "rag:"},
-                        {"type": "no_error"},
-                        {"type": "output_nonempty"},
-                    ],
-                }
-            )
+        rag_cases, rag_skipped = await _gen_rag_cases(collections, want_rag, llm_cfg, seen)
+        cases.extend(rag_cases)
+        skipped += rag_skipped
 
-    # 2) 페르소나형 — 나머지 전량(+ RAG형 미달분). 역할 충실은 llm_judge(비결정 축)로.
-    judge_crit = f"'{' '.join(persona.split())[:200]}' 역할에 맞게 충실히 답했는가"
+    # 2) 페르소나형 — 나머지 전량(+ RAG형 미달분).
     need = count - len(cases)
     if need > 0:
-        qs = await _gen_persona_questions(persona, need, llm_cfg)
-        # 1차가 모자라면 한 번 더(형식 이탈 여유) — 그 이상은 skipped로 정직 보고.
-        if len(qs) < need:
-            more = await _gen_persona_questions(persona, need - len(qs), llm_cfg)
-            qs.extend(q for q in more if q not in qs)
-        skipped += max(0, need - len(qs))
-        for q in qs[:need]:
-            if q in seen:
-                skipped += 1
-                continue
-            seen.add(q)
-            cases.append(
-                {
-                    "question": q,
-                    "label": "persona",
-                    "asserts": [
-                        {"type": "no_error"},
-                        {"type": "output_nonempty"},
-                        {"type": "llm_judge", "arg": judge_crit[:500]},
-                    ],
-                }
-            )
+        persona_cases, persona_skipped = await _gen_persona_cases(persona, need, llm_cfg, seen)
+        cases.extend(persona_cases)
+        skipped += persona_skipped
 
     return {"cases": cases, "skipped": skipped}

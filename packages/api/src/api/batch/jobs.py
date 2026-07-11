@@ -38,6 +38,65 @@ async def _get_config(session) -> BatchConfig:
 _TURN_CLEANUP_IDLE_GUARD = timedelta(hours=1)
 
 
+def _age_criterion_active(days) -> bool:
+    """나이 절 활성 여부 — API ge=1 밖 한 겹 더(방어: days=0이면 delete-all footgun)."""
+    return days is not None and days >= 1
+
+
+def _turn_criterion_active(min_turns) -> bool:
+    """턴 절 활성 여부 — API ge=1 밖 한 겹 더(방어: min_turns=0이면 delete-all footgun)."""
+    return min_turns is not None and min_turns >= 1
+
+
+def _session_cleanup_clauses(min_turns, age_active, turn_active, age_cutoff, idle_cutoff) -> list:
+    """삭제 대상 판정 절 목록(나이 절 + 턴 절) — 조건식은 스펙 038·049 원문 그대로."""
+    clauses = []
+    if age_active:
+        clauses.append(Session.last_activity < age_cutoff)
+    if turn_active:
+        # 턴 절은 카운터 Session.turns로 판정한다 — turns는 메시지 행의 캐시가 아니라 **더
+        # 완전한 진실**이다(스펙 056). _persist가 턴마다 +1 하는데, persistHistory=false(윈도우
+        # 모드, schemas.py)면 메시지 행을 일부러 안 남기므로 turns ≥ 메시지행수가 항상 성립한다.
+        # 즉 메시지 행 수로 세면 100턴 윈도우 세션(메시지 0행)을 저턴으로 오인해 지운다(codex
+        # 적대리뷰 결함). turns를 부풀린 유일한 거짓말은 seed였고 그건 seed에서 0으로 고쳤다
+        # (learning 058·059) — 카운터를 신호로 두고 거짓말의 출처를 고치는 게 옳다.
+        # 활성 보호: 최근 활동 세션은 turns<N이어도 제외(idle_cutoff보다 오래된 것만).
+        clauses.append((Session.turns < min_turns) & (Session.last_activity < idle_cutoff))
+    return clauses
+
+
+def _pending_approval_clause():
+    """미해결 승인(HIL) 세션 제외 술어 — 절대 삭제 안 함. _create_approval이 turns=0으로
+    lazy-create한 세션이라 턴 절(<N)에 걸리고, 승인 대기는 흔히 IDLE_GUARD(1h)를 넘긴다. 그 사이
+    정리되면 resume_approval의 _load_context가 행을 못 찾아 새 id를 만들어 대화를 고아로 만든다
+    (적대리뷰 결함 #1, 스펙 049). 나이 절에도 동일 노출이므로 양 절에 걸쳐 AND로 제외한다."""
+    return (
+        exists()
+        .where(Approval.session_id == Session.session_id)
+        .where(Approval.status == "pending")
+    )
+
+
+def _session_cleanup_meta(
+    days, min_turns, age_active, turn_active, age_cutoff, idle_cutoff
+) -> dict:
+    """BatchRun.summary 메타 — 비활성 절의 값은 None."""
+    return {
+        "retention_days": days if age_active else None,
+        "cutoff": age_cutoff.isoformat() if age_cutoff else None,
+        "min_session_turns": min_turns if turn_active else None,
+        "idle_cutoff": idle_cutoff.isoformat() if idle_cutoff else None,
+    }
+
+
+def _cleanup_criteria_labels(age_cutoff, min_turns, turn_active) -> tuple:
+    """로그 표기용 (나이 기준, 턴 기준) 라벨 — 비활성 절은 'off'."""
+    return (
+        age_cutoff.isoformat() if age_cutoff else "off",
+        min_turns if turn_active else "off",
+    )
+
+
 async def cleanup_sessions(*, dry_run: bool, _run_id=None) -> dict:
     """세션 정리 — 두 기준의 **합집합**(스펙 038 나이 + 스펙 049 턴). 메시지는 FK ondelete CASCADE로
     DB가 자동 삭제(messages.session_pk).
@@ -55,59 +114,38 @@ async def cleanup_sessions(*, dry_run: bool, _run_id=None) -> dict:
         min_turns = cfg.min_session_turns
         now = datetime.now(UTC)
 
-        # 각 절 비활성 가드(API ge=1 외 한 겹 더, 방어적). days=0/min_turns=0이면 delete-all footgun.
-        age_active = days is not None and days >= 1
-        turn_active = min_turns is not None and min_turns >= 1
+        age_active = _age_criterion_active(days)
+        turn_active = _turn_criterion_active(min_turns)
         if not age_active and not turn_active:
             log.info("session-cleanup: 나이·턴 기준 모두 비활성 → no-op")
             return {"status": "disabled", "deleted": 0}
 
         age_cutoff = now - timedelta(days=days) if age_active else None
         idle_cutoff = now - _TURN_CLEANUP_IDLE_GUARD if turn_active else None
-
-        clauses = []
-        if age_active:
-            clauses.append(Session.last_activity < age_cutoff)
-        if turn_active:
-            # 턴 절은 카운터 Session.turns로 판정한다 — turns는 메시지 행의 캐시가 아니라 **더
-            # 완전한 진실**이다(스펙 056). _persist가 턴마다 +1 하는데, persistHistory=false(윈도우
-            # 모드, schemas.py)면 메시지 행을 일부러 안 남기므로 turns ≥ 메시지행수가 항상 성립한다.
-            # 즉 메시지 행 수로 세면 100턴 윈도우 세션(메시지 0행)을 저턴으로 오인해 지운다(codex
-            # 적대리뷰 결함). turns를 부풀린 유일한 거짓말은 seed였고 그건 seed에서 0으로 고쳤다
-            # (learning 058·059) — 카운터를 신호로 두고 거짓말의 출처를 고치는 게 옳다.
-            # 활성 보호: 최근 활동 세션은 turns<N이어도 제외(idle_cutoff보다 오래된 것만).
-            clauses.append((Session.turns < min_turns) & (Session.last_activity < idle_cutoff))
-
-        # 미해결 승인(HIL) 세션은 절대 삭제 안 함 — _create_approval이 turns=0으로 lazy-create한
-        # 세션이라 턴 절(<N)에 걸리고, 승인 대기는 흔히 IDLE_GUARD(1h)를 넘긴다. 그 사이 정리되면
-        # resume_approval의 _load_context가 행을 못 찾아 새 id를 만들어 대화를 고아로 만든다(적대리뷰
-        # 결함 #1, 스펙 049). 나이 절에도 동일 노출이므로 양 절에 걸쳐 AND로 제외한다.
-        pending_approval = (
-            exists()
-            .where(Approval.session_id == Session.session_id)
-            .where(Approval.status == "pending")
+        clauses = _session_cleanup_clauses(
+            min_turns, age_active, turn_active, age_cutoff, idle_cutoff
         )
 
         rows = (
             await session.execute(
-                select(Session.id, Session.session_id).where(or_(*clauses), ~pending_approval)
+                select(Session.id, Session.session_id).where(
+                    or_(*clauses), ~_pending_approval_clause()
+                )
             )
         ).all()
         ids = [r[0] for r in rows]
 
-        meta = {
-            "retention_days": days if age_active else None,
-            "cutoff": age_cutoff.isoformat() if age_cutoff else None,
-            "min_session_turns": min_turns if turn_active else None,
-            "idle_cutoff": idle_cutoff.isoformat() if idle_cutoff else None,
-        }
+        meta = _session_cleanup_meta(
+            days, min_turns, age_active, turn_active, age_cutoff, idle_cutoff
+        )
+        age_label, turn_label = _cleanup_criteria_labels(age_cutoff, min_turns, turn_active)
 
         if dry_run:
             log.info(
                 "session-cleanup DRY-RUN: 대상 %d건 (나이=%s, 턴<%s)",
                 len(ids),
-                age_cutoff.isoformat() if age_cutoff else "off",
-                min_turns if turn_active else "off",
+                age_label,
+                turn_label,
             )
             return {
                 "status": "dry_run",
@@ -120,12 +158,7 @@ async def cleanup_sessions(*, dry_run: bool, _run_id=None) -> dict:
             # Core bulk DELETE — ORM cascade는 안 걸리지만 messages FK가 ondelete CASCADE라 DB가 정리.
             await session.execute(delete(Session).where(Session.id.in_(ids)))
             await session.commit()
-        log.info(
-            "session-cleanup: %d건 삭제 (나이=%s, 턴<%s)",
-            len(ids),
-            age_cutoff.isoformat() if age_cutoff else "off",
-            min_turns if turn_active else "off",
-        )
+        log.info("session-cleanup: %d건 삭제 (나이=%s, 턴<%s)", len(ids), age_label, turn_label)
         return {"status": "ok", **meta, "deleted": len(ids)}
 
 
@@ -435,6 +468,49 @@ async def cleanup_a2a_agents(*, dry_run: bool, _run_id=None) -> dict:
         return {"status": "ok", **meta, "deleted": len(ids)}
 
 
+def _survives_keep_list(email) -> bool:
+    """keep-list(바닥 2) 밖이면 True — 패턴 일치해도 keep-list는 제외. 공백·대소문자 차이로 보호가
+    새지 않게 strip().lower() 양변 정규화(적대리뷰 #8 — 저장 이메일에 끝 공백/대문자가 있어도
+    부트스트랩 admin 보호)."""
+    return (email or "").strip().lower() not in _USER_CLEANUP_KEEP
+
+
+def _protect_last_supers(candidates: list, total_supers: int) -> tuple[list, list[str]]:
+    """바닥 3 — 마지막 super 보호. 매치 super를 다 지우면 시스템 super가 0이 되는지 확인하고,
+    되면 매치 super 전부 보존(누가 마지막인지 고르지 않고 보수적으로 전부 남김 = 잠금 0 보장).
+    (남길 candidates, 보호된 super 이메일 목록)을 반환."""
+    matched_supers = [r for r in candidates if r[2]]
+    if matched_supers and total_supers - len(matched_supers) <= 0:
+        protected = {r[0] for r in matched_supers}
+        protected_emails = [r[1] for r in matched_supers]
+        return [r for r in candidates if r[0] not in protected], protected_emails
+    return candidates, []
+
+
+async def _purge_casbin_rules(session, ids) -> None:
+    """삭제 유저의 Casbin grouping/policy 행 제거(dangling 권한 누수 방지) — User 삭제와 같은
+    트랜잭션(DB 원자성). casbin_rule은 ORM 모델이 없어 raw SQL. v0=삭제 유저 UUID인 행을 g·p 둘 다
+    제거한다 — 현재는 user-subject가 g뿐이지만 모델이 per-user p-정책을 허용하므로 미래의 dangling
+    p도 막는다(적대리뷰 #5). v0이 role명('admin' 등)인 글로벌 p-정책은 UUID와 안 겹쳐 안전하다."""
+    uid_strs = [str(i) for i in ids]
+    await session.execute(
+        text("DELETE FROM casbin_rule WHERE ptype IN ('g','p') AND v0 = ANY(:uids)"),
+        {"uids": uid_strs},
+    )
+
+
+async def _reload_enforcer_after_user_delete() -> None:
+    """인프로세스(API 트리거) 메모리 enforcer를 reload해 삭제된 grant 잔존을 동기화(적대리뷰 #4).
+    잡이 별 프로세스로 돌면 enforcer 미초기화(_enforcer=None)라 조용히 스킵 — DB가 진실원이라 무해."""
+    try:
+        from .. import authz
+
+        if authz._enforcer is not None:
+            await authz._enforcer.load_policy()
+    except Exception as exc:
+        log.warning("user-cleanup: casbin enforcer reload 실패(무해, DB는 정리됨): %s", exc)
+
+
 async def cleanup_test_users(*, dry_run: bool, _run_id=None) -> dict:
     """테스트 유저 정리(스펙 050, #13) — 이메일이 config 패턴(LIKE) 일치 AND keep-list 제외인 유저 삭제.
     가장 비가역이라 바닥 3겹(learning 037):
@@ -465,23 +541,14 @@ async def cleanup_test_users(*, dry_run: bool, _run_id=None) -> dict:
                 select(User.id, User.email, User.is_superuser).where(User.email.like(pattern))
             )
         ).all()
-        # 바닥 2 — keep-list 제외(패턴 일치해도). 공백·대소문자 차이로 보호가 새지 않게 strip().lower()
-        # 양변 정규화(적대리뷰 #8 — 저장 이메일에 끝 공백/대문자가 있어도 부트스트랩 admin 보호).
-        candidates = [r for r in rows if (r[1] or "").strip().lower() not in _USER_CLEANUP_KEEP]
+        candidates = [r for r in rows if _survives_keep_list(r[1])]
 
-        # 바닥 3 — 마지막 super 보호. 매치 super를 다 지우면 시스템 super가 0이 되는지 확인.
         total_supers = (
             await session.execute(
                 select(safunc.count()).select_from(User).where(User.is_superuser.is_(True))
             )
         ).scalar_one()
-        matched_supers = [r for r in candidates if r[2]]
-        protected_super_emails: list[str] = []
-        if matched_supers and total_supers - len(matched_supers) <= 0:
-            # 매치 super 전부 보존(이 중 누가 마지막인지 고르지 않고 보수적으로 전부 남김 = 잠금 0 보장).
-            protected = {r[0] for r in matched_supers}
-            protected_super_emails = [r[1] for r in matched_supers]
-            candidates = [r for r in candidates if r[0] not in protected]
+        candidates, protected_super_emails = _protect_last_supers(candidates, total_supers)
 
         ids = [r[0] for r in candidates]
         meta = {
@@ -503,28 +570,12 @@ async def cleanup_test_users(*, dry_run: bool, _run_id=None) -> dict:
 
         if not ids:
             return {"status": "ok", **meta, "deleted": 0}
-        # Casbin grouping/policy 제거(dangling 권한 누수 방지) — User 삭제와 같은 트랜잭션(DB 원자성).
-        # casbin_rule은 ORM 모델이 없어 raw SQL. v0=삭제 유저 UUID인 행을 g·p 둘 다 제거한다 —
-        # 현재는 user-subject가 g뿐이지만 모델이 per-user p-정책을 허용하므로 미래의 dangling p도 막는다
-        # (적대리뷰 #5). v0이 role명('admin' 등)인 글로벌 p-정책은 UUID와 안 겹쳐 안전하다.
-        uid_strs = [str(i) for i in ids]
-        await session.execute(
-            text("DELETE FROM casbin_rule WHERE ptype IN ('g','p') AND v0 = ANY(:uids)"),
-            {"uids": uid_strs},
-        )
+        await _purge_casbin_rules(session, ids)
         # Core bulk DELETE — accesstoken은 user_id FK ondelete CASCADE라 DB가 정리.
         await session.execute(delete(User).where(User.id.in_(ids)))
         await session.commit()
-    # DB는 정리됐다. 인프로세스(API 트리거)면 메모리 enforcer가 부팅 시 로드한 정책을 들고 있어
-    # 삭제된 grant가 메모리에 잔존할 수 있다 → reload로 동기화(적대리뷰 #4). 잡이 별 프로세스로
-    # 돌면 enforcer 미초기화(_enforcer=None)라 조용히 스킵 — DB가 진실원이라 무해.
-    try:
-        from .. import authz
-
-        if authz._enforcer is not None:
-            await authz._enforcer.load_policy()
-    except Exception as exc:
-        log.warning("user-cleanup: casbin enforcer reload 실패(무해, DB는 정리됨): %s", exc)
+    # DB는 정리됐다 — 메모리 enforcer의 잔존 grant만 동기화하면 된다.
+    await _reload_enforcer_after_user_delete()
     log.info(
         "user-cleanup: %d 유저 삭제 (패턴 %r, super 보존 %d)",
         len(ids),
