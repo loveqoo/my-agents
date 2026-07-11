@@ -37,18 +37,14 @@ async def _execute_generation(dataset_id: uuid.UUID, collection_id: uuid.UUID, c
 
     _active_jobs.add(dataset_id)
     try:
-        from . import crypto
-        from .mem_config import _default_chat_model
+        from .mem_config import _default_chat_model, llm_cfg_of, model_usable
 
         async with SessionLocal() as s:
             cm = await _default_chat_model(s)
-        if cm is None or cm.provider is None or not cm.provider.base_url or not cm.model_id:
+        if not model_usable(cm):
             raise RuntimeError("기본 chat 모델 미설정 — 질문 생성 불가")
-        llm_cfg = {
-            "base_url": cm.provider.base_url,
-            "api_key": crypto.decrypt(cm.provider.api_key),
-            "model_id": cm.model_id,
-        }
+        assert cm is not None  # model_usable 보장(TypeGuard는 negative 분기 narrow 안 함)
+        llm_cfg = llm_cfg_of(cm)
         result = await generate_golden_cases(collection_id, count, llm_cfg)
         async with SessionLocal() as s:
             ds = await s.get(EvalDataset, dataset_id)

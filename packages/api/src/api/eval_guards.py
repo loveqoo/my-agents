@@ -95,20 +95,16 @@ async def _member_job_guard(
 
 async def _helper_llm(session: AsyncSession) -> tuple[dict | None, str | None]:
     """도우미 LLM 해석 — (llm_cfg, 불가 사유). 기본 chat이 실모델일 때만(사용자 원칙)."""
-    from . import crypto
     from .eval_suggest import is_mock_llm
-    from .mem_config import _default_chat_model
+    from .mem_config import _default_chat_model, llm_cfg_of, model_usable
 
     cm = await _default_chat_model(session)
-    if cm is None or cm.provider is None or not cm.provider.base_url or not cm.model_id:
+    if not model_usable(cm):
         return None, "기본 chat 모델이 없습니다 — 프로바이더·모델에서 기본 모델을 지정하세요"
+    assert cm is not None and cm.provider is not None  # model_usable 보장(negative narrow 없음)
     if is_mock_llm(cm.provider.base_url, cm.model_id):
         return (
             None,
             "기본 chat 모델이 mock입니다 — 실모델을 기본으로 지정하면 도우미가 활성화됩니다",
         )
-    return {
-        "base_url": cm.provider.base_url,
-        "api_key": crypto.decrypt(cm.provider.api_key),
-        "model_id": cm.model_id,
-    }, None
+    return llm_cfg_of(cm), None

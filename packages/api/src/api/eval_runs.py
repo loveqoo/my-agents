@@ -65,19 +65,12 @@ async def _execute_run(
         # LLM-judge 심판 모델(스펙 139) — 기본 chat 모델(is_default)만 직접 해석. default_mem_cfg는
         # embedding까지 요구해 embedding 미설정이 judge를 인질로 잡는다(codex 139 #3) → chat만 본다.
         # 미설정이면 judge 전부 실패(fail-closed) — run_llm_judge가 사유를 남긴다.
-        from . import crypto
         from .eval_judge import run_llm_judge
-        from .mem_config import _default_chat_model
+        from .mem_config import _default_chat_model, llm_cfg_of, model_usable
 
         async with SessionLocal() as s:
             _cm = await _default_chat_model(s)
-        judge_llm = None
-        if _cm is not None and _cm.provider is not None and _cm.provider.base_url and _cm.model_id:
-            judge_llm = {
-                "base_url": _cm.provider.base_url,
-                "api_key": crypto.decrypt(_cm.provider.api_key),
-                "model_id": _cm.model_id,
-            }
+        judge_llm = llm_cfg_of(_cm) if model_usable(_cm) else None
 
         async def run_fn(case: HarnessCase) -> dict:
             if rag_collection is not None:

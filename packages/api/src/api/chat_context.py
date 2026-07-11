@@ -18,7 +18,13 @@ from agent.runtime import is_remote_source
 
 from . import crypto, runtime
 from .db import SessionLocal, get_or_404
-from .mem_config import _build_mem_cfg, _default_chat_model, _default_embed_model
+from .mem_config import (
+    _build_mem_cfg,
+    _default_chat_model,
+    _default_embed_model,
+    llm_cfg_of,
+    model_usable,
+)
 from .models import Agent, Collection, McpServer, ModelConfig, Session
 from .references import config_names
 
@@ -37,14 +43,9 @@ async def _chat_model_cfg(db: AsyncSession, name: str) -> dict | None:
             .options(selectinload(ModelConfig.provider))
         )
     ).scalar_one_or_none()
-    if m is None or not m.provider or not m.provider.base_url or not m.model_id:
-        return None
-    return {
-        "base_url": m.provider.base_url,
-        "api_key": crypto.decrypt(m.provider.api_key),
-        "model_id": m.model_id,
-        "params": dict(m.params or {}),
-    }
+    if model_usable(m):
+        return {**llm_cfg_of(m), "params": dict(m.params or {})}
+    return None
 
 
 async def _resolve_node_models(
@@ -325,12 +326,8 @@ async def _resolve_model(db: AsyncSession, cfg: dict, overrides: dict | None) ->
             status_code=400,
             detail=f"모델 '{m.name}' 설정이 불완전합니다 (provider base_url/model_id 필요).",
         )
-    return {
-        "base_url": base_url,
-        "api_key": crypto.decrypt(m.provider.api_key),
-        "model_id": m.model_id,
-        "params": dict(m.params or {}),
-    }
+    # 위 두 가드가 각각 다른 에러 메시지(등록 없음·설정 불완전)라 model_usable로 접지 않음 — dict만 정본화.
+    return {**llm_cfg_of(m), "params": dict(m.params or {})}
 
 
 async def _resolve_mem_cfg(db: AsyncSession, model_cfg: dict | None) -> dict | None:
@@ -358,11 +355,7 @@ async def _resolve_mem_cfg(db: AsyncSession, model_cfg: dict | None) -> dict | N
             "api_key": model_cfg["api_key"],
             "model_id": model_cfg["model_id"],
         },
-        "embedder": {
-            "base_url": emb.provider.base_url,
-            "api_key": crypto.decrypt(emb.provider.api_key),
-            "model_id": emb.model_id,
-        },
+        "embedder": llm_cfg_of(emb),
     }
 
 
