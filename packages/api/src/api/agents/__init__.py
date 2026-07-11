@@ -31,7 +31,7 @@ from ..background import spawn
 from ..chat import derive_pipeline_pool, resolve_agent_mem_cfg
 from ..db import get_session
 from ..models import Agent, AgentVersion, Persona
-from ..naming import slugify_name, validate_resource_name
+from ..naming import slugify_name
 from ..ownership import assert_may_manage, is_privileged, may_manage, may_use_agent, owner_of
 from ..schemas import (
     ActivateIn,
@@ -77,7 +77,6 @@ from .guards import (
     log,
 )
 from .helpers import (
-    _assert_valid_name,
     _commit_or_409,
     _dedupe_agent_name,
     _find_version,

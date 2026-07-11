@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from agent.runtime import is_first_party, is_remote_source
 
 from . import a2a_client, broker, chat, net_guard
+from .a2a_wire import a2a_error, a2a_result, a2a_status_event, a2a_user_text
 from .auth import current_principal
 from .db import SessionLocal
 from .models import Agent, McpServer, User
@@ -259,17 +260,6 @@ async def exposed_agent_card(agent_id: uuid.UUID, request: Request) -> dict:
     }
 
 
-def _a2a_user_text(params: dict) -> str:
-    """JSON-RPC params.message.parts[].text(kind=='text')를 모아 잇는다(a2a_client 송신과 동형)."""
-    msg = (params or {}).get("message") or {}
-    parts = msg.get("parts") or []
-    out = []
-    for part in parts:
-        if isinstance(part, dict) and part.get("kind") == "text" and part.get("text"):
-            out.append(str(part["text"]))
-    return "".join(out)
-
-
 RELAY_HEADER = (
     "x-my-agents-relay"  # 중계 홉 표식(스펙 154) — 표식 달린 요청은 재중계 거부(1홉 한정)
 )
@@ -313,30 +303,19 @@ async def exposed_agent_a2a(
     rpc_id = body.get("id")
     method = body.get("method")
     params = body.get("params") or {}
-    user_text = _a2a_user_text(params)
+    user_text = a2a_user_text(params)
 
     # 노출 집합{ui,code} 안에서 원격(code=SDK 배포)만 릴레이·로컬(ui)은 직접 — remote 축 재사용(스펙 183).
     if is_remote_source(agent.source):
         if request.headers.get(RELAY_HEADER):
             # 루프 가드(스펙 154): 중계 표식이 달린 요청을 다시 중계하면 자기/상호 참조 사이클 —
             # 2번째 홉에서 절단. 직접 소비자(플레이그라운드·외부)는 표식이 없어 정상.
-            return {
-                "jsonrpc": "2.0",
-                "id": rpc_id,
-                "error": {
-                    "code": -32000,
-                    "message": "중계 루프 감지 — 다홉 중계는 지원하지 않습니다(1홉 한정)",
-                },
-            }
+            return a2a_error(
+                rpc_id, -32000, "중계 루프 감지 — 다홉 중계는 지원하지 않습니다(1홉 한정)"
+            )
         chunk_source = _relay_chunks(agent, user_text)
     else:
         chunk_source = chat.stream_local_reply(agent.id, user_text)
-
-    def _response(result: dict) -> dict:
-        return {"jsonrpc": "2.0", "id": rpc_id, "result": result}
-
-    def _error(code: int, message: str) -> dict:
-        return {"jsonrpc": "2.0", "id": rpc_id, "error": {"code": code, "message": message}}
 
     if method == "message/send":
         try:
@@ -345,47 +324,32 @@ async def exposed_agent_a2a(
                 acc.append(text)
             reply = "".join(acc)
         except Exception as exc:
-            return _error(-32000, f"로컬 에이전트 실행 실패({type(exc).__name__})")
-        return _response(
+            return a2a_error(rpc_id, -32000, f"로컬 에이전트 실행 실패({type(exc).__name__})")
+        return a2a_result(
+            rpc_id,
             {
                 "role": "agent",
                 "parts": [{"kind": "text", "text": reply}],
                 "messageId": uuid.uuid4().hex,
                 "kind": "message",
-            }
+            },
         )
 
     if method == "message/stream":
         task_id = uuid.uuid4().hex
 
-        def _status_event(text: str, *, final: bool, state: str) -> str:
-            result = {
-                "kind": "status-update",
-                "taskId": task_id,
-                "status": {
-                    "state": state,
-                    "message": {
-                        "role": "agent",
-                        "parts": [{"kind": "text", "text": text}],
-                        "kind": "message",
-                    },
-                },
-                "final": final,
-            }
-            return f"data: {json.dumps(_response(result), ensure_ascii=False)}\n\n"
-
         async def event_stream() -> AsyncIterator[str]:
             try:
                 async for text in chunk_source:
-                    yield _status_event(text, final=False, state="working")
+                    yield a2a_status_event(rpc_id, task_id, text, final=False, state="working")
             except Exception as exc:
-                err = _error(-32000, f"로컬 에이전트 실행 실패({type(exc).__name__})")
+                err = a2a_error(rpc_id, -32000, f"로컬 에이전트 실행 실패({type(exc).__name__})")
                 yield f"data: {json.dumps(err, ensure_ascii=False)}\n\n"
                 yield "data: [DONE]\n\n"
                 return
-            yield _status_event("", final=True, state="completed")
+            yield a2a_status_event(rpc_id, task_id, "", final=True, state="completed")
             yield "data: [DONE]\n\n"
 
         return StreamingResponse(event_stream(), media_type="text/event-stream")
 
-    return _error(-32601, f"메서드 미지원: {method}")
+    return a2a_error(rpc_id, -32601, f"메서드 미지원: {method}")

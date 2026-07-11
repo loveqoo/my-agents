@@ -20,7 +20,7 @@ from . import crypto
 from .auth import current_principal
 from .db import get_session
 from .models import Agent, Collection, McpServer, MemoryType, Persona, User
-from .naming import validate_resource_name
+from .naming import assert_valid_name
 from .ownership import assert_may_manage, may_manage, may_use_agent, owner_of
 from .references import _config_has, agents_referencing, referenced_message
 from .schemas import (
@@ -43,13 +43,6 @@ if TYPE_CHECKING:
     from langchain_core.tools import BaseTool
 
 router = APIRouter(tags=["blocks"])
-
-
-def _assert_valid_name(name: str) -> None:
-    """식별 이름 규칙(스펙 148) — 위반이면 400. 생성·이름 변경 시에만(기존은 grandfather)."""
-    err = validate_resource_name(name)
-    if err:
-        raise HTTPException(status_code=400, detail=err)
 
 
 def _norm_description(data: dict) -> dict:
@@ -77,7 +70,7 @@ async def list_personas(session: AsyncSession = Depends(get_session)) -> Any:
 
 @router.post("/personas", response_model=PersonaOut, status_code=201)
 async def create_persona(body: PersonaIn, session: AsyncSession = Depends(get_session)) -> Any:
-    _assert_valid_name(body.name)  # 식별 이름 규칙(스펙 148)
+    assert_valid_name(body.name)  # 식별 이름 규칙(스펙 148)
     obj = Persona(**_norm_description(body.model_dump()))
     session.add(obj)
     await _commit_or_409(session, "같은 식별 이름의 페르소나가 이미 있습니다.")
@@ -101,7 +94,7 @@ async def update_persona(
     if obj is None:
         raise HTTPException(status_code=404, detail="not found")
     if body.name != obj.name:
-        _assert_valid_name(body.name)  # 이름 변경 시에만 규칙(기존은 grandfather, 스펙 148)
+        assert_valid_name(body.name)  # 이름 변경 시에만 규칙(기존은 grandfather, 스펙 148)
         # rename도 config["persona"] 참조를 깬다 — MCP(093)와 동일 가드(codex 148 High)
         refs = await agents_referencing(session, "persona", obj.name)
         if refs:
@@ -376,7 +369,7 @@ async def create_mcp_server(
     session: AsyncSession = Depends(get_session),
     principal: User | str = Depends(current_principal),
 ) -> Any:
-    _assert_valid_name(body.name)  # 식별 이름 규칙(스펙 148) — 서버 등록명은 사용자가 짓는다
+    assert_valid_name(body.name)  # 식별 이름 규칙(스펙 148) — 서버 등록명은 사용자가 짓는다
     from . import served_mcp
 
     if body.name in served_mcp.SERVED_MCPS:
@@ -573,7 +566,7 @@ async def update_mcp_server(
     # dangling 되어 도구가 조용히 사라진다 → 참조가 있으면 rename을 409로 막는다(값은 옛 name 기준).
     new_name = data.get("name")
     if new_name is not None and new_name != obj.name:
-        _assert_valid_name(new_name)  # 이름 변경 시에만 규칙(기존은 grandfather, 스펙 148)
+        assert_valid_name(new_name)  # 이름 변경 시에만 규칙(기존은 grandfather, 스펙 148)
         refs = await agents_referencing(session, "mcps", obj.name)
         if refs:
             raise HTTPException(

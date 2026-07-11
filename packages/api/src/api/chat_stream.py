@@ -67,15 +67,6 @@ def _model_error_hint(exc: Exception, model_cfg: dict | None) -> str | None:
     )
 
 
-def _card_streaming(card: object) -> bool:
-    """카드 capabilities.streaming. 없으면 True(message/stream 우선, 안 되면 에이전트가 단건 응답)."""
-    if isinstance(card, dict):
-        caps = card.get("capabilities")
-        if isinstance(caps, dict) and "streaming" in caps:
-            return bool(caps.get("streaming"))
-    return True
-
-
 async def _a2a_stream(ctx: dict, user_text: str, user_id: str | None) -> AsyncIterator[str]:
     """원격(A2A) 에이전트: 등록된 카드 url로 JSON-RPC message/stream 호출 → 응답을 우리 SSE로 재전송.
 
@@ -89,7 +80,7 @@ async def _a2a_stream(ctx: dict, user_text: str, user_id: str | None) -> AsyncIt
         yield "event: done\ndata: [DONE]\n\n"
         return
 
-    streaming = _card_streaming(ctx.get("card"))
+    streaming = a2a_client.card_streaming(ctx.get("card"))
     acc: list[str] = []
     errored = False
     t0 = time.perf_counter()

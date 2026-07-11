@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from ..models import Agent, AgentVersion, Persona
-from ..naming import slugify_name, validate_resource_name
+from ..naming import slugify_name
 from ..schemas import AgentOut
 from ..serializers import agent_to_out
 
@@ -28,13 +28,6 @@ def _today() -> str:
 
 def _new_agent_id() -> str:
     return "agt_" + secrets.token_hex(3)
-
-
-def _assert_valid_name(name: str) -> None:
-    """식별 이름 규칙(스펙 148) — 위반이면 400. UI 입력 경로 전용(원격 유래는 slugify 자동 변환)."""
-    err = validate_resource_name(name)
-    if err:
-        raise HTTPException(status_code=400, detail=err)
 
 
 async def _dedupe_agent_name(session: AsyncSession, base: str) -> str:

@@ -21,6 +21,7 @@ from collections.abc import AsyncIterator
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
+from .a2a_wire import a2a_error, a2a_result, a2a_status_event, a2a_user_text
 from .models import RAG_EMBED_DIMS
 from .schemas import ChatRequest
 
@@ -405,17 +406,6 @@ async def remote_sdk_agent_card() -> dict:
 # ---------- mock A2A JSON-RPC 서비스 (외부 에이전트 실호출 검증용, 스펙 042) ----------
 
 
-def _a2a_user_text(params: dict) -> str:
-    """JSON-RPC params.message.parts[].text(kind=='text')를 모아 잇는다."""
-    msg = (params or {}).get("message") or {}
-    parts = msg.get("parts") or []
-    out = []
-    for part in parts:
-        if isinstance(part, dict) and part.get("kind") == "text" and part.get("text"):
-            out.append(str(part["text"]))
-    return "".join(out)
-
-
 def _a2a_reply(user_text: str) -> str:
     """결정적 mock 날씨 응답(같은 입력 → 같은 출력)."""
     return (
@@ -434,48 +424,32 @@ async def remote_a2a(body: dict) -> dict | StreamingResponse:
     rpc_id = body.get("id")
     method = body.get("method")
     params = body.get("params") or {}
-    reply = _a2a_reply(_a2a_user_text(params))
-
-    def _response(result: dict) -> dict:
-        return {"jsonrpc": "2.0", "id": rpc_id, "result": result}
+    reply = _a2a_reply(a2a_user_text(params))
 
     if method == "message/send":
         # 단건: result = Message(role=agent, text part).
-        return _response(
+        return a2a_result(
+            rpc_id,
             {
                 "role": "agent",
                 "parts": [{"kind": "text", "text": reply}],
                 "messageId": uuid.uuid4().hex,
                 "kind": "message",
-            }
+            },
         )
 
     if method == "message/stream":
         # 스트리밍: status-update 이벤트 여러 개(텍스트 청크) + final.
         task_id = uuid.uuid4().hex
 
-        def _status_event(text: str, *, final: bool, state: str) -> str:
-            result = {
-                "kind": "status-update",
-                "taskId": task_id,
-                "status": {
-                    "state": state,
-                    "message": {
-                        "role": "agent",
-                        "parts": [{"kind": "text", "text": text}],
-                        "kind": "message",
-                    },
-                },
-                "final": final,
-            }
-            return f"data: {json.dumps(_response(result), ensure_ascii=False)}\n\n"
-
         async def event_stream() -> AsyncIterator[str]:
             step = 16
             chunks = [reply[i : i + step] for i in range(0, len(reply), step)] or [""]
             for i, chunk in enumerate(chunks):
                 last = i == len(chunks) - 1
-                yield _status_event(
+                yield a2a_status_event(
+                    rpc_id,
+                    task_id,
                     chunk,
                     final=last,
                     state="completed" if last else "working",
@@ -485,11 +459,7 @@ async def remote_a2a(body: dict) -> dict | StreamingResponse:
         return StreamingResponse(event_stream(), media_type="text/event-stream")
 
     # 미지원 메서드 → JSON-RPC error.
-    return {
-        "jsonrpc": "2.0",
-        "id": rpc_id,
-        "error": {"code": -32601, "message": f"메서드 미지원: {method}"},
-    }
+    return a2a_error(rpc_id, -32601, f"메서드 미지원: {method}")
 
 
 @router.post("/agent")

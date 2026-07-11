@@ -12,12 +12,12 @@ from ..auth import current_principal
 from ..chat import derive_pipeline_pool
 from ..db import get_session
 from ..models import Agent, AgentVersion, User
+from ..naming import assert_valid_name
 from ..ownership import assert_may_manage, may_manage, may_use_agent, owner_of
 from ..schemas import AgentCreate, AgentOut, AgentUpdate
 from ..serializers import agent_to_out
 from .guards import _enforce_ephemeral_boundary, _enforce_tool_policy_gate
 from .helpers import (
-    _assert_valid_name,
     _commit_or_409,
     _dedupe_agent_name,
     _load_agent,
@@ -214,7 +214,7 @@ async def create_agent(
     session: AsyncSession = Depends(get_session),
     principal: User | str = Depends(current_principal),
 ) -> AgentOut:
-    _assert_valid_name(body.name)  # 식별 이름 규칙(스펙 148) — 서버가 진실원
+    assert_valid_name(body.name)  # 식별 이름 규칙(스펙 148) — 서버가 진실원
     cfg = body.config.model_dump()
     _enforce_tool_policy_gate(cfg, principal)
     _enforce_ephemeral_boundary(
@@ -340,7 +340,7 @@ async def update_agent(
             )
         )
     if body.name is not None and body.name != agent.name:
-        _assert_valid_name(body.name)  # 식별 이름 변경도 규칙(스펙 148)
+        assert_valid_name(body.name)  # 식별 이름 변경도 규칙(스펙 148)
         agent.name = body.name
     if body.description is not None:
         agent.description = body.description.strip() or None  # ""=설명 비우기

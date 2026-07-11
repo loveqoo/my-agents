@@ -7,6 +7,8 @@
 
 import re
 
+from fastapi import HTTPException
+
 NAME_RE = re.compile(r"^[a-z0-9\-]+$")
 
 _HINT = "영소문자·숫자·대시(-)만 쓸 수 있습니다(한글·마침표·공백·밑줄·대문자 금지)."
@@ -19,6 +21,13 @@ def validate_resource_name(name: str) -> str | None:
     if not NAME_RE.match(name):
         return f"이름 규칙 위반: {_HINT}"
     return None
+
+
+def assert_valid_name(name: str) -> None:
+    """식별 이름 규칙(스펙 148·296 정본) — 위반이면 400. 생성·이름 변경 시에만(기존은 grandfather)."""
+    err = validate_resource_name(name)
+    if err:
+        raise HTTPException(status_code=400, detail=err)
 
 
 def slugify_name(name: str, fallback: str = "unnamed") -> str:

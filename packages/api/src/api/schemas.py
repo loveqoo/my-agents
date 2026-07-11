@@ -9,6 +9,15 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 ORM = ConfigDict(from_attributes=True)
 
 
+def _require_non_blank(v: str) -> str:
+    """검색 질의 공백 거부(스펙 296 정본) — min_length는 strip 전 길이라 공백("   ")이 통과해
+    코어서 빈값으로 502가 됐다. 입력 경계서 strip 후 비면 422로 거부(서버 오류가 아니라 잘못된 입력)."""
+    s = v.strip()
+    if not s:
+        raise ValueError("질의는 공백일 수 없습니다.")
+    return s
+
+
 # ----------------------------- 빌딩 블록 -----------------------------
 class PersonaIn(BaseModel):
     name: str = Field(max_length=200)  # 식별 이름(규칙, 스펙 148) — DB String(200) 정합(codex 148)
@@ -138,15 +147,7 @@ class CollectionSearchIn(BaseModel):
     query: str = Field(min_length=1, max_length=4000)
     top_k: int = Field(default=4, ge=1, le=10)
 
-    @field_validator("query")
-    @classmethod
-    def _non_blank(cls, v: str) -> str:
-        # min_length는 strip 전 길이라 공백("   ")이 통과 → 코어서 빈값으로 502가 됐다.
-        # 입력 경계에서 strip 후 비면 422로 거부(서버 오류 502가 아니라 잘못된 입력).
-        s = v.strip()
-        if not s:
-            raise ValueError("질의는 공백일 수 없습니다.")
-        return s
+    _non_blank = field_validator("query")(_require_non_blank)
 
 
 class SearchHit(BaseModel):
@@ -174,13 +175,7 @@ class MemorySearchIn(BaseModel):
     query: str = Field(min_length=1, max_length=4000)
     limit: int = Field(default=4, ge=1, le=10)
 
-    @field_validator("query")
-    @classmethod
-    def _non_blank(cls, v: str) -> str:
-        s = v.strip()
-        if not s:
-            raise ValueError("질의는 공백일 수 없습니다.")
-        return s
+    _non_blank = field_validator("query")(_require_non_blank)
 
 
 class MemoryHit(BaseModel):

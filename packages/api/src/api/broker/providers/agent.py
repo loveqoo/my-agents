@@ -41,16 +41,6 @@ def _a2a_text(args: dict) -> str:
     return str(args.get("text", "")) if isinstance(args, dict) else str(args)
 
 
-def _card_streaming(card: object) -> bool:
-    """카드 capabilities.streaming(chat._card_streaming과 동일 술어 — 순환 import 피해 로컬 복제).
-    없으면 True(message/stream 우선, 안 되면 에이전트가 단건 응답)."""
-    if isinstance(card, dict):
-        caps = card.get("capabilities")
-        if isinstance(caps, dict) and "streaming" in caps:
-            return bool(caps.get("streaming"))
-    return True
-
-
 def _hook_for(agent: Agent) -> str:
     """한 줄 후크 — 카드 description → persona → name 순 첫 비어있지 않은 줄(≤200자). load-bearing:
     발견 선택 품질이 여기 달렸다(설계결정 3)."""
@@ -207,7 +197,11 @@ class AgentProvider:
         errored: str | None = None
         # a2a_client의 이 제너레이터는 raise 안 함(에러=프레임).
         async for frame in a2a_client.a2a_stream(
-            row.endpoint, row.token, user_text, streaming=_card_streaming(card), context_id=None
+            row.endpoint,
+            row.token,
+            user_text,
+            streaming=a2a_client.card_streaming(card),
+            context_id=None,
         ):
             if "error" in frame:
                 errored = frame["error"]

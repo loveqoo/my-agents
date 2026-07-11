@@ -278,3 +278,13 @@ async def _send_single(
     frame = _frame_from_response(resp_obj)
     if frame:
         yield frame
+
+
+def card_streaming(card: object) -> bool:
+    """카드 capabilities.streaming(정본, 스펙 296). 없으면 True(message/stream 우선, 안 되면
+    에이전트가 단건 응답). chat_stream·broker agent provider가 공유(이전 순환 회피 로컬 복제 통합)."""
+    if isinstance(card, dict):
+        caps = card.get("capabilities")
+        if isinstance(caps, dict) and "streaming" in caps:
+            return bool(caps.get("streaming"))
+    return True
