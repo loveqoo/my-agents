@@ -1,14 +1,17 @@
 """kind=memory/memwrite/memedit provider 3종(스펙 104/105/111) — 유저 장기 기억 능력.
 
-3종 묶음 유지 근거(지도 G5): `_MemBacking` 공유·self-scope 불변식(스코프=principal 도출 user_id,
-cap_id·args로 남을 가리킬 수 없음) 공유 — 쪼개면 상호참조만 생긴다. `_memwrite_text`↔Write,
-`_memedit_args`↔Edit는 승인·실행 공유 헬퍼(드리프트 0 짝, 같은 모듈 필수).
+3종은 공통 조상 `MemoryAxisProvider`(스펙 293)를 상속한다. 조상이 축(user_id) 골격(설정·능력
+노출·후보·로드·라벨)과 anti-leak 불변식(스코프=principal 도출 user_id, cap_id·args로 남을 못
+가리킴)을 소유하고, 자식은 유일한 구멍 `invoke`(전송)·`approval_for`(승인)만 채운다. `_MemBacking`
+공유, `_memwrite_text`↔Write·`_memedit_args`↔Edit는 승인·실행 공유 헬퍼(드리프트 0 짝, 같은 모듈).
 """
 
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING
+import copy
+from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING, ClassVar, final
 
 from agent.runtime import Capability, InvokeResult
 
@@ -19,10 +22,8 @@ from ..common import (
     CAP_KIND_MEMORY,
     CAP_KIND_MEMORY_EDIT,
     CAP_KIND_MEMORY_WRITE,
+    _cap_resource,
     _kind_of,
-    _parse_mem,
-    _parse_memedit,
-    _parse_memwrite,
 )
 
 
@@ -36,65 +37,104 @@ class _MemBacking:
         self.resource = resource
 
 
-class MemoryProvider:
-    """kind=memory — 유저 장기 기억(user_id 축)을 **읽기 전용** 검색 능력으로. 첫 **per-user 소유** 능력.
+class MemoryAxisProvider(ABC):
+    """유저 축(user_id) 기억 provider의 **공통 조상**(스펙 293). 골격(설정·`_cap`·`candidates`·`load`·
+    `describe`·`node_label`)과 anti-leak 불변식을 소유한다 — 스코프는 오직 principal 도출 `user_id`이고
+    (`__init__`에서만 주입), 능력은 `<kind>:user` 하나뿐이라 cap_id·args로 남의 기억을 가리킬 방법이
+    구조적으로 없다(스펙 104/105/111). 자식이 채우는 **유일한 구멍**은 `invoke`(전송)·`approval_for`
+    (승인). `describe`/`candidates`/`load`는 `@final` — 재정의는 불변식 우회다(OrchestrationAgentBase
+    선례). 조상은 ABC(추상 미구현)라 인스턴스화·레지스트리 등록되지 않으며, 자식과 합쳐 `_CapabilityProvider`
+    Protocol에 구조 적합하다.
 
-    핵심(스펙 104): 능력은 `memory:user` 하나뿐이고 **누구의 기억인지는 cap_id·args가 아니라 런타임
-    principal에서 도출한 `user_id`**로 정한다. 그래서 능력 이름으로 남을 가리킬 방법이 없어 교차 유저
-    유출이 구조적으로 불가능하다. 검색 코어 `memory.recall_probe`(챗 회상·retrieval 시험 084와 공유) +
-    `memory.format_memory_hits`(챗 회상 주입 포맷 추출, drift 0) 재사용. 읽기 전용 → `approval_for` None.
-    결과는 기억 내용 = **untrusted 데이터**(learning 100 채널 격리는 flow synthesize 몫).
+    자식이 선언하는 클래스 속성: `kind`(=CAP_KIND_*)·`CAP_ID`·`CAP_NAME`·`CAP_HOOK`·`INPUT_SCHEMA`.
     """
 
-    kind = CAP_KIND_MEMORY
+    kind: str
+    RESOURCE = "user"  # 첫 출하 축 — cap 리소스 세그먼트(`<kind>:user`).
+    CAP_ID: str
+    CAP_NAME: str
+    CAP_HOOK: str
+    INPUT_SCHEMA: ClassVar[dict]
 
     def __init__(
         self, session_factory: async_sessionmaker[AsyncSession], user_id: str | None
     ) -> None:
         self._session_factory = session_factory
-        self._user_id = (
-            user_id  # principal 도출값(build_broker). None=머신 → 자기 스코프 없음 → deny.
-        )
+        # principal 도출값(build_broker). None=머신 → 자기 스코프 없음 → deny.
+        self._user_id = user_id
 
     def _cap(self, *, with_schema: bool) -> Capability:
-        cap = Capability(
-            id=f"{CAP_KIND_MEMORY}:user",
-            kind=CAP_KIND_MEMORY,
-            name="내 장기 기억",
-            hook="내 장기 기억(user_id 축)에서 관련 사실 회상",
-        )
+        cap = Capability(id=self.CAP_ID, kind=self.kind, name=self.CAP_NAME, hook=self.CAP_HOOK)
         if with_schema:
-            cap.input_schema = {
-                "type": "object",
-                "properties": {
-                    "text": {"type": "string"},
-                    "limit": {"type": "integer", "default": 4},
-                },
-                "required": ["text"],
-            }
+            # 클래스 속성을 공유 참조로 넘기면 호출자 변조가 다음 describe에 샌다(codex 293 aliasing).
+            # 리팩터 전 매 호출 새 literal과 동일하게 사본을 준다(중첩 dict라 deepcopy).
+            cap.input_schema = copy.deepcopy(self.INPUT_SCHEMA)
         return cap
 
+    @final
     async def candidates(self, allow: set[str]) -> list[Capability]:
-        # user_id 없음(머신 principal) → 자기 스코프가 없으므로 능력 없음(DB·백엔드 미접촉). cap 문법상
-        # `memory:` 항목 중 리소스가 `user`인 것만 승격(빈/미지원 리소스 거부, 적대 리뷰 대비).
+        # user_id 없음(머신) → 자기 스코프 없음 → 능력 없음(DB·백엔드 미접촉). `<kind>:user`만 승격
+        # (빈/미지원 리소스 거부, 적대 리뷰 대비). _cap_resource가 kind별 파서로 리소스를 뽑는다.
         if not self._user_id:
             return []
-        if not any(_kind_of(a) == CAP_KIND_MEMORY and _parse_mem(a) == "user" for a in allow):
+        if not any(
+            _kind_of(a) == self.kind and _cap_resource(a, self.kind) == self.RESOURCE for a in allow
+        ):
             return []
         return [self._cap(with_schema=False)]
 
+    @final
     async def load(self, cap_id: str) -> _MemBacking | None:
         # 리소스가 `user`가 아니거나(미지원/빈) user_id 없으면 없는 것으로(존재 비노출).
-        if not self._user_id or _parse_mem(cap_id) != "user":
+        if not self._user_id or _cap_resource(cap_id, self.kind) != self.RESOURCE:
             return None
-        return _MemBacking("user")
+        return _MemBacking(self.RESOURCE)
 
+    @final
     def describe(self, _row: _MemBacking) -> Capability:
         return self._cap(with_schema=True)
 
+    @final
+    def node_label(self, _row: _MemBacking) -> str:
+        return f"broker_invoke:{self.kind}:{self.RESOURCE}"
+
+    @abstractmethod
     async def invoke(self, _row: _MemBacking, args: dict) -> InvokeResult:
-        cap_id = f"{CAP_KIND_MEMORY}:user"
-        raw = {"cap_id": cap_id, "kind": CAP_KIND_MEMORY}
+        """능력 전송(자식별 유일 차이 ①) — 전송 1회, 결과는 untrusted 데이터로 접는다."""
+        ...
+
+    @abstractmethod
+    def approval_for(
+        self, _row: _MemBacking, _cap_id: str, args: dict, _tool_policy: dict | None = None
+    ) -> dict | None:
+        """HIL 승인 payload | None(자식별 유일 차이 ②) — 읽기=None, 쓰기·수정=항상 non-None."""
+        ...
+
+
+class MemoryProvider(MemoryAxisProvider):
+    """kind=memory — 유저 장기 기억(user_id 축)을 **읽기 전용** 검색 능력으로. 첫 **per-user 소유** 능력.
+
+    핵심(스펙 104): 능력은 `memory:user` 하나뿐이고 누구의 기억인지는 런타임 principal 도출 `user_id`로
+    정한다(조상 불변식). 검색 코어 `memory.recall_probe`(챗 회상·retrieval 시험 084와 공유) +
+    `memory.format_memory_hits`(챗 회상 주입 포맷, drift 0) 재사용. 읽기 전용 → `approval_for` None.
+    결과는 기억 내용 = **untrusted 데이터**(learning 100 채널 격리는 flow synthesize 몫).
+    """
+
+    kind = CAP_KIND_MEMORY
+    CAP_ID = f"{CAP_KIND_MEMORY}:user"
+    CAP_NAME = "내 장기 기억"
+    CAP_HOOK = "내 장기 기억(user_id 축)에서 관련 사실 회상"
+    INPUT_SCHEMA: ClassVar[dict] = {
+        "type": "object",
+        "properties": {
+            "text": {"type": "string"},
+            "limit": {"type": "integer", "default": 4},
+        },
+        "required": ["text"],
+    }
+
+    async def invoke(self, _row: _MemBacking, args: dict) -> InvokeResult:
+        raw = {"cap_id": self.CAP_ID, "kind": self.kind}
         # 스코프는 **오직** principal 도출 user_id — args의 어떤 필드(user_id 등)도 무시(anti-leak 불변식).
         text = str(args.get("text", "")) if isinstance(args, dict) else str(args)
         limit = args.get("limit", 4) if isinstance(args, dict) else 4
@@ -129,9 +169,6 @@ class MemoryProvider:
             text=memory.format_memory_hits(hits), trust="untrusted", error=None, raw=raw
         )
 
-    def node_label(self, _row: _MemBacking) -> str:
-        return f"broker_invoke:{CAP_KIND_MEMORY}:user"
-
     def approval_for(
         self, _row: _MemBacking, _cap_id: str, _args: dict, _tool_policy: dict | None = None
     ) -> dict | None:
@@ -153,66 +190,31 @@ def _memwrite_text(args: dict) -> str:
     return text.strip()[:MEMWRITE_MAX_CHARS]
 
 
-class MemoryWriteProvider:
+class MemoryWriteProvider(MemoryAxisProvider):
     """kind=memwrite — 유저 장기 기억(user_id 축)에 사실을 **저장**. 브로커 **첫 부수효과 능력**이라
     승인 게이트가 처음 발화한다(`approval_for` **항상 non-None** — 읽기 provider들과 정반대).
 
     두 구조적 방어(스펙 105):
     1. **쓰기 축=user_id(자기)만·principal 바인딩** — `{"user_id": self._user_id}`에만 쓴다(agent_id 금지,
-       051 교차유저 누출 축). user_id는 cap_id·args가 아니라 principal 도출값(104와 동일) → 남의 기억에
-       쓸 방법이 구조적으로 없다. 자기 스코프 쓰기는 정의상 교차유저 누출 불가.
+       051 교차유저 누출 축). user_id는 조상 불변식(principal 도출) → 남의 기억에 쓸 방법이 구조적으로 없다.
     2. **승인 게이트** — 브로커가 `memory.add`(부수효과) 이전 `interrupt`로 멈추고 승인돼야 저장(learning
        031: "기억해줘"를 프롬프트 금지보다 우선하는 LLM은 프롬프트 아닌 *구조*로 막는다). 승인 payload는
        저장될 사실을 **그대로 노출**(마스킹 X — 승인하려면 봐야 함). 저장은 **infer=False**(승인=저장 일치).
     """
 
     kind = CAP_KIND_MEMORY_WRITE
-
-    def __init__(
-        self, session_factory: async_sessionmaker[AsyncSession], user_id: str | None
-    ) -> None:
-        self._session_factory = session_factory
-        self._user_id = (
-            user_id  # principal 도출값(build_broker) — read provider와 공유. None=머신→deny.
-        )
-
-    def _cap(self, *, with_schema: bool) -> Capability:
-        cap = Capability(
-            id=f"{CAP_KIND_MEMORY_WRITE}:user",
-            kind=CAP_KIND_MEMORY_WRITE,
-            name="내 장기 기억에 저장",
-            hook="내 장기 기억(user_id 축)에 사실 저장 — 저장 전 승인 필요",
-        )
-        if with_schema:
-            cap.input_schema = {
-                "type": "object",
-                "properties": {"text": {"type": "string"}},
-                "required": ["text"],
-            }
-        return cap
-
-    async def candidates(self, allow: set[str]) -> list[Capability]:
-        # user_id 없음(머신) → 자기 스코프 없음 → 능력 없음. `memwrite:user`만 승격(빈/미지원 거부).
-        if not self._user_id:
-            return []
-        if not any(
-            _kind_of(a) == CAP_KIND_MEMORY_WRITE and _parse_memwrite(a) == "user" for a in allow
-        ):
-            return []
-        return [self._cap(with_schema=False)]
-
-    async def load(self, cap_id: str) -> _MemBacking | None:
-        if not self._user_id or _parse_memwrite(cap_id) != "user":
-            return None  # 미지원 리소스·머신 → 존재 비노출
-        return _MemBacking("user")
-
-    def describe(self, _row: _MemBacking) -> Capability:
-        return self._cap(with_schema=True)
+    CAP_ID = f"{CAP_KIND_MEMORY_WRITE}:user"
+    CAP_NAME = "내 장기 기억에 저장"
+    CAP_HOOK = "내 장기 기억(user_id 축)에 사실 저장 — 저장 전 승인 필요"
+    INPUT_SCHEMA: ClassVar[dict] = {
+        "type": "object",
+        "properties": {"text": {"type": "string"}},
+        "required": ["text"],
+    }
 
     async def invoke(self, _row: _MemBacking, args: dict) -> InvokeResult:
         # 여기 도달 = 브로커가 approval_for→interrupt로 **이미 승인**을 받은 경우만(부수효과 1회, §7 멱등).
-        cap_id = f"{CAP_KIND_MEMORY_WRITE}:user"
-        raw = {"cap_id": cap_id, "kind": CAP_KIND_MEMORY_WRITE}
+        raw = {"cap_id": self.CAP_ID, "kind": self.kind}
         text = _memwrite_text(
             args
         )  # strip + 길이 상한(승인 payload와 동일 = 승인한 것 == 저장되는 것)
@@ -245,9 +247,6 @@ class MemoryWriteProvider:
         return InvokeResult(
             text=f"장기 기억에 저장했습니다: {text}", trust="untrusted", error=None, raw=raw
         )
-
-    def node_label(self, _row: _MemBacking) -> str:
-        return f"broker_invoke:{CAP_KIND_MEMORY_WRITE}:user"
 
     def approval_for(
         self, _row: _MemBacking, _cap_id: str, args: dict, _tool_policy: dict | None = None
@@ -285,11 +284,11 @@ def _memedit_args(args: dict) -> tuple[str, str, str]:
     return op, mem_id, text
 
 
-class MemEditProvider:
+class MemEditProvider(MemoryAxisProvider):
     """kind=memedit — 유저 장기 기억(user_id 축)을 **수정/삭제**. 대상 있는 첫 브로커 부수효과.
 
     세 구조적 방어(스펙 111):
-    1. **스코프=principal 도출 user_id 고정** — args의 user_id 등 무시(104/105 anti-leak 불변식).
+    1. **스코프=principal 도출 user_id 고정**(조상 불변식) — args의 user_id 등 무시(104/105 anti-leak).
     2. **대상 소유권 선행** — mem_id가 자기 것인지 `memory.user_owns`로 확인(미소유·부재 동일 error로
        404-fold = 존재 비노출, 068). add(105)엔 없던 축(대상이 있으므로).
     3. **승인 게이트 항상** — 부수효과 이전 interrupt. 승인 payload는 op·mem_id·(update)새 본문을
@@ -297,51 +296,18 @@ class MemEditProvider:
     """
 
     kind = CAP_KIND_MEMORY_EDIT
-
-    def __init__(
-        self, session_factory: async_sessionmaker[AsyncSession], user_id: str | None
-    ) -> None:
-        self._session_factory = session_factory
-        self._user_id = (
-            user_id  # principal 도출값(build_broker) — read/write provider와 공유. None=머신→deny.
-        )
-
-    def _cap(self, *, with_schema: bool) -> Capability:
-        cap = Capability(
-            id=f"{CAP_KIND_MEMORY_EDIT}:user",
-            kind=CAP_KIND_MEMORY_EDIT,
-            name="내 장기 기억 수정·삭제",
-            hook="내 장기 기억(user_id 축) 수정/삭제 — 실행 전 승인 필요",
-        )
-        if with_schema:
-            cap.input_schema = {
-                "type": "object",
-                "properties": {
-                    "op": {"type": "string", "enum": ["update", "delete"]},
-                    "mem_id": {"type": "string"},
-                    "text": {"type": "string"},
-                },
-                "required": ["op", "mem_id"],
-            }
-        return cap
-
-    async def candidates(self, allow: set[str]) -> list[Capability]:
-        # user_id 없음(머신) → 자기 스코프 없음 → 능력 없음(DB 미접촉). `memedit:user`만 승격.
-        if not self._user_id:
-            return []
-        if not any(
-            _kind_of(a) == CAP_KIND_MEMORY_EDIT and _parse_memedit(a) == "user" for a in allow
-        ):
-            return []
-        return [self._cap(with_schema=False)]
-
-    async def load(self, cap_id: str) -> _MemBacking | None:
-        if not self._user_id or _parse_memedit(cap_id) != "user":
-            return None  # 미지원 리소스·머신 → 존재 비노출
-        return _MemBacking("user")
-
-    def describe(self, _row: _MemBacking) -> Capability:
-        return self._cap(with_schema=True)
+    CAP_ID = f"{CAP_KIND_MEMORY_EDIT}:user"
+    CAP_NAME = "내 장기 기억 수정·삭제"
+    CAP_HOOK = "내 장기 기억(user_id 축) 수정/삭제 — 실행 전 승인 필요"
+    INPUT_SCHEMA: ClassVar[dict] = {
+        "type": "object",
+        "properties": {
+            "op": {"type": "string", "enum": ["update", "delete"]},
+            "mem_id": {"type": "string"},
+            "text": {"type": "string"},
+        },
+        "required": ["op", "mem_id"],
+    }
 
     @staticmethod
     def _validate(op: str, mem_id: str, text: str) -> str | None:
@@ -388,8 +354,7 @@ class MemEditProvider:
 
     async def invoke(self, _row: _MemBacking, args: dict) -> InvokeResult:
         # 여기 도달 = approval_for→interrupt로 **이미 승인**된 경우만(부수효과 1회, 멱등).
-        cap_id = f"{CAP_KIND_MEMORY_EDIT}:user"
-        raw = {"cap_id": cap_id, "kind": CAP_KIND_MEMORY_EDIT}
+        raw = {"cap_id": self.CAP_ID, "kind": self.kind}
         op, mem_id, text = _memedit_args(
             args
         )  # 승인 payload와 동일 정규화(승인한 것 == 실행되는 것)
@@ -409,9 +374,6 @@ class MemEditProvider:
                 raw=raw,
             )
         return await self._apply(op, mem_id, text, mem_cfg, raw)
-
-    def node_label(self, _row: _MemBacking) -> str:
-        return f"broker_invoke:{CAP_KIND_MEMORY_EDIT}:user"
 
     def approval_for(
         self, _row: _MemBacking, _cap_id: str, args: dict, _tool_policy: dict | None = None
