@@ -18,7 +18,7 @@ from agent.runtime import is_first_party
 
 from . import crypto
 from .auth import current_principal
-from .db import get_session
+from .db import get_or_404, get_session
 from .models import Agent, Collection, McpServer, MemoryType, Persona, User
 from .naming import assert_valid_name
 from .ownership import assert_may_manage, may_manage, may_use_agent, owner_of
@@ -80,19 +80,14 @@ async def create_persona(body: PersonaIn, session: AsyncSession = Depends(get_se
 
 @router.get("/personas/{id}", response_model=PersonaOut)
 async def get_persona(id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> Any:
-    obj = await session.get(Persona, id)
-    if obj is None:
-        raise HTTPException(status_code=404, detail="not found")
-    return obj
+    return await get_or_404(session, Persona, id)
 
 
 @router.put("/personas/{id}", response_model=PersonaOut)
 async def update_persona(
     id: uuid.UUID, body: PersonaIn, session: AsyncSession = Depends(get_session)
 ) -> Any:
-    obj = await session.get(Persona, id)
-    if obj is None:
-        raise HTTPException(status_code=404, detail="not found")
+    obj = await get_or_404(session, Persona, id)
     if body.name != obj.name:
         assert_valid_name(body.name)  # 이름 변경 시에만 규칙(기존은 grandfather, 스펙 148)
         # rename도 config["persona"] 참조를 깬다 — MCP(093)와 동일 가드(codex 148 High)
@@ -116,9 +111,7 @@ async def persona_agents(
 ) -> Any:
     """이 페르소나를 쓰는 에이전트 + 각 오래됨(stale) 상태(스펙 161). 편집 화면이 "N개 사용·M개
     오래됨"과 선택 반영 대상을 그린다. stale = 에이전트 스냅샷(agent.persona) != 현재 본문(obj.body)."""
-    obj = await session.get(Persona, id)
-    if obj is None:
-        raise HTTPException(status_code=404, detail="not found")
+    obj = await get_or_404(session, Persona, id)
     agents = (await session.execute(select(Agent))).scalars().all()
     return [
         PersonaUsageAgentOut(
@@ -147,9 +140,7 @@ async def persona_apply(
 ) -> Any:
     """선택 에이전트들의 페르소나 스냅샷을 이 페르소나 최신 본문으로 반영(스펙 161). **각 에이전트
     can_manage 게이트** — 관리 불가/이 페르소나 미참조 대상은 건너뛴다(남의 에이전트 무단 변경 금지)."""
-    obj = await session.get(Persona, id)
-    if obj is None:
-        raise HTTPException(status_code=404, detail="not found")
+    obj = await get_or_404(session, Persona, id)
     want = set(body.agentIds)
     agents = (await session.execute(select(Agent).where(Agent.id.in_(want)))).scalars().all()
     applied: list[uuid.UUID] = []
@@ -174,9 +165,7 @@ async def persona_apply(
 
 @router.delete("/personas/{id}", status_code=204)
 async def delete_persona(id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> None:
-    obj = await session.get(Persona, id)
-    if obj is None:
-        raise HTTPException(status_code=404, detail="not found")
+    obj = await get_or_404(session, Persona, id)
     # 참조 중 삭제 차단(093 operation-symmetry를 페르소나에도 — codex 148 High): 지우면
     # resolve_persona가 name 문자열 자체를 시스템 프롬프트로 쓰는 조용한 degrade가 생긴다.
     refs = await agents_referencing(session, "persona", obj.name)
@@ -206,19 +195,14 @@ async def create_memory_type(
 
 @router.get("/memory-types/{id}", response_model=MemoryTypeOut)
 async def get_memory_type(id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> Any:
-    obj = await session.get(MemoryType, id)
-    if obj is None:
-        raise HTTPException(status_code=404, detail="not found")
-    return obj
+    return await get_or_404(session, MemoryType, id)
 
 
 @router.put("/memory-types/{id}", response_model=MemoryTypeOut)
 async def update_memory_type(
     id: uuid.UUID, body: MemoryTypeIn, session: AsyncSession = Depends(get_session)
 ) -> Any:
-    obj = await session.get(MemoryType, id)
-    if obj is None:
-        raise HTTPException(status_code=404, detail="not found")
+    obj = await get_or_404(session, MemoryType, id)
     for key, value in body.model_dump().items():
         setattr(obj, key, value)
     await session.commit()
@@ -228,9 +212,7 @@ async def update_memory_type(
 
 @router.delete("/memory-types/{id}", status_code=204)
 async def delete_memory_type(id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> None:
-    obj = await session.get(MemoryType, id)
-    if obj is None:
-        raise HTTPException(status_code=404, detail="not found")
+    obj = await get_or_404(session, MemoryType, id)
     await session.delete(obj)
     await session.commit()
 
@@ -507,9 +489,7 @@ async def rediscover_mcp_server(
 
     저장된 자격증명을 **백엔드에서 복호**해 쓴다(프론트는 마스킹 토큰만 가져 재탐색 불가).
     enabled_tools는 새 목록과의 교집합으로 보존(사라진 도구만 떨어냄 — 임의 활성화 없음)."""
-    obj = await session.get(McpServer, id)
-    if obj is None:
-        raise HTTPException(status_code=404, detail="not found")
+    obj = await get_or_404(session, McpServer, id)
     assert_may_manage(obj, principal)  # 소유자/특권만(스펙 112)
     if obj.transport != "http" or not obj.url:
         raise HTTPException(
@@ -534,9 +514,7 @@ async def rediscover_mcp_server(
 
 @router.get("/mcp-servers/{id}", response_model=McpServerOut)
 async def get_mcp_server(id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> Any:
-    obj = await session.get(McpServer, id)
-    if obj is None:
-        raise HTTPException(status_code=404, detail="not found")
+    obj = await get_or_404(session, McpServer, id)
     return mcp_to_out(obj)
 
 
@@ -547,9 +525,7 @@ async def update_mcp_server(
     session: AsyncSession = Depends(get_session),
     principal: User | str = Depends(current_principal),
 ) -> Any:
-    obj = await session.get(McpServer, id)
-    if obj is None:
-        raise HTTPException(status_code=404, detail="not found")
+    obj = await get_or_404(session, McpServer, id)
     assert_may_manage(obj, principal)  # 소유자/특권만(스펙 112)
     data = _norm_description(body.model_dump())
     # source(유래)는 생성 후 불변(스펙 152, codex High) — external→local 세탁 후 publish하는
@@ -594,9 +570,7 @@ async def delete_mcp_server(
     session: AsyncSession = Depends(get_session),
     principal: User | str = Depends(current_principal),
 ) -> None:
-    obj = await session.get(McpServer, id)
-    if obj is None:
-        raise HTTPException(status_code=404, detail="not found")
+    obj = await get_or_404(session, McpServer, id)
     assert_may_manage(obj, principal)  # 소유자/특권만(스펙 112)
     # 참조 무결성(스펙 093): 이 서버 name을 config에 담은 에이전트가 있으면 삭제 차단.
     # 삭제하면 config에 dangling name만 남아 런타임이 조용히 도구 없이 동작한다.
@@ -614,9 +588,7 @@ async def publish_mcp_server(
     session: AsyncSession = Depends(get_session),
     principal: User | str = Depends(current_principal),
 ) -> Any:
-    obj = await session.get(McpServer, id)
-    if obj is None:
-        raise HTTPException(status_code=404, detail="not found")
+    obj = await get_or_404(session, McpServer, id)
     assert_may_manage(obj, principal)  # 소유자/특권만(스펙 112)
     if body.published and obj.source != "custom":
         # published=커스텀 MCP "외부 서빙" 전용 축(스펙 211 — 사용 공유 게이트 소멸로 의미 축소).

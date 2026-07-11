@@ -16,7 +16,7 @@ from sqlalchemy.orm import selectinload
 
 from . import crypto
 from .auth import current_principal
-from .db import get_session
+from .db import get_or_404, get_session
 from .models import Agent, AgentVersion, Collection, ModelConfig, Provider, User
 from .ownership import is_privileged
 from .schemas import ModelIn, ModelOut, ModelProbeIn, ModelProbeResult
@@ -206,9 +206,7 @@ async def test_model_config(
     body: ModelProbeIn, session: AsyncSession = Depends(get_session)
 ) -> ModelProbeResult:
     """입력값(새 모델/편집)으로 연결 테스트. 연결처는 선택한 provider에서 취득."""
-    p = await session.get(Provider, body.provider_id)
-    if p is None:
-        raise HTTPException(status_code=404, detail="provider not found")
+    p = await get_or_404(session, Provider, body.provider_id, detail="provider not found")
     return await _probe(p.base_url, crypto.decrypt(p.api_key), body.model_id, body.kind)
 
 
@@ -263,9 +261,7 @@ async def get_model(model_id: uuid.UUID, session: AsyncSession = Depends(get_ses
 async def update_model(
     model_id: uuid.UUID, body: ModelIn, session: AsyncSession = Depends(get_session)
 ) -> ModelOut:
-    m = await session.get(ModelConfig, model_id)
-    if m is None:
-        raise HTTPException(status_code=404, detail="not found")
+    m = await get_or_404(session, ModelConfig, model_id)
     await _require_provider(session, body.provider_id)
     m.name = body.name
     m.provider_id = body.provider_id
@@ -289,9 +285,7 @@ async def set_default_model(
     """이 모델을 그 kind(chat/embedding)의 기본으로 지정 — 같은 kind의 기존 기본은 자동 해제
     (스펙 150, 실사용 버그 #1: 등록 모달에만 기본 스위치가 있어 삭제 후 재등록으로만 전환 가능했다).
     전용 액션인 이유: 프론트가 부분 데이터로 full PUT을 재구성하면 params/meta 유실 위험."""
-    m = await session.get(ModelConfig, model_id)
-    if m is None:
-        raise HTTPException(status_code=404, detail="not found")
+    m = await get_or_404(session, ModelConfig, model_id)
     if m.kind not in ("chat", "embedding"):
         # 레거시/수동 행 방어(codex 150) — 런타임은 chat/embedding 기본만 읽으므로 그 외 kind의
         # "기본 지정 성공"은 아무 효과 없는 거짓 성공이 된다.
@@ -311,9 +305,7 @@ async def set_default_model(
 
 @router.delete("/{model_id}", status_code=204, dependencies=[_manage])
 async def delete_model(model_id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> None:
-    m = await session.get(ModelConfig, model_id)
-    if m is None:
-        raise HTTPException(status_code=404, detail="not found")
+    m = await get_or_404(session, ModelConfig, model_id)
     # 에이전트는 모델을 *이름*으로 참조(FK 없음 — learning 042). 참조 중이면 삭제 차단해
     # 런타임이 사라진 모델을 가리키지 않게 한다. column(model)·config.model 둘 다 검사.
     refs = (

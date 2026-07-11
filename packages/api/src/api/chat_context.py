@@ -17,7 +17,7 @@ from sqlalchemy.orm import selectinload
 from agent.runtime import is_remote_source
 
 from . import crypto, runtime
-from .db import SessionLocal
+from .db import SessionLocal, get_or_404
 from .mem_config import _build_mem_cfg, _default_chat_model, _default_embed_model
 from .models import Agent, Collection, McpServer, ModelConfig, Session
 from .references import config_names
@@ -524,9 +524,7 @@ async def _load_context(
     if session_str_id and "\x00" in session_str_id:
         session_str_id = None
     async with SessionLocal() as db:
-        agent = await db.get(Agent, agent_id)
-        if agent is None:
-            raise HTTPException(status_code=404, detail="agent not found")
+        agent = await get_or_404(db, Agent, agent_id, detail="agent not found")
         cfg = dict(agent.config or {})
         # (스펙 211) 구 113 P0의 저장본/override 권한 분리(stored_mcps 포착)는 사용=공용 전환으로 소멸.
         cfg, persona, pinned_version = await _resolve_version_and_persona(db, agent, cfg, version)

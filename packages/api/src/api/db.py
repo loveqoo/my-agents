@@ -8,12 +8,26 @@ from pathlib import Path
 from alembic import command
 from alembic.config import Config
 from dotenv import load_dotenv
+from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from .models import Base
 
 logger = logging.getLogger(__name__)
+
+
+async def get_or_404[T](
+    session: AsyncSession, model: type[T], ident: object, detail: str = "not found"
+) -> T:
+    """PK 조회 후 없으면 404(정본, 스펙 297). **순수 존재 체크만** — 소유권/가시성 게이트는 호출부가
+    별도로 수행한다(이 헬퍼는 SELECT-WHERE 스코프를 대체하지 않는다). session.get은 항상 PK 조회라
+    스코프 우회 위험이 없다."""
+    obj = await session.get(model, ident)
+    if obj is None:
+        raise HTTPException(status_code=404, detail=detail)
+    return obj
+
 
 load_dotenv()
 

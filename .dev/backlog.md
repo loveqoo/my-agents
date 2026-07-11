@@ -341,6 +341,7 @@
 - [후보] verify_103_broker_rag.py(coroutine StopIteration)·verify_130/131(invocations[0] IndexError) P1 사전 실패: 스펙 294서 pristine HEAD 동일 실패로 차등 확정(내 변경 무관, 낡은 mock/픽스처). verify_100과 같은 stale verify 부류 — 일괄 갱신 대상.
 - [후보] verify_190_nocode_artifact.py P1 사전 실패: langgraph produce_node()에 config 인자 누락(버전 시그니처 드리프트). 스펙 295서 pristine HEAD 동일 실패로 차등 확정(무관). stale verify 부류.
 - [후보] 스펙 296 = 남은 공통화 B: api A2A 프레이밍 3중(mock_remote↔a2a_server)·get-or-404 인라인 36곳→db.get_or_404·_card_streaming·_assert_valid_name→naming·_non_blank. authz _own_scope/_is_admin은 저자 의도(라우터 독립)라 설계판단+적대검증 별도. eval_* 계열 중복은 미전수(추가 조사).
-- [진행] 스펙 297 = get-or-404 정본화(36곳 session.get+404→db.get_or_404). **순수 PK-get만**, 소유권-스코프 fetch(SELECT-WHERE·조인)는 제외 — RBAC 체크리스트+codex 적대(404 fold·존재 비노출 보존). 스펙 296서 A2A프레이밍·card_streaming·assert_valid_name·_non_blank는 완료.
+- ✅**스펙 297 = get-or-404 정본화 완료**(2026-07-11, 회고 272). session.get+404 관용구→`db.get_or_404[T]`(PEP695). 전수=**37곳**(예상 36 아님): 1차 분류 33 + 견고 스캐너가 잡은 멀티라인·꼬리주석 near-miss 4(eval_cases2·eval_authoring2)—"정규식 놓침을 무해로 방치"가 census-lens 재발이라 전량 편입. 순수 PK-get만·결합게이트 제외·존재-404→assert_may_manage 순서보존. verify_112/147/148/104+스위트 51/51·codex 여집합 결함0. **에이전트 dedup 4연작(294~297) 마감.**
+  - [잔여 백로그] authz `_own_scope`/`_is_admin` dedup(라우터 독립성 설계판단+적대 필요)·eval_* 내부 중복(미전수)·stale verifier 일괄 갱신(100/103/130/131/190/084).
 - [후보] verify_084_memory_search.py P1 사전 실패: fake `A` 객체 .source 누락(스펙 183 이후 픽스처 미갱신). pristine HEAD 동일 실패 확정(무관). stale verify 부류(100·103·130·131·190과 함께).
 - [후보] verify_061_a2a_exposure 사전 실패: chat.stream_local_reply monkeypatch 실효 안 함(원본에서도 동일 실패 — 3b-1 차등 확정). 관련: chat 분할 후 파사드 재할당은 분할 모듈에 늦은 바인딩 안 됨(codex 3b-1 Low — 미문서 경계로 기록, 실사용 테스트 0. monkeypatch 필요 시 각 모듈 심볼을 직접 패치).

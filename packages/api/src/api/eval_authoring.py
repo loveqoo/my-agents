@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .auth import current_principal
 from .background import spawn
-from .db import SessionLocal, get_session
+from .db import SessionLocal, get_or_404, get_session
 from .eval_common import _dataset_or_404, _dataset_out, router
 from .eval_guards import _active_jobs, _helper_llm, _member_job_guard
 from .eval_schemas import (
@@ -355,11 +355,8 @@ async def harvest_count(
     user: User | str = Depends(current_principal),
 ) -> HarvestCountOut:
     """수확 가능 피드백 수 + 기존 수확 문제집. 에이전트 소유자/admin만(수확=관리 행위, 비소유 404-fold)."""
-    agent = await session.get(Agent, agent_id)
-    if (
-        agent is None
-    ):  # 미존재 → 404(특권도, codex P2 F4 — assert_may_manage(None,superuser)는 통과해버림)
-        raise HTTPException(status_code=404, detail="agent not found")
+    # 미존재 → 404(특권도, codex P2 F4 — assert_may_manage(None,superuser)는 통과해버림)
+    agent = await get_or_404(session, Agent, agent_id, detail="agent not found")
     assert_may_manage(
         agent, user, not_found_detail="agent not found"
     )  # 소유자/admin만(존재 비노출)
@@ -380,9 +377,8 @@ async def harvest_feedback(
     """에이전트 피드백(👍/👎) → 초안 평가 케이스 수확. 에이전트별 "피드백 수확" 문제집(source_agent_pk로
     idempotent 재사용)에 draft로 append, 배경 LLM 작업(기준 합성). 소유권=에이전트 소유자/admin(비소유
     404-fold). 초안 게이트: 자동 활성화 없음 — 관리자가 EvalView에서 검토(스펙 209 §C)."""
-    agent = await session.get(Agent, body.agent_id)
-    if agent is None:  # 미존재 → 404(특권도, codex P2 F4)
-        raise HTTPException(status_code=404, detail="agent not found")
+    # 미존재 → 404(특권도, codex P2 F4)
+    agent = await get_or_404(session, Agent, body.agent_id, detail="agent not found")
     assert_may_manage(
         agent, user, not_found_detail="agent not found"
     )  # 소유자/admin만(존재 비노출)

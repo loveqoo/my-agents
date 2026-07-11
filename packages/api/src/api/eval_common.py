@@ -9,6 +9,7 @@ import uuid
 from fastapi import APIRouter, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .db import get_or_404
 from .eval_harness import build_asserts
 from .eval_schemas import DatasetOut
 from .models import EvalDataset, User
@@ -65,11 +66,8 @@ def _validate_asserts(asserts: list) -> None:
 
 
 async def _dataset_or_404(session: AsyncSession, dataset_id: uuid.UUID) -> EvalDataset:
-    """문제집 조회 — 없으면 404."""
-    ds = await session.get(EvalDataset, dataset_id)
-    if ds is None:
-        raise HTTPException(status_code=404, detail="dataset not found")
-    return ds
+    """문제집 조회 — 없으면 404(정본 get_or_404 위임, 스펙 297)."""
+    return await get_or_404(session, EvalDataset, dataset_id, detail="dataset not found")
 
 
 def _gate_harvest_read(ds: EvalDataset, user: User | str) -> None:

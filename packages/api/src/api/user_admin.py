@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from . import authz
-from .db import get_session
+from .db import get_or_404, get_session
 from .models import Role, User
 from .schemas import AdminUserOut, PolicyIn, PolicyOut, RoleAssignIn, RoleOut, UserCreate
 from .users import UserManager, get_user_manager
@@ -89,9 +89,7 @@ async def set_active(
     active: bool,
     session: AsyncSession = Depends(get_session),
 ) -> AdminUserOut:
-    user = await session.get(User, user_id)
-    if user is None:
-        raise HTTPException(status_code=404, detail="유저를 찾을 수 없습니다")
+    user = await get_or_404(session, User, user_id, detail="유저를 찾을 수 없습니다")
     user.is_active = active
     await session.commit()
     await session.refresh(user)
@@ -110,9 +108,7 @@ async def grant_role(
     body: RoleAssignIn,
     session: AsyncSession = Depends(get_session),
 ) -> AdminUserOut:
-    user = await session.get(User, user_id)
-    if user is None:
-        raise HTTPException(status_code=404, detail="유저를 찾을 수 없습니다")
+    user = await get_or_404(session, User, user_id, detail="유저를 찾을 수 없습니다")
     await authz.assign_role(str(user_id), body.role)
     return await _to_out(user)
 
@@ -123,9 +119,7 @@ async def revoke_role(
     role: str,
     session: AsyncSession = Depends(get_session),
 ) -> AdminUserOut:
-    user = await session.get(User, user_id)
-    if user is None:
-        raise HTTPException(status_code=404, detail="유저를 찾을 수 없습니다")
+    user = await get_or_404(session, User, user_id, detail="유저를 찾을 수 없습니다")
     await authz.remove_role(str(user_id), role)
     return await _to_out(user)
 

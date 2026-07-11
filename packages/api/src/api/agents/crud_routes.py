@@ -10,7 +10,7 @@ from sqlalchemy.orm import selectinload
 
 from ..auth import current_principal
 from ..chat import derive_pipeline_pool
-from ..db import get_session
+from ..db import get_or_404, get_session
 from ..models import Agent, AgentVersion, User
 from ..naming import assert_valid_name
 from ..ownership import assert_may_manage, may_manage, may_use_agent, owner_of
@@ -355,9 +355,7 @@ async def delete_agent(
     session: AsyncSession = Depends(get_session),
     principal: User | str = Depends(current_principal),
 ) -> None:
-    agent = await session.get(Agent, agent_id)
-    if agent is None:
-        raise HTTPException(status_code=404, detail="agent not found")
+    agent = await get_or_404(session, Agent, agent_id, detail="agent not found")
     assert_may_manage(
         agent, principal, not_found_detail="agent not found"
     )  # 소유자/특권만(스펙 112)

@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .auth import current_principal
 from .background import spawn
-from .db import SessionLocal, get_session
+from .db import SessionLocal, get_or_404, get_session
 from .eval_common import _dataset_or_404, log, router
 from .eval_env import _env_snapshot, _model_env
 from .eval_guards import _active_jobs, _member_run_guard
@@ -577,9 +577,7 @@ async def get_run(
     session: AsyncSession = Depends(get_session),
     user: User | str = Depends(current_principal),
 ) -> RunDetailOut:
-    run = await session.get(EvalRun, run_id)
-    if run is None:
-        raise HTTPException(status_code=404, detail="run not found")
+    run = await get_or_404(session, EvalRun, run_id, detail="run not found")
     ds = await session.get(
         EvalDataset, run.dataset_id
     )  # 성적표 제목용(codex 137 #4 — 목록만 채우던 것)

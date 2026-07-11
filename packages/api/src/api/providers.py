@@ -18,7 +18,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from . import catalog, crypto
-from .db import get_session
+from .db import get_or_404, get_session
 from .model_registry import _probe, require_model_manage
 from .models import ModelConfig, Provider
 from .schemas import (
@@ -75,9 +75,7 @@ async def test_saved_provider(
     provider_id: uuid.UUID, session: AsyncSession = Depends(get_session)
 ) -> ModelProbeResult:
     """저장된 provider로 도달성 테스트(키 복호화)."""
-    p = await session.get(Provider, provider_id)
-    if p is None:
-        raise HTTPException(status_code=404, detail="not found")
+    p = await get_or_404(session, Provider, provider_id)
     return await _probe(p.base_url, crypto.decrypt(p.api_key), "", "chat")
 
 
@@ -144,9 +142,7 @@ async def available_models(
 
     이미 등록된 모델 중 원격 목록에 없는 것도 포함(토글 OFF가 가능하도록).
     """
-    p = await session.get(Provider, provider_id)
-    if p is None:
-        raise HTTPException(status_code=404, detail="not found")
+    p = await get_or_404(session, Provider, provider_id)
     reachable, detail, ids = await _list_remote_models(p.base_url, crypto.decrypt(p.api_key))
 
     rows = (
@@ -191,9 +187,7 @@ async def available_models(
 async def get_provider(
     provider_id: uuid.UUID, session: AsyncSession = Depends(get_session)
 ) -> ProviderOut:
-    p = await session.get(Provider, provider_id)
-    if p is None:
-        raise HTTPException(status_code=404, detail="not found")
+    p = await get_or_404(session, Provider, provider_id)
     counts = await _model_counts(session)
     return provider_to_out(p, counts.get(p.id, 0))
 
@@ -202,9 +196,7 @@ async def get_provider(
 async def update_provider(
     provider_id: uuid.UUID, body: ProviderIn, session: AsyncSession = Depends(get_session)
 ) -> ProviderOut:
-    p = await session.get(Provider, provider_id)
-    if p is None:
-        raise HTTPException(status_code=404, detail="not found")
+    p = await get_or_404(session, Provider, provider_id)
     p.name = body.name
     p.protocol = body.protocol
     p.base_url = body.base_url
@@ -227,9 +219,7 @@ async def update_provider(
 async def delete_provider(
     provider_id: uuid.UUID, session: AsyncSession = Depends(get_session)
 ) -> None:
-    p = await session.get(Provider, provider_id)
-    if p is None:
-        raise HTTPException(status_code=404, detail="not found")
+    p = await get_or_404(session, Provider, provider_id)
     # 매달린 모델이 있으면 차단(RESTRICT). DB IntegrityError에 의존하지 않고 선제 검사로
     # 친절한 메시지를 준다(스펙 035 결정 2).
     n = (

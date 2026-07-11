@@ -21,7 +21,7 @@ from sqlalchemy.orm import selectinload
 
 from . import crypto, rag_ingest
 from .auth import current_principal
-from .db import get_session
+from .db import get_or_404, get_session
 from .model_registry import _probe
 from .models import RAG_EMBED_DIMS, Chunk, Collection, Document, ModelConfig, User
 from .naming import validate_resource_name
@@ -259,9 +259,7 @@ async def delete_collection(
     session: AsyncSession = Depends(get_session),
     principal: User | str = Depends(current_principal),
 ) -> None:
-    c = await session.get(Collection, cid)
-    if c is None:
-        raise HTTPException(status_code=404, detail="not found")
+    c = await get_or_404(session, Collection, cid)
     assert_may_manage(c, principal)  # 소유자/특권만(스펙 112)
     # 참조 무결성(스펙 093): 이 컬렉션 name을 vectorTables에 담은 에이전트가 있으면 삭제 차단.
     # 삭제하면 config에 dangling name만 남아 런타임이 조용히 RAG 없이 동작(chat.py 미해석).
@@ -389,9 +387,7 @@ async def list_documents(
     세션(list_sessions)과 동형: LIMIT/OFFSET + count total + ilike(`_like_escape` 재사용 — 단일 출처).
     스코프(collection_id)는 SQL WHERE. 사용은 전부 공용(스펙 172) — 로그인한 누구나 문서 목록 조회
     가능(익명은 current_principal이 401). 존재 404만 유지(관리는 여전히 소유자만)."""
-    col = await session.get(Collection, cid)
-    if col is None:
-        raise HTTPException(status_code=404, detail="not found")
+    await get_or_404(session, Collection, cid)  # 존재 404만(관리는 소유자만 — 아래 스코프 무관)
     base = select(Document).where(Document.collection_id == cid)
     if q and q.strip():
         base = base.where(Document.filename.ilike(f"%{_like_escape(q.strip())}%", escape="\\"))

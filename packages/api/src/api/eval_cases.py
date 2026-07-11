@@ -5,12 +5,12 @@
 
 import uuid
 
-from fastapi import Depends, HTTPException
+from fastapi import Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .auth import current_principal
-from .db import get_session
+from .db import get_or_404, get_session
 from .eval_common import _dataset_or_404, _gate_harvest_read, _validate_asserts, router
 from .eval_schemas import CaseIn, CaseOut
 from .models import EvalCase, EvalDataset, User
@@ -70,14 +70,10 @@ async def update_case(
     session: AsyncSession = Depends(get_session),
     user: User | str = Depends(current_principal),
 ) -> CaseOut:
-    case = await session.get(EvalCase, case_id)
-    if case is None:
-        raise HTTPException(status_code=404, detail="case not found")
-    ds = await session.get(
-        EvalDataset, case.dataset_id
-    )  # 케이스는 owner 없음 — 부모 문제집으로 판정
-    if ds is None:
-        raise HTTPException(status_code=404, detail="case not found")
+    case = await get_or_404(session, EvalCase, case_id, detail="case not found")
+    ds = await get_or_404(  # 케이스는 owner 없음 — 부모 문제집으로 판정
+        session, EvalDataset, case.dataset_id, detail="case not found"
+    )
     assert_may_manage(ds, user, not_found_detail="case not found")  # 소유자만(비소유 404-fold)
     _validate_asserts(body.asserts)
     if body.name is not None:  # 스펙 195: 미전송이면 기존 해시 이름 보존(덮어쓰기 금지)
@@ -93,12 +89,10 @@ async def delete_case(
     session: AsyncSession = Depends(get_session),
     user: User | str = Depends(current_principal),
 ) -> None:
-    case = await session.get(EvalCase, case_id)
-    if case is None:
-        raise HTTPException(status_code=404, detail="case not found")
-    ds = await session.get(EvalDataset, case.dataset_id)  # 부모 문제집으로 소유 판정
-    if ds is None:
-        raise HTTPException(status_code=404, detail="case not found")
+    case = await get_or_404(session, EvalCase, case_id, detail="case not found")
+    ds = await get_or_404(  # 부모 문제집으로 소유 판정
+        session, EvalDataset, case.dataset_id, detail="case not found"
+    )
     assert_may_manage(ds, user, not_found_detail="case not found")  # 소유자만(비소유 404-fold)
     await session.delete(case)
     await session.commit()
