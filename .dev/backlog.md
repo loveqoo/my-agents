@@ -338,4 +338,5 @@
 - antd v6 deprecation 신규 관측: Descriptions labelStyle→styles.label (154 콘솔, 208 규칙에 따라 후속)
 - [후보] 낡은 verify 스크립트 2건 수리: verify_036_rag_ingest(KeyError 'id')·verify_056_session_cleanup_counter(3건 FAIL) — 291 이전 커밋 worktree 차등으로 기존 부채 확정(2026-07-11 재검증). ~~verify_038~~은 기존 부채가 아니라 **Phase 2 회귀**(keyword-only run_id 개명)였고 mypy 도입(Phase 4)이 적발·수리, ALL PASS 복귀. 교훈: stash 차등은 미커밋만 걷어냄 — 기준점은 스펙 시작 전 커밋 worktree로.
 - [후보] verify_100_broker.py P1 사전 실패: _FakeAgent에 active_version 속성 없음 — 스펙 256 위임 게이트(active_version 검사) 이후 픽스처 미갱신. 원본/분할판 동일 실패(2026-07-11 Phase 3b-2서 차등 확정). 낡은 verify 3건(036·038·056)과 같은 부류.
+- [후보] verify_103_broker_rag.py(coroutine StopIteration)·verify_130/131(invocations[0] IndexError) P1 사전 실패: 스펙 294서 pristine HEAD 동일 실패로 차등 확정(내 변경 무관, 낡은 mock/픽스처). verify_100과 같은 stale verify 부류 — 일괄 갱신 대상.
 - [후보] verify_061_a2a_exposure 사전 실패: chat.stream_local_reply monkeypatch 실효 안 함(원본에서도 동일 실패 — 3b-1 차등 확정). 관련: chat 분할 후 파사드 재할당은 분할 모듈에 늦은 바인딩 안 됨(codex 3b-1 Low — 미문서 경계로 기록, 실사용 테스트 0. monkeypatch 필요 시 각 모듈 심볼을 직접 패치).

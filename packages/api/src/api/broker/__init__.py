@@ -66,6 +66,7 @@ from .common import (  # noqa: F401  (재노출)
     _parse_rag,
     _rt,
 )
+from .composition import BrokerContext, build_providers  # noqa: F401  (재노출, 스펙 294)
 from .core import PolicyScopedBroker, _rbac_allows, build_broker  # noqa: F401  (재노출)
 from .providers.agent import (  # noqa: F401  (재노출)
     A2A_DELEGATE_PERMISSION,

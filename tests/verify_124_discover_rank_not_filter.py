@@ -21,6 +21,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "packages", "api", "src"))
 
 from api.broker import PolicyScopedBroker  # noqa: E402
+from api.broker import BrokerContext, build_providers  # noqa: E402, F401  (스펙 294)
 
 _fails: list[str] = []
 passed = 0
@@ -36,7 +37,7 @@ def check(cond: bool, msg: str) -> None:
 
 
 def _broker(allowlist, rbac=lambda kind, name=None: True):
-    return PolicyScopedBroker(allowlist=allowlist, rbac_allows=rbac, user_id="u-verify124")
+    return PolicyScopedBroker(allowlist=allowlist, rbac_allows=rbac, providers=build_providers(BrokerContext(user_id="u-verify124")))
 
 
 async def main() -> None:

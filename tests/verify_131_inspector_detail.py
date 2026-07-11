@@ -17,6 +17,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from api import runtime  # noqa: E402
 from api.broker import PolicyScopedBroker  # noqa: E402
+from api.broker import BrokerContext, build_providers  # noqa: E402, F401  (스펙 294)
 from api.chat import _broker_calls_trace  # noqa: E402
 
 _fails: list[str] = []
@@ -34,7 +35,7 @@ def check(cond: bool, msg: str) -> None:
 
 async def main() -> None:
     # V1 — 실 컬렉션
-    b = PolicyScopedBroker(allowlist=["rag:Obsidian"], rbac_allows=lambda k, n=None: True, user_id="v131")
+    b = PolicyScopedBroker(allowlist=["rag:Obsidian"], rbac_allows=lambda k, n=None: True, providers=build_providers(BrokerContext(user_id="v131")))
     await b.invoke("rag:Obsidian", {"text": "A/B 테스트에서 중요한 것은?"})
     inv = b.invocations[0]
     rp = inv.get("resultPreview", "")
@@ -59,7 +60,7 @@ async def main() -> None:
         async def load(self, cap_id):
             return object()
 
-    b2 = PolicyScopedBroker(allowlist=["mcp:fake"], rbac_allows=lambda k, n=None: True, user_id="v131")
+    b2 = PolicyScopedBroker(allowlist=["mcp:fake"], rbac_allows=lambda k, n=None: True, providers=build_providers(BrokerContext(user_id="v131")))
     fake = FakeProv()
     b2._by_kind["mcp"] = fake
     res = await b2.invoke("mcp:fake/tool", {"a": 1})

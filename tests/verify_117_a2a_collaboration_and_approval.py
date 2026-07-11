@@ -19,6 +19,7 @@ import httpx
 
 from api.auth import _token, current_principal
 from api.main import app
+from api.broker import BrokerContext, build_providers  # noqa: E402, F401  (스펙 294)
 
 # 위임은 유저 세션 RBAC 통과 필요(머신토큰 deny-by-default, learning 110). 채팅 EP principal만 슈퍼유저로.
 class _SuperPrincipal:
@@ -195,7 +196,7 @@ async def part_b_integration():
         await s.commit()
 
     try:
-        broker = PolicyScopedBroker({tid}, lambda k, name=None: True, session_factory=SessionLocal)
+        broker = PolicyScopedBroker({tid}, lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=SessionLocal)))
 
         class S(TypedDict):
             out: str

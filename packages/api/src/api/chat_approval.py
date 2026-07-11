@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from .chat import _MemoryRecallProxy
 
 from . import authz, checkpointer, memory, observability, runtime
-from .broker import PolicyScopedBroker
+from .broker import BrokerContext, PolicyScopedBroker, build_providers
 from .chat_context import _load_context
 from .chat_history import _HistoryWindowProxy, _load_session_conversation, _to_base_messages
 from .chat_persist import _persist, _resolve_session_for_persist
@@ -130,15 +130,16 @@ async def _build_resume_broker(
     # user_id 주입(스펙 104) — MemoryProvider가 재개 경로에서도 원 요청자 스코프를 복원한다. 없으면
     # 재개 시 `memory:user`가 사라져 자기 기억 접근이 깨진다(fail-closed지만 기능 회귀, 적대 리뷰 104 P2).
     # principal(원 요청자)·delegation_chain(루트) 관통 — 로컬 위임 재개 봉합(codex 256 [P2]).
-    return PolicyScopedBroker(
-        capabilities,
-        rbac_allows,
-        user_id=user_id,
-        tool_policy=tool_policy,
-        principal=requester,
-        delegation_chain=delegation_chain,
-        delegation_budget=delegation_budget,
+    # 스펙 294: 조립은 build_providers(BrokerContext) 단일 출처 — 브로커는 소비만.
+    providers = build_providers(
+        BrokerContext(
+            principal=requester,
+            user_id=user_id,
+            delegation_chain=delegation_chain,
+            delegation_budget=delegation_budget,
+        )
     )
+    return PolicyScopedBroker(capabilities, rbac_allows, providers, tool_policy=tool_policy)
 
 
 def _impl_drifted(snap_impl: str | None, cur_impl: str | None) -> bool:

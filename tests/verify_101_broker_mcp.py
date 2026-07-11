@@ -44,6 +44,8 @@ from sqlalchemy import delete, select  # noqa: E402
 
 from api import mock_mcp, runtime  # noqa: E402
 from api.broker import (  # noqa: E402
+    BrokerContext,
+    build_providers,
     AgentProvider,
     CapabilityNotFoundError,
     McpProvider,
@@ -141,15 +143,15 @@ def unit_checks() -> None:
     check(mp._mcp_allow({"agt_x"}) == {}, "U2 mcp 항목 없음 → {}(모집단 공집합)")
 
     # U3 _permitted mcp 의미론 — 정확 툴 OR 서버 전체가 덮음. RBAC 교집합.
-    bt = PolicyScopedBroker({ECHO_CAP}, lambda k, name=None: True, session_factory=_raise_factory())
+    bt = PolicyScopedBroker({ECHO_CAP}, lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=_raise_factory())))
     check(bt._permitted(ECHO_CAP) is True, "U3 정확 툴 허용 → permitted")
     check(bt._permitted(WEBSEARCH_CAP) is False, "U3 같은 서버 다른 툴 → deny(툴 단위)")
     check(bt._permitted("mcp:other/echo") is False, "U3 다른 서버 같은 툴명 → deny(비노출)")
-    bw = PolicyScopedBroker({f"mcp:{MCP}"}, lambda k, name=None: True, session_factory=_raise_factory())
+    bw = PolicyScopedBroker({f"mcp:{MCP}"}, lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=_raise_factory())))
     check(bw._permitted(ECHO_CAP) is True and bw._permitted(DELETE_CAP) is True,
           "U3 서버 전체 허용 → 그 서버 임의 툴 permitted")
     check(bw._permitted("mcp:other/x") is False, "U3 서버 전체는 다른 서버로 누출 안 됨(deny-by-default)")
-    brd = PolicyScopedBroker({ECHO_CAP}, lambda k, name=None: False, session_factory=_raise_factory())
+    brd = PolicyScopedBroker({ECHO_CAP}, lambda k, name=None: False, providers=build_providers(BrokerContext(session_factory=_raise_factory())))
     check(brd._permitted(ECHO_CAP) is False, "U3 RBAC 거부 → deny(교집합)")
 
     # U4 approval_for — MCP 승인 정책은 _APPROVAL_ACTIONS 재사용(드리프트0), agent는 항상 None.
@@ -175,7 +177,7 @@ def unit_checks() -> None:
     check(_adapt_args(multi, {"text": "q"}) == {"query": "q"}, "U5 다중 파라미터 → 알려진 이름(query)로 매핑")
 
     # U6 provider 라우팅 — 브로커가 kind provider를 보유하고 kind→provider 매핑(rag는 스펙 103서 추가).
-    b = PolicyScopedBroker([], lambda k, name=None: True, session_factory=_raise_factory())
+    b = PolicyScopedBroker([], lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=_raise_factory())))
     check({"agent", "mcp"} <= set(b._by_kind), "U6 브로커가 agent·mcp provider 보유")
     check(isinstance(b._by_kind["mcp"], McpProvider) and isinstance(b._by_kind["agent"], AgentProvider),
           "U6 kind→provider 매핑 정확(라우팅 토대)")
@@ -194,13 +196,13 @@ def unit_checks() -> None:
 async def unit_async_checks() -> None:
     print("[U] 단위(async) — deny-by-default가 DB/네트워크 미접촉(mcp 축)")
     # 빈 allowlist → discover [](provider.candidates 미호출 = DB/네트워크 미접촉).
-    b_empty = PolicyScopedBroker([], lambda k, name=None: True, session_factory=_raise_factory())
+    b_empty = PolicyScopedBroker([], lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=_raise_factory())))
     check(await b_empty.discover("delete_record") == [], "U8 빈 allowlist → [](DB 미접촉)")
     # mcp allowlist는 있으나 RBAC 거부 → provider 미호출(존재 누출 0).
-    b_rbac = PolicyScopedBroker({ECHO_CAP}, lambda k, name=None: False, session_factory=_raise_factory())
+    b_rbac = PolicyScopedBroker({ECHO_CAP}, lambda k, name=None: False, providers=build_providers(BrokerContext(session_factory=_raise_factory())))
     check(await b_rbac.discover("echo") == [], "U8 RBAC 거부 → [](provider 미호출·DB 미접촉)")
     # mcp 미허가 invoke → not-found(존재 비노출), DB 미접촉.
-    b = PolicyScopedBroker({ECHO_CAP}, lambda k, name=None: True, session_factory=_raise_factory())
+    b = PolicyScopedBroker({ECHO_CAP}, lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=_raise_factory())))
     res = await b.invoke("mcp:local-tools/nonexistent", {"text": "x"})
     check(res.error is not None and res.text == "" and res.trust == "untrusted",
           "U8 미허가 mcp invoke → not-found(존재 비노출·DB 미접촉)")
@@ -221,7 +223,7 @@ async def integration_broker() -> None:
     print("[H] 통합 — 실 mock MCP discover/describe/invoke·deny-by-default(툴/서버전체/교차)")
 
     # H1 툴 단위 discover/describe/invoke echo 왕복.
-    b = PolicyScopedBroker({ECHO_CAP}, lambda k, name=None: True, session_factory=SessionLocal)
+    b = PolicyScopedBroker({ECHO_CAP}, lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=SessionLocal)))
     caps = await b.discover("echo")
     ids = {c.id for c in caps}
     check(ids == {ECHO_CAP}, f"H1 discover echo → {{{ECHO_CAP}}} (got {ids})")
@@ -253,7 +255,7 @@ async def integration_broker() -> None:
     check(rdeny.error is not None and rdeny.text == "", "H2 미허가 툴 invoke → not-found(호출 경계 재검증)")
 
     # H3 서버 전체(mcp:server) → 그 서버 enabled 툴 전부 발견.
-    bw = PolicyScopedBroker({f"mcp:{MCP}"}, lambda k, name=None: True, session_factory=SessionLocal)
+    bw = PolicyScopedBroker({f"mcp:{MCP}"}, lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=SessionLocal)))
     wids = {c.id for c in await bw.discover("")}
     check({ECHO_CAP, WEBSEARCH_CAP, DELETE_CAP} <= wids,
           f"H3 서버 전체 → enabled 툴 전부 발견 (got {wids})")
@@ -261,7 +263,7 @@ async def integration_broker() -> None:
     check(rw.error is None and rw.text, "H3 서버 전체 허가로 개별 툴 invoke 성공")
 
     # H4 교차 서버 비노출 — 다른 서버명만 허가하면 local-tools는 존재해도 미노출(deny-by-default).
-    bx = PolicyScopedBroker({"mcp:some-other-server"}, lambda k, name=None: True, session_factory=SessionLocal)
+    bx = PolicyScopedBroker({"mcp:some-other-server"}, lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=SessionLocal)))
     check(await bx.discover("echo") == [], "H4 다른 서버만 허가 → local-tools 미노출(서버 전체 누출 없음)")
 
 
@@ -304,7 +306,7 @@ async def hil_graph_level() -> None:
     oa = OrchestrateAgent()
 
     # approve — interrupt 이전 부수효과 0, 재개 후 정확히 1회 전송.
-    b = PolicyScopedBroker({DELETE_CAP}, lambda k, name=None: True, session_factory=SessionLocal)
+    b = PolicyScopedBroker({DELETE_CAP}, lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=SessionLocal)))
     graph = oa.build_graph(_ctx(broker=b, checkpointer=MemorySaver()))
     cfg = {"configurable": {"thread_id": "v101-h6a"}}
     interrupted, _ = await _stream(graph, {"messages": [{"role": "user", "content": "delete_record"}]}, cfg)
@@ -317,7 +319,7 @@ async def hil_graph_level() -> None:
     check(bool(text), "H6 approve 후 synthesize 발화(그래프 완주)")
 
     # reject — 재개해도 전송 0.
-    b2 = PolicyScopedBroker({DELETE_CAP}, lambda k, name=None: True, session_factory=SessionLocal)
+    b2 = PolicyScopedBroker({DELETE_CAP}, lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=SessionLocal)))
     graph2 = oa.build_graph(_ctx(broker=b2, checkpointer=MemorySaver()))
     cfg2 = {"configurable": {"thread_id": "v101-h6b"}}
     interrupted2, _ = await _stream(graph2, {"messages": [{"role": "user", "content": "delete_record"}]}, cfg2)

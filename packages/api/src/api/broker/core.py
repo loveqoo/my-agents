@@ -14,11 +14,8 @@ from typing import TYPE_CHECKING, Any
 
 from agent.runtime import Capability, InvokeResult
 
-from ..db import SessionLocal
-
 if TYPE_CHECKING:
     import casbin
-    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
     from ..models import User
 from .common import (
@@ -29,10 +26,7 @@ from .common import (
     _kind_of,
     _parse_mcp,
 )
-from .providers.agent import AgentProvider
-from .providers.mcp import McpProvider
-from .providers.memory import MemEditProvider, MemoryProvider, MemoryWriteProvider
-from .providers.rag import RagProvider
+from .composition import BrokerContext, build_providers
 
 
 def _build_frame(node: str, cap_id: str, ms: int, res: InvokeResult) -> dict:
@@ -75,35 +69,21 @@ class PolicyScopedBroker:
         self,
         allowlist: list[str] | None,
         rbac_allows: Callable[..., bool],  # 실호출 (kind) 또는 (kind, name) 2형태 — _permitted 참조
+        providers: list[
+            _CapabilityProvider
+        ],  # 스펙 294 — 조립은 외부(build_providers), 소비만 여기
         *,
-        session_factory: async_sessionmaker[AsyncSession] = SessionLocal,
-        user_id: str | None = None,
-        tool_policy: dict | None = None,
-        rag_min_scores: dict | None = None,
-        principal: User
-        | str
-        | None = None,  # 로컬 위임(스펙 256) — 하위 실행 브로커의 RBAC 주체(호출자 그대로)
-        delegation_chain: tuple = (),  # 스펙 256 v2 — 실행 경로의 agent_id 체인(순환·깊이 게이트)
-        delegation_budget: dict
-        | None = None,  # 스펙 256 codex [P2] — 턴 공유 위임 총량 카운터(너비 폭주 상한)
+        tool_policy: dict
+        | None = None,  # config.toolPolicy(스펙 177 P2) — McpProvider 승인 오버라이드
     ) -> None:
+        # 스펙 294: 브로커는 `_CapabilityProvider` 추상에만 의존한다 — provider를 **주입받고** 구체를
+        # 모른다(생성 배선은 composition.build_providers 단일 출처). anti-leak(user_id)·delegation·
+        # rag_min_scores 등 조립 인자는 BrokerContext로 build_providers에 실려 이미 provider에 박혔다.
         self._allow: set[str] = set(allowlist or [])
         self._rbac_allows = rbac_allows
-        self._session_factory = session_factory
-        self._tool_policy = (
-            tool_policy  # 에이전트 config.toolPolicy(스펙 177 P2) — McpProvider 승인 오버라이드
-        )
-        # user_id = 실행 주체(principal) 도출값 — MemoryProvider가 per-user 스코프에 씀(스펙 104).
-        # cap_id·args가 아니라 여기서만 주입돼, 능력 이름으로 남을 가리킬 방법이 없다(anti-leak).
-        self._providers: list[_CapabilityProvider] = [
-            AgentProvider(session_factory, principal, delegation_chain, delegation_budget),
-            McpProvider(session_factory),
-            RagProvider(session_factory, rag_min_scores),  # 스펙 191 v2 컬렉션별 최소 유사도
-            MemoryProvider(session_factory, user_id),
-            MemoryWriteProvider(session_factory, user_id),
-            MemEditProvider(session_factory, user_id),
-        ]
-        self._by_kind = {p.kind: p for p in self._providers}
+        self._tool_policy = tool_policy
+        self._providers: list[_CapabilityProvider] = providers
+        self._by_kind = {p.kind: p for p in providers}
         # 관측(설계결정 7) — invoke 이력. broker.invoke가 invisible하지 않음을 보증(호출별 노드 프레임).
         self.invocations: list[dict] = []
 
@@ -292,13 +272,14 @@ def build_broker(
     # user_id = 주체 도출값(스펙 104 MemoryProvider self-scope). 머신 토큰(str)은 id 없음 → None →
     # 메모리 능력 없음(rbac_allows도 deny). 어드민이어도 자기 id라 타인 기억 위임 접근 불가(에스컬레이션 X).
     uid = None if isinstance(principal, str) else str(principal.id)
-    return PolicyScopedBroker(
-        allowlist,
-        rbac_allows,
-        user_id=uid,
-        tool_policy=tool_policy,
-        rag_min_scores=rag_min_scores,
-        principal=principal,
-        delegation_chain=delegation_chain,
-        delegation_budget=delegation_budget,
+    # 스펙 294: 조립 표면을 BrokerContext로 명문화 → build_providers가 구체 배선(broker는 소비만).
+    providers = build_providers(
+        BrokerContext(
+            principal=principal,
+            user_id=uid,
+            delegation_chain=delegation_chain,
+            delegation_budget=delegation_budget,
+            rag_min_scores=rag_min_scores,
+        )
     )
+    return PolicyScopedBroker(allowlist, rbac_allows, providers, tool_policy=tool_policy)

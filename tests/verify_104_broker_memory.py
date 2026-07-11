@@ -27,6 +27,8 @@ sys.path.insert(0, os.path.join(ROOT, "packages", "agent", "src"))
 from api import memory as M  # noqa: E402
 from api import mem_config as MC  # noqa: E402
 from api.broker import (  # noqa: E402
+    BrokerContext,
+    build_providers,
     CapabilityNotFoundError,
     MemoryProvider,
     PolicyScopedBroker,
@@ -117,10 +119,10 @@ def unit_checks() -> None:
     check(_parse_mem("agt_x") == "agt_x", "U1 접두사 없음 → 원본 방어")
 
     # U2 _permitted memory — 1레벨 정확 매치(mcp 서버-전체 특례 없음).
-    bt = PolicyScopedBroker({MEM_USER}, lambda k, name=None: True, session_factory=_raise_factory(), user_id="bob")
+    bt = PolicyScopedBroker({MEM_USER}, lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=_raise_factory(), user_id="bob")))
     check(bt._permitted(MEM_USER) is True, "U2 정확 memory cap 허용 → permitted")
     check(bt._permitted("memory:other") is False, "U2 allow 밖 memory → deny(비노출)")
-    brd = PolicyScopedBroker({MEM_USER}, lambda k, name=None: False, session_factory=_raise_factory(), user_id="bob")
+    brd = PolicyScopedBroker({MEM_USER}, lambda k, name=None: False, providers=build_providers(BrokerContext(session_factory=_raise_factory(), user_id="bob")))
     check(brd._permitted(MEM_USER) is False, "U2 RBAC 거부 → deny(교집합)")
 
     mp = MemoryProvider(_raise_factory(), "bob")
@@ -136,7 +138,7 @@ def unit_checks() -> None:
     check("user_id" not in props, "U4 스키마에 user_id 필드 없음(대상은 주체서 도출·args 불가)")
 
     # U5 _by_kind 4종.
-    b = PolicyScopedBroker([], lambda k, name=None: True, session_factory=_raise_factory(), user_id="bob")
+    b = PolicyScopedBroker([], lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=_raise_factory(), user_id="bob")))
     check({"agent", "mcp", "rag", "memory"} <= set(b._by_kind), "U5 브로커가 memory 포함 provider 보유")
     check(isinstance(b._by_kind["memory"], MemoryProvider), "U5 memory → MemoryProvider")
 
@@ -171,8 +173,8 @@ async def unit_async_checks() -> None:
         {"id": "b1", "memory": "밥은 재즈 피아노를 친다", "score": 0.9, "user_id": "bob"},
     ]
     with_mem(FakeMem(store))
-    b_bob = PolicyScopedBroker({MEM_USER}, lambda k, name=None: True, session_factory=_fake_factory, user_id="bob")
-    b_alice = PolicyScopedBroker({MEM_USER}, lambda k, name=None: True, session_factory=_fake_factory, user_id="alice")
+    b_bob = PolicyScopedBroker({MEM_USER}, lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=_fake_factory, user_id="bob")))
+    b_alice = PolicyScopedBroker({MEM_USER}, lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=_fake_factory, user_id="alice")))
 
     r_bob = await b_bob.invoke(MEM_USER, {"text": "취미"})
     check("재즈" in r_bob.text and "초콜릿" not in r_bob.text,
@@ -193,11 +195,11 @@ async def unit_async_checks() -> None:
 
     # discover(주체 있음) → memory cap 노출 / 머신·RBAC거부·allow밖 → [].
     check(any(c.id == MEM_USER for c in await b_bob.discover("기억")), "U8 discover → memory cap 노출")
-    b_machine = PolicyScopedBroker({MEM_USER}, lambda k, name=None: True, session_factory=_fake_factory, user_id=None)
+    b_machine = PolicyScopedBroker({MEM_USER}, lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=_fake_factory, user_id=None)))
     check(await b_machine.discover("기억") == [], "U8 머신 → discover [](자기 스코프 없음)")
-    b_deny = PolicyScopedBroker({MEM_USER}, lambda k, name=None: False, session_factory=_raise_factory(), user_id="bob")
+    b_deny = PolicyScopedBroker({MEM_USER}, lambda k, name=None: False, providers=build_providers(BrokerContext(session_factory=_raise_factory(), user_id="bob")))
     check(await b_deny.discover("기억") == [], "U8 RBAC 거부 → discover [](DB 미접촉)")
-    b_noallow = PolicyScopedBroker(set(), lambda k, name=None: True, session_factory=_raise_factory(), user_id="bob")
+    b_noallow = PolicyScopedBroker(set(), lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=_raise_factory(), user_id="bob")))
     check(await b_noallow.discover("기억") == [], "U8 빈 allowlist → discover [](DB 미접촉)")
     r_nf = await b_noallow.invoke(MEM_USER, {"text": "x"})
     check(r_nf.error == "capability not found", "U8 allow 밖 invoke → not-found(존재 비노출)")

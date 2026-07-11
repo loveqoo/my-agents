@@ -20,6 +20,7 @@ import httpx
 
 from api.auth import current_principal
 from api.main import app
+from api.broker import BrokerContext, build_providers  # noqa: E402, F401  (스펙 294)
 
 _fails: list[str] = []
 
@@ -102,14 +103,14 @@ def unit_checks() -> None:
         check(e.status_code == 404, "U2 NULL-owned → member 거부(admin 전용 fail-closed)")
 
     # broker _permitted per-cap (lambda 더블: kind True/특정만)
-    b_kind = PolicyScopedBroker({"rag:a", "rag:b"}, lambda k, name=None: True, session_factory=lambda: None)
+    b_kind = PolicyScopedBroker({"rag:a", "rag:b"}, lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=lambda: None)))
     check(b_kind._permitted("rag:a") and b_kind._permitted("rag:b"), "U3 kind 허가 → 모든 rag cap permitted")
     # per-cap만: rag:a만 허가
     def only_a(kind, name=None):
         if name is None:
             return kind == "rag"  # DB 게이트: rag에 부여 있음
         return kind == "rag" and name == "a"
-    b_pc = PolicyScopedBroker({"rag:a", "rag:b"}, only_a, session_factory=lambda: None)
+    b_pc = PolicyScopedBroker({"rag:a", "rag:b"}, only_a, providers=build_providers(BrokerContext(session_factory=lambda: None)))
     check(b_pc._permitted("rag:a") and not b_pc._permitted("rag:b"),
           "U3 per-cap(rag:a만) → rag:a permitted, rag:b deny")
 

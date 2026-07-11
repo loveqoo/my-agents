@@ -18,6 +18,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "packages", "api", "src"))
 
 from api.broker import PolicyScopedBroker  # noqa: E402
+from api.broker import BrokerContext, build_providers  # noqa: E402, F401  (스펙 294)
 
 _fails: list[str] = []
 passed = 0
@@ -33,7 +34,7 @@ def check(cond: bool, msg: str) -> None:
 
 
 async def main() -> None:
-    b = PolicyScopedBroker(allowlist=["rag:Obsidian"], rbac_allows=lambda k, n=None: True, user_id="v130")
+    b = PolicyScopedBroker(allowlist=["rag:Obsidian"], rbac_allows=lambda k, n=None: True, providers=build_providers(BrokerContext(user_id="v130")))
 
     res = await b.invoke("rag:Obsidian", {"text": "A/B 테스트에서 중요한 것은?"})
     raw = res.raw or {}
@@ -65,7 +66,7 @@ async def main() -> None:
     denied = await b.invoke("rag:안보이는컬렉션", {"text": "x"})
     check(denied.error is not None, f"V4 미허가 cap → error (got {denied.error!r})")
 
-    b2 = PolicyScopedBroker(allowlist=["rag:Obsidian"], rbac_allows=lambda k, n=None: True, user_id="v130b")
+    b2 = PolicyScopedBroker(allowlist=["rag:Obsidian"], rbac_allows=lambda k, n=None: True, providers=build_providers(BrokerContext(user_id="v130b")))
     check(b2.invocations == [], "V5 무위임 브로커 invocations 빈 리스트(트레이스 무회귀 전제)")
 
     print(f"\n{passed} passed, {len(_fails)} failed")

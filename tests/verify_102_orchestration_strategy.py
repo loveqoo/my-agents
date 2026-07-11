@@ -56,6 +56,7 @@ from agent.flows.orchestrate import (  # noqa: E402
 
 from api import mock_mcp, runtime  # noqa: E402
 from api.broker import PolicyScopedBroker  # noqa: E402
+from api.broker import BrokerContext, build_providers  # noqa: E402, F401  (스펙 294)
 from api.db import SessionLocal  # noqa: E402
 from api.models import McpServer  # noqa: E402
 
@@ -208,7 +209,7 @@ async def integration() -> None:
     fm, rk = FirstMatchOrchestrateAgent(), RankedOrchestrateAgent()
 
     # H6 Ranked가 실 discover 후보에서 관련 후보 pick·무관 제외(결정적).
-    bw = PolicyScopedBroker({f"mcp:{MCP}"}, lambda k, name=None: True, session_factory=SessionLocal)
+    bw = PolicyScopedBroker({f"mcp:{MCP}"}, lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=SessionLocal)))
     real_cands = await bw.discover("")  # 실 MCP 발견 전체(enabled 툴)
     ids = {c.id for c in real_cands}
     check({ECHO_CAP, WEBSEARCH_CAP, DELETE_CAP} <= ids, f"H6 실 discover 후보 확보 (got {ids})")
@@ -219,7 +220,7 @@ async def integration() -> None:
     # H7 다중 위임 — Ranked 상위 k가 k개 broker_invoke, FirstMatch=1과 대조(행위 차이 실증).
     # query 공백('') → discover가 enabled 전부 반환(승인불요 echo·web_search만 허가 → interrupt 없음).
     allow = {ECHO_CAP, WEBSEARCH_CAP}
-    b_multi = PolicyScopedBroker(allow, lambda k, name=None: True, session_factory=SessionLocal)
+    b_multi = PolicyScopedBroker(allow, lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=SessionLocal)))
     g_rk = rk.build_graph(_ctx(broker=b_multi, checkpointer=MemorySaver()))
     _, txt_rk = await _stream(g_rk, {"messages": [{"role": "user", "content": " "}]},
                               {"configurable": {"thread_id": "v102-h7-rk"}})
@@ -227,7 +228,7 @@ async def integration() -> None:
     check(len(mcp_nodes) >= 2, f"H7 Ranked 다중 위임 → broker_invoke ≥2 (got {len(mcp_nodes)})")
     check(bool(txt_rk), "H7 Ranked 그래프 완주(synthesize 발화)")
 
-    b_one = PolicyScopedBroker(allow, lambda k, name=None: True, session_factory=SessionLocal)
+    b_one = PolicyScopedBroker(allow, lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=SessionLocal)))
     g_fm = fm.build_graph(_ctx(broker=b_one, checkpointer=MemorySaver()))
     await _stream(g_fm, {"messages": [{"role": "user", "content": " "}]},
                   {"configurable": {"thread_id": "v102-h7-fm"}})
@@ -235,7 +236,7 @@ async def integration() -> None:
           f"H7 대조: FirstMatch 동일 입력 → 정확히 1회 위임(현동작) (got {len(b_one.invocations)})")
 
     # H8 HIL 보존 — Ranked가 고른 승인요구 툴이 여전히 interrupt(pre=0 / approve=1), 조상 delegate 루프 경유.
-    b_hil = PolicyScopedBroker({DELETE_CAP}, lambda k, name=None: True, session_factory=SessionLocal)
+    b_hil = PolicyScopedBroker({DELETE_CAP}, lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=SessionLocal)))
     g_hil = rk.build_graph(_ctx(broker=b_hil, checkpointer=MemorySaver()))
     cfg = {"configurable": {"thread_id": "v102-h8"}}
     interrupted, _ = await _stream(
@@ -255,7 +256,7 @@ async def integration() -> None:
     def _count(inv, tool):
         return sum(1 for i in inv if i["node"] == f"broker_invoke:mcp:{MCP}/{tool}")
 
-    b_mix = PolicyScopedBroker({ECHO_CAP, DELETE_CAP}, lambda k, name=None: True, session_factory=SessionLocal)
+    b_mix = PolicyScopedBroker({ECHO_CAP, DELETE_CAP}, lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=SessionLocal)))
     g_mix = rk.build_graph(_ctx(broker=b_mix, checkpointer=MemorySaver()))
     cfg_m = {"configurable": {"thread_id": "v102-h10"}}
     interrupted_m, _ = await _stream(
@@ -271,7 +272,7 @@ async def integration() -> None:
     check(bool(txt_m), "H10 approve 후 완주")
 
     # H9 FirstMatch 현동작 재현 — 단일 위임·라벨없는 fold(스펙 100/101 무회귀는 별도 suite로 게이트).
-    b_fm = PolicyScopedBroker({ECHO_CAP}, lambda k, name=None: True, session_factory=SessionLocal)
+    b_fm = PolicyScopedBroker({ECHO_CAP}, lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=SessionLocal)))
     g_fm2 = fm.build_graph(_ctx(broker=b_fm, checkpointer=MemorySaver()))
     _, txt_fm = await _stream(g_fm2, {"messages": [{"role": "user", "content": "echo"}]},
                               {"configurable": {"thread_id": "v102-h9"}})
