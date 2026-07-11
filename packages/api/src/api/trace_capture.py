@@ -19,7 +19,9 @@ from langchain_core.callbacks import BaseCallbackHandler
 
 def _role_of(m: Any) -> str:
     t = getattr(m, "type", "") or ""
-    return {"human": "user", "ai": "assistant", "system": "system", "tool": "tool"}.get(t, t or "unknown")
+    return {"human": "user", "ai": "assistant", "system": "system", "tool": "tool"}.get(
+        t, t or "unknown"
+    )
 
 
 def _content_of(m: Any) -> str:
@@ -43,14 +45,14 @@ class TraceCaptureHandler(BaseCallbackHandler):
         self.usage_seen = False
 
     # langchain은 async 실행에서도 sync 핸들러를 호출해 준다(내부 래핑).
-    def on_chat_model_start(self, serialized: Any, messages: list, **kwargs: Any) -> None:  # noqa: ANN401
+    def on_chat_model_start(self, serialized: Any, messages: list, **kwargs: Any) -> None:
         try:
             batch = messages[0] if messages else []
             self.calls.append([{"role": _role_of(m), "content": _content_of(m)} for m in batch])
-        except Exception:  # noqa: BLE001 — 캡처 실패가 채팅을 죽이면 안 됨(표시용 부가 계층)
+        except Exception:
             pass
 
-    def on_llm_end(self, response: Any, **kwargs: Any) -> None:  # noqa: ANN401
+    def on_llm_end(self, response: Any, **kwargs: Any) -> None:
         try:
             for gens in getattr(response, "generations", []) or []:
                 for g in gens:
@@ -59,5 +61,5 @@ class TraceCaptureHandler(BaseCallbackHandler):
                         self.tokens_in += int(um.get("input_tokens", 0) or 0)
                         self.tokens_out += int(um.get("output_tokens", 0) or 0)
                         self.usage_seen = True
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass

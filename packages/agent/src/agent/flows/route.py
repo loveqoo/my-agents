@@ -86,9 +86,7 @@ class RouteAgent:
             return "answer_a" if state["route"] == "a" else "answer_b"
 
         async def answer_a(state: _State) -> dict:
-            sys = SystemMessage(
-                content=f"{persona}\n\n# 모드\n질문에 직접·간결하게 답하세요."
-            )
+            sys = SystemMessage(content=f"{persona}\n\n# 모드\n질문에 직접·간결하게 답하세요.")
             resp = await model.ainvoke([sys, *state["messages"]])
             return {"messages": [resp]}
 

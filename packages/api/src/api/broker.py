@@ -32,8 +32,9 @@ import time
 from collections.abc import Callable
 from typing import Protocol
 
-from agent.runtime import Capability, InvokeResult, is_remote_source
 from sqlalchemy import select
+
+from agent.runtime import Capability, InvokeResult, is_remote_source
 
 from . import a2a_client
 from .db import SessionLocal
@@ -43,8 +44,12 @@ from .ownership import may_use_agent
 CAP_KIND_AGENT = "agent"  # A2A provider(Phase 1).
 CAP_KIND_MCP = "mcp"  # MCP provider(Phase 2-a).
 CAP_KIND_RAG = "rag"  # RAG provider(Phase 2, 스펙 103 — 문서 컬렉션 검색).
-CAP_KIND_MEMORY = "memory"  # Memory read provider(Phase 2-c, 스펙 104 — 유저 장기 기억 검색, per-user 소유).
-CAP_KIND_MEMORY_WRITE = "memwrite"  # Memory write provider(스펙 105 — 유저 장기 기억 저장, 첫 부수효과·승인 게이트).
+CAP_KIND_MEMORY = (
+    "memory"  # Memory read provider(Phase 2-c, 스펙 104 — 유저 장기 기억 검색, per-user 소유).
+)
+CAP_KIND_MEMORY_WRITE = (
+    "memwrite"  # Memory write provider(스펙 105 — 유저 장기 기억 저장, 첫 부수효과·승인 게이트).
+)
 CAP_KIND_MEMORY_EDIT = "memedit"  # Memory edit provider(스펙 111 — 유저 장기 기억 수정/삭제, 대상 있는 첫 부수효과·소유권 선행).
 
 
@@ -84,7 +89,7 @@ def _kind_of(item: str) -> str:
 
 def _parse_mcp(item: str) -> tuple[str, str | None]:
     """`mcp:server/tool` → (server, tool); `mcp:server` → (server, None). 접두사 없으면 (item, None) 방어."""
-    body = item[len(CAP_KIND_MCP) + 1:] if item.startswith(f"{CAP_KIND_MCP}:") else item
+    body = item[len(CAP_KIND_MCP) + 1 :] if item.startswith(f"{CAP_KIND_MCP}:") else item
     if "/" in body:
         server, tool = body.split("/", 1)
         return server, tool
@@ -94,19 +99,23 @@ def _parse_mcp(item: str) -> tuple[str, str | None]:
 def _parse_rag(item: str) -> str:
     """`rag:<collection_name>` → `<collection_name>`(접두사만 스트립 — 이름에 콜론/슬래시 있어도 안전).
     RAG는 mcp의 server/tool 2레벨과 달리 1레벨(컬렉션 이름 하나). 접두사 없으면 원본 방어."""
-    return item[len(CAP_KIND_RAG) + 1:] if item.startswith(f"{CAP_KIND_RAG}:") else item
+    return item[len(CAP_KIND_RAG) + 1 :] if item.startswith(f"{CAP_KIND_RAG}:") else item
 
 
 def _parse_mem(item: str) -> str:
     """`memory:<resource>` → `<resource>`(첫 출하는 `"user"`만 유효 — 주체 자신의 장기 기억).
     **대상 user_id는 cap_id에 담기지 않는다**(스펙 104 핵심 anti-leak) — 리소스는 자원 *종류*만 가리키고
     누구의 것인지는 런타임 principal에서 도출한다. 접두사 없으면 원본 방어."""
-    return item[len(CAP_KIND_MEMORY) + 1:] if item.startswith(f"{CAP_KIND_MEMORY}:") else item
+    return item[len(CAP_KIND_MEMORY) + 1 :] if item.startswith(f"{CAP_KIND_MEMORY}:") else item
 
 
 def _parse_memedit(item: str) -> str:
     """memedit cap 리소스 파싱(`memedit:user` → `user`). 미지원 리소스는 load가 거른다(존재 비노출)."""
-    return item[len(CAP_KIND_MEMORY_EDIT) + 1:] if item.startswith(f"{CAP_KIND_MEMORY_EDIT}:") else item
+    return (
+        item[len(CAP_KIND_MEMORY_EDIT) + 1 :]
+        if item.startswith(f"{CAP_KIND_MEMORY_EDIT}:")
+        else item
+    )
 
 
 def _cap_resource(cap_id: str, kind: str) -> str:
@@ -114,7 +123,7 @@ def _cap_resource(cap_id: str, kind: str) -> str:
     kind별 식별자: mcp=`server[/tool]`, rag=컬렉션명, memory/memwrite/memedit=`user`, agent=cap_id(agt_…).
     kind-레벨 부여(`capability:{kind}`)와 별개로 admin이 세분 부여할 수 있게 하는 안정 키."""
     if kind == CAP_KIND_MCP:
-        return cap_id[len(CAP_KIND_MCP) + 1:] if cap_id.startswith(f"{CAP_KIND_MCP}:") else cap_id
+        return cap_id[len(CAP_KIND_MCP) + 1 :] if cap_id.startswith(f"{CAP_KIND_MCP}:") else cap_id
     if kind == CAP_KIND_RAG:
         return _parse_rag(cap_id)
     if kind == CAP_KIND_MEMORY:
@@ -129,7 +138,11 @@ def _cap_resource(cap_id: str, kind: str) -> str:
 def _parse_memwrite(item: str) -> str:
     """`memwrite:<resource>` → `<resource>`(첫 출하 `"user"`만 — 주체 자신의 기억에 저장). `_parse_mem`과
     대칭. 대상 user_id는 cap_id에 없다(스펙 105 anti-leak, 104와 동일). 접두사 없으면 원본 방어."""
-    return item[len(CAP_KIND_MEMORY_WRITE) + 1:] if item.startswith(f"{CAP_KIND_MEMORY_WRITE}:") else item
+    return (
+        item[len(CAP_KIND_MEMORY_WRITE) + 1 :]
+        if item.startswith(f"{CAP_KIND_MEMORY_WRITE}:")
+        else item
+    )
 
 
 def _card_streaming(card: object) -> bool:
@@ -167,7 +180,7 @@ def _tool_input_schema(tool) -> dict | None:
     if schema is not None and hasattr(schema, "model_json_schema"):
         try:
             return schema.model_json_schema()
-        except Exception:  # noqa: BLE001 — 스키마 추출 실패는 None(describe가 죽지 않게)
+        except Exception:
             return None
     return None
 
@@ -182,7 +195,9 @@ def _adapt_args(tool, args: dict) -> dict:
     props = (_tool_input_schema(tool) or {}).get("properties") or {}
     if not props or set(args) <= set(props):
         return args  # 스키마 없음(무검증 통과) 또는 이미 적합
-    val = args.get("text") or args.get("query") or args.get("input") or next(iter(args.values()), "")
+    val = (
+        args.get("text") or args.get("query") or args.get("input") or next(iter(args.values()), "")
+    )
     if len(props) == 1:
         return {next(iter(props)): val}  # 단일 파라미터 툴 → 그 파라미터로
     for cand in ("text", "query", "input", "message", "q"):
@@ -198,10 +213,14 @@ class _CapabilityProvider(Protocol):
 
     kind: str
 
-    async def candidates(self, allow: set[str]) -> list[Capability]:  # allow∩모집단 → 후보(hook 채움)
+    async def candidates(
+        self, allow: set[str]
+    ) -> list[Capability]:  # allow∩모집단 → 후보(hook 채움)
         ...
 
-    async def load(self, cap_id: str) -> object | None:  # 허가 전제, cap_id→backing row(미존재→None)
+    async def load(
+        self, cap_id: str
+    ) -> object | None:  # 허가 전제, cap_id→backing row(미존재→None)
         ...
 
     def describe(self, row) -> Capability:  # row→input_schema 채운 Capability
@@ -213,11 +232,15 @@ class _CapabilityProvider(Protocol):
     def node_label(self, row) -> str:  # 관측 프레임 노드명 broker_invoke:<kind>:<...>
         ...
 
-    def approval_for(self, row, cap_id: str, args: dict, tool_policy: dict | None = None) -> dict | None:  # HIL 승인 payload | None
+    def approval_for(
+        self, row, cap_id: str, args: dict, tool_policy: dict | None = None
+    ) -> dict | None:  # HIL 승인 payload | None
         ...
 
 
-A2A_DELEGATE_PERMISSION = "a2a.delegate"  # A2A 위임 승인 action(대상 Agent opt-in requires_approval, 스펙 117)
+A2A_DELEGATE_PERMISSION = (
+    "a2a.delegate"  # A2A 위임 승인 action(대상 Agent opt-in requires_approval, 스펙 117)
+)
 
 
 def _a2a_text(args: dict) -> str:
@@ -230,7 +253,9 @@ class AgentProvider:
 
     kind = CAP_KIND_AGENT
 
-    def __init__(self, session_factory, principal=None, delegation_chain: tuple = (), delegation_budget=None):
+    def __init__(
+        self, session_factory, principal=None, delegation_chain: tuple = (), delegation_budget=None
+    ):
         self._session_factory = session_factory
         self._principal = principal  # 로컬 위임(스펙 256) — 하위 실행의 RBAC 주체(호출자와 동일)
         # 호출 체인(스펙 256 v2 — 깊이 N): 이 실행 경로에서 이미 실행 중인 agent_id들(루트 포함).
@@ -247,7 +272,9 @@ class AgentProvider:
         # allowlist를 SELECT WHERE에 밀어 거부 대상을 **로드조차 안 함**(체크리스트 §2 존재 오라클 차단).
         async with self._session_factory() as db:
             rows = (
-                (await db.execute(select(Agent).where(Agent.agent_id.in_(agent_ids)))).scalars().all()
+                (await db.execute(select(Agent).where(Agent.agent_id.in_(agent_ids))))
+                .scalars()
+                .all()
             )
         caps: list[Capability] = []
         for a in rows:
@@ -268,7 +295,9 @@ class AgentProvider:
                     continue  # 순환 차단(스펙 256 v2) — 이 경로에서 이미 실행 중인 에이전트는 후보 제외
                 if len(self._chain) >= DELEGATION_MAX_DEPTH:
                     continue  # 비용 폭주 상한(여유 캡 — 종료 자체는 방문 집합이 보장)
-            caps.append(Capability(id=a.agent_id, kind=CAP_KIND_AGENT, name=a.name, hook=_hook_for(a)))
+            caps.append(
+                Capability(id=a.agent_id, kind=CAP_KIND_AGENT, name=a.name, hook=_hook_for(a))
+            )
         return caps
 
     async def load(self, cap_id: str) -> Agent | None:
@@ -287,7 +316,9 @@ class AgentProvider:
             if not a.active_version:
                 return None  # 로컬 ui(스펙 256) — 서빙 중만
             if a.agent_id in self._chain or len(self._chain) >= DELEGATION_MAX_DEPTH:
-                return None  # 호출 시점 재검증(discover 결과 신뢰 안 함 — 순환·깊이 게이트 동일 적용)
+                return (
+                    None  # 호출 시점 재검증(discover 결과 신뢰 안 함 — 순환·깊이 게이트 동일 적용)
+                )
         return a
 
     def describe(self, row: Agent) -> Capability:
@@ -335,8 +366,11 @@ class AgentProvider:
             from .eval_runner import eval_run_agent  # 함수 내 임포트 — chat→broker 순환 회피
 
             obs = await eval_run_agent(
-                row.id, user_text, self._principal,
-                delegation_chain=self._chain, delegation_budget=self._budget,
+                row.id,
+                user_text,
+                self._principal,
+                delegation_chain=self._chain,
+                delegation_budget=self._budget,
             )
             return InvokeResult(
                 text=str(obs.get("output") or ""),
@@ -372,15 +406,21 @@ class AgentProvider:
     def node_label(self, row: Agent) -> str:
         return f"broker_invoke:{CAP_KIND_AGENT}:{row.name}"
 
-    def approval_for(self, row, cap_id: str, args: dict, tool_policy: dict | None = None) -> dict | None:
+    def approval_for(
+        self, row, cap_id: str, args: dict, tool_policy: dict | None = None
+    ) -> dict | None:
         """A2A 위임 승인 = **대상 Agent의 opt-in 플래그**(스펙 117). config.requires_approval가 참일 때만
         게이트(부재/거짓 = 게이트 없음 = **현동작 보존·무회귀**). MCP `_APPROVAL_ACTIONS` 옵트인의
         에이전트 단위 형제. approval_for와 invoke가 `_a2a_text`로 동일 정규화 → **승인한 것 == 전송되는 것**."""
         cfg = getattr(row, "config", None)
-        cfg = cfg if isinstance(cfg, dict) else {}  # 오염 데이터(비-dict config) 방어 — .get AttributeError 차단
+        cfg = (
+            cfg if isinstance(cfg, dict) else {}
+        )  # 오염 데이터(비-dict config) 방어 — .get AttributeError 차단
         if not cfg.get("requires_approval"):
             return None
-        text = _a2a_text(args)  # invoke와 동일 헬퍼(드리프트 0) — 마스킹 없이 노출(사람이 무엇이 전송되는지 봐야 승인)
+        text = _a2a_text(
+            args
+        )  # invoke와 동일 헬퍼(드리프트 0) — 마스킹 없이 노출(사람이 무엇이 전송되는지 봐야 승인)
         return {
             "permission": A2A_DELEGATE_PERMISSION,
             "action": A2A_DELEGATE_PERMISSION,
@@ -393,7 +433,7 @@ class _McpBacking:
     """McpProvider.load가 돌려주는 backing — 서버명·툴명 + **연결로 실제 가져온 BaseTool**.
     describe(스키마)·invoke(ainvoke)·node_label이 이 tool을 그대로 쓴다."""
 
-    __slots__ = ("server", "tool_name", "tool", "tools_meta")
+    __slots__ = ("server", "tool", "tool_name", "tools_meta")
 
     def __init__(self, server: str, tool_name: str, tool, tools_meta: dict | None = None):
         self.server = server
@@ -435,7 +475,9 @@ class McpProvider:
 
         async with self._session_factory() as db:
             rows = (
-                (await db.execute(select(McpServer).where(McpServer.name.in_(server_names)))).scalars().all()
+                (await db.execute(select(McpServer).where(McpServer.name.in_(server_names))))
+                .scalars()
+                .all()
             )
         out: list[dict] = []
         for r in rows:
@@ -474,7 +516,7 @@ class McpProvider:
             allowset = spec.get(s["name"])  # None=서버 전체
             try:
                 tools = await self._get_tools(s["name"], conn)
-            except Exception:  # noqa: BLE001 — 서버 다운/프로토콜 오류는 그 서버만 스킵(부분 실패 격리)
+            except Exception:
                 continue
             for t in tools:
                 if enabled and t.name not in enabled:
@@ -510,7 +552,7 @@ class McpProvider:
             return None  # enabled 밖 → 존재 비노출
         try:
             tools = await self._get_tools(server, conn)
-        except Exception:  # noqa: BLE001 — 연결 실패는 미해결(존재 비노출)
+        except Exception:
             return None
         match = next((t for t in tools if t.name == tool), None)
         if match is None:
@@ -537,18 +579,22 @@ class McpProvider:
                 raw = await row.tool.ainvoke(_adapt_args(row.tool, args))
             text = _content_text(raw)  # content-block 리스트 → str 정규화(092 재사용)
             err = None
-        except Exception as exc:  # noqa: BLE001 — 도구 오류가 에이전트를 죽이지 않는다(graceful)
+        except Exception as exc:
             text = ""
             err = f"MCP 도구 실행 실패({row.server}/{row.tool_name}): {type(exc).__name__}"
         return InvokeResult(
-            text=text, trust="untrusted", error=err,
+            text=text,
+            trust="untrusted",
+            error=err,
             raw={"cap_id": cap_id, "kind": CAP_KIND_MCP},
         )
 
     def node_label(self, row: _McpBacking) -> str:
         return f"broker_invoke:{CAP_KIND_MCP}:{row.server}/{row.tool_name}"
 
-    def approval_for(self, row, cap_id: str, args: dict, tool_policy: dict | None = None) -> dict | None:
+    def approval_for(
+        self, row, cap_id: str, args: dict, tool_policy: dict | None = None
+    ) -> dict | None:
         """MCP 승인 정책 = 그래프-tools 경로와 **동일 리졸버**(`resolve_tool_approval`, 스펙 177) 공유
         (드리프트 0 — 관리자가 tools_meta로 설정한 정책이 두 경로 일관 적용). 마스킹은 `_redact_args`
         재사용. 걸리지 않는 툴은 None(즉시 실행)."""
@@ -574,7 +620,7 @@ class _RagBacking:
     """RagProvider.load가 돌려주는 backing — 컬렉션 이름·설명 + retrieval 코어용 `col` dict.
     `col`이 None이면 임베딩 설정 불완전(describe는 되고 invoke가 graceful 오류로 표면화)."""
 
-    __slots__ = ("name", "description", "col")
+    __slots__ = ("col", "description", "name")
 
     def __init__(self, name: str, description: str, col: dict | None):
         self.name = name
@@ -608,7 +654,9 @@ class RagProvider:
                         select(Collection)
                         .where(Collection.name.in_(names))
                         .options(
-                            selectinload(Collection.embedding_model).selectinload(ModelConfig.provider)
+                            selectinload(Collection.embedding_model).selectinload(
+                                ModelConfig.provider
+                            )
                         )
                     )
                 )
@@ -681,7 +729,8 @@ class RagProvider:
         cap_id = f"{CAP_KIND_RAG}:{row.name}"
         if row.col is None:
             return InvokeResult(
-                text="", trust="untrusted",
+                text="",
+                trust="untrusted",
                 error=f"컬렉션 '{row.name}'의 임베딩 설정이 불완전해 검색할 수 없습니다.",
                 raw={"cap_id": cap_id, "kind": CAP_KIND_RAG},
             )
@@ -692,11 +741,14 @@ class RagProvider:
         # 조율형(브로커)도 같은 표시-안전 값을 보이게 raw에 싣되, 비밀 마스킹(_sanitize)+캡을
         # 백스톱으로 건다(일반 args 노출이 아니라 RAG 질의 1개만 — 087/092 원문 누출 경계 유지).
         from .memory import _sanitize as _san
+
         query_disp = _san((text or "").strip(), cap=300)
         # 이 컬렉션의 임계값(스펙 191 v2) — 맵에서 조회, 없으면 0(무필터).
         thr = rt._norm_score(self._min_scores.get(row.name, 0.0))
         try:
-            hits = await rt.search_collections([row.col], text, top_k, {row.name: thr})  # 커트라인 annotate
+            hits = await rt.search_collections(
+                [row.col], text, top_k, {row.name: thr}
+            )  # 커트라인 annotate
             # 결과 = 문서 내용 = **데이터**(지시 아님). trust=untrusted 불변(인젝션 방어).
             # 스펙 192: used(커트라인 통과분)만 에이전트에 넘긴다(미달 문서 안 봄). trace(hitsDetail)엔 전부
             # (used+dropped 플래그) — 인스펙터가 "못 쓴 문서"까지 보이게. hits=used 수·topScore=used 최고.
@@ -704,24 +756,34 @@ class RagProvider:
             top = max((float(h.get("score", 0.0)) for h in used), default=0.0)
             return InvokeResult(
                 text=rt.format_rag_hits(used),  # 인-챗 도구와 공유 포맷(drift 0)
-                trust="untrusted", error=None,
+                trust="untrusted",
+                error=None,
                 raw={
-                    "cap_id": cap_id, "kind": CAP_KIND_RAG, "hits": len(used), "topScore": round(top, 3),
-                    "hitsDetail": rt._hits_detail(hits), "minScore": round(thr, 3), "query": query_disp,
+                    "cap_id": cap_id,
+                    "kind": CAP_KIND_RAG,
+                    "hits": len(used),
+                    "topScore": round(top, 3),
+                    "hitsDetail": rt._hits_detail(hits),
+                    "minScore": round(thr, 3),
+                    "query": query_disp,
                 },
             )
         except rt.RagSearchError as exc:
             # 코어가 이미 분류(empty/embed/db) — graceful 오류로 접어 에이전트를 죽이지 않는다.
             # 실패해도 무엇을 검색했는지(query)는 남긴다(스펙 191 — 진단 가치).
             return InvokeResult(
-                text="", trust="untrusted", error=exc.tool_msg,
+                text="",
+                trust="untrusted",
+                error=exc.tool_msg,
                 raw={"cap_id": cap_id, "kind": CAP_KIND_RAG, "query": query_disp},
             )
 
     def node_label(self, row: _RagBacking) -> str:
         return f"broker_invoke:{CAP_KIND_RAG}:{row.name}"
 
-    def approval_for(self, row, cap_id: str, args: dict, tool_policy: dict | None = None) -> dict | None:
+    def approval_for(
+        self, row, cap_id: str, args: dict, tool_policy: dict | None = None
+    ) -> dict | None:
         return None  # RAG=읽기 전용(부수효과 없음) → 승인 게이트 불요.
 
 
@@ -756,7 +818,9 @@ class MemoryProvider:
 
     def __init__(self, session_factory, user_id: str | None):
         self._session_factory = session_factory
-        self._user_id = user_id  # principal 도출값(build_broker). None=머신 → 자기 스코프 없음 → deny.
+        self._user_id = (
+            user_id  # principal 도출값(build_broker). None=머신 → 자기 스코프 없음 → deny.
+        )
 
     def _cap(self, *, with_schema: bool) -> Capability:
         cap = Capability(
@@ -812,15 +876,19 @@ class MemoryProvider:
             hits = await asyncio.to_thread(
                 memory.recall_probe, {"user_id": self._user_id}, text, mem_cfg, limit
             )
-        except Exception as exc:  # noqa: BLE001 — 실행 실패를 error로(0건 위장 금지)
+        except Exception as exc:
             return InvokeResult(
-                text="", trust="untrusted",
-                error=f"메모리 회상 실행 실패({type(exc).__name__}).", raw=raw,
+                text="",
+                trust="untrusted",
+                error=f"메모리 회상 실행 실패({type(exc).__name__}).",
+                raw=raw,
             )
         if hits is None:
             return InvokeResult(
-                text="", trust="untrusted",
-                error="메모리 백엔드가 구성되지 않아 회상할 수 없습니다.", raw=raw,
+                text="",
+                trust="untrusted",
+                error="메모리 백엔드가 구성되지 않아 회상할 수 없습니다.",
+                raw=raw,
             )
         # 결과 = 기억 내용 = **데이터**(지시 아님). 챗 회상 주입과 동일 포맷(drift 0).
         return InvokeResult(
@@ -830,7 +898,9 @@ class MemoryProvider:
     def node_label(self, row: _MemBacking) -> str:
         return f"broker_invoke:{CAP_KIND_MEMORY}:user"
 
-    def approval_for(self, row, cap_id: str, args: dict, tool_policy: dict | None = None) -> dict | None:
+    def approval_for(
+        self, row, cap_id: str, args: dict, tool_policy: dict | None = None
+    ) -> dict | None:
         return None  # 메모리 읽기=부수효과 없음 → 승인 게이트 불요(memory write는 스펙 105).
 
 
@@ -866,7 +936,9 @@ class MemoryWriteProvider:
 
     def __init__(self, session_factory, user_id: str | None):
         self._session_factory = session_factory
-        self._user_id = user_id  # principal 도출값(build_broker) — read provider와 공유. None=머신→deny.
+        self._user_id = (
+            user_id  # principal 도출값(build_broker) — read provider와 공유. None=머신→deny.
+        )
 
     def _cap(self, *, with_schema: bool) -> Capability:
         cap = Capability(
@@ -905,10 +977,14 @@ class MemoryWriteProvider:
         # 여기 도달 = 브로커가 approval_for→interrupt로 **이미 승인**을 받은 경우만(부수효과 1회, §7 멱등).
         cap_id = f"{CAP_KIND_MEMORY_WRITE}:user"
         raw = {"cap_id": cap_id, "kind": CAP_KIND_MEMORY_WRITE}
-        text = _memwrite_text(args)  # strip + 길이 상한(승인 payload와 동일 = 승인한 것 == 저장되는 것)
+        text = _memwrite_text(
+            args
+        )  # strip + 길이 상한(승인 payload와 동일 = 승인한 것 == 저장되는 것)
         if not text:
             # 빈 사실은 **저장하지 않는다**(부수효과 0). 무의미 기억 방지.
-            return InvokeResult(text="", trust="untrusted", error="저장할 내용이 비어 있습니다.", raw=raw)
+            return InvokeResult(
+                text="", trust="untrusted", error="저장할 내용이 비어 있습니다.", raw=raw
+            )
         from . import memory
         from .mem_config import default_mem_cfg
 
@@ -916,20 +992,30 @@ class MemoryWriteProvider:
             mem_cfg = await default_mem_cfg(db)
         if memory.resolve_backend(mem_cfg) is None:
             return InvokeResult(
-                text="", trust="untrusted",
-                error="메모리 백엔드가 구성되지 않아 저장할 수 없습니다.", raw=raw,
+                text="",
+                trust="untrusted",
+                error="메모리 백엔드가 구성되지 않아 저장할 수 없습니다.",
+                raw=raw,
             )
         # 스코프는 **오직** principal 도출 user_id(agent_id·run_id·args 불가). infer=False=승인한 원문 저장.
         await asyncio.to_thread(
-            memory.add, {"user_id": self._user_id}, [{"role": "user", "content": text}], mem_cfg, False
+            memory.add,
+            {"user_id": self._user_id},
+            [{"role": "user", "content": text}],
+            mem_cfg,
+            False,
         )
         # 결과=저장 확인. 반향된 사실이 데이터 채널로 흐를 수 있어 trust=untrusted(일관).
-        return InvokeResult(text=f"장기 기억에 저장했습니다: {text}", trust="untrusted", error=None, raw=raw)
+        return InvokeResult(
+            text=f"장기 기억에 저장했습니다: {text}", trust="untrusted", error=None, raw=raw
+        )
 
     def node_label(self, row: _MemBacking) -> str:
         return f"broker_invoke:{CAP_KIND_MEMORY_WRITE}:user"
 
-    def approval_for(self, row, cap_id: str, args: dict, tool_policy: dict | None = None) -> dict | None:
+    def approval_for(
+        self, row, cap_id: str, args: dict, tool_policy: dict | None = None
+    ) -> dict | None:
         # 쓰기=부수효과 → **항상 승인**(None 절대 안 돌림). 저장될 사실을 마스킹 없이 노출(승인 가시성).
         text = _memwrite_text(args)  # invoke와 동일 헬퍼(길이 상한 일치) → 승인한 것 == 저장되는 것
         preview = text[:_MEMWRITE_PREVIEW] + ("…" if len(text) > _MEMWRITE_PREVIEW else "")
@@ -946,7 +1032,9 @@ class MemoryWriteProvider:
 # → 소유권 선행(learning 054·069). approval_for와 invoke가 `_memedit_args`로 동일 정규화 → "승인한 것 ==
 # 실행되는 것". 삭제 비가역이라 RBAC는 fail-closed(member 시드 없음, admin/superuser만; 105 self_approve
 # 보다 민감도 상향). 소유권 술어는 `memory.user_owns` 단일 출처(HTTP 라우트와 공유, 드리프트 0).
-MEMEDIT_PERMISSION = "memory.edit"  # admin('*','*')만 승인 가능 — member 시드 없음(삭제 비가역 fail-closed).
+MEMEDIT_PERMISSION = (
+    "memory.edit"  # admin('*','*')만 승인 가능 — member 시드 없음(삭제 비가역 fail-closed).
+)
 MEMEDIT_MAX_CHARS = 4000
 _MEMEDIT_PREVIEW = 200
 
@@ -976,7 +1064,9 @@ class MemEditProvider:
 
     def __init__(self, session_factory, user_id: str | None):
         self._session_factory = session_factory
-        self._user_id = user_id  # principal 도출값(build_broker) — read/write provider와 공유. None=머신→deny.
+        self._user_id = (
+            user_id  # principal 도출값(build_broker) — read/write provider와 공유. None=머신→deny.
+        )
 
     def _cap(self, *, with_schema: bool) -> Capability:
         cap = Capability(
@@ -1023,7 +1113,9 @@ class MemEditProvider:
         def err(msg: str) -> InvokeResult:  # 부수효과 0으로 실패 반환(guard)
             return InvokeResult(text="", trust="untrusted", error=msg, raw=raw)
 
-        op, mem_id, text = _memedit_args(args)  # 승인 payload와 동일 정규화(승인한 것 == 실행되는 것)
+        op, mem_id, text = _memedit_args(
+            args
+        )  # 승인 payload와 동일 정규화(승인한 것 == 실행되는 것)
         if op not in ("update", "delete"):
             return err("지원하지 않는 작업입니다 (update/delete).")
         if not mem_id:
@@ -1062,7 +1154,9 @@ class MemEditProvider:
     def node_label(self, row: _MemBacking) -> str:
         return f"broker_invoke:{CAP_KIND_MEMORY_EDIT}:user"
 
-    def approval_for(self, row, cap_id: str, args: dict, tool_policy: dict | None = None) -> dict | None:
+    def approval_for(
+        self, row, cap_id: str, args: dict, tool_policy: dict | None = None
+    ) -> dict | None:
         # 수정/삭제=부수효과 → **항상 승인**(None 절대 안 돌림). 마스킹 없이 노출(승인 가시성).
         op, mem_id, text = _memedit_args(args)  # invoke와 동일 정규화 → 승인한 것 == 실행되는 것
         if op == "delete":
@@ -1108,7 +1202,9 @@ class PolicyScopedBroker:
         self._allow: set[str] = set(allowlist or [])
         self._rbac_allows = rbac_allows
         self._session_factory = session_factory
-        self._tool_policy = tool_policy  # 에이전트 config.toolPolicy(스펙 177 P2) — McpProvider 승인 오버라이드
+        self._tool_policy = (
+            tool_policy  # 에이전트 config.toolPolicy(스펙 177 P2) — McpProvider 승인 오버라이드
+        )
         # user_id = 실행 주체(principal) 도출값 — MemoryProvider가 per-user 스코프에 씀(스펙 104).
         # cap_id·args가 아니라 여기서만 주입돼, 능력 이름으로 남을 가리킬 방법이 없다(anti-leak).
         self._providers: list[_CapabilityProvider] = [
@@ -1272,7 +1368,14 @@ def _rbac_check(enforcer, subject: str, kind: str, name: str | None) -> bool:
     )
 
 
-def build_broker(principal, allowlist, tool_policy: dict | None = None, rag_min_scores: dict | None = None, delegation_chain: tuple = (), delegation_budget=None) -> PolicyScopedBroker:
+def build_broker(
+    principal,
+    allowlist,
+    tool_policy: dict | None = None,
+    rag_min_scores: dict | None = None,
+    delegation_chain: tuple = (),
+    delegation_budget=None,
+) -> PolicyScopedBroker:
     """chat.py 배선용 — principal(유저/머신)에서 RBAC 판정 클로저를 만들어 스코프된 브로커 구성.
 
     RBAC: `is_superuser` 우회(authz 패턴) 아니면 `enforce(str(id), f"capability:{kind}", "invoke")`.
@@ -1293,4 +1396,13 @@ def build_broker(principal, allowlist, tool_policy: dict | None = None, rag_min_
     # user_id = 주체 도출값(스펙 104 MemoryProvider self-scope). 머신 토큰(str)은 id 없음 → None →
     # 메모리 능력 없음(rbac_allows도 deny). 어드민이어도 자기 id라 타인 기억 위임 접근 불가(에스컬레이션 X).
     uid = None if isinstance(principal, str) else str(principal.id)
-    return PolicyScopedBroker(allowlist, rbac_allows, user_id=uid, tool_policy=tool_policy, rag_min_scores=rag_min_scores, principal=principal, delegation_chain=delegation_chain, delegation_budget=delegation_budget)
+    return PolicyScopedBroker(
+        allowlist,
+        rbac_allows,
+        user_id=uid,
+        tool_policy=tool_policy,
+        rag_min_scores=rag_min_scores,
+        principal=principal,
+        delegation_chain=delegation_chain,
+        delegation_budget=delegation_budget,
+    )

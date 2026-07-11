@@ -33,7 +33,9 @@ def _token() -> str:
     tok = "mat_" + secrets.token_urlsafe(24)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(tok)
-    log.warning("API_AUTH_TOKEN 미설정 — %s에 개발용 토큰 생성. UI는 같은 값을 VITE_API_TOKEN로.", path)
+    log.warning(
+        "API_AUTH_TOKEN 미설정 — %s에 개발용 토큰 생성. UI는 같은 값을 VITE_API_TOKEN로.", path
+    )
     return tok
 
 

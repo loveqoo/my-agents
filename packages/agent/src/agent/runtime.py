@@ -69,9 +69,13 @@ class AgentBuildContext:
     # 발견 공집합(deny-by-default). 에이전트는 이 핸들만 보고 능력을 오케스트레이션한다(정책·DB 미접촉).
     impl_config: dict | None = None  # 스펙 190 — 에이전트별 impl 설정(예: 노코드 산출물형의 필드
     # 명세 config.artifactSpec). 코드 저작 에이전트는 대개 안 본다. 플랫폼이 config에서 뽑아 주입.
-    memory_recall: Any = None  # 캐싱 회상 프록시(스펙 268 P2) — async callable(query|None, node)→포맷
+    memory_recall: Any = (
+        None  # 캐싱 회상 프록시(스펙 268 P2) — async callable(query|None, node)→포맷
+    )
     # 텍스트. 스코프는 플랫폼이 고정(브로커 주입 선례). None=회상 없음(비노드형·비영속 — 무회귀).
-    history_window: Any = None  # 단기 기억 창 프록시(스펙 270) — async callable(depth|None, node)→이전
+    history_window: Any = (
+        None  # 단기 기억 창 프록시(스펙 270) — async callable(depth|None, node)→이전
+    )
     # 대화 BaseMessage 리스트(depth별 슬라이스+캐시). memory_recall과 대칭 신규 축. None=창 없음
     # (비노드형은 에이전트 _window가 이미 처리 — 무회귀). 노드형만 주입(대화를 누적서 분리해 노드별 슬라이스).
 
@@ -195,7 +199,7 @@ def get_agent_impl(key: str | None) -> CustomAgent | None:
         return None
     try:
         inst = cls()
-    except Exception:  # noqa: BLE001 — 생성 실패=부적합으로 본다(fail-closed, 만회 없음)
+    except Exception:
         return None
     return inst if isinstance(inst, CustomAgent) else None
 

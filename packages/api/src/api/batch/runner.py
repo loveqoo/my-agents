@@ -4,7 +4,7 @@
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from ..db import SessionLocal
 from ..models import BatchRun
@@ -53,7 +53,7 @@ async def run_job(name: str, *, dry_run: bool = False) -> dict:
         # 스펙 039). 쓰지 않는 작업(session-cleanup)은 run_id=None 기본으로 무시한다.
         summary = await job(dry_run=dry_run, run_id=run_id)
         status, error = "ok", None
-    except Exception as e:  # noqa: BLE001 — 실패도 박제하고 graceful 반환
+    except Exception as e:
         log.exception("배치 작업 실패: %s", name)
         summary, status, error = None, "error", f"{type(e).__name__}: {e}"
 
@@ -64,7 +64,7 @@ async def run_job(name: str, *, dry_run: bool = False) -> dict:
             run.status = status
             run.summary = _audit_summary(summary)  # 미리보기 키(sample 등)는 감사행에 미영속
             run.error = error
-            run.finished_at = datetime.now(timezone.utc)
+            run.finished_at = datetime.now(UTC)
             await session.commit()
 
     result = {"run_id": str(run_id), "job": name, "status": status}

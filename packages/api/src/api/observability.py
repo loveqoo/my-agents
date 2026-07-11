@@ -8,6 +8,7 @@
 기존 관측(스펙 085/086/100 — trace 이벤트·broker_invoke 노드)은 그대로. Langfuse는 그 위에 얹는
 **외부 집계/측정** 계층으로, 수치 기반 자율(목표 주고 반복)의 토대가 된다.
 """
+
 from __future__ import annotations
 
 import os

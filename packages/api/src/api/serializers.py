@@ -98,7 +98,9 @@ def agent_to_out(a: Agent, persona_bodies: dict[str, str] | None = None) -> Agen
         persistHistory=cfg.get("persistHistory", True),
         ephemeral=cfg.get("ephemeral", False),
         suggestedPrompts=cfg.get("suggestedPrompts") or [],  # 플그 추천 명령어(스펙 238)
-        impl=cfg.get("impl"),  # in-process 커스텀 런타임 키(스펙 085, 폼 재로드용 — 편집 silent drop 방지)
+        impl=cfg.get(
+            "impl"
+        ),  # in-process 커스텀 런타임 키(스펙 085, 폼 재로드용 — 편집 silent drop 방지)
         # 준수 분류(스펙 089) — resolve_agent_runtime과 같은 게이트로 파생(단일 출처, 저장 안 함).
         conformance=classify_runtime(a.source, cfg.get("impl")),
         memories=cfg.get("memories", []),
@@ -109,7 +111,8 @@ def agent_to_out(a: Agent, persona_bodies: dict[str, str] | None = None) -> Agen
         toolPolicy=cfg.get("toolPolicy", {}),  # 도구 승인 오버라이드(스펙 177 P2, 폼 재로드용)
         artifactSpec=cfg.get("artifactSpec"),  # 노코드 산출물형 필드 명세(스펙 190, 폼 재로드용)
         nodes=cfg.get("nodes"),  # 노드형 파이프라인 노드 명세(스펙 259, 폼 재로드용)
-        ragMinScores=cfg.get("ragMinScores", {}) or {},  # 컬렉션별 문서 검색 최소 유사도(스펙 191 v2, 폼 재로드용)
+        ragMinScores=cfg.get("ragMinScores", {})
+        or {},  # 컬렉션별 문서 검색 최소 유사도(스펙 191 v2, 폼 재로드용)
         owner_id=a.owner_id,  # 스펙 112(can_manage는 list/get 라우트서 세팅)
         exposed=dict(a.exposed or {"a2a": False}),
         status=a.status,

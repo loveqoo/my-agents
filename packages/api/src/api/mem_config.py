@@ -27,32 +27,44 @@ def _build_mem_cfg(chat_m, emb_m) -> dict | None:
         return None
     return {
         "llm": {
-            "base_url": cp.base_url, "api_key": crypto.decrypt(cp.api_key), "model_id": chat_m.model_id,
+            "base_url": cp.base_url,
+            "api_key": crypto.decrypt(cp.api_key),
+            "model_id": chat_m.model_id,
         },
         "embedder": {
-            "base_url": ep.base_url, "api_key": crypto.decrypt(ep.api_key), "model_id": emb_m.model_id,
+            "base_url": ep.base_url,
+            "api_key": crypto.decrypt(ep.api_key),
+            "model_id": emb_m.model_id,
         },
     }
 
 
 async def _default_chat_model(db):
     return (
-        await db.execute(
-            select(ModelConfig)
-            .where(ModelConfig.kind == "chat", ModelConfig.is_default.is_(True))
-            .options(selectinload(ModelConfig.provider))
+        (
+            await db.execute(
+                select(ModelConfig)
+                .where(ModelConfig.kind == "chat", ModelConfig.is_default.is_(True))
+                .options(selectinload(ModelConfig.provider))
+            )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
 
 
 async def _default_embed_model(db):
     return (
-        await db.execute(
-            select(ModelConfig)
-            .where(ModelConfig.kind == "embedding", ModelConfig.is_default.is_(True))
-            .options(selectinload(ModelConfig.provider))
+        (
+            await db.execute(
+                select(ModelConfig)
+                .where(ModelConfig.kind == "embedding", ModelConfig.is_default.is_(True))
+                .options(selectinload(ModelConfig.provider))
+            )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
 
 
 async def default_mem_cfg(db) -> dict | None:

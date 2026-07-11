@@ -88,10 +88,10 @@ async def list_runs(
     session: AsyncSession = Depends(get_session),
 ):
     rows = (
-        await session.execute(
-            select(BatchRun).order_by(BatchRun.started_at.desc()).limit(limit)
-        )
-    ).scalars().all()
+        (await session.execute(select(BatchRun).order_by(BatchRun.started_at.desc()).limit(limit)))
+        .scalars()
+        .all()
+    )
     return [
         {
             "id": str(r.id),

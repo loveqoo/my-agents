@@ -8,10 +8,11 @@ import asyncio
 import ipaddress
 import logging
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from urllib.parse import urlsplit
 
-from sqlalchemy import delete, exists, func as safunc, or_, select, text
+from sqlalchemy import delete, exists, or_, select, text
+from sqlalchemy import func as safunc
 
 from .. import memory
 from ..db import SessionLocal
@@ -52,7 +53,7 @@ async def cleanup_sessions(*, dry_run: bool, run_id=None) -> dict:
         cfg = await _get_config(session)
         days = cfg.session_retention_days
         min_turns = cfg.min_session_turns
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         # 각 절 비활성 가드(API ge=1 외 한 겹 더, 방어적). days=0/min_turns=0이면 delete-all footgun.
         age_active = days is not None and days >= 1
@@ -104,18 +105,27 @@ async def cleanup_sessions(*, dry_run: bool, run_id=None) -> dict:
         if dry_run:
             log.info(
                 "session-cleanup DRY-RUN: 대상 %d건 (나이=%s, 턴<%s)",
-                len(ids), age_cutoff.isoformat() if age_cutoff else "off",
+                len(ids),
+                age_cutoff.isoformat() if age_cutoff else "off",
                 min_turns if turn_active else "off",
             )
-            return {"status": "dry_run", **meta, "would_delete": len(ids), "sample": [r[1] for r in rows[:20]]}
+            return {
+                "status": "dry_run",
+                **meta,
+                "would_delete": len(ids),
+                "sample": [r[1] for r in rows[:20]],
+            }
 
         if ids:
             # Core bulk DELETE — ORM cascade는 안 걸리지만 messages FK가 ondelete CASCADE라 DB가 정리.
             await session.execute(delete(Session).where(Session.id.in_(ids)))
             await session.commit()
-        log.info("session-cleanup: %d건 삭제 (나이=%s, 턴<%s)",
-                 len(ids), age_cutoff.isoformat() if age_cutoff else "off",
-                 min_turns if turn_active else "off")
+        log.info(
+            "session-cleanup: %d건 삭제 (나이=%s, 턴<%s)",
+            len(ids),
+            age_cutoff.isoformat() if age_cutoff else "off",
+            min_turns if turn_active else "off",
+        )
         return {"status": "ok", **meta, "deleted": len(ids)}
 
 
@@ -150,7 +160,7 @@ def _consolidate(texts: list[str], mem_cfg: dict | None) -> list[str]:
             temperature=0,
         )
         content = (resp.choices[0].message.content or "").strip()
-    except Exception as exc:  # noqa: BLE001 — 실패는 흡수, 빈 결과로 삭제 차단
+    except Exception as exc:
         log.warning("memory consolidation LLM 호출 실패: %s", exc)
         return []
     facts: list[str] = []
@@ -177,7 +187,9 @@ def _valid_consolidation(new_facts: list[str], original_count: int) -> bool:
     return bool(new_facts) and len(new_facts) < original_count
 
 
-async def _candidates(mem_cfg: dict, user_ids: list[str], threshold: int) -> list[tuple[str, list[dict]]]:
+async def _candidates(
+    mem_cfg: dict, user_ids: list[str], threshold: int
+) -> list[tuple[str, list[dict]]]:
     """임계치 초과 유저만 (user_id, 기억목록) 쌍으로. mem0 list_memories는 to_thread."""
     out: list[tuple[str, list[dict]]] = []
     for uid in user_ids:
@@ -217,14 +229,30 @@ async def consolidate_user_memories(*, dry_run: bool, run_id=None) -> dict:
         preview = []
         for uid, mems in candidates:
             if len(mems) > _MAX_CONSOLIDATE_INPUT:  # 상한 초과 → 실행 시 스킵(잘림 손실 방지)
-                preview.append({"user_id": uid, "before": len(mems), "after": 0, "skip": "too_many", "sample": []})
+                preview.append(
+                    {
+                        "user_id": uid,
+                        "before": len(mems),
+                        "after": 0,
+                        "skip": "too_many",
+                        "sample": [],
+                    }
+                )
                 continue
             new_facts = await asyncio.to_thread(_consolidate, [m["text"] for m in mems], mem_cfg)
             skip = None if _valid_consolidation(new_facts, len(mems)) else "no_shrink"
             preview.append(
-                {"user_id": uid, "before": len(mems), "after": len(new_facts), "skip": skip, "sample": new_facts[:10]}
+                {
+                    "user_id": uid,
+                    "before": len(mems),
+                    "after": len(new_facts),
+                    "skip": skip,
+                    "sample": new_facts[:10],
+                }
             )
-        log.info("memory-consolidation DRY-RUN: 후보 %d명 (유저 %d명 스캔)", len(preview), len(user_ids))
+        log.info(
+            "memory-consolidation DRY-RUN: 후보 %d명 (유저 %d명 스캔)", len(preview), len(user_ids)
+        )
         return {
             "status": "dry_run",
             "threshold": threshold,
@@ -238,14 +266,18 @@ async def consolidate_user_memories(*, dry_run: bool, run_id=None) -> dict:
         if len(mems) > _MAX_CONSOLIDATE_INPUT:  # 상한 초과 → 스킵(원본 보존, 청크 통합은 debt §7)
             log.warning(
                 "memory-consolidation: user=%s 기억 %d개 > 상한 %d → 스킵(프롬프트 잘림 손실 방지)",
-                uid, len(mems), _MAX_CONSOLIDATE_INPUT,
+                uid,
+                len(mems),
+                _MAX_CONSOLIDATE_INPUT,
             )
             continue
         new_facts = await asyncio.to_thread(_consolidate, [m["text"] for m in mems], mem_cfg)
         if not _valid_consolidation(new_facts, len(mems)):  # 불변식 2 — 빈/미축소면 절대 삭제 안 함
             log.warning(
                 "memory-consolidation: 통합 결과 무효(빈/미축소 %d→%d) → user=%s 스킵(원본 보존)",
-                len(mems), len(new_facts), uid,
+                len(mems),
+                len(new_facts),
+                uid,
             )
             continue
         # ① 원본을 스냅샷에 박제 + commit (롤백 앵커). 삭제는 이 다음에만 한다.
@@ -265,18 +297,33 @@ async def consolidate_user_memories(*, dry_run: bool, run_id=None) -> dict:
         for m in mems:
             if await asyncio.to_thread(memory.delete_memory, m["id"], mem_cfg):
                 deleted += 1
-        if deleted != len(mems):  # 일부 원본 잔존 — 통합본과 중복(손실 아님, 가시화만). 스냅샷이 앵커.
+        if deleted != len(
+            mems
+        ):  # 일부 원본 잔존 — 통합본과 중복(손실 아님, 가시화만). 스냅샷이 앵커.
             log.warning(
                 "memory-consolidation: user=%s 삭제 %d/%d 미달 — 원본 일부 잔존(통합본과 중복 가능, 손실 아님)",
-                uid, deleted, len(mems),
+                uid,
+                deleted,
+                len(mems),
             )
         consolidated.append(
-            {"user_id": uid, "before": len(mems), "after": len(new_facts), "snapshot": len(mems), "deleted": deleted}
+            {
+                "user_id": uid,
+                "before": len(mems),
+                "after": len(new_facts),
+                "snapshot": len(mems),
+                "deleted": deleted,
+            }
         )
         total_before += len(mems)
         total_after += len(new_facts)
 
-    log.info("memory-consolidation: %d명 통합 (before=%d → after=%d)", len(consolidated), total_before, total_after)
+    log.info(
+        "memory-consolidation: %d명 통합 (before=%d → after=%d)",
+        len(consolidated),
+        total_before,
+        total_after,
+    )
     return {
         "status": "ok",
         "threshold": threshold,
@@ -447,7 +494,10 @@ async def cleanup_test_users(*, dry_run: bool, run_id=None) -> dict:
         if dry_run:
             log.info(
                 "user-cleanup DRY-RUN: 패턴 %r 매치 %d → 삭제대상 %d (super 보존 %d)",
-                pattern, len(rows), len(ids), len(protected_super_emails),
+                pattern,
+                len(rows),
+                len(ids),
+                len(protected_super_emails),
             )
             return {"status": "dry_run", **meta, "would_delete": len(ids), "sample": sample}
 
@@ -473,11 +523,13 @@ async def cleanup_test_users(*, dry_run: bool, run_id=None) -> dict:
 
         if authz._enforcer is not None:
             await authz._enforcer.load_policy()
-    except Exception as exc:  # noqa: BLE001 — reload 실패는 흡수(DB는 이미 정리됨)
+    except Exception as exc:
         log.warning("user-cleanup: casbin enforcer reload 실패(무해, DB는 정리됨): %s", exc)
     log.info(
         "user-cleanup: %d 유저 삭제 (패턴 %r, super 보존 %d)",
-        len(ids), pattern, len(protected_super_emails),
+        len(ids),
+        pattern,
+        len(protected_super_emails),
     )
     return {"status": "ok", **meta, "deleted": len(ids)}
 

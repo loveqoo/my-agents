@@ -50,7 +50,7 @@ async def _preflight() -> None:
     try:
         async with engine.connect() as conn:
             await conn.execute(text("SELECT 1"))
-    except Exception as e:  # noqa: BLE001 — 연결 계층 전반(asyncpg/SQLAlchemy)을 한 번에
+    except Exception as e:
         masked = _mask_dsn(DATABASE_URL)
         logger.error(
             "DB 연결 실패 — 부팅을 중단합니다.\n"
@@ -82,10 +82,8 @@ async def init_db():
     await _preflight()  # DB 도달성 먼저 — 실패 시 명확 종료(폴백 이중 throw 제거)
     try:
         await asyncio.to_thread(command.upgrade, _alembic_config(), "head")
-    except Exception:  # noqa: BLE001 — 부팅은 항상 성공해야 한다
-        logger.warning(
-            "alembic upgrade head 실패 — create_all로 폴백합니다.", exc_info=True
-        )
+    except Exception:
+        logger.warning("alembic upgrade head 실패 — create_all로 폴백합니다.", exc_info=True)
         try:
             async with engine.begin() as conn:
                 # 폴백도 pgvector 확장을 보장한다(마이그레이션 b2c3d4e5f6a7와 패리티). 없으면 바로 뒤
@@ -98,7 +96,7 @@ async def init_db():
                 # (이미 설치된 pgvector면 IF NOT EXISTS가 비-수퍼유저에서도 no-op이라 관리형 PG도 통과.)
                 await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
                 await conn.run_sync(Base.metadata.create_all)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             logger.error(
                 "create_all 폴백 실패 — 스키마를 만들 수 없습니다.\n"
                 "  · 대개 pgvector 확장 부재/권한 문제입니다(코어 모델이 Vector 컬럼을 씁니다).\n"
@@ -114,7 +112,7 @@ async def init_db():
         # alembic_version을 남긴다 → 이후 마이그레이션이 우회되지 않게.
         try:
             await asyncio.to_thread(command.stamp, _alembic_config(), "head")
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.warning("alembic stamp head 실패", exc_info=True)
 
     from .seed import seed_if_empty

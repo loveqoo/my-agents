@@ -22,10 +22,10 @@ from sqlalchemy.orm import selectinload
 from . import crypto, rag_ingest
 from .auth import current_principal
 from .db import get_session
-from .naming import validate_resource_name
-from .ownership import assert_may_manage, may_manage, owner_of
 from .model_registry import _probe
 from .models import RAG_EMBED_DIMS, Chunk, Collection, Document, ModelConfig
+from .naming import validate_resource_name
+from .ownership import assert_may_manage, may_manage, owner_of
 from .references import agents_referencing, referenced_message
 from .schemas import (
     CollectionHealth,
@@ -72,13 +72,17 @@ def _check_entity_schema(schema: dict | None, kind: str) -> None:
     if schema is None:
         return
     if kind != "entity":
-        raise HTTPException(status_code=400, detail="entity_schema는 엔티티 컬렉션에만 설정할 수 있습니다.")
+        raise HTTPException(
+            status_code=400, detail="entity_schema는 엔티티 컬렉션에만 설정할 수 있습니다."
+        )
     import json
 
     import jsonschema
 
     if len(json.dumps(schema)) > _SCHEMA_MAX_CHARS:
-        raise HTTPException(status_code=400, detail=f"JSON Schema가 너무 큽니다(최대 {_SCHEMA_MAX_CHARS}자).")
+        raise HTTPException(
+            status_code=400, detail=f"JSON Schema가 너무 큽니다(최대 {_SCHEMA_MAX_CHARS}자)."
+        )
     banned = _has_banned_key(schema)
     if banned:
         raise HTTPException(
@@ -88,7 +92,10 @@ def _check_entity_schema(schema: dict | None, kind: str) -> None:
     try:
         jsonschema.Draft202012Validator.check_schema(schema)
     except jsonschema.SchemaError as exc:
-        raise HTTPException(status_code=400, detail=f"JSON Schema가 유효하지 않습니다: {exc.message[:200]}")
+        raise HTTPException(
+            status_code=400, detail=f"JSON Schema가 유효하지 않습니다: {exc.message[:200]}"
+        )
+
 
 # 업로드 상한 — `await file.read()`는 전체를 메모리로 올리므로 무제한이면 단일/동시 업로드로 OOM.
 # 기본 25MB, RAG_MAX_UPLOAD_MB로 조정. 초과 시 413(적재 전 차단).
@@ -137,12 +144,16 @@ async def list_collections(
     principal=Depends(current_principal),
 ) -> list[CollectionOut]:
     rows = (
-        await session.execute(
-            select(Collection)
-            .options(selectinload(Collection.embedding_model))
-            .order_by(Collection.name)
+        (
+            await session.execute(
+                select(Collection)
+                .options(selectinload(Collection.embedding_model))
+                .order_by(Collection.name)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     outs = [collection_to_out(c) for c in rows]
     for o in outs:  # 스펙 114 — 관리 가능 여부 파생
         o.can_manage = may_manage(o.owner_id, principal)
@@ -163,10 +174,14 @@ async def create_collection(
     if m is None:
         raise HTTPException(status_code=400, detail="임베딩 모델을 찾을 수 없습니다.")
     if m.kind != "embedding":
-        raise HTTPException(status_code=400, detail="임베딩(kind=embedding) 모델만 컬렉션에 쓸 수 있습니다.")
+        raise HTTPException(
+            status_code=400, detail="임베딩(kind=embedding) 모델만 컬렉션에 쓸 수 있습니다."
+        )
     # 가드1 — 생성 시점 차원 점검(probe 실측 vs 저장소 고정 차원).
     if m.provider is not None:
-        probe = await _probe(m.provider.base_url, crypto.decrypt(m.provider.api_key), m.model_id, "embedding")
+        probe = await _probe(
+            m.provider.base_url, crypto.decrypt(m.provider.api_key), m.model_id, "embedding"
+        )
         msg = _dim_mismatch(probe.dims, RAG_EMBED_DIMS)
         if msg:
             raise HTTPException(status_code=409, detail=msg)
@@ -222,7 +237,9 @@ async def update_collection(
         # 명시적 null=스키마 제거(codex 149 — 오등록 스키마를 API로 해제 못 하면 업로드가 영구 잠김),
         # 미포함=미변경. 이후 업로드부터 적용(기존 행 재검증 없음 — 스펙 149). 문서형엔 400.
         if c.kind != "entity":
-            raise HTTPException(status_code=400, detail="entity_schema는 엔티티 컬렉션에만 설정할 수 있습니다.")
+            raise HTTPException(
+                status_code=400, detail="entity_schema는 엔티티 컬렉션에만 설정할 수 있습니다."
+            )
         _check_entity_schema(body.entity_schema, "entity")
         c.entity_schema = body.entity_schema
     if body.description is not None:
@@ -246,9 +263,7 @@ async def delete_collection(
     # 삭제하면 config에 dangling name만 남아 런타임이 조용히 RAG 없이 동작(chat.py 미해석).
     refs = await agents_referencing(session, "vectorTables", c.name)
     if refs:
-        raise HTTPException(
-            status_code=409, detail=referenced_message(refs, "RAG 컬렉션")
-        )
+        raise HTTPException(status_code=409, detail=referenced_message(refs, "RAG 컬렉션"))
     await session.delete(c)  # 문서·청크 CASCADE 동반 삭제
     await session.commit()
 
@@ -264,7 +279,9 @@ async def collection_health(
     model_dims: int | None = None
     if c.embedding_model is not None and c.embedding_model.provider is not None:
         p = c.embedding_model.provider
-        probe = await _probe(p.base_url, crypto.decrypt(p.api_key), c.embedding_model.model_id, "embedding")
+        probe = await _probe(
+            p.base_url, crypto.decrypt(p.api_key), c.embedding_model.model_id, "embedding"
+        )
         model_dims = probe.dims
     db_ok = c.dims == RAG_EMBED_DIMS
     model_ok = model_dims is None or model_dims == c.dims
@@ -376,9 +393,15 @@ async def list_documents(
         base = base.where(Document.filename.ilike(f"%{_like_escape(q.strip())}%", escape="\\"))
     total = (await session.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
     rows = (
-        # id tiebreak — 같은 created_at(한 트랜잭션 일괄 인제스트)에서도 페이지가 결정적·비중복(127 원칙).
-        await session.execute(base.order_by(Document.created_at, Document.id).offset(offset).limit(limit))
-    ).scalars().all()
+        (
+            # id tiebreak — 같은 created_at(한 트랜잭션 일괄 인제스트)에서도 페이지가 결정적·비중복(127 원칙).
+            await session.execute(
+                base.order_by(Document.created_at, Document.id).offset(offset).limit(limit)
+            )
+        )
+        .scalars()
+        .all()
+    )
     return DocumentPageOut(items=rows, total=total)
 
 
@@ -477,7 +500,7 @@ async def ingest_document(
         )
         await session.commit()
         await session.refresh(doc)
-    except Exception as exc:  # noqa: BLE001 — 모든 실패를 status=error로 보존(no silent death)
+    except Exception as exc:
         # IngestError 외(crypto.decrypt RuntimeError·commit DB 오류 등)도 문서를 parsing에 방치하거나
         # 500으로 흘리지 않는다. 비밀이 메시지에 섞일 수 있는 예외는 일반화해 노출 차단.
         await session.rollback()  # 부분 적재(청크/카운트) 되돌림 — 문서 행은 이미 커밋됨

@@ -7,6 +7,7 @@
 - 읽기/발견은 **owner 스코프를 SELECT WHERE에 밀어** 거부행을 로드조차 안 함(각 라우터가 `_own_scope`
   로 직접 조건화 — 존재 비노출, 체크리스트 §2a).
 """
+
 from __future__ import annotations
 
 from agent.runtime import is_third_party
@@ -63,6 +64,7 @@ def is_privileged(principal, enforcer=None) -> bool:
         return False
     if enforcer is None:
         from . import authz
+
         try:
             enforcer = authz.get_enforcer()
         except RuntimeError:
@@ -79,7 +81,9 @@ def may_manage(row_owner: str | None, principal, enforcer=None) -> bool:
     return bool(oid) and row_owner == oid
 
 
-def assert_may_manage(resource, principal, enforcer=None, not_found_detail: str = "not found") -> None:
+def assert_may_manage(
+    resource, principal, enforcer=None, not_found_detail: str = "not found"
+) -> None:
     """카탈로그 항목 수정/삭제 게이트(스펙 112) — 특권 or 소유자 본인만. 아니면 **404-fold**(존재
     비노출, 068 — 남의/NULL-owned 항목을 403으로 구분해주지 않는다). NULL-owned는 특권만(fail-closed).
     호출자는 resource를 이미 로드한 상태(존재 404는 먼저 처리). 단일 게이트 헬퍼(drift 0).

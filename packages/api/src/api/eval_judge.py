@@ -69,7 +69,7 @@ async def run_llm_judge(question: str, output: str, criterion: str, llm_cfg: dic
             )
             resp.raise_for_status()
             text = resp.json()["choices"][0]["message"]["content"]
-    except Exception as exc:  # noqa: BLE001 — 심판 실패=판정 실패(fail-closed), 평가는 계속
+    except Exception as exc:
         log.warning("llm_judge 호출 실패: %s", exc)
         return {"pass": False, "reason": f"심판 호출 실패: {str(exc)[:150]}"}
     verdict, reason = _parse_verdict(text)

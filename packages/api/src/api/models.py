@@ -79,7 +79,9 @@ class Collection(Base):
     embedding_model_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("models.id", ondelete="RESTRICT"), nullable=False
     )
-    dims: Mapped[int] = mapped_column(Integer)  # 생성 시 probe 실측으로 박제(= rag_chunks 컬럼 차원)
+    dims: Mapped[int] = mapped_column(
+        Integer
+    )  # 생성 시 probe 실측으로 박제(= rag_chunks 컬럼 차원)
     # 청킹도 전략 — 컬렉션별로 사용자 수정 가능(기본 1000자/200 오버랩). 인제스트 시 이 값을 읽어 분할.
     chunk_size: Mapped[int] = mapped_column(Integer, default=1000)
     chunk_overlap: Mapped[int] = mapped_column(Integer, default=200)
@@ -106,7 +108,9 @@ class Document(Base):
     content_type: Mapped[str | None] = mapped_column(String(120), default=None)
     byte_size: Mapped[int] = mapped_column(Integer, default=0)
     chunk_count: Mapped[int] = mapped_column(Integer, default=0)
-    status: Mapped[str] = mapped_column(String(20), default="parsing")  # parsing|embedding|ready|error
+    status: Mapped[str] = mapped_column(
+        String(20), default="parsing"
+    )  # parsing|embedding|ready|error
     error: Mapped[str | None] = mapped_column(Text, default=None)  # 실패 사유 보존(no silent death)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -159,7 +163,9 @@ class Provider(Base):
     api_key: Mapped[str | None] = mapped_column(String(400), default=None)  # 암호화 저장
     # 표시·배지용(스펙 047 #6) — local=실서버, mock=내장 테스트목, remote=외부. 라벨 혼란 해소.
     kind: Mapped[str] = mapped_column(String(20), default="remote", server_default="remote")
-    description: Mapped[str] = mapped_column(String(400), default="", server_default="")  # 한 줄 설명
+    description: Mapped[str] = mapped_column(
+        String(400), default="", server_default=""
+    )  # 한 줄 설명
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     models: Mapped[list["ModelConfig"]] = relationship(back_populates="provider")
@@ -184,7 +190,9 @@ class ModelConfig(Base):
     # kind당 기본 1개 DB 불변식(스펙 150 — 동시 지정 레이스 봉인). alembic(a1b2c3d4e5f7)과 정합 —
     # create_all 폴백 DB에도 같은 인덱스가 생기게 메타데이터에 선언.
     __table_args__ = (
-        Index("uq_models_default_per_kind", "kind", unique=True, postgresql_where=text("is_default")),
+        Index(
+            "uq_models_default_per_kind", "kind", unique=True, postgresql_where=text("is_default")
+        ),
     )
     params: Mapped[dict] = mapped_column(JSONB, default=dict)  # temperature 등(런타임 파라미터)
     # models.dev 카탈로그 파생 메타(스펙 047 #7) — context·modalities·cost·capabilities. params와 분리.
@@ -210,7 +218,9 @@ class McpServer(Base):
     tools_meta: Mapped[dict | None] = mapped_column(JSONB, default=None)
     status: Mapped[str] = mapped_column(String(40), default="connected")
     published: Mapped[bool] = mapped_column(Boolean, default=False)
-    auth: Mapped[str | None] = mapped_column(String(400), default=None)  # 암호화 저장(Fernet, 스펙 054 F) — 응답은 마스킹
+    auth: Mapped[str | None] = mapped_column(
+        String(400), default=None
+    )  # 암호화 저장(Fernet, 스펙 054 F) — 응답은 마스킹
     # 소유자(스펙 112) — None=레거시/admin=admin 전용(fail-closed, 070). 생성 시 스탬프·이전 금지(069).
     owner_id: Mapped[str | None] = mapped_column(String(80), index=True, default=None)
     # 수정일(스펙 216) — 빌딩 블록 '수정일' 열 배선. Persona와 동일 패턴, onupdate는 ORM-side.
@@ -237,7 +247,9 @@ class Agent(Base):
     # 설명(선택, 스펙 210) — 구 별명(alias) 개명: 표시는 name 단독, 설명은 툴팁 등 부가정보.
     description: Mapped[str | None] = mapped_column(String(200), default=None)
     source: Mapped[str] = mapped_column(String(20), default="ui")  # ui | code | external(A2A 카드)
-    model: Mapped[str] = mapped_column(String(120), default="mock-llm")  # 미지정 시 기본 모델(스펙 059)
+    model: Mapped[str] = mapped_column(
+        String(120), default="mock-llm"
+    )  # 미지정 시 기본 모델(스펙 059)
     persona: Mapped[str] = mapped_column(Text, default="")  # 해석된 페르소나 본문(서빙용)
     history_depth: Mapped[int] = mapped_column(Integer, default=20)
     # config = {model, persona, memories[], vectorTables[], mcps[], historyDepth}
@@ -258,7 +270,9 @@ class Agent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     versions: Mapped[list["AgentVersion"]] = relationship(
-        back_populates="agent", cascade="all, delete-orphan", order_by="AgentVersion.created_at.desc()"
+        back_populates="agent",
+        cascade="all, delete-orphan",
+        order_by="AgentVersion.created_at.desc()",
     )
 
 
@@ -351,9 +365,7 @@ class MessageFeedback(Base):
     harvested_case_pk: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("eval_cases.id", ondelete="SET NULL"), default=None, index=True
     )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
@@ -385,7 +397,9 @@ class Approval(Base):
     # resume하는 미정의 동작을 명시 가드로 막는 대조 기준.
     impl: Mapped[str | None] = mapped_column(String(120), default=None)
     status: Mapped[str] = mapped_column(String(20), default="pending")  # pending|approved|rejected
-    requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    requested_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
     # 처리 감사(스펙 181) — resolve 시 스탬프. NULL=미처리 또는 레거시(마이그레이션 이전 행).
     # resolved_by=처리자 user_id str. user_id(요청자)와 같으면 본인 승인, 다르면 관리자 처리.
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
@@ -410,9 +424,7 @@ class User(SQLAlchemyBaseUserTableUUID, Base):
 
     source: Mapped[str] = mapped_column(String(20), default="local", server_default="local")
     display_name: Mapped[str | None] = mapped_column(String(200), default=None)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class AccessToken(SQLAlchemyBaseAccessTokenTableUUID, Base):
@@ -491,14 +503,15 @@ class MemorySnapshot(Base):
     __tablename__ = "memory_snapshots"
     id: Mapped[uuid.UUID] = _pk()
     batch_run_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("batch_runs.id", ondelete="SET NULL"), default=None, index=True
+        UUID(as_uuid=True),
+        ForeignKey("batch_runs.id", ondelete="SET NULL"),
+        default=None,
+        index=True,
     )
     user_id: Mapped[str] = mapped_column(String(200), index=True)
     mem_id: Mapped[str] = mapped_column(String(200))
     text: Mapped[str] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class AllowedHost(Base):
@@ -519,9 +532,7 @@ class AllowedHost(Base):
     id: Mapped[uuid.UUID] = _pk()
     host: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     note: Mapped[str | None] = mapped_column(String(200), default=None)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 # ----------------------------- 평가 하네스 제품화 (스펙 137) -----------------------------
@@ -536,14 +547,24 @@ class EvalDataset(Base):
     # 스펙 193: RAG 문제집의 대상 컬렉션 고정(실행 시 재선택 제거). kind='rag'만 사용, agent는 NULL.
     # 구버전 rag 문제집도 NULL(첫 실행 시 lazy 저장). 컬렉션 삭제 시 SET NULL(문제집 보존·연결만 끊김).
     collection_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("collections.id", ondelete="SET NULL"), nullable=True, default=None, index=True
+        UUID(as_uuid=True),
+        ForeignKey("collections.id", ondelete="SET NULL"),
+        nullable=True,
+        default=None,
+        index=True,
     )
     # 스펙 209 Phase 2: 피드백 수확 문제집이 어느 에이전트에서 왔나(idempotent 수확 — 에이전트당 1개
     # 문제집 재사용). 일반 문제집=NULL. 에이전트 삭제 시 SET NULL(문제집 보존·연결만 끊김).
     source_agent_pk: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("agents.id", ondelete="SET NULL"), nullable=True, default=None, index=True
+        UUID(as_uuid=True),
+        ForeignKey("agents.id", ondelete="SET NULL"),
+        nullable=True,
+        default=None,
+        index=True,
     )
-    owner_id: Mapped[str | None] = mapped_column(String(80), index=True, default=None)  # 스펙 112 스탬프
+    owner_id: Mapped[str | None] = mapped_column(
+        String(80), index=True, default=None
+    )  # 스펙 112 스탬프
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -585,14 +606,20 @@ class EvalRun(Base):
     agent_pk: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("agents.id", ondelete="SET NULL"), default=None
     )
-    agent_name: Mapped[str | None] = mapped_column(String(120), default=None)  # 삭제 후 성적표 표기용 박제
-    model_name: Mapped[str | None] = mapped_column(String(120), default=None)  # 모델 오버라이드 박제(스펙 141)
+    agent_name: Mapped[str | None] = mapped_column(
+        String(120), default=None
+    )  # 삭제 후 성적표 표기용 박제
+    model_name: Mapped[str | None] = mapped_column(
+        String(120), default=None
+    )  # 모델 오버라이드 박제(스펙 141)
     # 버전 귀속(스펙 240, AgentOps A) — 실행 시점 활성 버전. NULL=과거 런(미기록, 정직 표기).
     agent_version: Mapped[str | None] = mapped_column(String(20), default=None)
     # 경량 환경 기록(스펙 240) — 모델 params·MCP 도구 목록·컬렉션 상태(docs/chunks/임베딩). **재현
     # 보장이 아니라 진단 단서**(완전 재현 스냅샷은 과설계로 기각 — RAG 인덱스 복제 비용).
     env: Mapped[dict | None] = mapped_column(JSONB, default=None)
-    group_id: Mapped[uuid.UUID | None] = mapped_column(default=None, index=True)  # 모델 비교 그룹(스펙 141)
+    group_id: Mapped[uuid.UUID | None] = mapped_column(
+        default=None, index=True
+    )  # 모델 비교 그룹(스펙 141)
     status: Mapped[str] = mapped_column(String(20), default="running")  # running|ok|error
     score: Mapped[float | None] = mapped_column(default=None)  # passed/total
     passed: Mapped[int] = mapped_column(Integer, default=0)
@@ -619,7 +646,9 @@ class EvalCaseResult(Base):
     case_name: Mapped[str] = mapped_column(String(200), nullable=False)
     case_passed: Mapped[bool] = mapped_column(Boolean, default=False)
     details: Mapped[list] = mapped_column(JSONB, default=list)  # [[assert_name, bool], ...]
-    obs: Mapped[dict | None] = mapped_column(JSONB, default=None)  # {output(캡), trace_nodes, error}
+    obs: Mapped[dict | None] = mapped_column(
+        JSONB, default=None
+    )  # {output(캡), trace_nodes, error}
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     run: Mapped["EvalRun"] = relationship(back_populates="results")

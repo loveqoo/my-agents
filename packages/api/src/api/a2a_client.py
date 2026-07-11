@@ -100,8 +100,10 @@ def extract_text(result: object) -> str:
 
 def _is_final(result: object) -> bool:
     """status-update의 final 플래그(스트림 종료 신호)."""
-    return isinstance(result, dict) and result.get("kind") == "status-update" and bool(
-        result.get("final")
+    return (
+        isinstance(result, dict)
+        and result.get("kind") == "status-update"
+        and bool(result.get("final"))
     )
 
 
@@ -158,7 +160,11 @@ async def a2a_stream(
     try:
         # 토큰 복호화(키 회전 시 RuntimeError 가능)도 try 안에서 — try 밖이면 미프레임 크래시(적대리뷰 H3).
         # extra_headers: 중계 홉 표식(x-my-agents-relay, 스펙 154 루프 가드) 등 — Authorization은 못 덮는다.
-        headers = {"Content-Type": "application/json", **(extra_headers or {}), **_auth_headers(token)}
+        headers = {
+            "Content-Type": "application/json",
+            **(extra_headers or {}),
+            **_auth_headers(token),
+        }
         # redirects 비활성(명시) — 리다이렉트로 SSRF 가드/Authorization 경계를 우회 못 하게.
         async with httpx.AsyncClient(timeout=A2A_TIMEOUT_S, follow_redirects=False) as client:
             if streaming:
@@ -180,7 +186,7 @@ async def a2a_stream(
     except httpx.HTTPError as exc:
         # 본문/헤더는 보낸 토큰을 에코할 수 있어 메시지에 넣지 않는다 — 예외 타입만.
         yield {"error": f"외부 에이전트 요청 실패({type(exc).__name__})"}
-    except Exception as exc:  # noqa: BLE001 — decrypt RuntimeError 등도 프레임으로(스트림 미크래시)
+    except Exception as exc:
         yield {"error": f"외부 에이전트 호출 실패({type(exc).__name__})"}
 
 

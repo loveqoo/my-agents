@@ -36,16 +36,14 @@ async def init_checkpointer() -> AsyncPostgresSaver | None:
     global _saver, _cm
     if _saver is not None:
         return _saver
-    url = os.environ.get(
-        "DATABASE_URL", "postgresql+asyncpg://agent:agent@localhost:5432/agents"
-    )
+    url = os.environ.get("DATABASE_URL", "postgresql+asyncpg://agent:agent@localhost:5432/agents")
     dsn = _sync_dsn(url)
     try:
         _cm = AsyncPostgresSaver.from_conn_string(dsn)
         _saver = await _cm.__aenter__()
         await _saver.setup()
         log.info("AsyncPostgresSaver 준비 완료(HIL 체크포인터)")
-    except Exception as exc:  # noqa: BLE001 — 체크포인터 부재가 앱을 막지 않는다(graceful)
+    except Exception as exc:
         log.warning("체크포인터 초기화 실패 — HIL 게이트 비활성: %s", exc)
         _saver = None
         _cm = None
@@ -63,7 +61,7 @@ async def close_checkpointer() -> None:
     if _cm is not None:
         try:
             await _cm.__aexit__(None, None, None)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             log.warning("체크포인터 종료 중 오류(무시): %s", exc)
     _saver = None
     _cm = None

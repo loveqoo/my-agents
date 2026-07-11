@@ -44,7 +44,9 @@ def _parse_question(text: str) -> str | None:
     # 한국어 의문형 정규화(e2e 142 실측 — qwen이 "…는가/…인가"를 물음표 없이 내서 수율 1~2/5로
     # 추락). 의문형 종결어미로 끝나면 물음표를 붙여 인정한다 — 평서문("…이다" 등)은 여전히 거부.
     if not q.endswith("?"):
-        if q.endswith(("는가", "은가", "인가", "일까", "을까", "할까", "나요", "가요", "습니까", "입니까")):
+        if q.endswith(
+            ("는가", "은가", "인가", "일까", "을까", "할까", "나요", "가요", "습니까", "입니까")
+        ):
             q += "?"
         else:
             return None
@@ -60,8 +62,10 @@ async def _sample_chunks(collection_id, want: int) -> list[tuple[str, str]]:
             await db.execute(
                 select(Chunk.text, Document.filename)
                 .join(Document, Chunk.document_id == Document.id)
-                .where(Chunk.collection_id == collection_id,
-                       func.length(Chunk.text) >= _MIN_CHUNK_CHARS)
+                .where(
+                    Chunk.collection_id == collection_id,
+                    func.length(Chunk.text) >= _MIN_CHUNK_CHARS,
+                )
                 .order_by(func.random())
                 .limit(want * 3)  # 형식 이탈·중복 건너뜀 여유분
             )
@@ -101,7 +105,7 @@ async def _gen_question(chunk_text: str, llm_cfg: dict) -> str | None:
             )
             resp.raise_for_status()
             return _parse_question(resp.json()["choices"][0]["message"]["content"])
-    except Exception as exc:  # noqa: BLE001 — 생성 실패=그 청크 건너뜀(전체는 계속)
+    except Exception as exc:
         log.warning("골든 질문 생성 실패: %s", exc)
         return None
 

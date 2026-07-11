@@ -12,7 +12,9 @@ ORM = {"from_attributes": True}
 # ----------------------------- 빌딩 블록 -----------------------------
 class PersonaIn(BaseModel):
     name: str = Field(max_length=200)  # 식별 이름(규칙, 스펙 148) — DB String(200) 정합(codex 148)
-    description: str | None = Field(default=None, max_length=200)  # 설명(자유 표기, 스펙 210) — 표시는 name 단독
+    description: str | None = Field(
+        default=None, max_length=200
+    )  # 설명(자유 표기, 스펙 210) — 표시는 name 단독
     tone: str | None = None
     body: str = ""
 
@@ -26,6 +28,7 @@ class PersonaOut(PersonaIn):
 
 class PersonaUsageAgentOut(BaseModel):
     """페르소나를 쓰는 에이전트 1건(스펙 161) — 편집 화면 "사용 에이전트·오래됨" 목록용."""
+
     id: uuid.UUID
     agentId: str
     name: str
@@ -217,7 +220,9 @@ class MemorySearchDiag(BaseModel):
     error: str | None = None  # 미설정/초기화 실패/검색 예외(정제·마스킹). 정상이면 None
     scope: str  # 질의 스코프(user_id 등)
     count: int  # 회상 건수
-    stored: int | None = None  # 스코프 저장 건수(스펙 158) — 저장>0인데 회상 0이면 유사도/임베더 문제
+    stored: int | None = (
+        None  # 스코프 저장 건수(스펙 158) — 저장>0인데 회상 0이면 유사도/임베더 문제
+    )
 
 
 class MemorySearchOut(BaseModel):
@@ -230,7 +235,9 @@ class MemorySearchOut(BaseModel):
     limit: int
     enabled: bool
     results: list[MemoryHit]  # 회상 0건이면 빈 리스트
-    diag: MemorySearchDiag | None = None  # 진단(스펙 125) — 선택. 컬렉션 검색 등 비-메모리 경로는 None
+    diag: MemorySearchDiag | None = (
+        None  # 진단(스펙 125) — 선택. 컬렉션 검색 등 비-메모리 경로는 None
+    )
 
 
 class McpToolParam(BaseModel):
@@ -251,7 +258,9 @@ class McpToolInfo(BaseModel):
 
 class McpServerIn(BaseModel):
     name: str = Field(max_length=120)  # 식별 이름(규칙, 스펙 148) — DB String(120) 정합
-    description: str | None = Field(default=None, max_length=200)  # 설명(자유 표기, 스펙 210) — 표시는 name 단독
+    description: str | None = Field(
+        default=None, max_length=200
+    )  # 설명(자유 표기, 스펙 210) — 표시는 name 단독
     # local=외부/self-host 등록분 · external=남의 A2A/MCP(재공개 봉인 152) · custom=우리가 코드로
     # 정의·호스팅해 서빙 가능(스펙 156). source는 생성 후 불변(152) — 세탁 봉인.
     source: Literal["local", "external", "custom"] = "local"
@@ -278,14 +287,16 @@ class McpServerIn(BaseModel):
         out: dict[str, Any] = {}
         for k, item in v.items():
             if not isinstance(k, str) or not isinstance(item, dict):
-                raise ValueError("tools_meta 항목은 {도구이름: {description, params}} 형식이어야 합니다.")
+                raise ValueError(
+                    "tools_meta 항목은 {도구이름: {description, params}} 형식이어야 합니다."
+                )
             try:
                 info = McpToolInfo(
                     name=k,
                     description=item.get("description", "") or "",
                     params=item.get("params", []) or [],
                 )
-            except Exception as exc:  # noqa: BLE001 — pydantic 상세를 422 메시지로
+            except Exception as exc:
                 raise ValueError(f"tools_meta[{k[:40]!r}] 형식 위반: {str(exc)[:200]}")
             entry: dict[str, Any] = {
                 "description": info.description,
@@ -316,6 +327,7 @@ class McpPublishIn(BaseModel):
 
 class McpDiscoverIn(BaseModel):
     """MCP 서버 라이브 도구 탐색(저장 전 폼). url에 실제로 붙어 도구목록만 읽는다(부작용 0, 스펙 054 E)."""
+
     url: str = ""
     transport: Literal["stdio", "http"] = "http"
     auth: str | None = None  # 평문 토큰(폼 입력) 또는 마스킹값(• 포함이면 헤더 생략)
@@ -323,6 +335,7 @@ class McpDiscoverIn(BaseModel):
 
 class McpDiscoverResult(BaseModel):
     """탐색 결과. ok=연결+도구취득 성공. tools=발견된 도구이름. 비밀은 결과에 미포함."""
+
     ok: bool
     reachable: bool
     tools: list[str] = Field(default_factory=list)
@@ -333,12 +346,14 @@ class McpDiscoverResult(BaseModel):
 
 class ProviderProbeIn(BaseModel):
     """provider 연결 테스트(저장 전 폼). base_url 도달성 + 자격증명 확인."""
+
     base_url: str = ""
     api_key: str | None = None
 
 
 class ModelProbeIn(BaseModel):
     """모델 연결 테스트(저장 전 폼). 연결처는 선택한 provider에서 취득."""
+
     provider_id: uuid.UUID
     model_id: str = ""
     kind: Literal["chat", "embedding"] = "chat"
@@ -396,7 +411,9 @@ class ModelOut(BaseModel):
     kind: str
     is_default: bool
     params: dict[str, Any] = Field(default_factory=dict)
-    meta: dict[str, Any] = Field(default_factory=dict)  # 카탈로그 파생(context·modalities·cost·caps)
+    meta: dict[str, Any] = Field(
+        default_factory=dict
+    )  # 카탈로그 파생(context·modalities·cost·caps)
 
 
 # 통합 뷰의 GET /models 실모델 나열·토글용(스펙 047 #8).
@@ -418,7 +435,9 @@ class AvailableModelsOut(BaseModel):
 class AgentConfig(BaseModel):
     model: str = "mock-llm"  # 미지정 시 기본 모델(스펙 059)
     persona: str = ""  # 페르소나 이름(블록 참조)
-    temperature: float | None = None  # 에이전트 영속 온도(스펙 077). None=자동(모델 등록 params 적용)
+    temperature: float | None = (
+        None  # 에이전트 영속 온도(스펙 077). None=자동(모델 등록 params 적용)
+    )
     memories: list[str] = Field(default_factory=list)
     vectorTables: list[str] = Field(default_factory=list)
     mcps: list[str] = Field(default_factory=list)
@@ -435,7 +454,9 @@ class AgentConfig(BaseModel):
     # (runtime.resolve_tool_approval). **완화는 저장 시 admin 게이트**(agents CRUD) — 스키마는 구조만 강제.
     toolPolicy: dict[str, Any] = Field(default_factory=dict)
     historyDepth: int = 20
-    persistHistory: bool = True  # 대화를 DB에 저장할지(끄면 윈도우 모드 — 세션은 남고 메시지만 스킵)
+    persistHistory: bool = (
+        True  # 대화를 DB에 저장할지(끄면 윈도우 모드 — 세션은 남고 메시지만 스킵)
+    )
     # 비영속(1회성) 모드(스펙 235) — true면 DB 적재 전면 스킵(세션 행·카운터·메시지·commit·메모리 전부
     # 무동작). 고트래픽·기록 무의미한 단순 추론 제공용. persistHistory의 상위집합. model_dump 드롭 방지 위해
     # 반드시 스키마 필드로 둔다(위 requires_approval 주석의 seed-bypasses-write-schema 함정과 동일).
@@ -453,6 +474,7 @@ class AgentConfig(BaseModel):
         if any(len(s) > 200 for s in cleaned):
             raise ValueError("추천 명령어는 각 200자 이내여야 합니다.")
         return cleaned
+
     # A2A 위임 승인 opt-in(스펙 117) — 이 에이전트에게 위임(A2A 전송)할 때 승인 게이트를 걸지. 기본 False=
     # 게이트 없음(무회귀). 브로커 AgentProvider.approval_for가 read하는 정책 소스라 **라운드트립 보존 필수**
     # (없으면 model_dump가 조용히 드롭 → 게이트 비활성, learning 101 seed-bypasses-write-schema).
@@ -506,8 +528,14 @@ class AgentConfig(BaseModel):
             if len(fields) > 100:
                 raise ValueError("artifactSpec.fields는 100개 이하여야 합니다.")
             for f in fields:
-                if not isinstance(f, dict) or not isinstance(f.get("key"), str) or not f["key"].strip():
-                    raise ValueError("artifactSpec.fields 항목은 비어있지 않은 문자열 key가 필요합니다.")
+                if (
+                    not isinstance(f, dict)
+                    or not isinstance(f.get("key"), str)
+                    or not f["key"].strip()
+                ):
+                    raise ValueError(
+                        "artifactSpec.fields 항목은 비어있지 않은 문자열 key가 필요합니다."
+                    )
         return v
 
     @field_validator("nodes")
@@ -526,7 +554,11 @@ class AgentConfig(BaseModel):
             raise ValueError("nodes는 50개 이하여야 합니다.")
         out: list[dict[str, Any]] = []
         for n in v:
-            if not isinstance(n, dict) or not isinstance(n.get("prompt"), str) or not n["prompt"].strip():
+            if (
+                not isinstance(n, dict)
+                or not isinstance(n.get("prompt"), str)
+                or not n["prompt"].strip()
+            ):
                 raise ValueError("nodes 항목은 비어있지 않은 문자열 prompt가 필요합니다.")
             if len(n["prompt"]) > 20000:
                 raise ValueError("nodes 항목 prompt는 20000자 이하여야 합니다.")
@@ -592,7 +624,9 @@ class AgentConfig(BaseModel):
 
 class AgentCreate(BaseModel):
     name: str = Field(max_length=200)  # 식별 이름(규칙, 스펙 148) — DB String(200) 정합
-    description: str | None = Field(default=None, max_length=200)  # 설명(자유 표기, 스펙 210) — 표시는 name 단독
+    description: str | None = Field(
+        default=None, max_length=200
+    )  # 설명(자유 표기, 스펙 210) — 표시는 name 단독
     config: AgentConfig = Field(default_factory=AgentConfig)
 
 
@@ -600,7 +634,9 @@ class AgentUpdate(BaseModel):
     """편집 = 초안(draft) 버전에 저장."""
 
     name: str | None = Field(default=None, max_length=200)  # 식별 이름(규칙, 스펙 148)
-    description: str | None = Field(default=None, max_length=200)  # 설명(자유 표기, 스펙 210) — None=미변경("" = 비우기)
+    description: str | None = Field(
+        default=None, max_length=200
+    )  # 설명(자유 표기, 스펙 210) — None=미변경("" = 비우기)
     config: AgentConfig
 
 
@@ -622,7 +658,9 @@ class AgentOut(BaseModel):
     persona: str  # 페르소나 이름(블록 참조, UI 표시용)
     temperature: float | None = None  # 에이전트 영속 온도(스펙 077). None=자동(모델 등록값)
     systemPrompt: str = ""  # 해석된 시스템 프롬프트 본문(런타임이 쓰는 것 = 저장 시점 스냅샷)
-    personaStale: bool = False  # 스냅샷이 현재 원본 페르소나와 다름(스펙 161) — 로컬만 계산, 맵 미주입시 False
+    personaStale: bool = (
+        False  # 스냅샷이 현재 원본 페르소나와 다름(스펙 161) — 로컬만 계산, 맵 미주입시 False
+    )
     historyDepth: int
     persistHistory: bool = True
     ephemeral: bool = False
@@ -634,12 +672,24 @@ class AgentOut(BaseModel):
     memories: list[str] = Field(default_factory=list)
     vectorTables: list[str] = Field(default_factory=list)
     mcps: list[str] = Field(default_factory=list)
-    tools: list[str] = Field(default_factory=list)  # 직접형 도구 단위 배선(스펙 276, 폼 재로드/왕복 보존)
-    capabilities: list[str] = Field(default_factory=list)  # 능력 브로커 allowlist(스펙 106, 폼 재로드용)
-    toolPolicy: dict[str, Any] = Field(default_factory=dict)  # 도구 승인 오버라이드(스펙 177 P2, 폼 재로드용)
-    artifactSpec: dict[str, Any] | None = None  # 노코드 산출물형 필드 명세(스펙 190, 폼 재로드/라운드트립 보존)
-    nodes: list[dict[str, Any]] | None = None  # 노드형 파이프라인 노드 명세(스펙 259, 폼 재로드/라운드트립 보존)
-    ragMinScores: dict[str, float] = Field(default_factory=dict)  # 컬렉션별 문서 검색 최소 유사도(스펙 191 v2, 왕복 보존)
+    tools: list[str] = Field(
+        default_factory=list
+    )  # 직접형 도구 단위 배선(스펙 276, 폼 재로드/왕복 보존)
+    capabilities: list[str] = Field(
+        default_factory=list
+    )  # 능력 브로커 allowlist(스펙 106, 폼 재로드용)
+    toolPolicy: dict[str, Any] = Field(
+        default_factory=dict
+    )  # 도구 승인 오버라이드(스펙 177 P2, 폼 재로드용)
+    artifactSpec: dict[str, Any] | None = (
+        None  # 노코드 산출물형 필드 명세(스펙 190, 폼 재로드/라운드트립 보존)
+    )
+    nodes: list[dict[str, Any]] | None = (
+        None  # 노드형 파이프라인 노드 명세(스펙 259, 폼 재로드/라운드트립 보존)
+    )
+    ragMinScores: dict[str, float] = Field(
+        default_factory=dict
+    )  # 컬렉션별 문서 검색 최소 유사도(스펙 191 v2, 왕복 보존)
     owner_id: str | None = None  # 소유자(스펙 112). None=공유/레거시
     can_manage: bool = True  # 요청 주체 수정/삭제 가능(스펙 114, list/get서 계산·기본 True)
     exposed: dict[str, Any] = Field(default_factory=lambda: {"a2a": False})
@@ -673,14 +723,18 @@ class ConnectAgentIn(BaseModel):
     자동판별한다. 프론트는 매니페스트를 보내지 않는다(날조 제거). 등록 진입점 단일화."""
 
     url: str
-    token: str | None = None  # 원격 호출 크레덴셜(있으면 crypto.encrypt 저장). 카드가 인증 불요면 None.
+    token: str | None = (
+        None  # 원격 호출 크레덴셜(있으면 crypto.encrypt 저장). 카드가 인증 불요면 None.
+    )
 
 
 class RegisterExternalAgentIn(BaseModel):
     """외부 A2A 에이전트 등록 — 카드 URL만 받아 fetch·검증 후 등록(026, 1차). 057 이후 deprecated(connect로 대체)."""
 
     cardUrl: str
-    token: str | None = None  # 외부 호출 크레덴셜(있으면 crypto.encrypt 저장). 카드가 인증 불요면 None.
+    token: str | None = (
+        None  # 외부 호출 크레덴셜(있으면 crypto.encrypt 저장). 카드가 인증 불요면 None.
+    )
 
 
 class RegisterCodeAgentIn(BaseModel):
@@ -752,7 +806,9 @@ class ApprovalOut(BaseModel):
     requestedAt: str | None = None
     approver: str | None = None  # 승인자(스펙 177 P2) — "admin"=관리자·"self"=본인. UI 태그 표기용.
     resolvedAt: str | None = None  # 처리 시각(스펙 181, 감사) — 미처리면 None
-    resolvedBySelf: bool | None = None  # 처리자=요청자면 True(본인), 다르면 False(관리자), 미처리 None
+    resolvedBySelf: bool | None = (
+        None  # 처리자=요청자면 True(본인), 다르면 False(관리자), 미처리 None
+    )
 
 
 class ApprovalPage(BaseModel):

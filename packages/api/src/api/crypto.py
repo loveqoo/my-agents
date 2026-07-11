@@ -34,7 +34,9 @@ def _fernet() -> Fernet:
             key = Fernet.generate_key().decode()
             key_path.parent.mkdir(parents=True, exist_ok=True)
             key_path.write_text(key)
-            log.warning("APP_SECRET_KEY 미설정 — %s에 개발용 키 생성(영속). 운영은 env로 주입.", key_path)
+            log.warning(
+                "APP_SECRET_KEY 미설정 — %s에 개발용 키 생성(영속). 운영은 env로 주입.", key_path
+            )
     return Fernet(key.encode() if isinstance(key, str) else key)
 
 

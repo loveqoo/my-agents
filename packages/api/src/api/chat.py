@@ -13,13 +13,6 @@ import secrets
 import time
 import uuid
 
-from agent.runtime import (
-    AgentBuildContext,
-    AgentConfigError,
-    DefaultUiAgent,
-    get_agent_impl,
-    is_remote_source,
-)
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -28,8 +21,15 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
-from . import a2a_client, authz, checkpointer, crypto, memory, observability, runtime
-from . import trace_capture
+from agent.runtime import (
+    AgentBuildContext,
+    AgentConfigError,
+    DefaultUiAgent,
+    get_agent_impl,
+    is_remote_source,
+)
+
+from . import a2a_client, authz, checkpointer, crypto, memory, observability, runtime, trace_capture
 from .auth import current_principal
 from .broker import PolicyScopedBroker, build_broker
 from .db import SessionLocal
@@ -141,7 +141,17 @@ async def _resolve_node_models(db, nodes: list, default_cfg: dict | None) -> lis
 # 노드 오버라이드 필드 화이트리스트(스펙 287) — 구조 식별자(name)는 제외해 저장본 유지.
 # 노드 추가/삭제는 테스트 범위 밖(사용자 결정): 오버라이드는 "이 에이전트 그대로, 설정만 바꿔
 # 테스트"가 목적이라 구조 변경 요청은 받지 않는다(서버 강제 — 클라이언트 신뢰 금지).
-_NODE_OVERRIDE_FIELDS = {"prompt", "model", "tools", "historyDepth", "memories", "memoryQuery", "context", "format", "fields"}
+_NODE_OVERRIDE_FIELDS = {
+    "prompt",
+    "model",
+    "tools",
+    "historyDepth",
+    "memories",
+    "memoryQuery",
+    "context",
+    "format",
+    "fields",
+}
 
 
 def _merge_node_overrides(saved: list, ov: object) -> tuple[list, str]:
@@ -171,9 +181,14 @@ def _rag_tools_for(ctx: dict, calls_sink: list[dict]) -> list:
     tools.append(runtime.build_rag_tool(ctx["rag_collections"], calls_sink, ms))
     if ctx.get("nodes_resolved") is not None:
         for c in ctx["rag_collections"]:
-            tools.append(runtime.build_rag_tool(
-                [c], calls_sink, ms, name=runtime._safe_name("search_documents", c["name"]),
-            ))
+            tools.append(
+                runtime.build_rag_tool(
+                    [c],
+                    calls_sink,
+                    ms,
+                    name=runtime._safe_name("search_documents", c["name"]),
+                )
+            )
     return tools
 
 
@@ -205,7 +220,9 @@ class _MemoryRecallProxy:
         text, n = self._cache[q]
         # 기록 쿼리는 비밀 마스킹(codex 268 P3 — 타 트레이스 표면과 정합): input 모드 키워드는 앞 노드
         # 출력이라 비밀이 섞일 수 있음(_sanitize가 sk-… 등 마스킹, 캡 120).
-        self.records.append({"node": node, "query": memory._sanitize(q, cap=120), "hits": n, "cached": cached})
+        self.records.append(
+            {"node": node, "query": memory._sanitize(q, cap=120), "hits": n, "cached": cached}
+        )
         return text
 
 
@@ -236,7 +253,13 @@ class _HistoryWindowProxy:
     - 조회마다 (node, depth, count) 기록 → trace["historyWindows"](082 조회 계측). **내용 아닌 건수만**
       기록 → 대화 누출 0(243 ③ 형제 표면 마스킹 규약). record=False면 기록 생략(도구 루프 재진입용)."""
 
-    def __init__(self, conversation: list, default_depth: int | None, records: list[dict], drop_last: bool = True):
+    def __init__(
+        self,
+        conversation: list,
+        default_depth: int | None,
+        records: list[dict],
+        drop_last: bool = True,
+    ):
         # drop_last(codex 270 High): 메인 경로의 conversation은 **현재 턴 포함**(body.messages 끝=현재 턴,
         # 그래프가 별도 시드)이라 [:-1]로 분리. 재개 경로의 conversation은 세션 DB서 로드한 **이전 대화만**
         # (현재 턴은 아직 미영속 — 체크포인트가 보유)이라 drop_last=False(안 버림). 이 구분이 없으면 재개가
@@ -272,7 +295,9 @@ async def _load_session_conversation(
     async with SessionLocal() as db:
         sess_pk = (
             await db.execute(
-                select(Session.id).where(Session.session_id == session_id, Session.agent_pk == agent_pk)
+                select(Session.id).where(
+                    Session.session_id == session_id, Session.agent_pk == agent_pk
+                )
             )
         ).scalar_one_or_none()
         if sess_pk is None:
@@ -319,7 +344,10 @@ async def _load_context(
         pinned_version: str | None = None
         if version:
             if _is_remote(agent.source):
-                raise HTTPException(status_code=400, detail="원격(code/external) 에이전트는 버전 지정 실행을 지원하지 않습니다")
+                raise HTTPException(
+                    status_code=400,
+                    detail="원격(code/external) 에이전트는 버전 지정 실행을 지원하지 않습니다",
+                )
             from .models import AgentVersion
 
             vrow = (
@@ -348,7 +376,16 @@ async def _load_context(
             # 호출자 RBAC 게이트(_permitted = allowlist ∩ RBAC)하므로 주입분도 안전(confused-deputy 무관).
             # tools(스펙 276): 직접형 도구 단위 배선 오버라이드 — 노출 축소/서버별 필터라 완화 아님.
             # vectorTables(스펙 287): 노드형 문서 풀 파생의 실효 축 — RAG 읽기(사용=공용 정책 211).
-            allowed = {"model", "temperature", "historyDepth", "mcps", "memories", "capabilities", "tools", "vectorTables"}
+            allowed = {
+                "model",
+                "temperature",
+                "historyDepth",
+                "mcps",
+                "memories",
+                "capabilities",
+                "tools",
+                "vectorTables",
+            }
             cfg.update({k: v for k, v in overrides.items() if k in allowed})
             # 형 가드(codex 287 Low) — historyDepth 비정수(예: 문자열)는 _window의 `depth < 0`
             # 비교에서 TypeError 500. 정수화 실패 시 저장값 폴백(요청 하나로 500 못 만들게).
@@ -382,10 +419,13 @@ async def _load_context(
             "agent_pk": agent.id,
             "source": agent.source,
             "impl": cfg.get("impl"),  # in-process 커스텀 구현 키(스펙 085) — 신뢰 레지스트리 조회용
-            "artifact_spec": cfg.get("artifactSpec"),  # 노코드 산출물형 필드 명세(스펙 190) — impl_config로 주입
-            "nodes": cfg.get("nodes"),  # 노드형 파이프라인 노드 명세(스펙 259) — 아래서 노드별 모델 해석 후 impl_config로 주입
+            "artifact_spec": cfg.get(
+                "artifactSpec"
+            ),  # 노코드 산출물형 필드 명세(스펙 190) — impl_config로 주입
+            "nodes": cfg.get(
+                "nodes"
+            ),  # 노드형 파이프라인 노드 명세(스펙 259) — 아래서 노드별 모델 해석 후 impl_config로 주입
             "overrides_nodes_status": nodes_status,  # 노드 오버라이드 적용 상태(스펙 287) — 트레이스 표면화용
-
             # 원본 오버라이드 — in-process 커스텀 에이전트가 화이트리스트 밖 키도 읽을 수 있게 전달
             # (스펙 085 AgentBuildContext.overrides). 원격은 None(로컬 설정 주입 무의미, bypass 보존).
             "overrides": overrides if (overrides and not _is_remote(agent.source)) else None,
@@ -398,8 +438,13 @@ async def _load_context(
             # 비영속(스펙 237) 방어층: DB 쓰기 능력(memwrite/memedit)은 걸러낸다 — 정본 게이트는
             # 저장 시 422(agents._enforce_ephemeral_boundary), 여기는 과거 저장분·우회 대비 fail-closed.
             "capabilities": [
-                c for c in cfg.get("capabilities", [])
-                if not (cfg.get("ephemeral") and isinstance(c, str) and c.split(":", 1)[0] in ("memwrite", "memedit"))
+                c
+                for c in cfg.get("capabilities", [])
+                if not (
+                    cfg.get("ephemeral")
+                    and isinstance(c, str)
+                    and c.split(":", 1)[0] in ("memwrite", "memedit")
+                )
             ],
             # 도구 승인 오버라이드(스펙 177 P2) — cap_id→{approval:{required?,approver?}}. 그래프-tools·
             # 브로커 두 경로 리졸버에 급전. **요청 오버라이드 허용키(위 allowed)엔 불포함** — 요청으로
@@ -443,12 +488,16 @@ async def _load_context(
                         detail=f"오버라이드 모델 '{model_name}'이(가) 등록돼 있지 않습니다 — 모델 이름을 확인하세요.",
                     )
                 m = (
-                    await db.execute(
-                        select(ModelConfig)
-                        .where(ModelConfig.kind == "chat", ModelConfig.is_default.is_(True))
-                        .options(selectinload(ModelConfig.provider))
+                    (
+                        await db.execute(
+                            select(ModelConfig)
+                            .where(ModelConfig.kind == "chat", ModelConfig.is_default.is_(True))
+                            .options(selectinload(ModelConfig.provider))
+                        )
                     )
-                ).scalars().first()
+                    .scalars()
+                    .first()
+                )
             if m is None:
                 raise HTTPException(
                     status_code=400,
@@ -462,8 +511,10 @@ async def _load_context(
                     detail=f"모델 '{m.name}' 설정이 불완전합니다 (provider base_url/model_id 필요).",
                 )
             ctx["model_cfg"] = {
-                "base_url": base_url, "api_key": crypto.decrypt(m.provider.api_key),
-                "model_id": m.model_id, "params": dict(m.params or {}),
+                "base_url": base_url,
+                "api_key": crypto.decrypt(m.provider.api_key),
+                "model_id": m.model_id,
+                "params": dict(m.params or {}),
             }
         else:
             ctx["model_cfg"] = None
@@ -481,12 +532,16 @@ async def _load_context(
         mem_cfg = None
         if ctx["model_cfg"]:
             emb = (
-                await db.execute(
-                    select(ModelConfig)
-                    .where(ModelConfig.kind == "embedding", ModelConfig.is_default.is_(True))
-                    .options(selectinload(ModelConfig.provider))
+                (
+                    await db.execute(
+                        select(ModelConfig)
+                        .where(ModelConfig.kind == "embedding", ModelConfig.is_default.is_(True))
+                        .options(selectinload(ModelConfig.provider))
+                    )
                 )
-            ).scalars().first()
+                .scalars()
+                .first()
+            )
             if emb is not None and emb.provider is not None:
                 mem_cfg = {
                     "llm": {
@@ -510,8 +565,10 @@ async def _load_context(
         mcps = config_names(cfg, "mcps")  # 삭제 가드와 동일 normalizer(drift 0, codex P2)
         if mcps:
             rows = (
-                await db.execute(select(McpServer).where(McpServer.name.in_(mcps)))
-            ).scalars().all()
+                (await db.execute(select(McpServer).where(McpServer.name.in_(mcps))))
+                .scalars()
+                .all()
+            )
             for r in rows:
                 # 사용=공용(스펙 211, RAG 172 동형) — 등록된 MCP는 어떤 에이전트든 배선 가능.
                 # 구 배선 인가(스펙 113 agent_may_wire·published 게이트)는 사용자 정책 결정으로 제거.
@@ -550,21 +607,29 @@ async def _load_context(
         vt_names = config_names(cfg, "vectorTables")  # 삭제 가드와 동일 normalizer(drift 0)
         if vt_names and not _is_remote(agent.source):
             cols = (
-                await db.execute(
-                    select(Collection)
-                    .where(Collection.name.in_(vt_names))
-                    .options(
-                        selectinload(Collection.embedding_model).selectinload(ModelConfig.provider)
+                (
+                    await db.execute(
+                        select(Collection)
+                        .where(Collection.name.in_(vt_names))
+                        .options(
+                            selectinload(Collection.embedding_model).selectinload(
+                                ModelConfig.provider
+                            )
+                        )
                     )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             for c in cols:
                 # 컬렉션은 전부 공용(스펙 172) — 어느 에이전트든 배선 가능(가시성 축 제거).
                 # 관리(수정·삭제)는 여전히 소유자만. 완전성(embedding) 검사만 남긴다.
                 em = c.embedding_model
                 ep = em.provider if em else None
                 if em is None or ep is None or not ep.base_url or not em.model_id:
-                    log.warning("rag collection %s skipped: embedding model/provider 불완전", c.name)
+                    log.warning(
+                        "rag collection %s skipped: embedding model/provider 불완전", c.name
+                    )
                     continue
                 rag_collections.append(
                     {
@@ -580,8 +645,12 @@ async def _load_context(
             resolved = {rc["name"] for rc in rag_collections}
             unresolved = [n for n in vt_names if n not in resolved]
             if unresolved:
-                log.warning("rag vectorTables 미해석: %s (요청 %s → 해석 %s)",
-                            unresolved, vt_names, sorted(resolved))
+                log.warning(
+                    "rag vectorTables 미해석: %s (요청 %s → 해석 %s)",
+                    unresolved,
+                    vt_names,
+                    sorted(resolved),
+                )
             ctx["rag_unresolved"] = unresolved
         else:
             ctx["rag_unresolved"] = []
@@ -669,7 +738,8 @@ async def derive_pipeline_pool(cfg: dict) -> None:
         for t in s.tools or []:
             bare_owners.setdefault(t, set()).add(s.name)
     cfg["mcps"] = [
-        s.name for s in servers
+        s.name
+        for s in servers
         if any(
             runtime._safe_name(s.name, t) in used
             or (t in used and len(bare_owners.get(t) or ()) == 1)
@@ -677,10 +747,13 @@ async def derive_pipeline_pool(cfg: dict) -> None:
         )
     ]
     cfg["vectorTables"] = (
-        list(cols) if "search_documents" in used
+        list(cols)
+        if "search_documents" in used
         else [c for c in cols if runtime._safe_name("search_documents", c) in used]
     )
-    cfg["memories"] = sorted({m for n in nodes for m in (n.get("memories") or []) if isinstance(m, str)})
+    cfg["memories"] = sorted(
+        {m for n in nodes for m in (n.get("memories") or []) if isinstance(m, str)}
+    )
 
 
 def _history_load_limit(ctx: dict) -> int | None:
@@ -752,8 +825,6 @@ async def _resolve_session_for_persist(db, ctx: dict) -> Session | None:
     return sess
 
 
-
-
 # 전송 프롬프트 캡처 상한(스펙 131) — 메시지당 자수 캡 + **개수 캡**(codex 131 #3: historyDepth
 # 오버라이드로 무제한 히스토리가 trace JSONB에 통째 영속되는 비대 차단).
 _SENT_MSG_CHAR_CAP = 2000
@@ -772,9 +843,15 @@ def _build_sent_messages(persona_prompt: str, messages: list[dict]) -> list[dict
     tail = messages[-_SENT_MSG_COUNT_CAP:]
     omitted = len(messages) - len(tail)
     if omitted > 0:
-        out.append({"role": "notice", "content": f"(이전 {omitted}개 메시지 생략 — 표시 상한 {_SENT_MSG_COUNT_CAP}개)"})
+        out.append(
+            {
+                "role": "notice",
+                "content": f"(이전 {omitted}개 메시지 생략 — 표시 상한 {_SENT_MSG_COUNT_CAP}개)",
+            }
+        )
     out.extend(
-        {"role": m["role"], "content": _mask(m["content"] or "", cap=_SENT_MSG_CHAR_CAP)} for m in tail
+        {"role": m["role"], "content": _mask(m["content"] or "", cap=_SENT_MSG_CHAR_CAP)}
+        for m in tail
     )
     return out
 
@@ -787,17 +864,43 @@ def _format_sent_measured(call: list[dict]) -> list[dict]:
     if not call:
         return []
     head, rest = call[0], call[1:]
-    out = [{"role": head.get("role", "system"), "content": _mask(head.get("content") or "", cap=_SENT_MSG_CHAR_CAP)}]
+    out = [
+        {
+            "role": head.get("role", "system"),
+            "content": _mask(head.get("content") or "", cap=_SENT_MSG_CHAR_CAP),
+        }
+    ]
     tail = rest[-_SENT_MSG_COUNT_CAP:]
     omitted = len(rest) - len(tail)
     if omitted > 0:
-        out.append({"role": "notice", "content": f"(이전 {omitted}개 메시지 생략 — 표시 상한 {_SENT_MSG_COUNT_CAP}개)"})
-    out.extend({"role": m.get("role", "?"), "content": _mask(m.get("content") or "", cap=_SENT_MSG_CHAR_CAP)} for m in tail)
+        out.append(
+            {
+                "role": "notice",
+                "content": f"(이전 {omitted}개 메시지 생략 — 표시 상한 {_SENT_MSG_COUNT_CAP}개)",
+            }
+        )
+    out.extend(
+        {
+            "role": m.get("role", "?"),
+            "content": _mask(m.get("content") or "", cap=_SENT_MSG_CHAR_CAP),
+        }
+        for m in tail
+    )
     return out
 
 
 # 트레이스에 기록할 오버라이드 허용 키(스펙 134) — _load_context 병합 allowlist + systemPrompt.
-_OVERRIDE_TRACE_KEYS = ("model", "temperature", "historyDepth", "mcps", "memories", "capabilities", "tools", "vectorTables", "systemPrompt")
+_OVERRIDE_TRACE_KEYS = (
+    "model",
+    "temperature",
+    "historyDepth",
+    "mcps",
+    "memories",
+    "capabilities",
+    "tools",
+    "vectorTables",
+    "systemPrompt",
+)
 
 
 def _overrides_trace(overrides: dict | None, nodes_status: str | None = None) -> dict | None:
@@ -834,13 +937,36 @@ def _broker_calls_trace(invocations: list[dict]) -> list[dict]:
     """브로커 호출 이력 → 트레이스 표시용 투영(스펙 130) — **키 화이트리스트 단일 출처**(메인/승인대기/
     재개 세 경로 공유, drift 0). 본문·args 불포함(087/092 원문 누출 0 유지)."""
     return [
-        {k: v for k, v in inv.items() if k in ("node", "cap_id", "ms", "hits", "topScore", "error", "resultPreview", "hitsDetail", "minScore", "query", "local", "subTraceNodes")}
+        {
+            k: v
+            for k, v in inv.items()
+            if k
+            in (
+                "node",
+                "cap_id",
+                "ms",
+                "hits",
+                "topScore",
+                "error",
+                "resultPreview",
+                "hitsDetail",
+                "minScore",
+                "query",
+                "local",
+                "subTraceNodes",
+            )
+        }
         for inv in invocations
     ]
 
 
 async def _persist(
-    ctx: dict, user_text: str, reply: str, trace: dict, tokens: dict, store_messages: bool,
+    ctx: dict,
+    user_text: str,
+    reply: str,
+    trace: dict,
+    tokens: dict,
+    store_messages: bool,
     user_id: str | None = None,
 ) -> str | None:
     """세션 카운터는 항상 갱신. 메시지(user/assistant+트레이스)는 store_messages일 때만 저장.
@@ -882,7 +1008,9 @@ async def _persist(
 def _mid_frame(mid: str | None) -> str:
     """assistant 메시지 id를 SSE 프레임으로(스펙 209 P1.5) — 프론트가 이 id로 그 응답에 피드백(👍/👎)을
     부착한다(session_id는 프론트가 이미 앎). mid=None(미저장)이면 빈 문자열=프레임 없음."""
-    return f"event: message_id\ndata: {json.dumps({'id': mid}, ensure_ascii=False)}\n\n" if mid else ""
+    return (
+        f"event: message_id\ndata: {json.dumps({'id': mid}, ensure_ascii=False)}\n\n" if mid else ""
+    )
 
 
 # 연결-실패로 보이는 에러의 지문(httpx/openai/asyncpg 계층 공통). model_id 불일치(404 등)나
@@ -981,7 +1109,12 @@ async def _a2a_stream(ctx: dict, user_text: str, user_id: str | None):
     }
     if not errored and full.strip():  # 공백-only 응답은 영속하지 않음(적대리뷰 L1)
         mid = await _persist(
-            ctx, user_text, full, trace, tokens, ctx["persist_history"],
+            ctx,
+            user_text,
+            full,
+            trace,
+            tokens,
+            ctx["persist_history"],
             user_id=user_id,
         )
         yield _mid_frame(mid)  # 스펙 209 P1.5 — 피드백 부착용 assistant id
@@ -1010,7 +1143,9 @@ async def stream_local_reply(agent_id: uuid.UUID, user_text: str):
     if impl is None or ctx["model_cfg"] is None:
         raise ValueError("로컬(ui) 에이전트가 아니거나 채팅 모델이 없습니다(A2A 노출 불가)")
     calls_sink: list[dict] = []
-    tools = await runtime.build_mcp_tools(ctx["mcp_servers"], calls_sink, ctx.get("toolPolicy"), ctx.get("tool_names"))
+    tools = await runtime.build_mcp_tools(
+        ctx["mcp_servers"], calls_sink, ctx.get("toolPolicy"), ctx.get("tool_names")
+    )
     # 노드형 컬렉션별 도구 포함(스펙 268 P1 — 세 입구 정합, learning 149). 메모리 프록시는 미주입:
     # A2A 서빙은 v1부터 메모리 자체가 범위 밖(스펙 061 — 순수 컴퓨트), 기존과 동일.
     tools.extend(_rag_tools_for(ctx, calls_sink))
@@ -1058,6 +1193,7 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
     # 404-fold(068 — 403으로 존재를 알려주지 않는다).
     from .models import Agent as _AgentRow
     from .ownership import may_use_agent
+
     async with SessionLocal() as _s:
         _arow = await _s.get(_AgentRow, agent_id)
     if _arow is None or not may_use_agent(_arow, principal):
@@ -1069,7 +1205,9 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
         from .ownership import may_manage as _may_manage
 
         if not _may_manage(_arow, principal):
-            raise HTTPException(status_code=403, detail="버전 지정 실행은 이 에이전트를 관리할 수 있어야 합니다")
+            raise HTTPException(
+                status_code=403, detail="버전 지정 실행은 이 에이전트를 관리할 수 있어야 합니다"
+            )
     elif body.sessionId:
         # ask/form 재개 턴의 버전 승계(codex 242 #1) — 미리보기 턴이 만든 pending(체크포인트)은 그
         # 버전 config로만 재개해야 한다(활성 config로 재개하면 drift). 클라이언트가 재개 턴에 version을
@@ -1077,7 +1215,9 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
         _pend = _PENDING_ARTIFACT.get(body.sessionId)
         if _pend and _pend.get("version"):
             req_version = _pend["version"]
-    ctx = await _load_context(agent_id, body.sessionId, body.overrides, own=own, version=req_version)
+    ctx = await _load_context(
+        agent_id, body.sessionId, body.overrides, own=own, version=req_version
+    )
     user_text = body.messages[-1].content if body.messages else ""
 
     # mem0 user_id 축 = 인증 주체에서 도출(스펙 032). 쿠키 유저면 안정 UUID(str(user.id)),
@@ -1092,9 +1232,7 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
     try:
         impl = resolve_agent_runtime(ctx)
     except AgentConfigError as e:
-        return StreamingResponse(
-            _config_error_stream(str(e)), media_type="text/event-stream"
-        )
+        return StreamingResponse(_config_error_stream(str(e)), media_type="text/event-stream")
     if impl is None:
         return StreamingResponse(
             _a2a_stream(ctx, user_text, user_id), media_type="text/event-stream"
@@ -1111,7 +1249,11 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
     # 소요 ms를 trace.historyRestore로 실측(병목으로 측정되면 그때 재론).
     conversation = [{"role": m.role, "content": m.content} for m in body.messages]
     history_restore: dict | None = None
-    if ctx.get("session_pk") is not None and len(body.messages) == 1 and body.messages[0].role == "user":
+    if (
+        ctx.get("session_pk") is not None
+        and len(body.messages) == 1
+        and body.messages[0].role == "user"
+    ):
         _t_hr = time.perf_counter()
         prior = await _load_session_conversation(
             ctx["session_id"], ctx["agent_pk"], limit=_history_load_limit(ctx)
@@ -1167,14 +1309,17 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
         _HistoryWindowProxy(
             # 스펙 289 P1: 서버 재구성분 포함 conversation — 노드형도 첫 노드부터 이어진 대화 승계.
             _to_base_messages(conversation),
-            ctx["history_depth"], history_windows,
+            ctx["history_depth"],
+            history_windows,
         )
         if _pipeline_mem
         else None
     )
 
     calls_sink: list[dict] = []
-    tools = await runtime.build_mcp_tools(ctx["mcp_servers"], calls_sink, ctx.get("toolPolicy"), ctx.get("tool_names"))
+    tools = await runtime.build_mcp_tools(
+        ctx["mcp_servers"], calls_sink, ctx.get("toolPolicy"), ctx.get("tool_names")
+    )
     # 채팅 자가기록 도구는 제거됨(스펙 051) — agent_id 메모리는 어드민 저작 전용. 회상은 아래 유지.
     # RAG 검색 도구 — vectorTables가 실 컬렉션으로 해석됐을 때만(스펙 037). 노드형은 컬렉션별 도구
     # 추가(스펙 268 P1 — _rag_tools_for).
@@ -1199,7 +1344,14 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
     # 로컬(ui) 실행 경로에만 준다: 원격 통째 프록시(_a2a_stream)는 broker 미주입(bypass 보존).
     # broker를 쓰는 flow(예: orchestrate)만 소비하고, 안 쓰면 무해(deny-by-default).
     # 스펙 256 v2: 루트 실행도 자기 id로 체인 시작 — 하위 어디서도 루트 재호출(순환) 불가.
-    build_broker_scoped = build_broker(principal, ctx["capabilities"], ctx.get("toolPolicy"), ctx.get("rag_min_scores"), delegation_chain=((ctx.get("ext_agent_id"),) if ctx.get("ext_agent_id") else ()), delegation_budget={"n": 0})
+    build_broker_scoped = build_broker(
+        principal,
+        ctx["capabilities"],
+        ctx.get("toolPolicy"),
+        ctx.get("rag_min_scores"),
+        delegation_chain=((ctx.get("ext_agent_id"),) if ctx.get("ext_agent_id") else ()),
+        delegation_budget={"n": 0},
+    )
     build_ctx = AgentBuildContext(
         persona=persona_prompt,
         model_cfg=ctx["model_cfg"],
@@ -1234,7 +1386,9 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
         # 오인하지 않고 명시적으로 거절(fail-closed). pending은 원복(유효한 폼이 남아 있으면 재사용).
         if pending_artifact is not None:
             _PENDING_ARTIFACT[ctx["session_id"]] = pending_artifact
-        raise HTTPException(status_code=409, detail="폼이 만료되었거나 일치하지 않습니다 — 다시 시도해 주세요.")
+        raise HTTPException(
+            status_code=409, detail="폼이 만료되었거나 일치하지 않습니다 — 다시 시도해 주세요."
+        )
     if pending_artifact:
         thread_id = pending_artifact["thread_id"]
         if body.form is not None and pending_artifact.get("kind") == "form":
@@ -1253,7 +1407,10 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
     # 비영속(스펙 235): 외부 관측 기록도 스킵(고트래픽·기록 무의미 계약 — 앱 DB 밖이라도 적재 안 함).
     if not ctx.get("ephemeral"):
         config = observability.with_trace(
-            config, name=f"chat:{ctx['ext_agent_id']}", session_id=ctx["session_id"], user_id=user_id
+            config,
+            name=f"chat:{ctx['ext_agent_id']}",
+            session_id=ctx["session_id"],
+            user_id=user_id,
         )
     # 실측 캡처(스펙 205) — 모델 호출 메시지·usage. Langfuse 콜백과 병행(둘 다 callbacks 리스트).
     capture = trace_capture.TraceCaptureHandler()
@@ -1286,7 +1443,8 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
             # 담을 수 있어(한 턴에 위험 도구 여러 개) 모두 모은다 — [0]만 보면 나머지가 조용히 샌다.
             async for stream_mode, chunk in graph.astream(
                 graph_input if graph_input is not None else {"messages": seed_messages},
-                config=config, stream_mode=["messages", "updates"]
+                config=config,
+                stream_mode=["messages", "updates"],
             ):
                 if stream_mode == "messages":
                     msg_chunk, _meta = chunk
@@ -1359,22 +1517,40 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
         # 메시지로 영속(승인 턴의 "영속 안 함"과 다름: 질문·답이 대화 이력에 남아야 한다).
         if interrupted and not errored and interrupted.get("kind") == "ask":
             question = str(interrupted.get("text") or "").strip() or "(질문)"
-            _PENDING_ARTIFACT[ctx["session_id"]] = {"thread_id": thread_id, "version": ctx.get("pinned_version")}
+            _PENDING_ARTIFACT[ctx["session_id"]] = {
+                "thread_id": thread_id,
+                "version": ctx.get("pinned_version"),
+            }
             yield f"data: {json.dumps({'text': question}, ensure_ascii=False)}\n\n"
             ask_tokens = runtime.estimate_tokens(
                 sum(len(m["content"]) for m in messages), len(question)
             )
             ask_trace = {
                 "latencyMs": int((time.perf_counter() - t0) * 1000),
-                "tokens": ask_tokens, "promptRef": ctx["ext_agent_id"],
-                "memories": mem_hits, "mcp": calls_sink, "graph": observed,
+                "tokens": ask_tokens,
+                "promptRef": ctx["ext_agent_id"],
+                "memories": mem_hits,
+                "mcp": calls_sink,
+                "graph": observed,
                 "artifact": {"awaiting": "ask"},
-                **({"agentVersion": ctx["exec_version"], **({"versionPinned": True} if ctx.get("pinned_version") else {})} if ctx.get("exec_version") else {}),  # 인스펙터: 산출물 진행 중 표기
+                **(
+                    {
+                        "agentVersion": ctx["exec_version"],
+                        **({"versionPinned": True} if ctx.get("pinned_version") else {}),
+                    }
+                    if ctx.get("exec_version")
+                    else {}
+                ),  # 인스펙터: 산출물 진행 중 표기
                 "sentMessages": sent_messages,
             }
             if not errored:
                 mid = await _persist(
-                    ctx, user_text, question, ask_trace, ask_tokens, ctx["persist_history"],
+                    ctx,
+                    user_text,
+                    question,
+                    ask_trace,
+                    ask_tokens,
+                    ctx["persist_history"],
                     user_id=user_id,
                 )
                 yield _mid_frame(mid)  # 스펙 209 P1.5
@@ -1388,7 +1564,10 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
             form_id = "frm-" + secrets.token_hex(4)
             form_fields = interrupted.get("fields") or []
             _PENDING_ARTIFACT[ctx["session_id"]] = {
-                "thread_id": thread_id, "kind": "form", "form_id": form_id, "fields": form_fields,
+                "thread_id": thread_id,
+                "kind": "form",
+                "form_id": form_id,
+                "fields": form_fields,
                 "version": ctx.get("pinned_version"),  # 재개 턴 버전 승계(codex 242 #1)
             }
             form_frame = {
@@ -1411,15 +1590,30 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
             )
             form_trace = {
                 "latencyMs": int((time.perf_counter() - t0) * 1000),
-                "tokens": form_tokens, "promptRef": ctx["ext_agent_id"],
-                "memories": mem_hits, "mcp": calls_sink, "graph": observed,
+                "tokens": form_tokens,
+                "promptRef": ctx["ext_agent_id"],
+                "memories": mem_hits,
+                "mcp": calls_sink,
+                "graph": observed,
                 "artifact": {"awaiting": "form", "formId": form_id},
-                **({"agentVersion": ctx["exec_version"], **({"versionPinned": True} if ctx.get("pinned_version") else {})} if ctx.get("exec_version") else {}),
+                **(
+                    {
+                        "agentVersion": ctx["exec_version"],
+                        **({"versionPinned": True} if ctx.get("pinned_version") else {}),
+                    }
+                    if ctx.get("exec_version")
+                    else {}
+                ),
                 "sentMessages": sent_messages,
             }
             if not errored:
                 mid = await _persist(
-                    ctx, user_text, form_msg, form_trace, form_tokens, ctx["persist_history"],
+                    ctx,
+                    user_text,
+                    form_msg,
+                    form_trace,
+                    form_tokens,
+                    ctx["persist_history"],
                     user_id=user_id,
                 )
                 yield _mid_frame(mid)  # 스펙 209 P1.5
@@ -1454,8 +1648,11 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
             yield f"data: {json.dumps({'text': wait_msg, 'approval': apid, 'approver': approver}, ensure_ascii=False)}\n\n"
             pending_trace = {
                 "latencyMs": int((time.perf_counter() - t0) * 1000),
-                "tokens": {"in": 0, "out": 0}, "promptRef": ctx["ext_agent_id"],
-                "memories": mem_hits, "mcp": calls_sink, "graph": [],
+                "tokens": {"in": 0, "out": 0},
+                "promptRef": ctx["ext_agent_id"],
+                "memories": mem_hits,
+                "mcp": calls_sink,
+                "graph": [],
                 "approval": {"id": apid, "action": action, "status": "pending"},
                 **({"agentVersion": ctx["exec_version"]} if ctx.get("exec_version") else {}),
             }
@@ -1526,7 +1723,9 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
             trace["modelCalls"] = len(capture.calls)
             trace["sentMessagesSource"] = "measured"
         else:
-            trace["sentMessages"] = sent_messages  # 전송 프롬프트 전문(스펙 131, 메시지당 2000자 캡)
+            trace["sentMessages"] = (
+                sent_messages  # 전송 프롬프트 전문(스펙 131, 메시지당 2000자 캡)
+            )
             trace["sentMessagesSource"] = "reconstructed"
         ov_trace = _overrides_trace(ctx.get("overrides"), ctx.get("overrides_nodes_status"))
         if ov_trace:
@@ -1563,7 +1762,12 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
         mid = None
         if not errored:
             mid = await _persist(
-                ctx, user_text, full, trace, tokens, ctx["persist_history"],
+                ctx,
+                user_text,
+                full,
+                trace,
+                tokens,
+                ctx["persist_history"],
                 user_id=user_id,
             )
         if mid:
@@ -1583,9 +1787,7 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
 
 
 # ----------------------------- HIL 승인 게이트 (스펙 041) -----------------------------
-async def _create_approval(
-    ctx: dict, thread_id: str, payload: dict, user_id: str | None
-) -> str:
+async def _create_approval(ctx: dict, thread_id: str, payload: dict, user_id: str | None) -> str:
     """위험 도구가 그래프를 멈춘 순간 런타임 Approval(pending) 생성. checkpoint=thread_id가 재개 키.
 
     DB 접근은 API 계층(여기)에서만 — 도구는 순수(interrupt payload만 만든다). 이 row가
@@ -1615,7 +1817,9 @@ async def _create_approval(
                 agent_pk=ctx["agent_pk"],
                 agent_name=ctx["agent_name"],
                 permission=payload.get("permission", ""),
-                approver=payload.get("approver"),  # 스펙 177 P2 — MCP 도구만 값 有, 그 외 None→Casbin 폴백
+                approver=payload.get(
+                    "approver"
+                ),  # 스펙 177 P2 — MCP 도구만 값 有, 그 외 None→Casbin 폴백
                 action=payload.get("action", ""),
                 args=payload.get("args", {}),
                 summary=payload.get("summary", ""),
@@ -1666,6 +1870,7 @@ async def _build_resume_broker(
         if is_super:
             return True
         from .broker import _rbac_check
+
         return _rbac_check(authz.get_enforcer(), user_id, kind, name)
 
     # user_id 주입(스펙 104) — MemoryProvider가 재개 경로에서도 원 요청자 스코프를 복원한다. 없으면
@@ -1739,7 +1944,9 @@ async def resume_approval(approval: Approval, decision: str) -> None:
     if _impl_drifted(approval.impl, ctx.get("impl")):
         log.warning(
             "resume 불가: impl drift — 생성 '%s' vs 현재 '%s' (checkpoint 위상 불일치, approval %s)",
-            approval.impl or "(기본)", ctx.get("impl") or "(기본)", approval.approval_id,
+            approval.impl or "(기본)",
+            ctx.get("impl") or "(기본)",
+            approval.approval_id,
         )
         return
     # 잔여 방어(codex F2 원본): 현 런타임이 HIL 미지원이면 애초 interrupt/checkpoint를 만들 수 없으므로
@@ -1748,7 +1955,8 @@ async def resume_approval(approval: Approval, decision: str) -> None:
     if not impl.describe().supports_hil:
         log.warning(
             "resume 불가: 현 런타임(%s)이 HIL 미지원 — checkpoint 생성 그래프와 drift (approval %s)",
-            type(impl).__name__, approval.approval_id,
+            type(impl).__name__,
+            approval.approval_id,
         )
         return
 
@@ -1761,7 +1969,9 @@ async def resume_approval(approval: Approval, decision: str) -> None:
     }
     # 스펙 233 봉합(이중 배선 축 — 신규 chat과 동일 게이트를 재개 경로에도, codex 잔여 회귀): impl이
     # "memories"를 consumes로 선언할 때만 회상(폼 "무시됩니다"를 재개 경로에서도 참으로).
-    _resume_reads_memory = impl.describe().consumes is None or "memories" in impl.describe().consumes
+    _resume_reads_memory = (
+        impl.describe().consumes is None or "memories" in impl.describe().consumes
+    )
     used_memory = (
         not ctx.get("ephemeral")  # 스펙 235 대칭
         and _resume_reads_memory
@@ -1778,7 +1988,9 @@ async def resume_approval(approval: Approval, decision: str) -> None:
     )
 
     calls_sink: list[dict] = []
-    tools = await runtime.build_mcp_tools(ctx["mcp_servers"], calls_sink, ctx.get("toolPolicy"), ctx.get("tool_names"))
+    tools = await runtime.build_mcp_tools(
+        ctx["mcp_servers"], calls_sink, ctx.get("toolPolicy"), ctx.get("tool_names")
+    )
     # 채팅 자가기록 도구 제거됨(스펙 051) — agent_id 메모리는 어드민 저작 전용. 회상(recall_scope)은 유지.
     # 노드형 컬렉션별 도구 포함(스펙 268 P1 — 세 입구 정합, learning 149). 재개 라운드의 노드 재진입은
     # 회상을 생략하므로(pipeline 첫 진입만 회상) 메모리 프록시는 재개에 불요 — 다만 재개 후 *다음*
@@ -1799,7 +2011,10 @@ async def resume_approval(approval: Approval, decision: str) -> None:
         # drop_last=False(codex 270 High): 세션 DB는 이전 대화만(현재 턴 미영속·체크포인트가 보유)이라
         # 마지막을 안 버린다 — 메인 경로처럼 버리면 직전 assistant 메시지를 잃는다.
         resume_hist_proxy = _HistoryWindowProxy(
-            _to_base_messages(_resume_prior), ctx["history_depth"], resume_history_windows, drop_last=False
+            _to_base_messages(_resume_prior),
+            ctx["history_depth"],
+            resume_history_windows,
+            drop_last=False,
         )
 
     persona_prompt = ctx["persona"]
@@ -1852,7 +2067,7 @@ async def resume_approval(approval: Approval, decision: str) -> None:
     t0 = time.perf_counter()
     try:
         result = await graph.ainvoke(Command(resume={"decision": decision}), config=config)
-    except Exception as exc:  # noqa: BLE001 — 재개 실패도 세션을 깨지 않는다(로그+graceful)
+    except Exception as exc:
         log.error("resume 실패 (approval %s): %s", approval.approval_id, exc)
         return
 
@@ -1872,8 +2087,12 @@ async def resume_approval(approval: Approval, decision: str) -> None:
     total_ms = int((time.perf_counter() - t0) * 1000)
     tokens = runtime.estimate_tokens(len(user_text), len(reply))
     trace = runtime.assemble_trace(
-        agent_id=ctx["ext_agent_id"], memories=mem_hits, mcp_calls=calls_sink,
-        used_memory=used_memory, total_ms=total_ms, tokens=tokens,
+        agent_id=ctx["ext_agent_id"],
+        memories=mem_hits,
+        mcp_calls=calls_sink,
+        used_memory=used_memory,
+        total_ms=total_ms,
+        tokens=tokens,
     )
     trace["resumedApproval"] = {"id": approval.approval_id, "decision": decision}
     if resume_broker.invocations:
@@ -1886,6 +2105,4 @@ async def resume_approval(approval: Approval, decision: str) -> None:
     if resume_history_windows:
         # 재개 후 단기 기억 창도 표면화(스펙 270 — 메인 경로 미러, 재개 축 전수 재구성 규율).
         trace["historyWindows"] = resume_history_windows
-    await _persist(
-        ctx, user_text, reply, trace, tokens, ctx["persist_history"], user_id=None
-    )
+    await _persist(ctx, user_text, reply, trace, tokens, ctx["persist_history"], user_id=None)

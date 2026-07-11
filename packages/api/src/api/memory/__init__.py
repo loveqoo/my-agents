@@ -40,7 +40,7 @@ def search(scope: dict, query: str, mem_cfg: dict | None, limit: int = 4) -> lis
         return []
     try:
         return backend.search(scope, query, limit)
-    except Exception as exc:  # noqa: BLE001 — 챗 회상은 견고(무회귀)
+    except Exception as exc:
         # 타입명만 로그(스펙 158, codex High) — 예외 메시지에 임베더 비밀이 섞일 수 있어 raw 금지.
         _log.warning("memory.search failed — chat recall skipped: %s", type(exc).__name__)
         return []
@@ -60,7 +60,9 @@ def format_memory_hits(hits: list[dict]) -> str:
     return "\n".join(f"- {h['text']}" for h in (hits or []))
 
 
-def recall_probe(scope: dict, query: str, mem_cfg: dict | None, limit: int = 4) -> list[dict] | None:
+def recall_probe(
+    scope: dict, query: str, mem_cfg: dict | None, limit: int = 4
+) -> list[dict] | None:
     """회상 *시험*용(스펙 084) — `search`와 같되 백엔드 **가용성**을 결과와 구분해 돌린다.
 
     백엔드 미가용(mem_cfg None·llm/embedder 누락·초기화 실패로 resolve_backend가 None 흡수) → None.
@@ -147,7 +149,7 @@ def recall_diag(scope: dict, query: str, mem_cfg: dict | None, limit: int = 4) -
     # resolve_backend를 우회해 계약이 갈린다). 항상 호출하고, configured는 error *문구 선택*에만 쓴다.
     try:
         backend = resolve_backend(mem_cfg)
-    except Exception as exc:  # noqa: BLE001 — 진단은 모든 예외를 삼켜 구조화(던지지 않음)
+    except Exception as exc:
         diag["error"] = "메모리 백엔드 초기화 실패: " + _sanitize(exc, secrets=secrets)
         return diag
     if backend is None:
@@ -163,7 +165,7 @@ def recall_diag(scope: dict, query: str, mem_cfg: dict | None, limit: int = 4) -
     # 유사도<임계·임베더/벡터공간 문제 신호. 카운트 실패는 진단을 막지 않음(None 유지).
     try:
         diag["stored"] = int(backend.list_page(scope, None, 1, 0).get("total", 0))
-    except Exception:  # noqa: BLE001 — 카운트는 보조 신호(실패해도 회상 진단 진행)
+    except Exception:
         diag["stored"] = None
     try:
         n = _clamp_limit(limit)
@@ -171,7 +173,7 @@ def recall_diag(scope: dict, query: str, mem_cfg: dict | None, limit: int = 4) -
         # mem0의 숨은 기본 0.1이 저유사도(arctic query-prefix 미주입·약한 질의 등)를 전부 컷해 "정상·0건"
         # 위장을 만들던 것을 종료 — 낮은 점수까지 보여 사용자가 원인(임베더/질의 유사도)을 자가진단.
         diag["results"] = backend.search(scope, query, n, threshold=0.0)[:n]
-    except Exception as exc:  # noqa: BLE001 — 전 축 실패(임베더 호출 등)를 500 대신 진단 error로(M1 표면화)
+    except Exception as exc:
         diag["error"] = "검색 실행 실패: " + _sanitize(exc, secrets=secrets)
         return diag
     # 정직한 0건 진단(스펙 158): 예외는 없는데 저장>0·회상0이면 유사도/필터/벡터공간 심층 문제.
@@ -209,7 +211,9 @@ def list_memories(scope: dict, mem_cfg: dict | None) -> list[dict]:
     return backend.list_all(scope) if backend else []
 
 
-def list_page(scope: dict, q: str | None, mem_cfg: dict | None, limit: int = 20, offset: int = 0) -> dict | None:
+def list_page(
+    scope: dict, q: str | None, mem_cfg: dict | None, limit: int = 20, offset: int = 0
+) -> dict | None:
     """기억 페이지 목록(스펙 127) — {"items", "total"}. 백엔드 미가용(미구성) → None(빈 결과와 구분,
     recall_probe와 동일 계약). 백엔드 실패는 **던진다**(관리 조회 실패≠0건, learning 125) — 호출 라우트가
     오류로 표면화한다."""

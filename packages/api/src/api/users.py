@@ -14,9 +14,9 @@ import logging
 import os
 import secrets
 import uuid
+from collections.abc import AsyncGenerator
 from functools import lru_cache
 from pathlib import Path
-from typing import AsyncGenerator
 
 from fastapi import Depends
 from fastapi_users import BaseUserManager, FastAPIUsers, UUIDIDMixin
@@ -85,7 +85,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
             return
         try:
             await assign_role(str(user.id), "member")
-        except Exception:  # noqa: BLE001 — role 부여 실패가 가입을 막지 않게(로그만)
+        except Exception:
             log.warning("member role 부여 실패 user=%s", user.id, exc_info=True)
 
 
@@ -98,7 +98,7 @@ async def get_user_manager(
 # ----------------------------- 인증 backend (쿠키) -----------------------------
 # secure: 기본 True(보안 기본값). localhost는 브라우저가 secure context로 취급해 http에서도
 # Secure 쿠키를 허용하므로 로컬 개발에 지장 없다. 비-localhost http 개발 시에만 0으로.
-_cookie_secure = (os.environ.get("AUTH_COOKIE_SECURE", "true").strip().lower() != "false")
+_cookie_secure = os.environ.get("AUTH_COOKIE_SECURE", "true").strip().lower() != "false"
 _cookie_samesite = os.environ.get("AUTH_COOKIE_SAMESITE", "lax").strip().lower()
 if _cookie_samesite not in ("lax", "strict", "none"):
     _cookie_samesite = "lax"

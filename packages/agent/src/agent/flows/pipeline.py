@@ -17,7 +17,13 @@ import json
 import logging
 from typing import Annotated, TypedDict
 
-from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage, SystemMessage, ToolMessage
+from langchain_core.messages import (
+    AIMessage,
+    HumanMessage,
+    RemoveMessage,
+    SystemMessage,
+    ToolMessage,
+)
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
@@ -41,7 +47,7 @@ def _coerce_json(text: object, fields: list) -> dict | None:
     candidates = []
     s, e = text.find("{"), text.rfind("}")
     if s != -1 and e != -1 and e > s:
-        candidates.append(text[s:e + 1])
+        candidates.append(text[s : e + 1])
     candidates.append(text.strip())
     for c in candidates:
         try:
@@ -110,11 +116,19 @@ def normalize_nodes(raw: object) -> list[dict]:
         fmt = n.get("format")
         fmt = fmt if fmt in ("text", "json") else "text"
         raw_fields = n.get("fields")
-        node_fields = [f for f in raw_fields if isinstance(f, str) and f.strip()] if isinstance(raw_fields, list) else []
+        node_fields = (
+            [f for f in raw_fields if isinstance(f, str) and f.strip()]
+            if isinstance(raw_fields, list)
+            else []
+        )
         # 노드별 기억(스펙 268 P2): memories=선택한 기억 블록(비면 회상 안 받음), memoryQuery=회상
         # 키워드 모드(user=사용자 입력[캐시 공유], input=이 노드의 입력[개별 키워드]). 잡값→user.
         raw_mem = n.get("memories")
-        node_mem = [m for m in raw_mem if isinstance(m, str) and m.strip()] if isinstance(raw_mem, list) else []
+        node_mem = (
+            [m for m in raw_mem if isinstance(m, str) and m.strip()]
+            if isinstance(raw_mem, list)
+            else []
+        )
         mem_q = n.get("memoryQuery")
         mem_q = mem_q if mem_q in ("user", "input") else "user"
         # 노드별 단기 기억 창(스펙 270): int면 그 값, 아니면 None=에이전트-레벨 상속. bool은 int
@@ -122,18 +136,20 @@ def normalize_nodes(raw: object) -> list[dict]:
         # 스키마가 쓰기 시 캡하나 엔진=최종 신뢰경계라 legacy/직접DB 우회 대비 미러). 음수=전체(유지).
         hd = n.get("historyDepth")
         node_hd = min(hd, 1000) if (isinstance(hd, int) and not isinstance(hd, bool)) else None
-        out.append({
-            "name": name,
-            "prompt": prompt,
-            "model_cfg": n.get("model_cfg") if isinstance(n.get("model_cfg"), dict) else None,
-            "tools": tools,
-            "context": context,
-            "format": fmt,
-            "fields": node_fields,
-            "memories": node_mem,
-            "memoryQuery": mem_q,
-            "historyDepth": node_hd,
-        })
+        out.append(
+            {
+                "name": name,
+                "prompt": prompt,
+                "model_cfg": n.get("model_cfg") if isinstance(n.get("model_cfg"), dict) else None,
+                "tools": tools,
+                "context": context,
+                "format": fmt,
+                "fields": node_fields,
+                "memories": node_mem,
+                "memoryQuery": mem_q,
+                "historyDepth": node_hd,
+            }
+        )
     return out
 
 
@@ -179,7 +195,15 @@ class LinearPipelineAgent:
         if not nodes:
             # 노드 없음 — 조용한 빈 그래프 대신 단일 패스스루로 정직하게(입력을 그대로 모델에 태워
             # 최소 동작). 기본 모델도 없으면 build 시점에 명확히 실패(_model_from_node).
-            nodes = [{"name": "노드1", "prompt": "사용자 입력에 답하세요.", "model_cfg": None, "tools": [], "context": "carry"}]
+            nodes = [
+                {
+                    "name": "노드1",
+                    "prompt": "사용자 입력에 답하세요.",
+                    "model_cfg": None,
+                    "tools": [],
+                    "context": "carry",
+                }
+            ]
 
         # 노드 도구 해석(스펙 265) — 정확 일치 우선. MCP 도구의 런타임 이름은 `서버__도구`(_safe_name)라
         # UI/설정이 민이름("wiki_search")으로 저장한 경우 정확 일치가 0이 되고, 도구가 조용히 미바인딩돼
@@ -197,12 +221,15 @@ class LinearPipelineAgent:
                 return by_name[name]
             cands = by_suffix.get(name) or []
             return cands[0] if len(cands) == 1 else None
+
         ids = _unique_node_ids(nodes)
         g = StateGraph(_State)
 
         def _make_step(nid: str, node: dict):
             model = _model_from_node(node, ctx)
-            node_tools = [t for t in (_resolve_tool(name) for name in node["tools"]) if t is not None]
+            node_tools = [
+                t for t in (_resolve_tool(name) for name in node["tools"]) if t is not None
+            ]
             bound = model.bind_tools(node_tools) if node_tools else model
             prompt = node["prompt"]
             clean = node.get("context") == "clean"
@@ -210,7 +237,9 @@ class LinearPipelineAgent:
             fields = node.get("fields") or []
             node_mem = node.get("memories") or []
             mem_mode = node.get("memoryQuery") or "user"
-            node_hd = node.get("historyDepth")  # 단기 기억 창(스펙 270) — None=에이전트 상속(프록시 기본값)
+            node_hd = node.get(
+                "historyDepth"
+            )  # 단기 기억 창(스펙 270) — None=에이전트 상속(프록시 기본값)
 
             async def _history_block(reentry: bool) -> list:
                 # 단기 기억(스펙 270) — 이전 대화 슬라이스를 프롬프트 앞에 주입. clean은 대화 격리(결정 가),
@@ -220,7 +249,7 @@ class LinearPipelineAgent:
                     return []
                 try:
                     return await ctx.history_window(node_hd, node=nid, record=not reentry)
-                except Exception:  # noqa: BLE001 — 창 장애는 대화 없이 진행(graceful, 회상과 동결)
+                except Exception:
                     log.warning("노드 단기 기억 실패(node=%s) — 대화 없이 진행", nid)
                     return []
 
@@ -233,10 +262,11 @@ class LinearPipelineAgent:
                 q = None if mem_mode == "user" else (_text_of(msgs[-1]) if msgs else None)
                 try:
                     text = await ctx.memory_recall(q, node=nid)
-                except Exception:  # noqa: BLE001 — 회상 장애는 회상 없이 진행(기존 graceful 결)
+                except Exception:
                     log.warning("노드 회상 실패(node=%s) — 회상 없이 진행", nid)
                     return ""
                 return f"\n\n# 관련 기억(회상됨)\n{text}" if text else ""
+
             # 출력 형식 강제(스펙 261): JSON이면 시스템 프롬프트에 지시를 덧붙여 첫 시도부터 JSON 지향.
             sys_content = prompt
             if fmt == "json":
@@ -253,10 +283,15 @@ class LinearPipelineAgent:
                 obj = _coerce_json(_text_of(resp), fields)
                 if obj is None:
                     # 1회 보정 — unbound 모델(도구 없이)에 형식 변환만 요청.
-                    repair = await model.ainvoke([
-                        SystemMessage(content=sys_content),
-                        HumanMessage(content="다음 내용을 위 형식의 유효한 JSON 객체 하나로 변환해 JSON만 출력하세요:\n\n" + _text_of(resp)),
-                    ])
+                    repair = await model.ainvoke(
+                        [
+                            SystemMessage(content=sys_content),
+                            HumanMessage(
+                                content="다음 내용을 위 형식의 유효한 JSON 객체 하나로 변환해 JSON만 출력하세요:\n\n"
+                                + _text_of(resp)
+                            ),
+                        ]
+                    )
                     obj = _coerce_json(_text_of(repair), fields)
                 if obj is not None:
                     return AIMessage(content=json.dumps(obj, ensure_ascii=False))

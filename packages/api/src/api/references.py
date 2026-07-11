@@ -66,9 +66,7 @@ def _config_has(config: object, field: str, name: str) -> bool:
     return False
 
 
-async def agents_referencing(
-    session: AsyncSession, field: str, name: str
-) -> list[dict[str, str]]:
+async def agents_referencing(session: AsyncSession, field: str, name: str) -> list[dict[str, str]]:
     """config[field]에 name을 담은 참조 목록 — **활성 서빙 config만**(스펙 121, 과거 버전 무시).
 
     반환: [{"agent": <에이전트 이름>, "where": "active"}]. 활성 `Agent.config`만 검사해 usedBy 배지와
@@ -104,9 +102,7 @@ def referenced_message(refs: list[dict[str, str]], resource: str, action: str = 
     resource: 대상 명사('MCP 서버' | 'RAG 컬렉션'). action: 막는 동작('삭제' | '이름 변경') —
     삭제·rename 둘 다 참조 name 링크를 깨므로 같은 포매터 공유(operation-symmetry, learning 050)."""
     shown = refs[:_MSG_MAX_NAMES]
-    names = ", ".join(
-        f"{r['agent']}({_WHERE_LABEL.get(r['where'], r['where'])})" for r in shown
-    )
+    names = ", ".join(f"{r['agent']}({_WHERE_LABEL.get(r['where'], r['where'])})" for r in shown)
     if len(refs) > _MSG_MAX_NAMES:
         names += f" 외 {len(refs) - _MSG_MAX_NAMES}개"
     return (

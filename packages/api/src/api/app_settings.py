@@ -21,7 +21,9 @@ _manage = Depends(require_model_manage)
 
 def _check_short_str(v: Any, label: str, maxlen: int = 80) -> str:
     if not isinstance(v, str) or not v.strip():
-        raise HTTPException(status_code=400, detail=f"{label}은(는) 비어있지 않은 문자열이어야 합니다.")
+        raise HTTPException(
+            status_code=400, detail=f"{label}은(는) 비어있지 않은 문자열이어야 합니다."
+        )
     if len(v.strip()) > maxlen:
         raise HTTPException(status_code=400, detail=f"{label}은(는) 최대 {maxlen}자입니다.")
     return v.strip()
@@ -65,7 +67,11 @@ async def list_settings(session: AsyncSession = Depends(get_session), _p=_manage
     out: dict[str, Any] = {}
     for key, (default, _v) in _KEYS.items():
         row = await session.get(AppSetting, key)
-        out[key] = row.value.get("v", default) if row is not None and isinstance(row.value, dict) else default
+        out[key] = (
+            row.value.get("v", default)
+            if row is not None and isinstance(row.value, dict)
+            else default
+        )
     return out
 
 

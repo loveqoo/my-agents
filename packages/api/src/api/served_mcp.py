@@ -47,18 +47,30 @@ def echo(text: str) -> str:
 # ---- 타겟팅 카탈로그(스펙 188 데모 — read-only·결정적, 무인증 서빙 안전 불변식 충족) ----
 # 산출물형 targeting 데모가 소비: list_entities(요소 매칭용 동의어) → get_entity(값 후보).
 _TARGETING_ENTITIES: list[dict] = [
-    {"id": "purchase_history", "label": "구매이력",
-     "synonyms": ["구매 이력", "구매이력", "구매", "산 적"],
-     "candidates": ["최근", "7일 전", "최근 한 달"]},
-    {"id": "age_band", "label": "나이",
-     "synonyms": ["나이", "연령", "20대", "30대", "40대", "50대"],
-     "candidates": ["20대", "30대", "40대", "50대"]},
-    {"id": "region", "label": "거주지(시)",
-     "synonyms": ["거주", "사는", "지역", "서울", "부산", "대구", "인천", "광주"],
-     "candidates": ["서울", "부산", "대구", "인천", "광주"]},
-    {"id": "gender", "label": "성별",
-     "synonyms": ["성별", "남성", "여성", "남자", "여자"],
-     "candidates": ["남성", "여성"]},
+    {
+        "id": "purchase_history",
+        "label": "구매이력",
+        "synonyms": ["구매 이력", "구매이력", "구매", "산 적"],
+        "candidates": ["최근", "7일 전", "최근 한 달"],
+    },
+    {
+        "id": "age_band",
+        "label": "나이",
+        "synonyms": ["나이", "연령", "20대", "30대", "40대", "50대"],
+        "candidates": ["20대", "30대", "40대", "50대"],
+    },
+    {
+        "id": "region",
+        "label": "거주지(시)",
+        "synonyms": ["거주", "사는", "지역", "서울", "부산", "대구", "인천", "광주"],
+        "candidates": ["서울", "부산", "대구", "인천", "광주"],
+    },
+    {
+        "id": "gender",
+        "label": "성별",
+        "synonyms": ["성별", "남성", "여성", "남자", "여자"],
+        "candidates": ["남성", "여성"],
+    },
 ]
 
 
@@ -109,7 +121,7 @@ def _wiki_get(url: str, params: dict | None = None) -> dict:
         if r.status_code != 200:
             return {"error": f"HTTP {r.status_code}"}
         return r.json()
-    except Exception as exc:  # noqa: BLE001 — 네트워크/파싱 실패도 error JSON으로
+    except Exception as exc:
         return {"error": str(exc)[:200]}
 
 
@@ -124,12 +136,20 @@ def wiki_search(query: str, limit: int = 5, lang: str = "ko") -> str:
     import re
 
     if lang not in _WIKI_LANGS:
-        return json.dumps({"error": f"lang은 {sorted(_WIKI_LANGS)}만 지원합니다"}, ensure_ascii=False)
+        return json.dumps(
+            {"error": f"lang은 {sorted(_WIKI_LANGS)}만 지원합니다"}, ensure_ascii=False
+        )
     limit = max(1, min(int(limit), 10))  # 1~10 클램프
     data = _wiki_get(
         f"https://{lang}.wikipedia.org/w/api.php",
-        {"action": "query", "list": "search", "srsearch": query[:300], "format": "json",
-         "srlimit": limit, "utf8": 1},
+        {
+            "action": "query",
+            "list": "search",
+            "srsearch": query[:300],
+            "format": "json",
+            "srlimit": limit,
+            "utf8": 1,
+        },
     )
     if "error" in data:
         return json.dumps(data, ensure_ascii=False)
@@ -150,13 +170,20 @@ def wiki_page(title: str, lang: str = "ko") -> str:
     from urllib.parse import quote
 
     if lang not in _WIKI_LANGS:
-        return json.dumps({"error": f"lang은 {sorted(_WIKI_LANGS)}만 지원합니다"}, ensure_ascii=False)
-    data = _wiki_get(f"https://{lang}.wikipedia.org/api/rest_v1/page/summary/{quote(title[:200], safe='')}")
+        return json.dumps(
+            {"error": f"lang은 {sorted(_WIKI_LANGS)}만 지원합니다"}, ensure_ascii=False
+        )
+    data = _wiki_get(
+        f"https://{lang}.wikipedia.org/api/rest_v1/page/summary/{quote(title[:200], safe='')}"
+    )
     if "error" in data:
         return json.dumps(data, ensure_ascii=False)
     return json.dumps(
-        {"title": data.get("title", title), "extract": (data.get("extract") or "")[:2000],
-         "url": ((data.get("content_urls") or {}).get("desktop") or {}).get("page", "")},
+        {
+            "title": data.get("title", title),
+            "extract": (data.get("extract") or "")[:2000],
+            "url": ((data.get("content_urls") or {}).get("desktop") or {}).get("page", ""),
+        },
         ensure_ascii=False,
     )
 
@@ -169,7 +196,9 @@ _DEFS: dict[str, list] = {
 }
 
 # 시드 카탈로그가 쓰는 도구 이름/메타(mock_mcp 패턴 — 평행 리터럴 드리프트 방지).
-SERVED_MCP_TOOLS: dict[str, list[str]] = {name: [t.name for t in tools] for name, tools in _DEFS.items()}
+SERVED_MCP_TOOLS: dict[str, list[str]] = {
+    name: [t.name for t in tools] for name, tools in _DEFS.items()
+}
 SERVED_MCP_TOOLS_META: dict[str, dict] = {
     name: {
         t.name: {
@@ -198,9 +227,13 @@ def _build(name: str, tools: list) -> FastMCP:
 # 한다(HIL 승인 대상 delete_record류를 서빙하면 무인증 실행면이 된다). 새 도구를 서빙에 추가하려면
 # 이 allowlist에 명시적으로 등록해야 부팅이 통과 — "무심코 위험 도구 서빙"을 부팅에서 강제 차단한다.
 _SIDE_EFFECT_FREE_TOOLS = {
-    "add", "multiply", "echo",
-    "list_entities", "get_entity",  # 고정 dict 조회(스펙 188)
-    "wiki_search", "wiki_page",  # 위키 read-only 조회(스펙 201) — 고정 호스트·바이트 캡·타임아웃
+    "add",
+    "multiply",
+    "echo",
+    "list_entities",
+    "get_entity",  # 고정 dict 조회(스펙 188)
+    "wiki_search",
+    "wiki_page",  # 위키 read-only 조회(스펙 201) — 고정 호스트·바이트 캡·타임아웃
 }
 for _n, _ts in _DEFS.items():
     _unsafe = {t.name for t in _ts} - _SIDE_EFFECT_FREE_TOOLS
@@ -231,7 +264,9 @@ async def _is_served(name: str) -> bool:
     if name not in SERVED_MCPS:
         return False
     async with SessionLocal() as db:
-        row = (await db.execute(select(McpServer).where(McpServer.name == name))).scalar_one_or_none()
+        row = (
+            await db.execute(select(McpServer).where(McpServer.name == name))
+        ).scalar_one_or_none()
     return row is not None and row.source == SERVABLE_SOURCE and bool(row.published)
 
 
@@ -244,15 +279,19 @@ def guarded_app(name: str, inner):
             await inner(scope, receive, send)
             return
         if not await _is_served(name):
-            await send({
-                "type": "http.response.start",
-                "status": 404,
-                "headers": [(b"content-type", b"application/json")],
-            })
-            await send({
-                "type": "http.response.body",
-                "body": b'{"detail":"served mcp not found"}',
-            })
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 404,
+                    "headers": [(b"content-type", b"application/json")],
+                }
+            )
+            await send(
+                {
+                    "type": "http.response.body",
+                    "body": b'{"detail":"served mcp not found"}',
+                }
+            )
             return
         await inner(scope, receive, send)
 

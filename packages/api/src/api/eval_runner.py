@@ -28,14 +28,19 @@ log = logging.getLogger("api.eval")
 _OUTPUT_CAP = 4000  # obs 영속 시 출력 캡(성적표 표시용 — 전문 아님)
 
 
-def _canonical_tokens(observed_nodes: list[str], calls_sink: list[dict], broker_invocations: list[dict], used_memory: bool) -> list[str]:
+def _canonical_tokens(
+    observed_nodes: list[str],
+    calls_sink: list[dict],
+    broker_invocations: list[dict],
+    used_memory: bool,
+) -> list[str]:
     """관측 3형태를 canonical 토큰으로 union — 채점 어휘를 에이전트 형태와 무관하게 통일."""
     tokens: list[str] = list(observed_nodes)
     for inv in broker_invocations:
         node = str(inv.get("node", ""))
         tokens.append(node)
         if node.startswith("broker_invoke:"):
-            tokens.append(node[len("broker_invoke:"):])  # canonical: rag:X / mcp:s/t / memory:user
+            tokens.append(node[len("broker_invoke:") :])  # canonical: rag:X / mcp:s/t / memory:user
     for c in calls_sink:
         server = str(c.get("server", ""))
         tool = str(c.get("tool", ""))
@@ -45,9 +50,15 @@ def _canonical_tokens(observed_nodes: list[str], calls_sink: list[dict], broker_
     return tokens
 
 
-async def eval_run_agent(agent_pk, user_text: str, principal, overrides: dict | None = None,
-                         version: str | None = None, delegation_chain: tuple = (),
-                         delegation_budget=None) -> dict:
+async def eval_run_agent(
+    agent_pk,
+    user_text: str,
+    principal,
+    overrides: dict | None = None,
+    version: str | None = None,
+    delegation_chain: tuple = (),
+    delegation_budget=None,
+) -> dict:
     """케이스 1건 실행 → obs {"output", "trace_nodes", "error", "detail"?}.
 
     overrides(스펙 141): 모델 비교 실행용 — 기존 화이트리스트 경로(_load_context)를 그대로 태워
@@ -55,17 +66,27 @@ async def eval_run_agent(agent_pk, user_text: str, principal, overrides: dict | 
     실패(설정 오류·모델 예외·HIL interrupt)는 예외를 던지지 않고 error=True obs로 접는다 —
     run_eval이 no_error assert로 채점하고 전체 평가는 계속(하네스 계약)."""
     try:
-        ctx = await _load_context(agent_pk, None, overrides, version=version)  # 버전 지정 평가(스펙 242)
-    except Exception as exc:  # noqa: BLE001 — 미존재 에이전트 등
-        return {"output": "", "trace_nodes": [], "error": True, "detail": f"컨텍스트 로드 실패: {exc}"}
+        ctx = await _load_context(
+            agent_pk, None, overrides, version=version
+        )  # 버전 지정 평가(스펙 242)
+    except Exception as exc:
+        return {
+            "output": "",
+            "trace_nodes": [],
+            "error": True,
+            "detail": f"컨텍스트 로드 실패: {exc}",
+        }
     try:
         impl = resolve_agent_runtime(ctx)
     except AgentConfigError as exc:
         return {"output": "", "trace_nodes": [], "error": True, "detail": f"런타임 미해결: {exc}"}
     if impl is None or ctx["model_cfg"] is None:
-        return {"output": "", "trace_nodes": [], "error": True,
-                "detail": "로컬(ui) 에이전트가 아니거나 채팅 모델이 없습니다(평가는 로컬 에이전트만)"}
-
+        return {
+            "output": "",
+            "trace_nodes": [],
+            "error": True,
+            "detail": "로컬(ui) 에이전트가 아니거나 채팅 모델이 없습니다(평가는 로컬 에이전트만)",
+        }
 
     # 메모리 회상(읽기 전용 — 무오염). add는 절대 안 함.
     used_memory = memory.memory_enabled(ctx["memories"]) and ctx["mem_cfg"] is not None
@@ -77,18 +98,27 @@ async def eval_run_agent(agent_pk, user_text: str, principal, overrides: dict | 
     )
     persona_prompt = ctx["persona"]
     if mem_hits:
-        persona_prompt = f"{persona_prompt}\n\n# 관련 기억(회상됨)\n{memory.format_memory_hits(mem_hits)}"
+        persona_prompt = (
+            f"{persona_prompt}\n\n# 관련 기억(회상됨)\n{memory.format_memory_hits(mem_hits)}"
+        )
 
     calls_sink: list[dict] = []
-    tools = await runtime.build_mcp_tools(ctx["mcp_servers"], calls_sink, ctx.get("toolPolicy"), ctx.get("tool_names"))
+    tools = await runtime.build_mcp_tools(
+        ctx["mcp_servers"], calls_sink, ctx.get("toolPolicy"), ctx.get("tool_names")
+    )
     if ctx["rag_collections"]:
         tools.append(runtime.build_rag_tool(ctx["rag_collections"], calls_sink))
     # 브로커 주입(조율형 위임 채점) — 실행 주체(principal)의 RBAC로 스코프(chat 경로와 동일 술어).
     # 스펙 256 v2(깊이 N): 호출 체인에 자기 자신을 덧붙여 하위 브로커에 관통 — 체인 내 재방문만
     # 차단(순환 0), 새 에이전트로는 계속 하강 가능.
     chain = tuple(delegation_chain) + ((ctx["ext_agent_id"],) if ctx.get("ext_agent_id") else ())
-    broker = build_broker(principal, ctx["capabilities"], ctx.get("toolPolicy"),
-                          delegation_chain=chain, delegation_budget=delegation_budget)
+    broker = build_broker(
+        principal,
+        ctx["capabilities"],
+        ctx.get("toolPolicy"),
+        delegation_chain=chain,
+        delegation_budget=delegation_budget,
+    )
     run_params = {} if ctx["temperature"] is None else {"temperature": ctx["temperature"]}
     build_ctx = AgentBuildContext(
         persona=persona_prompt,
@@ -124,13 +154,15 @@ async def eval_run_agent(agent_pk, user_text: str, principal, overrides: dict | 
                     error = True
                     detail = "승인 게이트 도구가 호출됨 — 평가 실행은 승인 없이 중단(fail-closed)"
                 observed_nodes.extend(n for n in chunk if not n.startswith("__"))
-    except Exception as exc:  # noqa: BLE001 — 모델/도구 오류는 error 관측으로
+    except Exception as exc:
         error = True
         detail = str(exc)[:500]
 
     return {
         "output": "".join(acc)[:_OUTPUT_CAP],
-        "trace_nodes": _canonical_tokens(observed_nodes, calls_sink, broker.invocations, used_memory),
+        "trace_nodes": _canonical_tokens(
+            observed_nodes, calls_sink, broker.invocations, used_memory
+        ),
         "error": error,
         **({"detail": detail} if detail else {}),
     }
@@ -143,14 +175,22 @@ async def eval_run_rag(collection: dict, query: str) -> dict:
     try:
         hits = await runtime.search_collections([collection], query, top_k=4)
     except runtime.RagSearchError as exc:
-        return {"output": "", "trace_nodes": [f"rag:{collection.get('name', '')}"],
-                "error": True, "detail": exc.tool_msg, "rag": {"hits": [], "top_score": None}}
+        return {
+            "output": "",
+            "trace_nodes": [f"rag:{collection.get('name', '')}"],
+            "error": True,
+            "detail": exc.tool_msg,
+            "rag": {"hits": [], "top_score": None},
+        }
     return {
         "output": runtime.format_rag_hits(hits)[:_OUTPUT_CAP],
         "trace_nodes": [f"rag:{collection.get('name', '')}"],
         "error": False,
         "rag": {
-            "hits": [{"score": h["score"], "filename": h["filename"], "text": h["text"][:300]} for h in hits],
+            "hits": [
+                {"score": h["score"], "filename": h["filename"], "text": h["text"][:300]}
+                for h in hits
+            ],
             "top_score": hits[0]["score"] if hits else None,
         },
     }

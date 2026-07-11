@@ -8,21 +8,28 @@
 
 scorer는 `(name, fn)` 팩토리 — fn(obs) -> bool. case는 asserts 전부 통과해야 pass.
 """
+
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Awaitable, Callable
 
 
 # --- scorer 팩토리(결정적) — obs dict를 받아 bool ---
 def trace_has(prefix: str):
     """trace 노드 중 prefix로 시작하는 게 하나라도 있으면 통과(행위 신호 — broker_invoke:* 등)."""
-    return (f"trace_has:{prefix}", lambda o: any(str(n).startswith(prefix) for n in o.get("trace_nodes", [])))
+    return (
+        f"trace_has:{prefix}",
+        lambda o: any(str(n).startswith(prefix) for n in o.get("trace_nodes", [])),
+    )
 
 
 def trace_lacks(prefix: str):
     """prefix로 시작하는 trace 노드가 **없어야** 통과(무위임 대조 등)."""
-    return (f"trace_lacks:{prefix}", lambda o: not any(str(n).startswith(prefix) for n in o.get("trace_nodes", [])))
+    return (
+        f"trace_lacks:{prefix}",
+        lambda o: not any(str(n).startswith(prefix) for n in o.get("trace_nodes", [])),
+    )
 
 
 def no_error():
@@ -84,7 +91,7 @@ async def run_eval(
     for case in cases:
         try:
             obs = await run_fn(case)
-        except Exception as exc:  # noqa: BLE001 — 실행 실패도 하나의 결과(error)로 수치에 반영
+        except Exception as exc:
             obs = {"output": "", "trace_nodes": [], "error": True, "exception": repr(exc)}
         # scorer 예외는 그 assert **실패**로 접는다(전체 평가 중단 금지) — malformed obs·커스텀 scorer
         # 버그가 수치 산출을 깨면 안 됨(codex 119 P2). 개별 scorer가 하나의 신호일 뿐.
@@ -92,7 +99,7 @@ async def run_eval(
         for name, fn in case.asserts:
             try:
                 ok = bool(fn(obs))
-            except Exception:  # noqa: BLE001
+            except Exception:
                 ok = False
             details.append((name, ok))
         # **빈 asserts = 자동 통과 금지**(codex 119 P1 — 데이터셋 실수가 조용히 score를 올리면 자율 신호가
@@ -112,6 +119,7 @@ def llm_judge(criterion: str):
     이 scorer는 읽기만 한다(부재=False, fail-closed — 심판 미실행/미설정을 통과로 위장 금지).
     이름에 짧은 해시 접미 — 앞 60자가 같은 다른 기준의 details 이름 충돌 방지(codex 139 #5)."""
     import hashlib
+
     suffix = hashlib.md5(criterion.encode()).hexdigest()[:4]
     return (
         f"llm_judge:{criterion[:56]}#{suffix}",
@@ -132,12 +140,13 @@ def rag_hits_gte(n: str):
 def rag_score_gte(t: str):
     """RAG 러너 전용 — 최고 유사도(top_score)가 임계 이상. NaN/inf/범위 밖은 선언 오류(codex 140 #2)."""
     import math
+
     want = float(t)
     if not math.isfinite(want) or not (0.0 <= want <= 1.0):
         raise ValueError(f"rag_score_gte arg는 0~1 유한 실수여야 합니다 (got {t!r})")
     return (
         f"rag_score_gte:{t}",
-        lambda o: (_rag_obs(o).get("top_score") is not None and _rag_obs(o)["top_score"] >= want),
+        lambda o: _rag_obs(o).get("top_score") is not None and _rag_obs(o)["top_score"] >= want,
     )
 
 
@@ -158,12 +167,13 @@ def rag_hits_lte(n: str):
 def rag_score_lte(t: str):
     """RAG 러너 전용 — 최고 유사도가 임계 이하. top_score None(부재/무결과)이면 False(fail-closed)."""
     import math
+
     want = float(t)
     if not math.isfinite(want) or not (0.0 <= want <= 1.0):
         raise ValueError(f"rag_score_lte arg는 0~1 유한 실수여야 합니다 (got {t!r})")
     return (
         f"rag_score_lte:{t}",
-        lambda o: (_rag_obs(o).get("top_score") is not None and _rag_obs(o)["top_score"] <= want),
+        lambda o: _rag_obs(o).get("top_score") is not None and _rag_obs(o)["top_score"] <= want,
     )
 
 
@@ -192,7 +202,9 @@ _ASSERT_TYPES = {
 
 def build_asserts(spec_list: list) -> list:
     """선언 JSON → [(name, fn)] scorer 목록. 형식/type 오류는 ValueError(API 검증 계층에서 400으로)."""
-    n_judge = sum(1 for it in (spec_list or []) if isinstance(it, dict) and it.get("type") == "llm_judge")
+    n_judge = sum(
+        1 for it in (spec_list or []) if isinstance(it, dict) and it.get("type") == "llm_judge"
+    )
     if n_judge > 5:
         # 케이스당 judge 시간 상한(codex 139 #4): 5개 × 30초 타임아웃 = 최악 2.5분/케이스.
         raise ValueError(f"llm_judge 기준은 케이스당 5개 이하여야 합니다 (got {n_judge})")
@@ -207,7 +219,9 @@ def build_asserts(spec_list: list) -> list:
         arg = item.get("arg")
         if needs_arg:
             if not isinstance(arg, str) or not arg.strip():
-                raise ValueError(f"asserts[{i}]: type {t!r}는 비어있지 않은 문자열 arg가 필요합니다")
+                raise ValueError(
+                    f"asserts[{i}]: type {t!r}는 비어있지 않은 문자열 arg가 필요합니다"
+                )
             if len(arg) > 500:
                 raise ValueError(f"asserts[{i}]: arg는 500자 이하여야 합니다 (got {len(arg)}자)")
             try:

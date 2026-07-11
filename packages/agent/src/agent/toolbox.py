@@ -55,11 +55,18 @@ def _meta_tools(tools: list) -> list:
         limit = max(1, min(int(limit), 10))
         hits = _rank(tools, query)[:limit]
         return json.dumps(
-            {"query": query, "total": len(tools), "results": [
-                {"name": t.name, "description": _first_line(t.description),
-                 "args": {k: (v.get("type") or "string") for k, v in (t.args or {}).items()}}
-                for t in hits
-            ]},
+            {
+                "query": query,
+                "total": len(tools),
+                "results": [
+                    {
+                        "name": t.name,
+                        "description": _first_line(t.description),
+                        "args": {k: (v.get("type") or "string") for k, v in (t.args or {}).items()},
+                    }
+                    for t in hits
+                ],
+            },
             ensure_ascii=False,
         )
 
@@ -73,19 +80,27 @@ def _meta_tools(tools: list) -> list:
         t = by_name.get(name)
         if t is None:
             near = [x.name for x in _rank(tools, name)[:3]]
-            return json.dumps({"error": f"도구 '{name}' 없음", "candidates": near}, ensure_ascii=False)
+            return json.dumps(
+                {"error": f"도구 '{name}' 없음", "candidates": near}, ensure_ascii=False
+            )
         try:
             parsed = json.loads(arguments or "{}")
             if not isinstance(parsed, dict):
                 return json.dumps({"error": "arguments는 JSON 객체여야 합니다"}, ensure_ascii=False)
-        except Exception as exc:  # noqa: BLE001 — 모델 산출 JSON 방어
-            return json.dumps({"error": f"arguments JSON 파싱 실패: {str(exc)[:120]}"}, ensure_ascii=False)
+        except Exception as exc:
+            return json.dumps(
+                {"error": f"arguments JSON 파싱 실패: {str(exc)[:120]}"}, ensure_ascii=False
+            )
         try:
             # 래핑된 원 도구를 그대로 호출 — HIL interrupt·트레이스가 이 안에서 그대로 발화한다.
             result = await t.ainvoke(parsed)
-        except Exception as exc:  # noqa: BLE001 — 개별 도구 실패는 graceful(모델이 읽고 진행)
+        except Exception as exc:
             return json.dumps({"error": f"도구 실행 실패: {str(exc)[:200]}"}, ensure_ascii=False)
-        return result if isinstance(result, str) else json.dumps(result, ensure_ascii=False, default=str)
+        return (
+            result
+            if isinstance(result, str)
+            else json.dumps(result, ensure_ascii=False, default=str)
+        )
 
     return [search_tools, call_tool]
 

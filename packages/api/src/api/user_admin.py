@@ -146,8 +146,14 @@ async def grant_policy(
     _assert_grantable(body.object, body.action)  # 보안 경계
     await _assert_valid_subject(body.subject, session)
     added = await authz.add_policy(body.subject, body.object, body.action)
-    log.info("audit capability-grant(스펙 177 P3): admin=%s → %s %s %s (신규=%s)",
-             principal.email, body.subject, body.object, body.action, added)
+    log.info(
+        "audit capability-grant(스펙 177 P3): admin=%s → %s %s %s (신규=%s)",
+        principal.email,
+        body.subject,
+        body.object,
+        body.action,
+        added,
+    )
     return PolicyOut(subject=body.subject, object=body.object, action=body.action)
 
 
@@ -160,5 +166,11 @@ async def revoke_policy(
 ):
     _assert_grantable(object, action)  # 경계: system 정책(admin *,* 등)은 이 UI로 못 지운다
     removed = await authz.remove_policy(subject, object, action)
-    log.info("audit capability-revoke(스펙 177 P3): admin=%s → %s %s %s (제거=%s)",
-             principal.email, subject, object, action, removed)
+    log.info(
+        "audit capability-revoke(스펙 177 P3): admin=%s → %s %s %s (제거=%s)",
+        principal.email,
+        subject,
+        object,
+        action,
+        removed,
+    )

@@ -35,7 +35,9 @@ class MemoryBackend(Protocol):
     메모리가 없어도 채팅·관리가 동작하게 한다(스펙 019).
     """
 
-    def search(self, scope: dict, query: str, limit: int, threshold: float | None = None) -> list[dict]:
+    def search(
+        self, scope: dict, query: str, limit: int, threshold: float | None = None
+    ) -> list[dict]:
         """스코프 합집합 top-k. [{type, text, score, scope}]. 빈 질의/스코프 시 [].
 
         threshold(스펙 158): None=백엔드 기본(mem0는 0.1을 숨겨 상속). 0.0=관련도순 top-k를 점수
@@ -90,8 +92,12 @@ def _cfg_key(mem_cfg: dict) -> tuple:
     llm = mem_cfg.get("llm") or {}
     emb = mem_cfg.get("embedder") or {}
     return (
-        llm.get("base_url"), llm.get("model_id"), llm.get("api_key"),
-        emb.get("base_url"), emb.get("model_id"), emb.get("api_key"),
+        llm.get("base_url"),
+        llm.get("model_id"),
+        llm.get("api_key"),
+        emb.get("base_url"),
+        emb.get("model_id"),
+        emb.get("api_key"),
     )
 
 

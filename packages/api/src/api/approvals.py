@@ -142,9 +142,7 @@ async def resolve_approval(
     session: AsyncSession = Depends(get_session),
     principal=Depends(current_principal),
 ) -> ApprovalOut:
-    result = await session.execute(
-        select(Approval).where(Approval.approval_id == approval_id)
-    )
+    result = await session.execute(select(Approval).where(Approval.approval_id == approval_id))
     p = result.scalar_one_or_none()
     if p is None:
         raise HTTPException(status_code=404, detail="not found")
@@ -173,9 +171,7 @@ async def resolve_approval(
         .values(status=new_status, resolved_at=func.now(), resolved_by=str(principal.id))
     )
     if res.rowcount == 0:
-        raise HTTPException(
-            status_code=409, detail="이미 처리되었거나 처리 중인 승인입니다."
-        )
+        raise HTTPException(status_code=409, detail="이미 처리되었거나 처리 중인 승인입니다.")
     await session.commit()
     await session.refresh(p)  # commit으로 만료된 ORM 객체 재적재(재개·직렬화가 최신 값 사용)
     # status를 먼저 박은 뒤 그래프 재개 — 재개 도중 크래시해도 status는 남아 재시도가 가드에

@@ -195,7 +195,7 @@ async def refresh_allowed_hosts(force: bool = False) -> None:
     try:
         async with db.SessionLocal() as session:
             rows = (await session.execute(select(AllowedHost.host))).scalars().all()
-    except Exception:  # noqa: BLE001 — DB 블립: 기존 스냅샷 유지(fail-safe), 짧게 재시도.
+    except Exception:
         _SNAPSHOT_EXPIRES = now + 1.0
         return
     _ALLOWED_SNAPSHOT = {h for h in rows if h}

@@ -59,7 +59,11 @@ class PlanExecuteAgent:
     def describe(self) -> AgentManifest:
         return AgentManifest(
             name="plan-execute",
-            consumes=("mcps", "vectorTables", "memories"),  # 202부터 ctx.tools(mcp+rag)·persona(회상) 소비
+            consumes=(
+                "mcps",
+                "vectorTables",
+                "memories",
+            ),  # 202부터 ctx.tools(mcp+rag)·persona(회상) 소비
             description="2노드(plan→execute) 예제 커스텀 에이전트 — 인터페이스 누수 측정용",
             supports_hil=False,  # 위험 도구 게이트 없음(순수 2노드) — 정직하게 표기
         )
@@ -72,22 +76,28 @@ class PlanExecuteAgent:
         from ..toolbox import effective_tools
 
         tools, discovery = effective_tools(ctx.tools)
-        bound = model.bind_tools(tools) if tools else model  # 필요할 때만 호출 — 강제 아님(스펙 202)
+        bound = (
+            model.bind_tools(tools) if tools else model
+        )  # 필요할 때만 호출 — 강제 아님(스펙 202)
 
         def plan(state: _State) -> dict:
             # 결정적 — 모델 호출 없음(스펙 086 계약: plan<execute 실측). 도구가 있으면 계획에 도구
             # 활용 단계를 반영(스펙 202) — '핵심'·'근거' 문구는 계약 보존.
             if discovery:
-                return {"plan": (
-                    "1) 질문의 핵심을 파악한다 2) 필요하면 도구 검색(search_tools)으로 알맞은 도구를 "
-                    "찾아(call_tool) 사실을 확인한다 3) 단계적으로 근거를 들어 답한다"
-                )}
+                return {
+                    "plan": (
+                        "1) 질문의 핵심을 파악한다 2) 필요하면 도구 검색(search_tools)으로 알맞은 도구를 "
+                        "찾아(call_tool) 사실을 확인한다 3) 단계적으로 근거를 들어 답한다"
+                    )
+                }
             if tools:
                 names = ", ".join(t.name for t in tools)
-                return {"plan": (
-                    f"1) 질문의 핵심을 파악한다 2) 필요하면 도구({names})로 사실을 확인한다 "
-                    "3) 단계적으로 근거를 들어 답한다"
-                )}
+                return {
+                    "plan": (
+                        f"1) 질문의 핵심을 파악한다 2) 필요하면 도구({names})로 사실을 확인한다 "
+                        "3) 단계적으로 근거를 들어 답한다"
+                    )
+                }
             return {"plan": "1) 질문의 핵심을 파악한다 2) 단계적으로 근거를 들어 답한다"}
 
         async def execute(state: _State) -> dict:

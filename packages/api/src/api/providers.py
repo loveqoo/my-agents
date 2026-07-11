@@ -85,10 +85,16 @@ async def test_saved_provider(
 
 
 @router.post("", response_model=ProviderOut, status_code=201, dependencies=[_manage])
-async def create_provider(body: ProviderIn, session: AsyncSession = Depends(get_session)) -> ProviderOut:
+async def create_provider(
+    body: ProviderIn, session: AsyncSession = Depends(get_session)
+) -> ProviderOut:
     p = Provider(
-        name=body.name, protocol=body.protocol, base_url=body.base_url,
-        api_key=crypto.encrypt(body.api_key), kind=body.kind, description=body.description,
+        name=body.name,
+        protocol=body.protocol,
+        base_url=body.base_url,
+        api_key=crypto.encrypt(body.api_key),
+        kind=body.kind,
+        description=body.description,
     )
     session.add(p)
     await session.commit()
@@ -96,9 +102,7 @@ async def create_provider(body: ProviderIn, session: AsyncSession = Depends(get_
     return provider_to_out(p, 0)
 
 
-async def _list_remote_models(
-    base_url: str, api_key: str | None
-) -> tuple[bool, str, list[str]]:
+async def _list_remote_models(base_url: str, api_key: str | None) -> tuple[bool, str, list[str]]:
     """프로바이더 base_url의 GET /models로 실모델 id 목록을 가져온다(통합 뷰 토글용).
 
     SSRF: base_url은 관리자 입력(신뢰경계 이미 넘음, _probe와 동일 판단 — learning 028). 단
@@ -125,12 +129,12 @@ async def _list_remote_models(
                         buf.extend(chunk)
                         if len(buf) > _MAX_MODELS_BYTES:
                             return True, "응답이 상한을 초과했습니다", []
-    except (Exception, asyncio.TimeoutError):  # noqa: BLE001 — 네트워크 오류·deadline(상세 미노출)
+    except (TimeoutError, Exception):
         return False, "연결 실패", []
     try:
         data = json.loads(buf).get("data") or []
         ids = [str(m["id"]) for m in data if isinstance(m, dict) and m.get("id")]
-    except Exception:  # noqa: BLE001
+    except Exception:
         return True, "응답 파싱 실패", []
     return True, "연결됨", ids
 
@@ -149,10 +153,10 @@ async def available_models(
     reachable, detail, ids = await _list_remote_models(p.base_url, crypto.decrypt(p.api_key))
 
     rows = (
-        await session.execute(
-            select(ModelConfig).where(ModelConfig.provider_id == provider_id)
-        )
-    ).scalars().all()
+        (await session.execute(select(ModelConfig).where(ModelConfig.provider_id == provider_id)))
+        .scalars()
+        .all()
+    )
     by_mid: dict[str, ModelConfig] = {m.model_id: m for m in rows}
 
     out: list[AvailableModel] = []
@@ -176,8 +180,11 @@ async def available_models(
         if mid not in seen:
             out.append(
                 AvailableModel(
-                    model_id=mid, registered=True, registered_name=m.name,
-                    registered_id=m.id, catalog=catalog.lookup(mid),
+                    model_id=mid,
+                    registered=True,
+                    registered_name=m.name,
+                    registered_id=m.id,
+                    catalog=catalog.lookup(mid),
                 )
             )
     return AvailableModelsOut(reachable=reachable, detail=detail, models=out)
@@ -230,7 +237,9 @@ async def delete_provider(
     # 친절한 메시지를 준다(스펙 035 결정 2).
     n = (
         await session.execute(
-            select(func.count()).select_from(ModelConfig).where(ModelConfig.provider_id == provider_id)
+            select(func.count())
+            .select_from(ModelConfig)
+            .where(ModelConfig.provider_id == provider_id)
         )
     ).scalar_one()
     if n:

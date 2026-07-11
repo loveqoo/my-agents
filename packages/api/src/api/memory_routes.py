@@ -20,7 +20,8 @@ from .auth import current_principal
 from .authz import get_enforcer
 from .db import get_session
 from .mem_config import default_mem_cfg
-from .models import Session as SessionModel, User
+from .models import Session as SessionModel
+from .models import User
 from .schemas import (
     MemoryHit,
     MemoryPageItem,
@@ -174,7 +175,10 @@ async def page_user_memory(
     except Exception as exc:
         # 비밀 마스킹 후 표면화 — 실패를 0건으로 위장하지 않는다(125).
         secrets = memory._cfg_secrets(mem_cfg)
-        raise HTTPException(status_code=502, detail="메모리 목록 조회 실패: " + memory._sanitize(exc, secrets=secrets))
+        raise HTTPException(
+            status_code=502,
+            detail="메모리 목록 조회 실패: " + memory._sanitize(exc, secrets=secrets),
+        )
     if page is None:
         return MemoryPageOut(items=[], total=0, limit=limit, offset=offset, enabled=False)
     return MemoryPageOut(

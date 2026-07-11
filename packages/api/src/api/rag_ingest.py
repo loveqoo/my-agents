@@ -28,14 +28,16 @@ def extract_text(filename: str, content_type: str | None, data: bytes) -> str:
 
             reader = PdfReader(io.BytesIO(data))
             pages = [(page.extract_text() or "") for page in reader.pages]
-        except Exception as exc:  # noqa: BLE001 — 손상 PDF 등
+        except Exception as exc:
             raise IngestError(f"PDF 파싱 실패: {exc}") from exc
         text = "\n\n".join(p for p in pages if p.strip())
     else:
         try:
             text = data.decode("utf-8")
         except UnicodeDecodeError as exc:
-            raise IngestError("UTF-8 텍스트로 디코드할 수 없습니다(지원 형식: PDF·UTF-8 텍스트).") from exc
+            raise IngestError(
+                "UTF-8 텍스트로 디코드할 수 없습니다(지원 형식: PDF·UTF-8 텍스트)."
+            ) from exc
     if not text.strip():
         raise IngestError("문서에서 추출된 텍스트가 없습니다(이미지 전용 PDF 등은 미지원).")
     return text
@@ -101,7 +103,9 @@ def parse_entity_lines(raw: bytes, schema: dict | None = None) -> list[tuple[str
         except ValueError as exc:
             raise EntityParseError(f"{lineno}번째 줄: JSON 파싱 실패 — {exc}") from exc
         if not isinstance(obj, dict):
-            raise EntityParseError(f"{lineno}번째 줄: JSON 객체가 아닙니다(계약: {{metadata, data}}).")
+            raise EntityParseError(
+                f"{lineno}번째 줄: JSON 객체가 아닙니다(계약: {{metadata, data}})."
+            )
         meta = obj.get("metadata")
         if not isinstance(meta, dict):
             raise EntityParseError(f"{lineno}번째 줄: metadata가 객체가 아닙니다.")
@@ -112,7 +116,9 @@ def parse_entity_lines(raw: bytes, schema: dict | None = None) -> list[tuple[str
             err = next(iter(validator.iter_errors(obj)), None)
             if err is not None:
                 path = "/".join(str(p) for p in err.absolute_path) or "(루트)"
-                raise EntityParseError(f"{lineno}번째 줄: 스키마 위반 — {path}: {err.message[:200]}")
+                raise EntityParseError(
+                    f"{lineno}번째 줄: 스키마 위반 — {path}: {err.message[:200]}"
+                )
         txt = entity_text(data)
         if not txt:
             raise EntityParseError(f"{lineno}번째 줄: data에서 임베딩할 텍스트가 없습니다.")
@@ -157,7 +163,7 @@ async def embed_texts(
     try:
         async with httpx.AsyncClient(timeout=60) as client:
             r = await client.post(url, headers=headers, json={"model": model_id, "input": texts})
-    except Exception as exc:  # noqa: BLE001 — 네트워크 오류(상세 미노출)
+    except Exception as exc:
         raise IngestError("임베딩 서버 연결 실패") from exc
     if r.status_code != 200:
         # 본문은 키를 에코할 수 있어 상태코드만 노출.
@@ -166,7 +172,7 @@ async def embed_texts(
         data = r.json().get("data") or []
         ordered = sorted(data, key=lambda d: d.get("index", 0))
         vectors = [d.get("embedding") or [] for d in ordered]
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise IngestError("임베딩 응답 파싱 실패") from exc
     if len(vectors) != len(texts) or any(not v for v in vectors):
         raise IngestError("임베딩 응답이 입력 청크 수와 맞지 않습니다.")

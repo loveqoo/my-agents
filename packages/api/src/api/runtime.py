@@ -88,7 +88,11 @@ def resolve_tool_approval(
                 approver = ov["approver"]
     if not required:
         return None
-    return {"permission": permission, "approver": approver if approver in ("admin", "self") else "admin"}
+    return {
+        "permission": permission,
+        "approver": approver if approver in ("admin", "self") else "admin",
+    }
+
 
 # 실 도구 호출 전체 deadline(초). per-read 타임아웃은 전체 데드라인이 아니므로(learning 046)
 # asyncio.timeout으로 호출 전체를 감싼다 — 느린/멈춘 서버가 에이전트를 무한 대기시키지 않게.
@@ -140,7 +144,7 @@ def _wrap_mcp_tool(
                 raw = await rt.ainvoke(kwargs)
             text = _content_text(raw)
             status = "ok"
-        except Exception as exc:  # noqa: BLE001 — 도구 오류가 에이전트를 죽이지 않는다(graceful)
+        except Exception as exc:
             text = f"도구 실행 실패({server}.{rt.name}): {type(exc).__name__}"
             status = "error"
         calls_sink.append(
@@ -149,7 +153,9 @@ def _wrap_mcp_tool(
                 "tool": rt.name,
                 "status": status,
                 "ms": int((time.perf_counter() - t0) * 1000) + 1,
-                "args": _redact_args(kwargs),  # 스펙 087: 민감 키 마스킹 전 적재(형제 표면 누출 차단)
+                "args": _redact_args(
+                    kwargs
+                ),  # 스펙 087: 민감 키 마스킹 전 적재(형제 표면 누출 차단)
                 # 스펙 211: 직접 MCP 결과도 브로커/RAG와 같은 정화 경로(_sanitize_preview=비밀 마스킹+캡).
                 # 사용=공용 전환으로 타인이 크레덴셜 MCP를 배선할 수 있어(사용자 결정: 전부 공용), 결과에
                 # 섞인 토큰/비밀이 trace·응답으로 새지 않게 마스킹(codex 211 P2). 구 _cap은 마스킹 없었음.
@@ -172,7 +178,9 @@ def _wrap_mcp_tool(
                 "server": server,
                 "tool": rt.name,
                 "action": f"{server}.{rt.name}",
-                "args": _redact_args(kwargs),  # 스펙 087: Approval.args(DB 영속)·ApprovalsView로 새기 전 마스킹
+                "args": _redact_args(
+                    kwargs
+                ),  # 스펙 087: Approval.args(DB 영속)·ApprovalsView로 새기 전 마스킹
                 "summary": f"{server}.{rt.name} 실행 — {'본인' if approver == 'self' else '관리자'} 승인 필요",
             }
         )
@@ -261,7 +269,9 @@ async def build_mcp_tools(
     connections: dict[str, dict] = {}
     meta: dict[str, dict] = {}
     for s in servers:
-        conn = mcp_connection(s)  # transport 검사·SSRF 가드 공유 헬퍼(브로커와 드리프트 0, 스펙 101)
+        conn = mcp_connection(
+            s
+        )  # transport 검사·SSRF 가드 공유 헬퍼(브로커와 드리프트 0, 스펙 101)
         if conn is None:
             continue  # 미지원 transport 또는 SSRF 차단 → 그 서버만 스킵
         connections[s["name"]] = conn
@@ -275,7 +285,7 @@ async def build_mcp_tools(
     for name, s in meta.items():
         try:
             raw_tools = await client.get_tools(server_name=name)
-        except Exception:  # noqa: BLE001 — 서버 다운/프로토콜 오류는 그 서버만 스킵
+        except Exception:
             continue
         enabled = set(s.get("enabled_tools") or [])
         sel = selected_for_server(name, selected_tools)  # 도구 단위 배선 필터(스펙 276)
@@ -359,8 +369,10 @@ async def search_collections(
                 qvec_cache[key] = vecs[0]
     except rag_ingest.IngestError as exc:
         raise RagSearchError("embed", "임베딩 실패", f"문서 검색 실패(질의 임베딩): {exc}") from exc
-    except Exception as exc:  # noqa: BLE001 — 어떤 실패도 호출자를 죽이지 않는다
-        raise RagSearchError("embed", "임베딩 예외", "문서 검색 실패(질의 임베딩 중 오류).") from exc
+    except Exception as exc:
+        raise RagSearchError(
+            "embed", "임베딩 예외", "문서 검색 실패(질의 임베딩 중 오류)."
+        ) from exc
 
     # 컬렉션별 cosine 검색 → 통합. 각 행: (dist, filename, text, meta, collection). dist 오름차순 = 가까움.
     # collection = 컬렉션명 — 컬렉션별 유사도 임계값(스펙 191 v2) 후필터·인스펙터 표시에 쓴다.
@@ -380,8 +392,10 @@ async def search_collections(
                     )
                 ).all()
                 for text, filename, meta, d in rows:
-                    hits.append((float(d), filename or "(파일 미상)", text, meta, c.get("name", "")))
-    except Exception as exc:  # noqa: BLE001 — DB/검색 오류도 RagSearchError로
+                    hits.append(
+                        (float(d), filename or "(파일 미상)", text, meta, c.get("name", ""))
+                    )
+    except Exception as exc:
         raise RagSearchError("db", "검색 예외", "문서 검색 실패(유사도 검색 중 오류).") from exc
 
     # 음수 유사도(cosine 거리>1 = 벡터가 반대 방향) 제거: 반-상관 청크는 '근거'가 될 수 없다.
@@ -522,7 +536,9 @@ def _norm_min_scores(min_scores: dict | None, names: list[str] | None = None) ->
 
 
 def build_rag_tool(
-    collections: list[dict], calls_sink: list[dict], min_scores: dict | None = None,
+    collections: list[dict],
+    calls_sink: list[dict],
+    min_scores: dict | None = None,
     name: str = "search_documents",
 ) -> StructuredTool:
     """RAG 문서 검색 도구(스펙 037). `search_collections` 코어를 호출해 결과를 문자열로 포맷한다.
@@ -560,7 +576,9 @@ def build_rag_tool(
             calls_sink.append(entry)
 
         try:
-            results = await search_collections(collections, query, top_k, min_scores)  # 커트라인 annotate(미드롭)
+            results = await search_collections(
+                collections, query, top_k, min_scores
+            )  # 커트라인 annotate(미드롭)
         except RagSearchError as exc:
             _record("error", exc.record_label)
             return exc.tool_msg
@@ -569,7 +587,12 @@ def build_rag_tool(
         # 유지). trace(hitsDetail)에는 전부 싣는다(used+dropped, 플래그) — 인스펙터가 "못 쓴 문서"를 보이게.
         used = used_hits(results)
         # 결과 본문 스니펫(스펙 131) — "N건 반환" 카운트 대신 실제 구절(_record가 _RESULT_CAP 캡).
-        _record("ok", format_rag_hits(used) if used else "관련 결과 0건", len(used), _hits_detail(results))
+        _record(
+            "ok",
+            format_rag_hits(used) if used else "관련 결과 0건",
+            len(used),
+            _hits_detail(results),
+        )
         return format_rag_hits(used)
 
     return StructuredTool.from_function(
@@ -614,10 +637,12 @@ _SENSITIVE_KEY = re.compile(
     r"(api[_-]?key|secret|token|password|passwd|auth|credential|bearer|[_-]key$|^key$)", re.I
 )
 _FIELD_CAP = 300  # 필드(값) 1개 표시 상한(자)
-_MSG_PREVIEW_CAP = 160  # messages 델타의 메시지 1건 본문 프리뷰 상한(자) — 채팅 중복이라 짧게(스펙 192 후속)
+_MSG_PREVIEW_CAP = (
+    160  # messages 델타의 메시지 1건 본문 프리뷰 상한(자) — 채팅 중복이라 짧게(스펙 192 후속)
+)
 _MSG_PREVIEW_N = 3  # 프리뷰로 펼칠 앞쪽 메시지 수(나머지는 "+N건"으로 카운트만)
 _NODE_SUMMARY_CAP = 1200  # 노드 요약 전체 상한(자) — 필드 캡보다 커야 단일 필드가 이중 캡 안 됨
-                          # (codex F3 후속: per-field 캡 후 join이 또 잘려 생략 길이가 거짓이 되던 버그)
+# (codex F3 후속: per-field 캡 후 join이 또 잘려 생략 길이가 거짓이 되던 버그)
 _REDACTED = "«redacted»"
 
 
@@ -628,14 +653,20 @@ _REDACTED = "«redacted»"
 # 스펙 131 확대: query(analyze가 뽑은 유저 질의)·route(분류 라벨)·delegated(위임 결과 fold, 인스펙터
 # brokerCalls resultPreview와 같은 내용) — 출하 그래프(route/plan_execute/orchestrate)의 닫힌 상태 키로
 # 전부 비-비밀임을 코드로 확인(131 조사). 미지 키는 여전히 길이만(F2 유지 — 커스텀 플로우 안전).
-_VALUE_SAFE_KEYS = frozenset({"plan", "query", "route", "delegated", "delegationNote"})  # delegationNote=스펙 289 P3(우리가 생성한 사유 문자열)
+_VALUE_SAFE_KEYS = frozenset(
+    {"plan", "query", "route", "delegated", "delegationNote"}
+)  # delegationNote=스펙 289 P3(우리가 생성한 사유 문자열)
 
 # 스펙 087: MCP 호출 인자·결과 redaction(형제 trace 표면). 086 노드델타와 달리 args는 *보여주는 게
 # 목적*(인스펙터 디버깅 가치)이라 평범한 키의 값은 보존하고 민감 *키*만 마스킹한다(value-allowlist
 # 아닌 key-blocklist — polarity가 정당하게 다름, learning 089 §3 형제 표면판). 시스템 자기 비밀은
 # 이 표면에 안 온다(서버 토큰=헤더·모델 키=설정, args 아님) → defense-in-depth.
-_ARG_VALUE_CAP = 500  # args 문자열 leaf 1개 표시 상한(자) — query·path 등 정상 인자 보존하되 거대값 캡
-_RESULT_CAP = 2000  # 도구 결과 문자열 상한(자) — calls_sink에 무제한 적재(trace 비대) 방어(learning 059)
+_ARG_VALUE_CAP = (
+    500  # args 문자열 leaf 1개 표시 상한(자) — query·path 등 정상 인자 보존하되 거대값 캡
+)
+_RESULT_CAP = (
+    2000  # 도구 결과 문자열 상한(자) — calls_sink에 무제한 적재(trace 비대) 방어(learning 059)
+)
 _REDACT_MAX_DEPTH = 6  # args 재귀 깊이 상한 — 사이클/거대 중첩 fail-closed
 
 
@@ -667,7 +698,7 @@ def _redact_args(obj: Any, _depth: int = 0) -> Any:
         if obj is None or isinstance(obj, (bool, int)):
             return obj  # 스칼라(유한 길이, 비밀 위험 낮음)
         return f"<{type(obj).__name__}>"  # 미지 타입은 타입명만(fail-closed)
-    except Exception:  # noqa: BLE001 — redaction 실패가 도구/스트림을 깨면 안 됨(fail-closed)
+    except Exception:
         return "«redact-failed»"
 
 
@@ -682,7 +713,11 @@ def _cap(s: str, limit: int = _NODE_SUMMARY_CAP) -> str:
 def _msg_role(m: Any) -> str:
     """메시지(LangChain 객체/dict)의 역할을 사용자 친화 라벨로. 청크형 type명(AIMessageChunk 등)도
     소문자 접두 매칭으로 방어(스펙 086 노트: .type은 청크/비청크 간 불안정)."""
-    r = str((m.get("role") or m.get("type") or "") if isinstance(m, dict) else getattr(m, "type", "") or "")
+    r = str(
+        (m.get("role") or m.get("type") or "")
+        if isinstance(m, dict)
+        else getattr(m, "type", "") or ""
+    )
     low = r.lower()
     for k, v in (("ai", "assistant"), ("human", "user"), ("tool", "tool"), ("system", "system")):
         if low.startswith(k):
@@ -752,7 +787,8 @@ def _summarize_node_update(node: str, delta: Any) -> str | None:
             elif isinstance(val, dict):
                 # 중첩 dict도 키만(중첩 안의 비밀 누출 차단 — 값 펼치지 않음). 키 목록도 캡(거대 dict 방어).
                 inner = _cap(
-                    ", ".join(_REDACTED if _SENSITIVE_KEY.search(str(k)) else str(k) for k in val), 80
+                    ", ".join(_REDACTED if _SENSITIVE_KEY.search(str(k)) else str(k) for k in val),
+                    80,
                 )
                 parts.append(f"{key}{{{inner}}}")
             elif val is None or isinstance(val, (bool, int, float)):
@@ -761,7 +797,7 @@ def _summarize_node_update(node: str, delta: Any) -> str | None:
                 parts.append(f"{key}=<{type(val).__name__}>")  # 미지 타입은 타입명만(fail-closed)
         text = _cap(" · ".join(p for p in parts if p))
         return text or None
-    except Exception:  # noqa: BLE001 — 요약 실패가 스트림을 깨면 안 됨(F5 fail-closed)
+    except Exception:
         return None
 
 

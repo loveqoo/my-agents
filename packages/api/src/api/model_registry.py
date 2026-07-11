@@ -10,10 +10,9 @@ import uuid
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-
-from sqlalchemy.exc import IntegrityError
 
 from . import crypto
 from .auth import current_principal
@@ -70,7 +69,7 @@ async def _probe(
                     headers=headers,
                     json={"model": model_id, "input": "ping"},
                 )
-        except Exception:  # noqa: BLE001 — 네트워크 오류(상세 미노출)
+        except Exception:
             ms = int((time.perf_counter() - t0) * 1000)
             return ModelProbeResult(
                 ok=False, reachable=False, modelAvailable=False, latencyMs=ms, detail="연결 실패"
@@ -78,26 +77,38 @@ async def _probe(
         ms = int((time.perf_counter() - t0) * 1000)
         if r.status_code != 200:
             return ModelProbeResult(
-                ok=False, reachable=True, modelAvailable=False, latencyMs=ms, detail=f"HTTP {r.status_code}"
+                ok=False,
+                reachable=True,
+                modelAvailable=False,
+                latencyMs=ms,
+                detail=f"HTTP {r.status_code}",
             )
         try:
             vec = ((r.json().get("data") or [{}])[0]).get("embedding") or []
-        except Exception:  # noqa: BLE001
+        except Exception:
             vec = []
         if vec:
             return ModelProbeResult(
-                ok=True, reachable=True, modelAvailable=True, latencyMs=ms,
-                detail=f"임베딩 OK · {len(vec)}차원", dims=len(vec),
+                ok=True,
+                reachable=True,
+                modelAvailable=True,
+                latencyMs=ms,
+                detail=f"임베딩 OK · {len(vec)}차원",
+                dims=len(vec),
             )
         return ModelProbeResult(
-            ok=True, reachable=True, modelAvailable=False, latencyMs=ms, detail="연결됨 · 임베딩 응답 없음"
+            ok=True,
+            reachable=True,
+            modelAvailable=False,
+            latencyMs=ms,
+            detail="연결됨 · 임베딩 응답 없음",
         )
 
     # kind == "chat" (기본)
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             r = await client.get(base + "/models", headers=headers)
-    except Exception:  # noqa: BLE001 — 네트워크 오류(상세는 노출 안 함)
+    except Exception:
         ms = int((time.perf_counter() - t0) * 1000)
         return ModelProbeResult(
             ok=False, reachable=False, modelAvailable=False, latencyMs=ms, detail="연결 실패"
@@ -106,11 +117,15 @@ async def _probe(
     if r.status_code != 200:
         # 본문은 키를 에코할 수 있어 노출 안 함 — 상태코드만.
         return ModelProbeResult(
-            ok=False, reachable=True, modelAvailable=False, latencyMs=ms, detail=f"HTTP {r.status_code}"
+            ok=False,
+            reachable=True,
+            modelAvailable=False,
+            latencyMs=ms,
+            detail=f"HTTP {r.status_code}",
         )
     try:
         ids = [m.get("id") for m in (r.json().get("data") or [])]
-    except Exception:  # noqa: BLE001
+    except Exception:
         ids = []
     if not model_id:
         # 프로바이더 레벨 테스트(특정 모델 미지정, 스펙 164) — 목록 존재 여부로 판정한다.
@@ -118,12 +133,17 @@ async def _probe(
         # "연결됨 · 모델 미발견"이 떠 사용자가 오해했다(등록 화면엔 모델이 주르륵). 개수로 정직하게.
         n = len(ids)
         return ModelProbeResult(
-            ok=True, reachable=True, modelAvailable=n > 0, latencyMs=ms,
+            ok=True,
+            reachable=True,
+            modelAvailable=n > 0,
+            latencyMs=ms,
             detail=f"연결됨 · 모델 {n}개 발견" if n else "연결됨 · 모델 목록 비어있음",
         )
     available = model_id in ids
     detail = "연결됨" + (" · 모델 사용 가능" if available else " · 모델 미발견")
-    return ModelProbeResult(ok=True, reachable=True, modelAvailable=available, latencyMs=ms, detail=detail)
+    return ModelProbeResult(
+        ok=True, reachable=True, modelAvailable=available, latencyMs=ms, detail=detail
+    )
 
 
 async def _clear_other_defaults(
@@ -134,10 +154,16 @@ async def _clear_other_defaults(
     해제를 **즉시 flush** — 부분 유니크 인덱스(uq_models_default_per_kind, 스펙 150)는 문장 단위로
     검사되므로, 해제 UPDATE가 새 기본 지정보다 먼저 실행됨을 보장해야 자기 트랜잭션과 안 충돌한다."""
     rows = (
-        await session.execute(
-            select(ModelConfig).where(ModelConfig.kind == kind, ModelConfig.is_default.is_(True))
+        (
+            await session.execute(
+                select(ModelConfig).where(
+                    ModelConfig.kind == kind, ModelConfig.is_default.is_(True)
+                )
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     changed = False
     for r in rows:
         if exclude_id is None or r.id != exclude_id:
@@ -197,7 +223,9 @@ async def test_saved_model(
 
 async def _require_provider(session: AsyncSession, provider_id: uuid.UUID) -> None:
     if await session.get(Provider, provider_id) is None:
-        raise HTTPException(status_code=400, detail="provider not found — provider를 먼저 등록하세요.")
+        raise HTTPException(
+            status_code=400, detail="provider not found — provider를 먼저 등록하세요."
+        )
 
 
 @router.post("", response_model=ModelOut, status_code=201, dependencies=[_manage])
@@ -206,8 +234,13 @@ async def create_model(body: ModelIn, session: AsyncSession = Depends(get_sessio
     if body.is_default:
         await _clear_other_defaults(session, body.kind)
     m = ModelConfig(
-        name=body.name, provider_id=body.provider_id, model_id=body.model_id,
-        kind=body.kind, is_default=body.is_default, params=body.params, meta=body.meta,
+        name=body.name,
+        provider_id=body.provider_id,
+        model_id=body.model_id,
+        kind=body.kind,
+        is_default=body.is_default,
+        params=body.params,
+        meta=body.meta,
     )
     session.add(m)
     await _commit_or_409(session, "동시 변경 충돌 또는 중복 — 다시 시도하세요.")
@@ -256,10 +289,15 @@ async def set_default_model(
     if m.kind not in ("chat", "embedding"):
         # 레거시/수동 행 방어(codex 150) — 런타임은 chat/embedding 기본만 읽으므로 그 외 kind의
         # "기본 지정 성공"은 아무 효과 없는 거짓 성공이 된다.
-        raise HTTPException(status_code=400, detail=f"kind={m.kind!r}는 기본 지정 대상이 아닙니다(chat/embedding만).")
+        raise HTTPException(
+            status_code=400,
+            detail=f"kind={m.kind!r}는 기본 지정 대상이 아닙니다(chat/embedding만).",
+        )
     await _clear_other_defaults(session, m.kind, exclude_id=m.id)
     m.is_default = True
-    await _commit_or_409(session, "동시에 다른 기본 지정이 있었습니다 — 새로고침 후 다시 시도하세요.")
+    await _commit_or_409(
+        session, "동시에 다른 기본 지정이 있었습니다 — 새로고침 후 다시 시도하세요."
+    )
     return model_to_out(await _get_with_provider(session, m.id))
 
 
@@ -272,9 +310,9 @@ async def delete_model(model_id: uuid.UUID, session: AsyncSession = Depends(get_
     # 런타임이 사라진 모델을 가리키지 않게 한다. column(model)·config.model 둘 다 검사.
     refs = (
         await session.execute(
-            select(func.count()).select_from(Agent).where(
-                or_(Agent.model == m.name, Agent.config["model"].astext == m.name)
-            )
+            select(func.count())
+            .select_from(Agent)
+            .where(or_(Agent.model == m.name, Agent.config["model"].astext == m.name))
         )
     ).scalar_one()
     if refs:
@@ -287,9 +325,9 @@ async def delete_model(model_id: uuid.UUID, session: AsyncSession = Depends(get_
     # 사라진 모델을 가리킨다. live보다 약한 결합이라 별도 메시지로 구분.
     ver_refs = (
         await session.execute(
-            select(func.count()).select_from(AgentVersion).where(
-                AgentVersion.config["model"].astext == m.name
-            )
+            select(func.count())
+            .select_from(AgentVersion)
+            .where(AgentVersion.config["model"].astext == m.name)
         )
     ).scalar_one()
     if ver_refs:
@@ -304,7 +342,9 @@ async def delete_model(model_id: uuid.UUID, session: AsyncSession = Depends(get_
     # DB가 IntegrityError를 던져 500이 된다(적대 리뷰 048) — 먼저 명시적으로 검사해 409로 안내.
     col_refs = (
         await session.execute(
-            select(func.count()).select_from(Collection).where(Collection.embedding_model_id == m.id)
+            select(func.count())
+            .select_from(Collection)
+            .where(Collection.embedding_model_id == m.id)
         )
     ).scalar_one()
     if col_refs:

@@ -23,6 +23,8 @@ log = logging.getLogger("api.memory")
 # 불일치 시 insert가 깨지고 mem0 add는 except로 삼켜 메모리가 조용히 죽는다(스펙 019). 현재 기본
 # multilingual-e5-large=1024(라이브 probe로 검증). 기본 임베딩 모델을 바꾸면 이 값(또는 env)을 맞춰라.
 _EMBED_DIMS = int(os.environ.get("MEM0_EMBED_DIMS", "1024"))
+
+
 # 임베더 API에 **명시적으로 요청할** 출력 차원(스펙 159). 기본 None=미전송 → 모델이 네이티브 차원을
 # 반환한다. self-hosted OpenAI 호환 임베더(snowflake-arctic·vLLM·Voyage 등)는 `dimensions` 파라미터를
 # 거부(400)하므로 강제하면 안 된다(mem0 openai.py 주석). matryoshka 절단을 **의도적으로** 쓰는
@@ -45,7 +47,9 @@ def _env_positive_int(name: str) -> int | None:
     return n
 
 
-_EMBED_REQUEST_DIMS = _env_positive_int("MEM0_EMBED_REQUEST_DIMS")  # int|None, None → dimensions 미전송
+_EMBED_REQUEST_DIMS = _env_positive_int(
+    "MEM0_EMBED_REQUEST_DIMS"
+)  # int|None, None → dimensions 미전송
 # 비대칭 임베딩 모델(e5·arctic 등) 접두어(스펙 160). 기본 ""=미주입(no-op). 검색어엔 QUERY, 저장
 # 문서엔 PASSAGE를 앞에 붙인다. arctic-v2.0은 query만 접두어·passage raw → PASSAGE는 빈값으로 둔다.
 # 구분자(공백/콜론)까지 값에 포함해야 한다(예: "query: "). 측정상 e5는 효과 미미(스펙 160).
@@ -91,7 +95,9 @@ def _pg_vector_store() -> dict:
     }
 
 
-_native_dims_cache: dict[tuple, int] = {}  # (base_url, model_id, api_key) → 네이티브 출력 차원(probe 캐시)
+_native_dims_cache: dict[
+    tuple, int
+] = {}  # (base_url, model_id, api_key) → 네이티브 출력 차원(probe 캐시)
 _PROBE_TIMEOUT_S = 10.0  # probe HTTP 상한(codex 159b Med — cold probe가 루프 블록 방지)
 
 
@@ -113,12 +119,16 @@ def _native_embed_dims(emb: dict) -> int | None:
         # mem0 OpenAIEmbedding 기본 클라(타임아웃 600s)는 blackhole 호스트에서 루프를 오래 막는다.
         # 차원은 모델 속성이라 dimensions 미전송 평문 임베딩 1회로 충분 → 짧은 타임아웃·무재시도로 측정.
         client = OpenAI(api_key=api_key, base_url=base_url, timeout=_PROBE_TIMEOUT_S, max_retries=0)
-        vec = client.embeddings.create(
-            input=["dimension probe"], model=model_id, encoding_format="float"
-        ).data[0].embedding
+        vec = (
+            client.embeddings.create(
+                input=["dimension probe"], model=model_id, encoding_format="float"
+            )
+            .data[0]
+            .embedding
+        )
         _native_dims_cache[key] = len(vec)
         return len(vec)
-    except Exception as exc:  # noqa: BLE001 — 타입명만(비밀 미노출, 스펙 158)
+    except Exception as exc:
         log.warning("mem0 native-dim probe failed: %s", type(exc).__name__)
         return None
 
@@ -139,7 +149,9 @@ def _embedder_request_dims(emb: dict) -> int | None:
         log.warning(
             "mem0 embedder native dims=%d != column %d — requesting dimensions=%d (truncation). "
             "모델이 dimensions를 거부하면 회상이 400난다(컬럼/모델 차원 정합 필요).",
-            native, _EMBED_DIMS, _EMBED_DIMS,
+            native,
+            _EMBED_DIMS,
+            _EMBED_DIMS,
         )
         return _EMBED_DIMS  # 절단 의도 — 컬럼 길이로 요청(codex 159 High: text-embedding-3류 회귀 방지)
     return None  # 네이티브==컬럼이거나 probe 실패 → 미전송
@@ -195,6 +207,7 @@ def _wrap_embedder_prefixes(mem) -> None:
 
     em.embed = embed
     if _orig_batch is not None:
+
         def embed_batch(texts, memory_action="add"):
             p = _pfx(memory_action)
             return _orig_batch([(p + t) if p else t for t in texts], memory_action)
@@ -212,10 +225,14 @@ class Mem0Backend:
         _wrap_embedder_prefixes(self._mem)  # 비대칭 모델 query/passage 접두어(스펙 160, 기본 no-op)
         # list_page용 직결 DSN(스펙 127) — mem0 공개 API엔 offset/정렬이 없어 페이지네이션은
         # mem0_memories 테이블 직접 SQL만이 길. 스키마 결합(payload 키 등)은 이 모듈에 격리.
-        self._dsn = _sync_dsn(os.environ.get("DATABASE_URL", "postgresql+asyncpg://agent:agent@localhost:5432/agents"))
+        self._dsn = _sync_dsn(
+            os.environ.get("DATABASE_URL", "postgresql+asyncpg://agent:agent@localhost:5432/agents")
+        )
         log.info("mem0 initialized (registry models)")
 
-    def search(self, scope: dict, query: str, limit: int, threshold: float | None = None) -> list[dict]:
+    def search(
+        self, scope: dict, query: str, limit: int, threshold: float | None = None
+    ) -> list[dict]:
         axes = scope_axes(scope)
         if not query or not axes:
             return []
@@ -228,7 +245,7 @@ class Mem0Backend:
             try:
                 # mem0 2.0.7 search는 top_k= 를 받는다(limit=는 **kwargs로 삼켜져 무시됨, 기본 20 → 과다 fetch).
                 res = self._mem.search(query=query, filters={axis: val}, top_k=limit, **extra)
-            except Exception as exc:  # noqa: BLE001 — 축별 격리하되 전 축 실패는 아래서 raise
+            except Exception as exc:
                 # 타입명만 로그(스펙 158, codex High) — 예외 메시지에 임베더 api_key/base_url이 섞일 수
                 # 있어 raw를 로그하면 비밀이 샌다. 마스킹된 상세는 recall_diag 응답(error)이 담는다.
                 log.warning("mem0 search failed (%s): %s", axis, type(exc).__name__)
@@ -315,11 +332,11 @@ class Mem0Backend:
             "THEN (payload->>'created_at')::timestamptz ELSE NULL END)"
         )
         sql_items = (
-            f"SELECT id, payload->>'data', payload->>'created_at', payload->>'updated_at' "  # noqa: S608
+            f"SELECT id, payload->>'data', payload->>'created_at', payload->>'updated_at' "
             f"FROM {_MEM_TABLE} WHERE {where} "
             f"ORDER BY {order_ts} DESC NULLS LAST, id LIMIT %s OFFSET %s"
         )
-        sql_total = f"SELECT count(*) FROM {_MEM_TABLE} WHERE {where}"  # noqa: S608
+        sql_total = f"SELECT count(*) FROM {_MEM_TABLE} WHERE {where}"
         try:
             with psycopg.connect(self._dsn) as conn, conn.cursor() as cur:
                 cur.execute(sql_total, params)

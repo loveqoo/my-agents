@@ -18,10 +18,15 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from . import memory
+from agent.runtime import is_first_party, is_third_party
+
+from . import agent_card, crypto, memory, net_guard
+from .auth import current_principal
 from .chat import derive_pipeline_pool, resolve_agent_mem_cfg
 from .db import get_session
 from .models import Agent, AgentVersion, Persona
+from .naming import slugify_name, validate_resource_name
+from .ownership import assert_may_manage, is_privileged, may_manage, may_use_agent, owner_of
 from .schemas import (
     ActivateIn,
     AgentCreate,
@@ -30,20 +35,15 @@ from .schemas import (
     ConnectAgentIn,
     ExposeIn,
     MemoryHit,
-    MemorySearchDiag,
     MemoryPageItem,
     MemoryPageOut,
+    MemorySearchDiag,
     MemorySearchIn,
     MemorySearchOut,
     RegisterCodeAgentIn,
     RegisterExternalAgentIn,
 )
-from . import agent_card, crypto, net_guard
-from .auth import current_principal
-from .naming import slugify_name, validate_resource_name
-from .ownership import may_use_agent, assert_may_manage, may_manage, owner_of, is_privileged
 from .serializers import agent_to_out
-from agent.runtime import is_first_party, is_third_party
 
 log = logging.getLogger("api.agents")
 
@@ -78,7 +78,11 @@ def _enforce_tool_policy_gate(config: dict, principal) -> None:
             status_code=403,
             detail=f"도구 승인 완화(끄기·본인승인)는 관리자만 가능합니다: {', '.join(relaxing[:5])}",
         )
-    log.info("audit tool-policy 완화(스펙 177 P2): user=%s relaxing=%s", owner_of(principal) or "machine", relaxing)
+    log.info(
+        "audit tool-policy 완화(스펙 177 P2): user=%s relaxing=%s",
+        owner_of(principal) or "machine",
+        relaxing,
+    )
 
 
 # 비영속에 금지되는 능력 kind(스펙 237) — 우리 DB에 **직접 쓰는** 유일한 도구 표면(기억 저장·수정).
@@ -95,7 +99,8 @@ def _enforce_ephemeral_boundary(config: dict) -> None:
     if not (config or {}).get("ephemeral"):
         return
     bad = [
-        c for c in (config.get("capabilities") or [])
+        c
+        for c in (config.get("capabilities") or [])
         if isinstance(c, str) and c.split(":", 1)[0] in _EPHEMERAL_FORBIDDEN_CAP_KINDS
     ]
     if bad:
@@ -130,7 +135,7 @@ async def list_impls() -> list[ImplMetaOut]:
         try:
             c = impl.describe().consumes if impl else None
             consumes = list(c) if c is not None else None
-        except Exception:  # noqa: BLE001 — describe 실패 impl은 미선언 취급(폼 전부 노출)
+        except Exception:
             consumes = None
         out.append(ImplMetaOut(key=key, consumes=consumes))
     return out
@@ -156,7 +161,11 @@ def _assert_valid_name(name: str) -> None:
 
 async def _dedupe_agent_name(session: AsyncSession, base: str) -> str:
     """자동 생성 식별 이름(복제·원격 유래)의 유니크 확보 — base, base-2, base-3…(스펙 148)."""
-    rows = (await session.execute(select(Agent.name).where(Agent.name.like(f"{base}%")))).scalars().all()
+    rows = (
+        (await session.execute(select(Agent.name).where(Agent.name.like(f"{base}%"))))
+        .scalars()
+        .all()
+    )
     taken = set(rows)
     cand, i = base, 2
     while cand in taken:
@@ -168,7 +177,9 @@ async def _slugify_remote_agent(session: AsyncSession, agent: Agent) -> None:
     """원격 유래(A2A 카드·SDK 등록) 이름 자동 변환 — 원문은 설명(description)으로 보존, 식별 이름은
     slugify+유니크(스펙 148, 210). 우리가 짓는 이름이 아니므로 거부하지 않는다."""
     raw = agent.name
-    agent.description = (agent.description or raw)[:200]  # DB String(200) 정합(codex 148 — 원격 문자열 무clip)
+    agent.description = (agent.description or raw)[
+        :200
+    ]  # DB String(200) 정합(codex 148 — 원격 문자열 무clip)
     # base를 180자로 캡 — dedupe 접미(-N)가 붙어도 String(200)을 넘지 않게.
     agent.name = await _dedupe_agent_name(session, slugify_name(raw)[:180])
 
@@ -238,6 +249,7 @@ async def list_agents(
     # 가시성(스펙 147): private(owner 있음)는 소유자·특권만 목록에서 본다(external은 항상).
     # 플레이그라운드도 이 목록을 쓰므로 자동 적용. admin/machine은 전부(관리 시야).
     from .ownership import may_use_agent
+
     rows = [a for a in rows if may_use_agent(a, principal)]
     pbodies = await _persona_bodies(session)  # 스펙 161 — personaStale 계산용(1회 조회)
     outs = [agent_to_out(a, pbodies) for a in rows]
@@ -281,9 +293,12 @@ async def agent_ops(
         raise HTTPException(status_code=404, detail="agent not found")
     if not may_manage(agent, principal):
         # 운영 지표=전 유저 피드백·평가 합산(codex 244 #2) — 관리자·소유자 전용(사용자는 대화만).
-        raise HTTPException(status_code=403, detail="운영 지표는 이 에이전트를 관리할 수 있어야 합니다")
+        raise HTTPException(
+            status_code=403, detail="운영 지표는 이 에이전트를 관리할 수 있어야 합니다"
+        )
 
-    from .models import EvalRun, Message, MessageFeedback, Session as SessionRow
+    from .models import EvalRun, Message, MessageFeedback
+    from .models import Session as SessionRow
 
     versions: dict[str, VersionOps] = {}
 
@@ -333,14 +348,19 @@ async def agent_ops(
         vo.lastRunAt = started_at.isoformat() if started_at else None
 
     # 피드백 집계 — feedback→message(trace.agentVersion)→session(agent_pk=이 에이전트).
-    _ver_expr = Message.trace["agentVersion"].astext  # 식 재사용(두 번 쓰면 bind 파라미터가 갈라져 GROUP BY 불일치)
+    _ver_expr = Message.trace[
+        "agentVersion"
+    ].astext  # 식 재사용(두 번 쓰면 bind 파라미터가 갈라져 GROUP BY 불일치)
     fb = (
         await session.execute(
             select(_ver_expr, MessageFeedback.rating, func.count(MessageFeedback.id))
-            .join(Message, (Message.id == MessageFeedback.message_pk)
-                  # codex 244 #1 — 중복 session_pk 불일치 행(보정/버그 유래) 방어: 메시지와 피드백의
-                  # 세션 일치를 조인에 강제(정상 경로는 항상 참, 불일치 행은 집계 제외).
-                  & (Message.session_pk == MessageFeedback.session_pk))
+            .join(
+                Message,
+                (Message.id == MessageFeedback.message_pk)
+                # codex 244 #1 — 중복 session_pk 불일치 행(보정/버그 유래) 방어: 메시지와 피드백의
+                # 세션 일치를 조인에 강제(정상 경로는 항상 참, 불일치 행은 집계 제외).
+                & (Message.session_pk == MessageFeedback.session_pk),
+            )
             .join(SessionRow, SessionRow.id == MessageFeedback.session_pk)
             .where(SessionRow.agent_pk == agent.id)
             .group_by(_ver_expr, MessageFeedback.rating)
@@ -388,8 +408,12 @@ async def create_agent(
     _assert_valid_name(body.name)  # 식별 이름 규칙(스펙 148) — 서버가 진실원
     cfg = body.config.model_dump()
     _enforce_tool_policy_gate(cfg, principal)
-    _enforce_ephemeral_boundary(cfg)  # DB 쓰기 능력 금지(스펙 237)  # 완화는 admin만(스펙 177 P2 D4)
-    await derive_pipeline_pool(cfg)  # 노드형 풀=노드 합집합 서버 파생(스펙 289 P2 — 폼 밖 입구도 안전)
+    _enforce_ephemeral_boundary(
+        cfg
+    )  # DB 쓰기 능력 금지(스펙 237)  # 완화는 admin만(스펙 177 P2 D4)
+    await derive_pipeline_pool(
+        cfg
+    )  # 노드형 풀=노드 합집합 서버 파생(스펙 289 P2 — 폼 밖 입구도 안전)
     agent = Agent(
         agent_id=_new_agent_id(),
         name=body.name,
@@ -404,9 +428,7 @@ async def create_agent(
         active_version=None,
         owner_id=owner_of(principal),  # 생성 시 1회 스탬프(스펙 112, 069)
     )
-    agent.versions.append(
-        AgentVersion(version="v1", status="draft", note="초기 초안", config=cfg)
-    )
+    agent.versions.append(AgentVersion(version="v1", status="draft", note="초기 초안", config=cfg))
     session.add(agent)
     await _commit_or_409(session, "같은 식별 이름의 에이전트가 이미 있습니다.")
     return await _reload_out(session, agent.id)
@@ -428,9 +450,13 @@ async def clone_agent(
         # 복제본 채팅으로 사용 게이트가 무력화된다. "가시하면 복제"의 가시=may_use(147 이후).
         raise HTTPException(status_code=404, detail="agent not found")
     cfg = dict(src.config or {})
-    cfg.pop("card", None)  # 외부 등록 스냅샷은 복사 안 함(ui 복제=행위 설정만; endpoint/token은 Agent 컬럼이라 애초 미복사)
+    cfg.pop(
+        "card", None
+    )  # 외부 등록 스냅샷은 복사 안 함(ui 복제=행위 설정만; endpoint/token은 Agent 컬럼이라 애초 미복사)
     _enforce_tool_policy_gate(cfg, principal)
-    _enforce_ephemeral_boundary(cfg)  # DB 쓰기 능력 금지(스펙 237)  # 완화 정책 복제도 admin만(스펙 177 P2 D4)
+    _enforce_ephemeral_boundary(
+        cfg
+    )  # DB 쓰기 능력 금지(스펙 237)  # 완화 정책 복제도 admin만(스펙 177 P2 D4)
     clone = Agent(
         agent_id=_new_agent_id(),
         # 식별 이름은 규칙 준수+유니크로 자동 생성(스펙 217: 영소문자·숫자·대시만 — 접미는 영문 '-copy'),
@@ -466,11 +492,15 @@ async def update_agent(
     agent = await _load_agent(session, agent_id)
     if agent is None:
         raise HTTPException(status_code=404, detail="agent not found")
-    assert_may_manage(agent, principal, not_found_detail="agent not found")  # 소유자/특권만(스펙 112)
+    assert_may_manage(
+        agent, principal, not_found_detail="agent not found"
+    )  # 소유자/특권만(스펙 112)
 
     cfg = body.config.model_dump()
     _enforce_tool_policy_gate(cfg, principal)
-    _enforce_ephemeral_boundary(cfg)  # DB 쓰기 능력 금지(스펙 237)  # 완화는 admin만(스펙 177 P2 D4)
+    _enforce_ephemeral_boundary(
+        cfg
+    )  # DB 쓰기 능력 금지(스펙 237)  # 완화는 admin만(스펙 177 P2 D4)
     draft = next((v for v in agent.versions if v.status == "draft"), None)
     # impl(스펙 085 SDK 런타임 키)은 편집 폼이 아직 안 보내므로(SPA 미배선), 요청에 명시되지
     # 않으면 기존 값을 보존한다 — 안 그러면 Pydantic 기본 None이 덮어써 편집→활성화가 커스텀
@@ -513,7 +543,9 @@ async def delete_agent(
     agent = await session.get(Agent, agent_id)
     if agent is None:
         raise HTTPException(status_code=404, detail="agent not found")
-    assert_may_manage(agent, principal, not_found_detail="agent not found")  # 소유자/특권만(스펙 112)
+    assert_may_manage(
+        agent, principal, not_found_detail="agent not found"
+    )  # 소유자/특권만(스펙 112)
     await session.delete(agent)
     await session.commit()
 
@@ -528,11 +560,15 @@ async def fork_version(
     agent = await _load_agent(session, agent_id)
     if agent is None:
         raise HTTPException(status_code=404, detail="agent not found")
-    assert_may_manage(agent, principal, not_found_detail="agent not found")  # 소유자/특권만(스펙 112)
+    assert_may_manage(
+        agent, principal, not_found_detail="agent not found"
+    )  # 소유자/특권만(스펙 112)
 
     # 단일 초안 불변식: 이미 초안이 있으면 새로 만들지 않는다(편집은 그 초안에 저장).
     if any(v.status == "draft" for v in agent.versions):
-        raise HTTPException(status_code=400, detail="이미 초안이 있습니다 — 먼저 활성화하거나 편집하세요")
+        raise HTTPException(
+            status_code=400, detail="이미 초안이 있습니다 — 먼저 활성화하거나 편집하세요"
+        )
 
     agent.versions.append(
         AgentVersion(
@@ -557,7 +593,9 @@ async def activate_version(
     agent = await _load_agent(session, agent_id)
     if agent is None:
         raise HTTPException(status_code=404, detail="agent not found")
-    assert_may_manage(agent, principal, not_found_detail="agent not found")  # 소유자/특권만(스펙 112)
+    assert_may_manage(
+        agent, principal, not_found_detail="agent not found"
+    )  # 소유자/특권만(스펙 112)
 
     target = _find_version(agent, body.version)
     if target is None:
@@ -573,7 +611,9 @@ async def activate_version(
     target.status = "active"
 
     cfg = dict(target.config or {})
-    _enforce_ephemeral_boundary(cfg)  # 스펙 237(codex #1) — 과거 버전 승격도 "존재 불가" 불변식 유지
+    _enforce_ephemeral_boundary(
+        cfg
+    )  # 스펙 237(codex #1) — 과거 버전 승격도 "존재 불가" 불변식 유지
     agent.config = cfg
     agent.model = cfg["model"]
     agent.persona = await resolve_persona(session, cfg["persona"])
@@ -585,6 +625,7 @@ async def activate_version(
     # 자동 회귀(스펙 241, AgentOps B) — 새 버전이 서빙되는 순간 회귀 자산 자동 재실행(fire-and-forget:
     # 실패해도 활성화는 정상). 결과는 평가 이력에 "자동 회귀 · vN"으로.
     from .eval_routes import trigger_auto_regression
+
     asyncio.create_task(trigger_auto_regression(agent.id, principal))
     return await _reload_out(session, agent.id)
 
@@ -602,7 +643,9 @@ async def refresh_persona(
     agent = await _load_agent(session, agent_id)
     if agent is None:
         raise HTTPException(status_code=404, detail="agent not found")
-    assert_may_manage(agent, principal, not_found_detail="agent not found")  # 소유자/특권만(스펙 112)
+    assert_may_manage(
+        agent, principal, not_found_detail="agent not found"
+    )  # 소유자/특권만(스펙 112)
     if not is_first_party(agent.source):
         # 외부/A2A는 로컬 페르소나가 없다(카드 스냅샷) — 갱신 대상 아님.
         raise HTTPException(status_code=400, detail="외부 에이전트는 페르소나 갱신 대상이 아닙니다")
@@ -623,7 +666,9 @@ async def revert_version(
     agent = await _load_agent(session, agent_id)
     if agent is None:
         raise HTTPException(status_code=404, detail="agent not found")
-    assert_may_manage(agent, principal, not_found_detail="agent not found")  # 소유자/특권만(스펙 112)
+    assert_may_manage(
+        agent, principal, not_found_detail="agent not found"
+    )  # 소유자/특권만(스펙 112)
 
     target = _find_version(agent, body.version)
     if target is None:
@@ -659,6 +704,7 @@ async def revert_version(
     if promoted:
         # 서빙 버전이 실제로 바뀐 경우만 자동 회귀(스펙 241) — 단순 draft 강등은 서빙 불변이라 제외.
         from .eval_routes import trigger_auto_regression
+
         asyncio.create_task(trigger_auto_regression(agent.id, principal))
     return await _reload_out(session, agent.id)
 
@@ -674,12 +720,16 @@ async def expose_agent(
     agent = await _load_agent(session, agent_id)
     if agent is None:
         raise HTTPException(status_code=404, detail="agent not found")
-    assert_may_manage(agent, principal, not_found_detail="agent not found")  # 소유자/특권만(스펙 112)
+    assert_may_manage(
+        agent, principal, not_found_detail="agent not found"
+    )  # 소유자/특권만(스펙 112)
 
     if body.a2a and agent.owner_id is not None:
         # 트리 불변식(스펙 147): private(소유자 전용) 에이전트는 A2A 공유가 성립하지 않는다 —
         # 소유자만 쓰는 걸 다른 에이전트가 호출하게 열면 사용 게이트가 뚫린다. 끄기는 항상 허용.
-        raise HTTPException(status_code=400, detail="private 에이전트는 A2A를 켤 수 없습니다 (public만 가능)")
+        raise HTTPException(
+            status_code=400, detail="private 에이전트는 A2A를 켤 수 없습니다 (public만 가능)"
+        )
     if body.a2a and is_third_party(agent.source):
         # 재공개 금지(스펙 152) — 외부에서 받아온 에이전트만 차단. code(제1자 SDK 배포)는 스펙 154에서
         # 1홉 중계로 노출 허용(직접 코딩 에이전트도 우리 A2A 주소로 공개). 끄기는 source 무관 항상 허용.
@@ -723,7 +773,10 @@ async def set_agent_visibility(
         if agent.owner_id is None:
             new_owner = owner_of(principal)
             if new_owner is None:
-                raise HTTPException(status_code=400, detail="머신 토큰으로는 비공개 전환할 수 없습니다(소유자 없음).")
+                raise HTTPException(
+                    status_code=400,
+                    detail="머신 토큰으로는 비공개 전환할 수 없습니다(소유자 없음).",
+                )
             agent.owner_id = new_owner
         # 이미 private면 기존 소유자 보존(069 no-takeover)
         agent.exposed = {**(agent.exposed or {}), "a2a": False}  # private+A2A 봉인(147)
@@ -819,7 +872,9 @@ def _norm_endpoint(raw: object) -> str | None:
         return clipped
 
 
-def _build_external_agent(card: dict, token: str | None, live: bool, card_url: str | None = None) -> Agent:
+def _build_external_agent(
+    card: dict, token: str | None, live: bool, card_url: str | None = None
+) -> Agent:
     """제3자 A2A 카드 → external Agent. 불투명 카드 스냅샷, 로컬 모델/메모리/MCP 미해석(비로컬).
 
     카드 스냅샷은 config["card"], 서비스 URL은 endpoint, 호출 크레덴셜은 crypto.encrypt로 token에
@@ -854,7 +909,9 @@ def _build_external_agent(card: dict, token: str | None, live: bool, card_url: s
     )
 
 
-def _build_code_agent_from_card(card: dict, ext: dict, token: str | None, live: bool, card_url: str | None = None) -> Agent:
+def _build_code_agent_from_card(
+    card: dict, ext: dict, token: str | None, live: bool, card_url: str | None = None
+) -> Agent:
     """제1자(SDK 배포) A2A 카드 + my-agents 확장 → code Agent (스펙 057).
 
     config는 ext["manifest"](model/persona/mcps/…)에서 채우고 카드 스냅샷을 함께 보존한다.
@@ -1009,25 +1066,22 @@ async def _assert_owns(agent, mem_id: str, mem_cfg) -> None:
     """mem_id가 이 에이전트의 agent_id 기억에 속하는지 확인. 공유 pgvector라
     mem0 update/delete는 전역 id로 동작 → path agent_id로 소유권을 강제하지 않으면
     A의 큐레이션 화면에서 B(또는 임의 user_id/run_id) 행을 변조할 수 있다(스펙 029 비판리뷰)."""
-    rows = await asyncio.to_thread(
-        memory.list_memories, {"agent_id": agent.agent_id}, mem_cfg
-    )
+    rows = await asyncio.to_thread(memory.list_memories, {"agent_id": agent.agent_id}, mem_cfg)
     if not any(r["id"] == mem_id for r in rows):
         raise HTTPException(status_code=404, detail="이 에이전트의 기억이 아닙니다")
 
 
 @router.get("/{agent_id}/memory")
 async def list_agent_memory(
-    agent_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+    agent_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
     principal=Depends(current_principal),
 ) -> list[dict]:
     """에이전트 전용(agent_id) 기억 목록. 메모리 미가용이면 빈 목록(graceful)."""
     agent, mem_cfg = await _agent_mem_cfg(session, agent_id, principal)
     if mem_cfg is None:
         return []
-    return await asyncio.to_thread(
-        memory.list_memories, {"agent_id": agent.agent_id}, mem_cfg
-    )
+    return await asyncio.to_thread(memory.list_memories, {"agent_id": agent.agent_id}, mem_cfg)
 
 
 @router.get("/{agent_id}/memory/page", response_model=MemoryPageOut)
@@ -1050,7 +1104,10 @@ async def page_agent_memory(
         )
     except Exception as exc:
         secrets = memory._cfg_secrets(mem_cfg)
-        raise HTTPException(status_code=502, detail="메모리 목록 조회 실패: " + memory._sanitize(exc, secrets=secrets))
+        raise HTTPException(
+            status_code=502,
+            detail="메모리 목록 조회 실패: " + memory._sanitize(exc, secrets=secrets),
+        )
     if page is None:
         return MemoryPageOut(items=[], total=0, limit=limit, offset=offset, enabled=False)
     return MemoryPageOut(
@@ -1064,7 +1121,9 @@ async def page_agent_memory(
 
 @router.post("/{agent_id}/memory/search", response_model=MemorySearchOut)
 async def search_agent_memory(
-    agent_id: uuid.UUID, body: MemorySearchIn, session: AsyncSession = Depends(get_session),
+    agent_id: uuid.UUID,
+    body: MemorySearchIn,
+    session: AsyncSession = Depends(get_session),
     principal=Depends(current_principal),
 ) -> MemorySearchOut:
     """회상 시험(스펙 084) — 챗과 동일한 공유 코어 `memory.search`로 agent_id 스코프 회상.
@@ -1105,9 +1164,13 @@ async def add_agent_memory(
 ) -> dict:
     """관리자 저작 — agent_id-only·infer=False로 한 줄 사실을 저장(스펙 029)."""
     agent, mem_cfg = await _agent_mem_cfg(session, agent_id)
-    assert_may_manage(agent, principal, not_found_detail="agent not found")  # 소유자/특권만(스펙 112, codex P1)
+    assert_may_manage(
+        agent, principal, not_found_detail="agent not found"
+    )  # 소유자/특권만(스펙 112, codex P1)
     if mem_cfg is None:
-        raise HTTPException(status_code=400, detail="이 에이전트는 장기 메모리가 활성화되지 않았습니다")
+        raise HTTPException(
+            status_code=400, detail="이 에이전트는 장기 메모리가 활성화되지 않았습니다"
+        )
     text = body.text.strip()
     if not text:
         raise HTTPException(status_code=400, detail="빈 메모리는 저장할 수 없습니다")
@@ -1131,9 +1194,13 @@ async def update_agent_memory(
 ) -> dict:
     """관리자 교정 — 기억 본문 수정(스펙 029)."""
     agent, mem_cfg = await _agent_mem_cfg(session, agent_id)
-    assert_may_manage(agent, principal, not_found_detail="agent not found")  # 소유자/특권만(스펙 112, codex P1)
+    assert_may_manage(
+        agent, principal, not_found_detail="agent not found"
+    )  # 소유자/특권만(스펙 112, codex P1)
     if mem_cfg is None:
-        raise HTTPException(status_code=400, detail="이 에이전트는 장기 메모리가 활성화되지 않았습니다")
+        raise HTTPException(
+            status_code=400, detail="이 에이전트는 장기 메모리가 활성화되지 않았습니다"
+        )
     await _assert_owns(agent, mem_id, mem_cfg)
     ok = await asyncio.to_thread(memory.update_memory, mem_id, body.text.strip(), mem_cfg)
     if not ok:
@@ -1150,9 +1217,13 @@ async def delete_agent_memory(
 ) -> None:
     """관리자 교정 — 기억 삭제(스펙 029)."""
     agent, mem_cfg = await _agent_mem_cfg(session, agent_id)
-    assert_may_manage(agent, principal, not_found_detail="agent not found")  # 소유자/특권만(스펙 112, codex P1)
+    assert_may_manage(
+        agent, principal, not_found_detail="agent not found"
+    )  # 소유자/특권만(스펙 112, codex P1)
     if mem_cfg is None:
-        raise HTTPException(status_code=400, detail="이 에이전트는 장기 메모리가 활성화되지 않았습니다")
+        raise HTTPException(
+            status_code=400, detail="이 에이전트는 장기 메모리가 활성화되지 않았습니다"
+        )
     await _assert_owns(agent, mem_id, mem_cfg)
     ok = await asyncio.to_thread(memory.delete_memory, mem_id, mem_cfg)
     if not ok:
@@ -1180,7 +1251,9 @@ async def resync_agent(
     agent = await _load_agent(session, agent_id)
     if agent is None:
         raise HTTPException(status_code=404, detail="agent not found")
-    assert_may_manage(agent, principal, not_found_detail="agent not found")  # 소유자/특권만(스펙 112)
+    assert_may_manage(
+        agent, principal, not_found_detail="agent not found"
+    )  # 소유자/특권만(스펙 112)
 
     cfg = dict(agent.config or {})
     card_url = cfg.get("cardUrl")
@@ -1230,7 +1303,12 @@ async def resync_agent(
                 existing.status = "active"  # A→B→A 재왕복: 기존 행 승격(중복 행 금지)
             else:
                 agent.versions.append(
-                    AgentVersion(version=new_commit, status="active", note="resync 재보고(스펙 285)", config=dict(cfg))
+                    AgentVersion(
+                        version=new_commit,
+                        status="active",
+                        note="resync 재보고(스펙 285)",
+                        config=dict(cfg),
+                    )
                 )
             agent.active_version = new_commit
     await session.commit()

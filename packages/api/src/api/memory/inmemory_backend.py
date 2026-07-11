@@ -38,7 +38,9 @@ class InMemoryBackend:
     def _matches(self, rec: dict, axis: str, val: str) -> bool:
         return rec["axes"].get(axis) == val
 
-    def search(self, scope: dict, query: str, limit: int, threshold: float | None = None) -> list[dict]:
+    def search(
+        self, scope: dict, query: str, limit: int, threshold: float | None = None
+    ) -> list[dict]:
         # threshold(스펙 158): 부분일치 백엔드는 벡터 점수가 없어 무시(계약 시그니처만 맞춤).
         axes = scope_axes(scope)
         if not query or not axes:
@@ -54,7 +56,12 @@ class InMemoryBackend:
                 score = round(min(1.0, len(query) / max(1, len(rec["text"]))), 3)
                 prev = merged.get(rec["id"])
                 if prev is None or score > prev["score"]:
-                    merged[rec["id"]] = {"type": "semantic", "text": rec["text"], "score": score, "scope": axis}
+                    merged[rec["id"]] = {
+                        "type": "semantic",
+                        "text": rec["text"],
+                        "score": score,
+                        "scope": axis,
+                    }
         hits = sorted(merged.values(), key=lambda h: h["score"], reverse=True)
         return hits[:limit]
 
@@ -85,7 +92,9 @@ class InMemoryBackend:
             if ql and ql not in rec["text"].lower():
                 continue
             seen.add(rec["id"])
-            matches.append({"id": rec["id"], "text": rec["text"], "created_at": None, "updated_at": None})
+            matches.append(
+                {"id": rec["id"], "text": rec["text"], "created_at": None, "updated_at": None}
+            )
         n = max(1, min(int(limit), 100))
         off = max(0, int(offset))
         return {"items": matches[off : off + n], "total": len(matches)}

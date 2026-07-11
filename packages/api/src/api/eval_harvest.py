@@ -7,6 +7,7 @@
 수확 단위=미수확 피드백(harvested_case_pk IS NULL). 케이스 생성 후 호출측이 harvested_case_pk를 스탬프
 (재수확 방지). 합성 실패는 이유 기반 템플릿으로 폴백(수확 진행 — draft라 관리자가 검토·수정).
 """
+
 import logging
 
 import httpx
@@ -28,12 +29,13 @@ _SYNTH_SYSTEM = (
 )
 
 
-async def _synth_criterion(question: str, answer: str, rating: str, reason: str, llm_cfg: dict) -> str | None:
+async def _synth_criterion(
+    question: str, answer: str, rating: str, reason: str, llm_cfg: dict
+) -> str | None:
     """한 피드백에서 llm_judge 기준 한 문장 합성. 실패=None(폴백은 호출측)."""
     liked = "좋아요" if rating == "up" else "싫어요"
-    user = (
-        f"[질문]\n{question[:800]}\n\n[답변]\n{answer[:1500]}\n\n[사용자 평가] {liked}"
-        + (f" — 이유: {reason[:500]}" if reason else "")
+    user = f"[질문]\n{question[:800]}\n\n[답변]\n{answer[:1500]}\n\n[사용자 평가] {liked}" + (
+        f" — 이유: {reason[:500]}" if reason else ""
     )
     try:
         async with httpx.AsyncClient(timeout=_GEN_TIMEOUT) as client:
@@ -51,7 +53,7 @@ async def _synth_criterion(question: str, answer: str, rating: str, reason: str,
             )
             resp.raise_for_status()
             raw = resp.json()["choices"][0]["message"]["content"]
-    except Exception as exc:  # noqa: BLE001 — 실패=폴백(전체 계속)
+    except Exception as exc:
         log.warning("수확 기준 합성 실패: %s", exc)
         return None
     lines = [ln.strip() for ln in (raw or "").splitlines() if ln.strip()]
@@ -72,7 +74,9 @@ def _fallback_criterion(rating: str, reason: str) -> str:
 _HARVEST_MAX = 50
 
 
-async def gather_unharvested(session: AsyncSession, agent_pk, limit: int = _HARVEST_MAX) -> list[dict]:
+async def gather_unharvested(
+    session: AsyncSession, agent_pk, limit: int = _HARVEST_MAX
+) -> list[dict]:
     """에이전트 세션들의 **미수확** 피드백 + 문맥(직전 user 질문·assistant 답). 오래된 것부터, 최대 limit.
     피드백은 그 에이전트 세션에 한정(크로스에이전트 격리) — Session.agent_pk 조인으로."""
     rows = (
@@ -86,8 +90,11 @@ async def gather_unharvested(session: AsyncSession, agent_pk, limit: int = _HARV
         )
     ).all()
     if len(rows) >= limit:
-        log.info("수확 상한 도달(%d건) — 나머지 미수확 피드백은 다음 수확 회차에서 처리(agent_pk=%s)",
-                 limit, agent_pk)
+        log.info(
+            "수확 상한 도달(%d건) — 나머지 미수확 피드백은 다음 수확 회차에서 처리(agent_pk=%s)",
+            limit,
+            agent_pk,
+        )
     items: list[dict] = []
     for fb, asst in rows:
         # 직전 user 메시지(같은 세션, assistant보다 이르거나 같은 시각의 마지막 user).

@@ -17,9 +17,7 @@ from .runner import run_job
 
 
 def main() -> None:
-    logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s"
-    )
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     parser = argparse.ArgumentParser(prog="batch", description="격리 배치 서비스 (스펙 038)")
     sub = parser.add_subparsers(dest="cmd", required=True)
 

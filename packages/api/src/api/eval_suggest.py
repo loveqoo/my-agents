@@ -50,14 +50,19 @@ async def _gen_persona_questions(persona: str, n: int, llm_cfg: dict) -> list[st
                     "model": llm_cfg["model_id"],
                     "temperature": 0.7,  # 다양성이 목적(중복 회피)
                     "messages": [
-                        {"role": "system", "content": _PERSONA_SYSTEM.replace("질문을 1개", f"서로 다른 질문을 {n}개")},
+                        {
+                            "role": "system",
+                            "content": _PERSONA_SYSTEM.replace(
+                                "질문을 1개", f"서로 다른 질문을 {n}개"
+                            ),
+                        },
                         {"role": "user", "content": user},
                     ],
                 },
             )
             resp.raise_for_status()
             raw = resp.json()["choices"][0]["message"]["content"]
-    except Exception as exc:  # noqa: BLE001 — 실패=0건(전체 계속)
+    except Exception as exc:
         log.warning("페르소나 질문 생성 실패: %s", exc)
         return []
     out: list[str] = []
@@ -79,13 +84,17 @@ async def suggest_agent_cases(agent_pk, count: int, llm_cfg: dict) -> dict:
     # RAG 재료는 배선 방식이 둘(verify_143 실측 — 조율형은 rag_collections가 비고 capabilities에
     # "rag:{이름}"으로 있다): 직접형 목록 + 조율형 capabilities에서 이름 해석해 합친다.
     collections = list(ctx["rag_collections"] or [])
-    cap_names = [c.split(":", 1)[1] for c in (ctx.get("capabilities") or [])
-                 if isinstance(c, str) and c.startswith("rag:")]
+    cap_names = [
+        c.split(":", 1)[1]
+        for c in (ctx.get("capabilities") or [])
+        if isinstance(c, str) and c.startswith("rag:")
+    ]
     if cap_names:
         from sqlalchemy import select as _select
 
         from .db import SessionLocal as _SL
         from .models import Collection as _Col
+
         async with _SL() as _s:
             rows = (await _s.execute(_select(_Col).where(_Col.name.in_(cap_names)))).scalars().all()
         known = {c.get("id") for c in collections}
@@ -110,15 +119,18 @@ async def suggest_agent_cases(agent_pk, count: int, llm_cfg: dict) -> dict:
                 skipped += 1
                 continue
             seen.add(q)
-            cases.append({
-                "question": q, "label": "rag",
-                # agent 런이므로 rag_* 아닌 trace 축(관측 union) — "도구를 실제로 썼는가".
-                "asserts": [
-                    {"type": "trace_has", "arg": "rag:"},
-                    {"type": "no_error"},
-                    {"type": "output_nonempty"},
-                ],
-            })
+            cases.append(
+                {
+                    "question": q,
+                    "label": "rag",
+                    # agent 런이므로 rag_* 아닌 trace 축(관측 union) — "도구를 실제로 썼는가".
+                    "asserts": [
+                        {"type": "trace_has", "arg": "rag:"},
+                        {"type": "no_error"},
+                        {"type": "output_nonempty"},
+                    ],
+                }
+            )
 
     # 2) 페르소나형 — 나머지 전량(+ RAG형 미달분). 역할 충실은 llm_judge(비결정 축)로.
     judge_crit = f"'{' '.join(persona.split())[:200]}' 역할에 맞게 충실히 답했는가"
@@ -135,13 +147,16 @@ async def suggest_agent_cases(agent_pk, count: int, llm_cfg: dict) -> dict:
                 skipped += 1
                 continue
             seen.add(q)
-            cases.append({
-                "question": q, "label": "persona",
-                "asserts": [
-                    {"type": "no_error"},
-                    {"type": "output_nonempty"},
-                    {"type": "llm_judge", "arg": judge_crit[:500]},
-                ],
-            })
+            cases.append(
+                {
+                    "question": q,
+                    "label": "persona",
+                    "asserts": [
+                        {"type": "no_error"},
+                        {"type": "output_nonempty"},
+                        {"type": "llm_judge", "arg": judge_crit[:500]},
+                    ],
+                }
+            )
 
     return {"cases": cases, "skipped": skipped}

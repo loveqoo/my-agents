@@ -68,9 +68,7 @@ async def _seed_role_catalog() -> None:
     from .models import Role
 
     async with SessionLocal() as session:
-        existing = set(
-            (await session.execute(select(Role.name))).scalars().all()
-        )
+        existing = set((await session.execute(select(Role.name))).scalars().all())
         added = False
         for name, desc in _ROLE_CATALOG:
             if name not in existing:

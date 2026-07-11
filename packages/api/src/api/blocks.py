@@ -14,15 +14,15 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from agent.runtime import is_first_party
+
 from . import crypto
 from .auth import current_principal
 from .db import get_session
+from .models import Agent, Collection, McpServer, MemoryType, Persona
 from .naming import validate_resource_name
 from .ownership import assert_may_manage, may_manage, may_use_agent, owner_of
-from agent.runtime import is_first_party
-from .models import Agent, Collection, McpServer, MemoryType, Persona
 from .references import _config_has, agents_referencing, referenced_message
-from .serializers import _iso
 from .schemas import (
     McpDiscoverIn,
     McpDiscoverResult,
@@ -37,6 +37,7 @@ from .schemas import (
     PersonaOut,
     PersonaUsageAgentOut,
 )
+from .serializers import _iso
 
 router = APIRouter(tags=["blocks"])
 
@@ -101,7 +102,9 @@ async def update_persona(
         # rename도 config["persona"] 참조를 깬다 — MCP(093)와 동일 가드(codex 148 High)
         refs = await agents_referencing(session, "persona", obj.name)
         if refs:
-            raise HTTPException(status_code=409, detail=referenced_message(refs, "페르소나", action="이름 변경"))
+            raise HTTPException(
+                status_code=409, detail=referenced_message(refs, "페르소나", action="이름 변경")
+            )
     for key, value in _norm_description(body.model_dump()).items():
         setattr(obj, key, value)
     await _commit_or_409(session, "같은 식별 이름의 페르소나가 이미 있습니다.")
@@ -123,7 +126,10 @@ async def persona_agents(
     agents = (await session.execute(select(Agent))).scalars().all()
     return [
         PersonaUsageAgentOut(
-            id=a.id, agentId=a.agent_id, name=a.name, description=a.description,
+            id=a.id,
+            agentId=a.agent_id,
+            name=a.name,
+            description=a.description,
             stale=(a.persona != obj.body),
             canManage=may_manage(a.owner_id, principal),
         )
@@ -256,9 +262,13 @@ def _tool_info(t) -> dict:
         required: set[str] = set()
         try:
             schema = t.tool_call_schema
-            js = schema.model_json_schema() if hasattr(schema, "model_json_schema") else (schema or {})
+            js = (
+                schema.model_json_schema()
+                if hasattr(schema, "model_json_schema")
+                else (schema or {})
+            )
             required = set(js.get("required") or [])
-        except Exception:  # noqa: BLE001 — required 미상은 False로
+        except Exception:
             pass
         for pname, ps in list(props.items())[:_TOOL_PARAMS_CAP]:
             ptype = "any"
@@ -266,11 +276,16 @@ def _tool_info(t) -> dict:
                 if isinstance(ps.get("type"), str):
                     ptype = ps["type"]
                 elif isinstance(ps.get("anyOf"), list):
-                    ptype = "/".join(
-                        str(x.get("type", "?")) for x in ps["anyOf"] if isinstance(x, dict)
-                    ) or "any"
-            params.append({"name": str(pname)[:80], "type": str(ptype)[:40], "required": pname in required})
-    except Exception:  # noqa: BLE001
+                    ptype = (
+                        "/".join(
+                            str(x.get("type", "?")) for x in ps["anyOf"] if isinstance(x, dict)
+                        )
+                        or "any"
+                    )
+            params.append(
+                {"name": str(pname)[:80], "type": str(ptype)[:40], "required": pname in required}
+            )
+    except Exception:
         params = []
     return {
         "name": str(getattr(t, "name", ""))[:120],
@@ -364,12 +379,17 @@ async def create_mcp_server(
     if body.name in served_mcp.SERVED_MCPS:
         # 서빙 예약 이름(스펙 156) — 사용자가 서빙 레지스트리 이름(calc-tools 등)을 어떤 source로도
         # 선점하지 못하게 한다(선점 시 시스템 reconcile이 그 이름을 못 만들어 서빙이 막히는 스쿼팅 차단).
-        raise HTTPException(status_code=400, detail="예약된 서빙 MCP 이름입니다 — 다른 이름을 쓰세요.")
+        raise HTTPException(
+            status_code=400, detail="예약된 서빙 MCP 이름입니다 — 다른 이름을 쓰세요."
+        )
     if body.source == "custom":
         # 커스텀(내부 코드 정의) MCP는 **시스템 전용**(스펙 156, codex High) — provenance를 자가선언해
         # 내부 레지스트리 이름(calc-tools 등)을 선점·공개하는 우회를 봉인한다. custom 행은 오직 seed의
         # 멱등 reconcile만 만든다(owner_id=None). 사용자는 local/external만 등록. (152 유래-불변 계열)
-        raise HTTPException(status_code=400, detail="커스텀(내부 정의) MCP는 시스템 전용입니다 — 사용자가 생성할 수 없습니다.")
+        raise HTTPException(
+            status_code=400,
+            detail="커스텀(내부 정의) MCP는 시스템 전용입니다 — 사용자가 생성할 수 없습니다.",
+        )
     if body.published and body.source != "custom":
         # published=커스텀 외부 서빙 전용(스펙 211, 152 재공개 금지 포함). 사용자는 custom 생성이
         # 불가하므로(위 게이트) 사실상 생성 경로에서 published=true는 항상 400.
@@ -377,7 +397,9 @@ async def create_mcp_server(
     data = _norm_description(body.model_dump())
     data["enabled_tools"] = body.enabled_tools or body.tools
     # auth는 평문 입력 → Fernet 암호화 저장. 마스킹값이 들어오면(신규엔 없어야 함) 비워둔다.
-    data["auth"] = None if (body.auth and crypto.is_masked(body.auth)) else crypto.encrypt(body.auth)
+    data["auth"] = (
+        None if (body.auth and crypto.is_masked(body.auth)) else crypto.encrypt(body.auth)
+    )
     data["owner_id"] = owner_of(principal)  # 생성 시 1회 스탬프(스펙 112)
     obj = McpServer(**data)
     session.add(obj)
@@ -408,22 +430,30 @@ async def _live_discover(url: str, token: str | None) -> McpDiscoverResult:
     t0 = time.perf_counter()
     try:
         client = MultiServerMCPClient(
-            {"probe": {
-                "transport": "streamable_http", "url": url, "headers": headers,
-                # 리다이렉트-SSRF 차단(적대 리뷰 H1) — runtime.build_mcp_tools와 동일 정책.
-                "httpx_client_factory": net_guard.mcp_http_client_factory,
-            }}
+            {
+                "probe": {
+                    "transport": "streamable_http",
+                    "url": url,
+                    "headers": headers,
+                    # 리다이렉트-SSRF 차단(적대 리뷰 H1) — runtime.build_mcp_tools와 동일 정책.
+                    "httpx_client_factory": net_guard.mcp_http_client_factory,
+                }
+            }
         )
         async with asyncio.timeout(15):
             tools = await client.get_tools(server_name="probe")
-    except Exception:  # noqa: BLE001 — 연결/프로토콜 오류(상세 미노출, 비밀 에코 방지)
+    except Exception:
         ms = int((time.perf_counter() - t0) * 1000)
         return McpDiscoverResult(ok=False, reachable=False, latencyMs=ms, detail="연결 실패")
     ms = int((time.perf_counter() - t0) * 1000)
     names = [t.name for t in tools]
     details = [_tool_info(t) for t in tools[:_TOOLS_META_CAP]]  # 메타(설명·파라미터, 스펙 151)
     return McpDiscoverResult(
-        ok=True, reachable=True, tools=names, toolsDetail=details, latencyMs=ms,
+        ok=True,
+        reachable=True,
+        tools=names,
+        toolsDetail=details,
+        latencyMs=ms,
         detail=f"{len(names)}개 도구 발견",
     )
 
@@ -459,7 +489,9 @@ async def rediscover_mcp_server(
         raise HTTPException(status_code=404, detail="not found")
     assert_may_manage(obj, principal)  # 소유자/특권만(스펙 112)
     if obj.transport != "http" or not obj.url:
-        raise HTTPException(status_code=400, detail="http transport + URL이 있는 서버만 재탐색할 수 있습니다.")
+        raise HTTPException(
+            status_code=400, detail="http transport + URL이 있는 서버만 재탐색할 수 있습니다."
+        )
     token = crypto.decrypt(obj.auth) if obj.auth else None
     r = await _live_discover(obj.url, token)
     if not r.ok:
@@ -472,17 +504,23 @@ async def rediscover_mcp_server(
         agents = list((await session.execute(select(Agent))).scalars().all())
         refs = []
         for agent in agents:
-            caps = (agent.config or {}).get("capabilities") if isinstance(agent.config, dict) else None
+            caps = (
+                (agent.config or {}).get("capabilities") if isinstance(agent.config, dict) else None
+            )
             if isinstance(caps, list) and any(f"mcp:{obj.name}/{t}" in caps for t in removed):
                 refs.append({"agent": agent.name, "where": "active"})
         if refs:
             raise HTTPException(
                 status_code=409,
-                detail=referenced_message(refs, f"MCP 도구({', '.join(removed[:5])})", action="재탐색(도구 제거)"),
+                detail=referenced_message(
+                    refs, f"MCP 도구({', '.join(removed[:5])})", action="재탐색(도구 제거)"
+                ),
             )
     obj.tools = r.tools
     # 기존 tools_meta를 넘겨 관리자 승인 정책(approval, 스펙 177)을 이월 보존 — 재탐색이 게이트를 지우지 않게.
-    obj.tools_meta = _tools_meta_from_details([d.model_dump() for d in r.toolsDetail], obj.tools_meta)
+    obj.tools_meta = _tools_meta_from_details(
+        [d.model_dump() for d in r.toolsDetail], obj.tools_meta
+    )
     obj.enabled_tools = [t for t in (obj.enabled_tools or []) if t in r.tools]
     obj.status = "connected"
     await session.commit()
@@ -560,9 +598,7 @@ async def delete_mcp_server(
     # 삭제하면 config에 dangling name만 남아 런타임이 조용히 도구 없이 동작한다.
     refs = await agents_referencing(session, "mcps", obj.name)
     if refs:
-        raise HTTPException(
-            status_code=409, detail=referenced_message(refs, "MCP 서버")
-        )
+        raise HTTPException(status_code=409, detail=referenced_message(refs, "MCP 서버"))
     await session.delete(obj)
     await session.commit()
 
@@ -660,7 +696,9 @@ async def get_blocks(
             await session.execute(
                 select(Collection).options(selectinload(Collection.embedding_model))
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
     mcp_servers = list((await session.execute(select(McpServer))).scalars().all())
 
@@ -720,7 +758,9 @@ async def get_blocks(
             "toolsMeta": row.tools_meta,  # 도구 메타(스펙 151) — 상세 드로어 카드용
             "status": row.status,
             "published": row.published,
-            "served_url": _mcp_served_url(row),  # 서빙 URL(스펙 156) — custom+정의보유만, 그 외 None
+            "served_url": _mcp_served_url(
+                row
+            ),  # 서빙 URL(스펙 156) — custom+정의보유만, 그 외 None
             "auth": _mcp_auth_masked(row),
             "usedBy": _count_by(agents, "mcps", row.name),
             "updated": _iso(row.updated_at),  # 수정일 배선(스펙 216)

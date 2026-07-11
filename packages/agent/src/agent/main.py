@@ -13,10 +13,7 @@ from langchain.agents import create_agent
 from langchain_openai import ChatOpenAI
 
 # 기본 페르소나 (CLI 등 호출자가 지정하지 않을 때)
-PERSONA = (
-    "당신은 간결하고 친절한 한국어 비서입니다. "
-    "사용자의 질문에 명확하고 짧게 답하세요."
-)
+PERSONA = "당신은 간결하고 친절한 한국어 비서입니다. 사용자의 질문에 명확하고 짧게 답하세요."
 
 
 def build_agent(

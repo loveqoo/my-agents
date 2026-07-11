@@ -19,7 +19,6 @@ from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
-
 from sqlalchemy import select
 
 from agent.runtime import is_first_party, is_remote_source
@@ -99,13 +98,18 @@ async def _agent_a2a_skills(agent: Agent) -> list[dict]:
     참조를 광고하지 않음). 이름·설명만(auth/url 등 민감정보 미포함 — 카드는 공개). 캡으로 방어."""
     cfg = agent.config or {}
     skills: list[dict] = [
-        {"id": "chat", "name": agent.name, "description": "이 로컬 에이전트와 대화한다(A2A).", "tags": ["chat"]}
+        {
+            "id": "chat",
+            "name": agent.name,
+            "description": "이 로컬 에이전트와 대화한다(A2A).",
+            "tags": ["chat"],
+        }
     ]
     caps = [c for c in (cfg.get("capabilities") or []) if isinstance(c, str)]
 
     # MCP 서버→원하는 툴 집합(None=서버 전체). config.mcps(직접) + capabilities mcp:(조율) 병합.
     mcp_servers: dict[str, set | None] = {}
-    for name in (cfg.get("mcps") or []):
+    for name in cfg.get("mcps") or []:
         if isinstance(name, str):
             mcp_servers[name] = None  # 서버 전체
     for item in caps:
@@ -121,15 +125,26 @@ async def _agent_a2a_skills(agent: Agent) -> list[dict]:
             s.add(tool)
             mcp_servers[server] = s
 
-    agent_ids = [item[len("agent:"):] if item.startswith("agent:") else item
-                 for item in caps if broker._kind_of(item) == broker.CAP_KIND_AGENT]
-    rag_colls = [broker._parse_rag(item) for item in caps if broker._kind_of(item) == broker.CAP_KIND_RAG]
+    agent_ids = [
+        item[len("agent:") :] if item.startswith("agent:") else item
+        for item in caps
+        if broker._kind_of(item) == broker.CAP_KIND_AGENT
+    ]
+    rag_colls = [
+        broker._parse_rag(item) for item in caps if broker._kind_of(item) == broker.CAP_KIND_RAG
+    ]
 
     async with SessionLocal() as db:
         if mcp_servers:
-            rows = (await db.execute(
-                select(McpServer).where(McpServer.name.in_(list(mcp_servers.keys())))
-            )).scalars().all()
+            rows = (
+                (
+                    await db.execute(
+                        select(McpServer).where(McpServer.name.in_(list(mcp_servers.keys())))
+                    )
+                )
+                .scalars()
+                .all()
+            )
             by_name = {r.name: r for r in rows}
             for server, wanted in mcp_servers.items():
                 row = by_name.get(server)
@@ -148,9 +163,18 @@ async def _agent_a2a_skills(agent: Agent) -> list[dict]:
                     if wanted is not None and t not in wanted:
                         continue
                     desc = ((meta.get(t) or {}).get("description") or f"{server}의 MCP 도구")[:200]
-                    skills.append({"id": f"mcp:{server}/{t}", "name": t, "description": desc, "tags": ["mcp", server]})
+                    skills.append(
+                        {
+                            "id": f"mcp:{server}/{t}",
+                            "name": t,
+                            "description": desc,
+                            "tags": ["mcp", server],
+                        }
+                    )
         for aid in agent_ids:
-            sub = (await db.execute(select(Agent).where(Agent.agent_id == aid))).scalar_one_or_none()
+            sub = (
+                await db.execute(select(Agent).where(Agent.agent_id == aid))
+            ).scalar_one_or_none()
             if sub is None:
                 continue  # dangling — 스킵
             # 실제 위임 가능한 remote(code/external+endpoint)만 광고(codex High). ui/미노출 서브에이전트를
@@ -158,18 +182,33 @@ async def _agent_a2a_skills(agent: Agent) -> list[dict]:
             # (2) AgentProvider는 remote+endpoint만 위임하므로(broker:236) 호출 불가한 거짓 능력이 된다.
             if not is_remote_source(sub.source) or not sub.endpoint:
                 continue
-            skills.append({"id": f"agent:{aid}", "name": sub.name,
-                           "description": "이 하위 에이전트에 위임한다(A2A 오케스트레이션).", "tags": ["delegate"]})
+            skills.append(
+                {
+                    "id": f"agent:{aid}",
+                    "name": sub.name,
+                    "description": "이 하위 에이전트에 위임한다(A2A 오케스트레이션).",
+                    "tags": ["delegate"],
+                }
+            )
         if rag_colls:
             from .models import Collection
 
-            live = set((await db.execute(
-                select(Collection.name).where(Collection.name.in_(rag_colls))
-            )).scalars().all())
+            live = set(
+                (await db.execute(select(Collection.name).where(Collection.name.in_(rag_colls))))
+                .scalars()
+                .all()
+            )
             for coll in rag_colls:
                 if coll not in live:
                     continue  # dangling 컬렉션 — 스킵(MCP·delegate와 일관)
-                skills.append({"id": f"rag:{coll}", "name": coll, "description": "지식 컬렉션을 검색한다.", "tags": ["rag"]})
+                skills.append(
+                    {
+                        "id": f"rag:{coll}",
+                        "name": coll,
+                        "description": "지식 컬렉션을 검색한다.",
+                        "tags": ["rag"],
+                    }
+                )
 
     return skills[:_MAX_A2A_SKILLS]
 
@@ -209,7 +248,9 @@ def _a2a_user_text(params: dict) -> str:
     return "".join(out)
 
 
-RELAY_HEADER = "x-my-agents-relay"  # 중계 홉 표식(스펙 154) — 표식 달린 요청은 재중계 거부(1홉 한정)
+RELAY_HEADER = (
+    "x-my-agents-relay"  # 중계 홉 표식(스펙 154) — 표식 달린 요청은 재중계 거부(1홉 한정)
+)
 
 
 def _relay_chunks(agent: Agent, user_text: str):
@@ -219,8 +260,11 @@ def _relay_chunks(agent: Agent, user_text: str):
 
     async def _gen():
         async for frame in a2a_client.a2a_stream(
-            agent.endpoint or "", agent.token, user_text,
-            streaming=True, extra_headers={RELAY_HEADER: "1"},
+            agent.endpoint or "",
+            agent.token,
+            user_text,
+            streaming=True,
+            extra_headers={RELAY_HEADER: "1"},
         ):
             if frame.get("text"):
                 yield frame["text"]
@@ -251,8 +295,12 @@ async def exposed_agent_a2a(
             # 루프 가드(스펙 154): 중계 표식이 달린 요청을 다시 중계하면 자기/상호 참조 사이클 —
             # 2번째 홉에서 절단. 직접 소비자(플레이그라운드·외부)는 표식이 없어 정상.
             return {
-                "jsonrpc": "2.0", "id": rpc_id,
-                "error": {"code": -32000, "message": "중계 루프 감지 — 다홉 중계는 지원하지 않습니다(1홉 한정)"},
+                "jsonrpc": "2.0",
+                "id": rpc_id,
+                "error": {
+                    "code": -32000,
+                    "message": "중계 루프 감지 — 다홉 중계는 지원하지 않습니다(1홉 한정)",
+                },
             }
         chunk_source = _relay_chunks(agent, user_text)
     else:
@@ -270,7 +318,7 @@ async def exposed_agent_a2a(
             async for text in chunk_source:
                 acc.append(text)
             reply = "".join(acc)
-        except Exception as exc:  # noqa: BLE001 — 타입만 에코(자격증명/내부정보 누출 방지)
+        except Exception as exc:
             return _error(-32000, f"로컬 에이전트 실행 실패({type(exc).__name__})")
         return _response(
             {
@@ -304,7 +352,7 @@ async def exposed_agent_a2a(
             try:
                 async for text in chunk_source:
                     yield _status_event(text, final=False, state="working")
-            except Exception as exc:  # noqa: BLE001 — 타입만 에코
+            except Exception as exc:
                 err = _error(-32000, f"로컬 에이전트 실행 실패({type(exc).__name__})")
                 yield f"data: {json.dumps(err, ensure_ascii=False)}\n\n"
                 yield "data: [DONE]\n\n"

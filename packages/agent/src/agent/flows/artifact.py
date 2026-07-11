@@ -142,7 +142,9 @@ class ProduceContext:
     - `form(...)`: P2(스펙 188)에서 승인 프레임 일반화로 추가 — 지금은 NotImplementedError.
     """
 
-    def __init__(self, *, text: str, model: Any, broker: Any, step_log: list, config: dict | None = None):
+    def __init__(
+        self, *, text: str, model: Any, broker: Any, step_log: list, config: dict | None = None
+    ):
         self.text = text
         #: 에이전트별 impl 설정(스펙 190) — 노코드 범용 구현이 필드 명세 등을 읽는다. 대부분의
         #: (코드 저작) produce는 안 본다. 플랫폼이 config.artifactSpec 등을 뽑아 뼈대가 넣어준다.
@@ -157,7 +159,9 @@ class ProduceContext:
         envelope = interrupt({"kind": "ask", "text": question})
         return _resume_text(envelope).strip()
 
-    async def form(self, fields: list[dict], prefill: dict | None = None, *, confirm: bool = False) -> dict:
+    async def form(
+        self, fields: list[dict], prefill: dict | None = None, *, confirm: bool = False
+    ) -> dict:
         """폼 프레임을 띄우고 값을 받는다(P2) — **이중 입력 일급**(스펙 188 설계 기둥). 재개 봉투:
         - {"type":"form","values":{...}}: 제출값(서버가 이미 필드 명세로 1차 검증 — 여기서 재검증,
           이중 게이트).
@@ -188,16 +192,16 @@ class ProduceContext:
                 if still and self._model is not None and text:
                     # 2차: 남은 필드만 LLM 추출(스텝 캐시 경유 — 리플레이 결정적).
                     remain = [f for f in fields if f.get("key") in still]
-                    spec = ", ".join(
-                        f'"{f["key"]}"({f.get("label") or f["key"]})' for f in remain
-                    )
+                    spec = ", ".join(f'"{f["key"]}"({f.get("label") or f["key"]})' for f in remain)
                     got = await self.extract(
                         f"다음 필드의 값을 찾아 {{키: 값}} JSON으로: {spec}. 없는 필드는 생략.",
                         text,
                     )
                     values.update(validate_form_values(fields, got))
                 if values == before:
-                    note = "입력에서 채울 값을 찾지 못했어요 — 폼으로 선택하거나 다시 말씀해 주세요."
+                    note = (
+                        "입력에서 채울 값을 찾지 못했어요 — 폼으로 선택하거나 다시 말씀해 주세요."
+                    )
                 elif confirm:
                     # 텍스트(결정적 substring/LLM 추출)는 **오후보·부정어**를 잘못 채울 수 있다
                     # ("서울 말고 부산"이 '서울'을 채우는 등). confirm 계약이면 병합값을 곧장 확정하지
@@ -327,7 +331,12 @@ class ArtifactAgentBase(ABC):
     @final
     def describe(self) -> AgentManifest:
         # ask/form의 interrupt 재개가 곧 HIL 계약 — supports_hil=True 정직 표기(조상 소유).
-        return AgentManifest(name=self.NAME, description=self.DESCRIPTION, supports_hil=True, consumes=("artifactSpec",))  # 스펙 206
+        return AgentManifest(
+            name=self.NAME,
+            description=self.DESCRIPTION,
+            supports_hil=True,
+            consumes=("artifactSpec",),
+        )  # 스펙 206
 
     @abstractmethod
     async def produce(self, ctx: ProduceContext) -> Artifact:
@@ -385,7 +394,9 @@ def _make_model(ctx: AgentBuildContext):
         api_key=cfg.get("api_key") or "sk-noauth",
         model=model_id,
         temperature=temperature,
-        extra_body={"chat_template_kwargs": {"enable_thinking": cfg_params.get("enable_thinking", False)}},
+        extra_body={
+            "chat_template_kwargs": {"enable_thinking": cfg_params.get("enable_thinking", False)}
+        },
     )
 
 
@@ -523,7 +534,10 @@ class TargetingDemoAgent(ArtifactAgentBase):
         if not catalog:
             return Artifact(
                 kind="targeting",
-                data={"conditions": [], "error": "타겟팅 카탈로그를 찾을 수 없습니다(도구 미배선?)"},
+                data={
+                    "conditions": [],
+                    "error": "타겟팅 카탈로그를 찾을 수 없습니다(도구 미배선?)",
+                },
                 raw=utter,
             )
         # ② 매칭 = rag 마커 ∪ 동의어(결정적) — rag는 실 임베딩 환경의 1차 경로, 오류는 무시(폴백).
@@ -540,7 +554,9 @@ class TargetingDemoAgent(ArtifactAgentBase):
         for _ in range(2):
             if matched:
                 break
-            utter = ctx.ask("말씀하신 조건에서 타겟팅 항목을 찾지 못했어요 — 다르게 말씀해 주시겠어요?")
+            utter = ctx.ask(
+                "말씀하신 조건에서 타겟팅 항목을 찾지 못했어요 — 다르게 말씀해 주시겠어요?"
+            )
             matched = match_entities(utter, catalog)
         if not matched:
             return Artifact(kind="targeting", data={"conditions": []}, raw=utter)

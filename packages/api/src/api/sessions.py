@@ -164,24 +164,24 @@ async def list_sessions(
             return SessionPage(items=[], total=0, counts=await _badge_counts(session, own))
         base = base.where(Session.agent_pk == agent_pk)
 
-    total = (
-        await session.execute(select(func.count()).select_from(base.subquery()))
-    ).scalar_one()
+    total = (await session.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
 
     rows = (
-        await session.execute(
-            base.order_by(Session.started_at.desc(), Session.id.desc())
-            .offset(offset)
-            .limit(limit)
+        (
+            await session.execute(
+                base.order_by(Session.started_at.desc(), Session.id.desc())
+                .offset(offset)
+                .limit(limit)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     counts = await _badge_counts(session, own)
     amap = await _agent_id_map(session)
     previews = await _session_previews(session, [s.id for s in rows])
-    items = [
-        session_to_out(s, amap.get(s.agent_pk), previews.get(s.id)) for s in rows
-    ]
+    items = [session_to_out(s, amap.get(s.agent_pk), previews.get(s.id)) for s in rows]
     return SessionPage(items=items, total=total, counts=counts)
 
 
@@ -235,7 +235,9 @@ async def get_session_detail(
     session: AsyncSession = Depends(get_session),
     principal=Depends(current_principal),
 ) -> SessionOut:
-    s = await _get_session_or_404(session, session_id, _own_scope(principal))  # 스코프 융합(067/070)
+    s = await _get_session_or_404(
+        session, session_id, _own_scope(principal)
+    )  # 스코프 융합(067/070)
     a = await session.get(Agent, s.agent_pk)
     return session_to_out(s, a.agent_id if a else None)
 
@@ -246,11 +248,11 @@ async def list_session_messages(
     session: AsyncSession = Depends(get_session),
     principal=Depends(current_principal),
 ) -> list[MessageOut]:
-    s = await _get_session_or_404(session, session_id, _own_scope(principal))  # 스코프 융합(067/070)
+    s = await _get_session_or_404(
+        session, session_id, _own_scope(principal)
+    )  # 스코프 융합(067/070)
     result = await session.execute(
-        select(Message)
-        .where(Message.session_pk == s.id)
-        .order_by(Message.created_at)
+        select(Message).where(Message.session_pk == s.id).order_by(Message.created_at)
     )
     msgs = result.scalars().all()
     # 요청 사용자의 이 세션 피드백 맵(스펙 209) — created_by==나만(머신/익명이면 빈 맵). 표시용 토글 상태.
@@ -308,7 +310,9 @@ async def set_message_feedback(
     """응답(👍/👎+이유) 피드백 upsert(스펙 209). 소유권: 세션 소유 스코프 융합 404 → 그 세션의
     assistant 메시지만(SELECT-WHERE로 타세션·비-assistant는 거부행 미로드=404). 사용자당 1건(재클릭=수정)."""
     uid = _require_user(principal)
-    s = await _get_session_or_404(session, session_id, _own_scope_write(principal))  # 쓰기 소유 스코프(F1)
+    s = await _get_session_or_404(
+        session, session_id, _own_scope_write(principal)
+    )  # 쓰기 소유 스코프(F1)
     m = (
         await session.execute(
             select(Message).where(
@@ -319,7 +323,9 @@ async def set_message_feedback(
         )
     ).scalar_one_or_none()
     if m is None:
-        raise HTTPException(status_code=404, detail="not found")  # 타세션·비-assistant·부재 = 동일 404
+        raise HTTPException(
+            status_code=404, detail="not found"
+        )  # 타세션·비-assistant·부재 = 동일 404
     # 원자적 upsert(codex 209 F2) — check-then-insert는 동시 첫 PUT 경합 시 unique 위반 500. PG
     # on_conflict_do_update로 경합 무관하게 1건 유지. id는 raw insert라 ORM default 미적용 → 명시.
     stmt = (
@@ -351,7 +357,9 @@ async def clear_message_feedback(
 ) -> None:
     """피드백 취소(스펙 209). 소유 스코프 404 → 내(created_by) 피드백만 그 세션에서 삭제(멱등)."""
     uid = _require_user(principal)
-    s = await _get_session_or_404(session, session_id, _own_scope_write(principal))  # 쓰기 소유 스코프(F1)
+    s = await _get_session_or_404(
+        session, session_id, _own_scope_write(principal)
+    )  # 쓰기 소유 스코프(F1)
     await session.execute(
         delete(MessageFeedback).where(
             MessageFeedback.message_pk == message_id,
@@ -368,7 +376,9 @@ async def end_session(
     session: AsyncSession = Depends(get_session),
     principal=Depends(current_principal),
 ) -> SessionOut:
-    s = await _get_session_or_404(session, session_id, _own_scope(principal))  # 스코프 융합(067/070 T5)
+    s = await _get_session_or_404(
+        session, session_id, _own_scope(principal)
+    )  # 스코프 융합(067/070 T5)
     s.status = "completed"
     await session.commit()
     # refresh 필수(스펙 129) — last_activity가 onupdate=func.now() **서버 생성값**이라 commit 후 만료

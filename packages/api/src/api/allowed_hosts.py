@@ -49,10 +49,10 @@ def _out(r: AllowedHost) -> AllowedHostOut:
 @router.get("", dependencies=[_manage])
 async def list_hosts(session: AsyncSession = Depends(get_session)):
     rows = (
-        await session.execute(
-            select(AllowedHost).order_by(AllowedHost.created_at.desc())
-        )
-    ).scalars().all()
+        (await session.execute(select(AllowedHost).order_by(AllowedHost.created_at.desc())))
+        .scalars()
+        .all()
+    )
     return [_out(r) for r in rows]
 
 
@@ -85,8 +85,8 @@ async def delete_host(host_id: str, session: AsyncSession = Depends(get_session)
     except ValueError:
         raise HTTPException(status_code=404, detail="호스트를 찾을 수 없습니다") from None
     row = (
-        await session.execute(select(AllowedHost).where(AllowedHost.id == hid))
-    ).scalars().first()
+        (await session.execute(select(AllowedHost).where(AllowedHost.id == hid))).scalars().first()
+    )
     if row is None:
         raise HTTPException(status_code=404, detail="호스트를 찾을 수 없습니다")
     await session.delete(row)

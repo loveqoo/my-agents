@@ -34,6 +34,7 @@ async def remote_models():
 
 # ---------- OpenAI 호환 v1 (레지스트리 mock-llm 모델, 스펙 024) ----------
 
+
 def _last_user_text(messages: list) -> str:
     """messages에서 마지막 user 메시지 텍스트를 뽑는다(멀티모달 content는 평탄화)."""
     for m in reversed(messages or []):
@@ -51,7 +52,7 @@ def _mock_reply(messages: list) -> str:
     """마지막 user 메시지 기반 결정적 응답(입력 같으면 출력도 같음)."""
     last = _last_user_text(messages)
     return (
-        f"[mock-llm] 요청 \"{last[:60]}\"에 대한 결정적 mock 응답입니다. "
+        f'[mock-llm] 요청 "{last[:60]}"에 대한 결정적 mock 응답입니다. '
         "등록된 mock 모델이 라이브 LLM 없이 응답했습니다."
     )
 
@@ -65,7 +66,9 @@ import re  # noqa: E402
 
 def _extract_record_id(text: str) -> str:
     """user 텍스트에서 레코드 식별자 추출(r1·rec-001·42 등). 없으면 기본값."""
-    m = re.search(r"[A-Za-z]+[-_]?\d+|\d+", text or "")  # rec-001·r1 우선, 없으면 숫자(한글 접미 무관)
+    m = re.search(
+        r"[A-Za-z]+[-_]?\d+|\d+", text or ""
+    )  # rec-001·r1 우선, 없으면 숫자(한글 접미 무관)
     return m.group(0) if m else "rec-001"
 
 
@@ -73,8 +76,14 @@ def _extract_record_id(text: str) -> str:
 # search_documents(스펙 191) — RAG 도구가 바인딩되고 "검색/찾아" 등이 있으면 문서검색 tool_call을
 # 결정적으로 낸다(인스펙터 RAG 표시·필터 e2e 실습용). query=user 텍스트(인스펙터 "검색어"에 그대로).
 _TOOL_TRIGGERS: dict = {
-    "delete_record": (("삭제", "지워", "제거", "delete"), lambda t: {"record_id": _extract_record_id(t)}),
-    "search_documents": (("검색", "찾아", "문서", "search"), lambda t: {"query": (t or "").strip()[:200]}),
+    "delete_record": (
+        ("삭제", "지워", "제거", "delete"),
+        lambda t: {"record_id": _extract_record_id(t)},
+    ),
+    "search_documents": (
+        ("검색", "찾아", "문서", "search"),
+        lambda t: {"query": (t or "").strip()[:200]},
+    ),
 }
 
 
@@ -107,9 +116,11 @@ def _generic_args(schema: dict, text: str) -> dict | None:
     if any((props.get(p) or {}).get("type") not in (None, "string") for p in required):
         return None
     if not required:
-        required = [k for k, v in props.items() if isinstance(v, dict) and v.get("type") in (None, "string")][:1]
+        required = [
+            k for k, v in props.items() if isinstance(v, dict) and v.get("type") in (None, "string")
+        ][:1]
     val = (text or "").strip()[:200]
-    return {p: val for p in required}
+    return dict.fromkeys(required, val)
 
 
 def _pick_tool_call(body: dict) -> tuple[str, dict] | None:
@@ -135,7 +146,9 @@ def _pick_tool_call(body: dict) -> tuple[str, dict] | None:
     # **단어 경계 매칭**(search⊂research·echo⊂echolocation 우발 매치 차단).
     for b in sorted(bound):
         base = b.rsplit("__", 1)[-1]
-        if len(base) >= 4 and re.search(rf"(?<![a-z0-9_]){re.escape(base.lower())}(?![a-z0-9_])", low):
+        if len(base) >= 4 and re.search(
+            rf"(?<![a-z0-9_]){re.escape(base.lower())}(?![a-z0-9_])", low
+        ):
             text = re.sub(re.escape(base), " ", raw, flags=re.IGNORECASE).strip()
             args = _generic_args(_tool_params_schema(body, b), text or raw)
             if args is not None:  # None=required 비-string(채울 수 없음) → 트리거 포기
@@ -180,26 +193,55 @@ async def remote_v1_chat_completions(body: dict):
         args_json = json.dumps(tool_args, ensure_ascii=False)
         if not body.get("stream"):
             return {
-                "id": cid, "object": "chat.completion", "created": created, "model": model,
-                "choices": [{
-                    "index": 0,
-                    "message": {"role": "assistant", "content": None, "tool_calls": [
-                        {"id": tcid, "type": "function",
-                         "function": {"name": tool_name, "arguments": args_json}}
-                    ]},
-                    "finish_reason": "tool_calls",
-                }],
+                "id": cid,
+                "object": "chat.completion",
+                "created": created,
+                "model": model,
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "content": None,
+                            "tool_calls": [
+                                {
+                                    "id": tcid,
+                                    "type": "function",
+                                    "function": {"name": tool_name, "arguments": args_json},
+                                }
+                            ],
+                        },
+                        "finish_reason": "tool_calls",
+                    }
+                ],
                 "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
             }
 
         async def tool_stream():
             yield _chunk({"role": "assistant"}, None)
-            yield _chunk({"tool_calls": [{"index": 0, "id": tcid, "type": "function",
-                                          "function": {"name": tool_name, "arguments": ""}}]}, None)
+            yield _chunk(
+                {
+                    "tool_calls": [
+                        {
+                            "index": 0,
+                            "id": tcid,
+                            "type": "function",
+                            "function": {"name": tool_name, "arguments": ""},
+                        }
+                    ]
+                },
+                None,
+            )
             step = 12
             for i in range(0, len(args_json), step):
-                yield _chunk({"tool_calls": [{"index": 0,
-                              "function": {"arguments": args_json[i : i + step]}}]}, None)
+                yield _chunk(
+                    {
+                        "tool_calls": [
+                            {"index": 0, "function": {"arguments": args_json[i : i + step]}}
+                        ]
+                    },
+                    None,
+                )
             yield _chunk({}, "tool_calls")
             yield "data: [DONE]\n\n"
 
@@ -272,7 +314,7 @@ def _det_embedding(text: str, dims: int) -> list[float]:
     out: list[float] = []
     counter = 0
     while len(out) < dims:
-        digest = hashlib.sha256(f"{text}#{counter}".encode("utf-8")).digest()  # 32 bytes
+        digest = hashlib.sha256(f"{text}#{counter}".encode()).digest()  # 32 bytes
         for k in range(0, len(digest), 4):
             if len(out) >= dims:
                 break
@@ -360,6 +402,7 @@ async def remote_sdk_agent_card():
 
 # ---------- mock A2A JSON-RPC 서비스 (외부 에이전트 실호출 검증용, 스펙 042) ----------
 
+
 def _a2a_user_text(params: dict) -> str:
     """JSON-RPC params.message.parts[].text(kind=='text')를 모아 잇는다."""
     msg = (params or {}).get("message") or {}
@@ -374,7 +417,7 @@ def _a2a_user_text(params: dict) -> str:
 def _a2a_reply(user_text: str) -> str:
     """결정적 mock 날씨 응답(같은 입력 → 같은 출력)."""
     return (
-        f"[mock-a2a] \"{user_text[:40]}\" 요청에 답합니다. 현재 날씨는 맑음, 22도입니다(mock). "
+        f'[mock-a2a] "{user_text[:40]}" 요청에 답합니다. 현재 날씨는 맑음, 22도입니다(mock). '
         "이 응답은 외부 A2A 에이전트가 JSON-RPC로 보냈습니다."
     )
 
@@ -395,12 +438,14 @@ async def remote_a2a(body: dict):
 
     if method == "message/send":
         # 단건: result = Message(role=agent, text part).
-        return _response({
-            "role": "agent",
-            "parts": [{"kind": "text", "text": reply}],
-            "messageId": uuid.uuid4().hex,
-            "kind": "message",
-        })
+        return _response(
+            {
+                "role": "agent",
+                "parts": [{"kind": "text", "text": reply}],
+                "messageId": uuid.uuid4().hex,
+                "kind": "message",
+            }
+        )
 
     if method == "message/stream":
         # 스트리밍: status-update 이벤트 여러 개(텍스트 청크) + final.
@@ -449,7 +494,7 @@ async def remote_agent(body: ChatRequest):
     """원격 에이전트 채팅(mock). 마지막 사용자 메시지를 받아 간단히 스트리밍 응답."""
     last = body.messages[-1].content if body.messages else ""
     reply = (
-        f"원격 에이전트(mock) 응답입니다. 요청 \"{last[:40]}\"을(를) 배포된 코드에서 처리했어요. "
+        f'원격 에이전트(mock) 응답입니다. 요청 "{last[:40]}"을(를) 배포된 코드에서 처리했어요. '
         "이 응답은 등록된 엔드포인트에서 스트리밍되었습니다."
     )
 
