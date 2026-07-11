@@ -212,7 +212,7 @@ async def main() -> None:
         check(len(_list(TEST_UID, mem_cfg)) == N, "[4] 기억 불변(삭제 안 함 — 안전 불변식 2)")
         check(await _snap_count(TEST_UID) == snap_before, "[4] 스냅샷 추가 없음(삭제 안 했으므로)")
 
-        # ── [4b] 안전 floor: 비지 않아도 '미축소'면 스킵(쓰레기 출력 방어, _valid_consolidation) ─
+        # ── [4b] 안전 floor: 비지 않아도 '미축소'면 스킵(쓰레기 출력 방어, _is_valid_consolidation) ─
         # 원본 N건 → N건(거부문/원문 에코를 흉내) 반환: 줄지 않으므로 파괴적 교체 금지.
         jobs_mod._consolidate = lambda texts, cfg: [f"미축소 {i}" for i in range(N)]
         snap_before_4b = await _snap_count(TEST_UID)

@@ -7,7 +7,7 @@ RBAC/소유권 체크리스트(docs/spec/CLAUDE.md):
   NULL=특권 전용(fail-closed, 070). 관리(수정/삭제) 라우트는 소유자/특권만(비소유=404-fold 존재비노출).
   자가잠금 핀: 소유자 본인은 자기 자원 관리 가능.
 
-  [U] 단위 — owner_of/next_owner/may_use/is_privileged/assert_may_manage·_rbac_check·broker _permitted.
+  [U] 단위 — owner_of/next_owner/may_use/is_privileged/assert_may_manage·_rbac_allows·broker _permitted.
   [H] 통합(실 DB + ASGI) — 스탬프(member 생성=owner 박힘)·관리 게이트(타 member 404·본인 OK·특권 OK·
       NULL-owned member 거부/특권 OK)·per-cap invoke 게이트.
 
@@ -47,7 +47,7 @@ def _as(principal):
 
 # ================================================================ [U] 단위
 def unit_checks() -> None:
-    from api.broker import PolicyScopedBroker, _rbac_check
+    from api.broker import PolicyScopedBroker, _rbac_allows
     from api.ownership import (
         assert_may_manage,
         is_privileged,
@@ -57,7 +57,7 @@ def unit_checks() -> None:
     )
     from fastapi import HTTPException
 
-    print("[U] 단위 — ownership 헬퍼 + _rbac_check + broker _permitted per-cap")
+    print("[U] 단위 — ownership 헬퍼 + _rbac_allows + broker _permitted per-cap")
     # ownership 헬퍼
     check(owner_of("machine") is None, "U1 owner_of(머신 str)=None")
     s = Stub()
@@ -116,26 +116,26 @@ def unit_checks() -> None:
 
 async def _rbac_check_real() -> None:
     from api import authz
-    from api.broker import _rbac_check
-    print("[U] _rbac_check(실 casbin) — kind/per-cap/DB게이트")
+    from api.broker import _rbac_allows
+    print("[U] _rbac_allows(실 casbin) — kind/per-cap/DB게이트")
     await authz.init_authz()
     e = authz.get_enforcer()
     uid = f"u112_{uuid.uuid4().hex[:8]}"
     await e.add_policy(uid, "capability:rag:docs_kb", "invoke")  # per-cap만
     try:
-        check(_rbac_check(e, uid, "rag", "docs_kb"), "U4 per-cap 특정 → True")
-        check(not _rbac_check(e, uid, "rag", "other"), "U4 미부여 특정 → False")
-        check(_rbac_check(e, uid, "rag", None), "U4 name=None 게이트 → True(rag에 per-cap 있음)")
-        check(not _rbac_check(e, uid, "mcp", None), "U4 미부여 kind 게이트 → False(DB 미접촉)")
+        check(_rbac_allows(e, uid, "rag", "docs_kb"), "U4 per-cap 특정 → True")
+        check(not _rbac_allows(e, uid, "rag", "other"), "U4 미부여 특정 → False")
+        check(_rbac_allows(e, uid, "rag", None), "U4 name=None 게이트 → True(rag에 per-cap 있음)")
+        check(not _rbac_allows(e, uid, "mcp", None), "U4 미부여 kind 게이트 → False(DB 미접촉)")
         # 역할 상속: 역할에 per-cap 부여 → 유저가 그 역할이면 게이트 통과
         await e.add_policy("role_ragX", "capability:rag:teamdoc", "invoke")
         await e.add_grouping_policy(uid, "role_ragX")
-        check(_rbac_check(e, uid, "rag", "teamdoc"), "U4 역할 상속 per-cap → True")
+        check(_rbac_allows(e, uid, "rag", "teamdoc"), "U4 역할 상속 per-cap → True")
         # U5 (codex P2): mcp 서버단위 부여가 그 서버 툴을 덮는다.
         await e.add_policy(uid, "capability:mcp:github", "invoke")
-        check(_rbac_check(e, uid, "mcp", "github/search"), "U5 mcp 서버단위 부여 → 툴 호출 True(서버 폴백)")
-        check(_rbac_check(e, uid, "mcp", "github"), "U5 mcp 서버 자체 → True")
-        check(not _rbac_check(e, uid, "mcp", "gitlab/search"), "U5 다른 서버 툴 → False(폴백 정확)")
+        check(_rbac_allows(e, uid, "mcp", "github/search"), "U5 mcp 서버단위 부여 → 툴 호출 True(서버 폴백)")
+        check(_rbac_allows(e, uid, "mcp", "github"), "U5 mcp 서버 자체 → True")
+        check(not _rbac_allows(e, uid, "mcp", "gitlab/search"), "U5 다른 서버 툴 → False(폴백 정확)")
     finally:
         await e.remove_policy(uid, "capability:rag:docs_kb", "invoke")
         await e.remove_policy(uid, "capability:mcp:github", "invoke")
