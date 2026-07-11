@@ -110,7 +110,6 @@ from .models import (  # noqa: F401
 from .ownership import next_owner  # noqa: F401
 from .references import config_names  # noqa: F401
 from .schemas import ChatRequest
-from .sessions import _own_scope
 
 router: APIRouter = APIRouter(prefix="/agents", tags=["chat"])
 log = logging.getLogger("api.chat")
@@ -1002,9 +1001,9 @@ async def _final_frames(
 async def chat(
     agent_id: uuid.UUID, body: ChatRequest, principal: User | str = Depends(current_principal)
 ) -> StreamingResponse:
-    # 스펙 068: resume 바인딩에 067과 *동일한* 소유자 스코프를 주입(단일 출처 _own_scope 재사용).
+    # 스펙 068: resume 바인딩에 067과 *동일한* 소유자 스코프를 주입(정본 authz.own_scope 재사용, 298).
     # 비-admin이 타인/추측 session_id를 줘도 매칭 실패 → 새 세션(열거 오라클·소유권 탈취 봉인).
-    own = _own_scope(principal)
+    own = authz.own_scope(principal, "sessions", "read")
     req_version = await _validate_entry(agent_id, body, principal)
     ctx = await _load_context(
         agent_id, body.sessionId, body.overrides, own=own, version=req_version

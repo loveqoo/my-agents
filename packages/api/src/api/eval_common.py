@@ -52,11 +52,6 @@ def _dataset_out(d: EvalDataset, case_count: int, user: User | str) -> DatasetOu
     )
 
 
-def _ilike_literal(s: str) -> str:
-    """ilike 리터럴화 — 사용자 입력의 `\\`·`%`·`_`를 이스케이프(와일드카드 오라클/과매칭 차단, 세션 098)."""
-    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-
-
 def _validate_asserts(asserts: list) -> None:
     """선언 asserts를 저장 전에 검증 — build_asserts의 닫힌 집합·형식 규칙 그대로(단일 출처)."""
     try:

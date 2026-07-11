@@ -16,18 +16,9 @@ from .chat import resume_approval
 from .db import get_session
 from .models import Agent, Approval, User
 from .schemas import ApprovalOut, ApprovalPage, ResolveIn
-from .serializers import approval_to_out
+from .serializers import agent_id_map, approval_to_out
 
 router = APIRouter(prefix="/approvals", tags=["approvals"])
-
-
-def _is_admin(principal: User | str) -> bool:
-    """principal이 전체 승인 권한(admin급)인가 — 머신 토큰 또는 superuser/`approvals:resolve` 유저."""
-    if isinstance(principal, str):  # "machine" 센티넬 = owner급 전체 접근(스펙 011/031)
-        return True
-    if getattr(principal, "is_superuser", False):
-        return True
-    return authz.get_enforcer().enforce(str(principal.id), "approvals", "resolve")
 
 
 def _may_resolve(approval: Approval, principal: Any) -> bool:  # User | "machine" 센티널 duck-typing
@@ -43,7 +34,7 @@ def _may_resolve(approval: Approval, principal: Any) -> bool:  # User | "machine
     - 어느 경우든 owner 대조는 *DB의* approval.user_id 대 *서버가 쥔* principal로만(요청 본문 무관,
       T3/T6). user_id가 None(머신/레거시 발)이면 owner 분기가 닫힌다(T2 fail-closed).
     """
-    if _is_admin(principal):
+    if authz.is_admin_for(principal, "approvals", "resolve"):
         return True
     # 여기 도달 = 비-admin 유저. owner 대조는 공통 전제.
     is_owner = approval.user_id is not None and approval.user_id == str(principal.id)
@@ -52,18 +43,6 @@ def _may_resolve(approval: Approval, principal: Any) -> bool:  # User | "machine
         return is_owner and approver == "self"
     # approver 미스탬프(레거시·메모리·A2A) → Casbin self_approve 폴백(무회귀).
     return is_owner and authz.can_self_approve(str(principal.id), approval.permission)
-
-
-def _own_scope(principal: Any) -> str | None:  # User | "machine" 센티널 duck-typing
-    """list 스코핑 키 — 일반 유저면 자기 user_id(본인 것만), admin/머신이면 None(전체)."""
-    if _is_admin(principal):
-        return None
-    return str(principal.id)
-
-
-async def _agent_id_map(session: AsyncSession) -> dict:
-    rows = (await session.execute(select(Agent.id, Agent.agent_id))).all()
-    return {row.id: row.agent_id for row in rows}
 
 
 @router.get("/page", response_model=ApprovalPage)
@@ -98,7 +77,7 @@ async def list_approvals_page(
                 Approval.action.ilike(needle),
             )
         )
-    own = _own_scope(principal)
+    own = authz.own_scope(principal, "approvals", "resolve")
     if own is not None:
         conds.append(Approval.user_id == own)
     total = (
@@ -106,7 +85,7 @@ async def list_approvals_page(
     ).scalar_one()
     stmt = select(Approval).where(*conds).order_by(*order).limit(limit).offset(offset)
     result = await session.execute(stmt)
-    amap = await _agent_id_map(session)
+    amap = await agent_id_map(session)
     items = [approval_to_out(p, amap.get(p.agent_pk)) for p in result.scalars().all()]
     return ApprovalPage(items=items, total=total)
 
@@ -125,7 +104,7 @@ async def list_approvals(
     conds = []
     if status is not None:
         conds.append(Approval.status == status)
-    own = _own_scope(principal)
+    own = authz.own_scope(principal, "approvals", "resolve")
     if own is not None:
         conds.append(Approval.user_id == own)
     stmt = select(Approval)
@@ -133,7 +112,7 @@ async def list_approvals(
         stmt = stmt.where(*conds)
     stmt = stmt.order_by(pending_first, Approval.requested_at.desc())
     result = await session.execute(stmt)
-    amap = await _agent_id_map(session)
+    amap = await agent_id_map(session)
     return [approval_to_out(p, amap.get(p.agent_pk)) for p in result.scalars().all()]
 
 
@@ -154,7 +133,7 @@ async def resolve_approval(
     # 존재 자체를 숨긴다 → 부재(404)와 동일 응답. 안 그러면 approval_id 추측으로 404↔403을 갈라
     # 타인 승인 행의 존재를 캐낼 수 있다(목록은 이미 스코핑돼 안 보이는데 resolve가 새는 격). 단,
     # *자기* 행이지만 권한 미달(민감 perm)은 403 유지 — 이미 자기 목록에 보여 존재는 알려진 상태다.
-    own = _own_scope(principal)
+    own = authz.own_scope(principal, "approvals", "resolve")
     if own is not None and p.user_id != own:
         raise HTTPException(status_code=404, detail="not found")
     # 인가 3-way(스펙 066): admin/머신=전체, owner+self_approve=자기 것, 그 외 403. 조회 *후* 판정 —

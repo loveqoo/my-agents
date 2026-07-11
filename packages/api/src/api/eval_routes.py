@@ -45,7 +45,6 @@ from .eval_common import (  # noqa: F401
     _dataset_or_404,
     _dataset_out,
     _gate_harvest_read,
-    _ilike_literal,
     _is_generating,
     _validate_asserts,
     log,

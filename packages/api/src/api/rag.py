@@ -39,7 +39,7 @@ from .schemas import (
     SearchHit,
 )
 from .serializers import collection_to_out
-from .sessions import _like_escape
+from .sqlutil import like_escape
 
 router = APIRouter(prefix="/collections", tags=["rag"])
 
@@ -384,13 +384,13 @@ async def list_documents(
 ) -> Any:
     """문서 페이지 목록(스펙 128) — 문서는 증가 축이라 서버 페이지네이션 + 파일명 부분일치(q).
 
-    세션(list_sessions)과 동형: LIMIT/OFFSET + count total + ilike(`_like_escape` 재사용 — 단일 출처).
+    세션(list_sessions)과 동형: LIMIT/OFFSET + count total + ilike(`like_escape` 재사용 — 정본 sqlutil).
     스코프(collection_id)는 SQL WHERE. 사용은 전부 공용(스펙 172) — 로그인한 누구나 문서 목록 조회
     가능(익명은 current_principal이 401). 존재 404만 유지(관리는 여전히 소유자만)."""
     await get_or_404(session, Collection, cid)  # 존재 404만(관리는 소유자만 — 아래 스코프 무관)
     base = select(Document).where(Document.collection_id == cid)
     if q and q.strip():
-        base = base.where(Document.filename.ilike(f"%{_like_escape(q.strip())}%", escape="\\"))
+        base = base.where(Document.filename.ilike(f"%{like_escape(q.strip())}%", escape="\\"))
     total = (await session.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
     rows = (
         (

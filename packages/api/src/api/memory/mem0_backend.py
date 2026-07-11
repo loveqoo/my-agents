@@ -16,6 +16,7 @@ import logging
 import os
 from typing import TYPE_CHECKING
 
+from ..sqlutil import like_escape
 from .backend import scope_axes
 
 if TYPE_CHECKING:
@@ -324,8 +325,8 @@ class Mem0Backend:
             params.extend([axis, val])
         where = "(" + " OR ".join(conds) + ")"
         if q and q.strip():
-            # ILIKE 와일드카드 이스케이프 — 사용자 질의의 % _ \ 가 패턴으로 오작동하지 않게.
-            esc = q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            # ILIKE 와일드카드 이스케이프 — 사용자 질의의 % _ \ 가 패턴으로 오작동하지 않게(정본 298).
+            esc = like_escape(q.strip())
             where += " AND payload->>'data' ILIKE %s ESCAPE '\\'"
             params.append(f"%{esc}%")
         # 최신순 정렬 — 텍스트 비교가 아니라 **가드된 timestamptz 캐스트**(codex 127 #3): mem0는

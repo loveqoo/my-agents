@@ -2,6 +2,9 @@
 
 from datetime import datetime
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from agent.runtime import classify_runtime, is_first_party
 
 from .crypto import SECRET_MASK
@@ -15,6 +18,12 @@ from .schemas import (
     SessionOut,
     VersionOut,
 )
+
+
+async def agent_id_map(session: AsyncSession) -> dict:
+    """agent pk(UUID) → 외부 agent_id(agt_...) 매핑(정본, 스펙 298). 목록 응답에서 pk를 외부 id로 치환."""
+    rows = (await session.execute(select(Agent.id, Agent.agent_id))).all()
+    return {row.id: row.agent_id for row in rows}
 
 
 def mask_secret(s: str | None) -> str | None:

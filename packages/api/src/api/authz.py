@@ -13,6 +13,7 @@ role 할당의 진실 원천은 casbin_rule(grouping policy `g`)이며 `roles` �
 import logging
 from collections.abc import Awaitable, Callable
 from pathlib import Path
+from typing import Any
 
 import casbin
 from casbin_async_sqlalchemy_adapter import Adapter
@@ -140,6 +141,32 @@ def can_self_approve(user_sub: str, permission: str) -> bool:
     if not permission:
         return False
     return get_enforcer().enforce(user_sub, permission, "self_approve")
+
+
+# ----------------------------- 소유 스코프 판정 (정본, 스펙 298) -----------------------------
+def is_admin_for(principal: User | str, obj: str, act: str) -> bool:
+    """(obj,act) 리소스에 대한 admin급 접근인가 — machine 센티널·superuser·`enforce(id,obj,act)`.
+
+    각 라우터가 **자기 (obj,act)를 명시로 넘겨** 판정 정책은 호출부 소유(라우터 독립, 옛 sessions/approvals
+    로컬 `_is_admin` 주석 의도 보존), 골격(3분기)만 단일 출처. sessions=`("sessions","read")`,
+    approvals=`("approvals","resolve")`. superuser는 enforce 우회(부트스트랩 안전판, 모듈 도크 참조).
+    """
+    if isinstance(principal, str):  # "machine" 센티널 = 전체 접근(스펙 011/031)
+        return True
+    if getattr(principal, "is_superuser", False):
+        return True
+    return get_enforcer().enforce(str(principal.id), obj, act)
+
+
+def own_scope(principal: Any, obj: str, act: str) -> str | None:  # User | "machine" duck-typing
+    """소유 스코핑 키 — (obj,act) admin이면 None(전체 조회), 아니면 자기 user_id(본인 것만).
+
+    비-admin의 거부행을 SELECT-WHERE에 밀어 로드조차 안 하게 하는 스코프 값(존재 비노출). **읽기용**
+    (admin 읽기권한=무스코프). 쓰기는 읽기권한이 넓히면 안 되므로 별도(sessions `_own_scope_write`).
+    """
+    if is_admin_for(principal, obj, act):
+        return None
+    return str(principal.id)
 
 
 # ----------------------------- 의존성 팩토리 -----------------------------

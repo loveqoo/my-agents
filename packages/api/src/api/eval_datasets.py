@@ -15,13 +15,13 @@ from .eval_common import (
     _dataset_or_404,
     _dataset_out,
     _gate_harvest_read,
-    _ilike_literal,
     _is_generating,
     router,
 )
 from .eval_schemas import DatasetIn, DatasetOut, DatasetPageOut
 from .models import EvalCase, EvalDataset, User
 from .ownership import assert_may_manage, is_privileged, owner_of
+from .sqlutil import like_escape
 
 
 @router.get("/datasets", response_model=DatasetPageOut)
@@ -39,7 +39,7 @@ async def list_datasets(
     if kind:  # 스펙 212: 에이전트 평가/RAG 평가 분리(서버 필터로 페이징 정합 유지)
         conds.append(EvalDataset.kind == kind)
     if q and q.strip():
-        term = f"%{_ilike_literal(q.strip())}%"
+        term = f"%{like_escape(q.strip())}%"
         conds.append(
             or_(
                 EvalDataset.name.ilike(term, escape="\\"),

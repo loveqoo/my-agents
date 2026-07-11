@@ -5,7 +5,7 @@ casbin enforce는 FakeEnforcer로 주입(get_enforcer 패치) — 분기 로직�
 해석·DB 스코핑 글루·쿠키 라운드트립은 verify_066_live.py(라이브 통합 rung)에서 별도 확인.
 
 검증:
-  M1. _is_admin: 머신·superuser·casbin(approvals:resolve) = True / member = False
+  M1. is_admin_for(·,"approvals","resolve"): 머신·superuser·casbin(approvals:resolve) = True / member = False (정본 authz, 스펙 298)
   M2. _may_resolve 3-way:
       - 머신/superuser/admin → 무엇이든 True
       - owner(본인) + self_approve 정책 perm → True
@@ -14,7 +14,7 @@ casbin enforce는 FakeEnforcer로 주입(get_enforcer 패치) — 분기 로직�
       - 타인 것(user_id≠본인) → False (T1)
       - user_id=None(머신/레거시 발) → False (T2 NULL-owner)
       - owner지만 self_approve 정책 없는 member → False (T7 정책 부재 = 거부)
-  M3. _own_scope: admin/머신=None(전체) / member=str(id)(본인만)
+  M3. own_scope(·,"approvals","resolve"): admin/머신=None(전체) / member=str(id)(본인만) (정본 authz, 스펙 298)
   M4. can_self_approve: 빈 perm=False(무 enforce) / 정책 있으면 True / 없으면 False
 
 실행: .venv/bin/python tests/verify_066_resolve_authz.py
@@ -79,11 +79,11 @@ authz.get_enforcer = lambda: FakeEnforcer({
     (m1, "data.read", "self_approve"),
 })
 
-# ---- M1. _is_admin ----
-check(AP._is_admin(machine) is True, "M1: 머신 토큰 = admin 등가(전체 승인)")
-check(AP._is_admin(superuser) is True, "M1: superuser = admin(우회)")
-check(AP._is_admin(admin) is True, "M1: casbin approvals:resolve = admin")
-check(AP._is_admin(member) is False, "M1: member = 비-admin")
+# ---- M1. is_admin_for(·, "approvals", "resolve") ----
+check(authz.is_admin_for(machine, "approvals", "resolve") is True, "M1: 머신 토큰 = admin 등가(전체 승인)")
+check(authz.is_admin_for(superuser, "approvals", "resolve") is True, "M1: superuser = admin(우회)")
+check(authz.is_admin_for(admin, "approvals", "resolve") is True, "M1: casbin approvals:resolve = admin")
+check(authz.is_admin_for(member, "approvals", "resolve") is False, "M1: member = 비-admin")
 
 # ---- M2. _may_resolve 3-way ----
 own_read = A(m1, "data.read")        # owner + self_approve 정책 있음
@@ -134,11 +134,11 @@ check(AP._may_resolve(A(m1, "mcp.x.y", approver="admin"), admin) is True,
 check(AP._may_resolve(A(m1, "data.read", approver="admin"), member) is False,
       "M5: approver=admin이 Casbin self_approve를 덮음(도구 정책 우선)")
 
-# ---- M3. _own_scope ----
-check(AP._own_scope(machine) is None, "M3: 머신 → 전체(스코프 None)")
-check(AP._own_scope(superuser) is None, "M3: superuser → 전체")
-check(AP._own_scope(admin) is None, "M3: casbin-admin → 전체")
-check(AP._own_scope(member) == m1, "M3: member → 본인 user_id로 스코핑")
+# ---- M3. own_scope(·, "approvals", "resolve") ----
+check(authz.own_scope(machine, "approvals", "resolve") is None, "M3: 머신 → 전체(스코프 None)")
+check(authz.own_scope(superuser, "approvals", "resolve") is None, "M3: superuser → 전체")
+check(authz.own_scope(admin, "approvals", "resolve") is None, "M3: casbin-admin → 전체")
+check(authz.own_scope(member, "approvals", "resolve") == m1, "M3: member → 본인 user_id로 스코핑")
 
 # ---- M4. can_self_approve ----
 check(authz.can_self_approve(m1, "") is False, "M4: 빈 permission → False(무 enforce)")

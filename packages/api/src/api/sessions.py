@@ -13,7 +13,8 @@ from .auth import current_principal
 from .db import get_session
 from .models import Agent, Message, MessageFeedback, Session, User
 from .schemas import FeedbackOut, MessageFeedbackIn, MessageOut, SessionOut, SessionPage
-from .serializers import session_to_out
+from .serializers import agent_id_map, session_to_out
+from .sqlutil import like_escape
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
@@ -22,25 +23,9 @@ router = APIRouter(prefix="/sessions", tags=["sessions"])
 # 세션은 개인 대화 데이터다. approvals(066)·memory(052)와 동일하게 비-admin은 자기 user_id
 # 세션만 본다. Session.user_id는 *서버가 도출*한 값(chat.py: 쿠키 유저=str(user.id), 머신=NULL)
 # 이라 위조 불가(요청 본문 무관). admin/머신은 전체. 비교 축은 approvals.user_id와 동일.
-def _is_admin(principal: User | str) -> bool:
-    """전체 세션 열람 권한인가 — 머신 토큰 OR superuser OR `sessions:read` 유저.
-
-    obj/act가 approvals와 달라 approvals._is_admin과 공유하지 않고 로컬 미러(라우터 독립).
-    기본 정책엔 sessions:read가 없으므로 member는 매칭 안 됨(superuser만 전체) — 추후
-    `(role, sessions, read)` 한 줄로 "전체 세션 열람 운영자"를 열 수 있는 훅.
-    """
-    if isinstance(principal, str):  # "machine" 센티넬 = 전체 접근(스펙 011/031)
-        return True
-    if getattr(principal, "is_superuser", False):
-        return True
-    return authz.get_enforcer().enforce(str(principal.id), "sessions", "read")
-
-
-def _own_scope(principal: Any) -> str | None:  # User | "machine" 센티널 duck-typing
-    """스코핑 키 — 비-admin이면 자기 user_id(본인 것만), admin/머신이면 None(전체)."""
-    if _is_admin(principal):
-        return None
-    return str(principal.id)
+# 읽기 스코프는 authz.own_scope(principal, "sessions", "read")로 판정(정본, 스펙 298) — 기본 정책엔
+# sessions:read가 없어 member는 매칭 안 됨(superuser만 전체), `(role,sessions,read)` 한 줄로 "전체 세션
+# 열람 운영자"를 여는 훅은 그대로. 쓰기는 읽기권한이 넓히면 안 되므로 아래 `_own_scope_write`(별도).
 
 
 # 버킷 → status 매핑 (단일출처 — 프론트는 버킷 문자열만 보낸다). 스펙 034.
@@ -57,12 +42,6 @@ def _bucket_of(status: str) -> str | None:
         if status in members:
             return bucket
     return None
-
-
-async def _agent_id_map(session: AsyncSession) -> dict:
-    """agent pk(UUID) → 외부 agent_id(agt_...) 매핑."""
-    rows = (await session.execute(select(Agent.id, Agent.agent_id))).all()
-    return {row.id: row.agent_id for row in rows}
 
 
 _PREVIEW_LEN = 80
@@ -109,12 +88,6 @@ async def _session_previews(session: AsyncSession, pks: list) -> dict:
     return out
 
 
-def _like_escape(term: str) -> str:
-    """ilike 리터럴화 — 사용자 입력의 `\\`·`%`·`_`를 이스케이프해 와일드카드 오라클/과매칭 차단.
-    `escape="\\"`와 함께 쓴다. 순서 중요: `\\`를 먼저 치환(뒤 치환이 넣은 이스케이프를 재이스케이프 방지)."""
-    return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-
-
 @router.get("", response_model=SessionPage)
 async def list_sessions(
     status: str = "all",
@@ -136,7 +109,7 @@ async def list_sessions(
       `counts`도 동일 스코프(member 배지=본인 수). **검색은 스코프를 넓힐 수 없다**(AND는 좁히기만).
     - `total`: 현재 필터 적용 총 건수. `counts`: status·검색 무관 집계(배지용, 스코프 동일).
     """
-    own = _own_scope(principal)
+    own = authz.own_scope(principal, "sessions", "read")
     members = _STATUS_BUCKETS.get(status)
 
     base = select(Session)
@@ -146,7 +119,7 @@ async def list_sessions(
         base = base.where(Session.status.in_(members))
     if q and q.strip():
         # own-scope WHERE 뒤에 AND로 얹는다 → 소유권 경계 상속(스코프 확장 불가).
-        term = f"%{_like_escape(q.strip())}%"
+        term = f"%{like_escape(q.strip())}%"
         base = base.where(
             or_(
                 Session.session_id.ilike(term, escape="\\"),
@@ -180,7 +153,7 @@ async def list_sessions(
     )
 
     counts = await _badge_counts(session, own)
-    amap = await _agent_id_map(session)
+    amap = await agent_id_map(session)
     previews = await _session_previews(session, [s.id for s in rows])
     items = [session_to_out(s, amap.get(s.agent_pk), previews.get(s.id)) for s in rows]
     return SessionPage(items=items, total=total, counts=counts)
@@ -217,7 +190,7 @@ async def list_user_ids(
 
     NOTE: 이 정적 경로는 아래 `/{session_id}`보다 **먼저** 선언돼야 가려지지 않는다.
     """
-    own = _own_scope(principal)
+    own = authz.own_scope(principal, "sessions", "read")
     q = (
         select(Session.user_id, func.max(Session.last_activity).label("last"))
         .where(Session.user_id.is_not(None))
@@ -237,7 +210,7 @@ async def get_session_detail(
     principal: User | str = Depends(current_principal),
 ) -> SessionOut:
     s = await _get_session_or_404(
-        session, session_id, _own_scope(principal)
+        session, session_id, authz.own_scope(principal, "sessions", "read")
     )  # 스코프 융합(067/070)
     a = await session.get(Agent, s.agent_pk)
     return session_to_out(s, a.agent_id if a else None)
@@ -250,7 +223,7 @@ async def list_session_messages(
     principal: User | str = Depends(current_principal),
 ) -> list[MessageOut]:
     s = await _get_session_or_404(
-        session, session_id, _own_scope(principal)
+        session, session_id, authz.own_scope(principal, "sessions", "read")
     )  # 스코프 융합(067/070)
     result = await session.execute(
         select(Message).where(Message.session_pk == s.id).order_by(Message.created_at)
@@ -378,7 +351,7 @@ async def end_session(
     principal: User | str = Depends(current_principal),
 ) -> SessionOut:
     s = await _get_session_or_404(
-        session, session_id, _own_scope(principal)
+        session, session_id, authz.own_scope(principal, "sessions", "read")
     )  # 스코프 융합(067/070 T5)
     s.status = "completed"
     await session.commit()
