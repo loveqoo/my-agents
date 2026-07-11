@@ -140,10 +140,18 @@ app.include_router(user_admin.router)
 
 
 def run() -> None:
+    from pathlib import Path
+
     import uvicorn
 
     # 기본은 loopback(외부 비노출). Tailscale 노출은 API_HOST로만 켠다.
     # 예: API_HOST=100.72.45.58 → 이 맥 + tailnet에서만 닿고 그 외 인터페이스는 안 열림.
     host = os.environ.get("API_HOST", "127.0.0.1")
     port = int(os.environ.get("API_PORT", "8000"))
-    uvicorn.run("api.main:app", host=host, port=port)
+    # 개발 편의: 코드 변경 자동 반영. reload_dirs에 **api·agent 소스를 둘 다** 명시한다 —
+    # uvicorn 기본 watch는 CWD 하나라 packages/agent 수정이 반영 안 돼, 노드/flow 코드를 고친 뒤
+    # 수동 재기동이 필요했다(스펙 302 회귀=produce_node config가 그 함정에 오래 숨음). 두 워크스페이스
+    # 소스를 watch해 agent flow도 hot-reload. 배포/프로덕션 실행은 uvicorn을 직접(reload 없이) 띄운다.
+    src = Path(__file__).resolve()
+    reload_dirs = [str(src.parents[1]), str(src.parents[4] / "packages" / "agent" / "src")]
+    uvicorn.run("api.main:app", host=host, port=port, reload=True, reload_dirs=reload_dirs)
