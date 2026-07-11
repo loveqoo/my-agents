@@ -1,7 +1,6 @@
 """세션 라우터 (007 도메인). 세션 조회·메시지·종료·응답 피드백(스펙 209)."""
 
 import uuid
-from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import delete, func, or_, select
@@ -25,7 +24,8 @@ router = APIRouter(prefix="/sessions", tags=["sessions"])
 # 이라 위조 불가(요청 본문 무관). admin/머신은 전체. 비교 축은 approvals.user_id와 동일.
 # 읽기 스코프는 authz.own_scope(principal, "sessions", "read")로 판정(정본, 스펙 298) — 기본 정책엔
 # sessions:read가 없어 member는 매칭 안 됨(superuser만 전체), `(role,sessions,read)` 한 줄로 "전체 세션
-# 열람 운영자"를 여는 훅은 그대로. 쓰기는 읽기권한이 넓히면 안 되므로 아래 `_own_scope_write`(별도).
+# 열람 운영자"를 여는 훅은 그대로. 쓰기(end·feedback)는 읽기권한이 넓히면 안 되므로
+# authz.own_scope_write(superuser/machine만 전체, 그 외 자기것)로 판정(스펙 299).
 
 
 # 버킷 → status 매핑 (단일출처 — 프론트는 버킷 문자열만 보낸다). 스펙 034.
@@ -263,16 +263,6 @@ def _require_user(principal: User | str) -> str:
     return str(principal.id)
 
 
-def _own_scope_write(principal: Any) -> str | None:  # _require_user 통과 후 User(duck-typing)
-    """**쓰기**용 소유 스코프(codex 209 F1). `_own_scope`는 `sessions:read` 권한도 admin으로 봐 무스코프
-    (None)를 주는데, **읽기 권한이 쓰기를 넓히면 안 된다** — 읽기 전용 세션 오퍼레이터가 타인 세션에
-    피드백을 심을 수 있다. 그래서 쓰기 스코프는 **진짜 superuser만** 무스코프, 그 외 User는 자기 것만.
-    (_require_user가 이미 머신/익명을 막으므로 principal은 User.)"""
-    if getattr(principal, "is_superuser", False):
-        return None
-    return str(principal.id)
-
-
 @router.put("/{session_id}/messages/{message_id}/feedback", response_model=FeedbackOut)
 async def set_message_feedback(
     session_id: str,
@@ -285,7 +275,7 @@ async def set_message_feedback(
     assistant 메시지만(SELECT-WHERE로 타세션·비-assistant는 거부행 미로드=404). 사용자당 1건(재클릭=수정)."""
     uid = _require_user(principal)
     s = await _get_session_or_404(
-        session, session_id, _own_scope_write(principal)
+        session, session_id, authz.own_scope_write(principal)
     )  # 쓰기 소유 스코프(F1)
     m = (
         await session.execute(
@@ -332,7 +322,7 @@ async def clear_message_feedback(
     """피드백 취소(스펙 209). 소유 스코프 404 → 내(created_by) 피드백만 그 세션에서 삭제(멱등)."""
     uid = _require_user(principal)
     s = await _get_session_or_404(
-        session, session_id, _own_scope_write(principal)
+        session, session_id, authz.own_scope_write(principal)
     )  # 쓰기 소유 스코프(F1)
     await session.execute(
         delete(MessageFeedback).where(
@@ -351,8 +341,8 @@ async def end_session(
     principal: User | str = Depends(current_principal),
 ) -> SessionOut:
     s = await _get_session_or_404(
-        session, session_id, authz.own_scope(principal, "sessions", "read")
-    )  # 스코프 융합(067/070 T5)
+        session, session_id, authz.own_scope_write(principal)
+    )  # 쓰기 스코프(스펙 299 — read 운영자가 타인 종료 못 하게)
     s.status = "completed"
     await session.commit()
     # refresh 필수(스펙 129) — last_activity가 onupdate=func.now() **서버 생성값**이라 commit 후 만료

@@ -162,9 +162,24 @@ def own_scope(principal: Any, obj: str, act: str) -> str | None:  # User | "mach
     """소유 스코핑 키 — (obj,act) admin이면 None(전체 조회), 아니면 자기 user_id(본인 것만).
 
     비-admin의 거부행을 SELECT-WHERE에 밀어 로드조차 안 하게 하는 스코프 값(존재 비노출). **읽기용**
-    (admin 읽기권한=무스코프). 쓰기는 읽기권한이 넓히면 안 되므로 별도(sessions `_own_scope_write`).
+    (admin 읽기권한=무스코프). 쓰기는 읽기권한이 넓히면 안 되므로 별도(`own_scope_write`).
     """
     if is_admin_for(principal, obj, act):
+        return None
+    return str(principal.id)
+
+
+def own_scope_write(principal: Any) -> str | None:  # User | "machine" 센티널 duck-typing
+    """**쓰기**용 소유 스코프(정본, 스펙 299 — 옛 sessions._own_scope_write 승격 + machine 분기).
+
+    읽기 권한이 쓰기를 넓히면 안 된다(스펙 209 F1): `own_scope`는 (obj,act)-read admin에게 무스코프를
+    주지만, 쓰기는 **진짜 superuser 또는 machine 센티널만** 무스코프(전체), 그 외 User는 자기 것만.
+    machine=owner급 전체(스펙 011/031). read 운영자(예: sessions:read)는 여기서 스코프됨 → 타인 자원
+    변경 차단. (obj,act)를 안 받는다 — 어떤 자원도 write 권한 정책이 없어 superuser/machine-only가 정본,
+    필요해지면 own_scope와 대칭으로 (obj,act) 파라미터화한다."""
+    if isinstance(principal, str):  # machine 센티널 = 전체(011/031)
+        return None
+    if getattr(principal, "is_superuser", False):
         return None
     return str(principal.id)
 

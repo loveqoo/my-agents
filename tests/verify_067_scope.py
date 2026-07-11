@@ -8,6 +8,8 @@ FakeEnforcer로 주입(get_enforcer 패치) — 분기 로직만 본다. 실 DB 
 호출부가 ("sessions","read") 튜플 명시 = 라우터 독립 보존):
   M1. is_admin_for(·,"sessions","read"): 머신·superuser·casbin(sessions:read) = True / member = False
   M2. own_scope(·,"sessions","read"): admin/머신=None(전체) / member=str(id)(본인만)
+  M3. own_scope_write (스펙 299): 머신/superuser=None(전체) / sessions:read 운영자·member=str(id)
+      (읽기 권한이 쓰기를 넓히면 안 됨 — end_session·feedback이 read-scope 쓰던 버그 정정)
 
 NOTE(스펙 070): 067은 item 가시성을 `_visible_or_404`(fetch-then-check)로 사후 거부했으나, 070이
 그 가시성을 `_get_session_or_404`의 쿼리에 융합해 거부행을 로드조차 안 하게 바꿨다(타이밍 오라클
@@ -72,10 +74,22 @@ check(authz.own_scope(superuser, "sessions", "read") is None, "M2: superuser →
 check(authz.own_scope(operator, "sessions", "read") is None, "M2: sessions:read 운영자 → 전체")
 check(authz.own_scope(member, "sessions", "read") == m1, "M2: member → 본인 user_id로 스코핑")
 
+# ---- M3. own_scope_write (스펙 299 — 읽기 권한이 쓰기를 넓히면 안 됨) ----
+# end_session·feedback 같은 mutating route용. **핵심 대비**: sessions:read 운영자는 M2(read)에선
+# 무스코프(전체)지만 여기선 스코프됨 → 타인 세션 종료/피드백 차단. machine/superuser만 전체.
+op1 = str(operator.id)
+check(authz.own_scope_write(machine) is None, "M3: 머신 → 전체(쓰기도, 011/031)")
+check(authz.own_scope_write(superuser) is None, "M3: superuser → 전체(쓰기)")
+check(
+    authz.own_scope_write(operator) == op1,
+    "M3: sessions:read 운영자 → 자기 것만(read는 전체지만 write는 스코프 = 299 정정)",
+)
+check(authz.own_scope_write(member) == m1, "M3: member → 본인 user_id로 스코핑(쓰기)")
+
 print()
 if _fails:
     print(f"FAILED ({len(_fails)})")
     for m in _fails:
         print("  - " + m)
     sys.exit(1)
-print("ALL PASS — 스펙 067 세션 스코핑 시맨틱(M1/M2) 통과 (가시성은 verify_070_scope.py)")
+print("ALL PASS — 스펙 067/299 세션 스코핑 시맨틱(M1/M2 읽기·M3 쓰기) 통과 (가시성은 verify_070_scope.py)")
