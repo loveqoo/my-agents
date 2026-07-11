@@ -3,3 +3,56 @@ members = ["packages/*"]
 
 [tool.uv.sources]
 agent = { workspace = true }
+
+# ── 코드 품질 기준(스펙 291) ──────────────────────────────────────────────
+# 판정은 도구가 한다: ruff(PEP8 E/W·네이밍 N·import I) + ruff format(Black 호환) +
+# xenon/radon(복잡도·유지보수성) + mypy. 한 방 게이트 = `make metrics`.
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["packages/api/src", "packages/agent/src"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",   # pycodestyle — PEP8 코어
+    "F",        # pyflakes — 미사용·미정의
+    "I",        # isort — PEP8 import 그룹·정렬
+    "N",        # pep8-naming
+    "UP",       # pyupgrade — 3.12 현대화
+    "B",        # bugbear — 흔한 함정
+    "C4",       # comprehension 품질
+    "SIM",      # 단순화 가능 구문
+    "RET",      # return 일관성
+    "ARG",      # 미사용 인자(인터페이스 계약은 _ 접두로 명시)
+    "PTH",      # os.path → pathlib
+    "RUF",      # ruff 자체 규칙
+]
+ignore = [
+    # 줄폭은 ruff format(Black 호환)이 코드에 대해 소유. E501을 켜면 한글 WHY 주석(설계·검토
+    # 기록)까지 강제 절단 대상이 된다 — 주석은 스펙 291 규칙(WHY 압축·스펙 ID 링크)으로 관리.
+    "E501",
+    # 한글 주석·docstring의 전각 문자(·—× 등)를 "모호 유니코드"로 오탐 — 한국어 문서화가 기본.
+    "RUF001", "RUF002", "RUF003",
+]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI DI 관용구 — Depends(...)류는 기본값 호출이 계약(B008 오탐 방지의 공식 통로).
+extend-immutable-calls = [
+    "fastapi.Depends", "fastapi.Query", "fastapi.Body", "fastapi.Header",
+    "fastapi.Path", "fastapi.File", "fastapi.Form", "fastapi.Security",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# API 와이어 계약이 camelCase(sessionId 류) — Pydantic 스키마 필드는 PEP8 네이밍 예외.
+"packages/api/src/api/schemas.py" = ["N815"]
+"packages/api/src/api/agents.py" = ["N815"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true      # 서드파티 스텁 부재(langgraph·mem0 등)는 미추적
+check_untyped_defs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+# strict 확대는 Phase 4에서 코어(모델/설정·메모리)부터 모듈 단위로 조인다(스펙 291).

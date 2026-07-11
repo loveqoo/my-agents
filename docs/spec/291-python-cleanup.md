@@ -38,8 +38,8 @@ god-module 구조 분할 + 타입체커 도입.
 | CC 등급 D+ 블록(CC≥21) | `radon cc -n D` | **20** (15D·3E·2F) | **0**(전 블록 ≤ C) | `ruff` C901 max-complexity |
 | 최악 블록 CC | `radon cc -s` | **73** (`_load_context`) | ≤ 20(코어 ≤ 10 지향) | 위와 동일 |
 | MI 등급 A 미만 파일 | `radon mi -s` | **4** (chat·broker·eval=C·agents=B) | **0**(전 파일 A, MI≥20) | `xenon --max-modules A` |
-| ruff 위반(문서화 ignore 제외) | `ruff check` | **~250 진짜**(4093 중 의도 제외) | **0** | `ruff check` exit 0 |
-| 포맷 미준수 | `ruff format --check` | 다수 | **0** | exit 0 |
+| ruff 위반(문서화 ignore 제외) | `ruff check` | **191**(Phase 0 설정 실측, 자동수정 ~102) | **0** | `ruff check` exit 0 |
+| 포맷 미준수 파일 | `ruff format --check` | **56/70** | **0** | exit 0 |
 | mypy 오류(정의 범위) | `mypy` | **37**(느슨) | **0** | `mypy` exit 0 |
 | 실모델 조합 스위트 | `tests/suite/run.py` | **51/51** | **51/51**(무회귀) | 각 단계 게이트 |
 
