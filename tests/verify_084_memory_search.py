@@ -40,6 +40,7 @@ from pydantic import ValidationError  # noqa: E402
 from api import agents as AG  # noqa: E402
 from api import memory as M  # noqa: E402
 from api import memory_routes as MR  # noqa: E402
+from api.agents import memory_routes as AMR  # noqa: E402  (스펙 291 분해 — 실제 lookup 지점)
 from api.schemas import MemorySearchIn  # noqa: E402
 
 _fails: list[str] = []
@@ -76,7 +77,7 @@ class FakeMem:
     def __init__(self, store: list[dict] | None = None):
         self.store = list(store or [])
 
-    def search(self, query, filters, top_k):
+    def search(self, query, filters, top_k, **_kw):  # mem0 search는 threshold 등 extra kwargs 허용(스펙 158)
         (axis, val), = filters.items()
         rows = [r for r in self.store if r.get(axis) == val]
         return {"results": rows[:top_k]}
@@ -218,14 +219,14 @@ def u4_graceful() -> None:
 
     # 에이전트: resolve_agent_mem_cfg None(에이전트는 존재).
     agent_obj = type("A", (), {"agent_id": "agtX"})()
-    AG.resolve_agent_mem_cfg = _async(None)  # type: ignore[assignment]
+    AMR.resolve_agent_mem_cfg = _async(None)  # type: ignore[assignment]
     out_a = asyncio.run(AG.search_agent_memory(uuid.uuid4(), body, session=FakeSession(agent_obj)))
     check(out_a.enabled is False and out_a.results == [],
           "에이전트 검색: 미가용 → enabled=False·[]")
 
     # P2a 핀(적대 리뷰 084): mem_cfg는 *있지만* 백엔드 구성 실패(resolve_backend None) →
     # enabled=False여야 한다. "회상 0건"으로 위장하면 안 됨. mem_cfg 비None + no_mem()로 재현.
-    AG.resolve_agent_mem_cfg = _async({"llm": {}, "embedder": {}})  # type: ignore[assignment]
+    AMR.resolve_agent_mem_cfg = _async({"llm": {}, "embedder": {}})  # type: ignore[assignment]
     out_broken = asyncio.run(AG.search_agent_memory(uuid.uuid4(), body, session=FakeSession(agent_obj)))
     check(out_broken.enabled is False and out_broken.results == [],
           "P2a: mem_cfg 있음+백엔드 구성실패 → enabled=False(깨진 백엔드 위장 차단)")
@@ -251,7 +252,7 @@ def u6_handler_recall() -> None:
 
     # 에이전트 핸들러: agtX만 회상(agtY·user 누출 0).
     agent_obj = type("A", (), {"agent_id": "agtX"})()
-    AG.resolve_agent_mem_cfg = _async({"llm": {}, "embedder": {}})  # type: ignore[assignment]
+    AMR.resolve_agent_mem_cfg = _async({"llm": {}, "embedder": {}})  # type: ignore[assignment]
     out_a = asyncio.run(AG.search_agent_memory(uuid.uuid4(), body, session=FakeSession(agent_obj)))
     txts = [h.text for h in out_a.results]
     check(out_a.enabled is True, "에이전트 핸들러: enabled=True")

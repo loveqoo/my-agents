@@ -35,8 +35,8 @@ def check(cond: bool, msg: str) -> None:
 
 async def main() -> None:
     # V1 — 실 컬렉션
-    b = PolicyScopedBroker(allowlist=["rag:Obsidian"], rbac_allows=lambda k, n=None: True, providers=build_providers(BrokerContext(user_id="v131")))
-    await b.invoke("rag:Obsidian", {"text": "A/B 테스트에서 중요한 것은?"})
+    b = PolicyScopedBroker(allowlist=["rag:docs-kb"], rbac_allows=lambda k, n=None: True, providers=build_providers(BrokerContext(user_id="v131")))
+    await b.invoke("rag:docs-kb", {"text": "A/B 테스트에서 중요한 것은?"})
     inv = b.invocations[0]
     rp = inv.get("resultPreview", "")
     check(rp.startswith("[문서 검색 결과") and "유사도" in rp, f"V1a resultPreview=검색 스니펫 (앞부분 {rp[:40]!r})")
@@ -53,7 +53,7 @@ async def main() -> None:
         async def invoke(self, row, args):
             from agent.runtime import InvokeResult
             return InvokeResult(text="응답 api_key: sk-LEAKME123456 끝", trust="untrusted", error=None, raw={})
-        def approval_for(self, row, cap_id, args):
+        def approval_for(self, row, cap_id, args, tool_policy=None):  # 스펙 177 tool_policy 인자
             return None
         async def candidates(self):
             return []
@@ -73,8 +73,9 @@ async def main() -> None:
     # V3 — 투영 헬퍼 화이트리스트
     proj = _broker_calls_trace([{"node": "n", "cap_id": "rag:X", "ms": 1, "hits": 2, "topScore": 0.9,
                                  "resultPreview": "본문", "args": {"주입": 1}}])
-    check(proj[0].get("resultPreview") == "본문" and "args" not in proj[0] and "node" not in proj[0],
-          f"V3 resultPreview 통과·args/node 차단 (got {proj[0]})")
+    # node는 화이트리스트에 포함(스펙 130 표시 키), args는 차단(087/092 원문/주입 누출 0)이 핵심 보안 단언.
+    check(proj[0].get("resultPreview") == "본문" and "args" not in proj[0] and proj[0].get("node") == "n",
+          f"V3 resultPreview·node 통과·args 차단 (got {proj[0]})")
 
     # V4 — 노드 요약 안전 키
     s1 = runtime._summarize_node_update("analyze", {"query": "옵시디언 노트에서 A/B 테스트 정리해줘"})
@@ -91,7 +92,7 @@ async def main() -> None:
     # V5 — RAG 직접 도구 result 스니펫 (search_collections 모킹)
     calls: list[dict] = []
     orig = runtime.search_collections
-    async def fake_search(cols, q, k):
+    async def fake_search(cols, q, k, min_scores=None):  # 스펙 191 min_scores 인자
         return [{"filename": "f.md", "score": 0.91, "text": "문서 본문 스니펫"}]
     runtime.search_collections = fake_search
     try:

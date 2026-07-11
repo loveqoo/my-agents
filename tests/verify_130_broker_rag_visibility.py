@@ -1,13 +1,13 @@
 """verify_130 — 조율형 RAG 검색의 인스펙터 표면화 백엔드 (스펙 130).
 
-실 인프라(Obsidian 컬렉션, 로컬 임베더)로:
+실 인프라(docs-kb 컬렉션, 로컬 임베더)로:
   V1 RagProvider invoke 성공 시 raw에 hits(건수)·topScore(최고 유사도) 구조화.
   V2 broker.invocations 엔트리에 hits/topScore 통과(+node/cap_id/ms 기존 유지).
   V3 본문·args 미포함(누출 0 — 087/092 계약 유지): 엔트리 키가 화이트리스트 안.
   V4 오류 경로: 미허가 cap invoke → error 표시(invocations에 error=True 또는 미기록 — 실제 거동 고정).
   V5 무위임: invocations 빈 브로커는 빈 리스트(트레이스 무회귀 전제).
 
-전제: Obsidian 컬렉션 ready + 임베딩 모델 가용.
+전제: docs-kb 컬렉션 ready + 임베딩 모델 가용.
 실행: uv run --project packages/api python tests/verify_130_broker_rag_visibility.py
 """
 
@@ -34,9 +34,9 @@ def check(cond: bool, msg: str) -> None:
 
 
 async def main() -> None:
-    b = PolicyScopedBroker(allowlist=["rag:Obsidian"], rbac_allows=lambda k, n=None: True, providers=build_providers(BrokerContext(user_id="v130")))
+    b = PolicyScopedBroker(allowlist=["rag:docs-kb"], rbac_allows=lambda k, n=None: True, providers=build_providers(BrokerContext(user_id="v130")))
 
-    res = await b.invoke("rag:Obsidian", {"text": "A/B 테스트에서 중요한 것은?"})
+    res = await b.invoke("rag:docs-kb", {"text": "A/B 테스트에서 중요한 것은?"})
     raw = res.raw or {}
     check(res.error is None and raw.get("hits", 0) >= 1, f"V1a 성공 검색 raw.hits ≥ 1 (got {raw.get('hits')})")
     check(isinstance(raw.get("topScore"), float) and 0 < raw["topScore"] <= 1.0,
@@ -46,7 +46,7 @@ async def main() -> None:
     inv = b.invocations[0]
     check(inv.get("hits") == raw.get("hits") and inv.get("topScore") == raw.get("topScore"),
           f"V2b hits/topScore 통과 (got {inv})")
-    check(inv.get("node", "").startswith("broker_invoke:rag:") and "ms" in inv and inv.get("cap_id") == "rag:Obsidian",
+    check(inv.get("node", "").startswith("broker_invoke:rag:") and "ms" in inv and inv.get("cap_id") == "rag:docs-kb",
           "V2c 기존 필드(node/cap_id/ms) 유지")
 
     # 스펙 131: resultPreview(마스킹·캡된 결과 본문). 스펙 191: hitsDetail(히트별 카드)·minScore·query 추가.
@@ -66,7 +66,7 @@ async def main() -> None:
     denied = await b.invoke("rag:안보이는컬렉션", {"text": "x"})
     check(denied.error is not None, f"V4 미허가 cap → error (got {denied.error!r})")
 
-    b2 = PolicyScopedBroker(allowlist=["rag:Obsidian"], rbac_allows=lambda k, n=None: True, providers=build_providers(BrokerContext(user_id="v130b")))
+    b2 = PolicyScopedBroker(allowlist=["rag:docs-kb"], rbac_allows=lambda k, n=None: True, providers=build_providers(BrokerContext(user_id="v130b")))
     check(b2.invocations == [], "V5 무위임 브로커 invocations 빈 리스트(트레이스 무회귀 전제)")
 
     print(f"\n{passed} passed, {len(_fails)} failed")

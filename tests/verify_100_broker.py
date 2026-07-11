@@ -76,7 +76,8 @@ def _ctx(**kw) -> AgentBuildContext:
 # ---- fakes (정책·전송 격리; 실 DB/네트워크는 [P]/[H]에서만) --------------------------------
 class _FakeAgent:
     def __init__(self, agent_id, name, source="external",
-                 endpoint="https://ext.example/a2a", config=None, persona="", token=None):
+                 endpoint="https://ext.example/a2a", config=None, persona="", token=None,
+                 active_version=None):
         self.agent_id = agent_id
         self.name = name
         self.source = source
@@ -84,6 +85,9 @@ class _FakeAgent:
         self.config = config or {}
         self.persona = persona
         self.token = token
+        # 스펙 256 서빙-중 게이트(_delegable) — 로컬(ui/code) 위임은 active_version이 있어야.
+        # 기본 None: ui 초안은 배제(P1 기대=cap_ext만). 원격 ext는 endpoint로 조기판정해 무관.
+        self.active_version = active_version
 
 
 class _Rows:

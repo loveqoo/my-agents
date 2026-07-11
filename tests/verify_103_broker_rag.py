@@ -43,7 +43,7 @@ from api.models import Chunk, Collection, Document, ModelConfig  # noqa: E402
 
 _AUTH = {"Authorization": f"Bearer {_token()}"}
 _fails: list[str] = []
-CP = "col_v103_"
+CP = "col-v103-"  # 컬렉션 이름 규칙(영소문자·숫자·대시만, 밑줄 금지) — 스펙 302
 MP = "mdl_v103_"
 RAG_MAIN = f"rag:{CP}main"
 

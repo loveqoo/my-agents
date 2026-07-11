@@ -348,7 +348,10 @@ class ArtifactAgentBase(ABC):
         )
         broker = ctx.broker
 
-        async def produce_node(state: _State, config: RunnableConfig | None) -> dict:
+        # config 애노테이션은 반드시 langgraph 인식형(`RunnableConfig`) — `RunnableConfig | None`은
+        # `from __future__ import annotations`로 문자열화되면 langgraph 1.2.5의 주입 판정(문자열 매칭,
+        # 허용집합에 PEP 604 유니언 없음)을 못 통과해 config 미주입→`missing config` 크래시(스펙 302).
+        async def produce_node(state: _State, config: RunnableConfig) -> dict:
             thread_id = (config or {}).get("configurable", {}).get("thread_id", "")
             pctx = ProduceContext(
                 text=last_user_text(state, roles=("human", "user", None)),
