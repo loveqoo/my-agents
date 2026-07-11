@@ -20,11 +20,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Annotated, TypedDict
 
 from langchain_core.messages import SystemMessage
-from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 
+from ..model import build_chat_openai
 from ..runtime import AgentBuildContext, AgentManifest
 
 if TYPE_CHECKING:
@@ -34,26 +34,6 @@ if TYPE_CHECKING:
 class _State(TypedDict):
     messages: Annotated[list, add_messages]
     plan: str
-
-
-def _model_from_cfg(ctx: AgentBuildContext) -> ChatOpenAI:
-    """주입된 model_cfg로 ChatOpenAI 구성(build_agent와 동일 규칙 — 모델은 레지스트리 해석본만).
-    env 안 봄. base_url/model_id 없으면 명확히 실패."""
-    cfg = ctx.model_cfg or {}
-    base_url = cfg.get("base_url") or ""
-    model_id = cfg.get("model_id") or ""
-    if not base_url or not model_id:
-        raise RuntimeError("모델 설정이 필요합니다 (base_url/model_id) — 모델을 등록하세요.")
-    cfg_params = cfg.get("params") or {}
-    temperature = ctx.params.get("temperature", cfg_params.get("temperature", 0.7))
-    enable_thinking = cfg_params.get("enable_thinking", False)
-    return ChatOpenAI(
-        base_url=base_url,
-        api_key=cfg.get("api_key") or "sk-noauth",
-        model=model_id,
-        temperature=temperature,
-        extra_body={"chat_template_kwargs": {"enable_thinking": enable_thinking}},
-    )
 
 
 class PlanExecuteAgent:
@@ -72,7 +52,7 @@ class PlanExecuteAgent:
         )
 
     def build_graph(self, ctx: AgentBuildContext) -> CompiledStateGraph:
-        model = _model_from_cfg(ctx)
+        model = build_chat_openai(ctx.model_cfg, ctx.params)
         persona = ctx.persona  # 오버라이드 병합 후 주입된 페르소나(주입 단일 출처)
         # 플랫폼 주입 도구(config.mcps 유래, HIL/트레이스 래핑 포함) — 하이브리드 게이트(스펙 203):
         # 임계 이하 직접 바인딩, 초과면 검색 창구(search_tools·call_tool)로 컨텍스트 보호.

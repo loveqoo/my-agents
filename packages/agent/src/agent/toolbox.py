@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Mapping
+from typing import Any
 
 from langchain_core.tools import tool
 
@@ -28,6 +30,24 @@ DISCOVERY_HINT = (
 
 def _first_line(text: str | None, cap: int = 160) -> str:
     return ((text or "").strip().splitlines() or [""])[0][:cap]
+
+
+def last_user_text(state: Mapping[str, Any], roles: tuple[str | None, ...] | None = None) -> str:
+    """마지막 사용자 메시지 텍스트(정본, 스펙 295). 없으면 빈 문자열. `roles=None`이면 필터 없이
+    마지막 content(route/orchestrate), 지정 시 그 role만(artifact=("human","user",None))."""
+    for msg in reversed(state["messages"]):
+        content = getattr(msg, "content", None)
+        if content is None and isinstance(msg, dict):
+            content = msg.get("content")
+        if roles is not None:
+            role = getattr(msg, "type", None) or (
+                msg.get("role") if isinstance(msg, dict) else None
+            )
+            if role not in roles:
+                continue
+        if content:
+            return content if isinstance(content, str) else str(content)
+    return ""
 
 
 def _rank(tools: list, query: str) -> list:

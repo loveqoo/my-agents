@@ -11,8 +11,9 @@ from typing import Any
 
 from dotenv import load_dotenv
 from langchain.agents import create_agent
-from langchain_openai import ChatOpenAI
 from langgraph.graph.state import CompiledStateGraph
+
+from .model import build_chat_openai
 
 # 기본 페르소나 (CLI 등 호출자가 지정하지 않을 때)
 PERSONA = "당신은 간결하고 친절한 한국어 비서입니다. 사용자의 질문에 명확하고 짧게 답하세요."
@@ -34,28 +35,8 @@ def build_agent(
     checkpointer: HIL 승인 게이팅(스펙 041)용 durable 체크포인터. 주면 그래프가 상태를 박아
     도구 내부 interrupt()로 일시정지·재개할 수 있다. None이면 기존 무상태 동작(무회귀).
     """
-    params = params or {}
-    cfg = model_cfg or {}
-    base_url = cfg.get("base_url") or ""
-    model_name = cfg.get("model_id") or ""
-    if not base_url or not model_name:
-        raise RuntimeError("모델 설정이 필요합니다 (base_url/model_id) — 모델을 등록하세요.")
-    # 키가 없으면 무인증 로컬 엔드포인트로 간주(env 키를 빌려오지 않는다).
-    api_key = cfg.get("api_key") or "sk-noauth"
-    cfg_params = cfg.get("params") or {}
-
-    # temperature: 호출자 params > 모델 등록 params > 기본
-    temperature = params.get("temperature", cfg_params.get("temperature", 0.7))
-    # thinking 비활성(Qwen): 모델 params로 끌 수 있게, 기본은 비활성
-    enable_thinking = cfg_params.get("enable_thinking", False)
-
-    model = ChatOpenAI(
-        base_url=base_url,
-        api_key=api_key,
-        model=model_name,
-        temperature=temperature,
-        extra_body={"chat_template_kwargs": {"enable_thinking": enable_thinking}},
-    )
+    # 모델은 항상 등록 설정(model_cfg)에서 — env 미조회, 키 없으면 무인증 로컬. 정본=model.build_chat_openai.
+    model = build_chat_openai(model_cfg, params)
     # 하이브리드 도구 접근(스펙 203) — 임계 이하 직접 바인딩(코드 경로 동일=무회귀), 초과면 검색
     # 창구(search_tools·call_tool)로 컨텍스트 보호. discovery 모드면 사용 안내 1줄을 프롬프트에 부가.
     from .toolbox import DISCOVERY_HINT, effective_tools

@@ -29,11 +29,12 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Annotated, Any, TypedDict, final
 
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 
+from ..model import build_chat_openai
 from ..runtime import AgentBuildContext, AgentManifest, Capability
+from ..toolbox import last_user_text
 
 if TYPE_CHECKING:
     from langgraph.graph.state import CompiledStateGraph
@@ -50,37 +51,6 @@ class _State(TypedDict):
     # 위임 0건 사유 표면화(스펙 289 P3) — plan이 심는 안전 문자열(사용자 데이터 없음). 타임라인
     # 요약(_VALUE_SAFE_KEYS)으로 노출돼 "왜 위임이 안 됐나"를 실행 직후 인스펙터에서 확인.
     delegationNote: str
-
-
-def _model_from_cfg(ctx: AgentBuildContext) -> ChatOpenAI:
-    """주입된 model_cfg로 ChatOpenAI 구성(route/plan_execute와 동일 규칙 — 레지스트리 해석본만).
-    env 안 봄. base_url/model_id 없으면 명확히 실패."""
-    cfg = ctx.model_cfg or {}
-    base_url = cfg.get("base_url") or ""
-    model_id = cfg.get("model_id") or ""
-    if not base_url or not model_id:
-        raise RuntimeError("모델 설정이 필요합니다 (base_url/model_id) — 모델을 등록하세요.")
-    cfg_params = cfg.get("params") or {}
-    temperature = ctx.params.get("temperature", cfg_params.get("temperature", 0.7))
-    enable_thinking = cfg_params.get("enable_thinking", False)
-    return ChatOpenAI(
-        base_url=base_url,
-        api_key=cfg.get("api_key") or "sk-noauth",
-        model=model_id,
-        temperature=temperature,
-        extra_body={"chat_template_kwargs": {"enable_thinking": enable_thinking}},
-    )
-
-
-def _last_user_text(state: _State) -> str:
-    """마지막 사용자 메시지 텍스트(발견 쿼리 입력). 없으면 빈 문자열."""
-    for msg in reversed(state["messages"]):
-        content = getattr(msg, "content", None)
-        if content is None and isinstance(msg, dict):
-            content = msg.get("content")
-        if content:
-            return content if isinstance(content, str) else str(content)
-    return ""
 
 
 def extract_query(text: str) -> str:
@@ -246,13 +216,13 @@ class OrchestrationAgentBase(ABC):
 
     @final
     def build_graph(self, ctx: AgentBuildContext) -> CompiledStateGraph:
-        model = _model_from_cfg(ctx)
+        model = build_chat_openai(ctx.model_cfg, ctx.params)
         persona = ctx.persona  # 오버라이드 병합 후 주입된 페르소나(주입 단일 출처)
         broker = ctx.broker  # 정책으로 미리 스코프된 핸들(None이면 deny-by-default)
 
         def analyze(state: _State) -> dict:
             # 결정적 — 모델 호출 없음. 노드 발화가 updates→추적 타임라인에 남는다.
-            return {"query": extract_query(_last_user_text(state))}
+            return {"query": extract_query(last_user_text(state))}
 
         async def plan(state: _State) -> dict:
             """위임 대상을 **어떤 invoke·interrupt 이전에** 확정·커밋한다(스펙 116, codex 116 [P1] 봉합).

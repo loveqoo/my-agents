@@ -25,19 +25,31 @@ from langchain_core.messages import (
     SystemMessage,
     ToolMessage,
 )
-from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 
+from ..model import build_chat_openai
 from ..runtime import AgentBuildContext, AgentManifest
 
 if TYPE_CHECKING:
     from langchain_core.messages import BaseMessage
     from langchain_core.tools import BaseTool
+    from langchain_openai import ChatOpenAI
     from langgraph.graph.state import CompiledStateGraph
 
 log = logging.getLogger(__name__)
+
+
+def _model_from_node(node: dict, ctx: AgentBuildContext) -> ChatOpenAI:
+    """노드별 모델 어댑터(스펙 295) — pipeline은 노드 `model_cfg` 우선·기본 폴백만 정하고, 실제
+    ChatOpenAI 구성은 정본 `build_chat_openai`에 위임(중복 제거). 노드별 가짜 모델을 꽂는 테스트가
+    이 지점을 몽키패치하므로 얇은 어댑터로 시임을 보존한다(verify_260/261/268/270)."""
+    return build_chat_openai(
+        node.get("model_cfg") or ctx.model_cfg,
+        ctx.params,
+        error_label="노드 모델 설정이 필요합니다 (base_url/model_id) — 모델을 등록하세요.",
+    )
 
 
 class _State(TypedDict):
@@ -77,26 +89,6 @@ def _text_of(m: object) -> str:
     if isinstance(c, list):
         return "\n".join(str(p.get("text", "")) if isinstance(p, dict) else str(p) for p in c)
     return str(c)
-
-
-def _model_from_node(node: dict, ctx: AgentBuildContext) -> ChatOpenAI:
-    """노드별 모델 — 플랫폼이 미리 해석해 심은 `node["model_cfg"]`를 쓰고, 없으면 에이전트 기본
-    `ctx.model_cfg`로 폴백(주입 단일 출처 — env·DB 미접촉). base_url/model_id 없으면 명확히 실패."""
-    cfg = node.get("model_cfg") or ctx.model_cfg or {}
-    base_url = cfg.get("base_url") or ""
-    model_id = cfg.get("model_id") or ""
-    if not base_url or not model_id:
-        raise RuntimeError("노드 모델 설정이 필요합니다 (base_url/model_id) — 모델을 등록하세요.")
-    cfg_params = cfg.get("params") or {}
-    temperature = ctx.params.get("temperature", cfg_params.get("temperature", 0.7))
-    enable_thinking = cfg_params.get("enable_thinking", False)
-    return ChatOpenAI(
-        base_url=base_url,
-        api_key=cfg.get("api_key") or "sk-noauth",
-        model=model_id,
-        temperature=temperature,
-        extra_body={"chat_template_kwargs": {"enable_thinking": enable_thinking}},
-    )
 
 
 def _norm_node_name(n: dict, i: int) -> str:
@@ -205,7 +197,7 @@ class LinearPipelineAgent:
         nodes = normalize_nodes((ctx.impl_config or {}).get("nodes"))
         if not nodes:
             # 노드 없음 — 조용한 빈 그래프 대신 단일 패스스루로 정직하게(입력을 그대로 모델에 태워
-            # 최소 동작). 기본 모델도 없으면 build 시점에 명확히 실패(_model_from_node).
+            # 최소 동작). 기본 모델도 없으면 build 시점에 명확히 실패(_model_from_node→build_chat_openai).
             nodes = [
                 {
                     "name": "노드1",

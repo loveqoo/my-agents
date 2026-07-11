@@ -36,11 +36,12 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.types import interrupt
 
+from ..model import build_chat_openai
 from ..runtime import AgentBuildContext, AgentManifest
+from ..toolbox import last_user_text
 
 if TYPE_CHECKING:
     from langchain_core.runnables import RunnableConfig
-    from langchain_openai import ChatOpenAI
     from langgraph.graph.state import CompiledStateGraph
 
 
@@ -292,17 +293,6 @@ def _first_json_obj(text: str) -> dict:
     return {}
 
 
-def _last_user_text(state: _State) -> str:
-    for msg in reversed(state["messages"]):
-        content = getattr(msg, "content", None)
-        if content is None and isinstance(msg, dict):
-            content = msg.get("content")
-        role = getattr(msg, "type", None) or (msg.get("role") if isinstance(msg, dict) else None)
-        if content and role in ("human", "user", None):
-            return content if isinstance(content, str) else str(content)
-    return ""
-
-
 def summarize_artifact(art: Artifact) -> str:
     """완성 산출물의 사용자용 요약(순수함수). data가 평면 dict면 `키=값` 나열, 아니면 JSON."""
     import json
@@ -352,13 +342,16 @@ class ArtifactAgentBase(ABC):
 
     @final
     def build_graph(self, ctx: AgentBuildContext) -> CompiledStateGraph:
-        model = _make_model(ctx)  # 모델 미설정이어도 ask-only produce는 동작(extract 시 {})
+        # 모델 미설정이어도 ask-only produce는 동작(extract 시 {}) → on_missing="none"
+        model = build_chat_openai(
+            ctx.model_cfg, ctx.params, default_temperature=0.2, on_missing="none"
+        )
         broker = ctx.broker
 
         async def produce_node(state: _State, config: RunnableConfig | None) -> dict:
             thread_id = (config or {}).get("configurable", {}).get("thread_id", "")
             pctx = ProduceContext(
-                text=_last_user_text(state),
+                text=last_user_text(state, roles=("human", "user", None)),
                 model=model,
                 broker=broker,
                 step_log=_step_log(thread_id) if thread_id else [],
@@ -381,29 +374,6 @@ class ArtifactAgentBase(ABC):
         g.add_edge("produce", END)
         # checkpointer 주입 보존 — ask/form interrupt 재개(HIL 계약)의 전제.
         return g.compile(checkpointer=ctx.checkpointer)
-
-
-def _make_model(ctx: AgentBuildContext) -> ChatOpenAI | None:
-    """model_cfg가 온전할 때만 ChatOpenAI 구성 — ask-only produce는 모델 없이도 돌아야 해서
-    (조율형 _model_from_cfg처럼) 즉시 raise하지 않고 None을 허용한다(extract가 {} 반환)."""
-    cfg = ctx.model_cfg or {}
-    base_url = cfg.get("base_url") or ""
-    model_id = cfg.get("model_id") or ""
-    if not base_url or not model_id:
-        return None
-    from langchain_openai import ChatOpenAI
-
-    cfg_params = cfg.get("params") or {}
-    temperature = ctx.params.get("temperature", cfg_params.get("temperature", 0.2))
-    return ChatOpenAI(
-        base_url=base_url,
-        api_key=cfg.get("api_key") or "sk-noauth",
-        model=model_id,
-        temperature=temperature,
-        extra_body={
-            "chat_template_kwargs": {"enable_thinking": cfg_params.get("enable_thinking", False)}
-        },
-    )
 
 
 # ----------------------------- 데모 1: slot-fill (대조 구현) -----------------------------

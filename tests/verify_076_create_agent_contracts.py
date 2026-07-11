@@ -20,16 +20,17 @@ from langchain_core.messages import AIMessage
 def _build_with_stub(monkeypatch_model):
     """build_agent를 태우되 ChatOpenAI 대신 스텁 모델을 주입(엔드포인트 불요)."""
     import agent.main as m
+    import agent.model as mdl  # 스펙 295 — 모델 구성 정본(build_agent가 여기로 위임)
 
-    orig = m.ChatOpenAI
-    m.ChatOpenAI = lambda **kw: monkeypatch_model  # noqa: E731
+    orig = mdl.ChatOpenAI
+    mdl.ChatOpenAI = lambda **kw: monkeypatch_model  # noqa: E731
     try:
         return m.build_agent(
             persona="너는 간결한 비서다.",
             model_cfg={"base_url": "http://x", "model_id": "stub", "params": {}},
         )
     finally:
-        m.ChatOpenAI = orig
+        mdl.ChatOpenAI = orig
 
 
 def main() -> int:
