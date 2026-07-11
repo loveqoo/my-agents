@@ -14,9 +14,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from .main import build_agent
+
+if TYPE_CHECKING:
+    from langgraph.graph.state import CompiledStateGraph
 
 
 class AgentConfigError(Exception):
@@ -147,7 +150,7 @@ class CustomAgent(Protocol):
 
     def describe(self) -> AgentManifest: ...
 
-    def build_graph(self, ctx: AgentBuildContext): ...
+    def build_graph(self, ctx: AgentBuildContext) -> CompiledStateGraph: ...
 
 
 class DefaultUiAgent:
@@ -164,7 +167,7 @@ class DefaultUiAgent:
             description="기본 ReAct 에이전트(create_agent) — UI 빌더로 만든 로컬 에이전트",
         )
 
-    def build_graph(self, ctx: AgentBuildContext):
+    def build_graph(self, ctx: AgentBuildContext) -> CompiledStateGraph:
         return build_agent(
             ctx.persona, ctx.params, ctx.tools, ctx.model_cfg, checkpointer=ctx.checkpointer
         )

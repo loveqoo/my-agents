@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .. import agent_card, crypto, net_guard
 from ..auth import current_principal
 from ..db import get_session
-from ..models import Agent, AgentVersion
+from ..models import Agent, AgentVersion, User
 from ..naming import slugify_name
 from ..ownership import assert_may_manage, owner_of
 from ..schemas import AgentOut, ConnectAgentIn, RegisterCodeAgentIn, RegisterExternalAgentIn
@@ -31,7 +31,7 @@ from .routers import router
 async def register_code_agent(
     body: RegisterCodeAgentIn,
     session: AsyncSession = Depends(get_session),
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
 ) -> AgentOut:
     # endpoint를 절대 http(s)로 정규화(스펙 060, 일관성). SDK 직접 등록이라 base는 없다 — 스킴 없는
     # host:port는 http:// 전치, 절대화 불가(빈 값·비-http 스킴)면 등록 시점에 400(채팅서 늦게 안 깸).
@@ -89,7 +89,7 @@ async def register_code_agent(
 async def connect_agent(
     body: ConnectAgentIn,
     session: AsyncSession = Depends(get_session),
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
 ) -> AgentOut:
     """원격 에이전트 연결 — URL 하나로 A2A 카드를 fetch해 provenance 자동분류(스펙 057).
 
@@ -121,7 +121,7 @@ async def connect_agent(
 async def register_external_agent(
     body: RegisterExternalAgentIn,
     session: AsyncSession = Depends(get_session),
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
 ) -> AgentOut:
     """A2A Agent Card URL을 fetch·검증해 외부 에이전트로 등록(026, 1차).
 
@@ -157,9 +157,9 @@ def _transition_active_commit(agent: Agent, new_commit: str, cfg: dict) -> None:
     """commit 변경 시 버전 행을 057 F4 불변식대로 전이(active_version은 항상 실재 active 행)."""
     agent.commit = new_commit
     existing = _find_version(agent, new_commit)
-    for v in agent.versions:
-        if v.status == "active":
-            v.status = "archived"
+    for version in agent.versions:
+        if version.status == "active":
+            version.status = "archived"
     if existing is not None:
         existing.status = "active"  # A→B→A 재왕복: 기존 행 승격(중복 행 금지)
     else:
@@ -199,7 +199,7 @@ def _resync_deploy_meta(agent: Agent, card: dict, cfg: dict) -> None:
 async def resync_agent(
     agent_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
 ) -> AgentOut:
     """stale endpoint 자가치유(스펙 081 P1).
 

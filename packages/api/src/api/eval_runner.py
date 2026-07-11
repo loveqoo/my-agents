@@ -16,12 +16,16 @@ checkpointer=None — HIL 게이트 cap은 interrupt가 예외로 떨어져 erro
 
 import asyncio
 import logging
+import uuid
+from typing import Any
 
-from agent.runtime import AgentBuildContext, AgentConfigError
+from agent.runtime import AgentBuildContext, AgentConfigError, CustomAgent
 
 from . import memory, observability, runtime
 from .broker import build_broker
+from .broker.core import PolicyScopedBroker
 from .chat import _load_context, _window, resolve_agent_runtime
+from .models import User
 
 log = logging.getLogger("api.eval")
 
@@ -41,9 +45,9 @@ def _canonical_tokens(
         tokens.append(node)
         if node.startswith("broker_invoke:"):
             tokens.append(node[len("broker_invoke:") :])  # canonical: rag:X / mcp:s/t / memory:user
-    for c in calls_sink:
-        server = str(c.get("server", ""))
-        tool = str(c.get("tool", ""))
+    for call in calls_sink:
+        server = str(call.get("server", ""))
+        tool = str(call.get("tool", ""))
         tokens.append(f"rag:{tool}" if server == "rag" else f"mcp:{server}/{tool}")
     if used_memory:
         tokens.append("memory:used")
@@ -69,14 +73,14 @@ async def _recall_memory(ctx: dict, user_text: str) -> tuple[bool, list, str]:
 
 async def _build_eval_graph(
     ctx: dict,
-    impl,
+    impl: CustomAgent,
     persona_prompt: str,
     mem_hits: list,
     calls_sink: list[dict],
-    principal,
+    principal: User | str,
     delegation_chain: tuple,
-    delegation_budget,
-):
+    delegation_budget: dict | None,
+) -> tuple[Any, PolicyScopedBroker]:
     """평가용 그래프를 도구·브로커 주입으로 빌드 → (graph, broker)."""
     tools = await runtime.build_mcp_tools(
         ctx["mcp_servers"], calls_sink, ctx.get("toolPolicy"), ctx.get("tool_names")
@@ -107,7 +111,9 @@ async def _build_eval_graph(
     return impl.build_graph(build_ctx), broker
 
 
-async def _stream_observed(graph, messages, cfg) -> tuple[str, list[str], bool, str | None]:
+async def _stream_observed(
+    graph: Any, messages: list[dict], cfg: dict
+) -> tuple[str, list[str], bool, str | None]:
     """그래프 스트림 실행 + 관측 수집 → (output, observed_nodes, error, detail)."""
     acc: list[str] = []
     observed_nodes: list[str] = []
@@ -137,13 +143,13 @@ async def _stream_observed(graph, messages, cfg) -> tuple[str, list[str], bool, 
 
 
 async def eval_run_agent(
-    agent_pk,
+    agent_pk: uuid.UUID,
     user_text: str,
-    principal,
+    principal: User | str,
     overrides: dict | None = None,
     version: str | None = None,
     delegation_chain: tuple = (),
-    delegation_budget=None,
+    delegation_budget: dict | None = None,
 ) -> dict:
     """케이스 1건 실행 → obs {"output", "trace_nodes", "error", "detail"?}.
 

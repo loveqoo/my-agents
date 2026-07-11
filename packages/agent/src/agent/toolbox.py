@@ -35,11 +35,11 @@ def _rank(tools: list, query: str) -> list:
     랭킹(스펙 124 교훈: 하드필터는 자연어 쿼리서 전멸) — 무매치여도 상위 후보는 돌려준다."""
     terms = [w for w in query.lower().split() if w]
     scored = []
-    for t in tools:
-        name = (t.name or "").lower()
-        desc = (t.description or "").lower()
+    for candidate in tools:  # 랭킹 후보(langchain `tool` 데코레이터와 이름 충돌 회피)
+        name = (candidate.name or "").lower()
+        desc = (candidate.description or "").lower()
         score = sum((2 if w in name else 0) + (1 if w in desc else 0) for w in terms)
-        scored.append((score, t))
+        scored.append((score, candidate))
     scored.sort(key=lambda x: -x[0])
     return [t for _s, t in scored]
 

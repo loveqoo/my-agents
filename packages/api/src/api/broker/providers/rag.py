@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from sqlalchemy import select
 
 from agent.runtime import Capability, InvokeResult
 
 from ..common import CAP_KIND_RAG, _first_line, _kind_of, _parse_rag, _rt
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+    from ...models import Collection
 
 
 class _RagBacking:
@@ -15,7 +22,7 @@ class _RagBacking:
 
     __slots__ = ("col", "description", "name")
 
-    def __init__(self, name: str, description: str, col: dict | None):
+    def __init__(self, name: str, description: str, col: dict | None) -> None:
         self.name = name
         self.description = description
         self.col = col
@@ -29,7 +36,9 @@ class RagProvider:
 
     kind = CAP_KIND_RAG
 
-    def __init__(self, session_factory, min_scores: dict | None = None):
+    def __init__(
+        self, session_factory: async_sessionmaker[AsyncSession], min_scores: dict | None = None
+    ) -> None:
         self._session_factory = session_factory
         # 컬렉션별 최소 유사도 맵(스펙 191 v2) — invoke가 row.name으로 조회해 그 컬렉션 임계값을 적용.
         self._min_scores = min_scores if isinstance(min_scores, dict) else {}
@@ -57,7 +66,7 @@ class RagProvider:
                 .all()
             )
 
-    def _col_dict(self, c) -> dict | None:
+    def _col_dict(self, c: Collection) -> dict | None:
         """Collection → retrieval 코어 계약 dict. **chat._load_context와 동일 규칙**(drift 0). 임베딩
         모델/provider 불완전하거나 kind!=embedding이면 None(search_collection 400 가드와 동형)."""
         from ... import crypto
@@ -175,6 +184,6 @@ class RagProvider:
         return f"broker_invoke:{CAP_KIND_RAG}:{row.name}"
 
     def approval_for(
-        self, _row, _cap_id: str, _args: dict, _tool_policy: dict | None = None
+        self, _row: _RagBacking, _cap_id: str, _args: dict, _tool_policy: dict | None = None
     ) -> dict | None:
         return None  # RAG=읽기 전용(부수효과 없음) → 승인 게이트 불요.

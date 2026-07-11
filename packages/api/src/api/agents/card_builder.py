@@ -99,20 +99,22 @@ def _rows_from_card_versions(
     versions: list[AgentVersion] = []
     active_version_id: str | None = None
     if isinstance(raw_versions, list):
-        for v in raw_versions:
-            if not isinstance(v, dict):
+        for raw_version in raw_versions:
+            if not isinstance(raw_version, dict):
                 continue
-            vid = _clip(v.get("version"), 40)
+            vid = _clip(raw_version.get("version"), 40)
             if vid is None:
                 continue
-            vstatus = _clip(v.get("status"), 20) or "archived"
+            vstatus = _clip(raw_version.get("status"), 20) or "archived"
             if vstatus == "active" and active_version_id is None:
                 active_version_id = vid
             versions.append(
                 AgentVersion(
                     version=vid,
                     status=vstatus,
-                    note=v.get("note") if isinstance(v.get("note"), str) else "",
+                    note=raw_version.get("note")
+                    if isinstance(raw_version.get("note"), str)
+                    else "",
                     config=cfg,
                 )
             )

@@ -8,8 +8,12 @@ cap_id·args로 남을 가리킬 수 없음) 공유 — 쪼개면 상호참조�
 from __future__ import annotations
 
 import asyncio
+from typing import TYPE_CHECKING
 
 from agent.runtime import Capability, InvokeResult
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ..common import (
     CAP_KIND_MEMORY,
@@ -28,7 +32,7 @@ class _MemBacking:
 
     __slots__ = ("resource",)
 
-    def __init__(self, resource: str):
+    def __init__(self, resource: str) -> None:
         self.resource = resource
 
 
@@ -44,7 +48,9 @@ class MemoryProvider:
 
     kind = CAP_KIND_MEMORY
 
-    def __init__(self, session_factory, user_id: str | None):
+    def __init__(
+        self, session_factory: async_sessionmaker[AsyncSession], user_id: str | None
+    ) -> None:
         self._session_factory = session_factory
         self._user_id = (
             user_id  # principal 도출값(build_broker). None=머신 → 자기 스코프 없음 → deny.
@@ -127,7 +133,7 @@ class MemoryProvider:
         return f"broker_invoke:{CAP_KIND_MEMORY}:user"
 
     def approval_for(
-        self, _row, _cap_id: str, _args: dict, _tool_policy: dict | None = None
+        self, _row: _MemBacking, _cap_id: str, _args: dict, _tool_policy: dict | None = None
     ) -> dict | None:
         return None  # 메모리 읽기=부수효과 없음 → 승인 게이트 불요(memory write는 스펙 105).
 
@@ -162,7 +168,9 @@ class MemoryWriteProvider:
 
     kind = CAP_KIND_MEMORY_WRITE
 
-    def __init__(self, session_factory, user_id: str | None):
+    def __init__(
+        self, session_factory: async_sessionmaker[AsyncSession], user_id: str | None
+    ) -> None:
         self._session_factory = session_factory
         self._user_id = (
             user_id  # principal 도출값(build_broker) — read provider와 공유. None=머신→deny.
@@ -242,7 +250,7 @@ class MemoryWriteProvider:
         return f"broker_invoke:{CAP_KIND_MEMORY_WRITE}:user"
 
     def approval_for(
-        self, _row, _cap_id: str, args: dict, _tool_policy: dict | None = None
+        self, _row: _MemBacking, _cap_id: str, args: dict, _tool_policy: dict | None = None
     ) -> dict | None:
         # 쓰기=부수효과 → **항상 승인**(None 절대 안 돌림). 저장될 사실을 마스킹 없이 노출(승인 가시성).
         text = _memwrite_text(args)  # invoke와 동일 헬퍼(길이 상한 일치) → 승인한 것 == 저장되는 것
@@ -290,7 +298,9 @@ class MemEditProvider:
 
     kind = CAP_KIND_MEMORY_EDIT
 
-    def __init__(self, session_factory, user_id: str | None):
+    def __init__(
+        self, session_factory: async_sessionmaker[AsyncSession], user_id: str | None
+    ) -> None:
         self._session_factory = session_factory
         self._user_id = (
             user_id  # principal 도출값(build_broker) — read/write provider와 공유. None=머신→deny.
@@ -344,7 +354,9 @@ class MemEditProvider:
             return "수정할 내용이 비어 있습니다."
         return None
 
-    async def _apply(self, op: str, mem_id: str, text: str, mem_cfg, raw: dict) -> InvokeResult:
+    async def _apply(
+        self, op: str, mem_id: str, text: str, mem_cfg: dict | None, raw: dict
+    ) -> InvokeResult:
         """소유권 선행 확인 후 update/delete 실행 — 미소유·부재 **동일 error**(404-fold, 존재 비노출).
 
         **check-then-act 하중 가정(codex 111 [P1] — 정직화)**: user_owns 확인과 mutation이 원자적으로
@@ -402,7 +414,7 @@ class MemEditProvider:
         return f"broker_invoke:{CAP_KIND_MEMORY_EDIT}:user"
 
     def approval_for(
-        self, _row, _cap_id: str, args: dict, _tool_policy: dict | None = None
+        self, _row: _MemBacking, _cap_id: str, args: dict, _tool_policy: dict | None = None
     ) -> dict | None:
         # 수정/삭제=부수효과 → **항상 승인**(None 절대 안 돌림). 마스킹 없이 노출(승인 가시성).
         op, mem_id, text = _memedit_args(args)  # invoke와 동일 정규화 → 승인한 것 == 실행되는 것

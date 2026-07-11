@@ -20,14 +20,14 @@ from .eval_common import (
     router,
 )
 from .eval_schemas import DatasetIn, DatasetOut, DatasetPageOut
-from .models import EvalCase, EvalDataset
+from .models import EvalCase, EvalDataset, User
 from .ownership import assert_may_manage, is_privileged, owner_of
 
 
 @router.get("/datasets", response_model=DatasetPageOut)
 async def list_datasets(
     session: AsyncSession = Depends(get_session),
-    user=Depends(current_principal),
+    user: User | str = Depends(current_principal),
     q: str | None = None,
     kind: str | None = Query(None, pattern="^(agent|rag)$"),
     limit: int = Query(20, ge=1, le=100),
@@ -80,7 +80,7 @@ async def list_datasets(
 async def get_dataset(
     dataset_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
-    user=Depends(current_principal),
+    user: User | str = Depends(current_principal),
 ) -> DatasetOut:
     """문제집 단건 — 열린 드로어 rebind용(폴링 시 generating 종료·collection_id 반영, 스펙 196).
     읽기 공개(178 D1) · 없으면 404."""
@@ -96,7 +96,9 @@ async def get_dataset(
 
 @router.post("/datasets", response_model=DatasetOut, status_code=201)
 async def create_dataset(
-    body: DatasetIn, session: AsyncSession = Depends(get_session), user=Depends(current_principal)
+    body: DatasetIn,
+    session: AsyncSession = Depends(get_session),
+    user: User | str = Depends(current_principal),
 ) -> DatasetOut:
     ds = EvalDataset(
         name=body.name,
@@ -120,7 +122,7 @@ async def update_dataset(
     dataset_id: uuid.UUID,
     body: DatasetIn,
     session: AsyncSession = Depends(get_session),
-    user=Depends(current_principal),
+    user: User | str = Depends(current_principal),
 ) -> DatasetOut:
     ds = await _dataset_or_404(session, dataset_id)
     assert_may_manage(ds, user, not_found_detail="dataset not found")  # 소유자만(비소유 404-fold)
@@ -136,7 +138,7 @@ async def update_dataset(
 async def delete_dataset(
     dataset_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
-    user=Depends(current_principal),
+    user: User | str = Depends(current_principal),
 ) -> None:
     ds = await _dataset_or_404(session, dataset_id)
     assert_may_manage(ds, user, not_found_detail="dataset not found")  # 소유자만(비소유 404-fold)

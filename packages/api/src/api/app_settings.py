@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .db import SessionLocal, get_session
 from .model_registry import require_model_manage
-from .models import AppSetting
+from .models import AppSetting, User
 
 router = APIRouter(prefix="/admin/settings", tags=["settings"])
 
@@ -62,7 +62,9 @@ async def get_setting(key: str) -> Any:
 
 
 @router.get("")
-async def list_settings(session: AsyncSession = Depends(get_session), _p=_manage) -> dict[str, Any]:
+async def list_settings(
+    session: AsyncSession = Depends(get_session), _p: User | str = _manage
+) -> dict[str, Any]:
     """전체 설정(기본값 포함) — UI 폼 로드용."""
     out: dict[str, Any] = {}
     for key, (default, _v) in _KEYS.items():
@@ -77,7 +79,10 @@ async def list_settings(session: AsyncSession = Depends(get_session), _p=_manage
 
 @router.put("/{key}")
 async def put_setting(
-    key: str, body: SettingIn, session: AsyncSession = Depends(get_session), _p=_manage
+    key: str,
+    body: SettingIn,
+    session: AsyncSession = Depends(get_session),
+    _p: User | str = _manage,
 ) -> dict[str, Any]:
     if key not in _KEYS:
         raise HTTPException(status_code=400, detail=f"알 수 없는 설정 키입니다: {key}")

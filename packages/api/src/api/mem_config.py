@@ -8,13 +8,14 @@ mem_cfg 구조·축 규칙은 memory.py 모듈 docstring 참고. 지배 스펙: 
 """
 
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from . import crypto
 from .models import ModelConfig
 
 
-def _build_mem_cfg(chat_m, emb_m) -> dict | None:
+def _build_mem_cfg(chat_m: ModelConfig | None, emb_m: ModelConfig | None) -> dict | None:
     """레지스트리 chat+embedding 모델 → mem0 mem_cfg(llm+embedder dict, 복호화 포함).
     연결처는 각 모델의 provider에서 상속(스펙 035). 어느 쪽이라도 provider base_url/model_id가
     없으면 None. get_all/update/delete는 embedder만 쓰지만 mem0 인스턴스화에 llm 자리가 필요하다
@@ -39,7 +40,7 @@ def _build_mem_cfg(chat_m, emb_m) -> dict | None:
     }
 
 
-async def _default_chat_model(db):
+async def _default_chat_model(db: AsyncSession) -> ModelConfig | None:
     return (
         (
             await db.execute(
@@ -53,7 +54,7 @@ async def _default_chat_model(db):
     )
 
 
-async def _default_embed_model(db):
+async def _default_embed_model(db: AsyncSession) -> ModelConfig | None:
     return (
         (
             await db.execute(
@@ -67,7 +68,7 @@ async def _default_embed_model(db):
     )
 
 
-async def default_mem_cfg(db) -> dict | None:
+async def default_mem_cfg(db: AsyncSession) -> dict | None:
     """특정 에이전트에 안 묶인 mem0 설정 — 기본 chat + 기본 embedding. 유저 메모리
     관리(스펙 030)·통합(스펙 039)용. 공유 pgvector·user_id 키라 기본 설정으로 조회·교정이 가능하다."""
     return _build_mem_cfg(await _default_chat_model(db), await _default_embed_model(db))

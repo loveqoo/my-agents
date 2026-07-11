@@ -8,11 +8,13 @@ import asyncio
 import ipaddress
 import logging
 import re
+import uuid
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlsplit
 
-from sqlalchemy import delete, exists, or_, select, text
+from sqlalchemy import ColumnElement, delete, exists, or_, select, text
 from sqlalchemy import func as safunc
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import memory
 from ..db import SessionLocal
@@ -22,7 +24,7 @@ from ..models import Agent, Approval, BatchConfig, MemorySnapshot, Session, User
 log = logging.getLogger("api.batch.jobs")
 
 
-async def _get_config(session) -> BatchConfig:
+async def _get_config(session: AsyncSession) -> BatchConfig:
     """싱글톤 BatchConfig 1행 확보(없으면 생성). 값은 기본 NULL."""
     cfg = (await session.execute(select(BatchConfig).limit(1))).scalars().first()
     if cfg is None:
@@ -38,17 +40,23 @@ async def _get_config(session) -> BatchConfig:
 _TURN_CLEANUP_IDLE_GUARD = timedelta(hours=1)
 
 
-def _age_criterion_active(days) -> bool:
+def _age_criterion_active(days: int | None) -> bool:
     """나이 절 활성 여부 — API ge=1 밖 한 겹 더(방어: days=0이면 delete-all footgun)."""
     return days is not None and days >= 1
 
 
-def _turn_criterion_active(min_turns) -> bool:
+def _turn_criterion_active(min_turns: int | None) -> bool:
     """턴 절 활성 여부 — API ge=1 밖 한 겹 더(방어: min_turns=0이면 delete-all footgun)."""
     return min_turns is not None and min_turns >= 1
 
 
-def _session_cleanup_clauses(min_turns, age_active, turn_active, age_cutoff, idle_cutoff) -> list:
+def _session_cleanup_clauses(
+    min_turns: int | None,
+    age_active: bool,
+    turn_active: bool,
+    age_cutoff: datetime | None,
+    idle_cutoff: datetime | None,
+) -> list:
     """삭제 대상 판정 절 목록(나이 절 + 턴 절) — 조건식은 스펙 038·049 원문 그대로."""
     clauses = []
     if age_active:
@@ -65,7 +73,7 @@ def _session_cleanup_clauses(min_turns, age_active, turn_active, age_cutoff, idl
     return clauses
 
 
-def _pending_approval_clause():
+def _pending_approval_clause() -> ColumnElement[bool]:
     """미해결 승인(HIL) 세션 제외 술어 — 절대 삭제 안 함. _create_approval이 turns=0으로
     lazy-create한 세션이라 턴 절(<N)에 걸리고, 승인 대기는 흔히 IDLE_GUARD(1h)를 넘긴다. 그 사이
     정리되면 resume_approval의 _load_context가 행을 못 찾아 새 id를 만들어 대화를 고아로 만든다
@@ -78,7 +86,12 @@ def _pending_approval_clause():
 
 
 def _session_cleanup_meta(
-    days, min_turns, age_active, turn_active, age_cutoff, idle_cutoff
+    days: int | None,
+    min_turns: int | None,
+    age_active: bool,
+    turn_active: bool,
+    age_cutoff: datetime | None,
+    idle_cutoff: datetime | None,
 ) -> dict:
     """BatchRun.summary 메타 — 비활성 절의 값은 None."""
     return {
@@ -89,7 +102,9 @@ def _session_cleanup_meta(
     }
 
 
-def _cleanup_criteria_labels(age_cutoff, min_turns, turn_active) -> tuple:
+def _cleanup_criteria_labels(
+    age_cutoff: datetime | None, min_turns: int | None, turn_active: bool
+) -> tuple:
     """로그 표기용 (나이 기준, 턴 기준) 라벨 — 비활성 절은 'off'."""
     return (
         age_cutoff.isoformat() if age_cutoff else "off",
@@ -97,7 +112,7 @@ def _cleanup_criteria_labels(age_cutoff, min_turns, turn_active) -> tuple:
     )
 
 
-async def cleanup_sessions(*, dry_run: bool, run_id=None) -> dict:  # noqa: ARG001 — runner가 키워드 호출(계약)
+async def cleanup_sessions(*, dry_run: bool, run_id: uuid.UUID | None = None) -> dict:  # noqa: ARG001 — runner가 키워드 호출(계약)
     """세션 정리 — 두 기준의 **합집합**(스펙 038 나이 + 스펙 049 턴). 메시지는 FK ondelete CASCADE로
     DB가 자동 삭제(messages.session_pk).
 
@@ -213,7 +228,7 @@ def _consolidate(texts: list[str], mem_cfg: dict | None) -> list[str]:
 _MAX_CONSOLIDATE_INPUT = 200
 
 
-def _valid_consolidation(new_facts: list[str], original_count: int) -> bool:
+def _is_valid_consolidation(new_facts: list[str], original_count: int) -> bool:
     """통합 결과를 '파괴적 교체해도 되는가'로 판정. 비었거나(불변식 2) 원본보다 줄지 않으면
     (확장·무변 = 모델이 거부문/머리말/원문 에코를 뱉은 쓰레기일 수 있음) 무효 → 그 유저 스킵.
     파괴적 교체는 **명백히 더 적은 사실**일 때만 허용한다(learning 037)."""
@@ -232,13 +247,13 @@ async def _candidates(
     return out
 
 
-async def consolidate_user_memories(*, dry_run: bool, run_id=None) -> dict:
+async def consolidate_user_memories(*, dry_run: bool, run_id: uuid.UUID | None = None) -> dict:
     """유저 장기기억(user_id 축) 통합·재적재 — 임계치 초과 유저의 기억을 LLM으로 통합하고,
     원본을 MemorySnapshot에 백업한 뒤 교체. 스펙 039. 안전 불변식(스펙 §2.안전):
 
     1. threshold NULL/<2 → disabled(파괴적 churn 차단, learning 037). mem_cfg 미해석도 disabled.
     2. 통합 결과가 비거나 원본보다 줄지 않거나(쓰레기 출력 방어) 기억 수가 상한 초과면(잘림 손실
-       방지) 그 유저 **전체 스킵**(절대 삭제 안 함). _valid_consolidation·_MAX_CONSOLIDATE_INPUT.
+       방지) 그 유저 **전체 스킵**(절대 삭제 안 함). _is_valid_consolidation·_MAX_CONSOLIDATE_INPUT.
     3. 스냅샷에 담은 그 mem_id만 삭제 → list~delete 사이 라이브 추가분 생존(동시성 안전).
     4. dry-run은 무변형(LLM 미리보기만).
     5. mem0 add/delete는 graceful(실패 흡수), 실제 성공 수를 센다.
@@ -273,7 +288,7 @@ async def consolidate_user_memories(*, dry_run: bool, run_id=None) -> dict:
                 )
                 continue
             new_facts = await asyncio.to_thread(_consolidate, [m["text"] for m in mems], mem_cfg)
-            skip = None if _valid_consolidation(new_facts, len(mems)) else "no_shrink"
+            skip = None if _is_valid_consolidation(new_facts, len(mems)) else "no_shrink"
             preview.append(
                 {
                     "user_id": uid,
@@ -305,7 +320,9 @@ async def consolidate_user_memories(*, dry_run: bool, run_id=None) -> dict:
             )
             continue
         new_facts = await asyncio.to_thread(_consolidate, [m["text"] for m in mems], mem_cfg)
-        if not _valid_consolidation(new_facts, len(mems)):  # 불변식 2 — 빈/미축소면 절대 삭제 안 함
+        if not _is_valid_consolidation(
+            new_facts, len(mems)
+        ):  # 불변식 2 — 빈/미축소면 절대 삭제 안 함
             log.warning(
                 "memory-consolidation: 통합 결과 무효(빈/미축소 %d→%d) → user=%s 스킵(원본 보존)",
                 len(mems),
@@ -315,9 +332,11 @@ async def consolidate_user_memories(*, dry_run: bool, run_id=None) -> dict:
             continue
         # ① 원본을 스냅샷에 박제 + commit (롤백 앵커). 삭제는 이 다음에만 한다.
         async with SessionLocal() as session:
-            for m in mems:
+            for mem in mems:
                 session.add(
-                    MemorySnapshot(batch_run_id=run_id, user_id=uid, mem_id=m["id"], text=m["text"])
+                    MemorySnapshot(
+                        batch_run_id=run_id, user_id=uid, mem_id=mem["id"], text=mem["text"]
+                    )
                 )
             await session.commit()
         # ② 통합본 적재 — 이미 정제된 한 줄 사실이라 infer=False(재추출로 모양 안 바뀌게).
@@ -327,8 +346,8 @@ async def consolidate_user_memories(*, dry_run: bool, run_id=None) -> dict:
             )
         # ③ 불변식 3 — 박제한 그 mem_id만 삭제(스캔 이후 추가분은 안 건드림).
         deleted = 0
-        for m in mems:
-            if await asyncio.to_thread(memory.delete_memory, m["id"], mem_cfg):
+        for mem in mems:
+            if await asyncio.to_thread(memory.delete_memory, mem["id"], mem_cfg):
                 deleted += 1
         if deleted != len(
             mems
@@ -422,7 +441,7 @@ def is_delete_all_pattern(pattern: str | None) -> bool:
     return ("@" not in literal) or (len(literal) < 5)
 
 
-async def cleanup_a2a_agents(*, dry_run: bool, run_id=None) -> dict:  # noqa: ARG001 — runner가 키워드 호출(계약)
+async def cleanup_a2a_agents(*, dry_run: bool, run_id: uuid.UUID | None = None) -> dict:  # noqa: ARG001 — runner가 키워드 호출(계약)
     """A2A 정크 정리(스펙 050, #1) — `source='external'` AND endpoint 호스트가 루프백/RFC1918 사설인
     에이전트 삭제. 테스트가 등록한 프로브 A2A 카드만 걸린다.
 
@@ -469,7 +488,7 @@ async def cleanup_a2a_agents(*, dry_run: bool, run_id=None) -> dict:  # noqa: AR
         return {"status": "ok", **meta, "deleted": len(ids)}
 
 
-def _survives_keep_list(email) -> bool:
+def _survives_keep_list(email: str | None) -> bool:
     """keep-list(바닥 2) 밖이면 True — 패턴 일치해도 keep-list는 제외. 공백·대소문자 차이로 보호가
     새지 않게 strip().lower() 양변 정규화(적대리뷰 #8 — 저장 이메일에 끝 공백/대문자가 있어도
     부트스트랩 admin 보호)."""
@@ -488,7 +507,7 @@ def _protect_last_supers(candidates: list, total_supers: int) -> tuple[list, lis
     return candidates, []
 
 
-async def _purge_casbin_rules(session, ids) -> None:
+async def _purge_casbin_rules(session: AsyncSession, ids: list[uuid.UUID]) -> None:
     """삭제 유저의 Casbin grouping/policy 행 제거(dangling 권한 누수 방지) — User 삭제와 같은
     트랜잭션(DB 원자성). casbin_rule은 ORM 모델이 없어 raw SQL. v0=삭제 유저 UUID인 행을 g·p 둘 다
     제거한다 — 현재는 user-subject가 g뿐이지만 모델이 per-user p-정책을 허용하므로 미래의 dangling
@@ -512,7 +531,7 @@ async def _reload_enforcer_after_user_delete() -> None:
         log.warning("user-cleanup: casbin enforcer reload 실패(무해, DB는 정리됨): %s", exc)
 
 
-async def cleanup_test_users(*, dry_run: bool, run_id=None) -> dict:  # noqa: ARG001 — runner가 키워드 호출(계약)
+async def cleanup_test_users(*, dry_run: bool, run_id: uuid.UUID | None = None) -> dict:  # noqa: ARG001 — runner가 키워드 호출(계약)
     """테스트 유저 정리(스펙 050, #13) — 이메일이 config 패턴(LIKE) 일치 AND keep-list 제외인 유저 삭제.
     가장 비가역이라 바닥 3겹(learning 037):
 

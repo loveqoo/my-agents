@@ -69,9 +69,9 @@ def _resolve_card_endpoint(raw: str, candidate: str) -> str:
         return normalize_http_url(s)
     # mount = 카드를 가져온 candidate에서 well-known 접미 제거 → 원격 앱의 외부 마운트 경로.
     mount = candidate
-    for p in WELL_KNOWN_PATHS:
-        if mount.endswith(p):
-            mount = mount[: -len(p)]
+    for path in WELL_KNOWN_PATHS:
+        if mount.endswith(path):
+            mount = mount[: -len(path)]
             break
     mp = urlparse(mount)
     origin = f"{mp.scheme}://{mp.netloc}"

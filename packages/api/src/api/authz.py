@@ -11,6 +11,7 @@ role 할당의 진실 원천은 casbin_rule(grouping policy `g`)이며 `roles` �
 """
 
 import logging
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 import casbin
@@ -142,7 +143,7 @@ def can_self_approve(user_sub: str, permission: str) -> bool:
 
 
 # ----------------------------- 의존성 팩토리 -----------------------------
-def require(obj: str, act: str = "*"):
+def require(obj: str, act: str = "*") -> Callable[..., Awaitable[User]]:
     """라우트 보호용 의존성 — 현재 유저가 (obj, act)를 enforce 통과해야 한다.
 
     superuser는 우회(부트스트랩 안전판). 실패 시 403. 세션 쿠키 미인증은 fastapi-users가 401.

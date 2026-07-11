@@ -16,6 +16,7 @@ import json
 import struct
 import time
 import uuid
+from collections.abc import AsyncIterator
 
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
@@ -27,7 +28,7 @@ router = APIRouter(prefix="/_remote", tags=["mock-remote"])
 
 
 @router.get("/models")
-async def remote_models():
+async def remote_models() -> dict:
     """OpenAI 호환 모델 목록(mock). chat 모델 연결 테스트의 결정적 대상."""
     return {"data": [{"id": "mock-chat", "object": "model"}]}
 
@@ -37,9 +38,9 @@ async def remote_models():
 
 def _last_user_text(messages: list) -> str:
     """messages에서 마지막 user 메시지 텍스트를 뽑는다(멀티모달 content는 평탄화)."""
-    for m in reversed(messages or []):
-        if (m or {}).get("role") == "user":
-            content = m.get("content")
+    for message in reversed(messages or []):
+        if (message or {}).get("role") == "user":
+            content = message.get("content")
             if isinstance(content, list):  # [{type,text}, ...] 멀티모달
                 return " ".join(
                     str(p.get("text", "")) for p in content if isinstance(p, dict)
@@ -89,8 +90,8 @@ _TOOL_TRIGGERS: dict = {
 
 def _bound_tool_names(body: dict) -> set:
     names = set()
-    for t in body.get("tools") or []:
-        fn = t.get("function") if isinstance(t, dict) else None
+    for tool in body.get("tools") or []:
+        fn = tool.get("function") if isinstance(tool, dict) else None
         name = fn.get("name") if isinstance(fn, dict) else None
         if name:
             names.add(name)
@@ -99,8 +100,8 @@ def _bound_tool_names(body: dict) -> set:
 
 def _tool_params_schema(body: dict, name: str) -> dict:
     """바인딩된 도구의 parameters(JSON Schema) — 일반 트리거의 인자 조립용."""
-    for t in body.get("tools") or []:
-        fn = t.get("function") if isinstance(t, dict) else None
+    for tool in body.get("tools") or []:
+        fn = tool.get("function") if isinstance(tool, dict) else None
         if isinstance(fn, dict) and fn.get("name") == name:
             return fn.get("parameters") or {}
     return {}
@@ -144,26 +145,27 @@ def _pick_tool_call(body: dict) -> tuple[str, dict] | None:
     # (예: "wiki_search로 파이썬 검색해줘"). mock으로도 임의 등록 도구 실습이 되게. 위 키워드
     # 트리거가 항상 우선(기존 테스트 결정성 보존). 오발동 방어(codex 236 #4): base 4자 미만 제외 +
     # **단어 경계 매칭**(search⊂research·echo⊂echolocation 우발 매치 차단).
-    for b in sorted(bound):
-        base = b.rsplit("__", 1)[-1]
+    for name in sorted(bound):
+        base = name.rsplit("__", 1)[-1]
         if len(base) >= 4 and re.search(
             rf"(?<![a-z0-9_]){re.escape(base.lower())}(?![a-z0-9_])", low
         ):
             text = re.sub(re.escape(base), " ", raw, flags=re.IGNORECASE).strip()
-            args = _generic_args(_tool_params_schema(body, b), text or raw)
+            args = _generic_args(_tool_params_schema(body, name), text or raw)
             if args is not None:  # None=required 비-string(채울 수 없음) → 트리거 포기
-                return b, args
+                return name, args
     return None
 
 
 @router.get("/v1/models")
-async def remote_v1_models():
+async def remote_v1_models() -> dict:
     """OpenAI 호환 모델 목록(mock-llm 연결 테스트 대상). probe가 `{base_url}/models`를 GET."""
     return {"object": "list", "data": [{"id": "mock-chat", "object": "model"}]}
 
 
-@router.post("/v1/chat/completions")
-async def remote_v1_chat_completions(body: dict):
+# response_model=None: 반환이 dict|StreamingResponse 유니언이라 FastAPI 응답모델 생성 불가(계약 불변).
+@router.post("/v1/chat/completions", response_model=None)
+async def remote_v1_chat_completions(body: dict) -> dict | StreamingResponse:
     """OpenAI 호환 chat completions(mock). `ChatOpenAI`가 치는 계약.
 
     기본은 평문 응답(결정적). 단, **개발용 도구 트리거**(스펙 179) — 바인딩된 도구가 있고 마지막
@@ -217,7 +219,7 @@ async def remote_v1_chat_completions(body: dict):
                 "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
             }
 
-        async def tool_stream():
+        async def tool_stream() -> AsyncIterator[str]:
             yield _chunk({"role": "assistant"}, None)
             yield _chunk(
                 {
@@ -264,7 +266,7 @@ async def remote_v1_chat_completions(body: dict):
             "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
         }
 
-    async def event_stream():
+    async def event_stream() -> AsyncIterator[str]:
         yield _chunk({"role": "assistant"}, None)  # 첫 프레임에 role
         step = 12
         for i in range(0, len(reply), step):
@@ -277,7 +279,7 @@ async def remote_v1_chat_completions(body: dict):
 
 @router.post("/v1/embeddings")
 @router.post("/embeddings")
-async def remote_embeddings(body: dict):
+async def remote_embeddings(body: dict) -> dict:
     """OpenAI 호환 임베딩(mock) — embedding 모델 probe·RAG 인제스트의 결정적 대상.
 
     실제 모델처럼 **입력 1건당 벡터 1개**를 반환한다(배치 보존). 차원은 RAG 저장소 차원
@@ -315,10 +317,10 @@ def _det_embedding(text: str, dims: int) -> list[float]:
     counter = 0
     while len(out) < dims:
         digest = hashlib.sha256(f"{text}#{counter}".encode()).digest()  # 32 bytes
-        for k in range(0, len(digest), 4):
+        for offset in range(0, len(digest), 4):
             if len(out) >= dims:
                 break
-            (v,) = struct.unpack(">I", digest[k : k + 4])
+            (v,) = struct.unpack(">I", digest[offset : offset + 4])
             out.append(v / 4294967296.0 - 0.5)  # [-0.5, 0.5)
         counter += 1
     return out
@@ -326,7 +328,7 @@ def _det_embedding(text: str, dims: int) -> list[float]:
 
 # ---------- mock A2A Agent Card (외부 에이전트 등록 검증용, 스펙 026) ----------
 @router.get("/.well-known/agent-card.json")
-async def remote_agent_card():
+async def remote_agent_card() -> dict:
     """개발용 mock A2A Agent Card(**확장 없음** → provenance=external). `POST /agents/connect`가
     제3자로 분류하는 결정적 대상(SDK 카드 `/sdk/...`와 짝).
 
@@ -354,7 +356,7 @@ async def remote_agent_card():
 
 # ---------- mock 제1자(SDK) A2A Agent Card (connect provenance=code 검증용, 스펙 057) ----------
 @router.get("/sdk/.well-known/agent-card.json")
-async def remote_sdk_agent_card():
+async def remote_sdk_agent_card() -> dict:
     """개발용 mock **제1자(SDK 배포)** A2A Agent Card. `POST /agents/connect`가 source=code로
     분류하는 결정적 대상.
 
@@ -408,9 +410,9 @@ def _a2a_user_text(params: dict) -> str:
     msg = (params or {}).get("message") or {}
     parts = msg.get("parts") or []
     out = []
-    for p in parts:
-        if isinstance(p, dict) and p.get("kind") == "text" and p.get("text"):
-            out.append(str(p["text"]))
+    for part in parts:
+        if isinstance(part, dict) and part.get("kind") == "text" and part.get("text"):
+            out.append(str(part["text"]))
     return "".join(out)
 
 
@@ -422,8 +424,9 @@ def _a2a_reply(user_text: str) -> str:
     )
 
 
-@router.post("/a2a")
-async def remote_a2a(body: dict):
+# response_model=None: 반환이 dict|StreamingResponse 유니언이라 FastAPI 응답모델 생성 불가(계약 불변).
+@router.post("/a2a", response_model=None)
+async def remote_a2a(body: dict) -> dict | StreamingResponse:
     """개발용 mock A2A JSON-RPC 엔드포인트(message/send·message/stream).
 
     카드(`/_remote/.well-known/agent-card.json`)가 광고하는 `url`. 외부 에이전트 실호출
@@ -467,7 +470,7 @@ async def remote_a2a(body: dict):
             }
             return f"data: {json.dumps(_response(result), ensure_ascii=False)}\n\n"
 
-        async def event_stream():
+        async def event_stream() -> AsyncIterator[str]:
             step = 16
             chunks = [reply[i : i + step] for i in range(0, len(reply), step)] or [""]
             for i, chunk in enumerate(chunks):
@@ -490,7 +493,7 @@ async def remote_a2a(body: dict):
 
 
 @router.post("/agent")
-async def remote_agent(body: ChatRequest):
+async def remote_agent(body: ChatRequest) -> StreamingResponse:
     """원격 에이전트 채팅(mock). 마지막 사용자 메시지를 받아 간단히 스트리밍 응답."""
     last = body.messages[-1].content if body.messages else ""
     reply = (
@@ -498,7 +501,7 @@ async def remote_agent(body: ChatRequest):
         "이 응답은 등록된 엔드포인트에서 스트리밍되었습니다."
     )
 
-    async def event_stream():
+    async def event_stream() -> AsyncIterator[str]:
         # 토큰 단위로 쪼개 SSE text 프레임 전송 (chat.py 프록시가 그대로 재전송).
         step = 12
         for i in range(0, len(reply), step):

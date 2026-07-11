@@ -6,9 +6,12 @@
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from agent.runtime import Capability, InvokeResult
+
+if TYPE_CHECKING:
+    from types import ModuleType
 
 CAP_KIND_AGENT = "agent"  # A2A provider(Phase 1).
 CAP_KIND_MCP = "mcp"  # MCP provider(Phase 2-a).
@@ -110,7 +113,7 @@ def _first_line(text: str, fallback: str) -> str:
     return s.splitlines()[0][:200] if s else fallback
 
 
-def _rt():
+def _rt() -> ModuleType:
     """api.runtime 지연 접근(모듈 경량·순환 import 방지). mcp_connection 등 전송 헬퍼 공유원."""
     from .. import runtime
 
@@ -134,16 +137,17 @@ class _CapabilityProvider(Protocol):
     ) -> object | None:  # 허가 전제, cap_id→backing row(미존재→None)
         ...
 
-    def describe(self, row) -> Capability:  # row→input_schema 채운 Capability
+    # row = provider별 backing(Agent·_McpBacking·_RagBacking·_MemBacking) — kind마다 달라 Any.
+    def describe(self, row: Any) -> Capability:  # row→input_schema 채운 Capability
         ...
 
-    async def invoke(self, row, args: dict) -> InvokeResult:  # 전송 1회→텍스트 접기(untrusted)
+    async def invoke(self, row: Any, args: dict) -> InvokeResult:  # 전송 1회→텍스트 접기(untrusted)
         ...
 
-    def node_label(self, row) -> str:  # 관측 프레임 노드명 broker_invoke:<kind>:<...>
+    def node_label(self, row: Any) -> str:  # 관측 프레임 노드명 broker_invoke:<kind>:<...>
         ...
 
     def approval_for(
-        self, row, cap_id: str, args: dict, tool_policy: dict | None = None
+        self, row: Any, cap_id: str, args: dict, tool_policy: dict | None = None
     ) -> dict | None:  # HIL 승인 payload | None
         ...

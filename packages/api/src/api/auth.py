@@ -9,10 +9,13 @@
 
 import logging
 import secrets
+from collections.abc import Awaitable, Callable
 from functools import lru_cache
 from pathlib import Path
 
 from fastapi import Header, HTTPException
+
+from .models import User
 
 log = logging.getLogger("api.auth")
 
@@ -39,7 +42,7 @@ def _token() -> str:
     return tok
 
 
-def valid_machine_token(authorization: str | None) -> bool:
+def is_valid_machine_token(authorization: str | None) -> bool:
     """머신 Bearer 토큰 유효성(예외 없이 bool). 통합 principal의 fallback에 사용."""
     if not authorization or not authorization.startswith("Bearer "):
         return False
@@ -50,25 +53,25 @@ def valid_machine_token(authorization: str | None) -> bool:
 
 async def require_auth(authorization: str | None = Header(default=None)) -> None:
     """`Authorization: Bearer <token>` 검증. 누락/형식오류/불일치 → 401."""
-    if not valid_machine_token(authorization):
+    if not is_valid_machine_token(authorization):
         raise HTTPException(status_code=401, detail="유효하지 않은 토큰")
 
 
 # 통합 principal — 세션 쿠키 유저(fastapi-users) OR 머신 Bearer 토큰 둘 다 허용(하위호환).
 # 도메인 라우터의 게이트로 쓴다(반환값은 인증 주체: User 또는 "machine"). 민감 라우트는 추가로
 # authz.require(obj, act)로 보호한다. auth.py 임포트 시점에 users를 끌어오지 않도록 지연 import. 스펙 031.
-def _make_current_principal():
+def _make_current_principal() -> Callable[..., Awaitable[User | str]]:
     from fastapi import Depends
 
     from .users import current_user_optional
 
     async def _principal(
         authorization: str | None = Header(default=None),
-        user=Depends(current_user_optional),
-    ):
+        user: User | None = Depends(current_user_optional),
+    ) -> User | str:
         if user is not None:  # 세션 쿠키 인증
             return user
-        if valid_machine_token(authorization):  # 머신 토큰 인증
+        if is_valid_machine_token(authorization):  # 머신 토큰 인증
             return "machine"
         raise HTTPException(status_code=401, detail="인증 필요")
 

@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 
 
 # --- scorer 팩토리(결정적) — obs dict를 받아 bool ---
-def trace_has(prefix: str):
+def trace_has(prefix: str) -> tuple[str, Callable[[dict], bool]]:
     """trace 노드 중 prefix로 시작하는 게 하나라도 있으면 통과(행위 신호 — broker_invoke:* 등)."""
     return (
         f"trace_has:{prefix}",
@@ -24,7 +24,7 @@ def trace_has(prefix: str):
     )
 
 
-def trace_lacks(prefix: str):
+def trace_lacks(prefix: str) -> tuple[str, Callable[[dict], bool]]:
     """prefix로 시작하는 trace 노드가 **없어야** 통과(무위임 대조 등)."""
     return (
         f"trace_lacks:{prefix}",
@@ -32,15 +32,15 @@ def trace_lacks(prefix: str):
     )
 
 
-def no_error():
+def no_error() -> tuple[str, Callable[[dict], bool]]:
     return ("no_error", lambda o: not o.get("error"))
 
 
-def output_nonempty():
+def output_nonempty() -> tuple[str, Callable[[dict], bool]]:
     return ("output_nonempty", lambda o: bool((o.get("output") or "").strip()))
 
 
-def output_contains(sub: str):
+def output_contains(sub: str) -> tuple[str, Callable[[dict], bool]]:
     return (f"output_contains:{sub}", lambda o: sub in (o.get("output") or ""))
 
 
@@ -114,7 +114,7 @@ async def run_eval(
 # ----------------------------- 선언적 asserts 매핑 (스펙 137) -----------------------------
 # 문제집(DB)의 asserts JSON([{"type","arg"}])을 scorer 팩토리로 변환. **닫힌 집합** — 미지 type은
 # ValueError(평가는 fail-closed: 모르는 채점 기준을 조용히 통과 처리하면 조용한 초록, 회고 100 대죄).
-def llm_judge(criterion: str):
+def llm_judge(criterion: str) -> tuple[str, Callable[[dict], bool]]:
     """LLM-judge 채점(스펙 139, 비결정 축) — 러너가 obs["judge"][criterion]에 심판 결과를 주입하고
     이 scorer는 읽기만 한다(부재=False, fail-closed — 심판 미실행/미설정을 통과로 위장 금지).
     이름에 짧은 해시 접미 — 앞 60자가 같은 다른 기준의 details 이름 충돌 방지(codex 139 #5)."""
@@ -131,13 +131,13 @@ def _rag_obs(o: dict) -> dict:
     return o.get("rag") or {}
 
 
-def rag_hits_gte(n: str):
+def rag_hits_gte(n: str) -> tuple[str, Callable[[dict], bool]]:
     """RAG 러너 전용(스펙 140) — 검색 결과가 N건 이상. obs["rag"] 부재(=agent 런)면 False(fail-closed)."""
     want = int(n)  # 비정수 arg는 여기서 ValueError → build_asserts가 형식 오류로 거부
     return (f"rag_hits_gte:{n}", lambda o: len(_rag_obs(o).get("hits", [])) >= want)
 
 
-def rag_score_gte(t: str):
+def rag_score_gte(t: str) -> tuple[str, Callable[[dict], bool]]:
     """RAG 러너 전용 — 최고 유사도(top_score)가 임계 이상. NaN/inf/범위 밖은 선언 오류(codex 140 #2)."""
     import math
 
@@ -150,21 +150,21 @@ def rag_score_gte(t: str):
     )
 
 
-def rag_hits_lte(n: str):
+def rag_hits_lte(n: str) -> tuple[str, Callable[[dict], bool]]:
     """RAG 러너 전용(스펙 194) — 검색 결과가 N건 이하. **rag 관측 부재(agent 런)면 False**(fail-closed):
     빈 관측에 `0 <= want`는 항상 참이라 부재를 통과로 위장한다 → 명시적 부재 체크로 막는다(gte와 대칭)."""
     want = int(n)
 
-    def _f(o: dict) -> bool:
+    def _hits_lte_matches(o: dict) -> bool:
         rag = _rag_obs(o)
         if "hits" not in rag:  # rag 관측 없음(agent 런/미실행) → fail-closed
             return False
         return len(rag.get("hits", [])) <= want
 
-    return (f"rag_hits_lte:{n}", _f)
+    return (f"rag_hits_lte:{n}", _hits_lte_matches)
 
 
-def rag_score_lte(t: str):
+def rag_score_lte(t: str) -> tuple[str, Callable[[dict], bool]]:
     """RAG 러너 전용 — 최고 유사도가 임계 이하. top_score None(부재/무결과)이면 False(fail-closed)."""
     import math
 
@@ -177,7 +177,7 @@ def rag_score_lte(t: str):
     )
 
 
-def rag_source_contains(frag: str):
+def rag_source_contains(frag: str) -> tuple[str, Callable[[dict], bool]]:
     """RAG 러너 전용 — 근거 파일명 중 하나에 frag 포함(특정 문서가 근거로 나와야 함)."""
     return (
         f"rag_source_contains:{frag}",

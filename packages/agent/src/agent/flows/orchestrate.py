@@ -26,7 +26,7 @@ import operator
 import re
 import secrets
 from abc import ABC, abstractmethod
-from typing import Annotated, Any, TypedDict, final
+from typing import TYPE_CHECKING, Annotated, Any, TypedDict, final
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
@@ -34,6 +34,9 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 
 from ..runtime import AgentBuildContext, AgentManifest, Capability
+
+if TYPE_CHECKING:
+    from langgraph.graph.state import CompiledStateGraph
 
 
 class _State(TypedDict):
@@ -242,7 +245,7 @@ class OrchestrationAgentBase(ABC):
         ...
 
     @final
-    def build_graph(self, ctx: AgentBuildContext):
+    def build_graph(self, ctx: AgentBuildContext) -> CompiledStateGraph:
         model = _model_from_cfg(ctx)
         persona = ctx.persona  # 오버라이드 병합 후 주입된 페르소나(주입 단일 출처)
         broker = ctx.broker  # 정책으로 미리 스코프된 핸들(None이면 deny-by-default)

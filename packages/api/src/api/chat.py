@@ -16,13 +16,19 @@ import logging
 import secrets
 import time
 import uuid
+from collections.abc import AsyncIterator
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
 # ── 파사드 재수출(스펙 291) — 분할 전 chat.py의 공개 표면 전량 보존(외부 import 무변경) ──
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage  # noqa: F401
+from langchain_core.messages import (  # noqa: F401
+    AIMessage,
+    BaseMessage,
+    HumanMessage,
+    SystemMessage,
+)
 from langgraph.types import Command
 from sqlalchemy import select  # noqa: F401
 from sqlalchemy.exc import IntegrityError  # noqa: F401
@@ -31,6 +37,7 @@ from sqlalchemy.orm import selectinload  # noqa: F401
 from agent.runtime import (
     AgentBuildContext,
     AgentConfigError,
+    CustomAgent,
     DefaultUiAgent,
     get_agent_impl,
     is_remote_source,  # noqa: F401  (파사드 재수출 — 분할 전 공개 표면 보존)
@@ -110,7 +117,7 @@ router: APIRouter = APIRouter(prefix="/agents", tags=["chat"])
 log = logging.getLogger("api.chat")
 
 
-def resolve_agent_runtime(ctx: dict):
+def resolve_agent_runtime(ctx: dict) -> CustomAgent | None:
     """이 에이전트의 **in-process 런타임 구현**을 해석한다(스펙 085 + 089 폴백 교정).
 
     - 원격(code/external) → None: 인터페이스 미대상 → 호출측이 `_a2a_stream` fallback(지금처럼).
@@ -143,13 +150,13 @@ def _rag_tools_for(ctx: dict, calls_sink: list[dict]) -> list:
     ms = ctx.get("rag_min_scores")
     tools.append(runtime.build_rag_tool(ctx["rag_collections"], calls_sink, ms))
     if ctx.get("nodes_resolved") is not None:
-        for c in ctx["rag_collections"]:
+        for col in ctx["rag_collections"]:
             tools.append(
                 runtime.build_rag_tool(
-                    [c],
+                    [col],
                     calls_sink,
                     ms,
-                    name=runtime._safe_name("search_documents", c["name"]),
+                    name=runtime._safe_name("search_documents", col["name"]),
                 )
             )
     return tools
@@ -165,7 +172,9 @@ class _MemoryRecallProxy:
     - 조회마다 (node, query, hits, cached)를 기록(스펙 082 — 조회 행위 계측) → trace["memoryRecalls"].
     - 반환은 **포맷된 텍스트**(format_memory_hits) — 엔진(agent 패키지)이 api 모듈에 비의존."""
 
-    def __init__(self, scope: dict, mem_cfg: dict | None, default_query: str, records: list[dict]):
+    def __init__(
+        self, scope: dict, mem_cfg: dict | None, default_query: str, records: list[dict]
+    ) -> None:
         self._scope = dict(scope)
         self._cfg = mem_cfg
         self._default = default_query or ""
@@ -192,7 +201,9 @@ class _MemoryRecallProxy:
 # ---------------------------- chat() 단계 헬퍼 (스펙 291 분해) ----------------------------
 
 
-async def _validate_entry(agent_id: uuid.UUID, body: ChatRequest, principal) -> str | None:
+async def _validate_entry(
+    agent_id: uuid.UUID, body: ChatRequest, principal: User | str
+) -> str | None:
     """채팅 진입 게이트 — 사용 권한(147)·버전 지정 권한(242)·재개 턴 버전 승계. 반환: 적용할 version."""
     # 사용 게이트(스펙 147): private 에이전트는 소유자·특권만 — 목록에서 안 보이는 존재이므로
     # 404-fold(068 — 403으로 존재를 알려주지 않는다).
@@ -254,7 +265,9 @@ async def _prepare_conversation(ctx: dict, body: ChatRequest) -> tuple[list[dict
     return conversation, history_restore
 
 
-async def _memory_inputs(ctx: dict, impl, user_id: str | None, user_text: str):
+async def _memory_inputs(
+    ctx: dict, impl: CustomAgent, user_id: str | None, user_text: str
+) -> tuple[dict, dict, bool, list[dict], _MemoryRecallProxy | None, list[dict]]:
     """회상 입력 준비 — 반환 (add_scope, recall_scope, used_memory, mem_hits, mem_proxy, memory_recalls).
 
     메모리 스코프(다층 — 스펙 020/029). 회상(search)과 자동 쓰기(add)는 **축이 다르다**:
@@ -296,7 +309,12 @@ async def _memory_inputs(ctx: dict, impl, user_id: str | None, user_text: str):
 
 
 async def _build_turn_runtime(
-    ctx: dict, impl, principal, user_id: str | None, user_text: str, conversation: list[dict]
+    ctx: dict,
+    impl: CustomAgent,
+    principal: User | str,
+    user_id: str | None,
+    user_text: str,
+    conversation: list[dict],
 ) -> dict:
     """그래프 빌드 재료(회상·창 프록시·도구·브로커·페르소나) 준비 — 턴 상태 dict 반환."""
     (
@@ -387,7 +405,9 @@ async def _build_turn_runtime(
     }
 
 
-def _resolve_graph_entry(ctx: dict, body: ChatRequest, user_text: str):
+def _resolve_graph_entry(
+    ctx: dict, body: ChatRequest, user_text: str
+) -> tuple[str, Command | None, dict | None]:
     """산출물 pending 재개/새 thread 결정(스펙 188) — 반환 (thread_id, graph_input, pending_artifact).
     graph_input=None이면 새 실행(호출측이 {"messages": seed}로 채움).
 
@@ -424,7 +444,9 @@ def _resolve_graph_entry(ctx: dict, body: ChatRequest, user_text: str):
     return thread_id, graph_input, pending_artifact
 
 
-def _turn_config(ctx: dict, thread_id: str, user_id: str | None, capture) -> dict:
+def _turn_config(
+    ctx: dict, thread_id: str, user_id: str | None, capture: trace_capture.TraceCaptureHandler
+) -> dict:
     """LangGraph 실행 config — 관측 콜백(스펙 118)·실측 캡처(스펙 205) 부착."""
     config: dict[str, Any] = {"configurable": {"thread_id": thread_id}}
     # 관측(스펙 118) — Langfuse가 설정됐을 때만 콜백 부착(미설정=무동작). 핵심 채팅 경로 무영향.
@@ -441,7 +463,9 @@ def _turn_config(ctx: dict, thread_id: str, user_id: str | None, capture) -> dic
     return config
 
 
-def _seed_and_sent(conversation: list[dict], ctx: dict, pipeline: bool, persona_prompt: str):
+def _seed_and_sent(
+    conversation: list[dict], ctx: dict, pipeline: bool, persona_prompt: str
+) -> tuple[list[dict], list[dict], list[dict]]:
     """윈도 절단·전송 전문·그래프 시드 — 반환 (messages, sent_messages, seed_messages).
 
     실행 컨텍스트를 historyDepth로 절단(최근 N개만 모델에 전달). 스펙 289 P1: 원천=conversation
@@ -456,7 +480,7 @@ def _seed_and_sent(conversation: list[dict], ctx: dict, pipeline: bool, persona_
     return messages, sent_messages, seed_messages
 
 
-def _stream_text(msg_chunk) -> str:
+def _stream_text(msg_chunk: BaseMessage) -> str:
     """messages 청크 → 표시 텍스트. 도구 원본 응답(ToolMessage)은 본문서 제외 — 표시·영속(acc)·메모리·
     토큰 일괄 정화(스펙 092; 도구 호출은 calls_sink trace에 독립 보존). content는 str이 아니라
     content-block 리스트일 수 있어(AIMessageChunk) _content_text로 str 보장 — 안 하면 acc 합치기
@@ -466,7 +490,9 @@ def _stream_text(msg_chunk) -> str:
     return runtime._content_text(getattr(msg_chunk, "content", ""))
 
 
-def _ingest_update(chunk: dict, interrupts: list, observed: list, t_prev: float):
+def _ingest_update(
+    chunk: dict, interrupts: list, observed: list, t_prev: float
+) -> tuple[float, list[str]]:
     """updates 청크 처리 — interrupt 수집·노드 발화 기록(스펙 085/086). 반환 (t_prev, artifact_frames).
 
     한 업데이트가 다중 interrupt를 담을 수 있어(한 턴에 위험 도구 여러 개) 모두 모은다 — [0]만
@@ -502,7 +528,14 @@ def _ingest_update(chunk: dict, interrupts: list, observed: list, t_prev: float)
 
 
 def _artifact_wait_trace(
-    ctx: dict, turn: dict, *, t0: float, tokens: dict, observed: list, sent_messages, awaiting: dict
+    ctx: dict,
+    turn: dict,
+    *,
+    t0: float,
+    tokens: dict,
+    observed: list,
+    sent_messages: list[dict],
+    awaiting: dict,
 ) -> dict:
     """ask/form 대기 턴 trace 조립(스펙 188) — 실행 버전 표기(스펙 242) 포함. 인스펙터: 진행 중 표기."""
     return {
@@ -535,9 +568,9 @@ async def _ask_frames(
     user_text: str,
     t0: float,
     messages: list[dict],
-    sent_messages,
+    sent_messages: list[dict],
     observed: list,
-):
+) -> AsyncIterator[str]:
     """산출물형 ask(스펙 188) — kind로 엄격 게이트(승인 interrupt에는 kind가 없음 → 기존 경로 무접촉).
 
     질문을 텍스트 프레임으로 내보내고, 이 thread를 세션 pending에 등록해 다음 사용자 입력이
@@ -583,9 +616,9 @@ async def _form_frames(
     user_text: str,
     t0: float,
     messages: list[dict],
-    sent_messages,
+    sent_messages: list[dict],
     observed: list,
-):
+) -> AsyncIterator[str]:
     """산출물형 form(스펙 188 P2) — 승인 프레임의 일반화. 필드 명세+프리필을 프레임으로 내보내고
     pending에 (thread, formId, fields)를 등록: 제출(body.form)이든 텍스트든 다음 입력이 재개한다."""
     form_id = "frm-" + secrets.token_hex(4)
@@ -637,7 +670,14 @@ async def _form_frames(
 
 
 def _pending_approval_trace(
-    ctx: dict, turn: dict, *, t0: float, apid: str, action: str, user_text: str, sent_messages
+    ctx: dict,
+    turn: dict,
+    *,
+    t0: float,
+    apid: str,
+    action: str,
+    user_text: str,
+    sent_messages: list[dict],
 ) -> dict:
     """승인 대기 턴 trace(스펙 041/079/130/131/134) — 일시정지 이전에 이미 실행된 관측을 표면화."""
     pending_trace = {
@@ -677,8 +717,8 @@ async def _approval_frames(
     user_id: str | None,
     user_text: str,
     t0: float,
-    sent_messages,
-):
+    sent_messages: list[dict],
+) -> AsyncIterator[str]:
     """위험 도구가 그래프를 멈췄다 → 런타임 Approval 생성 + "대기" 프레임 후 종료(정상 턴 영속 안 함).
     부수효과(canned·calls_sink)는 interrupt 이전이라 0 — 승인 전 무실행 불변식(스펙 041 §3.3)."""
     if ctx.get("pinned_version"):
@@ -720,9 +760,9 @@ async def _interrupt_frames(
     user_text: str,
     t0: float,
     messages: list[dict],
-    sent_messages,
+    sent_messages: list[dict],
     observed: list,
-):
+) -> AsyncIterator[str]:
     """interrupt 종결 프레임 디스패치 — 다중=fail-closed, ask/form=산출물 대기, 그 외=승인 대기.
 
     한 턴에 위험 도구가 둘 이상 호출되면(다중 pending interrupt) 현재 재개 프로토콜은 **단일
@@ -779,7 +819,13 @@ async def _interrupt_frames(
 
 
 def _annotate_execution(
-    trace: dict, ctx: dict, turn: dict, *, capture, sent_messages, impl
+    trace: dict,
+    ctx: dict,
+    turn: dict,
+    *,
+    capture: trace_capture.TraceCaptureHandler,
+    sent_messages: list[dict],
+    impl: CustomAgent,
 ) -> None:
     """실행 메타 주석 — 버전(242)·도구 무발동 진단(236)·전송 전문 출처(205/131)."""
     if ctx.get("exec_version"):
@@ -855,13 +901,13 @@ def _final_trace(
     ctx: dict,
     turn: dict,
     *,
-    capture,
+    capture: trace_capture.TraceCaptureHandler,
     full: str,
     total_ms: int,
     messages: list[dict],
-    sent_messages,
+    sent_messages: list[dict],
     observed: list,
-    impl,
+    impl: CustomAgent,
     user_text: str,
     history_restore: dict | None,
 ) -> tuple[dict, dict]:
@@ -896,15 +942,15 @@ async def _final_frames(
     errored: bool,
     acc: list[str],
     t0: float,
-    capture,
+    capture: trace_capture.TraceCaptureHandler,
     messages: list[dict],
-    sent_messages,
+    sent_messages: list[dict],
     observed: list,
-    impl,
+    impl: CustomAgent,
     user_text: str,
     user_id: str | None,
     history_restore: dict | None,
-):
+) -> AsyncIterator[str]:
     """턴 종결 — 브로커 서브스텝 합류·trace 조립·영속·자동 기억·trace/done 프레임."""
     # 브로커 서브스텝 호출을 관측 타임라인에 합류(스펙 100/101 설계결정 7 — broker.invoke가
     # invisible하지 않게). delegate 노드 update와 별개로 cap별 broker_invoke:<kind>:<...> 노드를
@@ -954,7 +1000,9 @@ async def _final_frames(
 
 
 @router.post("/{agent_id}/chat")
-async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current_principal)):
+async def chat(
+    agent_id: uuid.UUID, body: ChatRequest, principal: User | str = Depends(current_principal)
+) -> StreamingResponse:
     # 스펙 068: resume 바인딩에 067과 *동일한* 소유자 스코프를 주입(단일 출처 _own_scope 재사용).
     # 비-admin이 타인/추측 session_id를 줘도 매칭 실패 → 새 세션(열거 오라클·소유권 탈취 봉인).
     own = _own_scope(principal)
@@ -992,7 +1040,7 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
         conversation, ctx, turn["pipeline"], turn["persona_prompt"]
     )
 
-    async def event_stream():
+    async def event_stream() -> AsyncIterator[str]:
         t0 = time.perf_counter()
         yield f"data: {json.dumps({'session': ctx['session_id']}, ensure_ascii=False)}\n\n"
         acc: list[str] = []

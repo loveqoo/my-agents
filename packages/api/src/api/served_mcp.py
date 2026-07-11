@@ -16,6 +16,7 @@ LangChain 도구(@tool) → `to_fastmcp` → `FastMCP(..., tools=[...])` → str
 from langchain_core.tools import tool
 from langchain_mcp_adapters.tools import to_fastmcp
 from mcp.server.fastmcp import FastMCP
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 # 서빙 대상 유래(스펙 156) — 우리가 코드로 정의·호스팅하는 MCP만. external은 봉인(152), local은
 # 외부/self-host 등록분이라 서빙 대상 아님(우리 정의가 아님).
@@ -270,11 +271,11 @@ async def _is_served(name: str) -> bool:
     return row is not None and row.source == SERVABLE_SOURCE and bool(row.published)
 
 
-def guarded_app(name: str, inner):
+def guarded_app(name: str, inner: ASGIApp) -> ASGIApp:
     """`inner`(FastMCP streamable_http_app)를 공개 게이트로 감싼 ASGI 앱. http 요청만 게이트하고
     lifespan 등은 통과(세션 매니저는 main lifespan이 직접 run — 마운트 lifespan 자동실행 안 됨)."""
 
-    async def app(scope, receive, send):
+    async def app(scope: Scope, receive: Receive, send: Send) -> None:
         if scope.get("type") != "http":
             await inner(scope, receive, send)
             return

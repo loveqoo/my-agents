@@ -55,8 +55,8 @@ class TraceCaptureHandler(BaseCallbackHandler):
     def on_llm_end(self, response: Any, **_kwargs: Any) -> None:
         try:
             for gens in getattr(response, "generations", []) or []:
-                for g in gens:
-                    um = getattr(getattr(g, "message", None), "usage_metadata", None)
+                for generation in gens:
+                    um = getattr(getattr(generation, "message", None), "usage_metadata", None)
                     if um:
                         self.tokens_in += int(um.get("input_tokens", 0) or 0)
                         self.tokens_out += int(um.get("output_tokens", 0) or 0)

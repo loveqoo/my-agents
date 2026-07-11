@@ -111,11 +111,11 @@ def _content_text(result: Any) -> str:
         return result
     if isinstance(result, (list, tuple)):
         parts: list[str] = []
-        for b in result:
-            if isinstance(b, dict) and b.get("type") == "text":
-                parts.append(str(b.get("text", "")))
-            elif b is not None:
-                parts.append(str(b))
+        for block in result:
+            if isinstance(block, dict) and block.get("type") == "text":
+                parts.append(str(block.get("text", "")))
+            elif block is not None:
+                parts.append(str(block))
         return "\n".join(p for p in parts if p)
     if result is None:
         return ""
@@ -268,14 +268,14 @@ async def build_mcp_tools(
     await net_guard.refresh_allowed_hosts()  # DB allowlist 무재시작 반영(스펙 064) — 루프 전 1회
     connections: dict[str, dict] = {}
     meta: dict[str, dict] = {}
-    for s in servers:
+    for server in servers:
         conn = mcp_connection(
-            s
+            server
         )  # transport 검사·SSRF 가드 공유 헬퍼(브로커와 드리프트 0, 스펙 101)
         if conn is None:
             continue  # 미지원 transport 또는 SSRF 차단 → 그 서버만 스킵
-        connections[s["name"]] = conn
-        meta[s["name"]] = s
+        connections[server["name"]] = conn
+        meta[server["name"]] = server
 
     if not connections:
         return []
@@ -360,11 +360,11 @@ async def search_collections(
     # (base_url, model_id)별 질의 임베딩 캐시 — 같은 모델을 쓰는 컬렉션은 1회만 호출.
     qvec_cache: dict[tuple[str, str], list[float]] = {}
     try:
-        for c in collections:
-            key = (c["embed_base_url"], c["embed_model_id"])
+        for col in collections:
+            key = (col["embed_base_url"], col["embed_model_id"])
             if key not in qvec_cache:
                 vecs = await rag_ingest.embed_texts(
-                    c["embed_base_url"], c["embed_api_key"], c["embed_model_id"], [q]
+                    col["embed_base_url"], col["embed_api_key"], col["embed_model_id"], [q]
                 )
                 qvec_cache[key] = vecs[0]
     except rag_ingest.IngestError as exc:
@@ -379,21 +379,21 @@ async def search_collections(
     hits: list[tuple[float, str, str, dict | None, str]] = []
     try:
         async with SessionLocal() as db:
-            for c in collections:
-                qvec = qvec_cache[(c["embed_base_url"], c["embed_model_id"])]
+            for col in collections:
+                qvec = qvec_cache[(col["embed_base_url"], col["embed_model_id"])]
                 dist = Chunk.embedding.cosine_distance(qvec).label("dist")
                 rows = (
                     await db.execute(
                         select(Chunk.text, Document.filename, Chunk.meta, dist)
                         .join(Document, Chunk.document_id == Document.id)
-                        .where(Chunk.collection_id == c["id"])
+                        .where(Chunk.collection_id == col["id"])
                         .order_by(dist)
                         .limit(k)
                     )
                 ).all()
                 for text, filename, meta, d in rows:
                     hits.append(
-                        (float(d), filename or "(파일 미상)", text, meta, c.get("name", ""))
+                        (float(d), filename or "(파일 미상)", text, meta, col.get("name", ""))
                     )
     except Exception as exc:
         raise RagSearchError("db", "검색 예외", "문서 검색 실패(유사도 검색 중 오류).") from exc
@@ -416,7 +416,7 @@ async def search_collections(
     return _annotate_cutoffs(out, min_scores)
 
 
-def _norm_score(v) -> float:
+def _norm_score(v: Any) -> float:
     """유사도 임계값 정규화 — 비수치/음수/1 초과는 0(무필터)으로 접는다."""
     try:
         s = float(v)
@@ -436,11 +436,15 @@ def _annotate_cutoffs(hits: list[dict], min_scores: dict | None) -> list[dict]:
     if not any(norm.values()):
         return hits
     out: list[dict] = []
-    for h in hits:
-        cut = norm.get(h.get("collection", ""), 0.0)
+    for hit in hits:
+        cut = norm.get(hit.get("collection", ""), 0.0)
         if cut > 0:
-            h = {**h, "cutoff": round(cut, 3), "belowCutoff": float(h.get("score", 0.0)) < cut}
-        out.append(h)
+            hit = {
+                **hit,
+                "cutoff": round(cut, 3),
+                "belowCutoff": float(hit.get("score", 0.0)) < cut,
+            }
+        out.append(hit)
     return out
 
 
@@ -491,20 +495,20 @@ def _hits_detail(results: list[dict], cap: int = 240) -> list[dict]:
     본문 프리뷰는 **캡(cap자) + 비밀 마스킹**한다(브로커 resultPreview와 동일 규율, 087/092/125 —
     trace에 원문·비밀 누출 0)."""
     out: list[dict] = []
-    for h in results:
+    for hit in results:
         # 개행 보존(스펙 255) — 엔티티 직렬화 텍스트("key: value" 라인들)를 인스펙터가 구조화
         # 렌더(EntityFields)하려면 라인 경계가 필요. 평문 청크도 pre-wrap이라 개행 무해.
-        snippet = _sanitize_preview(str(h.get("text", "")).strip(), cap)
+        snippet = _sanitize_preview(str(hit.get("text", "")).strip(), cap)
         item = {
-            "score": round(float(h.get("score", 0.0)), 3),
-            "filename": h.get("filename", ""),
-            "collection": h.get("collection", ""),
+            "score": round(float(hit.get("score", 0.0)), 3),
+            "filename": hit.get("filename", ""),
+            "collection": hit.get("collection", ""),
             "textPreview": snippet,
         }
         # 엔티티 meta 관통(스펙 255 후속) — 인스펙터=디버그 영역이라 원본 행 데이터를 JSON 뷰어로
         # 제대로 보여준다. JSON 직렬화 2000자 캡(폭주 방지 — 표시-안전 규율의 상한 축), 원문 그대로
         # (스펙 149의 검색 응답과 동일 정밀도 — 마스킹으로 JSON을 깨느니 상한으로 지킨다).
-        meta = h.get("meta")
+        meta = hit.get("meta")
         if isinstance(meta, dict) and meta:
             import json as _json
 
@@ -512,9 +516,9 @@ def _hits_detail(results: list[dict], cap: int = 240) -> list[dict]:
                 item["meta"] = meta
         # 스펙 192: 커트라인 표시(used/dropped). belowCutoff/cutoff가 있으면 그대로 전달(인스펙터가
         # "커트라인 미달로 못 쓴 문서"를 회색으로 구분). 커트라인 없는 히트는 키 없음(=used).
-        if "belowCutoff" in h:
-            item["belowCutoff"] = bool(h["belowCutoff"])
-            item["cutoff"] = h.get("cutoff")
+        if "belowCutoff" in hit:
+            item["belowCutoff"] = bool(hit["belowCutoff"])
+            item["cutoff"] = hit.get("cutoff")
         out.append(item)
     return out
 
@@ -619,13 +623,13 @@ def build_graph_path(used_memory: bool, used_tools: bool, total_ms: int) -> list
     inner = [n for n in nodes if not n.startswith("__")]
     per = int(total_ms / max(1, len(inner)))
     path: list[dict] = []
-    for n in nodes:
-        if n == "__start__":
-            path.append({"node": n, "ms": 0})
-        elif n == "__end__":
-            path.append({"node": n, "ms": 15})
+    for node in nodes:
+        if node == "__start__":
+            path.append({"node": node, "ms": 0})
+        elif node == "__end__":
+            path.append({"node": node, "ms": 15})
         else:
-            path.append({"node": n, "ms": per})
+            path.append({"node": node, "ms": per})
     return path
 
 
@@ -742,10 +746,10 @@ def _summarize_messages_delta(val: list) -> str:
     previews: list[str] = []
     if removes:
         previews.append(f"이전 맥락 {removes}개 정리 (격리)")
-    for m in rest[:_MSG_PREVIEW_N]:
-        raw = m.get("content") if isinstance(m, dict) else getattr(m, "content", None)
+    for msg in rest[:_MSG_PREVIEW_N]:
+        raw = msg.get("content") if isinstance(msg, dict) else getattr(msg, "content", None)
         text = _cap(_mask(_content_text(raw), cap=1_000_000), _MSG_PREVIEW_CAP)
-        previews.append(f"{_msg_role(m)}: «{text}»" if text else _msg_role(m))
+        previews.append(f"{_msg_role(msg)}: «{text}»" if text else _msg_role(msg))
     extra = max(0, len(rest) - _MSG_PREVIEW_N)
     return " / ".join(previews) + (f" (+{extra}건)" if extra > 0 else "")
 
@@ -842,8 +846,8 @@ def _timeline_from_nodes(nodes: list[str], total_ms: int) -> list[dict]:
     seq = [n for n in nodes if not n.startswith("__")]
     per = int(total_ms / max(1, len(seq)))
     path: list[dict] = [{"node": "__start__", "ms": 0}]
-    for n in seq:
-        path.append({"node": n, "ms": per})
+    for node in seq:
+        path.append({"node": node, "ms": per})
     path.append({"node": "__end__", "ms": 15})
     return path
 

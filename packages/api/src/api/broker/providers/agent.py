@@ -6,6 +6,8 @@ spec 100 A2A 코드를 **행위 보존**으로 이관. `_a2a_text`는 approval_f
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from sqlalchemy import select
 
 from agent.runtime import Capability, InvokeResult, is_remote_source
@@ -14,6 +16,11 @@ from ... import a2a_client
 from ...models import Agent
 from ...ownership import may_use_agent
 from ..common import CAP_KIND_AGENT, _kind_of
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+    from ...models import User
 
 # 위임 깊이 상한(스펙 256 v2 — 사용자: 깊이 N). 종료 보장의 핵심은 방문 집합(체인 내 재방문 금지 —
 # 유한 에이전트 수로 종료 보장)이고, 이 캡은 비용 폭주 방지용 여유 상한.
@@ -61,8 +68,12 @@ class AgentProvider:
     kind = CAP_KIND_AGENT
 
     def __init__(
-        self, session_factory, principal=None, delegation_chain: tuple = (), delegation_budget=None
-    ):
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        principal: User | str | None = None,
+        delegation_chain: tuple = (),
+        delegation_budget: dict | None = None,
+    ) -> None:
         self._session_factory = session_factory
         self._principal = principal  # 로컬 위임(스펙 256) — 하위 실행의 RBAC 주체(호출자와 동일)
         # 호출 체인(스펙 256 v2 — 깊이 N): 이 실행 경로에서 이미 실행 중인 agent_id들(루트 포함).
@@ -214,7 +225,7 @@ class AgentProvider:
         return f"broker_invoke:{CAP_KIND_AGENT}:{row.name}"
 
     def approval_for(
-        self, row, _cap_id: str, args: dict, _tool_policy: dict | None = None
+        self, row: Agent, _cap_id: str, args: dict, _tool_policy: dict | None = None
     ) -> dict | None:
         """A2A 위임 승인 = **대상 Agent의 opt-in 플래그**(스펙 117). config.requires_approval가 참일 때만
         게이트(부재/거짓 = 게이트 없음 = **현동작 보존·무회귀**). MCP `_APPROVAL_ACTIONS` 옵트인의

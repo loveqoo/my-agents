@@ -11,7 +11,7 @@ plan_execute와 구조가 달라 인터페이스가 특정 형태에 과적합�
 
 from __future__ import annotations
 
-from typing import Annotated, TypedDict
+from typing import TYPE_CHECKING, Annotated, TypedDict
 
 from langchain_core.messages import SystemMessage
 from langchain_openai import ChatOpenAI
@@ -19,6 +19,9 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 
 from ..runtime import AgentBuildContext, AgentManifest
+
+if TYPE_CHECKING:
+    from langgraph.graph.state import CompiledStateGraph
 
 
 class _State(TypedDict):
@@ -74,7 +77,7 @@ class RouteAgent:
             supports_hil=False,  # 위험 도구 게이트·interrupt 없음(순수 분기) — 정직하게 표기
         )
 
-    def build_graph(self, ctx: AgentBuildContext):
+    def build_graph(self, ctx: AgentBuildContext) -> CompiledStateGraph:
         model = _model_from_cfg(ctx)
         persona = ctx.persona  # 오버라이드 병합 후 주입된 페르소나(주입 단일 출처)
 

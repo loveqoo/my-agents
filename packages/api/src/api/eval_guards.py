@@ -11,7 +11,7 @@ from fastapi import HTTPException
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .models import EvalCase, EvalDataset, EvalRun
+from .models import EvalCase, EvalDataset, EvalRun, User
 from .ownership import owner_of
 
 # 스펙 178 비용 가드 — 비특권(멤버) 자율 실행이 실모델을 폭주시키지 않게. 특권(admin)은 무제한.
@@ -29,7 +29,7 @@ _active_jobs: set = set()
 
 
 async def _member_run_guard(
-    session: AsyncSession, user, dataset_id: uuid.UUID, n_models: int
+    session: AsyncSession, user: User | str, dataset_id: uuid.UUID, n_models: int
 ) -> None:
     """비특권 실행 비용 가드(스펙 178, codex 반영). 특권은 호출 전 단락. per-user advisory 락으로
     동시성 확인+삽입 사이 TOCTOU를 직렬화(codex #3), work는 judge 호출까지 포함(codex #5)."""
@@ -72,7 +72,7 @@ async def _member_run_guard(
 
 
 async def _member_job_guard(
-    session: AsyncSession, user, exclude_id: uuid.UUID | None = None
+    session: AsyncSession, user: User | str, exclude_id: uuid.UUID | None = None
 ) -> None:
     """비특권 배경 LLM 작업(문제집 생성·AI 출제) 동시 상한(스펙 178, codex #1·#2). 특권은 호출 전 단락.
     진실원은 `_active_jobs`(동기 등록) — exclude_id는 이미 락을 잡은 현재 작업(세지 않음). 소유자별 합산."""

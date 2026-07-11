@@ -47,7 +47,7 @@ def _out(r: AllowedHost) -> AllowedHostOut:
 
 
 @router.get("", dependencies=[_manage])
-async def list_hosts(session: AsyncSession = Depends(get_session)):
+async def list_hosts(session: AsyncSession = Depends(get_session)) -> list[AllowedHostOut]:
     rows = (
         (await session.execute(select(AllowedHost).order_by(AllowedHost.created_at.desc())))
         .scalars()
@@ -57,7 +57,9 @@ async def list_hosts(session: AsyncSession = Depends(get_session)):
 
 
 @router.post("", dependencies=[_manage], status_code=201)
-async def add_host(body: AllowedHostIn, session: AsyncSession = Depends(get_session)):
+async def add_host(
+    body: AllowedHostIn, session: AsyncSession = Depends(get_session)
+) -> AllowedHostOut:
     try:
         host = net_guard.normalize_allowed_host(body.host)
     except ValueError as exc:
@@ -79,7 +81,7 @@ async def add_host(body: AllowedHostIn, session: AsyncSession = Depends(get_sess
 
 
 @router.delete("/{host_id}", dependencies=[_manage], status_code=204)
-async def delete_host(host_id: str, session: AsyncSession = Depends(get_session)):
+async def delete_host(host_id: str, session: AsyncSession = Depends(get_session)) -> None:
     try:
         hid = uuid.UUID(host_id)
     except ValueError:

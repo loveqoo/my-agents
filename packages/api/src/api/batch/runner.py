@@ -19,7 +19,7 @@ log = logging.getLogger("api.batch.runner")
 _AUDIT_OMIT_KEYS = ("sample",)
 
 
-def _scrub(obj):
+def _scrub(obj: Any) -> Any:  # JSON 임의 깊이 재귀 — 이질 구조라 Any가 정직하다
     """'sample' 키를 어느 깊이에서든 제거 — 미리보기 전용 데이터는 감사행에 영속하지 않는다.
     재귀: 038의 세션정리 dry-run은 top-level sample(세션 식별자), 039의 통합 dry-run은
     candidates[].sample(제안된 사실 본문)을 가진다. 둘 다 라이브 응답엔 남기되 감사엔 미적재."""

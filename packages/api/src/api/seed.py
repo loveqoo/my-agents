@@ -99,7 +99,10 @@ COLLECTIONS = [
 ]
 
 
-def _collection_seed_specs(embs, collections=COLLECTIONS):
+def _collection_seed_specs(
+    embs: list[ModelConfig],
+    collections: list[tuple[str, str, str | None]] = COLLECTIONS,
+) -> list[tuple]:
     """게이트(스펙 048): 컬렉션 시드 스펙 (name, description, embedding_model_id) 목록.
 
     embedding 모델이 하나도 없으면 빈 리스트 → 컬렉션 시드 자체를 스킵한다("임베딩 모델 설정이
@@ -217,7 +220,7 @@ SESSIONS = [
 APPROVALS: list = []
 
 
-async def _empty(session: AsyncSession, model) -> bool:
+async def _empty(session: AsyncSession, model: type) -> bool:
     count = await session.scalar(select(func.count()).select_from(model))
     return (count or 0) == 0
 

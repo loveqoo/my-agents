@@ -12,6 +12,7 @@ SSE다(코드-에이전트의 `_remote_stream` `{messages}`→`{text}` 포맷과
 
 import json
 import uuid
+from collections.abc import AsyncIterator
 
 import httpx
 
@@ -51,9 +52,9 @@ def _parts_text(parts: object) -> str:
     if not isinstance(parts, list):
         return ""
     out: list[str] = []
-    for p in parts:
-        if isinstance(p, dict) and p.get("kind") == "text":
-            t = p.get("text")
+    for part in parts:
+        if isinstance(part, dict) and part.get("kind") == "text":
+            t = part.get("text")
             if isinstance(t, str) and t:
                 out.append(t)
     return "".join(out)
@@ -138,7 +139,7 @@ async def a2a_stream(
     streaming: bool = True,
     context_id: str | None = None,
     extra_headers: dict | None = None,
-):
+) -> AsyncIterator[dict]:
     """외부 A2A 엔드포인트를 호출하고 {text}/{error} 프레임을 yield. SSRF 가드·캡·타임아웃 적용.
 
     context_id(우리 세션 id)를 주면 message.contextId로 실어 서버가 멀티턴 맥락을 잇게 한다(스펙 057).
@@ -190,7 +191,7 @@ async def a2a_stream(
         yield {"error": f"외부 에이전트 호출 실패({type(exc).__name__})"}
 
 
-async def _capped_lines(resp):
+async def _capped_lines(resp: httpx.Response) -> AsyncIterator[str | None]:
     """응답을 raw 바이트로 읽으며 MAX_RESPONSE_BYTES를 누적 상한으로 강제하고 줄 단위로 내준다.
 
     `aiter_lines`는 개행 없는 입력을 무한 버퍼링하므로(적대리뷰 H2) raw 바이트를 직접 세야 한다.
@@ -210,7 +211,9 @@ async def _capped_lines(resp):
         yield buf.decode("utf-8", errors="replace")
 
 
-async def _stream_sse(client, endpoint, body, headers):
+async def _stream_sse(
+    client: httpx.AsyncClient, endpoint: str, body: dict, headers: dict
+) -> AsyncIterator[dict]:
     async with client.stream(
         "POST", endpoint, json=body, headers={**headers, "Accept": "text/event-stream"}
     ) as resp:
@@ -248,7 +251,9 @@ async def _stream_sse(client, endpoint, body, headers):
                 break
 
 
-async def _send_single(client, endpoint, body, headers):
+async def _send_single(
+    client: httpx.AsyncClient, endpoint: str, body: dict, headers: dict
+) -> AsyncIterator[dict]:
     # 단건도 stream으로 읽어 raw 바이트 캡을 강제한다 — resp.content는 전체를 먼저 버퍼링(적대리뷰 H1).
     async with client.stream(
         "POST", endpoint, json=body, headers={**headers, "Accept": "application/json"}

@@ -17,7 +17,7 @@ from sqlalchemy.orm import selectinload
 from . import crypto
 from .auth import current_principal
 from .db import get_session
-from .models import Agent, AgentVersion, Collection, ModelConfig, Provider
+from .models import Agent, AgentVersion, Collection, ModelConfig, Provider, User
 from .ownership import is_privileged
 from .schemas import ModelIn, ModelOut, ModelProbeIn, ModelProbeResult
 from .serializers import model_to_out
@@ -25,7 +25,9 @@ from .serializers import model_to_out
 router = APIRouter(prefix="/models", tags=["models"])
 
 
-async def require_model_manage(principal=Depends(current_principal)):
+async def require_model_manage(
+    principal: User | str = Depends(current_principal),
+) -> User | str:
     """모델/프로바이더 변이 게이트(스펙 150, codex High) — 기본 모델·연결처는 채팅·메모리·평가의
     전역 동작과 비용면을 바꾸므로 특권(머신 토큰·superuser·admin)만. member는 403.
     (읽기·연결 테스트는 인증만 — 기존과 동일.)"""
@@ -165,9 +167,9 @@ async def _clear_other_defaults(
         .all()
     )
     changed = False
-    for r in rows:
-        if exclude_id is None or r.id != exclude_id:
-            r.is_default = False
+    for row in rows:
+        if exclude_id is None or row.id != exclude_id:
+            row.is_default = False
             changed = True
     if changed:
         await session.flush()

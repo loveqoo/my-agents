@@ -27,8 +27,9 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections import OrderedDict
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Annotated, Any, TypedDict, final
+from typing import TYPE_CHECKING, Annotated, Any, TypedDict, final
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.graph import END, START, StateGraph
@@ -36,6 +37,11 @@ from langgraph.graph.message import add_messages
 from langgraph.types import interrupt
 
 from ..runtime import AgentBuildContext, AgentManifest
+
+if TYPE_CHECKING:
+    from langchain_core.runnables import RunnableConfig
+    from langchain_openai import ChatOpenAI
+    from langgraph.graph.state import CompiledStateGraph
 
 
 class _State(TypedDict):
@@ -120,14 +126,14 @@ def merge_text_into_fields(fields: list[dict], values: dict, text: str) -> dict:
     텍스트에 등장하면 채운다(모델 불요·리플레이 결정적). 이미 찬 필드는 덮지 않는다.
     (자유 텍스트 필드의 2차 병합은 ctx.form이 extract(LLM)로 시도 — 모델 없으면 생략.)"""
     out = dict(values)
-    for f in fields:
-        key = f.get("key")
+    for field in fields:
+        key = field.get("key")
         if not key or out.get(key):
             continue
         # 긴 후보 우선 — "최근 한 달"이 "최근"의 접두를 공유할 때 더 구체적인 쪽을 채운다(결정적).
-        for c in sorted(f.get("candidates") or [], key=len, reverse=True):
-            if c and c in (text or ""):
-                out[key] = c
+        for candidate in sorted(field.get("candidates") or [], key=len, reverse=True):
+            if candidate and candidate in (text or ""):
+                out[key] = candidate
                 break
     return out
 
@@ -144,7 +150,7 @@ class ProduceContext:
 
     def __init__(
         self, *, text: str, model: Any, broker: Any, step_log: list, config: dict | None = None
-    ):
+    ) -> None:
         self.text = text
         #: 에이전트별 impl 설정(스펙 190) — 노코드 범용 구현이 필드 명세 등을 읽는다. 대부분의
         #: (코드 저작) produce는 안 본다. 플랫폼이 config.artifactSpec 등을 뽑아 뼈대가 넣어준다.
@@ -212,7 +218,7 @@ class ProduceContext:
         return values
 
     # -- 비-interrupt 프리미티브(스텝 캐시 경유 — 리플레이 시 재호출 금지) --
-    async def _cached(self, call):
+    async def _cached(self, call: Callable[[], Awaitable[Any]]) -> Any:
         if self._idx < len(self._log):
             result = self._log[self._idx]
         else:
@@ -225,7 +231,7 @@ class ProduceContext:
         """LLM 구조화 추출 — instruction이 원하는 JSON 형태를 지시하고, 응답에서 첫 JSON 객체를
         파싱한다. 실패 시 빈 dict(호출측이 되물음 등으로 처리 — 조용히 죽지 않게 로그는 값으로 남음)."""
 
-        async def call():
+        async def call() -> dict:
             if self._model is None:
                 return {}
             msgs = [
@@ -242,20 +248,20 @@ class ProduceContext:
 
         return await self._cached(call)
 
-    async def rag(self, collection: str, query: str):
+    async def rag(self, collection: str, query: str) -> Any:
         """컬렉션 검색 — broker의 rag 능력 경유(may_use_collection 등 기존 게이트 그대로)."""
 
-        async def call():
+        async def call() -> Any:
             if self._broker is None:
                 return None  # deny-by-default(브로커 미주입 = 발견 공집합)
             return await self._broker.invoke(f"rag:{collection}", {"text": query})
 
         return await self._cached(call)
 
-    async def tool(self, cap_id: str, args: dict):
+    async def tool(self, cap_id: str, args: dict) -> Any:
         """MCP 도구 호출 — broker 경유(배선 권한 113·승인 정책 그대로)."""
 
-        async def call():
+        async def call() -> Any:
             if self._broker is None:
                 return None
             return await self._broker.invoke(cap_id, args)
@@ -345,11 +351,11 @@ class ArtifactAgentBase(ABC):
         ...
 
     @final
-    def build_graph(self, ctx: AgentBuildContext):
+    def build_graph(self, ctx: AgentBuildContext) -> CompiledStateGraph:
         model = _make_model(ctx)  # 모델 미설정이어도 ask-only produce는 동작(extract 시 {})
         broker = ctx.broker
 
-        async def produce_node(state: _State, config) -> dict:
+        async def produce_node(state: _State, config: RunnableConfig | None) -> dict:
             thread_id = (config or {}).get("configurable", {}).get("thread_id", "")
             pctx = ProduceContext(
                 text=_last_user_text(state),
@@ -377,7 +383,7 @@ class ArtifactAgentBase(ABC):
         return g.compile(checkpointer=ctx.checkpointer)
 
 
-def _make_model(ctx: AgentBuildContext):
+def _make_model(ctx: AgentBuildContext) -> ChatOpenAI | None:
     """model_cfg가 온전할 때만 ChatOpenAI 구성 — ask-only produce는 모델 없이도 돌아야 해서
     (조율형 _model_from_cfg처럼) 즉시 raise하지 않고 None을 허용한다(extract가 {} 반환)."""
     cfg = ctx.model_cfg or {}
@@ -423,16 +429,16 @@ class SlotFillDemoAgent(ArtifactAgentBase):
 
     async def produce(self, ctx: ProduceContext) -> Artifact:
         values: dict[str, str] = {}
-        for f in self.FIELDS:
+        for field in self.FIELDS:
             # 빈 답이면 같은 필드를 되묻는다(무한루프 방지 상한 3회 — 그 뒤 "(미입력)" 기록).
             for attempt in range(3):
-                suffix = f" ({f.hint})" if f.hint and attempt == 0 else ""
-                ans = ctx.ask(f"{f.label}을(를) 알려주세요{suffix}")
+                suffix = f" ({field.hint})" if field.hint and attempt == 0 else ""
+                ans = ctx.ask(f"{field.label}을(를) 알려주세요{suffix}")
                 if ans:
-                    values[f.key] = ans
+                    values[field.key] = ans
                     break
             else:
-                values[f.key] = "(미입력)"
+                values[field.key] = "(미입력)"
         return Artifact(kind="travel-request", data=values, raw=ctx.text)
 
 
@@ -487,10 +493,10 @@ def match_entities(utterance: str, entities: list[dict]) -> list[dict]:
     카탈로그 순서 보존(안정) — 모델 불요·리플레이 결정적. 실 임베딩 환경에선 ctx.rag 결과가
     이 매칭에 합류한다(produce 참고)."""
     hits = []
-    for e in entities:
-        keys = [e.get("label") or "", *(e.get("synonyms") or [])]
+    for entity in entities:
+        keys = [entity.get("label") or "", *(entity.get("synonyms") or [])]
         if any(k and k in (utterance or "") for k in keys):
-            hits.append(e)
+            hits.append(entity)
     return hits
 
 
@@ -506,9 +512,9 @@ def entity_ids_from_rag_text(text: str) -> list[str]:
 
         _RAG_ENTITY_RE = re.compile(r"\[entity:([a-z0-9_]+)\]")
     seen: list[str] = []
-    for m in _RAG_ENTITY_RE.findall(text or ""):
-        if m not in seen:
-            seen.append(m)
+    for entity_id in _RAG_ENTITY_RE.findall(text or ""):
+        if entity_id not in seen:
+            seen.append(entity_id)
     return seen
 
 
@@ -536,13 +542,13 @@ async def _synthesize_entity_fields(
 ) -> list[dict]:
     """엔티티별 성격 조회(도구) 결과로 폼 필드 목록(후보 SelectBox) 합성."""
     fields: list[dict] = []
-    for e in matched:
-        detail_res = await ctx.tool(f"mcp:{catalog_mcp}/get_entity", {"entity_id": e["id"]})
+    for entity in matched:
+        detail_res = await ctx.tool(f"mcp:{catalog_mcp}/get_entity", {"entity_id": entity["id"]})
         detail = _first_json_obj(getattr(detail_res, "text", "") or "")
         fields.append(
             {
-                "key": e["id"],
-                "label": detail.get("label") or e.get("label") or e["id"],
+                "key": entity["id"],
+                "label": detail.get("label") or entity.get("label") or entity["id"],
                 "candidates": detail.get("candidates") or [],
                 "required": True,
             }

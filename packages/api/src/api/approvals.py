@@ -4,6 +4,8 @@
 approve면 위험 도구 실행 후 마무리, reject면 미실행 마무리. 재개 기전은 chat.resume_approval.
 """
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import case, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,14 +14,14 @@ from . import authz
 from .auth import current_principal
 from .chat import resume_approval
 from .db import get_session
-from .models import Agent, Approval
+from .models import Agent, Approval, User
 from .schemas import ApprovalOut, ApprovalPage, ResolveIn
 from .serializers import approval_to_out
 
 router = APIRouter(prefix="/approvals", tags=["approvals"])
 
 
-def _is_admin(principal) -> bool:
+def _is_admin(principal: User | str) -> bool:
     """principal이 전체 승인 권한(admin급)인가 — 머신 토큰 또는 superuser/`approvals:resolve` 유저."""
     if isinstance(principal, str):  # "machine" 센티넬 = owner급 전체 접근(스펙 011/031)
         return True
@@ -28,7 +30,7 @@ def _is_admin(principal) -> bool:
     return authz.get_enforcer().enforce(str(principal.id), "approvals", "resolve")
 
 
-def _may_resolve(approval: Approval, principal) -> bool:
+def _may_resolve(approval: Approval, principal: Any) -> bool:  # User | "machine" 센티널 duck-typing
     """resolve 인가(스펙 066 + 177 P2). admin/머신=무엇이든, 그 외는 승인자 정책에 따라.
 
     - 머신/admin → True(전체).
@@ -52,7 +54,7 @@ def _may_resolve(approval: Approval, principal) -> bool:
     return is_owner and authz.can_self_approve(str(principal.id), approval.permission)
 
 
-def _own_scope(principal) -> str | None:
+def _own_scope(principal: Any) -> str | None:  # User | "machine" 센티널 duck-typing
     """list 스코핑 키 — 일반 유저면 자기 user_id(본인 것만), admin/머신이면 None(전체)."""
     if _is_admin(principal):
         return None
@@ -71,7 +73,7 @@ async def list_approvals_page(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     session: AsyncSession = Depends(get_session),
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
 ) -> ApprovalPage:
     """승인 페이지 목록(스펙 251) — 무페이지네이션 전건 렌더(복잡도 1위)의 서버측 처방.
 
@@ -113,7 +115,7 @@ async def list_approvals_page(
 async def list_approvals(
     status: str | None = None,
     session: AsyncSession = Depends(get_session),
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
 ) -> list[ApprovalOut]:
     # pending 먼저, 그 다음 requested_at 내림차순.
     # status를 주면 그 상태만 — 사이드바 배지·승인 큐는 'pending'만 본다(045 정직화).
@@ -140,7 +142,9 @@ async def resolve_approval(
     approval_id: str,
     body: ResolveIn,
     session: AsyncSession = Depends(get_session),
-    principal=Depends(current_principal),
+    principal: Any = Depends(
+        current_principal
+    ),  # User | "machine" — resolved_by 스탬프가 .id를 직접 참조
 ) -> ApprovalOut:
     result = await session.execute(select(Approval).where(Approval.approval_id == approval_id))
     p = result.scalar_one_or_none()
@@ -168,7 +172,13 @@ async def resolve_approval(
         .where(Approval.approval_id == approval_id, Approval.status == "pending")
         # 처리 감사(스펙 181) — status와 같은 원자 UPDATE에 처리 시각·처리자를 함께 박는다
         # (별도 write 입구 안 늘림). resolved_by가 user_id(요청자)와 같으면 본인 승인.
-        .values(status=new_status, resolved_at=func.now(), resolved_by=str(principal.id))
+        # 머신 토큰(str principal)은 .id가 없어 500이었다(스펙 292 타입 주석 작업이 적발) —
+        # 센티널 "machine"으로 스탬프(유저 UUID와 충돌 없음, 감사 정보 보존).
+        .values(
+            status=new_status,
+            resolved_at=func.now(),
+            resolved_by="machine" if isinstance(principal, str) else str(principal.id),
+        )
     )
     if res.rowcount == 0:
         raise HTTPException(status_code=409, detail="이미 처리되었거나 처리 중인 승인입니다.")

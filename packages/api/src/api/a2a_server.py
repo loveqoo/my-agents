@@ -15,18 +15,20 @@
 import json
 import os
 import uuid
+from collections.abc import AsyncIterator
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent.runtime import is_first_party, is_remote_source
 
 from . import a2a_client, broker, chat, net_guard
 from .auth import current_principal
 from .db import SessionLocal
-from .models import Agent, McpServer
+from .models import Agent, McpServer, User
 
 router = APIRouter(prefix="/agents", tags=["a2a-server"])
 
@@ -111,7 +113,7 @@ def _mcp_server_wants(cfg: dict, caps: list[str]) -> dict[str, set | None]:
     return mcp_servers
 
 
-async def _mcp_skills(db, mcp_servers: dict[str, set | None]) -> list[dict]:
+async def _mcp_skills(db: AsyncSession, mcp_servers: dict[str, set | None]) -> list[dict]:
     """살아있는 MCP 도구 스킬 목록을 반환(dangling·미지원 transport는 스킵)."""
     if not mcp_servers:
         return []
@@ -150,7 +152,7 @@ async def _mcp_skills(db, mcp_servers: dict[str, set | None]) -> list[dict]:
     return skills
 
 
-async def _delegate_skills(db, agent_ids: list[str]) -> list[dict]:
+async def _delegate_skills(db: AsyncSession, agent_ids: list[str]) -> list[dict]:
     """위임 가능한 서브에이전트 스킬 목록을 반환(dangling·비remote·무endpoint는 스킵)."""
     skills: list[dict] = []
     for aid in agent_ids:
@@ -173,7 +175,7 @@ async def _delegate_skills(db, agent_ids: list[str]) -> list[dict]:
     return skills
 
 
-async def _rag_skills(db, rag_colls: list[str]) -> list[dict]:
+async def _rag_skills(db: AsyncSession, rag_colls: list[str]) -> list[dict]:
     """살아있는 지식 컬렉션 스킬 목록을 반환(dangling은 스킵 — MCP·delegate와 일관)."""
     if not rag_colls:
         return []
@@ -234,7 +236,7 @@ async def _agent_a2a_skills(agent: Agent) -> list[dict]:
 
 
 @router.get("/{agent_id}/.well-known/agent-card.json")
-async def exposed_agent_card(agent_id: uuid.UUID, request: Request):
+async def exposed_agent_card(agent_id: uuid.UUID, request: Request) -> dict:
     """공개 — 노출된 ui 에이전트의 A2A 카드. connect가 fetch해 external로 분류(x-my-agents 없음).
 
     base 입력 `<self>/agents/<id>`로 connect하면 fetch_card가 well-known 관례로 이 카드를 찾는다.
@@ -262,9 +264,9 @@ def _a2a_user_text(params: dict) -> str:
     msg = (params or {}).get("message") or {}
     parts = msg.get("parts") or []
     out = []
-    for p in parts:
-        if isinstance(p, dict) and p.get("kind") == "text" and p.get("text"):
-            out.append(str(p["text"]))
+    for part in parts:
+        if isinstance(part, dict) and part.get("kind") == "text" and part.get("text"):
+            out.append(str(part["text"]))
     return "".join(out)
 
 
@@ -273,12 +275,12 @@ RELAY_HEADER = (
 )
 
 
-def _relay_chunks(agent: Agent, user_text: str):
+def _relay_chunks(agent: Agent, user_text: str) -> AsyncIterator[str]:
     """code(제1자 SDK 배포) 에이전트로 중계(스펙 154) — a2a_client 경유(SSRF 가드·캡·타임아웃 그대로).
     text 프레임을 청크로 yield, error 프레임은 RuntimeError로(호출측이 JSON-RPC error로 접음 —
     a2a_client의 error 메시지는 우리가 생성한 문구라 비밀 에코 없음)."""
 
-    async def _gen():
+    async def _gen() -> AsyncIterator[str]:
         async for frame in a2a_client.a2a_stream(
             agent.endpoint or "",
             agent.token,
@@ -294,10 +296,14 @@ def _relay_chunks(agent: Agent, user_text: str):
     return _gen()
 
 
-@router.post("/{agent_id}/a2a")
+# response_model=None: 반환이 dict|StreamingResponse 유니언이라 FastAPI 응답모델 생성 불가(계약 불변).
+@router.post("/{agent_id}/a2a", response_model=None)
 async def exposed_agent_a2a(
-    agent_id: uuid.UUID, body: dict, request: Request, _principal=Depends(current_principal)
-):
+    agent_id: uuid.UUID,
+    body: dict,
+    request: Request,
+    _principal: User | str = Depends(current_principal),
+) -> dict | StreamingResponse:
     """인증 — 노출된 에이전트의 JSON-RPC(message/send·stream). ui=실 로컬 런타임, code=1홉 중계(스펙 154).
 
     인증은 current_principal(쿠키 유저 또는 머신 토큰) — a2a_client가 등록 토큰을 Bearer로 실어
@@ -368,7 +374,7 @@ async def exposed_agent_a2a(
             }
             return f"data: {json.dumps(_response(result), ensure_ascii=False)}\n\n"
 
-        async def event_stream():
+        async def event_stream() -> AsyncIterator[str]:
             try:
                 async for text in chunk_source:
                     yield _status_event(text, final=False, state="working")

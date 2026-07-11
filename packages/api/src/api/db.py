@@ -77,7 +77,7 @@ def _alembic_config() -> Config:
     return cfg
 
 
-async def init_db():
+async def init_db() -> None:
     """시작 시 DB 프리플라이트 → alembic upgrade head (실패 시 create_all 폴백) + 비어있으면 시드."""
     await _preflight()  # DB 도달성 먼저 — 실패 시 명확 종료(폴백 이중 throw 제거)
     try:

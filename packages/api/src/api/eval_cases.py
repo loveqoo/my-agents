@@ -13,7 +13,7 @@ from .auth import current_principal
 from .db import get_session
 from .eval_common import _dataset_or_404, _gate_harvest_read, _validate_asserts, router
 from .eval_schemas import CaseIn, CaseOut
-from .models import EvalCase, EvalDataset
+from .models import EvalCase, EvalDataset, User
 from .ownership import assert_may_manage
 
 
@@ -21,7 +21,7 @@ from .ownership import assert_may_manage
 async def list_cases(
     dataset_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
-    user=Depends(current_principal),
+    user: User | str = Depends(current_principal),
 ) -> list[CaseOut]:
     ds = await _dataset_or_404(session, dataset_id)
     _gate_harvest_read(ds, user)  # 수확 케이스(입력=사용자 질문)는 소유자/admin만(codex P2 F1)
@@ -44,7 +44,7 @@ async def create_case(
     dataset_id: uuid.UUID,
     body: CaseIn,
     session: AsyncSession = Depends(get_session),
-    user=Depends(current_principal),
+    user: User | str = Depends(current_principal),
 ) -> CaseOut:
     ds = await _dataset_or_404(session, dataset_id)
     assert_may_manage(ds, user, not_found_detail="dataset not found")  # 문제집 소유자만 케이스 추가
@@ -68,7 +68,7 @@ async def update_case(
     case_id: uuid.UUID,
     body: CaseIn,
     session: AsyncSession = Depends(get_session),
-    user=Depends(current_principal),
+    user: User | str = Depends(current_principal),
 ) -> CaseOut:
     case = await session.get(EvalCase, case_id)
     if case is None:
@@ -91,7 +91,7 @@ async def update_case(
 async def delete_case(
     case_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
-    user=Depends(current_principal),
+    user: User | str = Depends(current_principal),
 ) -> None:
     case = await session.get(EvalCase, case_id)
     if case is None:

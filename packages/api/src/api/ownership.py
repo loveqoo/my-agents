@@ -10,10 +10,17 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from agent.runtime import is_third_party
 
+if TYPE_CHECKING:
+    import casbin
 
-def owner_of(principal) -> str | None:
+    from .models import User
+
+
+def owner_of(principal: User | str | None) -> str | None:
     """생성 주체의 owner_id(auth User UUID str). 머신 토큰(str principal)·익명 → None(=admin 전용)."""
     if principal is None or isinstance(principal, str):
         return None
@@ -44,7 +51,9 @@ def may_use(owner_id: str | None, user_id: str | None, is_privileged: bool) -> b
     return bool(user_id) and owner_id == user_id
 
 
-def is_privileged(principal, enforcer=None) -> bool:
+def is_privileged(
+    principal: User | str | None, enforcer: casbin.AsyncEnforcer | None = None
+) -> bool:
     """관리(수정/삭제) 특권 — 소유자 아니어도 카탈로그를 만질 수 있나(스펙 112).
     - **머신 토큰(str principal) = 특권**: 신뢰 서비스/CI 자격(오늘 전권), 위협 모델 밖 → 무회귀.
       (브로커 *오케스트레이션*은 정반대로 머신 토큰 deny — 그건 유저 세션 대상이라 별개 맥락.)
@@ -72,7 +81,11 @@ def is_privileged(principal, enforcer=None) -> bool:
     return bool(enforcer.enforce(str(pid), "*", "*"))  # admin 역할 = (*,*)
 
 
-def may_manage(row_owner: str | None, principal, enforcer=None) -> bool:
+def may_manage(
+    row_owner: str | None,
+    principal: User | str | None,
+    enforcer: casbin.AsyncEnforcer | None = None,
+) -> bool:
     """관리 가능 여부 **불리언 술어**(스펙 114) — assert_may_manage의 형제(단일 술어, drift 0).
     특권(머신·superuser·admin 역할) or 소유자 본인. UI가 can_manage를 이걸로 파생(프론트 재계산 금지)."""
     if is_privileged(principal, enforcer):
@@ -82,7 +95,10 @@ def may_manage(row_owner: str | None, principal, enforcer=None) -> bool:
 
 
 def assert_may_manage(
-    resource, principal, enforcer=None, not_found_detail: str = "not found"
+    resource: object,
+    principal: User | str | None,
+    enforcer: casbin.AsyncEnforcer | None = None,
+    not_found_detail: str = "not found",
 ) -> None:
     """카탈로그 항목 수정/삭제 게이트(스펙 112) — 특권 or 소유자 본인만. 아니면 **404-fold**(존재
     비노출, 068 — 남의/NULL-owned 항목을 403으로 구분해주지 않는다). NULL-owned는 특권만(fail-closed).
@@ -103,7 +119,7 @@ def assert_may_manage(
 # MCP/RAG 등 카탈로그 자원의 **사용(배선)**은 등록만 되면 허용, **관리(수정/삭제)**는
 # assert_may_manage(소유자/특권)가 계속 게이트한다. 커스텀 MCP의 외부 노출은 published가
 # 서빙 게이트(served_mcp._is_served)로만 소비된다.
-def may_use_agent(agent, principal) -> bool:
+def may_use_agent(agent: object, principal: User | str | None) -> bool:
     """에이전트 **사용**(채팅·목록 노출) 게이트 — 스펙 147 트리:
     public(owner 없음)=모두, private(owner 있음)=소유자·특권만, external=항상(가져다 쓰는 것).
     관리(may_manage)와 축이 다르다 — public은 모두 사용하지만 관리는 특권만."""

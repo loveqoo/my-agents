@@ -9,6 +9,7 @@
 """
 
 import logging
+import uuid
 
 import httpx
 
@@ -165,7 +166,7 @@ async def _gen_persona_cases(
     return cases, skipped
 
 
-async def suggest_agent_cases(agent_pk, count: int, llm_cfg: dict) -> dict:
+async def suggest_agent_cases(agent_pk: uuid.UUID, count: int, llm_cfg: dict) -> dict:
     """에이전트 문제집 출제 → {"cases": [{"question","asserts","label"}], "skipped": int}.
 
     안분: RAG 능력이 있으면 절반은 RAG형(컬렉션 골든 + trace_has), 나머지는 페르소나형.

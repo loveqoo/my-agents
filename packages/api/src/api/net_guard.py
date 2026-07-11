@@ -22,7 +22,12 @@ import math
 import os
 import socket
 import time
+from collections.abc import Iterable
+from typing import TYPE_CHECKING
 from urllib.parse import urljoin, urlparse
+
+if TYPE_CHECKING:
+    import httpx
 
 
 class SsrfBlockedError(ValueError):
@@ -212,7 +217,7 @@ def invalidate_allowed_hosts_cache() -> None:
     _SNAPSHOT_EXPIRES = 0.0
 
 
-def _set_allowed_hosts_for_test(hosts) -> None:
+def _set_allowed_hosts_for_test(hosts: Iterable[str]) -> None:
     """**테스트 전용** — DB 없이 스냅샷을 직접 고정한다(런타임 코드는 절대 호출하지 않는다).
 
     스펙 064에서 allowlist 소스가 env→DB로 바뀌어, DB 없는 단위 테스트는 더는 `os.environ`으로
@@ -222,9 +227,9 @@ def _set_allowed_hosts_for_test(hosts) -> None:
     """
     global _ALLOWED_SNAPSHOT, _SNAPSHOT_EXPIRES
     snap: set[str] = set()
-    for h in hosts:
+    for host in hosts:
         try:
-            snap.add(normalize_allowed_host(h))
+            snap.add(normalize_allowed_host(host))
         except ValueError:
             continue
     _ALLOWED_SNAPSHOT = snap
@@ -309,7 +314,11 @@ def guard_url(url: str) -> None:
         raise SsrfBlockedError("호스트에서 유효한 IP를 얻지 못했습니다")
 
 
-def mcp_http_client_factory(headers=None, timeout=None, auth=None):
+def mcp_http_client_factory(
+    headers: dict[str, str] | None = None,
+    timeout: "httpx.Timeout | None" = None,
+    auth: "httpx.Auth | None" = None,
+) -> "httpx.AsyncClient":
     """MCP outbound HTTP 클라이언트 팩토리 — guard_url을 우회하는 **리다이렉트 추종을 끈다**.
 
     `guard_url`은 *최초* URL의 resolve IP만 검사한다. 기본 MCP 클라이언트는 follow_redirects=True

@@ -1,5 +1,7 @@
 """ORM 모델 → API 출력(dict) 직렬화. 여러 라우터가 공유."""
 
+from datetime import datetime
+
 from agent.runtime import classify_runtime, is_first_party
 
 from .crypto import SECRET_MASK
@@ -70,7 +72,7 @@ def collection_to_out(c: Collection) -> CollectionOut:
     )
 
 
-def _iso(dt) -> str | None:
+def _iso(dt: datetime | None) -> str | None:
     return dt.isoformat() if dt is not None else None
 
 

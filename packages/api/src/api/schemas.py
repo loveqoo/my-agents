@@ -527,11 +527,11 @@ class AgentConfig(BaseModel):
                 raise ValueError("artifactSpec.fields는 배열이어야 합니다.")
             if len(fields) > 100:
                 raise ValueError("artifactSpec.fields는 100개 이하여야 합니다.")
-            for f in fields:
+            for field in fields:
                 if (
-                    not isinstance(f, dict)
-                    or not isinstance(f.get("key"), str)
-                    or not f["key"].strip()
+                    not isinstance(field, dict)
+                    or not isinstance(field.get("key"), str)
+                    or not field["key"].strip()
                 ):
                     raise ValueError(
                         "artifactSpec.fields 항목은 비어있지 않은 문자열 key가 필요합니다."

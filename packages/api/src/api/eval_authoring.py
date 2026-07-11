@@ -24,7 +24,7 @@ from .eval_schemas import (
     HelperStatusOut,
     SuggestIn,
 )
-from .models import Agent, EvalCase, EvalDataset, MessageFeedback, Session
+from .models import Agent, EvalCase, EvalDataset, MessageFeedback, Session, User
 from .ownership import assert_may_manage, is_privileged, may_use_agent, owner_of
 
 # ----------------------------- 골든셋 자동 생성 (스펙 142) -----------------------------
@@ -97,7 +97,9 @@ async def _execute_generation(dataset_id: uuid.UUID, collection_id: uuid.UUID, c
 
 @router.post("/generate-dataset", response_model=DatasetOut, status_code=202)
 async def generate_dataset(
-    body: GenerateIn, session: AsyncSession = Depends(get_session), user=Depends(current_principal)
+    body: GenerateIn,
+    session: AsyncSession = Depends(get_session),
+    user: User | str = Depends(current_principal),
 ) -> DatasetOut:
     """컬렉션에서 RAG 문제집 자동 생성(스펙 142) — 문제집 즉시 반환, 케이스는 백그라운드 생성
     (완료/실패는 description으로 확인). 컬렉션 완전성은 검색 해석기로 사전 검증."""
@@ -130,7 +132,8 @@ async def generate_dataset(
 
 @router.get("/helper-status", response_model=HelperStatusOut)
 async def helper_status(
-    session: AsyncSession = Depends(get_session), _user=Depends(current_principal)
+    session: AsyncSession = Depends(get_session),
+    _user: User | str = Depends(current_principal),
 ) -> HelperStatusOut:
     """도우미 가용성 — UI가 버튼 활성/비활성+사유 툴팁에 사용(정직 비활성)."""
     _llm, reason = await _helper_llm(session)
@@ -276,7 +279,7 @@ async def suggest_cases(
     dataset_id: uuid.UUID,
     body: SuggestIn,
     session: AsyncSession = Depends(get_session),
-    user=Depends(current_principal),
+    user: User | str = Depends(current_principal),
 ) -> DatasetOut:
     """문제집 AI 출제 — 기존 문제 보존+추가, 백그라운드(상태=description). agent=에이전트 구성 기반(143),
     rag=고정 컬렉션 골든 생성 append(195). 둘 다 소유자만·비용가드·도우미 실모델 필요."""
@@ -349,7 +352,7 @@ async def _unharvested_count(session: AsyncSession, agent_pk: uuid.UUID) -> int:
 async def harvest_count(
     agent_id: uuid.UUID = Query(...),
     session: AsyncSession = Depends(get_session),
-    user=Depends(current_principal),
+    user: User | str = Depends(current_principal),
 ) -> HarvestCountOut:
     """수확 가능 피드백 수 + 기존 수확 문제집. 에이전트 소유자/admin만(수확=관리 행위, 비소유 404-fold)."""
     agent = await session.get(Agent, agent_id)
@@ -372,7 +375,7 @@ async def harvest_count(
 async def harvest_feedback(
     body: HarvestIn,
     session: AsyncSession = Depends(get_session),
-    user=Depends(current_principal),
+    user: User | str = Depends(current_principal),
 ) -> DatasetOut:
     """에이전트 피드백(👍/👎) → 초안 평가 케이스 수확. 에이전트별 "피드백 수확" 문제집(source_agent_pk로
     idempotent 재사용)에 draft로 append, 배경 LLM 작업(기준 합성). 소유권=에이전트 소유자/admin(비소유

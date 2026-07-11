@@ -17,7 +17,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, TypedDict
+from typing import TYPE_CHECKING, Annotated, TypedDict
 
 from langchain_core.messages import SystemMessage
 from langchain_openai import ChatOpenAI
@@ -26,6 +26,9 @@ from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 
 from ..runtime import AgentBuildContext, AgentManifest
+
+if TYPE_CHECKING:
+    from langgraph.graph.state import CompiledStateGraph
 
 
 class _State(TypedDict):
@@ -68,7 +71,7 @@ class PlanExecuteAgent:
             supports_hil=False,  # 위험 도구 게이트 없음(순수 2노드) — 정직하게 표기
         )
 
-    def build_graph(self, ctx: AgentBuildContext):
+    def build_graph(self, ctx: AgentBuildContext) -> CompiledStateGraph:
         model = _model_from_cfg(ctx)
         persona = ctx.persona  # 오버라이드 병합 후 주입된 페르소나(주입 단일 출처)
         # 플랫폼 주입 도구(config.mcps 유래, HIL/트레이스 래핑 포함) — 하이브리드 게이트(스펙 203):

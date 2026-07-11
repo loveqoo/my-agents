@@ -18,7 +18,7 @@ from collections.abc import AsyncGenerator
 from functools import lru_cache
 from pathlib import Path
 
-from fastapi import Depends
+from fastapi import Depends, Request
 from fastapi_users import BaseUserManager, FastAPIUsers, UUIDIDMixin
 from fastapi_users.authentication import AuthenticationBackend, CookieTransport
 from fastapi_users.authentication.strategy.db import (
@@ -75,7 +75,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
     reset_password_token_secret = _secret()
     verification_token_secret = _secret()
 
-    async def on_after_register(self, user: User, _request=None) -> None:
+    async def on_after_register(self, user: User, _request: Request | None = None) -> None:
         """가입(관리자 생성 포함) 직후 Casbin 기본 role(member) 부여."""
         # 지연 import: authz가 users를 참조하지 않지만 순환을 피하고 부팅 순서를 단순화.
         from .authz import assign_role

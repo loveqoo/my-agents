@@ -9,6 +9,7 @@ mem_id만 변조 허용(타 유저·타 에이전트 행 변조 차단 — 스�
 """
 
 import asyncio
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -54,7 +55,7 @@ class MemoryUserList(BaseModel):
     users: list[MemoryUserOut]  # 어드민=전체 distinct, 비-어드민=[me]
 
 
-def _can_curate_others(principal) -> bool:
+def _can_curate_others(principal: Any) -> bool:  # User | "machine" 센티널 duck-typing
     """타 유저 메모리 열람·교정 권한(memory:manage 등가). 머신 토큰=소유자=어드민 등가,
     is_superuser=우회(authz.py 패턴), 그 외엔 Casbin enforce(기본정책 admin '*,*'가 통과).
     기본정책이 memory:manage를 이미 커버 → 새 시드 불요. 스펙 053."""
@@ -65,7 +66,7 @@ def _can_curate_others(principal) -> bool:
     return get_enforcer().enforce(str(principal.id), "memory", "manage")
 
 
-def _assert_principal_may_access(principal, user_id: str) -> None:
+def _assert_principal_may_access(principal: Any, user_id: str) -> None:
     """principal-레벨 게이트 — 비-어드민은 자기 user_id만. mem_id가 그 user_id 소유인지 보는
     `_assert_user_owns`(row-레벨)와 **별개**, 둘 다 필요(전자=주체×대상, 후자=대상×행)."""
     if _can_curate_others(principal):
@@ -75,7 +76,7 @@ def _assert_principal_may_access(principal, user_id: str) -> None:
         raise HTTPException(status_code=403, detail="다른 유저의 메모리에 접근할 수 없습니다")
 
 
-def _principal_identity(principal) -> MemoryUserOut | None:
+def _principal_identity(principal: Any) -> MemoryUserOut | None:
     if principal == "machine":
         return None
     return MemoryUserOut(
@@ -85,7 +86,7 @@ def _principal_identity(principal) -> MemoryUserOut | None:
 
 @router.get("/users", response_model=MemoryUserList)
 async def list_memory_users(
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
     session: AsyncSession = Depends(get_session),
 ) -> MemoryUserList:
     """유저 메모리 큐레이션 대상 목록 — **현재 주체가 접근 허용된 범위만**(스펙 053).
@@ -125,12 +126,12 @@ async def list_memory_users(
     return MemoryUserList(can_curate_others=True, me=me, users=users_out)
 
 
-async def _user_mem_cfg(session: AsyncSession):
+async def _user_mem_cfg(session: AsyncSession) -> dict | None:
     """유저 메모리용 mem_cfg(기본 chat+embedding). 메모리 미가용이면 None."""
     return await default_mem_cfg(session)
 
 
-async def _assert_user_owns(user_id: str, mem_id: str, mem_cfg) -> None:
+async def _assert_user_owns(user_id: str, mem_id: str, mem_cfg: dict | None) -> None:
     """mem_id가 이 user_id의 기억에 속하는지 확인. 공유 pgvector라 path user_id로 소유권을 강제하지
     않으면 임의 user_id/agent_id 행을 id만으로 변조 가능. 소유권 술어는 `memory.user_owns` **단일
     출처**(스펙 111 — 브로커 memedit invoke와 공유, 드리프트 0)."""
@@ -141,7 +142,7 @@ async def _assert_user_owns(user_id: str, mem_id: str, mem_cfg) -> None:
 @router.get("/user/{user_id}")
 async def list_user_memory(
     user_id: str,
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
     session: AsyncSession = Depends(get_session),
 ) -> list[dict]:
     """유저(user_id) 장기 기억 목록. 메모리 미가용이면 빈 목록(graceful)."""
@@ -158,7 +159,7 @@ async def page_user_memory(
     q: str | None = Query(None, max_length=500),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0, le=1_000_000),
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
     session: AsyncSession = Depends(get_session),
 ) -> MemoryPageOut:
     """유저 기억 페이지 목록(스펙 127) — 서버 페이지네이션 + 부분일치(q).
@@ -194,7 +195,7 @@ async def page_user_memory(
 async def search_user_memory(
     user_id: str,
     body: MemorySearchIn,
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
     session: AsyncSession = Depends(get_session),
 ) -> MemorySearchOut:
     """회상 시험(스펙 084) — 챗과 동일한 공유 코어 `memory.search`로 user_id 스코프 회상.
@@ -232,7 +233,7 @@ async def update_user_memory(
     user_id: str,
     mem_id: str,
     body: UserMemoryIn,
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     """교정 — 유저 기억 본문 수정(본인 또는 어드민)."""
@@ -255,7 +256,7 @@ async def update_user_memory(
 async def delete_user_memory(
     user_id: str,
     mem_id: str,
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
     session: AsyncSession = Depends(get_session),
 ) -> None:
     """교정 — 유저 기억 삭제(본인 또는 어드민)."""

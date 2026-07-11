@@ -3,10 +3,14 @@
 
 PY_SRC = packages/api/src packages/agent/src
 
-.PHONY: lint format format-check complexity maintainability typecheck suite metrics metrics-fast
+.PHONY: lint format format-check complexity maintainability naming typecheck suite metrics metrics-fast
 
 lint:
 	uvx ruff check $(PY_SRC)
+
+# 네이밍 룰(스펙 292) — R1 bool 술어·R3 루프 변수 AST 감사(룰 원문은 docs/spec/292).
+naming:
+	uv run python scripts/naming_audit.py
 
 format:
 	uvx ruff format $(PY_SRC)
@@ -31,7 +35,7 @@ typecheck:
 suite:
 	uv run python tests/suite/run.py
 
-metrics-fast: lint format-check complexity maintainability typecheck
+metrics-fast: lint format-check complexity maintainability naming typecheck
 	@echo "== metrics-fast 통과 =="
 
 metrics: metrics-fast suite

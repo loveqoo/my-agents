@@ -10,6 +10,7 @@ from agent.runtime import is_third_party
 
 from ..auth import current_principal
 from ..db import get_session
+from ..models import User
 from ..ownership import assert_may_manage, owner_of
 from ..schemas import AgentOut, ExposeIn
 from .helpers import _load_agent, _reload_out
@@ -22,7 +23,7 @@ async def expose_agent(
     agent_id: uuid.UUID,
     body: ExposeIn,
     session: AsyncSession = Depends(get_session),
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
 ) -> AgentOut:
     agent = await _load_agent(session, agent_id)
     if agent is None:
@@ -60,7 +61,7 @@ async def set_agent_visibility(
     agent_id: uuid.UUID,
     body: VisibilityIn,
     session: AsyncSession = Depends(get_session),
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
 ) -> AgentOut:
     """private↔public 전환(스펙 154). 소유자/특권만.
 

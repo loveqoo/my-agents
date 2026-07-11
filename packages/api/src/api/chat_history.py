@@ -27,9 +27,9 @@ def _to_base_messages(dicts: list[dict]) -> list:
     """{role, content} dict 리스트 → BaseMessage 리스트(스펙 270 히스토리 프록시용). 엔진이 ainvoke에
     splat하므로 노드 상태의 BaseMessage와 정합해야 함. role: assistant→AI, system→System, 그 외→Human."""
     out: list = []
-    for m in dicts:
-        role = m.get("role")
-        content = m.get("content") or ""
+    for msg in dicts:
+        role = msg.get("role")
+        content = msg.get("content") or ""
         if role == "assistant":
             out.append(AIMessage(content=content))
         elif role == "system":
@@ -56,7 +56,7 @@ class _HistoryWindowProxy:
         default_depth: int | None,
         records: list[dict],
         drop_last: bool = True,
-    ):
+    ) -> None:
         # drop_last(codex 270 High): 메인 경로의 conversation은 **현재 턴 포함**(body.messages 끝=현재 턴,
         # 그래프가 별도 시드)이라 [:-1]로 분리. 재개 경로의 conversation은 세션 DB서 로드한 **이전 대화만**
         # (현재 턴은 아직 미영속 — 체크포인트가 보유)이라 drop_last=False(안 버림). 이 구분이 없으면 재개가
@@ -110,8 +110,8 @@ def _node_history_depths(nodes: list) -> list[int] | None:
     """노드별 historyDepth 수집 — 음수(전체) depth가 하나라도 있으면 None(전량 신호).
     노드 depth None은 '상속'이라 에이전트 값으로 이미 대표된다(스킵)."""
     depths: list[int] = []
-    for n in nodes:
-        d = n.get("historyDepth")
+    for node in nodes:
+        d = node.get("historyDepth")
         if d is None:
             continue
         if isinstance(d, int) and d < 0:

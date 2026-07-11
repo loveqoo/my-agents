@@ -7,6 +7,7 @@ v1=단일 청크 기반(멀티홉·진화는 OUT). 청크당 기본 chat 모델�
 """
 
 import logging
+import uuid
 
 import httpx
 from sqlalchemy import func, select
@@ -55,7 +56,7 @@ def _parse_question(text: str) -> str | None:
     return q[:500]  # assert arg 캡과 정합
 
 
-async def _sample_chunks(collection_id, want: int) -> list[tuple[str, str]]:
+async def _sample_chunks(collection_id: uuid.UUID, want: int) -> list[tuple[str, str]]:
     """(청크 텍스트, 문서 파일명) 후보 표본 — 랜덤, 짧은 청크 제외, 문서별 최대 _PER_DOC_CAP."""
     async with SessionLocal() as db:
         rows = (
@@ -110,7 +111,7 @@ async def _gen_question(chunk_text: str, llm_cfg: dict) -> str | None:
         return None
 
 
-async def generate_golden_cases(collection_id, count: int, llm_cfg: dict) -> dict:
+async def generate_golden_cases(collection_id: uuid.UUID, count: int, llm_cfg: dict) -> dict:
     """골든 케이스 생성 → {"cases": [{"question","filename"}], "skipped": int}.
 
     count 달성 또는 후보 소진까지 순차(로컬 LLM 과점유 방지). 중복 질문은 건너뜀.

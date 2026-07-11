@@ -71,12 +71,12 @@ async def _get_or_create_config(session: AsyncSession) -> BatchConfig:
 
 
 @router.get("/jobs", dependencies=[_run])
-async def list_jobs():
+async def list_jobs() -> dict:
     return {"jobs": sorted(JOBS)}
 
 
 @router.post("/{job}/run", dependencies=[_run])
-async def trigger(job: str, dry_run: bool = Query(False)):
+async def trigger(job: str, dry_run: bool = Query(False)) -> dict:
     if job not in JOBS:
         raise HTTPException(status_code=404, detail=f"미지의 작업: {job}")
     return await run_job(job, dry_run=dry_run)
@@ -86,7 +86,7 @@ async def trigger(job: str, dry_run: bool = Query(False)):
 async def list_runs(
     limit: int = Query(20, ge=1, le=100),
     session: AsyncSession = Depends(get_session),
-):
+) -> list[dict]:
     rows = (
         (await session.execute(select(BatchRun).order_by(BatchRun.started_at.desc()).limit(limit)))
         .scalars()
@@ -119,12 +119,14 @@ def _config_out(cfg: BatchConfig) -> BatchConfigOut:
 
 
 @router.get("/config", dependencies=[_run], response_model=BatchConfigOut)
-async def get_config(session: AsyncSession = Depends(get_session)):
+async def get_config(session: AsyncSession = Depends(get_session)) -> BatchConfigOut:
     return _config_out(await _get_or_create_config(session))
 
 
 @router.patch("/config", dependencies=[_run], response_model=BatchConfigOut)
-async def update_config(body: BatchConfigIn, session: AsyncSession = Depends(get_session)):
+async def update_config(
+    body: BatchConfigIn, session: AsyncSession = Depends(get_session)
+) -> BatchConfigOut:
     cfg = await _get_or_create_config(session)
     # PATCH 의미: 보내준 필드만 변경(None도 명시값=비활성). 미전송 필드는 보존.
     data = body.model_dump(exclude_unset=True)

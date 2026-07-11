@@ -7,9 +7,11 @@
 import logging
 import secrets
 import uuid
+from collections.abc import Sequence
 
 from fastapi import HTTPException
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from agent.runtime import is_remote_source
@@ -26,7 +28,7 @@ log = logging.getLogger("api.chat")
 _is_remote = is_remote_source
 
 
-async def _chat_model_cfg(db, name: str) -> dict | None:
+async def _chat_model_cfg(db: AsyncSession, name: str) -> dict | None:
     """레지스트리 chat 모델(name→provider 상속) 해석 — 미존재/불완전이면 None."""
     m = (
         await db.execute(
@@ -45,7 +47,9 @@ async def _chat_model_cfg(db, name: str) -> dict | None:
     }
 
 
-async def _resolve_node_models(db, nodes: list, default_cfg: dict | None) -> list[dict]:
+async def _resolve_node_models(
+    db: AsyncSession, nodes: list, default_cfg: dict | None
+) -> list[dict]:
     """노드형(스펙 259) 노드별 모델을 레지스트리에서 미리 해석해 `model_cfg`를 심는다(085 U2 — impl은
     DB 미접촉). 에이전트 모델 해석과 **동일 조회**(`ModelConfig.name==name, kind=="chat"`, provider
     상속) — 드리프트 0. 미지정/미존재 이름은 `default_cfg`(에이전트 기본 chat 모델)로 폴백. 같은 모델
@@ -53,17 +57,17 @@ async def _resolve_node_models(db, nodes: list, default_cfg: dict | None) -> lis
     정규화는 impl의 normalize_nodes가)."""
     resolved: list[dict] = []
     cache: dict[str, dict | None] = {}
-    for n in nodes:
-        if not isinstance(n, dict):
+    for node in nodes:
+        if not isinstance(node, dict):
             continue
-        name = n.get("model")
+        name = node.get("model")
         cfg = None
         if isinstance(name, str) and name.strip():
             if name not in cache:
                 cache[name] = await _chat_model_cfg(db, name)
             cfg = cache[name]
         # 심은 model_cfg는 해석된 노드 모델(없으면 에이전트 기본으로 폴백 — impl의 _model_from_node).
-        resolved.append({**n, "model_cfg": cfg or default_cfg})
+        resolved.append({**node, "model_cfg": cfg or default_cfg})
     return resolved
 
 
@@ -103,7 +107,7 @@ def _used_node_tools(nodes: list[dict]) -> set[str]:
     return {t for n in nodes for t in (n.get("tools") or []) if isinstance(t, str)}
 
 
-def _server_tool_used(s, used: set[str], bare_owners: dict[str, set[str]]) -> bool:
+def _server_tool_used(s: McpServer, used: set[str], bare_owners: dict[str, set[str]]) -> bool:
     """서버 도구 중 노드가 참조한 것이 있는가 — 접두명(srv__tool) 또는 전역 유일 민이름."""
     return any(
         runtime._safe_name(s.name, t) in used or (t in used and len(bare_owners.get(t) or ()) == 1)
@@ -111,16 +115,16 @@ def _server_tool_used(s, used: set[str], bare_owners: dict[str, set[str]]) -> bo
     )
 
 
-def _mcp_pool(servers, used: set[str]) -> list[str]:
+def _mcp_pool(servers: Sequence[McpServer], used: set[str]) -> list[str]:
     """노드 참조 도구를 보유한 MCP 서버 이름 목록.
 
     민이름(bare, 구저장 'echo'류) 매칭은 **전역 유일할 때만**(codex 289 #4) — 같은 도구명이 여러
     서버에 있으면 모두 풀에 열려 불필요한 MCP 접속이 생긴다. 모호=제외(fail-closed — 런타임
     _resolve_tool의 모호 스킵(265)과 같은 결). 접두명(srv__tool)은 모호성이 없어 그대로."""
     bare_owners: dict[str, set[str]] = {}
-    for s in servers:
-        for t in s.tools or []:
-            bare_owners.setdefault(t, set()).add(s.name)
+    for server in servers:
+        for tool in server.tools or []:
+            bare_owners.setdefault(tool, set()).add(server.name)
     return [s.name for s in servers if _server_tool_used(s, used, bare_owners)]
 
 
@@ -153,7 +157,7 @@ async def derive_pipeline_pool(cfg: dict) -> None:
     )
 
 
-async def resolve_agent_mem_cfg(db, agent) -> dict | None:
+async def resolve_agent_mem_cfg(db: AsyncSession, agent: Agent) -> dict | None:
     """에이전트의 mem0 설정(레지스트리 chat llm + 기본 embedding)을 해석. 없으면 None.
 
     관리자 메모리 CRUD(agents.py 스펙 029)가 _load_context와 같은 규칙으로 mem_cfg를 얻는 단일
@@ -180,7 +184,9 @@ async def resolve_agent_mem_cfg(db, agent) -> dict | None:
 # ---------------------------- _load_context 단계 헬퍼 (스펙 291 분해) ----------------------------
 
 
-async def _resolve_version_and_persona(db, agent, cfg: dict, version: str | None):
+async def _resolve_version_and_persona(
+    db: AsyncSession, agent: Agent, cfg: dict, version: str | None
+) -> tuple[dict, str, str | None]:
     """버전 지정 실행(스펙 242) — 그 버전의 config 스냅샷으로 소스 전환(초안 미리보기·버전 테스트).
 
     persona는 스냅샷에 이름만 있으므로 지금 본문으로 재해석(activate와 동일 규칙).
@@ -213,7 +219,7 @@ async def _resolve_version_and_persona(db, agent, cfg: dict, version: str | None
     return cfg, persona, version
 
 
-def _coerce_history_depth(cfg: dict, agent) -> None:
+def _coerce_history_depth(cfg: dict, agent: Agent) -> None:
     """historyDepth 형 가드(codex 287 Low) — 비정수(예: 문자열)는 _window의 `depth < 0` 비교에서
     TypeError 500. 정수화 실패 시 저장값 폴백(요청 하나로 500 못 만들게)."""
     if isinstance(cfg.get("historyDepth"), int):
@@ -225,7 +231,7 @@ def _coerce_history_depth(cfg: dict, agent) -> None:
 
 
 def _apply_overrides(
-    cfg: dict, persona: str, overrides: dict | None, agent, allowed: set
+    cfg: dict, persona: str, overrides: dict | None, agent: Agent, allowed: set
 ) -> tuple[dict, str, str | None, dict | None]:
     """web 한정 세션 오버라이드 병합(스펙 025) — 화이트리스트 키만, 저장 에이전트는 불변.
 
@@ -274,7 +280,7 @@ def _filter_capabilities(cfg: dict) -> list:
     ]
 
 
-async def _resolve_model(db, cfg: dict, overrides: dict | None) -> dict:
+async def _resolve_model(db: AsyncSession, cfg: dict, overrides: dict | None) -> dict:
     """chat 모델을 레지스트리에서만 해석(env 안 봄) — 반환 model_cfg dict(연결처는 provider 상속, 스펙 035).
 
     에이전트가 고른 이름 → 없으면 기본(is_default) chat 모델 → 그것도 없으면 명확히 400.
@@ -327,7 +333,7 @@ async def _resolve_model(db, cfg: dict, overrides: dict | None) -> dict:
     }
 
 
-async def _resolve_mem_cfg(db, model_cfg: dict | None) -> dict | None:
+async def _resolve_mem_cfg(db: AsyncSession, model_cfg: dict | None) -> dict | None:
     """mem0용 모델 설정(레지스트리) — llm=해석된 chat 모델, embedder=기본 embedding 모델.
 
     임베딩 모델이 없으면 None → 메모리 비활성(graceful)."""
@@ -360,7 +366,7 @@ async def _resolve_mem_cfg(db, model_cfg: dict | None) -> dict | None:
     }
 
 
-async def _resolve_mcp_servers(db, cfg: dict) -> tuple[list[dict], list]:
+async def _resolve_mcp_servers(db: AsyncSession, cfg: dict) -> tuple[list[dict], list]:
     """등록된 MCP 서버를 runtime.build_mcp_tools가 붙을 수 있는 dict로 해석(스펙 054).
 
     auth_token은 저장된 Fernet 암호문을 복호화한 평문(provider.api_key 동형) — 마스킹/빈값이면
@@ -377,16 +383,16 @@ async def _resolve_mcp_servers(db, cfg: dict) -> tuple[list[dict], list]:
     mcps = config_names(cfg, "mcps")  # 삭제 가드와 동일 normalizer(drift 0, codex P2)
     if mcps:
         rows = (await db.execute(select(McpServer).where(McpServer.name.in_(mcps)))).scalars().all()
-        for r in rows:
-            token = None if crypto.is_masked(r.auth) else crypto.decrypt(r.auth)
+        for row in rows:
+            token = None if crypto.is_masked(row.auth) else crypto.decrypt(row.auth)
             mcp_servers.append(
                 {
-                    "name": r.name,
-                    "url": r.url or r.endpoint or "",
-                    "transport": r.transport or "http",
-                    "enabled_tools": list(r.enabled_tools or []),
+                    "name": row.name,
+                    "url": row.url or row.endpoint or "",
+                    "transport": row.transport or "http",
+                    "enabled_tools": list(row.enabled_tools or []),
                     "auth_token": token,
-                    "tools_meta": r.tools_meta or {},  # 도구 승인 정책 리졸버용(스펙 177)
+                    "tools_meta": row.tools_meta or {},  # 도구 승인 정책 리졸버용(스펙 177)
                 }
             )
     impl_key = cfg.get("impl")
@@ -395,7 +401,7 @@ async def _resolve_mcp_servers(db, cfg: dict) -> tuple[list[dict], list]:
     return mcp_servers, tool_names
 
 
-def _rag_collection_entry(c) -> dict | None:
+def _rag_collection_entry(c: Collection) -> dict | None:
     """컬렉션 → 검색 배선 dict — embedding 모델/provider 불완전이면 None(검색 불가 skip)."""
     em = c.embedding_model
     ep = em.provider if em else None
@@ -410,7 +416,7 @@ def _rag_collection_entry(c) -> dict | None:
     }
 
 
-async def _resolve_rag(db, cfg: dict, remote: bool) -> tuple[list[dict], list[str]]:
+async def _resolve_rag(db: AsyncSession, cfg: dict, remote: bool) -> tuple[list[dict], list[str]]:
     """RAG 컬렉션 해석(스펙 037) — vectorTables(이름 목록) → 검색 도구 배선용 dict.
 
     질의는 **각 컬렉션이 인제스트에 쓴 임베딩 모델**로 임베딩해야 같은 벡터 공간(035 진실원).
@@ -434,10 +440,10 @@ async def _resolve_rag(db, cfg: dict, remote: bool) -> tuple[list[dict], list[st
         .all()
     )
     rag_collections: list[dict] = []
-    for c in cols:
-        entry = _rag_collection_entry(c)
+    for col in cols:
+        entry = _rag_collection_entry(col)
         if entry is None:
-            log.warning("rag collection %s skipped: embedding model/provider 불완전", c.name)
+            log.warning("rag collection %s skipped: embedding model/provider 불완전", col.name)
             continue
         rag_collections.append(entry)
     resolved = {rc["name"] for rc in rag_collections}
@@ -452,7 +458,9 @@ async def _resolve_rag(db, cfg: dict, remote: bool) -> tuple[list[dict], list[st
     return rag_collections, unresolved
 
 
-async def _resolve_session(db, agent, session_str_id: str | None, own: str | None) -> dict:
+async def _resolve_session(
+    db: AsyncSession, agent: Agent, session_str_id: str | None, own: str | None
+) -> dict:
     """세션 재개/신규 준비 — 반환 {session_pk, session_id, session_pending}.
 
     세션은 해당 에이전트로 스코프 — 다른 에이전트의 세션 id를 줘도 섞이지 않게.
@@ -485,7 +493,7 @@ async def _resolve_session(db, agent, session_str_id: str | None, own: str | Non
     }
 
 
-async def _resolve_nodes_for_ctx(db, ctx: dict, remote: bool) -> list[dict] | None:
+async def _resolve_nodes_for_ctx(db: AsyncSession, ctx: dict, remote: bool) -> list[dict] | None:
     """노드형(스펙 259)이면 노드별 모델을 **플랫폼이 미리 해석**해 심는다(085 U2: build_graph는 DB
     미접촉). 로컬(ui) 경로에서만 의미 — 비노드형/원격은 None."""
     if remote or not isinstance(ctx.get("nodes"), list):
@@ -499,7 +507,7 @@ async def _load_context(
     overrides: dict | None = None,
     own: str | None = None,
     version: str | None = None,
-):
+) -> dict:
     """에이전트 구성 + MCP 활성 툴 + 세션(생성/지속)을 한 번에 준비.
 
     overrides(스펙 025): Playground Proxy의 세션 한정 설정 덮어쓰기. **web 에이전트에만** 적용하고

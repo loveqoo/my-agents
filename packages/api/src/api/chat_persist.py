@@ -9,6 +9,7 @@ import logging
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from .db import SessionLocal
 from .models import Message, Session
@@ -17,7 +18,7 @@ from .ownership import next_owner
 log = logging.getLogger("api.chat")
 
 
-async def _resolve_session_for_persist(db, ctx: dict) -> Session | None:
+async def _resolve_session_for_persist(db: AsyncSession, ctx: dict) -> Session | None:
     """영속할 세션 행을 확보. 이미 영속된 세션이면 그대로 get. session_pk가 None이면(0턴 미영속
     보류 상태) **첫 실 턴**이므로 session_pending으로 행을 지금 만든다(스펙 049, #10).
 

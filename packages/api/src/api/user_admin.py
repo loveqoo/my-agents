@@ -65,7 +65,7 @@ async def _to_out(u: User) -> AdminUserOut:
 
 
 @router.get("/users", dependencies=[_manage], response_model=list[AdminUserOut])
-async def list_users(session: AsyncSession = Depends(get_session)):
+async def list_users(session: AsyncSession = Depends(get_session)) -> list[AdminUserOut]:
     rows = (await session.execute(select(User).order_by(User.created_at))).scalars().all()
     return [await _to_out(u) for u in rows]
 
@@ -74,7 +74,7 @@ async def list_users(session: AsyncSession = Depends(get_session)):
 async def create_user(
     body: UserCreate,
     user_manager: UserManager = Depends(get_user_manager),
-):
+) -> AdminUserOut:
     try:
         # safe=False: 관리자는 is_superuser/is_verified를 지정할 수 있다.
         user = await user_manager.create(body, safe=False)
@@ -88,7 +88,7 @@ async def set_active(
     user_id: uuid.UUID,
     active: bool,
     session: AsyncSession = Depends(get_session),
-):
+) -> AdminUserOut:
     user = await session.get(User, user_id)
     if user is None:
         raise HTTPException(status_code=404, detail="유저를 찾을 수 없습니다")
@@ -99,7 +99,7 @@ async def set_active(
 
 
 @router.get("/roles", dependencies=[_manage], response_model=list[RoleOut])
-async def list_roles(session: AsyncSession = Depends(get_session)):
+async def list_roles(session: AsyncSession = Depends(get_session)) -> list[Role]:
     rows = (await session.execute(select(Role).order_by(Role.name))).scalars().all()
     return list(rows)
 
@@ -109,7 +109,7 @@ async def grant_role(
     user_id: uuid.UUID,
     body: RoleAssignIn,
     session: AsyncSession = Depends(get_session),
-):
+) -> AdminUserOut:
     user = await session.get(User, user_id)
     if user is None:
         raise HTTPException(status_code=404, detail="유저를 찾을 수 없습니다")
@@ -122,7 +122,7 @@ async def revoke_role(
     user_id: uuid.UUID,
     role: str,
     session: AsyncSession = Depends(get_session),
-):
+) -> AdminUserOut:
     user = await session.get(User, user_id)
     if user is None:
         raise HTTPException(status_code=404, detail="유저를 찾을 수 없습니다")
@@ -134,7 +134,7 @@ async def revoke_role(
 # "누가 쓰나(역할)" 축 — 능력(capability:*)을 역할/유저에 연다. 없으면 member는 deny-by-default라
 # 능력을 영영 못 쓴다. require("users","manage")로 admin 전용 + capability: 경계로 상승 차단.
 @router.get("/policies", dependencies=[_manage], response_model=list[PolicyOut])
-async def list_policies():
+async def list_policies() -> list[PolicyOut]:
     """현재 p-정책 전량(투명성). system(기본) 정책도 포함하되, 회수는 capability:만 허용(아래)."""
     return [PolicyOut(subject=s, object=o, action=a) for s, o, a in authz.get_policies()]
 
@@ -144,7 +144,7 @@ async def grant_policy(
     body: PolicyIn,
     session: AsyncSession = Depends(get_session),
     principal: User = Depends(authz.current_active_user),
-):
+) -> PolicyOut:
     _assert_grantable(body.object, body.action)  # 보안 경계
     await _assert_valid_subject(body.subject, session)
     added = await authz.add_policy(body.subject, body.object, body.action)
@@ -165,7 +165,7 @@ async def revoke_policy(
     object: str,
     action: str = "invoke",
     principal: User = Depends(authz.current_active_user),
-):
+) -> None:
     _assert_grantable(object, action)  # 경계: system 정책(admin *,* 등)은 이 UI로 못 지운다
     removed = await authz.remove_policy(subject, object, action)
     log.info(

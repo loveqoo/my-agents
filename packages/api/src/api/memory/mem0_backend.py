@@ -14,8 +14,12 @@ mem_cfg = {"llm": {base_url, api_key, model_id}, "embedder": {base_url, api_key,
 
 import logging
 import os
+from typing import TYPE_CHECKING
 
 from .backend import scope_axes
+
+if TYPE_CHECKING:
+    from mem0 import Memory
 
 log = logging.getLogger("api.memory")
 
@@ -185,7 +189,7 @@ def _build_config(mem_cfg: dict) -> dict:
     }
 
 
-def _wrap_embedder_prefixes(mem) -> None:
+def _wrap_embedder_prefixes(mem: "Memory") -> None:
     """mem0 임베더의 embed/embed_batch를 감싸 memory_action별 접두어를 주입(스펙 160).
 
     mem0 OpenAIEmbedding은 memory_action을 무시하고 원문 전송 → 비대칭 모델(e5·arctic)이 query/passage를
@@ -198,17 +202,17 @@ def _wrap_embedder_prefixes(mem) -> None:
     _orig_embed = em.embed
     _orig_batch = getattr(em, "embed_batch", None)
 
-    def _pfx(action: str) -> str:
+    def _pfx(action: str | None) -> str:
         return qp if action == "search" else pp
 
-    def embed(text, memory_action=None):
+    def embed(text: str, memory_action: str | None = None) -> list[float]:
         p = _pfx(memory_action)
         return _orig_embed((p + text) if p else text, memory_action)
 
     em.embed = embed
     if _orig_batch is not None:
 
-        def embed_batch(texts, memory_action="add"):
+        def embed_batch(texts: list[str], memory_action: str = "add") -> list[list[float]]:
             p = _pfx(memory_action)
             return _orig_batch([(p + t) if p else t for t in texts], memory_action)
 
@@ -218,7 +222,7 @@ def _wrap_embedder_prefixes(mem) -> None:
 class Mem0Backend:
     """mem0 Memory 인스턴스를 감싸 `MemoryBackend` 계약을 구현. 생성 실패는 호출자(resolve_backend)가 흡수."""
 
-    def __init__(self, mem_cfg: dict):
+    def __init__(self, mem_cfg: dict) -> None:
         from mem0 import Memory  # 지연 임포트 — mem0 결합을 이 모듈에 가둠
 
         self._mem = Memory.from_config(_build_config(mem_cfg))
@@ -253,11 +257,11 @@ class Mem0Backend:
                 continue
             ok_axes += 1
             rows = res.get("results", res) if isinstance(res, dict) else res
-            for r in rows or []:
-                text = r.get("memory") or r.get("text") or ""
-                score = round(float(r.get("score", 0.0)), 3)
+            for row in rows or []:
+                text = row.get("memory") or row.get("text") or ""
+                score = round(float(row.get("score", 0.0)), 3)
                 # id가 없으면 본문으로 대체 키 — 같은 본문이 다른 축에서 중복 카운트되지 않게(축 접두사 없이).
-                key = r.get("id") or text
+                key = row.get("id") or text
                 prev = merged.get(key)
                 if prev is None or score > prev["score"]:
                     merged[key] = {"type": "semantic", "text": text, "score": score, "scope": axis}
@@ -290,11 +294,11 @@ class Mem0Backend:
                 log.warning("mem0 get_all failed (%s): %s", axis, exc)
                 continue
             rows = res.get("results", res) if isinstance(res, dict) else res
-            for r in rows or []:
-                mem_id = r.get("id")
+            for row in rows or []:
+                mem_id = row.get("id")
                 if not mem_id:
                     continue
-                merged[mem_id] = {"id": mem_id, "text": r.get("memory") or r.get("text") or ""}
+                merged[mem_id] = {"id": mem_id, "text": row.get("memory") or row.get("text") or ""}
         return list(merged.values())
 
     def list_page(self, scope: dict, q: str | None, limit: int, offset: int) -> dict:

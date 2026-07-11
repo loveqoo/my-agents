@@ -1,6 +1,7 @@
 """세션 라우터 (007 도메인). 세션 조회·메시지·종료·응답 피드백(스펙 209)."""
 
 import uuid
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import delete, func, or_, select
@@ -10,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from . import authz
 from .auth import current_principal
 from .db import get_session
-from .models import Agent, Message, MessageFeedback, Session
+from .models import Agent, Message, MessageFeedback, Session, User
 from .schemas import FeedbackOut, MessageFeedbackIn, MessageOut, SessionOut, SessionPage
 from .serializers import session_to_out
 
@@ -21,7 +22,7 @@ router = APIRouter(prefix="/sessions", tags=["sessions"])
 # 세션은 개인 대화 데이터다. approvals(066)·memory(052)와 동일하게 비-admin은 자기 user_id
 # 세션만 본다. Session.user_id는 *서버가 도출*한 값(chat.py: 쿠키 유저=str(user.id), 머신=NULL)
 # 이라 위조 불가(요청 본문 무관). admin/머신은 전체. 비교 축은 approvals.user_id와 동일.
-def _is_admin(principal) -> bool:
+def _is_admin(principal: User | str) -> bool:
     """전체 세션 열람 권한인가 — 머신 토큰 OR superuser OR `sessions:read` 유저.
 
     obj/act가 approvals와 달라 approvals._is_admin과 공유하지 않고 로컬 미러(라우터 독립).
@@ -35,7 +36,7 @@ def _is_admin(principal) -> bool:
     return authz.get_enforcer().enforce(str(principal.id), "sessions", "read")
 
 
-def _own_scope(principal) -> str | None:
+def _own_scope(principal: Any) -> str | None:  # User | "machine" 센티널 duck-typing
     """스코핑 키 — 비-admin이면 자기 user_id(본인 것만), admin/머신이면 None(전체)."""
     if _is_admin(principal):
         return None
@@ -122,7 +123,7 @@ async def list_sessions(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     session: AsyncSession = Depends(get_session),
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
 ) -> SessionPage:
     """세션 목록 (페이징·필터·검색·배지 집계). 스펙 034 + agent 필터(055) + 스코핑(067) + 검색(098).
 
@@ -207,7 +208,7 @@ async def _get_session_or_404(
 @router.get("/users", response_model=list[str])
 async def list_user_ids(
     session: AsyncSession = Depends(get_session),
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
 ) -> list[str]:
     """대화에 쓰인 distinct userId, 최근 사용순(스펙 021 — Playground 헤더 선택지).
 
@@ -233,7 +234,7 @@ async def list_user_ids(
 async def get_session_detail(
     session_id: str,
     session: AsyncSession = Depends(get_session),
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
 ) -> SessionOut:
     s = await _get_session_or_404(
         session, session_id, _own_scope(principal)
@@ -246,7 +247,7 @@ async def get_session_detail(
 async def list_session_messages(
     session_id: str,
     session: AsyncSession = Depends(get_session),
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
 ) -> list[MessageOut]:
     s = await _get_session_or_404(
         session, session_id, _own_scope(principal)
@@ -267,21 +268,21 @@ async def list_session_messages(
         )
         fb_map = {fb.message_pk: fb for fb in fbs.scalars().all()}
     out: list[MessageOut] = []
-    for m in msgs:
-        fb = fb_map.get(m.id)
+    for msg in msgs:
+        fb = fb_map.get(msg.id)
         out.append(
             MessageOut(
-                id=m.id,
-                role=m.role,
-                content=m.content,
-                trace=m.trace,
+                id=msg.id,
+                role=msg.role,
+                content=msg.content,
+                trace=msg.trace,
                 feedback=FeedbackOut(rating=fb.rating, reason=fb.reason) if fb else None,
             )
         )
     return out
 
 
-def _require_user(principal) -> str:
+def _require_user(principal: User | str) -> str:
     """사용자-귀속 쓰기(피드백)는 인증 User가 필요 — 머신/익명은 created_by 원천이 없어 불가(스펙 209).
     반환=auth User UUID str(created_by 스탬프의 진실 원천, 위조 불가)."""
     if isinstance(principal, str) or getattr(principal, "id", None) is None:
@@ -289,7 +290,7 @@ def _require_user(principal) -> str:
     return str(principal.id)
 
 
-def _own_scope_write(principal) -> str | None:
+def _own_scope_write(principal: Any) -> str | None:  # _require_user 통과 후 User(duck-typing)
     """**쓰기**용 소유 스코프(codex 209 F1). `_own_scope`는 `sessions:read` 권한도 admin으로 봐 무스코프
     (None)를 주는데, **읽기 권한이 쓰기를 넓히면 안 된다** — 읽기 전용 세션 오퍼레이터가 타인 세션에
     피드백을 심을 수 있다. 그래서 쓰기 스코프는 **진짜 superuser만** 무스코프, 그 외 User는 자기 것만.
@@ -305,7 +306,7 @@ async def set_message_feedback(
     message_id: uuid.UUID,
     body: MessageFeedbackIn,
     session: AsyncSession = Depends(get_session),
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
 ) -> FeedbackOut:
     """응답(👍/👎+이유) 피드백 upsert(스펙 209). 소유권: 세션 소유 스코프 융합 404 → 그 세션의
     assistant 메시지만(SELECT-WHERE로 타세션·비-assistant는 거부행 미로드=404). 사용자당 1건(재클릭=수정)."""
@@ -353,7 +354,7 @@ async def clear_message_feedback(
     session_id: str,
     message_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
 ) -> None:
     """피드백 취소(스펙 209). 소유 스코프 404 → 내(created_by) 피드백만 그 세션에서 삭제(멱등)."""
     uid = _require_user(principal)
@@ -374,7 +375,7 @@ async def clear_message_feedback(
 async def end_session(
     session_id: str,
     session: AsyncSession = Depends(get_session),
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
 ) -> SessionOut:
     s = await _get_session_or_404(
         session, session_id, _own_scope(principal)

@@ -9,10 +9,17 @@ import logging
 import secrets
 import time
 import uuid
+from typing import TYPE_CHECKING
 
 from langgraph.types import Command
 
-from agent.runtime import AgentBuildContext, AgentConfigError
+from agent.runtime import AgentBuildContext, AgentConfigError, CustomAgent
+
+if TYPE_CHECKING:
+    from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+    from langgraph.graph.state import CompiledStateGraph
+
+    from .chat import _MemoryRecallProxy
 
 from . import authz, checkpointer, memory, observability, runtime
 from .broker import PolicyScopedBroker
@@ -83,11 +90,11 @@ async def _create_approval(ctx: dict, thread_id: str, payload: dict, user_id: st
 
 async def _build_resume_broker(
     user_id: str | None,
-    capabilities,
+    capabilities: list[str] | None,
     tool_policy: dict | None = None,
     *,
     delegation_chain: tuple = (),
-    delegation_budget=None,
+    delegation_budget: dict | None = None,
 ) -> PolicyScopedBroker:
     """재개용 스코프 브로커 — 원 요청자(user_id)의 RBAC를 재구성해 request-time 게이트를 그대로 복원.
 
@@ -111,14 +118,14 @@ async def _build_resume_broker(
             is_super = False  # user_id가 UUID 형식이 아니면 casbin 경로로만(우회 없음)
 
     def rbac_allows(kind: str, name: str | None = None) -> bool:
-        # per-cap 부여 지원(스펙 112) — build_broker와 **동일 술어**(`_rbac_check`, drift 0).
+        # per-cap 부여 지원(스펙 112) — build_broker와 **동일 술어**(`_rbac_allows`, drift 0).
         if not user_id:
             return False
         if is_super:
             return True
-        from .broker import _rbac_check
+        from .broker import _rbac_allows
 
-        return _rbac_check(authz.get_enforcer(), user_id, kind, name)
+        return _rbac_allows(authz.get_enforcer(), user_id, kind, name)
 
     # user_id 주입(스펙 104) — MemoryProvider가 재개 경로에서도 원 요청자 스코프를 복원한다. 없으면
     # 재개 시 `memory:user`가 사라져 자기 기억 접근이 깨진다(fail-closed지만 기능 회귀, 적대 리뷰 104 P2).
@@ -149,7 +156,9 @@ def _impl_drifted(snap_impl: str | None, cur_impl: str | None) -> bool:
 # ---------------------------- resume_approval 단계 헬퍼 (스펙 291 분해) ----------------------------
 
 
-async def _load_resume_target(approval: Approval):
+async def _load_resume_target(
+    approval: Approval,
+) -> "tuple[dict, CustomAgent, AsyncPostgresSaver, str] | None":
     """재개 가능성 가드 — 통과 시 (ctx, impl, ckpt, thread_id), 불가면 None(graceful 무시).
 
     가드: checkpoint(thread_id)·agent_pk 없으면 재개 불가. code/external 소스는 로컬 그래프가
@@ -204,7 +213,7 @@ async def _load_resume_target(approval: Approval):
     return ctx, impl, ckpt, thread_id
 
 
-def _resume_uses_memory(ctx: dict, impl) -> bool:
+def _resume_uses_memory(ctx: dict, impl: CustomAgent) -> bool:
     """재개 턴 회상 게이트 — 비영속(235 대칭)·consumes 선언(233)·메모리 on·mem_cfg 존재 모두 충족."""
     consumes = impl.describe().consumes
     reads_memory = consumes is None or "memories" in consumes
@@ -216,7 +225,9 @@ def _resume_uses_memory(ctx: dict, impl) -> bool:
     )
 
 
-async def _resume_memory_inputs(ctx: dict, impl, approval: Approval):
+async def _resume_memory_inputs(
+    ctx: dict, impl: CustomAgent, approval: Approval
+) -> "tuple[bool, list[dict], _MemoryRecallProxy | None, list[dict]]":
     """재개 경로 회상 입력 — 반환 (used_memory, mem_hits, mem_proxy, resume_recalls).
 
     user 축 = 원 요청자(approval.user_id — 브로커 RBAC 재확인과 동일 재료, codex 268 P2): 재개 후
@@ -248,7 +259,14 @@ async def _resume_memory_inputs(ctx: dict, impl, approval: Approval):
     return used_memory, mem_hits, mem_proxy, resume_recalls
 
 
-async def _rebuild_resume_graph(ctx: dict, impl, ckpt, approval: Approval, mem_hits, mem_proxy):
+async def _rebuild_resume_graph(
+    ctx: dict,
+    impl: CustomAgent,
+    ckpt: "AsyncPostgresSaver",
+    approval: Approval,
+    mem_hits: list[dict],
+    mem_proxy: "_MemoryRecallProxy | None",
+) -> "tuple[CompiledStateGraph, list[dict], PolicyScopedBroker, list[dict]]":
     """원 턴과 동일 재료로 그래프 재구성 — 반환 (graph, calls_sink, resume_broker, history_windows).
 
     서브스텝 HIL 재개(스펙 101 §3.5): 위임 cap의 interrupt를 재개하려면 원 턴과 **동일 스코프**의
@@ -315,7 +333,7 @@ async def _rebuild_resume_graph(ctx: dict, impl, ckpt, approval: Approval, mem_h
     return impl.build_graph(build_ctx), calls_sink, resume_broker, resume_history_windows
 
 
-def _extract_turn_texts(result) -> tuple[str, str]:
+def _extract_turn_texts(result: object) -> tuple[str, str]:
     """최종 상태에서 (사용자 질문, 최종 AI 답변) 추출 — 체크포인트가 보유(Approval에 user_text 미저장)."""
     msgs = result.get("messages", []) if isinstance(result, dict) else []
     user_text = next(

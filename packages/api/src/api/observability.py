@@ -12,6 +12,12 @@
 from __future__ import annotations
 
 import os
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from langfuse.langchain import CallbackHandler
 
 
 def is_configured() -> bool:
@@ -19,7 +25,7 @@ def is_configured() -> bool:
     return bool(os.environ.get("LANGFUSE_PUBLIC_KEY") and os.environ.get("LANGFUSE_SECRET_KEY"))
 
 
-def _make_handler():
+def _make_handler() -> CallbackHandler | None:
     """Langfuse LangChain 콜백 핸들러 생성 — 미설치/실패 시 None(graceful). v3(langfuse.langchain)
     우선, v2(langfuse.callback) 폴백. 핸들러는 env에서 키·host를 자동으로 읽는다."""
     try:
@@ -35,7 +41,7 @@ def _make_handler():
         return None
 
 
-def trace_callbacks(_factory=_make_handler) -> list:
+def trace_callbacks(_factory: Callable[[], CallbackHandler | None] = _make_handler) -> list:
     """이 실행에 붙일 콜백 리스트 — 미설정이면 **[]**(inert). 설정+핸들러 가용이면 [handler]."""
     if not is_configured():
         return []
@@ -50,7 +56,7 @@ def with_trace(
     session_id: str | None = None,
     user_id: str | None = None,
     metadata: dict | None = None,
-    _factory=_make_handler,
+    _factory: Callable[[], CallbackHandler | None] = _make_handler,
 ) -> dict:
     """실행 config에 Langfuse 콜백·메타데이터를 **병합**한다(미설정이면 원본 그대로 — 무동작). 기존
     callbacks/metadata를 덮지 않고 확장한다. session_id/user_id는 Langfuse 표준 키로 실어 trace를 묶는다."""

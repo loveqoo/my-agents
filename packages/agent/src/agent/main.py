@@ -7,10 +7,12 @@
 """
 
 import os
+from typing import Any
 
 from dotenv import load_dotenv
 from langchain.agents import create_agent
 from langchain_openai import ChatOpenAI
+from langgraph.graph.state import CompiledStateGraph
 
 # 기본 페르소나 (CLI 등 호출자가 지정하지 않을 때)
 PERSONA = "당신은 간결하고 친절한 한국어 비서입니다. 사용자의 질문에 명확하고 짧게 답하세요."
@@ -21,8 +23,8 @@ def build_agent(
     params: dict | None = None,
     tools: list | None = None,
     model_cfg: dict | None = None,
-    checkpointer=None,
-):
+    checkpointer: Any = None,
+) -> CompiledStateGraph:
     """persona/params/tools로 단일 ReAct 에이전트를 만든다.
 
     **모델은 항상 등록된 설정(model_cfg)에서 온다 — env는 보지 않는다.**
@@ -68,7 +70,7 @@ def build_agent(
     )
 
 
-def main():
+def main() -> None:
     """CLI 단독 실행(개발용 테스터) — 레지스트리가 없으므로 env에서 모델 설정을 읽어 넘긴다.
 
     벤더 무관 `MODEL_*` env로 임의 OpenAI 호환 엔드포인트를 가리킨다(스펙 059). 기본 base_url은

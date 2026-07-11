@@ -23,7 +23,7 @@ from . import crypto, rag_ingest
 from .auth import current_principal
 from .db import get_session
 from .model_registry import _probe
-from .models import RAG_EMBED_DIMS, Chunk, Collection, Document, ModelConfig
+from .models import RAG_EMBED_DIMS, Chunk, Collection, Document, ModelConfig, User
 from .naming import validate_resource_name
 from .ownership import assert_may_manage, may_manage, owner_of
 from .references import agents_referencing, referenced_message
@@ -59,8 +59,8 @@ def _has_banned_key(node: object) -> str | None:
             if found:
                 return found
     elif isinstance(node, list):
-        for v in node:
-            found = _has_banned_key(v)
+        for item in node:
+            found = _has_banned_key(item)
             if found:
                 return found
     return None
@@ -141,7 +141,7 @@ async def _embedding_model(session: AsyncSession, model_id: uuid.UUID) -> ModelC
 @router.get("", response_model=list[CollectionOut])
 async def list_collections(
     session: AsyncSession = Depends(get_session),
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
 ) -> list[CollectionOut]:
     rows = (
         (
@@ -155,8 +155,8 @@ async def list_collections(
         .all()
     )
     outs = [collection_to_out(c) for c in rows]
-    for o in outs:  # 스펙 114 — 관리 가능 여부 파생
-        o.can_manage = may_manage(o.owner_id, principal)
+    for out in outs:  # 스펙 114 — 관리 가능 여부 파생
+        out.can_manage = may_manage(out.owner_id, principal)
     return outs
 
 
@@ -164,7 +164,7 @@ async def list_collections(
 async def create_collection(
     body: CollectionIn,
     session: AsyncSession = Depends(get_session),
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
 ) -> CollectionOut:
     err = validate_resource_name(body.name)  # 식별 이름 규칙(스펙 148)
     if err:
@@ -212,7 +212,7 @@ async def create_collection(
 async def get_collection(
     cid: uuid.UUID,
     session: AsyncSession = Depends(get_session),
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
 ) -> CollectionOut:
     c = await _load_collection(session, cid)
     if c is None:
@@ -227,7 +227,7 @@ async def update_collection(
     cid: uuid.UUID,
     body: CollectionUpdate,
     session: AsyncSession = Depends(get_session),
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
 ) -> CollectionOut:
     c = await _load_collection(session, cid)
     if c is None:
@@ -257,7 +257,7 @@ async def update_collection(
 async def delete_collection(
     cid: uuid.UUID,
     session: AsyncSession = Depends(get_session),
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
 ) -> None:
     c = await session.get(Collection, cid)
     if c is None:
@@ -314,7 +314,7 @@ async def search_collection(
     cid: uuid.UUID,
     body: CollectionSearchIn,
     session: AsyncSession = Depends(get_session),
-    _principal=Depends(current_principal),
+    _principal: User | str = Depends(current_principal),
 ) -> CollectionSearchOut:
     """retrieval 시험 — 단일 컬렉션에 질의를 던져 상위 청크를 받는다(에이전트 채팅 불요).
 
@@ -345,7 +345,7 @@ async def search_collection(
     )
 
 
-async def resolve_search_collection(session, cid) -> dict:
+async def resolve_search_collection(session: AsyncSession, cid: uuid.UUID) -> dict:
     """검색 가능한 컬렉션 해석(시험 엔드포인트·평가 러너 공용 — 스펙 140에서 추출, 시맨틱 불변).
     완전성/kind 가드 포함, 실패는 HTTPException(404/400). api_key는 백엔드 전용 복호화."""
     c = await _load_collection(session, cid)
@@ -382,7 +382,7 @@ async def list_documents(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0, le=1_000_000),
     session: AsyncSession = Depends(get_session),
-    _principal=Depends(current_principal),
+    _principal: User | str = Depends(current_principal),
 ) -> Any:
     """문서 페이지 목록(스펙 128) — 문서는 증가 축이라 서버 페이지네이션 + 파일명 부분일치(q).
 
@@ -497,7 +497,9 @@ async def _persist_chunks(
     await session.refresh(doc)
 
 
-async def _mark_ingest_error(session: AsyncSession, doc_id, exc: Exception) -> Document | None:
+async def _mark_ingest_error(
+    session: AsyncSession, doc_id: uuid.UUID, exc: Exception
+) -> Document | None:
     """부분 적재 롤백 후 문서를 status=error로 박제 → 갱신된 문서(소실 시 None).
 
     IngestError 외(crypto.decrypt RuntimeError·commit DB 오류 등)도 문서를 parsing에 방치하거나
@@ -521,7 +523,7 @@ async def ingest_document(
     cid: uuid.UUID,
     file: UploadFile = File(...),
     session: AsyncSession = Depends(get_session),
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
 ) -> DocumentOut:
     """업로드 → 파싱 → 청킹 → 임베딩 → pgvector 적재(동기). 실패는 status=error로 보존."""
     c = await _load_collection(session, cid)
@@ -570,7 +572,7 @@ async def delete_document(
     cid: uuid.UUID,
     doc_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
 ) -> None:
     doc = await session.get(Document, doc_id)
     if doc is None or doc.collection_id != cid:

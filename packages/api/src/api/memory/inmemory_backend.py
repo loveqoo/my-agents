@@ -15,7 +15,7 @@ from .backend import scope_axes
 class InMemoryBackend:
     """dict 저장 레퍼런스 백엔드. mem_cfg는 계약상 받지만 라우팅에 쓰지 않는다(LLM 추출 없음)."""
 
-    def __init__(self, _mem_cfg: dict | None = None):
+    def __init__(self, _mem_cfg: dict | None = None) -> None:
         # 각 기억: {"id", "text", "axes": {axis: val, ...}}. axes는 add 시 태깅된 스코프 축.
         self._store: list[dict] = []
         self._seq = 0
@@ -29,8 +29,8 @@ class InMemoryBackend:
         if not messages or not axes:
             return
         # infer는 계약상 받되 LLM이 없으므로 원문 그대로 저장(verbatim) — mem0의 추출은 어댑터 고유.
-        for m in messages:
-            text = (m.get("content") or "").strip()
+        for message in messages:
+            text = (message.get("content") or "").strip()
             if not text:
                 continue
             self._store.append({"id": self._next_id(), "text": text, "axes": dict(axes)})

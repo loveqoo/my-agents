@@ -11,7 +11,7 @@ from sqlalchemy.orm import selectinload
 from ..auth import current_principal
 from ..chat import derive_pipeline_pool
 from ..db import get_session
-from ..models import Agent, AgentVersion
+from ..models import Agent, AgentVersion, User
 from ..ownership import assert_may_manage, may_manage, may_use_agent, owner_of
 from ..schemas import AgentCreate, AgentOut, AgentUpdate
 from ..serializers import agent_to_out
@@ -35,7 +35,7 @@ from .routers import router
 @router.get("", response_model=list[AgentOut])
 async def list_agents(
     session: AsyncSession = Depends(get_session),
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
 ) -> list[AgentOut]:
     result = await session.execute(select(Agent).options(selectinload(Agent.versions)))
     rows = result.scalars().all()
@@ -46,8 +46,8 @@ async def list_agents(
     rows = [a for a in rows if may_use_agent(a, principal)]
     pbodies = await _persona_bodies(session)  # 스펙 161 — personaStale 계산용(1회 조회)
     outs = [agent_to_out(a, pbodies) for a in rows]
-    for o in outs:  # 스펙 114 — 관리 가능 여부를 각 객체에 실어 UI가 버튼 표시를 파생
-        o.can_manage = may_manage(o.owner_id, principal)
+    for out in outs:  # 스펙 114 — 관리 가능 여부를 각 객체에 실어 UI가 버튼 표시를 파생
+        out.can_manage = may_manage(out.owner_id, principal)
     return outs
 
 
@@ -170,7 +170,7 @@ async def _collect_feedback_aggregates(
 async def agent_ops(
     agent_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
 ) -> AgentOpsOut:
     """버전별 운영 지표(스펙 244) — 평가(240 귀속)·자동 회귀(241)·피드백(209, 242 trace 귀속) 집계.
 
@@ -195,7 +195,7 @@ async def agent_ops(
 async def get_agent(
     agent_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
 ) -> AgentOut:
     agent = await _load_agent(session, agent_id)
     if agent is None or not may_use_agent(agent, principal):
@@ -212,7 +212,7 @@ async def get_agent(
 async def create_agent(
     body: AgentCreate,
     session: AsyncSession = Depends(get_session),
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
 ) -> AgentOut:
     _assert_valid_name(body.name)  # 식별 이름 규칙(스펙 148) — 서버가 진실원
     cfg = body.config.model_dump()
@@ -248,7 +248,7 @@ async def create_agent(
 async def clone_agent(
     agent_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
 ) -> AgentOut:
     """기존 에이전트 설정을 새 **ui 초안**으로 복사(행위 재사용 — '이거랑 비슷한 거 하나 더'). 복제는
     **읽기+새 생성**이라 원본 *관리 권한 불요*(가시하면 복제 가능 — 사용≠관리, 스펙 112). 소유권은
@@ -308,7 +308,7 @@ async def update_agent(
     agent_id: uuid.UUID,
     body: AgentUpdate,
     session: AsyncSession = Depends(get_session),
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
 ) -> AgentOut:
     agent = await _load_agent(session, agent_id)
     if agent is None:
@@ -353,7 +353,7 @@ async def update_agent(
 async def delete_agent(
     agent_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
 ) -> None:
     agent = await session.get(Agent, agent_id)
     if agent is None:

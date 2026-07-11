@@ -11,7 +11,7 @@ from .. import memory
 from ..auth import current_principal
 from ..chat import resolve_agent_mem_cfg
 from ..db import get_session
-from ..models import Agent
+from ..models import Agent, User
 from ..ownership import assert_may_manage, may_use_agent
 from ..schemas import (
     MemoryHit,
@@ -28,7 +28,9 @@ class AgentMemoryIn(BaseModel):
     text: str
 
 
-async def _agent_mem_cfg(session: AsyncSession, agent_id: uuid.UUID, principal=None):
+async def _agent_mem_cfg(
+    session: AsyncSession, agent_id: uuid.UUID, principal: User | str | None = None
+) -> tuple[Agent, dict | None]:
     """에이전트 + agent_id 메모리용 mem_cfg 확보. 메모리 미가용이면 (agent, None).
     principal 전달 시 사용 게이트(스펙 147, codex High#3) — 타인 private의 기억 읽기/검색 차단
     (쓰기/삭제는 assert_may_manage가 이미 막지만 읽기가 무게이트였다). 404-fold."""
@@ -39,7 +41,7 @@ async def _agent_mem_cfg(session: AsyncSession, agent_id: uuid.UUID, principal=N
     return agent, mem_cfg
 
 
-async def _assert_owns(agent, mem_id: str, mem_cfg) -> None:
+async def _assert_owns(agent: Agent, mem_id: str, mem_cfg: dict | None) -> None:
     """mem_id가 이 에이전트의 agent_id 기억에 속하는지 확인. 공유 pgvector라
     mem0 update/delete는 전역 id로 동작 → path agent_id로 소유권을 강제하지 않으면
     A의 큐레이션 화면에서 B(또는 임의 user_id/run_id) 행을 변조할 수 있다(스펙 029 비판리뷰)."""
@@ -52,7 +54,7 @@ async def _assert_owns(agent, mem_id: str, mem_cfg) -> None:
 async def list_agent_memory(
     agent_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
 ) -> list[dict]:
     """에이전트 전용(agent_id) 기억 목록. 메모리 미가용이면 빈 목록(graceful)."""
     agent, mem_cfg = await _agent_mem_cfg(session, agent_id, principal)
@@ -68,7 +70,7 @@ async def page_agent_memory(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0, le=1_000_000),
     session: AsyncSession = Depends(get_session),
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
 ) -> MemoryPageOut:
     """에이전트 기억 페이지 목록(스펙 127) — 서버 페이지네이션 + 부분일치(q).
 
@@ -101,7 +103,7 @@ async def search_agent_memory(
     agent_id: uuid.UUID,
     body: MemorySearchIn,
     session: AsyncSession = Depends(get_session),
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
 ) -> MemorySearchOut:
     """회상 시험(스펙 084) — 챗과 동일한 공유 코어 `memory.search`로 agent_id 스코프 회상.
 
@@ -137,7 +139,7 @@ async def add_agent_memory(
     agent_id: uuid.UUID,
     body: AgentMemoryIn,
     session: AsyncSession = Depends(get_session),
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
 ) -> dict:
     """관리자 저작 — agent_id-only·infer=False로 한 줄 사실을 저장(스펙 029)."""
     agent, mem_cfg = await _agent_mem_cfg(session, agent_id)
@@ -167,7 +169,7 @@ async def update_agent_memory(
     mem_id: str,
     body: AgentMemoryIn,
     session: AsyncSession = Depends(get_session),
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
 ) -> dict:
     """관리자 교정 — 기억 본문 수정(스펙 029)."""
     agent, mem_cfg = await _agent_mem_cfg(session, agent_id)
@@ -190,7 +192,7 @@ async def delete_agent_memory(
     agent_id: uuid.UUID,
     mem_id: str,
     session: AsyncSession = Depends(get_session),
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
 ) -> None:
     """관리자 교정 — 기억 삭제(스펙 029)."""
     agent, mem_cfg = await _agent_mem_cfg(session, agent_id)

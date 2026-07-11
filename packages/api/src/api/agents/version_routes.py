@@ -10,7 +10,7 @@ from agent.runtime import is_first_party
 from ..auth import current_principal
 from ..background import spawn
 from ..db import get_session
-from ..models import Agent, AgentVersion
+from ..models import Agent, AgentVersion, User
 from ..ownership import assert_may_manage
 from ..schemas import ActivateIn, AgentOut
 from .guards import _enforce_ephemeral_boundary
@@ -23,7 +23,7 @@ from .routers import router
 async def fork_version(
     agent_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
 ) -> AgentOut:
     agent = await _load_agent(session, agent_id)
     if agent is None:
@@ -56,7 +56,7 @@ async def activate_version(
     agent_id: uuid.UUID,
     body: ActivateIn,
     session: AsyncSession = Depends(get_session),
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
 ) -> AgentOut:
     agent = await _load_agent(session, agent_id)
     if agent is None:
@@ -73,9 +73,9 @@ async def activate_version(
     if target.status == "active":
         raise HTTPException(status_code=400, detail="이미 활성 버전입니다")
 
-    for v in agent.versions:
-        if v.status == "active":
-            v.status = "archived"
+    for version in agent.versions:
+        if version.status == "active":
+            version.status = "archived"
     target.status = "active"
 
     cfg = dict(target.config or {})
@@ -103,7 +103,7 @@ async def activate_version(
 async def refresh_persona(
     agent_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
 ) -> AgentOut:
     """에이전트의 페르소나 스냅샷을 현재 원본으로 재해석(스펙 161). config.persona 이름은 그대로,
     `agent.persona`(서빙 본문)만 in-place 갱신 → 새 버전 안 만듦(활성화 재해석 경로와 동일 동사).
@@ -145,7 +145,7 @@ async def revert_version(
     agent_id: uuid.UUID,
     body: ActivateIn,
     session: AsyncSession = Depends(get_session),
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
 ) -> AgentOut:
     agent = await _load_agent(session, agent_id)
     if agent is None:

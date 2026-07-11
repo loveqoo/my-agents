@@ -10,10 +10,17 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 from agent.runtime import Capability, InvokeResult
 
 from ..db import SessionLocal
+
+if TYPE_CHECKING:
+    import casbin
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+    from ..models import User
 from .common import (
     CAP_KIND_MCP,
     CapabilityNotFoundError,
@@ -66,17 +73,20 @@ class PolicyScopedBroker:
 
     def __init__(
         self,
-        allowlist,
+        allowlist: list[str] | None,
         rbac_allows: Callable[..., bool],  # 실호출 (kind) 또는 (kind, name) 2형태 — _permitted 참조
         *,
-        session_factory=SessionLocal,
+        session_factory: async_sessionmaker[AsyncSession] = SessionLocal,
         user_id: str | None = None,
         tool_policy: dict | None = None,
         rag_min_scores: dict | None = None,
-        principal=None,  # 로컬 위임(스펙 256) — 하위 실행 브로커의 RBAC 주체(호출자 그대로)
+        principal: User
+        | str
+        | None = None,  # 로컬 위임(스펙 256) — 하위 실행 브로커의 RBAC 주체(호출자 그대로)
         delegation_chain: tuple = (),  # 스펙 256 v2 — 실행 경로의 agent_id 체인(순환·깊이 게이트)
-        delegation_budget=None,  # 스펙 256 codex [P2] — 턴 공유 위임 총량 카운터(너비 폭주 상한)
-    ):
+        delegation_budget: dict
+        | None = None,  # 스펙 256 codex [P2] — 턴 공유 위임 총량 카운터(너비 폭주 상한)
+    ) -> None:
         self._allow: set[str] = set(allowlist or [])
         self._rbac_allows = rbac_allows
         self._session_factory = session_factory
@@ -122,10 +132,10 @@ class PolicyScopedBroker:
             # (kind-gate만 두면 per-cap 부여 능력이 discover에 안 떠 오케스트레이션서 못 쓴다).
             if not self._rbac_allows(provider.kind):
                 continue
-            for c in await provider.candidates(self._allow):
+            for cap in await provider.candidates(self._allow):
                 # 특정 판정: kind-레벨이면 전체 통과, per-cap 전용이면 부여된 cap만(같은 술어 재사용).
-                if self._rbac_allows(c.kind, _cap_resource(c.id, c.kind)):
-                    caps.append(c)
+                if self._rbac_allows(cap.kind, _cap_resource(cap.id, cap.kind)):
+                    caps.append(cap)
         return caps
 
     @staticmethod
@@ -149,8 +159,9 @@ class PolicyScopedBroker:
             return []
         return self._rank(await self._gather_permitted(), query)[:limit]
 
-    async def _resolve(self, cap_id: str):
+    async def _resolve(self, cap_id: str) -> tuple[Any, Any]:
         """허가+로드된 (row, provider) 또는 (None, None). 미허가·미존재·kind불명 모두 (None,None)
+        — 상관 튜플(row None ⇔ provider None)이라 provider도 Any(호출측이 row로 판별).
         (존재 비노출). _permitted가 provider.load **이전**에 서므로 거부 경로는 DB/네트워크 미접촉."""
         kind = _kind_of(cap_id)
         provider = self._by_kind.get(kind)
@@ -167,7 +178,9 @@ class PolicyScopedBroker:
             raise CapabilityNotFoundError(cap_id)  # 미존재·미허가 동일 처리(존재 비노출)
         return provider.describe(row)
 
-    def _gate(self, provider, row, cap_id: str, args: dict) -> InvokeResult | None:
+    def _gate(
+        self, provider: _CapabilityProvider, row: Any, cap_id: str, args: dict
+    ) -> InvokeResult | None:
         """서브스텝 HIL(§3.5) — 승인 요구 cap이면 전송(부수효과) **이전** interrupt로 부모 그래프 pause.
         interrupt는 재개 시 delegate 재실행에도 이 지점 이전 부수효과 0 = 전송 1회(멱등, 체크리스트 §7).
         거부면 거부 결과를, 승인·무승인 cap(payload None)이면 None(전송 진행)을 돌린다."""
@@ -200,7 +213,7 @@ class PolicyScopedBroker:
         return res
 
 
-def _subject_closure(enforcer, subject: str) -> set[str]:
+def _subject_closure(enforcer: casbin.AsyncEnforcer, subject: str) -> set[str]:
     """주체 본인 + 상속 역할(transitive) 집합 — user→role→role 전이 폐쇄(작은 정책셋,
     순환 방지 위해 visited 체크). AsyncEnforcer의 implicit 헬퍼가 async라 sync 정책 열거로 우회
     (get_grouping_policy는 in-memory sync)."""
@@ -209,14 +222,14 @@ def _subject_closure(enforcer, subject: str) -> set[str]:
     frontier = [subject]
     while frontier:
         cur = frontier.pop()
-        for g in grouping:
-            if len(g) >= 2 and g[0] == cur and g[1] not in subjects:
-                subjects.add(g[1])
-                frontier.append(g[1])
+        for group in grouping:
+            if len(group) >= 2 and group[0] == cur and group[1] not in subjects:
+                subjects.add(group[1])
+                frontier.append(group[1])
     return subjects
 
 
-def _has_any_percap(enforcer, subject: str, kind: str) -> bool:
+def _has_any_percap(enforcer: casbin.AsyncEnforcer, subject: str, kind: str) -> bool:
     """이 kind에 per-cap 부여가 하나라도 있나 — 주체+상속 역할의 정책에서 obj가
     `capability:{kind}:` prefix인 invoke를 찾는다(casbin 암묵 권한 열거, get_policy는 sync)."""
     subjects = _subject_closure(enforcer, subject)
@@ -227,7 +240,7 @@ def _has_any_percap(enforcer, subject: str, kind: str) -> bool:
     )
 
 
-def _direct_grant(enforcer, subject: str, kind: str, name: str) -> bool:
+def _has_direct_grant(enforcer: casbin.AsyncEnforcer, subject: str, kind: str, name: str) -> bool:
     """특정 능력 부여 판정 — 능력별(`capability:{kind}:{name}`) 직접 부여 OR mcp 서버단위 부여."""
     if enforcer.enforce(subject, f"capability:{kind}:{name}", "invoke"):
         return True
@@ -239,7 +252,7 @@ def _direct_grant(enforcer, subject: str, kind: str, name: str) -> bool:
     return False
 
 
-def _rbac_check(enforcer, subject: str, kind: str, name: str | None) -> bool:
+def _rbac_allows(enforcer: casbin.AsyncEnforcer, subject: str, kind: str, name: str | None) -> bool:
     """per-cap RBAC 판정 **단일 술어**(스펙 112 — build_broker·_build_resume_broker 공유, drift 0).
     - name 지정: kind-레벨(`capability:{kind}`) OR 능력별(`capability:{kind}:{name}`) 부여.
     - name=None: **DB 회피 게이트**용 — kind-레벨 OR 이 kind에 per-cap 부여가 *하나라도* 있나.
@@ -247,17 +260,17 @@ def _rbac_check(enforcer, subject: str, kind: str, name: str | None) -> bool:
     if enforcer.enforce(subject, f"capability:{kind}", "invoke"):
         return True
     if name is not None:
-        return _direct_grant(enforcer, subject, kind, name)
+        return _has_direct_grant(enforcer, subject, kind, name)
     return _has_any_percap(enforcer, subject, kind)
 
 
 def build_broker(
-    principal,
-    allowlist,
+    principal: User | str,
+    allowlist: list[str] | None,
     tool_policy: dict | None = None,
     rag_min_scores: dict | None = None,
     delegation_chain: tuple = (),
-    delegation_budget=None,
+    delegation_budget: dict | None = None,
 ) -> PolicyScopedBroker:
     """chat.py 배선용 — principal(유저/머신)에서 RBAC 판정 클로저를 만들어 스코프된 브로커 구성.
 
@@ -274,7 +287,7 @@ def build_broker(
             return False  # 머신 토큰: 능력 오케스트레이션 비대상(deny-by-default)
         if getattr(principal, "is_superuser", False):
             return True  # 부트스트랩·운영 안전판(authz 우회 패턴)
-        return _rbac_check(authz.get_enforcer(), str(principal.id), kind, name)
+        return _rbac_allows(authz.get_enforcer(), str(principal.id), kind, name)
 
     # user_id = 주체 도출값(스펙 104 MemoryProvider self-scope). 머신 토큰(str)은 id 없음 → None →
     # 메모리 능력 없음(rbac_allows도 deny). 어드민이어도 자기 id라 타인 기억 위임 접근 불가(에스컬레이션 X).

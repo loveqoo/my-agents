@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .eval_harness import build_asserts
 from .eval_schemas import DatasetOut
-from .models import EvalDataset
+from .models import EvalDataset, User
 from .ownership import assert_may_manage, may_manage
 
 log = logging.getLogger("api.eval")
@@ -35,7 +35,7 @@ def _is_generating(d: EvalDataset) -> bool:
     )
 
 
-def _dataset_out(d: EvalDataset, case_count: int, user) -> DatasetOut:
+def _dataset_out(d: EvalDataset, case_count: int, user: User | str) -> DatasetOut:
     """DatasetOut 단일 생성 경로(드리프트 0) — 인라인 통일. generating은 description 진행 마커를
     구조 필드로 승격(프론트는 bool만 소비 → 목록 배지·드로어 Skeleton·폴링)."""
     return DatasetOut(
@@ -72,7 +72,7 @@ async def _dataset_or_404(session: AsyncSession, dataset_id: uuid.UUID) -> EvalD
     return ds
 
 
-def _gate_harvest_read(ds: EvalDataset, user) -> None:
+def _gate_harvest_read(ds: EvalDataset, user: User | str) -> None:
     """수확 문제집(source_agent_pk≠NULL)은 **소유자/admin만** 읽는다(codex P2 F1). eval 읽기는 본래 전원
     공개(178 D1)지만, 수확 케이스 input=사용자 세션 질문이라 세션 소유 스코프를 상속해야 한다(스펙 209 §B).
     일반 문제집(source_agent_pk=NULL)은 공개 유지. 비소유=404-fold(존재 비노출)."""

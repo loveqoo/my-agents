@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from sqlalchemy import select
 
 from agent.runtime import Capability, InvokeResult
@@ -13,8 +15,12 @@ from agent.runtime import Capability, InvokeResult
 from ...models import McpServer
 from ..common import CAP_KIND_MCP, _first_line, _kind_of, _parse_mcp, _rt
 
+if TYPE_CHECKING:
+    from langchain_core.tools import BaseTool
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-def _tool_input_schema(tool) -> dict | None:
+
+def _tool_input_schema(tool: BaseTool) -> dict | None:
     """MCP 툴의 inputSchema를 JSON 스키마 dict로 정규화(pydantic 모델이면 model_json_schema)."""
     schema = getattr(tool, "args_schema", None)
     if isinstance(schema, dict):
@@ -27,7 +33,7 @@ def _tool_input_schema(tool) -> dict | None:
     return None
 
 
-def _pick_value(args: dict):
+def _pick_value(args: dict) -> object:
     """generic 인자에서 실어 보낼 값 하나 — text/query/input 우선, 없으면 첫 값."""
     return (
         args.get("text") or args.get("query") or args.get("input") or next(iter(args.values()), "")
@@ -44,7 +50,7 @@ def _target_param(props: dict) -> str | None:
     return None
 
 
-def _adapt_args(tool, args: dict) -> dict:
+def _adapt_args(tool: BaseTool, args: dict) -> dict:
     """generic 위임 인자(`{"text": query}`, orchestrate가 kind-무관하게 넘김)를 **툴의 실제 파라미터**로
     적응한다. flow는 A2A 모양(`text`)으로 부르지만 MCP 툴은 자기 시그니처(예 web_search(query),
     delete_record(record_id))를 가진다 — flow 코드 변경 없이(스펙 101 §3.4) 여기서 매핑한다.
@@ -74,7 +80,9 @@ class _McpBacking:
 
     __slots__ = ("server", "tool", "tool_name", "tools_meta")
 
-    def __init__(self, server: str, tool_name: str, tool, tools_meta: dict | None = None):
+    def __init__(
+        self, server: str, tool_name: str, tool: BaseTool, tools_meta: dict | None = None
+    ) -> None:
         self.server = server
         self.tool_name = tool_name
         self.tool = tool
@@ -88,7 +96,7 @@ class McpProvider:
 
     kind = CAP_KIND_MCP
 
-    def __init__(self, session_factory):
+    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._session_factory = session_factory
 
     def _mcp_allow(self, allow: set[str]) -> dict:
@@ -120,16 +128,16 @@ class McpProvider:
                 .all()
             )
         out: list[dict] = []
-        for r in rows:
-            token = None if crypto.is_masked(r.auth) else crypto.decrypt(r.auth)
+        for row in rows:
+            token = None if crypto.is_masked(row.auth) else crypto.decrypt(row.auth)
             out.append(
                 {
-                    "name": r.name,
-                    "url": r.url or r.endpoint or "",
-                    "transport": r.transport or "http",
-                    "enabled_tools": list(r.enabled_tools or []),
+                    "name": row.name,
+                    "url": row.url or row.endpoint or "",
+                    "transport": row.transport or "http",
+                    "enabled_tools": list(row.enabled_tools or []),
                     "auth_token": token,
-                    "tools_meta": r.tools_meta or {},  # 도구 승인 정책 리졸버용(스펙 177)
+                    "tools_meta": row.tools_meta or {},  # 도구 승인 정책 리졸버용(스펙 177)
                 }
             )
         return out
@@ -155,18 +163,18 @@ class McpProvider:
 
         await net_guard.refresh_allowed_hosts()  # DB allowlist 무재시작 반영(127.0.0.1 mock 통과)
         caps: list[Capability] = []
-        for s in await self._server_dicts(set(spec)):
-            conn = _rt().mcp_connection(s)
+        for server in await self._server_dicts(set(spec)):
+            conn = _rt().mcp_connection(server)
             if conn is None:
                 continue  # 미지원 transport/SSRF 차단 → 그 서버 스킵
-            enabled = set(s.get("enabled_tools") or [])
-            allowset = spec.get(s["name"])  # None=서버 전체
-            tools = await self._tools_for_server(s["name"], conn)
+            enabled = set(server.get("enabled_tools") or [])
+            allowset = spec.get(server["name"])  # None=서버 전체
+            tools = await self._tools_for_server(server["name"], conn)
             if tools is None:
                 continue
             caps.extend(
                 Capability(
-                    id=f"{CAP_KIND_MCP}:{s['name']}/{t.name}",
+                    id=f"{CAP_KIND_MCP}:{server['name']}/{t.name}",
                     kind=CAP_KIND_MCP,
                     name=t.name,
                     hook=_first_line(getattr(t, "description", "") or "", t.name),
@@ -235,7 +243,7 @@ class McpProvider:
         return f"broker_invoke:{CAP_KIND_MCP}:{row.server}/{row.tool_name}"
 
     def approval_for(
-        self, row, cap_id: str, args: dict, tool_policy: dict | None = None
+        self, row: _McpBacking, cap_id: str, args: dict, tool_policy: dict | None = None
     ) -> dict | None:
         """MCP 승인 정책 = 그래프-tools 경로와 **동일 리졸버**(`resolve_tool_approval`, 스펙 177) 공유
         (드리프트 0 — 관리자가 tools_meta로 설정한 정책이 두 경로 일관 적용). 마스킹은 `_redact_args`

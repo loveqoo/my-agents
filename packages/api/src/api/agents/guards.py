@@ -4,6 +4,7 @@ import logging
 
 from fastapi import HTTPException
 
+from ..models import User
 from ..ownership import is_privileged, owner_of
 
 # 로거명은 분할 전 문자열("api.agents") 유지 — 감사 로그 연속성.
@@ -23,7 +24,7 @@ def _collect_relaxing_caps(tool_policy: dict) -> list[str]:
     return relaxing
 
 
-def _enforce_tool_policy_gate(config: dict, principal) -> None:
+def _enforce_tool_policy_gate(config: dict, principal: User | str) -> None:
     """스펙 177 P2 D4 — `toolPolicy` **완화 의도는 관리자만**. 강화(required:true·approver:admin)는 자유.
 
     완화 의도 = 오버라이드가 `required=false`(승인 끄기) 또는 `approver="self"`(본인 승인으로 약화). 이

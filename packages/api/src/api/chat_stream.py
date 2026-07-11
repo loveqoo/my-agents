@@ -8,6 +8,7 @@ import json
 import logging
 import time
 import uuid
+from collections.abc import AsyncIterator
 
 from agent.runtime import AgentBuildContext, AgentConfigError
 
@@ -19,7 +20,7 @@ from .chat_persist import _mid_frame, _persist
 log = logging.getLogger("api.chat")
 
 
-async def _config_error_stream(impl_key: str):
+async def _config_error_stream(impl_key: str) -> AsyncIterator[str]:
     """설정 실패(스펙 089) — 선언한 in-process 구현이 미해결. default로 만회하지 않고 SSE로 정직히
     통보한다. **클라이언트 메시지는 일반화**(impl 값 미반영) — config["impl"]은 관리자가 임의로 저장한
     값(합의 B)이라 *레지스트리 키임이 증명되지 않으며*, 채팅 클라이언트는 관리자보다 권한이 낮을 수
@@ -75,7 +76,7 @@ def _card_streaming(card: object) -> bool:
     return True
 
 
-async def _a2a_stream(ctx: dict, user_text: str, user_id: str | None):
+async def _a2a_stream(ctx: dict, user_text: str, user_id: str | None) -> AsyncIterator[str]:
     """원격(A2A) 에이전트: 등록된 카드 url로 JSON-RPC message/stream 호출 → 응답을 우리 SSE로 재전송.
 
     code(우리가 배포한 SDK)·external(제3자) 모두 이 경로를 탄다(스펙 057: A2A 단일화). 전송은
@@ -140,7 +141,7 @@ async def _a2a_stream(ctx: dict, user_text: str, user_id: str | None):
     yield "event: done\ndata: [DONE]\n\n"
 
 
-async def stream_local_reply(agent_id: uuid.UUID, user_text: str):
+async def stream_local_reply(agent_id: uuid.UUID, user_text: str) -> AsyncIterator[str]:
     """로컬(ui) 에이전트를 **A2A 서빙용**으로 실행 — 텍스트 청크만 yield(스펙 061).
 
     a2a_server가 노출된 로컬 에이전트의 JSON-RPC 호출을 받아 실 LangGraph 런타임을 돌릴 때 쓴다.

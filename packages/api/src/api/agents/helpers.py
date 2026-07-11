@@ -74,8 +74,8 @@ async def _commit_or_409(session: AsyncSession, detail: str) -> None:
 def next_version(versions: list[AgentVersion]) -> str:
     """기존 'vN' 버전 문자열 중 최대 정수 + 1 → 'vN'. (UI 에이전트 전용)"""
     max_n = 0
-    for v in versions:
-        m = re.fullmatch(r"v(\d+)", v.version)
+    for version in versions:
+        m = re.fullmatch(r"v(\d+)", version.version)
         if m:
             max_n = max(max_n, int(m.group(1)))
     return f"v{max_n + 1}"

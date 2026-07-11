@@ -16,6 +16,7 @@ mem_cfg = {"llm": {base_url, api_key, model_id}, "embedder": {base_url, api_key,
 import logging
 import re as _re
 from collections.abc import Iterable
+from typing import Any
 
 from .backend import MemoryBackend, resolve_backend, scope_axes  # noqa: F401  (재노출)
 
@@ -187,7 +188,7 @@ def recall_diag(scope: dict, query: str, mem_cfg: dict | None, limit: int = 4) -
     return diag
 
 
-def _clamp_limit(limit) -> int:
+def _clamp_limit(limit: Any) -> int:  # 브로커 args의 비검증 입력 정규화가 존재 이유 — Any가 정직
     """recall 상한을 정수 [1,10]로 정규화(엔드포인트 스키마와 동일 경계). 비정수/음수/거대 방어."""
     try:
         return max(1, min(int(limit), 10))

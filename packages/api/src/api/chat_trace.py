@@ -17,7 +17,7 @@ _OVERRIDE_TRACE_KEYS = (
 )
 
 
-def _trace_override_value(key: str, v):
+def _trace_override_value(key: str, v: object) -> str | int | float | bool | list[str] | None:
     """오버라이드 값 1개를 트레이스 표시용으로 정화(131 프레임 재사용) — 기록 제외면 None.
 
     문자열=비밀 마스킹+캡 300, 리스트=항목별 캡 100·개수 20, 숫자 통과. systemPrompt는
@@ -42,12 +42,12 @@ def _overrides_trace(overrides: dict | None, nodes_status: str | None = None) ->
     if not isinstance(overrides, dict):
         return None
     out: dict = {}
-    for k in _OVERRIDE_TRACE_KEYS:
-        if k not in overrides or overrides[k] is None:
+    for key in _OVERRIDE_TRACE_KEYS:
+        if key not in overrides or overrides[key] is None:
             continue
-        v = _trace_override_value(k, overrides[k])
+        v = _trace_override_value(key, overrides[key])
         if v is not None:
-            out[k] = v
+            out[key] = v
     # 노드 오버라이드(스펙 287) — 프롬프트 전문 대신 요약(개수+적용 상태). mismatch도 기록해
     # "왜 안 먹었는지"를 표면화(스펙 125 계열 — 조용한 드롭 금지).
     if nodes_status is not None and isinstance(overrides.get("nodes"), list):

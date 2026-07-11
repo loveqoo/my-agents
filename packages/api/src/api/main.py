@@ -5,6 +5,7 @@
 
 import logging
 import os
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
@@ -40,7 +41,7 @@ from .schemas import UserRead, UserUpdate
 
 
 @asynccontextmanager
-async def lifespan(_app: FastAPI):
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     await init_db()
     await net_guard.refresh_allowed_hosts(force=True)  # SSRF allowlist 스냅샷 warm(스펙 064)
     await init_authz()  # casbin_rule + enforcer + 기본 정책(멱등)
@@ -138,7 +139,7 @@ app.include_router(
 app.include_router(user_admin.router)
 
 
-def run():
+def run() -> None:
     import uvicorn
 
     # 기본은 loopback(외부 비노출). Tailscale 노출은 API_HOST로만 켠다.

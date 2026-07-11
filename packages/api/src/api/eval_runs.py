@@ -21,15 +21,15 @@ from .eval_harness import EvalCase as HarnessCase
 from .eval_harness import build_asserts, run_eval
 from .eval_runner import eval_run_agent
 from .eval_schemas import CaseResultOut, RunDetailOut, RunOut, RunStartIn
-from .models import Agent, EvalCase, EvalCaseResult, EvalDataset, EvalRun
+from .models import Agent, EvalCase, EvalCaseResult, EvalDataset, EvalRun, User
 from .ownership import assert_may_manage, is_privileged, may_manage, may_use_agent, owner_of
 
 
 async def _execute_run(
     run_id: uuid.UUID,
     dataset_id: uuid.UUID,
-    agent_pk,
-    principal,
+    agent_pk,  # noqa: ANN001 — uuid.UUID | None이나 None은 rag 분기 전용: 주석 시 eval_run_agent(UUID) 호출이 mypy arg-type(스펙 292 P1 보고)
+    principal: User | str,
     rag_collection: dict | None = None,
     overrides: dict | None = None,
     version: str | None = None,
@@ -117,14 +117,14 @@ async def _execute_run(
             run = await s.get(EvalRun, run_id)
             if run is None:
                 return
-            for r in report.results:
+            for result in report.results:
                 s.add(
                     EvalCaseResult(
                         run_id=run_id,
-                        case_name=r.name,
-                        case_passed=r.passed,
-                        details=[list(d) for d in r.details],
-                        obs=r.obs,
+                        case_name=result.name,
+                        case_passed=result.passed,
+                        details=[list(d) for d in result.details],
+                        obs=result.obs,
                     )
                 )
             run.status = "ok"
@@ -148,7 +148,11 @@ async def _execute_run(
 
 
 async def _execute_group(
-    specs: list[tuple], dataset_id: uuid.UUID, agent_pk, principal, version: str | None = None
+    specs: list[tuple],
+    dataset_id: uuid.UUID,
+    agent_pk: uuid.UUID,
+    principal: User | str,
+    version: str | None = None,
 ) -> None:
     """모델 비교 그룹 실행(스펙 141) — (run_id, model_name)들을 **순차**로(로컬 LLM 과점유 방지).
     개별 런 실패는 _execute_run이 error로 박제하고 다음 모델은 계속."""
@@ -163,7 +167,7 @@ async def _execute_group(
         )
 
 
-async def trigger_auto_regression(agent_pk: uuid.UUID, actor) -> int:
+async def trigger_auto_regression(agent_pk: uuid.UUID, actor: User | str) -> int:
     """버전 활성화 시 자동 회귀(스펙 241, AgentOps B) — 이 에이전트의 회귀 자산(실행 이력 있는 문제집
     ∪ 수확 문제집)을 자동 재실행. 최근 순 최대 3개(비용 캡 — 서빙 모델이 실모델일 수 있음).
 
@@ -266,7 +270,7 @@ async def trigger_auto_regression(agent_pk: uuid.UUID, actor) -> int:
 
 
 async def _resolve_run_target(
-    session: AsyncSession, ds: EvalDataset, body: RunStartIn, user
+    session: AsyncSession, ds: EvalDataset, body: RunStartIn, user: User | str
 ) -> tuple[Agent | None, dict | None, str | None]:
     """kind별 실행 대상 해석(스펙 140) — (agent, rag_collection, target_name).
     교차 대상은 400(codex 140 #1 — 조용한 무시는 "다른 대상을 시험했다"는 오해를 만든다)."""
@@ -363,7 +367,7 @@ async def _validate_compare_models(
 
 
 async def _resolve_pinned_version(
-    session: AsyncSession, agent: Agent | None, body: RunStartIn, user
+    session: AsyncSession, agent: Agent | None, body: RunStartIn, user: User | str
 ) -> dict | None:
     """버전 지정 평가(스펙 242) — 지정 시 그 버전 존재 검증 후 config 반환(초안=배포 전 게이트).
     미지정=None(활성 버전 config 사용)."""
@@ -399,7 +403,7 @@ async def _spawn_runs(
     *,
     dataset_id: uuid.UUID,
     body: RunStartIn,
-    user,
+    user: User | str,
     agent: Agent | None,
     rag_collection: dict | None,
     target_name: str | None,
@@ -503,7 +507,7 @@ async def start_run(
     dataset_id: uuid.UUID,
     body: RunStartIn,
     session: AsyncSession = Depends(get_session),
-    user=Depends(current_principal),
+    user: User | str = Depends(current_principal),
 ) -> RunOut:
     """시험 실행 시작 — EvalRun(running) 즉시 반환, 백그라운드에서 케이스 순차 실행(폴링으로 조회)."""
     ds = await _dataset_or_404(session, dataset_id)
@@ -546,7 +550,7 @@ async def list_runs(
     group_id: uuid.UUID
     | None = None,  # 비교 그룹 전량 조회(스펙 141 — 최근 50 컷에 그룹이 잘리면 부분 격자, codex #1)
     session: AsyncSession = Depends(get_session),
-    user=Depends(current_principal),
+    user: User | str = Depends(current_principal),
 ) -> list[RunOut]:
     q = (
         select(EvalRun, EvalDataset.name)
@@ -569,7 +573,9 @@ async def list_runs(
 
 @router.get("/runs/{run_id}", response_model=RunDetailOut)
 async def get_run(
-    run_id: uuid.UUID, session: AsyncSession = Depends(get_session), user=Depends(current_principal)
+    run_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    user: User | str = Depends(current_principal),
 ) -> RunDetailOut:
     run = await session.get(EvalRun, run_id)
     if run is None:
@@ -612,8 +618,8 @@ async def sweep_zombie_datasets() -> int:
             .scalars()
             .all()
         )
-        for d in rows:
-            d.description = "생성 중단(서버 재시작) — 삭제 후 다시 생성하세요"
+        for dataset in rows:
+            dataset.description = "생성 중단(서버 재시작) — 삭제 후 다시 생성하세요"
         # AI 출제(스펙 143)도 같은 create_task라 재시작에 죽는다 — 접미 상태를 중단 박제.
         rows2 = (
             (
@@ -624,8 +630,8 @@ async def sweep_zombie_datasets() -> int:
             .scalars()
             .all()
         )
-        for d in rows2:
-            d.description = (d.description or "").replace(
+        for dataset in rows2:
+            dataset.description = (dataset.description or "").replace(
                 "AI 출제 중…", "AI 출제 중단(서버 재시작) — 다시 시도하세요"
             )
         if rows or rows2:
@@ -638,10 +644,10 @@ async def sweep_zombie_runs() -> int:
     남아 있는 status='running'은 전부 죽은 실행이다. error로 박제해 "영원한 실행 중" 잔류를 막는다."""
     async with SessionLocal() as s:
         rows = (await s.execute(select(EvalRun).where(EvalRun.status == "running"))).scalars().all()
-        for r in rows:
-            r.status = "error"
-            r.error = "서버 재시작으로 실행이 중단되었습니다 — 다시 실행하세요"
-            r.finished_at = datetime.now(UTC)
+        for run in rows:
+            run.status = "error"
+            run.error = "서버 재시작으로 실행이 중단되었습니다 — 다시 실행하세요"
+            run.finished_at = datetime.now(UTC)
         if rows:
             await s.commit()
         return len(rows)

@@ -15,7 +15,8 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Annotated, TypedDict
+from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING, Annotated, TypedDict
 
 from langchain_core.messages import (
     AIMessage,
@@ -30,6 +31,11 @@ from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 
 from ..runtime import AgentBuildContext, AgentManifest
+
+if TYPE_CHECKING:
+    from langchain_core.messages import BaseMessage
+    from langchain_core.tools import BaseTool
+    from langgraph.graph.state import CompiledStateGraph
 
 log = logging.getLogger(__name__)
 
@@ -49,9 +55,9 @@ def _coerce_json(text: object, fields: list) -> dict | None:
     if s != -1 and e != -1 and e > s:
         candidates.append(text[s : e + 1])
     candidates.append(text.strip())
-    for c in candidates:
+    for candidate in candidates:
         try:
-            obj = json.loads(c)
+            obj = json.loads(candidate)
         except (ValueError, TypeError):
             continue
         if not isinstance(obj, dict):
@@ -167,8 +173,8 @@ def _unique_node_ids(nodes: list[dict]) -> list[str]:
     id에만, 저장된 이름은 불변)."""
     seen: dict[str, int] = {}
     ids: list[str] = []
-    for n in nodes:
-        base = n["name"]
+    for node in nodes:
+        base = node["name"]
         while base.endswith("__tools"):
             base += "_"
         if base in seen:
@@ -195,7 +201,7 @@ class LinearPipelineAgent:
             supports_hil=True,
         )
 
-    def build_graph(self, ctx: AgentBuildContext):
+    def build_graph(self, ctx: AgentBuildContext) -> CompiledStateGraph:
         nodes = normalize_nodes((ctx.impl_config or {}).get("nodes"))
         if not nodes:
             # 노드 없음 — 조용한 빈 그래프 대신 단일 패스스루로 정직하게(입력을 그대로 모델에 태워
@@ -217,11 +223,11 @@ class LinearPipelineAgent:
         # RBAC 스코프) 안이라 권한 영향 0.
         by_name = {t.name: t for t in (ctx.tools or [])}
         by_suffix: dict[str, list] = {}
-        for t in ctx.tools or []:
-            if "__" in t.name:
-                by_suffix.setdefault(t.name.split("__", 1)[1], []).append(t)
+        for tool in ctx.tools or []:
+            if "__" in tool.name:
+                by_suffix.setdefault(tool.name.split("__", 1)[1], []).append(tool)
 
-        def _resolve_tool(name: str):
+        def _resolve_tool(name: str) -> BaseTool | None:
             if name in by_name:
                 return by_name[name]
             cands = by_suffix.get(name) or []
@@ -230,7 +236,7 @@ class LinearPipelineAgent:
         ids = _unique_node_ids(nodes)
         g = StateGraph(_State)
 
-        def _make_step(nid: str, node: dict):
+        def _make_step(nid: str, node: dict) -> tuple[Callable[[_State], Awaitable[dict]], list]:
             model = _model_from_node(node, ctx)
             node_tools = [
                 t for t in (_resolve_tool(name) for name in node["tools"]) if t is not None
@@ -281,7 +287,7 @@ class LinearPipelineAgent:
                     f"(도구 호출은 예외). 코드블록·설명·주석 없이 JSON만.{key_req}"
                 )
 
-            async def _finalize(resp):
+            async def _finalize(resp: BaseMessage) -> BaseMessage:
                 # JSON 강제는 노드의 최종 응답(tool_calls 없음)에만. 도구 루프 중간은 건드리지 않음.
                 if fmt != "json" or getattr(resp, "tool_calls", None):
                     return resp
@@ -341,7 +347,7 @@ class LinearPipelineAgent:
                 tools_id = f"{nid}__tools"
                 g.add_node(tools_id, ToolNode(node_tools))
 
-                def _route(state: _State, _nxt=nxt, _tools_id=tools_id) -> str:
+                def _route(state: _State, _nxt: str = nxt, _tools_id: str = tools_id) -> str:
                     last = state["messages"][-1]
                     return _tools_id if getattr(last, "tool_calls", None) else _nxt
 

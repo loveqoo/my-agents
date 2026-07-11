@@ -6,7 +6,7 @@
 """
 
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
@@ -19,7 +19,7 @@ from agent.runtime import is_first_party
 from . import crypto
 from .auth import current_principal
 from .db import get_session
-from .models import Agent, Collection, McpServer, MemoryType, Persona
+from .models import Agent, Collection, McpServer, MemoryType, Persona, User
 from .naming import validate_resource_name
 from .ownership import assert_may_manage, may_manage, may_use_agent, owner_of
 from .references import _config_has, agents_referencing, referenced_message
@@ -38,6 +38,9 @@ from .schemas import (
     PersonaUsageAgentOut,
 )
 from .serializers import _iso
+
+if TYPE_CHECKING:
+    from langchain_core.tools import BaseTool
 
 router = APIRouter(tags=["blocks"])
 
@@ -116,7 +119,7 @@ async def update_persona(
 async def persona_agents(
     id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
 ) -> Any:
     """이 페르소나를 쓰는 에이전트 + 각 오래됨(stale) 상태(스펙 161). 편집 화면이 "N개 사용·M개
     오래됨"과 선택 반영 대상을 그린다. stale = 에이전트 스냅샷(agent.persona) != 현재 본문(obj.body)."""
@@ -147,7 +150,7 @@ async def persona_apply(
     id: uuid.UUID,
     body: PersonaApplyIn,
     session: AsyncSession = Depends(get_session),
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
 ) -> Any:
     """선택 에이전트들의 페르소나 스냅샷을 이 페르소나 최신 본문으로 반영(스펙 161). **각 에이전트
     can_manage 게이트** — 관리 불가/이 페르소나 미참조 대상은 건너뛴다(남의 에이전트 무단 변경 금지)."""
@@ -159,17 +162,17 @@ async def persona_apply(
     applied: list[uuid.UUID] = []
     skipped: list[uuid.UUID] = []
     found = {a.id for a in agents}
-    for a in agents:
+    for agent in agents:
         # 이 페르소나를 실제 참조하고(활성 config) 관리 권한이 있어야 반영. 아니면 skip.
         if (
-            is_first_party(a.source)
-            and _config_has(a.config, "persona", obj.name)
-            and may_manage(a.owner_id, principal)
+            is_first_party(agent.source)
+            and _config_has(agent.config, "persona", obj.name)
+            and may_manage(agent.owner_id, principal)
         ):
-            a.persona = obj.body  # 스냅샷 = 현재 본문(in-place, 이름 불변이라 새 버전 없음)
-            applied.append(a.id)
+            agent.persona = obj.body  # 스냅샷 = 현재 본문(in-place, 이름 불변이라 새 버전 없음)
+            applied.append(agent.id)
         else:
-            skipped.append(a.id)
+            skipped.append(agent.id)
     skipped.extend(aid for aid in want if aid not in found)  # 미존재도 skip으로 정직 보고
     if applied:
         await session.commit()
@@ -253,7 +256,7 @@ _TOOL_PARAMS_CAP = 30
 _TOOLS_META_CAP = 100  # 서버당 메타 저장 도구 수 상한
 
 
-def _tool_info(t) -> dict:
+def _tool_info(t: "BaseTool") -> dict:
     """langchain 도구 객체 → {name, description, params[{name,type,required}]} (스펙 151).
     스키마 파생 실패는 params=[]로 접는다(표시용 — 탐색 자체를 죽이지 않는다). 순수 함수."""
     params: list[dict] = []
@@ -303,11 +306,11 @@ def _tools_meta_from_details(details: list[dict], prior: dict | None = None) -> 
     reconcile 왕복만 잡는 결함). 도구명이 재탐색으로 사라지면 그 approval도 함께 사라진다(정상)."""
     prior = prior or {}
     out: dict = {}
-    for d in details[:_TOOLS_META_CAP]:
-        name = d.get("name")
+    for detail in details[:_TOOLS_META_CAP]:
+        name = detail.get("name")
         if not name:
             continue
-        entry = {"description": d.get("description", ""), "params": d.get("params", [])}
+        entry = {"description": detail.get("description", ""), "params": detail.get("params", [])}
         prev = prior.get(name)
         pa = prev.get("approval") if isinstance(prev, dict) else None
         if isinstance(pa, dict) and pa.get("required"):
@@ -358,12 +361,12 @@ def mcp_to_out(obj: McpServer) -> McpServerOut:
 @router.get("/mcp-servers", response_model=list[McpServerOut])
 async def list_mcp_servers(
     session: AsyncSession = Depends(get_session),
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
 ) -> Any:
     result = await session.execute(select(McpServer))
     outs = [mcp_to_out(o) for o in result.scalars().all()]
-    for o in outs:  # 스펙 114 — 관리 가능 여부 파생
-        o.can_manage = may_manage(o.owner_id, principal)
+    for out in outs:  # 스펙 114 — 관리 가능 여부 파생
+        out.can_manage = may_manage(out.owner_id, principal)
     return outs
 
 
@@ -371,7 +374,7 @@ async def list_mcp_servers(
 async def create_mcp_server(
     body: McpServerIn,
     session: AsyncSession = Depends(get_session),
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
 ) -> Any:
     _assert_valid_name(body.name)  # 식별 이름 규칙(스펙 148) — 서버 등록명은 사용자가 짓는다
     from . import served_mcp
@@ -475,7 +478,9 @@ async def discover_mcp_tools(body: McpDiscoverIn) -> Any:
     return await _live_discover(url, token if token and "•" not in token else None)
 
 
-async def _assert_removed_tools_unreferenced(session, obj: McpServer, new_tools: list[str]) -> None:
+async def _assert_removed_tools_unreferenced(
+    session: AsyncSession, obj: McpServer, new_tools: list[str]
+) -> None:
     """재탐색으로 사라질 도구를 참조하는 에이전트가 있으면 409(없으면 통과).
 
     참조 보호(codex 151 Medium): 원격이 일시적으로 도구를 빠뜨리면 재탐색 한 번에 에이전트의
@@ -503,7 +508,7 @@ async def _assert_removed_tools_unreferenced(session, obj: McpServer, new_tools:
 async def rediscover_mcp_server(
     id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
 ) -> Any:
     """저장된 MCP 서버의 도구·메타를 재탐색해 갱신(스펙 151 — 상세 화면 '도구 정보 새로 탐색').
 
@@ -547,7 +552,7 @@ async def update_mcp_server(
     id: uuid.UUID,
     body: McpServerIn,
     session: AsyncSession = Depends(get_session),
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
 ) -> Any:
     obj = await session.get(McpServer, id)
     if obj is None:
@@ -594,7 +599,7 @@ async def update_mcp_server(
 async def delete_mcp_server(
     id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
 ) -> None:
     obj = await session.get(McpServer, id)
     if obj is None:
@@ -614,7 +619,7 @@ async def publish_mcp_server(
     id: uuid.UUID,
     body: McpPublishIn,
     session: AsyncSession = Depends(get_session),
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
 ) -> Any:
     obj = await session.get(McpServer, id)
     if obj is None:
@@ -691,7 +696,7 @@ def _count_by(agents: list[Agent], key: str, name: str, *, scalar: bool = False)
 @router.get("/blocks")
 async def get_blocks(
     session: AsyncSession = Depends(get_session),
-    principal=Depends(current_principal),
+    principal: User | str = Depends(current_principal),
 ) -> dict[str, Any]:
     agents = list((await session.execute(select(Agent))).scalars().all())
 

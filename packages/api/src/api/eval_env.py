@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 _ENV_SECRET_KEYS = ("api_key", "apikey", "token", "secret", "authorization", "password")
 
 
-def _env_redact(v):
+def _env_redact(v: object) -> object:
     """env 기록용 재귀 마스킹(codex 240 #3) — ModelConfig.params는 임의 JSONB라 운영자가 넣은
     비밀(api_key류)이 성적표 JSON 덤프로 노출될 수 있다. 키 이름 기반 마스킹."""
     if isinstance(v, dict):
@@ -99,7 +99,10 @@ async def _collection_env(session: AsyncSession, cfg: dict) -> dict | None:
 
 
 async def _env_snapshot(
-    session: AsyncSession, agent, rag_collection: dict | None, cfg_override: dict | None = None
+    session: AsyncSession,
+    agent,  # noqa: ANN001 — Agent | None이나 None은 rag 경로(조기 return)에서만: 주석 시 mypy union-attr(스펙 292 P1 보고)
+    rag_collection: dict | None,
+    cfg_override: dict | None = None,
 ) -> dict:
     """경량 환경 기록(스펙 240) — **재현 보장이 아니라 진단 단서**(모델 params·도구 목록·컬렉션 상태).
     수집 실패는 부분 기록으로 우아 저하(진단 부가층이 실행을 막으면 본말전도)."""

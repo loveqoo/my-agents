@@ -9,6 +9,7 @@
 """
 
 import logging
+import uuid
 
 import httpx
 from sqlalchemy import select
@@ -75,7 +76,7 @@ _HARVEST_MAX = 50
 
 
 async def gather_unharvested(
-    session: AsyncSession, agent_pk, limit: int = _HARVEST_MAX
+    session: AsyncSession, agent_pk: uuid.UUID, limit: int = _HARVEST_MAX
 ) -> list[dict]:
     """에이전트 세션들의 **미수확** 피드백 + 문맥(직전 user 질문·assistant 답). 오래된 것부터, 최대 limit.
     피드백은 그 에이전트 세션에 한정(크로스에이전트 격리) — Session.agent_pk 조인으로."""
@@ -122,7 +123,9 @@ async def gather_unharvested(
     return items
 
 
-async def harvest_agent_feedback(session: AsyncSession, agent_pk, llm_cfg: dict | None) -> dict:
+async def harvest_agent_feedback(
+    session: AsyncSession, agent_pk: uuid.UUID, llm_cfg: dict | None
+) -> dict:
     """미수확 피드백 → 초안 케이스. 반환 {cases:[{question,asserts,label,feedback_id}], skipped}.
     질문이 없는 피드백(직전 user 메시지 부재)은 skip. 합격기준 합성 실패는 폴백 템플릿으로 진행.
     llm_cfg=None(도우미 mock/미설정)이면 **우아하게 저하** — 전 케이스 폴백 템플릿 기준(수확은 질문이
