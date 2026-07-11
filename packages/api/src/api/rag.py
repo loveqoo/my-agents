@@ -200,10 +200,12 @@ async def create_collection(
     session.add(c)
     try:
         await session.commit()
-    except IntegrityError as err:
+    except IntegrityError as dup:  # `err`(위 이름 검증 결과)와 섀도잉 금지 — mypy 타입 혼동 방지
         await session.rollback()
-        raise HTTPException(status_code=409, detail="같은 이름의 컬렉션이 이미 있습니다.") from err
-    return collection_to_out(await _load_collection(session, c.id))
+        raise HTTPException(status_code=409, detail="같은 이름의 컬렉션이 이미 있습니다.") from dup
+    created = await _load_collection(session, c.id)
+    assert created is not None  # 방금 커밋한 행의 재로드 — 동시 삭제 레이스 외엔 불가
+    return collection_to_out(created)
 
 
 @router.get("/{cid}", response_model=CollectionOut)
@@ -246,7 +248,9 @@ async def update_collection(
         c.description = body.description
     # 스펙 198: 청크 크기·겹침 수정 제거(생성 후 불변). 구 클라이언트가 보내도 스키마에 필드가 없어 무시됨.
     await session.commit()
-    return collection_to_out(await _load_collection(session, c.id))
+    updated = await _load_collection(session, c.id)
+    assert updated is not None  # 위 404 가드로 존재 확인된 행의 재로드 — 동시 삭제 레이스 외엔 불가
+    return collection_to_out(updated)
 
 
 @router.delete("/{cid}", status_code=204)
@@ -552,7 +556,12 @@ async def ingest_document(
         vectors = await _embed_chunks(c, chunks)
         await _persist_chunks(session, c, doc, chunks, metas, vectors)
     except Exception as exc:
-        doc = await _mark_ingest_error(session, doc_id, exc)
+        marked = await _mark_ingest_error(session, doc_id, exc)
+        if marked is None:
+            # 실패 처리 중 문서가 동시 삭제된 레이스(delete_document) — None을 응답 검증에 흘리면
+            # 500(조용한 크래시). 정직한 거절로 접는다(스펙 290 결 — refuse loud, mypy가 적발).
+            raise HTTPException(status_code=404, detail="문서가 처리 중 삭제되었습니다") from exc
+        doc = marked
     return doc
 
 

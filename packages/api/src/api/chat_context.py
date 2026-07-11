@@ -226,7 +226,7 @@ def _coerce_history_depth(cfg: dict, agent) -> None:
 
 def _apply_overrides(
     cfg: dict, persona: str, overrides: dict | None, agent, allowed: set
-) -> tuple[dict, str, str | None]:
+) -> tuple[dict, str, str | None, dict | None]:
     """web 한정 세션 오버라이드 병합(스펙 025) — 화이트리스트 키만, 저장 에이전트는 불변.
 
     코드·외부(원격) 에이전트는 미적용(bypass 보존 — 026 read-only 취급). 모델은 여전히

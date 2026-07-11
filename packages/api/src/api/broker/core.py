@@ -67,7 +67,7 @@ class PolicyScopedBroker:
     def __init__(
         self,
         allowlist,
-        rbac_allows: Callable[[str], bool],
+        rbac_allows: Callable[..., bool],  # 실호출 (kind) 또는 (kind, name) 2형태 — _permitted 참조
         *,
         session_factory=SessionLocal,
         user_id: str | None = None,

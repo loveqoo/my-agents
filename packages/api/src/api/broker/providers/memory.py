@@ -360,6 +360,7 @@ class MemEditProvider:
         def err(msg: str) -> InvokeResult:  # 부수효과 0으로 실패 반환(guard)
             return InvokeResult(text="", trust="untrusted", error=msg, raw=raw)
 
+        assert self._user_id is not None  # load()가 user_id 부재 시 None → invoke/_apply 미도달
         if not await asyncio.to_thread(memory.user_owns, self._user_id, mem_id, mem_cfg):
             return err("이 유저의 기억이 아닙니다.")
         if op == "update":

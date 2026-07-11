@@ -231,7 +231,7 @@ def _set_allowed_hosts_for_test(hosts) -> None:
     _SNAPSHOT_EXPIRES = float("inf")
 
 
-def _ip_is_blocked(ip: ipaddress._BaseAddress) -> bool:
+def _ip_is_blocked(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     """공인(global) 대역이 아니면 차단. `not is_global`이 사설/루프백/링크로컬/예약/CGNAT
     (100.64/10)/문서·벤치마킹 대역까지 한 번에 거른다(개별 플래그 denylist의 누락 방지 — 적대리뷰 M1).
     멀티캐스트/미지정은 명시적으로도 막는다(방어적 중복)."""

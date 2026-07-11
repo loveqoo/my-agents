@@ -4,9 +4,9 @@ import uuid
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-ORM = {"from_attributes": True}
+ORM = ConfigDict(from_attributes=True)
 
 
 # ----------------------------- 빌딩 블록 -----------------------------

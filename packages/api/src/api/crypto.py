@@ -42,7 +42,7 @@ def _fernet() -> Fernet:
 
 def is_masked(value: str | None) -> bool:
     """마스킹 표시 값인지(편집 시 보존 판단)."""
-    return bool(value) and "•" in value
+    return bool(value and "•" in value)
 
 
 def _looks_encrypted(value: str) -> bool:

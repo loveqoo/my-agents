@@ -26,7 +26,7 @@ import operator
 import re
 import secrets
 from abc import ABC, abstractmethod
-from typing import Annotated, TypedDict, final
+from typing import Annotated, Any, TypedDict, final
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
@@ -298,7 +298,7 @@ class OrchestrationAgentBase(ABC):
                     "text": fold_result(res.text, res.error),
                 }
                 rest = pending[1:]
-                upd = {"pending": rest, "done": [item]}
+                upd: dict[str, Any] = {"pending": rest, "done": [item]}
                 if not rest:  # 마지막 cap — 전체 done을 fold해 데이터 채널로 넘긴다.
                     upd["delegated"] = _fold_done((state.get("done") or []) + [item])
                 return upd

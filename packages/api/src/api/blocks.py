@@ -447,7 +447,8 @@ async def _live_discover(url: str, token: str | None) -> McpDiscoverResult:
         return McpDiscoverResult(ok=False, reachable=False, latencyMs=ms, detail="연결 실패")
     ms = int((time.perf_counter() - t0) * 1000)
     names = [t.name for t in tools]
-    details = [_tool_info(t) for t in tools[:_TOOLS_META_CAP]]  # 메타(설명·파라미터, 스펙 151)
+    # 메타(설명·파라미터, 스펙 151) — dict를 pydantic이 McpToolInfo로 검증·강제(모델 생성 시).
+    details: list[Any] = [_tool_info(t) for t in tools[:_TOOLS_META_CAP]]
     return McpDiscoverResult(
         ok=True,
         reachable=True,

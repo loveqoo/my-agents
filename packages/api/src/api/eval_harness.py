@@ -185,7 +185,8 @@ def rag_source_contains(frag: str):
     )
 
 
-_ASSERT_TYPES = {
+# 값 = (팩토리, arg 필수 여부). 팩토리 인자 수가 제각각(arg 유무)이라 Callable[..., tuple]로 묶는다.
+_ASSERT_TYPES: dict[str, tuple[Callable[..., tuple], bool]] = {
     "trace_has": (trace_has, True),  # (팩토리, arg 필수 여부)
     "trace_lacks": (trace_lacks, True),
     "output_contains": (output_contains, True),

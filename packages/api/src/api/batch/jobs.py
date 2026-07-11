@@ -97,7 +97,7 @@ def _cleanup_criteria_labels(age_cutoff, min_turns, turn_active) -> tuple:
     )
 
 
-async def cleanup_sessions(*, dry_run: bool, _run_id=None) -> dict:
+async def cleanup_sessions(*, dry_run: bool, run_id=None) -> dict:  # noqa: ARG001 — runner가 키워드 호출(계약)
     """세션 정리 — 두 기준의 **합집합**(스펙 038 나이 + 스펙 049 턴). 메시지는 FK ondelete CASCADE로
     DB가 자동 삭제(messages.session_pk).
 
@@ -405,8 +405,9 @@ def _is_private_host(endpoint: str | None) -> bool:
         ip = ipaddress.ip_address(host)
     except ValueError:
         return False  # 도메인명 → 공개 추정, 안 건드림
-    if getattr(ip, "ipv4_mapped", None) is not None:  # ::ffff:10.0.0.1 → 10.0.0.1로 언랩
-        ip = ip.ipv4_mapped
+    mapped = getattr(ip, "ipv4_mapped", None)  # ::ffff:10.0.0.1 → 10.0.0.1로 언랩
+    if mapped is not None:
+        ip = mapped
     return any(ip in net for net in _A2A_PRIVATE_NETS)
 
 
@@ -421,7 +422,7 @@ def is_delete_all_pattern(pattern: str | None) -> bool:
     return ("@" not in literal) or (len(literal) < 5)
 
 
-async def cleanup_a2a_agents(*, dry_run: bool, _run_id=None) -> dict:
+async def cleanup_a2a_agents(*, dry_run: bool, run_id=None) -> dict:  # noqa: ARG001 — runner가 키워드 호출(계약)
     """A2A 정크 정리(스펙 050, #1) — `source='external'` AND endpoint 호스트가 루프백/RFC1918 사설인
     에이전트 삭제. 테스트가 등록한 프로브 A2A 카드만 걸린다.
 
@@ -511,7 +512,7 @@ async def _reload_enforcer_after_user_delete() -> None:
         log.warning("user-cleanup: casbin enforcer reload 실패(무해, DB는 정리됨): %s", exc)
 
 
-async def cleanup_test_users(*, dry_run: bool, _run_id=None) -> dict:
+async def cleanup_test_users(*, dry_run: bool, run_id=None) -> dict:  # noqa: ARG001 — runner가 키워드 호출(계약)
     """테스트 유저 정리(스펙 050, #13) — 이메일이 config 패턴(LIKE) 일치 AND keep-list 제외인 유저 삭제.
     가장 비가역이라 바닥 3겹(learning 037):
 

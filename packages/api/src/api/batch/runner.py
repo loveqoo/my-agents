@@ -5,6 +5,7 @@
 
 import logging
 from datetime import UTC, datetime
+from typing import Any
 
 from ..db import SessionLocal
 from ..models import BatchRun
@@ -67,7 +68,7 @@ async def run_job(name: str, *, dry_run: bool = False) -> dict:
             run.finished_at = datetime.now(UTC)
             await session.commit()
 
-    result = {"run_id": str(run_id), "job": name, "status": status}
+    result: dict[str, Any] = {"run_id": str(run_id), "job": name, "status": status}
     if summary is not None:
         result["summary"] = summary
     if error is not None:

@@ -16,6 +16,7 @@ import logging
 import secrets
 import time
 import uuid
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -425,7 +426,7 @@ def _resolve_graph_entry(ctx: dict, body: ChatRequest, user_text: str):
 
 def _turn_config(ctx: dict, thread_id: str, user_id: str | None, capture) -> dict:
     """LangGraph 실행 config — 관측 콜백(스펙 118)·실측 캡처(스펙 205) 부착."""
-    config = {"configurable": {"thread_id": thread_id}}
+    config: dict[str, Any] = {"configurable": {"thread_id": thread_id}}
     # 관측(스펙 118) — Langfuse가 설정됐을 때만 콜백 부착(미설정=무동작). 핵심 채팅 경로 무영향.
     # 비영속(스펙 235): 외부 관측 기록도 스킵(고트래픽·기록 무의미 계약 — 앱 DB 밖이라도 적재 안 함).
     if not ctx.get("ephemeral"):

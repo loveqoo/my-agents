@@ -98,9 +98,9 @@ async def _execute_run(
                 )
             # 이 케이스의 llm_judge 기준만 순차 심판(스펙 139) — 결과를 obs에 주입, scorer는 읽기만.
             criteria = [
-                a.get("arg")
+                arg
                 for a in case.meta.get("raw_asserts", [])
-                if isinstance(a, dict) and a.get("type") == "llm_judge" and a.get("arg")
+                if isinstance(a, dict) and a.get("type") == "llm_judge" and (arg := a.get("arg"))
             ]
             if criteria:
                 judge: dict = {}
@@ -411,6 +411,9 @@ async def _spawn_runs(
     """EvalRun 생성+커밋+배경 실행 3분기(단일 모델 오버라이드/비교 그룹/기본) — 대표 RunOut 반환."""
     if len(models) == 1:
         # 1개 선택=비교가 아니라 단순 모델 오버라이드 런(codex 141 #3 — 1열 그룹은 격자 의미 없음).
+        assert (
+            agent is not None
+        )  # _validate_compare_models가 kind!=agent에 400 — models 있으면 agent 존재
         run = EvalRun(
             dataset_id=dataset_id,
             agent_pk=agent.id,
@@ -437,6 +440,9 @@ async def _spawn_runs(
         return RunOut.model_validate(run)
 
     if models:
+        assert (
+            agent is not None
+        )  # _validate_compare_models가 kind!=agent에 400 — models 있으면 agent 존재
         group_id = uuid.uuid4()
         model_envs = {m: await _model_env(session, m) for m in models}
         runs = [

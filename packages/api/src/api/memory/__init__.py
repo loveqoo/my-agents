@@ -15,6 +15,7 @@ mem_cfg = {"llm": {base_url, api_key, model_id}, "embedder": {base_url, api_key,
 
 import logging
 import re as _re
+from collections.abc import Iterable
 
 from .backend import MemoryBackend, resolve_backend, scope_axes  # noqa: F401  (재노출)
 
@@ -97,7 +98,7 @@ _SECRET_RE = _re.compile(
 )
 
 
-def _sanitize(text: object, *, secrets: object = (), cap: int = 300) -> str:
+def _sanitize(text: object, *, secrets: Iterable[object] = (), cap: int = 300) -> str:
     """진단 노출용 문자열 정제 — 비밀 마스킹 + 길이 상한. 항상 str 반환.
 
     secrets: mem_cfg에서 뽑은 실제 비밀 값(api_key 등). **정확 치환이 1차 방어**(형태 무관 확실 제거).

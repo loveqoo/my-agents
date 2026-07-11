@@ -244,7 +244,9 @@ async def create_model(body: ModelIn, session: AsyncSession = Depends(get_sessio
     )
     session.add(m)
     await _commit_or_409(session, "동시 변경 충돌 또는 중복 — 다시 시도하세요.")
-    return model_to_out(await _get_with_provider(session, m.id))
+    reloaded = await _get_with_provider(session, m.id)
+    assert reloaded is not None  # 방금 커밋한 행의 재로드 — 동시 삭제 레이스 외엔 불가
+    return model_to_out(reloaded)
 
 
 @router.get("/{model_id}", response_model=ModelOut)
@@ -273,7 +275,9 @@ async def update_model(
     m.params = body.params
     m.meta = body.meta
     await _commit_or_409(session, "동시 변경 충돌 또는 중복 — 다시 시도하세요.")
-    return model_to_out(await _get_with_provider(session, m.id))
+    reloaded = await _get_with_provider(session, m.id)
+    assert reloaded is not None  # 방금 커밋한 행의 재로드 — 동시 삭제 레이스 외엔 불가
+    return model_to_out(reloaded)
 
 
 @router.put("/{model_id}/default", response_model=ModelOut, dependencies=[_manage])
@@ -298,7 +302,9 @@ async def set_default_model(
     await _commit_or_409(
         session, "동시에 다른 기본 지정이 있었습니다 — 새로고침 후 다시 시도하세요."
     )
-    return model_to_out(await _get_with_provider(session, m.id))
+    reloaded = await _get_with_provider(session, m.id)
+    assert reloaded is not None  # 방금 커밋한 행의 재로드 — 동시 삭제 레이스 외엔 불가
+    return model_to_out(reloaded)
 
 
 @router.delete("/{model_id}", status_code=204, dependencies=[_manage])

@@ -317,6 +317,9 @@ async def suggest_cases(
                 _execute_generation_append(dataset_id, ds.collection_id, body.count, llm_cfg, prior)
             )
         else:
+            assert (
+                agent_pk is not None
+            )  # kind는 agent|rag 둘뿐 — rag는 위 분기, agent는 위에서 설정(404 가드)
             spawn(_execute_suggestion(dataset_id, agent_pk, body.count, llm_cfg, prior))
     except Exception:
         _active_jobs.discard(dataset_id)  # create_task까지 못 가면 배경 finally가 안 돌아 락이 샌다
@@ -451,7 +454,7 @@ async def harvest_feedback(
 
 
 async def _execute_harvest(
-    dataset_id: uuid.UUID, agent_pk: uuid.UUID, llm_cfg: dict, prior_desc: str | None
+    dataset_id: uuid.UUID, agent_pk: uuid.UUID, llm_cfg: dict | None, prior_desc: str | None
 ) -> None:
     """배경 수확 — 미수확 피드백→케이스(기준 LLM 합성), 케이스별 harvested_case_pk 스탬프(재수확 방지).
     기존 케이스 보존(append). description에 상태 박제(suggest 패턴). 게이트=_active_jobs(엔드포인트 획득)."""

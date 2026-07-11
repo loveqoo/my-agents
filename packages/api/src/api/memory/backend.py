@@ -24,7 +24,7 @@ SCOPE_AXES = ("user_id", "run_id", "agent_id")
 
 def scope_axes(scope: dict) -> list[tuple[str, str]]:
     """스코프 dict에서 None이 아닌 (축, 값) 쌍만 우선순위 순으로. 백엔드 공용 정책."""
-    return [(axis, scope.get(axis)) for axis in SCOPE_AXES if scope.get(axis)]
+    return [(axis, value) for axis in SCOPE_AXES if (value := scope.get(axis))]
 
 
 @runtime_checkable

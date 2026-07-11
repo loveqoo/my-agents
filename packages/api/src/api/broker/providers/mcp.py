@@ -103,8 +103,9 @@ class McpProvider:
             elif spec.get(server, "∅") is None:
                 continue  # 이미 서버 전체 허용 → 개별 툴 항목은 무의미
             else:
-                spec.setdefault(server, set())
-                spec[server].add(tool)
+                bucket = spec.setdefault(server, set())
+                assert bucket is not None  # 위 elif가 서버 전체(None) 항목을 걸러 이 분기 미도달
+                bucket.add(tool)
         return spec
 
     async def _server_dicts(self, server_names: set[str]) -> list[dict]:
@@ -242,6 +243,7 @@ class McpProvider:
         from ...runtime import _redact_args, resolve_tool_approval
 
         server, tool = _parse_mcp(cap_id)
+        assert tool is not None  # load()가 툴 미지정 cap을 None으로 걸러 approval_for 미도달
         appr = resolve_tool_approval(server, tool, getattr(row, "tools_meta", None), tool_policy)
         if appr is None:
             return None
