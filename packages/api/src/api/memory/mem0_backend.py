@@ -269,7 +269,7 @@ class Mem0Backend:
         return hits[:limit]
 
     def add(self, scope: dict, messages: list[dict], infer: bool) -> None:
-        kwargs = {axis: val for axis, val in scope_axes(scope)}
+        kwargs = dict(scope_axes(scope))
         if not messages or not kwargs:
             return
         try:

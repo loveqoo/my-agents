@@ -27,7 +27,7 @@ sys.path.insert(0, os.path.join(ROOT, "packages", "agent", "src"))
 from api import memory as M  # noqa: E402
 from api import mem_config as MC  # noqa: E402
 from api.broker import (  # noqa: E402
-    CapabilityNotFound,
+    CapabilityNotFoundError,
     MemoryProvider,
     PolicyScopedBroker,
     _MemBacking,

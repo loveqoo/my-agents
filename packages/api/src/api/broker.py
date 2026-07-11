@@ -53,7 +53,7 @@ CAP_KIND_MEMORY_WRITE = (
 CAP_KIND_MEMORY_EDIT = "memedit"  # Memory edit provider(스펙 111 — 유저 장기 기억 수정/삭제, 대상 있는 첫 부수효과·소유권 선행).
 
 
-class CapabilityNotFound(Exception):
+class CapabilityNotFoundError(Exception):
     """능력 미해결 — **미존재와 미허가를 구분하지 않는다**(403/404 접기, 존재 비노출)."""
 
 
@@ -407,7 +407,7 @@ class AgentProvider:
         return f"broker_invoke:{CAP_KIND_AGENT}:{row.name}"
 
     def approval_for(
-        self, row, cap_id: str, args: dict, tool_policy: dict | None = None
+        self, row, _cap_id: str, args: dict, _tool_policy: dict | None = None
     ) -> dict | None:
         """A2A 위임 승인 = **대상 Agent의 opt-in 플래그**(스펙 117). config.requires_approval가 참일 때만
         게이트(부재/거짓 = 게이트 없음 = **현동작 보존·무회귀**). MCP `_APPROVAL_ACTIONS` 옵트인의
@@ -782,7 +782,7 @@ class RagProvider:
         return f"broker_invoke:{CAP_KIND_RAG}:{row.name}"
 
     def approval_for(
-        self, row, cap_id: str, args: dict, tool_policy: dict | None = None
+        self, _row, _cap_id: str, _args: dict, _tool_policy: dict | None = None
     ) -> dict | None:
         return None  # RAG=읽기 전용(부수효과 없음) → 승인 게이트 불요.
 
@@ -855,10 +855,10 @@ class MemoryProvider:
             return None
         return _MemBacking("user")
 
-    def describe(self, row: _MemBacking) -> Capability:
+    def describe(self, _row: _MemBacking) -> Capability:
         return self._cap(with_schema=True)
 
-    async def invoke(self, row: _MemBacking, args: dict) -> InvokeResult:
+    async def invoke(self, _row: _MemBacking, args: dict) -> InvokeResult:
         cap_id = f"{CAP_KIND_MEMORY}:user"
         raw = {"cap_id": cap_id, "kind": CAP_KIND_MEMORY}
         # 스코프는 **오직** principal 도출 user_id — args의 어떤 필드(user_id 등)도 무시(anti-leak 불변식).
@@ -895,11 +895,11 @@ class MemoryProvider:
             text=memory.format_memory_hits(hits), trust="untrusted", error=None, raw=raw
         )
 
-    def node_label(self, row: _MemBacking) -> str:
+    def node_label(self, _row: _MemBacking) -> str:
         return f"broker_invoke:{CAP_KIND_MEMORY}:user"
 
     def approval_for(
-        self, row, cap_id: str, args: dict, tool_policy: dict | None = None
+        self, _row, _cap_id: str, _args: dict, _tool_policy: dict | None = None
     ) -> dict | None:
         return None  # 메모리 읽기=부수효과 없음 → 승인 게이트 불요(memory write는 스펙 105).
 
@@ -970,10 +970,10 @@ class MemoryWriteProvider:
             return None  # 미지원 리소스·머신 → 존재 비노출
         return _MemBacking("user")
 
-    def describe(self, row: _MemBacking) -> Capability:
+    def describe(self, _row: _MemBacking) -> Capability:
         return self._cap(with_schema=True)
 
-    async def invoke(self, row: _MemBacking, args: dict) -> InvokeResult:
+    async def invoke(self, _row: _MemBacking, args: dict) -> InvokeResult:
         # 여기 도달 = 브로커가 approval_for→interrupt로 **이미 승인**을 받은 경우만(부수효과 1회, §7 멱등).
         cap_id = f"{CAP_KIND_MEMORY_WRITE}:user"
         raw = {"cap_id": cap_id, "kind": CAP_KIND_MEMORY_WRITE}
@@ -1010,11 +1010,11 @@ class MemoryWriteProvider:
             text=f"장기 기억에 저장했습니다: {text}", trust="untrusted", error=None, raw=raw
         )
 
-    def node_label(self, row: _MemBacking) -> str:
+    def node_label(self, _row: _MemBacking) -> str:
         return f"broker_invoke:{CAP_KIND_MEMORY_WRITE}:user"
 
     def approval_for(
-        self, row, cap_id: str, args: dict, tool_policy: dict | None = None
+        self, _row, _cap_id: str, args: dict, _tool_policy: dict | None = None
     ) -> dict | None:
         # 쓰기=부수효과 → **항상 승인**(None 절대 안 돌림). 저장될 사실을 마스킹 없이 노출(승인 가시성).
         text = _memwrite_text(args)  # invoke와 동일 헬퍼(길이 상한 일치) → 승인한 것 == 저장되는 것
@@ -1102,10 +1102,10 @@ class MemEditProvider:
             return None  # 미지원 리소스·머신 → 존재 비노출
         return _MemBacking("user")
 
-    def describe(self, row: _MemBacking) -> Capability:
+    def describe(self, _row: _MemBacking) -> Capability:
         return self._cap(with_schema=True)
 
-    async def invoke(self, row: _MemBacking, args: dict) -> InvokeResult:
+    async def invoke(self, _row: _MemBacking, args: dict) -> InvokeResult:
         # 여기 도달 = approval_for→interrupt로 **이미 승인**된 경우만(부수효과 1회, 멱등).
         cap_id = f"{CAP_KIND_MEMORY_EDIT}:user"
         raw = {"cap_id": cap_id, "kind": CAP_KIND_MEMORY_EDIT}
@@ -1151,11 +1151,11 @@ class MemEditProvider:
             return err("메모리 삭제 실패")
         return InvokeResult(text="기억을 삭제했습니다.", trust="untrusted", raw=raw)
 
-    def node_label(self, row: _MemBacking) -> str:
+    def node_label(self, _row: _MemBacking) -> str:
         return f"broker_invoke:{CAP_KIND_MEMORY_EDIT}:user"
 
     def approval_for(
-        self, row, cap_id: str, args: dict, tool_policy: dict | None = None
+        self, _row, _cap_id: str, args: dict, _tool_policy: dict | None = None
     ) -> dict | None:
         # 수정/삭제=부수효과 → **항상 승인**(None 절대 안 돌림). 마스킹 없이 노출(승인 가시성).
         op, mem_id, text = _memedit_args(args)  # invoke와 동일 정규화 → 승인한 것 == 실행되는 것
@@ -1278,7 +1278,7 @@ class PolicyScopedBroker:
     async def describe(self, cap_id: str) -> Capability:
         row, provider = await self._resolve(cap_id)
         if row is None:
-            raise CapabilityNotFound(cap_id)  # 미존재·미허가 동일 처리(존재 비노출)
+            raise CapabilityNotFoundError(cap_id)  # 미존재·미허가 동일 처리(존재 비노출)
         return provider.describe(row)
 
     async def invoke(self, cap_id: str, args: dict) -> InvokeResult:

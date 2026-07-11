@@ -94,7 +94,7 @@ def _check_entity_schema(schema: dict | None, kind: str) -> None:
     except jsonschema.SchemaError as exc:
         raise HTTPException(
             status_code=400, detail=f"JSON Schema가 유효하지 않습니다: {exc.message[:200]}"
-        )
+        ) from exc
 
 
 # 업로드 상한 — `await file.read()`는 전체를 메모리로 올리므로 무제한이면 단일/동시 업로드로 OOM.
@@ -200,9 +200,9 @@ async def create_collection(
     session.add(c)
     try:
         await session.commit()
-    except IntegrityError:
+    except IntegrityError as err:
         await session.rollback()
-        raise HTTPException(status_code=409, detail="같은 이름의 컬렉션이 이미 있습니다.")
+        raise HTTPException(status_code=409, detail="같은 이름의 컬렉션이 이미 있습니다.") from err
     return collection_to_out(await _load_collection(session, c.id))
 
 
@@ -310,7 +310,7 @@ async def search_collection(
     cid: uuid.UUID,
     body: CollectionSearchIn,
     session: AsyncSession = Depends(get_session),
-    principal=Depends(current_principal),
+    _principal=Depends(current_principal),
 ) -> CollectionSearchOut:
     """retrieval 시험 — 단일 컬렉션에 질의를 던져 상위 청크를 받는다(에이전트 채팅 불요).
 
@@ -378,7 +378,7 @@ async def list_documents(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0, le=1_000_000),
     session: AsyncSession = Depends(get_session),
-    principal=Depends(current_principal),
+    _principal=Depends(current_principal),
 ) -> Any:
     """문서 페이지 목록(스펙 128) — 문서는 증가 축이라 서버 페이지네이션 + 파일명 부분일치(q).
 
@@ -434,7 +434,7 @@ async def ingest_document(
         try:
             entity_rows = rag_ingest.parse_entity_lines(data, schema=c.entity_schema)
         except rag_ingest.EntityParseError as exc:
-            raise HTTPException(status_code=400, detail=str(exc))
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     doc = Document(
         collection_id=c.id,
@@ -474,7 +474,7 @@ async def ingest_document(
                 f"임베딩 차원({bad})이 저장소 차원({RAG_EMBED_DIMS})/컬렉션 차원({c.dims})과 "
                 "다릅니다 — 적재 중단(차원 고정)."
             )
-        for i, (t, v, m) in enumerate(zip(chunks, vectors, metas)):
+        for i, (t, v, m) in enumerate(zip(chunks, vectors, metas, strict=True)):
             session.add(
                 Chunk(
                     document_id=doc.id,

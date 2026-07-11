@@ -41,9 +41,9 @@ async def _commit_or_409(session: AsyncSession, detail: str) -> None:
     """유니크 충돌(kind당 기본 1개 부분 인덱스·이름)을 500 대신 409로(스펙 150 — 동시 지정 레이스)."""
     try:
         await session.commit()
-    except IntegrityError:
+    except IntegrityError as err:
         await session.rollback()
-        raise HTTPException(status_code=409, detail=detail)
+        raise HTTPException(status_code=409, detail=detail) from err
 
 
 async def _probe(

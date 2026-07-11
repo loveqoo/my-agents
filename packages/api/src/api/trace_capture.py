@@ -45,14 +45,14 @@ class TraceCaptureHandler(BaseCallbackHandler):
         self.usage_seen = False
 
     # langchain은 async 실행에서도 sync 핸들러를 호출해 준다(내부 래핑).
-    def on_chat_model_start(self, serialized: Any, messages: list, **kwargs: Any) -> None:
+    def on_chat_model_start(self, _serialized: Any, messages: list, **_kwargs: Any) -> None:
         try:
             batch = messages[0] if messages else []
             self.calls.append([{"role": _role_of(m), "content": _content_of(m)} for m in batch])
         except Exception:
             pass
 
-    def on_llm_end(self, response: Any, **kwargs: Any) -> None:
+    def on_llm_end(self, response: Any, **_kwargs: Any) -> None:
         try:
             for gens in getattr(response, "generations", []) or []:
                 for g in gens:

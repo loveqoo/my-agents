@@ -15,7 +15,7 @@ from .backend import scope_axes
 class InMemoryBackend:
     """dict 저장 레퍼런스 백엔드. mem_cfg는 계약상 받지만 라우팅에 쓰지 않는다(LLM 추출 없음)."""
 
-    def __init__(self, mem_cfg: dict | None = None):
+    def __init__(self, _mem_cfg: dict | None = None):
         # 각 기억: {"id", "text", "axes": {axis: val, ...}}. axes는 add 시 태깅된 스코프 축.
         self._store: list[dict] = []
         self._seq = 0
@@ -24,7 +24,7 @@ class InMemoryBackend:
         self._seq += 1
         return f"mem-{self._seq}"
 
-    def add(self, scope: dict, messages: list[dict], infer: bool) -> None:
+    def add(self, scope: dict, messages: list[dict], _infer: bool) -> None:
         axes = dict(scope_axes(scope))
         if not messages or not axes:
             return
@@ -39,7 +39,11 @@ class InMemoryBackend:
         return rec["axes"].get(axis) == val
 
     def search(
-        self, scope: dict, query: str, limit: int, threshold: float | None = None
+        self,
+        scope: dict,
+        query: str,
+        limit: int,
+        threshold: float | None = None,  # noqa: ARG002 — 계약 시그니처(키워드 호출부 존재), 스펙 158
     ) -> list[dict]:
         # threshold(스펙 158): 부분일치 백엔드는 벡터 점수가 없어 무시(계약 시그니처만 맞춤).
         axes = scope_axes(scope)

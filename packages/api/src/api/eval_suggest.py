@@ -92,10 +92,10 @@ async def suggest_agent_cases(agent_pk, count: int, llm_cfg: dict) -> dict:
     if cap_names:
         from sqlalchemy import select as _select
 
-        from .db import SessionLocal as _SL
+        from .db import SessionLocal as _SessionLocal
         from .models import Collection as _Col
 
-        async with _SL() as _s:
+        async with _SessionLocal() as _s:
             rows = (await _s.execute(_select(_Col).where(_Col.name.in_(cap_names)))).scalars().all()
         known = {c.get("id") for c in collections}
         collections.extend({"id": r.id, "name": r.name} for r in rows if r.id not in known)

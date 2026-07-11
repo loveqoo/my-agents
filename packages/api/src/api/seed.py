@@ -357,7 +357,7 @@ async def seed_if_empty(session: AsyncSession) -> None:
                 status=status,
                 active_version=active,
             )
-            for ver, vstatus, created, note in versions:
+            for ver, vstatus, _created, note in versions:
                 agent.versions.append(
                     AgentVersion(version=ver, status=vstatus, note=note, config=dict(cfg))
                 )

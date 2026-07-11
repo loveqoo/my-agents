@@ -324,7 +324,7 @@ class LinearPipelineAgent:
 
         # 노드 등록 + 노드별 도구 루프(도구 있으면 <id>__tools ToolNode 자기 루프).
         steps: list[tuple] = []
-        for nid, node in zip(ids, nodes):
+        for nid, node in zip(ids, nodes, strict=True):
             step, node_tools = _make_step(nid, node)
             g.add_node(nid, step)
             steps.append((nid, node_tools))

@@ -25,7 +25,7 @@ sys.path.insert(0, ROOT)
 from api import a2a_client  # noqa: E402
 from api.agents import _norm_endpoint  # noqa: E402
 from api.net_guard import (  # noqa: E402
-    SsrfBlocked,
+    SsrfBlockedError,
     _set_allowed_hosts_for_test,
     guard_url,
     normalize_http_url,
@@ -83,7 +83,7 @@ for vec in ("evil.com%40127.0.0.1", "user%3apass%40example.com/a2a"):
     try:
         guard_url(nrm)
         ck(False, f"U1c encoded-@ {vec!r} normalize+guard 모두 통과(둔갑 우회!)")
-    except SsrfBlocked:
+    except SsrfBlockedError:
         ck(True, f"U1c encoded-@ {vec!r} → guard_url 차단(둔갑 실패)")
 
 # U2 — 보안 불변: 정규화 후에도 사설/루프백 차단
@@ -92,7 +92,7 @@ ck(n == "http://127.0.0.1:8000/a2a", "U2 127.0.0.1 절대화")
 try:
     guard_url(n)
     ck(False, "U2 127.0.0.1 정규화 후 guard 통과(불변 깨짐!)")
-except SsrfBlocked:
+except SsrfBlockedError:
     ck(True, "U2 127.0.0.1 정규화 후에도 guard_url 차단(보안 불변 유지)")
 
 

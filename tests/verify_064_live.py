@@ -54,7 +54,7 @@ def _passes(url: str) -> bool:
     try:
         net_guard.guard_url(url)
         return True
-    except net_guard.SsrfBlocked:
+    except net_guard.SsrfBlockedError:
         return False
 
 

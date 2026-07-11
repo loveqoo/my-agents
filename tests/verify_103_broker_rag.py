@@ -28,7 +28,7 @@ from sqlalchemy.orm import selectinload  # noqa: E402
 from api import crypto, runtime  # noqa: E402
 from api.auth import _token  # noqa: E402
 from api.broker import (  # noqa: E402
-    CapabilityNotFound,
+    CapabilityNotFoundError,
     PolicyScopedBroker,
     RagProvider,
     _RagBacking,
@@ -226,12 +226,12 @@ async def integration_checks() -> None:
         # H5 allow 밖(rag:empty는 실존하나 미허가) invoke → not-found(존재 비노출).
         r5 = await b.invoke(f"rag:{CP}empty", {"text": "x"})
         check(r5.error == "capability not found", "H5 allow 밖(실존) invoke → not-found(존재 비노출)")
-        # H6 allow 밖 describe → CapabilityNotFound(미존재·미허가 동일).
+        # H6 allow 밖 describe → CapabilityNotFoundError(미존재·미허가 동일).
         try:
             await b.describe(f"rag:{CP}empty")
-            check(False, "H6 allow 밖 describe CapabilityNotFound 기대했으나 통과")
-        except CapabilityNotFound:
-            check(True, "H6 allow 밖 describe → CapabilityNotFound(존재 비노출)")
+            check(False, "H6 allow 밖 describe CapabilityNotFoundError 기대했으나 통과")
+        except CapabilityNotFoundError:
+            check(True, "H6 allow 밖 describe → CapabilityNotFoundError(존재 비노출)")
 
         # H7 공유 포맷 drift 0 — provider invoke text == format_rag_hits(search_collections(...)).
         col = await _collection_dict(f"{CP}main")

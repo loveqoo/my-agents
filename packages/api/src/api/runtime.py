@@ -215,7 +215,7 @@ def mcp_connection(server: dict) -> dict | None:
     url = server.get("url") or ""
     try:
         net_guard.guard_url(url)
-    except net_guard.SsrfBlocked:
+    except net_guard.SsrfBlockedError:
         return None  # SSRF 차단 서버는 연결 자체를 안 함(부수효과 0)
     headers: dict[str, str] = {}
     token = server.get("auth_token")
@@ -725,7 +725,7 @@ def _msg_role(m: Any) -> str:
     return r or "msg"
 
 
-def _summarize_node_update(node: str, delta: Any) -> str | None:
+def _summarize_node_update(_node: str, delta: Any) -> str | None:
     """노드가 발화하며 바꾼 상태 델타를 사람이 읽을 짧은 문자열로 요약(스펙 086).
 
     불변식(codex 적대 리뷰 F2·F3·F5 반영):

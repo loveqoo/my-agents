@@ -40,7 +40,7 @@ from .schemas import UserRead, UserUpdate
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(_app: FastAPI):
     await init_db()
     await net_guard.refresh_allowed_hosts(force=True)  # SSRF allowlist 스냅샷 warm(스펙 064)
     await init_authz()  # casbin_rule + enforcer + 기본 정책(멱등)

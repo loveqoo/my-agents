@@ -161,7 +161,7 @@ def _merge_node_overrides(saved: list, ov: object) -> tuple[list, str]:
     if not isinstance(ov, list) or len(ov) != len(saved):
         return saved, "mismatch"
     merged: list = []
-    for base_n, ov_n in zip(saved, ov):
+    for base_n, ov_n in zip(saved, ov, strict=True):
         if not isinstance(base_n, dict) or not isinstance(ov_n, dict):
             return saved, "mismatch"
         patch = {k: v for k, v in ov_n.items() if k in _NODE_OVERRIDE_FIELDS}
@@ -1414,7 +1414,7 @@ async def chat(agent_id: uuid.UUID, body: ChatRequest, principal=Depends(current
         )
     # 실측 캡처(스펙 205) — 모델 호출 메시지·usage. Langfuse 콜백과 병행(둘 다 callbacks 리스트).
     capture = trace_capture.TraceCaptureHandler()
-    config["callbacks"] = list(config.get("callbacks") or []) + [capture]
+    config["callbacks"] = [*list(config.get("callbacks") or []), capture]
 
     # 실행 컨텍스트를 historyDepth로 절단(최근 N개만 모델에 전달). 스펙 289 P1: 원천=conversation
     # (서버 모드면 DB 재구성분 포함) — 절단 규칙은 동일.

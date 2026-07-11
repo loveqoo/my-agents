@@ -178,7 +178,7 @@ async def page_user_memory(
         raise HTTPException(
             status_code=502,
             detail="메모리 목록 조회 실패: " + memory._sanitize(exc, secrets=secrets),
-        )
+        ) from exc
     if page is None:
         return MemoryPageOut(items=[], total=0, limit=limit, offset=offset, enabled=False)
     return MemoryPageOut(

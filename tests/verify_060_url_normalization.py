@@ -9,7 +9,7 @@ normalize_http_url이 모드1(스킴 없는/상대 url)을 등록 시점에 절�
   C2. `/path` 상대 + base → base origin으로 resolve(절대 http(s)).
   C3. 이미 절대 https:// → 불변.
   C4. 정규화 불가(ftp://·빈 값·`://`·base 없는 상대) → ValueError(메시지에 http(s) 언급).
-  C5. 보안 불변 — 정규화된 사설/루프백 url도 guard_url(allowlist 없음)이 SsrfBlocked로 차단.
+  C5. 보안 불변 — 정규화된 사설/루프백 url도 guard_url(allowlist 없음)이 SsrfBlockedError로 차단.
   추가. 스킴-상대(//host)·IPv6·포트-only 엣지(codex 적대 점검축 선반영).
 
 실행: uv run python tests/verify_060_url_normalization.py   (or: .venv/bin/python)
@@ -24,7 +24,7 @@ sys.path.insert(0, os.path.join(ROOT, "packages", "api", "src"))
 # C5는 allowlist가 비어야 사설 차단을 단언할 수 있다 — 명시적으로 비운다(상속 환경/DB 무시).
 # 스펙 064: allowlist 소스가 env→DB 스냅샷 — 시seam으로 스냅샷을 비워 고정(만료=inf → refresh no-op).
 from api.net_guard import (  # noqa: E402
-    SsrfBlocked,
+    SsrfBlockedError,
     _set_allowed_hosts_for_test,
     guard_url,
     normalize_http_url,
@@ -89,8 +89,8 @@ for raw in ("127.0.0.1:9000/a2a", "10.0.0.5:80/x", "192.168.1.2/a2a", "[::1]:800
     try:
         guard_url(normalized)
         check(False, f"guard_url({normalized!r}) 통과 — 사설 대역인데 차단 안 됨(보안 불변 위반!)")
-    except SsrfBlocked:
-        check(True, f"guard_url({normalized!r}) → SsrfBlocked (정규화가 가드를 우회 안 함)")
+    except SsrfBlockedError:
+        check(True, f"guard_url({normalized!r}) → SsrfBlockedError (정규화가 가드를 우회 안 함)")
 
 print()
 if _fails:

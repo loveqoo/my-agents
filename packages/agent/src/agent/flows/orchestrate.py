@@ -343,7 +343,7 @@ class FirstMatchOrchestrateAgent(OrchestrationAgentBase):
     )
     DISCOVER_LIMIT = 1  # 현동작과 동일하게 후보 1개만 가져와 그 하나에 위임.
 
-    def select(self, query: str, candidates: list[Capability]) -> list[Capability]:
+    def select(self, _query: str, candidates: list[Capability]) -> list[Capability]:
         return candidates[:1]
 
 

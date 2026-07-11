@@ -99,7 +99,7 @@ async def fetch_card(card_url: str) -> dict:
         raise ValueError("cardUrl은 http(s) 절대 URL이어야 합니다")
     # SSRF 가드(스펙 042 — 026에서 유예한 빚 청산). 후보는 path만 다르고 host는 같으니 한 번 검사.
     await refresh_allowed_hosts()  # DB allowlist 무재시작 반영(스펙 064)
-    guard_url(url)  # 차단 시 SsrfBlocked(ValueError) → 라우터 4xx
+    guard_url(url)  # 차단 시 SsrfBlockedError(ValueError) → 라우터 4xx
 
     candidates = [url] + [url + p for p in WELL_KNOWN_PATHS]
     last_err: str = ""

@@ -45,7 +45,7 @@ from sqlalchemy import delete, select  # noqa: E402
 from api import mock_mcp, runtime  # noqa: E402
 from api.broker import (  # noqa: E402
     AgentProvider,
-    CapabilityNotFound,
+    CapabilityNotFoundError,
     McpProvider,
     PolicyScopedBroker,
     _kind_of,
@@ -246,9 +246,9 @@ async def integration_broker() -> None:
     raised = False
     try:
         await b.describe(WEBSEARCH_CAP)
-    except CapabilityNotFound:
+    except CapabilityNotFoundError:
         raised = True
-    check(raised, "H2 미허가 툴 describe → CapabilityNotFound(존재 비노출)")
+    check(raised, "H2 미허가 툴 describe → CapabilityNotFoundError(존재 비노출)")
     rdeny = await b.invoke(WEBSEARCH_CAP, {"query": "x"})
     check(rdeny.error is not None and rdeny.text == "", "H2 미허가 툴 invoke → not-found(호출 경계 재검증)")
 

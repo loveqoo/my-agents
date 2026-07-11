@@ -47,7 +47,7 @@ from agent.flows.orchestrate import (  # noqa: E402
 from langchain_core.messages import HumanMessage, SystemMessage  # noqa: E402
 
 import api.broker as broker_mod  # noqa: E402
-from api.broker import CapabilityNotFound, PolicyScopedBroker, build_broker  # noqa: E402
+from api.broker import CapabilityNotFoundError, PolicyScopedBroker, build_broker  # noqa: E402
 
 _fails: list[str] = []
 
@@ -216,9 +216,9 @@ async def unit_async_checks() -> None:
     raised = False
     try:
         await b.describe("cap_not_allowed")
-    except CapabilityNotFound:
+    except CapabilityNotFoundError:
         raised = True
-    check(raised, "U7 미허가 describe → CapabilityNotFound(존재 비노출·DB 미접촉)")
+    check(raised, "U7 미허가 describe → CapabilityNotFoundError(존재 비노출·DB 미접촉)")
     res = await b.invoke("cap_not_allowed", {"text": "x"})
     check(res.error is not None and res.text == "" and res.trust == "untrusted",
           "U7 미허가 invoke → not-found error(존재 비노출·DB 미접촉)")
@@ -327,9 +327,9 @@ async def http_checks() -> None:
         raised = False
         try:
             await b.describe(ext_deny)
-        except CapabilityNotFound:
+        except CapabilityNotFoundError:
             raised = True
-        check(raised, "H2 미허가 describe → CapabilityNotFound(403/404 접기)")
+        check(raised, "H2 미허가 describe → CapabilityNotFoundError(403/404 접기)")
         rdeny = await b.invoke(ext_deny, {"text": "x"})
         check(rdeny.error is not None and rdeny.text == "",
               "H2 미허가 invoke → not-found(호출 경계 재검증·TOCTOU)")

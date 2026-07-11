@@ -13,12 +13,13 @@ import uuid
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi import Depends as _Depends
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from . import catalog, crypto
 from .db import get_session
-from .model_registry import _probe
+from .model_registry import _probe, require_model_manage
 from .models import ModelConfig, Provider
 from .schemas import (
     AvailableModel,
@@ -39,10 +40,6 @@ _MAX_MODELS_BYTES = 2 * 1024 * 1024
 # 누적해도 이 deadline 안에서 끝나야 코루틴을 오래 붙잡지 않는다.
 _STREAM_DEADLINE = 20
 
-from fastapi import Depends as _Depends
-
-from .model_registry import require_model_manage
-
 router = APIRouter(prefix="/providers", tags=["providers"])
 
 # 변이 게이트(스펙 150, codex High) — provider(연결처·자격증명)도 기본 모델과 같은 전역 민감면.
@@ -56,7 +53,7 @@ async def _model_counts(session: AsyncSession) -> dict[uuid.UUID, int]:
             select(ModelConfig.provider_id, func.count()).group_by(ModelConfig.provider_id)
         )
     ).all()
-    return {pid: n for pid, n in rows}
+    return dict(rows)
 
 
 @router.get("", response_model=list[ProviderOut])

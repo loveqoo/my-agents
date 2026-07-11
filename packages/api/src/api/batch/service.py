@@ -6,6 +6,7 @@ cron이 NULL이면 미등록(아무 것도 자동 발화하지 않음). k8s Depl
 """
 
 import asyncio
+import contextlib
 import logging
 import signal
 
@@ -52,10 +53,8 @@ async def serve() -> None:
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):
-        try:
+        with contextlib.suppress(NotImplementedError):  # 일부 플랫폼 미지원
             loop.add_signal_handler(sig, stop.set)
-        except NotImplementedError:  # 일부 플랫폼 미지원
-            pass
     await stop.wait()
     log.info("배치 서비스 종료 신호 — 셧다운")
     scheduler.shutdown(wait=False)

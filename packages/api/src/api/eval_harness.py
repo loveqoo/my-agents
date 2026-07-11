@@ -228,7 +228,7 @@ def build_asserts(spec_list: list) -> list:
                 out.append(factory(arg))
             except ValueError as exc:
                 # rag_hits_gte 비정수 등 — 팩토리의 arg 파싱 실패도 선언 형식 오류(400)로.
-                raise ValueError(f"asserts[{i}]: arg 형식 오류 — {exc}")
+                raise ValueError(f"asserts[{i}]: arg 형식 오류 — {exc}") from exc
         else:
             out.append(factory())
     return out

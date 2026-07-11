@@ -25,7 +25,7 @@ import time
 from urllib.parse import urljoin, urlparse
 
 
-class SsrfBlocked(ValueError):
+class SsrfBlockedError(ValueError):
     """가드가 outbound URL을 차단했다(사설대역·잘못된 스킴 등). ValueError 하위 → 라우터 4xx."""
 
 
@@ -80,7 +80,7 @@ def normalize_http_url(raw: str, *, base: str | None = None) -> str:
     # 자격증명을 쓰지 않으므로(인증=별도 token 필드) '@'는 정상 입력에 없다 → 거부가 안전.
     # 잘못된 포트(비숫자)도 여기서 fail-closed(접근 시 ValueError).
     try:
-        parsed.port  # 비숫자 포트(예: 'mailto:example.com'→host=mailto)면 접근 시 ValueError
+        _ = parsed.port  # 비숫자 포트(예: 'mailto:example.com'→host=mailto)면 접근 시 ValueError
         _bad_port = False
     except ValueError:
         _bad_port = True
@@ -270,17 +270,17 @@ def host_is_private(host: str) -> bool:
 
 
 def guard_url(url: str) -> None:
-    """outbound URL을 검사. http(s)·공인 대역만 허용. 위반 시 SsrfBlocked(ValueError).
+    """outbound URL을 검사. http(s)·공인 대역만 허용. 위반 시 SsrfBlockedError(ValueError).
 
     allowlist(DB `allowed_hosts`, net_guard 캐시 스냅샷)에 든 호스트는 사설대역이라도 통과(dev mock).
     호출처는 *직전*에 `await refresh_allowed_hosts()`로 스냅샷을 최신화해야 무재시작 반영된다(스펙 064).
     """
     parsed = urlparse((url or "").strip())
     if parsed.scheme not in ("http", "https"):
-        raise SsrfBlocked("URL은 http(s) 절대 URL이어야 합니다")
+        raise SsrfBlockedError("URL은 http(s) 절대 URL이어야 합니다")
     host = parsed.hostname
     if not host:
-        raise SsrfBlocked("URL에 호스트가 없습니다")
+        raise SsrfBlockedError("URL에 호스트가 없습니다")
 
     if host.lower() in _allowed_hosts():
         return  # dev allowlist — 사설대역이라도 명시 허용
@@ -289,7 +289,7 @@ def guard_url(url: str) -> None:
         # 호스트가 향하는 모든 IP를 resolve. 하나라도 사설이면 차단(rebinding 1차 방어).
         infos = socket.getaddrinfo(host, parsed.port or (443 if parsed.scheme == "https" else 80))
     except socket.gaierror as exc:
-        raise SsrfBlocked(f"호스트를 resolve하지 못했습니다({type(exc).__name__})") from None
+        raise SsrfBlockedError(f"호스트를 resolve하지 못했습니다({type(exc).__name__})") from None
 
     seen = False
     for info in infos:
@@ -300,13 +300,13 @@ def guard_url(url: str) -> None:
             continue
         seen = True
         if _ip_is_blocked(ip):
-            raise SsrfBlocked(
+            raise SsrfBlockedError(
                 f"사설/내부 대역으로의 요청은 차단됩니다(host={host}). 개발용 mock 등 의도된 "
                 f"대상이면 관리 콘솔의 '허용 호스트'에서 이 호스트({host})를 추가하세요"
                 f"(무재시작, 최대 ~10초 내 반영)."
             )
     if not seen:
-        raise SsrfBlocked("호스트에서 유효한 IP를 얻지 못했습니다")
+        raise SsrfBlockedError("호스트에서 유효한 IP를 얻지 못했습니다")
 
 
 def mcp_http_client_factory(headers=None, timeout=None, auth=None):

@@ -42,8 +42,10 @@ async def _assert_valid_subject(subject: str, session: AsyncSession) -> None:
         return
     try:
         uid = uuid.UUID(subject)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="subject는 역할명 또는 유저 id여야 합니다.")
+    except ValueError as err:
+        raise HTTPException(
+            status_code=400, detail="subject는 역할명 또는 유저 id여야 합니다."
+        ) from err
     if await session.get(User, uid) is None:
         raise HTTPException(status_code=404, detail="대상 유저를 찾을 수 없습니다.")
 
@@ -76,8 +78,8 @@ async def create_user(
     try:
         # safe=False: 관리자는 is_superuser/is_verified를 지정할 수 있다.
         user = await user_manager.create(body, safe=False)
-    except UserAlreadyExists:
-        raise HTTPException(status_code=409, detail="이미 존재하는 이메일입니다")
+    except UserAlreadyExists as err:
+        raise HTTPException(status_code=409, detail="이미 존재하는 이메일입니다") from err
     return await _to_out(user)
 
 

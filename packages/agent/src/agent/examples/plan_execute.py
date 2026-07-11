@@ -80,7 +80,7 @@ class PlanExecuteAgent:
             model.bind_tools(tools) if tools else model
         )  # 필요할 때만 호출 — 강제 아님(스펙 202)
 
-        def plan(state: _State) -> dict:
+        def plan(_state: _State) -> dict:
             # 결정적 — 모델 호출 없음(스펙 086 계약: plan<execute 실측). 도구가 있으면 계획에 도구
             # 활용 단계를 반영(스펙 202) — '핵심'·'근거' 문구는 계약 보존.
             if discovery:

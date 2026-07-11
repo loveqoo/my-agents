@@ -297,7 +297,7 @@ class McpServerIn(BaseModel):
                     params=item.get("params", []) or [],
                 )
             except Exception as exc:
-                raise ValueError(f"tools_meta[{k[:40]!r}] 형식 위반: {str(exc)[:200]}")
+                raise ValueError(f"tools_meta[{k[:40]!r}] 형식 위반: {str(exc)[:200]}") from exc
             entry: dict[str, Any] = {
                 "description": info.description,
                 "params": [p.model_dump() for p in info.params],

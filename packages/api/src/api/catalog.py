@@ -11,11 +11,11 @@
 from __future__ import annotations
 
 import json
-import os
 from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
-_DATA = os.path.join(os.path.dirname(__file__), "data", "models_dev.json")
+_DATA = Path(__file__).parent / "data" / "models_dev.json"
 
 
 def _to_meta(entry: dict[str, Any]) -> dict[str, Any]:
@@ -49,7 +49,7 @@ def _index() -> tuple[dict[str, dict], dict[str, dict]]:
     by_full: dict[str, dict] = {}
     by_bare: dict[str, dict] = {}
     try:
-        with open(_DATA, encoding="utf-8") as fh:
+        with _DATA.open(encoding="utf-8") as fh:
             raw = json.load(fh)
     except (OSError, ValueError):
         return by_full, by_bare

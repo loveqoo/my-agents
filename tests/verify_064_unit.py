@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.join(ROOT, "packages", "api", "src"))
 
 from api import net_guard  # noqa: E402
 from api.net_guard import (  # noqa: E402
-    SsrfBlocked,
+    SsrfBlockedError,
     _parse_ttl,
     _set_allowed_hosts_for_test,
     guard_url,
@@ -111,7 +111,7 @@ async def _cache_checks() -> None:
     try:
         guard_url("http://10.0.0.5/x")
         check(False, "C4 스냅샷 밖 사설(10.0.0.5) — 통과해버림")
-    except SsrfBlocked:
+    except SsrfBlockedError:
         check(True, "C4 스냅샷 밖 사설(10.0.0.5) 차단")
 
     # 무효화: 만료를 0으로 → 다음 refresh는 DB를 조회(여기선 DB 없을 수 있어 결과는 미검증,
@@ -126,7 +126,7 @@ async def _cache_checks() -> None:
     try:
         guard_url("http://127.0.0.1:8000/x")
         check(False, "C6 빈 스냅샷에서 127.0.0.1 — 통과해버림(fail-open!)")
-    except SsrfBlocked:
+    except SsrfBlockedError:
         check(True, "C6 빈 스냅샷=fail-closed(127.0.0.1 차단)")
 
 

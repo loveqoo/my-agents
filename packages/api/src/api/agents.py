@@ -22,6 +22,7 @@ from agent.runtime import is_first_party, is_third_party
 
 from . import agent_card, crypto, memory, net_guard
 from .auth import current_principal
+from .background import spawn
 from .chat import derive_pipeline_pool, resolve_agent_mem_cfg
 from .db import get_session
 from .models import Agent, AgentVersion, Persona
@@ -188,9 +189,9 @@ async def _commit_or_409(session: AsyncSession, detail: str) -> None:
     """이름 유니크 경합(동시 생성 레이스)을 500 대신 409로 접는다(스펙 148)."""
     try:
         await session.commit()
-    except IntegrityError:
+    except IntegrityError as err:
         await session.rollback()
-        raise HTTPException(status_code=409, detail=detail)
+        raise HTTPException(status_code=409, detail=detail) from err
 
 
 def next_version(versions: list[AgentVersion]) -> str:
@@ -626,7 +627,7 @@ async def activate_version(
     # 실패해도 활성화는 정상). 결과는 평가 이력에 "자동 회귀 · vN"으로.
     from .eval_routes import trigger_auto_regression
 
-    asyncio.create_task(trigger_auto_regression(agent.id, principal))
+    spawn(trigger_auto_regression(agent.id, principal))
     return await _reload_out(session, agent.id)
 
 
@@ -705,7 +706,7 @@ async def revert_version(
         # 서빙 버전이 실제로 바뀐 경우만 자동 회귀(스펙 241) — 단순 draft 강등은 서빙 불변이라 제외.
         from .eval_routes import trigger_auto_regression
 
-        asyncio.create_task(trigger_auto_regression(agent.id, principal))
+        spawn(trigger_auto_regression(agent.id, principal))
     return await _reload_out(session, agent.id)
 
 
@@ -796,7 +797,7 @@ async def register_code_agent(
     try:
         endpoint = net_guard.normalize_http_url(body.endpoint)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     cfg = {
         "model": body.model,
         "persona": body.persona,
@@ -1004,7 +1005,7 @@ async def connect_agent(
     try:
         card = await agent_card.fetch_card(body.url)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     # 카드 published ≠ 실행 엔드포인트 live(045 #2). 도달 실패해도 등록 허용, status만 정직하게.
     live = await agent_card.probe_endpoint(card.get("url"))
@@ -1035,7 +1036,7 @@ async def register_external_agent(
     try:
         card = await agent_card.fetch_card(body.cardUrl)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     live = await agent_card.probe_endpoint(card.get("url"))
     agent = _build_external_agent(card, body.token, live, body.cardUrl)
@@ -1107,7 +1108,7 @@ async def page_agent_memory(
         raise HTTPException(
             status_code=502,
             detail="메모리 목록 조회 실패: " + memory._sanitize(exc, secrets=secrets),
-        )
+        ) from exc
     if page is None:
         return MemoryPageOut(items=[], total=0, limit=limit, offset=offset, enabled=False)
     return MemoryPageOut(

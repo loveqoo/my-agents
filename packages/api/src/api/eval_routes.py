@@ -16,6 +16,7 @@ from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .auth import current_principal
+from .background import spawn
 from .db import get_session
 from .eval_harness import build_asserts
 from .models import EvalCase, EvalDataset
@@ -115,7 +116,7 @@ def _validate_asserts(asserts: list) -> None:
     try:
         build_asserts(asserts)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 async def _dataset_or_404(session: AsyncSession, dataset_id: uuid.UUID) -> EvalDataset:
@@ -225,9 +226,9 @@ async def create_dataset(
     session.add(ds)
     try:
         await session.commit()
-    except Exception:
+    except Exception as err:
         await session.rollback()
-        raise HTTPException(status_code=409, detail="같은 이름의 문제집이 이미 있습니다")
+        raise HTTPException(status_code=409, detail="같은 이름의 문제집이 이미 있습니다") from err
     return _dataset_out(ds, 0, user)
 
 
@@ -349,12 +350,11 @@ async def delete_case(
 
 
 # ----------------------------- 실행/성적표 (단계 ②) -----------------------------
-import asyncio  # noqa: E402
 from datetime import UTC, datetime  # noqa: E402
 
 from .db import SessionLocal  # noqa: E402
 from .eval_harness import EvalCase as HarnessCase  # noqa: E402
-from .eval_harness import run_eval
+from .eval_harness import run_eval  # noqa: E402
 from .eval_runner import eval_run_agent  # noqa: E402
 from .models import Agent, EvalCaseResult, EvalRun, MessageFeedback, Session  # noqa: E402
 
@@ -735,7 +735,7 @@ async def trigger_auto_regression(agent_pk: uuid.UUID, actor) -> int:
                 )
                 session.add(run)
                 await session.commit()
-                asyncio.create_task(_execute_run(run.id, ds.id, agent.id, actor))
+                spawn(_execute_run(run.id, ds.id, agent.id, actor))
                 started += 1
         if started:
             log.info("자동 회귀 시작(스펙 241): agent=%s runs=%d", agent_pk, started)
@@ -967,7 +967,7 @@ async def start_run(
         )
         session.add(run)
         await session.commit()
-        asyncio.create_task(
+        spawn(
             _execute_run(
                 run.id,
                 dataset_id,
@@ -999,7 +999,7 @@ async def start_run(
         ]
         session.add_all(runs)
         await session.commit()
-        asyncio.create_task(
+        spawn(
             _execute_group(
                 [(r.id, r.model_name) for r in runs],
                 dataset_id,
@@ -1022,7 +1022,7 @@ async def start_run(
     )
     session.add(run)
     await session.commit()
-    asyncio.create_task(
+    spawn(
         _execute_run(
             run.id,
             dataset_id,
@@ -1048,10 +1048,8 @@ async def list_runs(
         .join(EvalDataset, EvalDataset.id == EvalRun.dataset_id)
         .order_by(EvalRun.started_at.desc())
     )
-    if group_id is not None:
-        q = q.where(EvalRun.group_id == group_id)  # 그룹은 최대 6건 — limit 불요
-    else:
-        q = q.limit(50)
+    # 그룹은 최대 6건 — limit 불요
+    q = q.where(EvalRun.group_id == group_id) if group_id is not None else q.limit(50)
     if dataset_id is not None:
         q = q.where(EvalRun.dataset_id == dataset_id)
     rows = (await session.execute(q)).all()
@@ -1238,11 +1236,11 @@ async def generate_dataset(
     session.add(ds)
     try:
         await session.commit()
-    except Exception:
+    except Exception as err:
         await session.rollback()
-        raise HTTPException(status_code=409, detail="같은 이름의 문제집이 이미 있습니다")
+        raise HTTPException(status_code=409, detail="같은 이름의 문제집이 이미 있습니다") from err
     _active_jobs.add(ds.id)  # 동기 등록 — create_task 전 창을 닫아 flood 카운트 누락 방지(codex #1)
-    asyncio.create_task(_execute_generation(ds.id, body.collection_id, body.count))
+    spawn(_execute_generation(ds.id, body.collection_id, body.count))
     return _dataset_out(ds, 0, user)
 
 
@@ -1285,7 +1283,7 @@ async def _helper_llm(session: AsyncSession) -> tuple[dict | None, str | None]:
 
 @router.get("/helper-status", response_model=HelperStatusOut)
 async def helper_status(
-    session: AsyncSession = Depends(get_session), user=Depends(current_principal)
+    session: AsyncSession = Depends(get_session), _user=Depends(current_principal)
 ) -> HelperStatusOut:
     """도우미 가용성 — UI가 버튼 활성/비활성+사유 툴팁에 사용(정직 비활성)."""
     _llm, reason = await _helper_llm(session)
@@ -1468,13 +1466,11 @@ async def suggest_cases(
         ds.description = f"{prior + ' · ' if prior else ''}AI 출제 중…"
         await session.commit()
         if ds.kind == "rag":  # 스펙 195: 고정 컬렉션 골든을 기존 문제집에 append
-            asyncio.create_task(
+            spawn(
                 _execute_generation_append(dataset_id, ds.collection_id, body.count, llm_cfg, prior)
             )
         else:
-            asyncio.create_task(
-                _execute_suggestion(dataset_id, agent_pk, body.count, llm_cfg, prior)
-            )
+            spawn(_execute_suggestion(dataset_id, agent_pk, body.count, llm_cfg, prior))
     except Exception:
         _active_jobs.discard(dataset_id)  # create_task까지 못 가면 배경 finally가 안 돌아 락이 샌다
         raise
@@ -1604,7 +1600,7 @@ async def harvest_feedback(
         prior = ds.description
         ds.description = f"{prior + ' · ' if prior else ''}피드백 수확 중…"
         await session.commit()
-        asyncio.create_task(_execute_harvest(ds.id, body.agent_id, llm_cfg, prior))
+        spawn(_execute_harvest(ds.id, body.agent_id, llm_cfg, prior))
     except Exception:
         _active_jobs.discard(ds.id)  # create_task까지 못 가면 배경 finally 미실행 → 락 누수
         raise
@@ -1621,7 +1617,7 @@ async def _execute_harvest(
     기존 케이스 보존(append). description에 상태 박제(suggest 패턴). 게이트=_active_jobs(엔드포인트 획득)."""
     from .eval_harvest import harvest_agent_feedback
 
-    _MARK = "피드백 수확 중…"
+    mark = "피드백 수확 중…"
     try:
         async with SessionLocal() as s:
             result = await harvest_agent_feedback(s, agent_pk, llm_cfg)
@@ -1659,8 +1655,8 @@ async def _execute_harvest(
                 else f"피드백 수확: 0건 (건너뜀 {result['skipped']})"
             )
             cur = ds.description or ""
-            if cur.endswith(_MARK):
-                ds.description = cur[: -len(_MARK)].rstrip(" ·") or None
+            if cur.endswith(mark):
+                ds.description = cur[: -len(mark)].rstrip(" ·") or None
                 ds.description = f"{ds.description} · {tail}" if ds.description else tail
             else:
                 ds.description = f"{cur} · {tail}" if cur else tail

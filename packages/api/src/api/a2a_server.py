@@ -276,7 +276,7 @@ def _relay_chunks(agent: Agent, user_text: str):
 
 @router.post("/{agent_id}/a2a")
 async def exposed_agent_a2a(
-    agent_id: uuid.UUID, body: dict, request: Request, principal=Depends(current_principal)
+    agent_id: uuid.UUID, body: dict, request: Request, _principal=Depends(current_principal)
 ):
     """인증 — 노출된 에이전트의 JSON-RPC(message/send·stream). ui=실 로컬 런타임, code=1홉 중계(스펙 154).
 

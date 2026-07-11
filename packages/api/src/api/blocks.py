@@ -60,9 +60,9 @@ async def _commit_or_409(session: AsyncSession, detail: str) -> None:
     """이름 유니크 충돌을 500 대신 409로(스펙 148 — name unique 테이블 공용)."""
     try:
         await session.commit()
-    except IntegrityError:
+    except IntegrityError as err:
         await session.rollback()
-        raise HTTPException(status_code=409, detail=detail)
+        raise HTTPException(status_code=409, detail=detail) from err
 
 
 # ----------------------------- 페르소나 -----------------------------
@@ -411,7 +411,7 @@ async def create_mcp_server(
 async def _live_discover(url: str, token: str | None) -> McpDiscoverResult:
     """MCP 라이브 탐색 공유 코어(스펙 054 E·151) — SSRF guard → 연결 → 이름+메타.
     discover(폼, 평문/마스킹 토큰)와 rediscover(저장 서버, 복호 토큰)가 공유(드리프트 0).
-    SsrfBlocked는 HTTPException 400으로 올린다(보안 경계 ≠ 정상 연결실패)."""
+    SsrfBlockedError는 HTTPException 400으로 올린다(보안 경계 ≠ 정상 연결실패)."""
     import asyncio
     import time
 
@@ -422,7 +422,7 @@ async def _live_discover(url: str, token: str | None) -> McpDiscoverResult:
     try:
         await net_guard.refresh_allowed_hosts()  # DB allowlist 무재시작 반영(스펙 064)
         net_guard.guard_url(url)
-    except net_guard.SsrfBlocked as exc:
+    except net_guard.SsrfBlockedError as exc:
         # 보안 경계 위반은 4xx(정상 연결실패의 ok=False와 구분) — 스펙 054 완료조건 ④.
         raise HTTPException(status_code=400, detail=str(exc)) from None
 
