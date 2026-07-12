@@ -368,6 +368,11 @@ async def _build_turn_runtime(
         delegation_chain=((ctx.get("ext_agent_id"),) if ctx.get("ext_agent_id") else ()),
         delegation_budget={"n": 0},
     )
+    # 노드 에이전트-호출 도구(스펙 318) — 노드형 노드가 `agent__{id}`로 다른 에이전트에 위임. broker
+    # 경유라 재귀 가드·HIL·격리 승계(runtime.build_agent_tools). pipeline만(비노드형은 broker.discover
+    # 경로라 도구 풀에 얹지 않는다 — 행위 보존). 후보=broker가 이미 스코프(권한 상승 0).
+    if ctx.get("impl") == "pipeline":
+        tools.extend(runtime.build_agent_tools(broker, await broker.agent_capabilities()))
     build_ctx = AgentBuildContext(
         persona=persona_prompt,
         model_cfg=ctx["model_cfg"],

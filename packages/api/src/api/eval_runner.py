@@ -98,6 +98,10 @@ async def _build_eval_graph(
         delegation_chain=chain,
         delegation_budget=delegation_budget,
     )
+    # 노드 에이전트-호출 도구(스펙 318) — 평가도 실제 파이프라인(위임 포함)을 태운다(317 입구 정합).
+    # pipeline만·broker가 이미 스코프(권한 상승 0).
+    if ctx.get("impl") == "pipeline":
+        tools.extend(runtime.build_agent_tools(broker, await broker.agent_capabilities()))
     run_params = {} if ctx["temperature"] is None else {"temperature": ctx["temperature"]}
     build_ctx = AgentBuildContext(
         persona=persona_prompt,

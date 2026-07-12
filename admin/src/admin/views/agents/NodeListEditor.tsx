@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Input, Select, Button, Segmented, Collapse, Tag, Descriptions, Alert } from 'antd'
-import { isNodeRef, type PipelineNode, type PipelineNodeRef } from '../../mockData'
+import { isNodeRef, isAgentTool, type PipelineNode, type PipelineNodeRef } from '../../mockData'
 import {
   listNodeTemplates,
   getNodeTemplate,
@@ -146,6 +146,7 @@ export function NodeConfigFields({
   mcpServers,
   docOptions,
   memoryOptions,
+  agentOptions,
   visibleFields,
 }: {
   value: PipelineNode
@@ -155,6 +156,9 @@ export function NodeConfigFields({
   mcpServers: { name: string; tools?: string[] }[]
   docOptions: { label: string; value: string }[]
   memoryOptions: { label: string; value: string }[]
+  /** 호출 가능한 에이전트(스펙 318) — value=`agent__{id}`, 자기 자신·비가시는 상위서 이미 제외.
+      미지정=에이전트 구획 숨김(오버라이드 등 카탈로그 없는 소비자 무회귀). */
+  agentOptions?: { label: string; value: string }[]
   /** 렌더할 필드 화이트리스트(스펙 317 — 코드 노드 오버라이드용). 미지정=전부(기존 소비자 무회귀).
       키는 PipelineNode 필드명(prompt/model/historyDepth/memories/tools/context/format/fields). */
   visibleFields?: string[]
@@ -214,15 +218,15 @@ export function NodeConfigFields({
         </div>
       )}
 
-      {/* 도구=서버→도구 계층 트리(스펙 277) — 문서 항목은 보존해 합쳐 저장(스펙 272 병합). */}
+      {/* 도구=서버→도구 계층 트리(스펙 277) — 문서·에이전트 항목은 보존해 합쳐 저장(스펙 272·318 병합). */}
       {show('tools') && (
         <>
           <ToolTree
             servers={mcpServers}
-            value={tools.filter((t) => !isDocTool(t))}
-            onChange={(vals) => onChange({ tools: [...vals, ...tools.filter(isDocTool)] })}
+            value={tools.filter((t) => !isDocTool(t) && !isAgentTool(t))}
+            onChange={(vals) => onChange({ tools: [...vals, ...tools.filter((t) => isDocTool(t) || isAgentTool(t))] })}
           />
-          {/* 문서(RAG 컬렉션) — 평면 카탈로그라 트리 아님. 변경 시 도구 항목 보존(스펙 272 병합). */}
+          {/* 문서(RAG 컬렉션) — 평면 카탈로그라 트리 아님. 변경 시 도구·에이전트 항목 보존(병합). */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <span style={{ fontSize: 13, color: 'var(--color-text)', fontWeight: 500 }}>문서 (선택)</span>
             <Select
@@ -236,6 +240,23 @@ export function NodeConfigFields({
               style={{ width: '100%' }}
             />
           </div>
+          {/* 에이전트(스펙 318) — 이 노드가 호출할 다른 에이전트. 저장은 tools에 `agent__{id}`로 합류
+              (MCP·문서와 같은 배열, 병합 보존). 후보=자기 자신·비가시 제외(상위서 필터). */}
+          {agentOptions != null && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <span style={{ fontSize: 13, color: 'var(--color-text)', fontWeight: 500 }}>에이전트 (선택)</span>
+              <Select
+                mode="multiple"
+                allowClear
+                value={tools.filter(isAgentTool)}
+                onChange={(vals) => onChange({ tools: [...tools.filter((t) => !isAgentTool(t)), ...vals] })}
+                options={agentOptions}
+                placeholder={agentOptions.length ? '이 노드가 호출할 에이전트' : '호출 가능한 에이전트 없음'}
+                disabled={agentOptions.length === 0}
+                style={{ width: '100%' }}
+              />
+            </div>
+          )}
         </>
       )}
 
@@ -307,6 +328,7 @@ export function NodeListEditor({
   mcpServers,
   docOptions,
   memoryOptions,
+  agentOptions,
   fixedStructure = false,
 }: {
   value: (PipelineNode | PipelineNodeRef)[] | undefined
@@ -316,6 +338,7 @@ export function NodeListEditor({
   mcpServers: { name: string; tools?: string[] }[] // MCP 서버 카탈로그(ToolTree용, 스펙 277)
   docOptions: { label: string; value: string }[] // 문서 컬렉션(search_documents__<col>)
   memoryOptions: { label: string; value: string }[]
+  agentOptions?: { label: string; value: string }[] // 호출 가능 에이전트(스펙 318, value=agent__{id})
   /** 구조 불변 모드(스펙 287, 오버라이드용) — 추가/삭제/이동 숨김·이름 읽기 전용. 필드만 편집.
       서버도 같은 규칙을 강제(길이 일치 merge)하므로 이 prop은 UX일 뿐 보안 경계가 아니다.
       오버라이드 베이스는 해석된(resolvedNodes) 인라인 노드라 참조 항목이 들어오지 않는다(스펙 316). */
@@ -640,6 +663,7 @@ export function NodeListEditor({
                             mcpServers={mcpServers}
                             docOptions={docOptions}
                             memoryOptions={memoryOptions}
+                            agentOptions={agentOptions}
                           />
                         )}
                       </div>
@@ -652,6 +676,7 @@ export function NodeListEditor({
                         mcpServers={mcpServers}
                         docOptions={docOptions}
                         memoryOptions={memoryOptions}
+                        agentOptions={agentOptions}
                       />
                     )}
                   </div>

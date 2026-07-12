@@ -57,6 +57,10 @@ export type PipelineNodeRef = { ref: { name: string; version: number } }
 export const isNodeRef = (n: PipelineNode | PipelineNodeRef): n is PipelineNodeRef =>
   typeof n === 'object' && n != null && 'ref' in n
 
+/** 노드 tools 항목 중 에이전트-호출 도구 판별(스펙 318) — `agent__{agent_id}` 규약.
+    MCP 도구·문서 도구와 한 배열에 섞여 저장되므로, 편집 시 서로의 항목을 병합 보존하는 데 쓴다. */
+export const isAgentTool = (t: string): boolean => t.startsWith('agent__')
+
 /** 노코드 산출물형 필드(스펙 190) — 후보 있으면 SelectBox(enum), 없으면 자유 입력. */
 export interface ArtifactField {
   key: string // 결과 dict 키(비어있지 않은 문자열)

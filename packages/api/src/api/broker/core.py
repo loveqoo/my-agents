@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 
     from ..models import User
 from .common import (
+    CAP_KIND_AGENT,
     CAP_KIND_MCP,
     CapabilityNotFoundError,
     _cap_resource,
@@ -138,6 +139,14 @@ class PolicyScopedBroker:
         if not self._allow:
             return []
         return self._rank(await self._gather_permitted(), query)[:limit]
+
+    async def agent_capabilities(self) -> list[Capability]:
+        """kind=agent 허가 능력 전량(스펙 318 — 노드 도구 빌더가 소비). discover와 달리 랭킹·limit
+        없이 허가된 agent cap을 **전부** 돌려준다(노드가 이름으로 개별 바인딩하므로 모집단이 필요).
+        allowlist∩RBAC는 _gather_permitted가 이미 적용 — 이 메서드는 범위를 넓히지 않는다."""
+        if not self._allow:
+            return []
+        return [c for c in await self._gather_permitted() if c.kind == CAP_KIND_AGENT]
 
     async def _resolve(self, cap_id: str) -> tuple[Any, Any]:
         """허가+로드된 (row, provider) 또는 (None, None). 미허가·미존재·kind불명 모두 (None,None)

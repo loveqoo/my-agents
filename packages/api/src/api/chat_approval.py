@@ -314,6 +314,9 @@ async def _rebuild_resume_graph(
         delegation_chain=((ctx.get("ext_agent_id"),) if ctx.get("ext_agent_id") else ()),
         delegation_budget={"n": 0},  # 재개 턴도 자체 예산(너비 폭주 상한, codex [P2])
     )
+    # 노드 에이전트-호출 도구(스펙 318) — 재개 후 다음 노드도 위임 가능(입구 정합). pipeline만.
+    if ctx.get("impl") == "pipeline":
+        tools.extend(runtime.build_agent_tools(resume_broker, await resume_broker.agent_capabilities()))
     build_ctx = AgentBuildContext(
         persona=persona_prompt,
         model_cfg=ctx["model_cfg"],

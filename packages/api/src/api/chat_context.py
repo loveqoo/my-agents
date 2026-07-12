@@ -182,6 +182,13 @@ async def derive_pipeline_pool(cfg: dict) -> None:
     cfg["memories"] = sorted(
         {m for n in nodes for m in (n.get("memories") or []) if isinstance(m, str)}
     )
+    # 에이전트-호출 축 파생(스펙 318) — 노드 `tools`의 `agent__{agent_id}`에서 대상 id를 뽑아
+    # capabilities(브로커 allowlist)로 심는다. 폼 밖 입구(API·오버라이드)도 브로커가 그 에이전트를
+    # 스코프해 도구가 조용히 미바인딩되지 않게(learning 151 agent판). 권한 비상승: 노드가 이미
+    # 참조하는 것의 합집합. 자기 참조는 런타임 방문 집합(_delegable)이 최종 차단(UI도 선배제).
+    cfg["capabilities"] = sorted(
+        {t[len("agent__") :] for t in used if t.startswith("agent__") and len(t) > len("agent__")}
+    )
 
 
 async def resolve_agent_mem_cfg(db: AsyncSession, agent: Agent) -> dict | None:

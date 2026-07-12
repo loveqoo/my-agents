@@ -395,6 +395,15 @@ export function AgentForm({
   const nodeMemoryOptions = (blocks.memory?.items ?? [])
     .filter((m) => m.name !== SHORT_TERM_MEMORY)
     .map((m) => ({ label: m.name, value: m.name }))
+  // 노드가 호출할 수 있는 에이전트(스펙 318) — 조율형 위임 후보(capGroups '다른 에이전트')와 같은 필터:
+  // 원격(A2A) + 로컬 ui(활성 버전 보유), 자기 자신 제외. value=`agent__{id}`(백엔드 _safe_name과 동일).
+  const nodeAgentOptions = agents
+    .filter((a) => (a.source === 'code' || a.source === 'external')
+      || (((a.source ?? 'ui') === 'ui') && !!a.activeVersion && a.name !== initial?.name))
+    .map((a) => ({
+      value: safeToolName('agent', a.agentId),
+      label: (a.source === 'code' || a.source === 'external') ? `${a.name} · A2A` : `${a.name} · 로컬`,
+    }))
   // 저장 직전 파생(스펙 259) — 노드형은 에이전트-레벨 도구 풀(mcps/vectorTables)을 노드 도구 합집합에서
   // 파생한다(에이전트-레벨 도구 UI를 숨기므로). 백엔드 ctx.tools는 이 풀로 빌드되고, 노드는 자기 tools로
   // 다시 필터한다(권한 상승 0). 문서 검색은 단일 도구라 컬렉션 스코핑 불가 → 쓰면 전체 컬렉션이 풀에.
@@ -648,6 +657,7 @@ export function AgentForm({
             mcpServers={blocks.mcp?.items ?? []}
             docOptions={nodeDocOptions}
             memoryOptions={nodeMemoryOptions}
+            agentOptions={nodeAgentOptions}
           />
         ) : orchestratorSelected ? (
           <>

@@ -162,6 +162,19 @@ async def stream_local_reply(agent_id: uuid.UUID, user_text: str) -> AsyncIterat
     # 노드형 컬렉션별 도구 포함(스펙 268 P1 — 세 입구 정합, learning 149). 메모리 프록시는 미주입:
     # A2A 서빙은 v1부터 메모리 자체가 범위 밖(스펙 061 — 순수 컴퓨트), 기존과 동일.
     tools.extend(_rag_tools_for(ctx, calls_sink))
+    # 노드 에이전트-호출(스펙 318) — A2A 서빙은 정직한 경계(OUT): broker를 안 만든다(위임 실행 주체
+    # principal 부재 — 외부 JSON-RPC 호출엔 유저 주체가 없어 하위 RBAC 스코프 불가). 노드가 agent 도구를
+    # 참조하면 조용히 미바인딩되므로(스펙 265 환각 위험), 감지 시 경고로 표면화(조용한 실패 금지).
+    if any(
+        isinstance(t, str) and t.startswith("agent__")
+        for n in (ctx.get("nodes_resolved") or [])
+        if isinstance(n, dict)
+        for t in (n.get("tools") or [])
+    ):
+        log.warning(
+            "A2A 서빙 노드가 에이전트-호출 도구(agent__…)를 참조하나 서빙 경로는 위임 미지원(principal 부재) — 그 도구는 미바인딩됩니다 (agent %s)",
+            agent_id,
+        )
     run_params = {} if ctx["temperature"] is None else {"temperature": ctx["temperature"]}
     build_ctx = AgentBuildContext(
         persona=ctx["persona"],
