@@ -1,10 +1,11 @@
 /* my-agents admin — 모델 격자 뷰 (스펙 141, promptfoo matrix 문법).
    행=문제, 열=모델(같은 비교 그룹의 런), 셀=통과/실패(+점수 툴팁, 클릭→성적표).
    "다른 결과만" 필터 = promptfoo Different(모델 간 결과가 갈리는 행만 — 모델 선정의 신호는 거기 있다). */
-import { useEffect, useMemo, useState } from 'react'
-import { Select, Tag, Switch, Tooltip, Alert, message, Table } from 'antd'
+import { useMemo, useState } from 'react'
+import { Select, Tag, Switch, Tooltip, Alert, Table } from 'antd'
 import { Icon } from '../icons'
 import { getEvalRun, listEvalRunsByGroup, type EvalRunT, type EvalRunDetail } from '../../api'
+import { useAsyncData } from '../../hooks'
 
 const fmtTime = (s?: string | null) => (s ? s.slice(5, 16).replace('T', ' ') : '—')
 
@@ -37,24 +38,22 @@ export function MatrixView({ runs, onOpenRun }: { runs: EvalRunT[]; onOpenRun: (
   }, [runs])
 
   const [groupId, setGroupId] = useState<string | undefined>()
-  const [details, setDetails] = useState<EvalRunDetail[]>([])
   const [diffOnly, setDiffOnly] = useState(false)
   const group = groups.find((g) => g.groupId === groupId) ?? groups[0]
 
-  useEffect(() => {
-    setDetails([])
-    if (!group) return
-    let alive = true
-    // 그룹 전량을 서버에서 재조회(codex 141 #1) — 최근 50 컷에 그룹이 걸치면 부분 격자가 되므로
-    // 목록의 runs를 신뢰하지 않고 group_id로 완전한 그룹을 받아온다.
-    listEvalRunsByGroup(group.groupId)
-      .then((full) => Promise.all(full.slice().reverse().map((r) => getEvalRun(r.id))))
-      .then((ds) => alive && setDetails(ds))
-      .catch((e) => message.error((e as Error).message))
-    return () => {
-      alive = false
-    }
-  }, [group?.groupId, group?.runs.map((r) => r.status).join()])
+  // 그룹 전량을 서버에서 재조회(codex 141 #1) — 최근 50 컷에 그룹이 걸치면 부분 격자가 되므로
+  // 목록의 runs를 신뢰하지 않고 group_id로 완전한 그룹을 받아온다.
+  const { data: rawDetails = [], loading: detailsLoading } = useAsyncData<EvalRunDetail[]>(
+    () =>
+      group
+        ? listEvalRunsByGroup(group.groupId).then((full) =>
+            Promise.all(full.slice().reverse().map((r) => getEvalRun(r.id))),
+          )
+        : Promise.resolve([]),
+    [group?.groupId, group?.runs.map((r) => r.status).join()],
+  )
+  // 그룹 전환 중에는 이전 그룹의 격자가 잠깐 비치지 않도록 비워서 보여준다(원래 setDetails([]) 선행과 동치).
+  const details = detailsLoading ? [] : rawDetails
 
   if (groups.length === 0) {
     return (

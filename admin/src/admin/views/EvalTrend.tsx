@@ -2,11 +2,12 @@
    추이: 단일 계열(범례 불요) 라인+점, 프라이머리 블루(검증기 PASS), y 0~100%, 점 호버 툴팁,
    마지막 점만 직접 라벨(선택적 라벨링). error 런은 차트 제외(목록에 상태 태그로).
    비교: 케이스별 A→B 변화 — 회귀(red)+아이콘·개선(green)+아이콘(색 단독 금지), 회귀 우선 정렬. */
-import { useEffect, useMemo, useState } from 'react'
-import { Tag, Tooltip, Alert, message, Collapse } from 'antd'
+import { useMemo } from 'react'
+import { Tag, Tooltip, Alert, Collapse } from 'antd'
 import { Drawer } from '../shared'
 import { Icon } from '../icons'
 import { getEvalRun, type EvalRunT, type EvalRunDetail } from '../../api'
+import { useAsyncData } from '../../hooks'
 
 const fmtTime = (s?: string | null) => (s ? s.slice(5, 16).replace('T', ' ') : '—')
 
@@ -65,27 +66,19 @@ export function TrendChart({ runs }: { runs: EvalRunT[] }) {
 
 /** 두 런 비교 드로어 — A(이전)→B(이후), 회귀 우선 정렬 + assert 단위 diff. */
 export function CompareDrawer({ aId, bId, onClose }: { aId: string | null; bId: string | null; onClose: () => void }) {
-  const [a, setA] = useState<EvalRunDetail | null>(null)
-  const [b, setB] = useState<EvalRunDetail | null>(null)
-
-  useEffect(() => {
-    setA(null)
-    setB(null)
-    if (!aId || !bId) return
-    let alive = true
-    Promise.all([getEvalRun(aId), getEvalRun(bId)])
-      .then(([ra, rb]) => {
-        if (!alive) return
-        // A=이전, B=이후로 정렬(시작 시각 기준) — "무엇이 변했나"의 방향 고정.
-        const [first, second] = ra.started_at <= rb.started_at ? [ra, rb] : [rb, ra]
-        setA(first)
-        setB(second)
-      })
-      .catch((e) => message.error((e as Error).message))
-    return () => {
-      alive = false
-    }
-  }, [aId, bId])
+  const { data: pair } = useAsyncData<{ a: EvalRunDetail; b: EvalRunDetail } | null>(
+    () =>
+      aId && bId
+        ? Promise.all([getEvalRun(aId), getEvalRun(bId)]).then(([ra, rb]) => {
+            // A=이전, B=이후로 정렬(시작 시각 기준) — "무엇이 변했나"의 방향 고정.
+            const [first, second] = ra.started_at <= rb.started_at ? [ra, rb] : [rb, ra]
+            return { a: first, b: second }
+          })
+        : Promise.resolve(null),
+    [aId, bId],
+  )
+  const a = pair?.a ?? null
+  const b = pair?.b ?? null
 
   const rows = useMemo(() => {
     if (!a || !b) return []

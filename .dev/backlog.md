@@ -326,8 +326,8 @@
 - ✅**source 제1자/제3자 축 술어=스펙 183 완료**(회고 164) — is_remote_source 자매 축 미적용 봉합(리터럴 7곳→술어).
 - ✅**브로커 kind 파싱 OCP=스펙 306 완료**(2026-07-12, 회고 281) — `_kind_of`·`_cap_resource` 하드코딩 if-체인을 단일 `_PREFIXED_KINDS` 레지스트리+`_strip_kind` 프리미티브로 흡수(새 kind=한 곳 등록, `_cap_resource` 누락→per-cap RBAC 조용한 오추출 함정 봉인). provider 계약 `resource_of` 대신 데이터 레지스트리 택함(5 kind 추출 균일→per-provider는 과추상, 파싱 context-free). 순수 리팩터=옛 if-체인 오라클 박제 대조(바이트 동일)·드리프트 핀 introspection(codex 지적). verify_306 105/105·브로커 verifier PASS·codex 여집합 실패. **잔여**: provider `matches`/`resource_of`는 비균일 kind 생기는 날 트리거(YAGNI).
 - **broker.py 1180줄 단일 모듈** → provider들을 `broker/` 패키지로 분할(응집도 높으나 파일 격리 개선). 낮음.
-- ✅**프론트 useAsyncData/runWithToast 훅=스펙 184 완료**(회고 165) — `admin/src/hooks.ts`. 소비자 3곳 변환(AllowedHosts·Memory 2탭). **남은 것**: 나머지 ~11개 뷰 점진 이관(기계적, fast-worker 위임 후보). 폼시드 패턴(SettingsView류)은 훅 부적합—제외.
-- ✅**AgentsView.tsx 분해=스펙 185 완료**(회고 166·167): **Phase A**(서브컴포넌트 8개 파일분리, 2128→747줄)+**Phase B**(useAgents 훅으로 데이터 오케스트레이션 격리, 747→684줄). tsc0·브라우저 회귀 2종 ALL PASS(파일분리 3드로어/폼/모달 + 뮤테이션 왕복 커스텀토스트 보존)·스샷. runWithToast 미채택(커스텀 플로팅토스트 보존). **남은 것(저위험 점진, 선택)**: 나머지 ~11개 뷰 useAsyncData 이관(fast-worker 위임 후보).
+- ✅**프론트 useAsyncData/runWithToast 훅=스펙 184 완료**(회고 165) — `admin/src/hooks.ts`. 소비자 3곳 변환(AllowedHosts·Memory 2탭). ✅**나머지 11 useAsyncData 뷰 이관=스펙 308 완료**(2026-07-12, 회고 283): 10 이관·1 정당 skip(SessionsView `messages`=로컬 낙관 뮤테이션→setter 없는 훅 부적합, 선례 useAgents). tsc0·build✓·브라우저 8/11 네트워크 실증. 폼시드 패턴(SettingsView류)은 훅 부적합—제외. **남은 것**: runWithToast ~26사이트/10파일 이관(별개 표면, 309 후보).
+- ✅**AgentsView.tsx 분해=스펙 185 완료**(회고 166·167): **Phase A**(서브컴포넌트 8개 파일분리, 2128→747줄)+**Phase B**(useAgents 훅으로 데이터 오케스트레이션 격리, 747→684줄). tsc0·브라우저 회귀 2종 ALL PASS(파일분리 3드로어/폼/모달 + 뮤테이션 왕복 커스텀토스트 보존)·스샷. runWithToast 미채택(커스텀 플로팅토스트 보존). ~11개 뷰 useAsyncData 이관은 ✅스펙 308서 마감(위 항목).
 - **HoC는 불필요**(리뷰 결론): AuthGate(render-prop)·PagedListShell(제네릭)이 HoC 니치 이미 덮음. 권한 게이트는 표현 분기(인라인/조각). 넣으면 과설계=신념 배신.
 - **테스트 부채(183서 발견)**: verify_152 V4 "code→400" stale(154가 code 노출 허용, 단언 갱신 필요)·verify_083 노출게이트 5건 404(라이브 인프라/시드 의존).
 

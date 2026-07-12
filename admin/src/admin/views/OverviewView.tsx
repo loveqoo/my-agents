@@ -1,11 +1,12 @@
 /* my-agents admin — Overview: at-a-glance counts + quick links. */
-import { type CSSProperties, type ReactNode, useEffect, useState } from 'react'
-import { Tag, Button, Avatar, message, Card, Statistic, Badge } from 'antd'
+import { type CSSProperties, type ReactNode } from 'react'
+import { Tag, Button, Avatar, Card, Statistic, Badge } from 'antd'
 import { Page, StatusPill, Panel } from '../shared'
 import { Icon } from '../icons'
 import { AGENT_STATUS, SESSION_STATUS } from '../mockData'
 import { type Agent, type Session, type BlockCategory } from '../mockData'
 import { listAgents, listSessions, getBlocks } from '../../api'
+import { useAsyncData } from '../../hooks'
 
 // 목록 행(아바타+제목/설명+후행) — antd List.Item.Meta 대체(List는 v6 deprecated, 스펙 208).
 // List.Item.Meta의 레이아웃(아바타 좌·제목/설명 스택·후행 우)을 Flex 프리미티브로 조립. 항목 간
@@ -89,22 +90,16 @@ function StatTile({
 }
 
 export default function OverviewView({ onGo }: { onGo: (v: string) => void }) {
-  const [agents, setAgents] = useState<Agent[]>([])
-  const [sessions, setSessions] = useState<Session[]>([])
-  const [live, setLive] = useState(0)
-  const [blocks, setBlocks] = useState<Record<string, BlockCategory>>({})
-
-  useEffect(() => {
-    // 라이브 세션 패널/카운트만 필요 → 서버 페이징(스펙 034)으로 live 버킷 상위 4건 + 전체 집계.
-    Promise.all([listAgents(), listSessions({ status: 'live', limit: 4 }), getBlocks()])
-      .then(([a, s, b]) => {
-        setAgents(a)
-        setSessions(s.items)
-        setLive(s.counts.live ?? 0)
-        setBlocks(b)
-      })
-      .catch(() => message.error('개요 데이터를 불러오지 못했습니다'))
-  }, [])
+  // 라이브 세션 패널/카운트만 필요 → 서버 페이징(스펙 034)으로 live 버킷 상위 4건 + 전체 집계.
+  const { data } = useAsyncData(
+    () => Promise.all([listAgents(), listSessions({ status: 'live', limit: 4 }), getBlocks()]),
+    [],
+    { errorMsg: '개요 데이터를 불러오지 못했습니다' },
+  )
+  const [agents, sessionPage, blocks]: [Agent[], { items: Session[]; counts: Record<string, number> }, Record<string, BlockCategory>] =
+    data ?? [[], { items: [], counts: {} }, {}]
+  const sessions = sessionPage.items
+  const live = sessionPage.counts.live ?? 0
   const blockCount = Object.values(blocks).reduce((a, b) => a + b.items.length, 0)
   // A2A 노출은 로컬(ui) 에이전트만 — source로 좁혀 정직(스펙 083 불변식: exposed.a2a ⟹ source=ui).
   const exposed = agents.filter((a) => a.source === 'ui' && a.exposed.a2a).length

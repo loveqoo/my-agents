@@ -24,6 +24,7 @@ import {
   applyPersona,
   type PersonaUsageAgent,
 } from '../../api'
+import { useAsyncData } from '../../hooks'
 
 const { TextArea } = Input
 
@@ -420,9 +421,6 @@ function PersonaForm({
   const [description, setDescription] = useState('')
   const [tones, setTones] = useState<string[]>([])
   const [body, setBody] = useState('')
-  // 이 페르소나를 쓰는 에이전트(스펙 161) — 편집 모드에서만 로드·표시.
-  const [usage, setUsage] = useState<PersonaUsageAgent[]>([])
-  const [usageLoading, setUsageLoading] = useState(false)
   const [selected, setSelected] = useState<string[]>([])
   const [applying, setApplying] = useState(false)
   useEffect(() => {
@@ -439,27 +437,18 @@ function PersonaForm({
       setBody('')
     }
   }, [form])
-  // 편집 대상 페르소나 id 기준으로 사용 에이전트 목록 로드. 기본 선택 = stale && canManage.
-  const loadUsage = async (id: string) => {
-    setUsageLoading(true)
-    try {
-      const list = await listPersonaAgents(id)
-      setUsage(list)
-      setSelected(list.filter((u) => u.stale && u.canManage).map((u) => u.id))
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : '사용 에이전트 목록을 불러오지 못했습니다')
-    } finally {
-      setUsageLoading(false)
-    }
-  }
+  // 이 페르소나를 쓰는 에이전트(스펙 161) — 편집 모드에서만 로드·표시. 편집 대상 페르소나 id 기준.
+  const usageId = form?.mode === 'edit' ? form.item?.id : undefined
+  const { data: rawUsage, loading: usageLoading, reload: reloadUsage } = useAsyncData<PersonaUsageAgent[]>(
+    () => (usageId ? listPersonaAgents(usageId) : Promise.resolve([])),
+    [usageId],
+    { errorMsg: '사용 에이전트 목록을 불러오지 못했습니다' },
+  )
+  const usage = rawUsage ?? []
+  // 기본 선택 = stale && canManage(응답 도착 시에만 — 로딩 중 재계산 방지).
   useEffect(() => {
-    if (form && form.mode === 'edit' && form.item?.id) {
-      void loadUsage(form.item.id)
-    } else {
-      setUsage([])
-      setSelected([])
-    }
-  }, [form])
+    if (rawUsage) setSelected(rawUsage.filter((u) => u.stale && u.canManage).map((u) => u.id))
+  }, [rawUsage])
   if (!form) return null
   const isEdit = form.mode === 'edit'
   const submit = () => {
@@ -476,7 +465,7 @@ function PersonaForm({
     setApplying(true)
     try {
       const result = await applyPersona(form.item.id, selected)
-      await loadUsage(form.item.id)
+      reloadUsage()
       message.success(`${result.applied.length}개 반영, ${result.skipped.length}개 건너뜀`)
     } catch (e) {
       message.error(e instanceof Error ? e.message : '반영에 실패했습니다')
@@ -714,7 +703,6 @@ function BlockForm({
 
 export default function BlocksView() {
   const isMobileTabs = !Grid.useBreakpoint().md // 모바일 탭 축소(스펙 133)
-  const [data, setData] = useState<Record<string, BlockCategory>>({})
   const [cat, setCat] = useState('persona')
   const [detail, setDetail] = useState<BlockItem | null>(null)
   const [mcpForm, setMcpForm] = useState<McpFormState | null>(null) // { mode:'register'|'edit', item? }
@@ -733,25 +721,19 @@ export default function BlocksView() {
     })
   }
 
-  const loadBlocks = async () => {
-    try {
-      const raw = await getBlocks()
-      // embedding 카테고리는 RAG 컬렉션 전용 뷰(스펙 036)로 이관 — /vector-tables CRUD가
-      // 제거됐으므로 빌딩 블록에서는 탭째 숨긴다. 남으면 깨진 엔드포인트를 호출하게 된다.
-      const { embedding: _embedding, ...next } = raw
-      setData(next)
-      syncDetail(next)
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : '블록을 불러오지 못했습니다')
-    }
-  }
-
+  // embedding 카테고리는 RAG 컬렉션 전용 뷰(스펙 036)로 이관 — /vector-tables CRUD가
+  // 제거됐으므로 빌딩 블록에서는 탭째 숨긴다. 남으면 깨진 엔드포인트를 호출하게 된다.
+  const { data: rawBlocks, reload } = useAsyncData<Record<string, BlockCategory>>(
+    () => getBlocks().then(({ embedding: _embedding, ...next }) => next),
+    [],
+    { errorMsg: '블록을 불러오지 못했습니다' },
+  )
+  const blocks = rawBlocks ?? {}
   useEffect(() => {
-    void loadBlocks()
-    /* eslint-disable-next-line */
-  }, [])
+    if (rawBlocks) syncDetail(rawBlocks)
+  }, [rawBlocks])
 
-  const def = data[cat]
+  const def = blocks[cat]
 
   const [rediscovering, setRediscovering] = useState(false)
   // 도구 정보 재탐색(스펙 151) — 자격증명은 백엔드가 복호. 갱신 후 목록 재로드(드로어는 id로 재조회).
@@ -759,7 +741,7 @@ export default function BlocksView() {
     setRediscovering(true)
     try {
       await rediscoverMcp(id)
-      await loadBlocks()
+      reload()
       message.success('도구 정보를 새로 탐색했습니다')
     } catch (e) {
       message.error(e instanceof Error ? e.message : '재탐색에 실패했습니다')
@@ -769,18 +751,18 @@ export default function BlocksView() {
   }
 
   const togglePublish = async (id: string) => {
-    const current = data.mcp?.items.find((m) => m.id === id)
+    const current = blocks.mcp?.items.find((m) => m.id === id)
     if (!current) return
     try {
       await publishMcp(id, !current.published)
-      await loadBlocks()
+      reload()
     } catch (e) {
       message.error(e instanceof Error ? e.message : '공개 상태 변경에 실패했습니다')
     }
   }
 
   const upsertMcp = async (item: BlockItem) => {
-    const isEdit = !!data.mcp?.items.some((m) => m.id === item.id)
+    const isEdit = !!blocks.mcp?.items.some((m) => m.id === item.id)
     const payload: McpServerIn = {
       name: item.name,
       description: item.description ?? null,
@@ -798,7 +780,7 @@ export default function BlocksView() {
     try {
       if (isEdit) await updateMcp(item.id, payload)
       else await createMcp(payload)
-      await loadBlocks()
+      reload()
       setMcpForm(null)
     } catch (e) {
       message.error(e instanceof Error ? e.message : 'MCP 저장에 실패했습니다')
@@ -814,7 +796,7 @@ export default function BlocksView() {
         if (!resource) return
         await deleteBlockItem(resource, detail.id)
       }
-      await loadBlocks()
+      reload()
       setDetail(null)
     } catch (e) {
       message.error(e instanceof Error ? e.message : '삭제에 실패했습니다')
@@ -838,7 +820,7 @@ export default function BlocksView() {
     try {
       if (data.id) await updateBlockItem('personas', data.id, payload)
       else await createBlockItem('personas', payload)
-      await loadBlocks()
+      reload()
       setPersonaForm(null)
     } catch (e) {
       message.error(e instanceof Error ? e.message : '페르소나 저장에 실패했습니다')
@@ -849,7 +831,7 @@ export default function BlocksView() {
     try {
       if (id) await updateBlockItem(resource, id, payload)
       else await createBlockItem(resource, payload)
-      await loadBlocks()
+      reload()
       setBlockForm(null)
     } catch (e) {
       message.error(e instanceof Error ? e.message : '저장에 실패했습니다')
@@ -1032,13 +1014,13 @@ export default function BlocksView() {
     ]
   }
 
-  const tabItems = Object.keys(data).map((k) => ({
+  const tabItems = Object.keys(blocks).map((k) => ({
     key: k,
     label: (
       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
-        <Icon name={data[k].icon} size={14} style={{ color: data[k].color }} />
-        {data[k].label}
-        <Tag>{data[k].items.length}</Tag>
+        <Icon name={blocks[k].icon} size={14} style={{ color: blocks[k].color }} />
+        {blocks[k].label}
+        <Tag>{blocks[k].items.length}</Tag>
       </span>
     ),
   }))

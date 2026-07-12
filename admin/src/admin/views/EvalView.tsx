@@ -15,6 +15,7 @@ import {
   startEvalRun, listEvalRuns, getEvalRun, listAgents, listCollections, listModels, suggestEvalCases, getEvalHelperStatus, listDocuments,
   type EvalDataset, type EvalCaseT, type EvalAssert, type EvalRunT, type EvalRunDetail, type Agent, type Collection, type Model,
 } from '../../api'
+import { useAsyncData } from '../../hooks'
 
 const { TextArea } = Input
 
@@ -225,7 +226,6 @@ function DatasetDrawer({
   onRunStarted: () => void
   onOpenRun: (runId: string) => void
 }) {
-  const [cases, setCases] = useState<EvalCaseT[]>([])
   // 드로어 내부 탭(스펙 252, 사용자 결정) — 관심사 3겹(실행 폼·성적·문제 CRUD)을 두 탭으로.
   const [dsTab, setDsTab] = useState<'cases' | 'run'>('cases')
   const [dsRuns, setDsRuns] = useState<EvalRunT[]>([])
@@ -240,14 +240,10 @@ function DatasetDrawer({
   const [suggesting, setSuggesting] = useState(false)
   const [filenames, setFilenames] = useState<string[]>([])  // 스펙 195: rag 근거 파일명 AutoComplete용
 
-  const load = useCallback(async () => {
-    if (!dataset) return
-    try {
-      setCases(await listEvalCases(dataset.id))
-    } catch (e) {
-      message.error((e as Error).message)
-    }
-  }, [dataset?.id])
+  const { data: cases = [], reload } = useAsyncData<EvalCaseT[]>(
+    () => (dataset ? listEvalCases(dataset.id) : Promise.resolve([])),
+    [dataset?.id],
+  )
 
   useEffect(() => {
     setEditing(null)
@@ -255,17 +251,18 @@ function DatasetDrawer({
     setRunAgent(undefined) // 문제집 전환 시 대상 리셋(codex 140 #4 — kind 다른 stale id로 실행 방지)
     setRunModels([])
     setRunVersion(undefined)
-    void load()
     if (dataset) listEvalRuns(dataset.id).then(setDsRuns).catch(() => setDsRuns([]))
     else setDsRuns([])
-  }, [load])
+  }, [dataset?.id])
 
-  // 스펙 193: 생성 중이면 케이스가 채워지므로 폴링(load=cases 갱신, onChanged=부모 목록·generating 갱신).
+  // 스펙 193: 생성 중이면 케이스가 채워지므로 폴링(reload=cases 갱신, onChanged=부모 목록·generating 갱신).
+  // reload는 매 렌더 재생성돼 deps에 넣으면 인터벌이 계속 재시작된다 — onChanged(useCallback, 안정)만 추적.
   useEffect(() => {
     if (!dataset?.generating) return
-    const t = setInterval(() => { void load(); onChanged() }, 2500)
+    const t = setInterval(() => { reload(); onChanged() }, 2500)
     return () => clearInterval(t)
-  }, [dataset?.generating, dataset?.id, load, onChanged])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dataset?.generating, dataset?.id, onChanged])
 
   // 스펙 195: rag 문제집의 고정 컬렉션 문서 파일명 → 근거 파일명 AutoComplete 옵션(오타 방지).
   useEffect(() => {
@@ -284,7 +281,7 @@ function DatasetDrawer({
       else await createEvalCase(dataset.id, body)
       setEditing(null)
       setAdding(false)
-      await load()
+      reload()
       onChanged()
     } catch (e) {
       message.error('저장 실패: ' + (e as Error).message)
@@ -497,7 +494,7 @@ function DatasetDrawer({
                   {canManage ? (
                     <span style={{ display: 'inline-flex', flex: 'none' }}>
                       <Button size="small" type="text" icon={<Icon name="edit" />} onClick={() => setEditing(c.id)} />
-                      <Popconfirm title="이 문제를 삭제할까요?" okText="삭제" cancelText="취소" onConfirm={() => void deleteEvalCase(c.id).then(load).then(onChanged)}>
+                      <Popconfirm title="이 문제를 삭제할까요?" okText="삭제" cancelText="취소" onConfirm={() => void deleteEvalCase(c.id).then(reload).then(onChanged)}>
                         <Button size="small" type="text" danger icon={<Icon name="delete" />} />
                       </Popconfirm>
                     </span>
@@ -532,16 +529,12 @@ function DatasetDrawer({
 
 /* 성적표 드로어. */
 function RunDrawer({ runId, onClose }: { runId: string | null; onClose: () => void }) {
-  const [detail, setDetail] = useState<EvalRunDetail | null>(null)
-  useEffect(() => {
-    setDetail(null)
-    if (!runId) return
-    let alive = true
-    getEvalRun(runId).then((d) => alive && setDetail(d)).catch((e) => message.error((e as Error).message))
-    return () => {
-      alive = false
-    }
-  }, [runId])
+  const { data: rawDetail, loading } = useAsyncData<EvalRunDetail | null>(
+    () => (runId ? getEvalRun(runId) : Promise.resolve(null)),
+    [runId],
+  )
+  // 새 runId로 전환하는 동안엔 이전 성적표가 잠깐 비치지 않도록 비워서 보여준다(원래 setDetail(null) 선행과 동치).
+  const detail = loading ? null : (rawDetail ?? null)
   return (
     <Drawer open={!!runId} width={640} title={detail ? `성적표 · ${detail.dataset_name ?? ''}` : '성적표'} onClose={onClose}>
       {detail ? (

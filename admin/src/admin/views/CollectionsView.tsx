@@ -41,6 +41,7 @@ import {
   type SearchHit,
   type Model,
 } from '../../api'
+import { useAsyncData } from '../../hooks'
 
 const { TextArea } = Input
 
@@ -573,9 +574,6 @@ function SearchDrawer({
 }
 
 export default function CollectionsView({ onEvaluate }: { onEvaluate?: (cid: string) => void } = {}) {
-  const [collections, setCollections] = useState<Collection[]>([])
-  const [models, setModels] = useState<Model[]>([])
-  const [loaded, setLoaded] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
   // 스펙 212: 문서/엔티티 임베딩 탭(데이터 집합 전환 — 탭/세그먼트 규칙상 Tabs). 생성 모달의
   // kind 프리셀렉트에도 이 값을 넘긴다.
@@ -587,24 +585,19 @@ export default function CollectionsView({ onEvaluate }: { onEvaluate?: (cid: str
   const [healthFor, setHealthFor] = useState<CollectionHealth | null>(null)
   const [checkingId, setCheckingId] = useState<string | null>(null)
 
-  const load = async () => {
-    try {
-      const [cs, ms] = await Promise.all([listCollections(), listModels('embedding')])
-      setCollections(cs)
-      setModels(ms)
-      // 드로어가 열려 있으면 최신 컬렉션으로 동기화(카운트·설정 갱신).
-      setDocsFor((cur) => (cur ? cs.find((c) => c.id === cur.id) ?? cur : cur))
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : '컬렉션을 불러오지 못했습니다')
-    } finally {
-      setLoaded(true)
-    }
-  }
-
+  const { data, loading, reload } = useAsyncData<[Collection[], Model[]]>(
+    () => Promise.all([listCollections(), listModels('embedding')]),
+    [],
+    { errorMsg: '컬렉션을 불러오지 못했습니다' },
+  )
+  const [collections, models] = data ?? [[], []]
+  const loaded = !loading
+  // 드로어가 열려 있으면 최신 컬렉션으로 동기화(카운트·설정 갱신).
   useEffect(() => {
-    void load()
-    /* eslint-disable-next-line */
-  }, [])
+    if (!data) return
+    const [cs] = data
+    setDocsFor((cur) => (cur ? cs.find((c) => c.id === cur.id) ?? cur : cur))
+  }, [data])
 
   const openCreate = () => {
     if (!models.length) {
@@ -644,7 +637,7 @@ export default function CollectionsView({ onEvaluate }: { onEvaluate?: (cid: str
         chunk_size: data.chunk_size,
         chunk_overlap: data.chunk_overlap,
       })
-      await load()
+      reload()
       setCreateOpen(false)
     } catch (e) {
       // 400=모델 누락/임베딩 아님, 409=차원 불일치 또는 이름 중복 — 서버 메시지를 그대로 노출.
@@ -656,7 +649,7 @@ export default function CollectionsView({ onEvaluate }: { onEvaluate?: (cid: str
     if (!confirmDel) return
     try {
       await deleteCollection(confirmDel.id)
-      await load()
+      reload()
       setConfirmDel(null)
     } catch (e) {
       message.error(e instanceof Error ? e.message : '삭제에 실패했습니다')
@@ -847,9 +840,9 @@ export default function CollectionsView({ onEvaluate }: { onEvaluate?: (cid: str
         onSubmit={submitCreate}
       />
 
-      <DocsDrawer collection={docsFor} onClose={() => setDocsFor(null)} onChanged={load} onEvaluate={onEvaluate} />
+      <DocsDrawer collection={docsFor} onClose={() => setDocsFor(null)} onChanged={reload} onEvaluate={onEvaluate} />
 
-      <EditModal collection={editFor} onCancel={() => setEditFor(null)} onSaved={load} />
+      <EditModal collection={editFor} onCancel={() => setEditFor(null)} onSaved={reload} />
 
       <SearchDrawer collection={searchFor} onClose={() => setSearchFor(null)} />
 

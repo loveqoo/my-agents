@@ -29,6 +29,7 @@ import {
   type CatalogMeta,
   type ModelProbeResult,
 } from '../../api'
+import { useAsyncData } from '../../hooks'
 
 const codeStyle = { fontFamily: 'var(--font-family-code)', fontSize: 12 }
 
@@ -370,10 +371,7 @@ function ProbeRow({
 
 /* ── 메인 뷰 ─────────────────────────────────────────────────────────────────── */
 export default function ProviderModelView() {
-  const [providers, setProviders] = useState<Provider[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [avail, setAvail] = useState<AvailableModelsOut | null>(null)
-  const [availLoading, setAvailLoading] = useState(false)
   const [busyMid, setBusyMid] = useState<string | null>(null) // 토글 진행 중 model_id
 
   // 등록 모델 전체(스펙 150) — 기본 요약 배너 + 행별 kind/기본 표시·전환의 단일 소스.
@@ -384,8 +382,6 @@ export default function ProviderModelView() {
   const [confirmModelDel, setConfirmModelDel] = useState<AvailableModel | null>(null)
   const [testingProv, setTestingProv] = useState(false)
 
-  const selected = providers.find((p) => p.id === selectedId) ?? null
-
   const loadRegModels = async () => {
     try {
       setRegModels(await listModels())
@@ -394,45 +390,35 @@ export default function ProviderModelView() {
     }
   }
 
-  const loadProviders = async (keepSel = true) => {
-    await loadRegModels() // 배너/태그의 진실원 — avail보다 먼저 최신화(codex 150 stale)
-    try {
-      const ps = await listProviders()
-      setProviders(ps)
-      if (!keepSel || !ps.some((p) => p.id === selectedId)) {
-        setSelectedId(ps[0]?.id ?? null)
-      }
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : '프로바이더를 불러오지 못했습니다')
-    }
-  }
-
+  // 배너/태그의 진실원 — avail보다 먼저 최신화(codex 150 stale)
+  const { data: rawProviders, reload: reloadProviders } = useAsyncData<Provider[]>(
+    () => loadRegModels().then(() => listProviders()),
+    [],
+    { errorMsg: '프로바이더를 불러오지 못했습니다' },
+  )
+  const providers = rawProviders ?? []
+  // 선택 유지: 새 목록에 없는 selectedId면 첫 항목으로 폴백. (원래 loadProviders(keepSel)의 두 분기는
+  // 실사용상 항상 "선택 무효 → 첫 항목"으로 수렴했다 — 마운트 시 selectedId=null이라 무효, 삭제 시엔
+  // 방금 삭제된 항목이라 무효라 keepSel=false가 실질적으로 이 조건과 늘 같았다.)
   useEffect(() => {
-    void loadProviders(false)
-    /* eslint-disable-next-line */
-  }, [])
+    if (!rawProviders) return
+    if (!rawProviders.some((p) => p.id === selectedId)) {
+      setSelectedId(rawProviders[0]?.id ?? null)
+    }
+  }, [rawProviders])
+
+  const selected = providers.find((p) => p.id === selectedId) ?? null
 
   // 선택이 바뀌면 그 프로바이더의 실모델을 자동 조회.
-  const loadAvail = async (id: string) => {
-    setAvailLoading(true)
-    setAvail(null)
-    try {
-      setAvail(await listAvailableModels(id))
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : '모델 목록을 불러오지 못했습니다')
-    } finally {
-      setAvailLoading(false)
-    }
-  }
-  useEffect(() => {
-    if (selectedId) void loadAvail(selectedId)
-    else setAvail(null)
-    /* eslint-disable-next-line */
-  }, [selectedId])
+  const { data: avail = null, loading: availLoading, reload: reloadAvail } = useAsyncData<AvailableModelsOut | null>(
+    () => (selectedId ? listAvailableModels(selectedId) : Promise.resolve(null)),
+    [selectedId],
+    { errorMsg: '모델 목록을 불러오지 못했습니다' },
+  )
 
-  const refresh = async () => {
-    await loadProviders()
-    if (selectedId) await loadAvail(selectedId)
+  const refresh = () => {
+    reloadProviders()
+    reloadAvail()
   }
 
   const submitProvider = async (data: ProviderForm) => {
@@ -454,7 +440,7 @@ export default function ProviderModelView() {
         const created = await createProvider(body)
         setSelectedId(created.id)
       }
-      await loadProviders()
+      reloadProviders()
       setProvModal(null)
     } catch (e) {
       message.error(e instanceof Error ? e.message : '저장에 실패했습니다')
@@ -466,7 +452,7 @@ export default function ProviderModelView() {
     try {
       await deleteProvider(confirmProvDel.id)
       setConfirmProvDel(null)
-      await loadProviders(false)
+      reloadProviders()
     } catch (e) {
       message.error(e instanceof Error ? e.message : '삭제에 실패했습니다')
     }
@@ -510,7 +496,7 @@ export default function ProviderModelView() {
         meta,
       })
       setModelModal(null)
-      await refresh()
+      refresh()
     } catch (e) {
       message.error(e instanceof Error ? e.message : '모델 등록에 실패했습니다')
     } finally {
@@ -524,7 +510,7 @@ export default function ProviderModelView() {
     try {
       await deleteModel(confirmModelDel.registered_id)
       setConfirmModelDel(null)
-      await refresh()
+      refresh()
     } catch (e) {
       // 에이전트가 이름으로 참조 중이면 서버가 409 + 안내를 준다(learning 042).
       message.error(e instanceof Error ? e.message : '삭제에 실패했습니다')
@@ -688,7 +674,7 @@ export default function ProviderModelView() {
                   loading={availLoading}
                   onClick={() => {
                     void loadRegModels() // 배너/기본 태그도 함께 최신화(codex 150 stale)
-                    void loadAvail(selected.id)
+                    reloadAvail()
                   }}
                 >
                   모델 불러오기
