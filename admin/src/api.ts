@@ -315,6 +315,30 @@ export const collectionHealth = (id: string) =>
 /** retrieval 시험(스펙 072) — 인-챗 도구와 같은 코어를 타는 검색. 등록 직후 품질 즉석 확인. */
 export const searchCollection = (id: string, query: string, topK: number) =>
   post(`/collections/${id}/search`, { query, top_k: topK }) as Promise<CollectionSearchOut>
+/** 재인덱싱(스펙 312) — 임베딩 모델 교체(같은 차원)와/또는 청크 크기·겹침 재청킹. 준 필드만 변경.
+    재인덱싱 중 컬렉션은 배타 잠금(다른 접근 409). 평가 이력은 보존. 서버가 완료까지 동기 처리. */
+export const reindexCollection = (
+  id: string,
+  body: { embedding_model_id?: string; chunk_size?: number; chunk_overlap?: number },
+) => post(`/collections/${id}/reindex`, body) as Promise<Collection>
+export interface ReindexEvent {
+  id: string
+  collection_id: string
+  from_model_name: string | null
+  to_model_name: string | null
+  from_chunk_size: number | null
+  from_chunk_overlap: number | null
+  to_chunk_size: number | null
+  to_chunk_overlap: number | null
+  chunk_count: number
+  status: string // ok | error
+  error: string | null
+  owner_id: string | null
+  created_at: string
+}
+/** 재인덱싱 이력(최신순, 스펙 312) — 모델·청크 정책 계보. */
+export const listReindexEvents = (id: string) =>
+  j<ReindexEvent[]>(`/collections/${id}/reindex-events`)
 /* 문서 페이지 목록(스펙 128) — 문서는 증가 축이라 서버 페이지네이션 + 파일명 부분일치(q). */
 export interface DocumentPageOut {
   items: RagDocument[]

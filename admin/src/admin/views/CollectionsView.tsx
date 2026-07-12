@@ -13,12 +13,13 @@ import {
   InputNumber,
   Select,
   Tabs,
+  Table,
   Tooltip,
   Upload,
   Popconfirm,
   message,
 } from 'antd'
-import type { UploadProps } from 'antd'
+import type { UploadProps, TableProps } from 'antd'
 import { Page, DataTable, type Column } from '../shared'
 import { validateName, NAME_HINT } from '../naming'
 import { PagedListShell, type ListController } from './PagedListShell'
@@ -35,11 +36,14 @@ import {
   deleteDocument,
   listModels,
   searchCollection,
+  reindexCollection,
+  listReindexEvents,
   type Collection,
   type RagDocument,
   type CollectionHealth,
   type SearchHit,
   type Model,
+  type ReindexEvent,
 } from '../../api'
 import { useAsyncData, runWithToast } from '../../hooks'
 
@@ -67,6 +71,8 @@ function collectionStatusTag(status: string) {
       return <Tag color="success">준비됨</Tag>
     case 'ingesting':
       return <Tag color="processing">인제스트 중</Tag>
+    case 'reindexing':
+      return <Tag color="processing">재인덱싱 중</Tag>
     case 'error':
       return <Tag color="error">오류</Tag>
     case 'empty':
@@ -334,8 +340,8 @@ function EditModal({
             </span>
             <TextArea rows={3} value={description} onChange={(e) => setDescription(e.target.value)} />
           </label>
-          {/* 스펙 198: 청크 크기·겹침 수정 필드 제거 — 청크 정책은 생성 후 불변(소급 안 되고 재청킹은 원본
-             미저장이라 불가). 현재 값은 참고용으로만 표시. 괄호 설명=카피 감사(축3) 보강. */}
+          {/* 스펙 312: 청크 정책·모델은 재인덱싱(행의 ↻)으로 변경 가능해졌다 — 원본을 저장하므로.
+             여기선 현재 값을 참고 표시하고, 변경 경로를 재인덱싱으로 안내(카피 감사 축3). */}
           {!isEntity ? (
             <span style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>
               청크(문서를 잘게 나눈 조각) 정책: 크기 <b>{collection.chunk_size}</b> · 겹침 <b>{collection.chunk_overlap}</b>
@@ -343,8 +349,8 @@ function EditModal({
           ) : null}
           <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
             {isEntity
-              ? '엔티티 컬렉션은 청크 정책이 없습니다. 식별 이름·모델·차원은 변경할 수 없습니다.'
-              : '청크 정책·식별 이름·모델·차원은 생성 후 변경할 수 없습니다 — 바꾸려면 컬렉션을 새로 만들어 문서를 다시 올리세요.'}
+              ? '엔티티 컬렉션은 청크 정책이 없습니다. 임베딩 모델은 재인덱싱(행의 ↻ 버튼)으로 바꿀 수 있습니다 — 식별 이름·차원은 고정입니다.'
+              : '임베딩 모델·청크 크기·겹침은 재인덱싱(행의 ↻ 버튼)으로 바꿀 수 있습니다 — 저장된 원본에서 다시 임베딩합니다. 식별 이름·차원은 고정입니다.'}
           </span>
         </div>
       ) : null}
@@ -353,6 +359,191 @@ function EditModal({
 }
 
 /* ---- 문서 관리 드로어 ---- */
+/* 재인덱싱 모달(스펙 312) — 임베딩 모델 교체(같은 차원)와/또는 청크 크기·겹침 재청킹.
+   저장된 원본에서 다시 임베딩. 재인덱싱 중 컬렉션 배타 잠금(다른 접근 대기)·평가 이력 보존.
+   같은 차원(1024) 강제는 서버가 판정(모델에 차원 미저장 → 사전 필터 불가, 현재 모든 임베딩=1024). */
+function ReindexModal({
+  collection,
+  models,
+  onCancel,
+  onDone,
+}: {
+  collection: Collection | null
+  models: Model[]
+  onCancel: () => void
+  onDone: () => void
+}) {
+  const isEntity = collection?.kind === 'entity'
+  const [modelId, setModelId] = useState('')
+  const [size, setSize] = useState(1000)
+  const [overlap, setOverlap] = useState(200)
+  const [running, setRunning] = useState(false)
+
+  useEffect(() => {
+    if (collection) {
+      setModelId(collection.embedding_model_id)
+      setSize(collection.chunk_size)
+      setOverlap(collection.chunk_overlap)
+    }
+    /* eslint-disable-next-line */
+  }, [collection?.id])
+
+  // 재인덱싱 이력 — 모달이 이 컬렉션으로 열릴 때 로드(모델·청크 계보).
+  const { data: events, reload: reloadEvents } = useAsyncData<ReindexEvent[]>(
+    () => (collection ? listReindexEvents(collection.id) : Promise.resolve([])),
+    [collection?.id],
+  )
+
+  const modelChanged = !!collection && modelId !== collection.embedding_model_id
+  const chunkChanged =
+    !isEntity &&
+    !!collection &&
+    (size !== collection.chunk_size || overlap !== collection.chunk_overlap)
+  const canRun = modelChanged || chunkChanged
+
+  const run = async () => {
+    if (!collection || !canRun) return
+    const body: { embedding_model_id?: string; chunk_size?: number; chunk_overlap?: number } = {}
+    if (modelChanged) body.embedding_model_id = modelId
+    if (chunkChanged) {
+      body.chunk_size = size
+      body.chunk_overlap = overlap
+    }
+    setRunning(true)
+    // 서버가 완료까지 동기 처리(잠금→재임베딩→스왑→해제). 차원 불일치·원본 없는 문서는 4xx로 사유 노출.
+    const ok = await runWithToast(() => reindexCollection(collection.id, body), {
+      success: '재인덱싱을 마쳤습니다',
+      errorPrefix: '재인덱싱 실패',
+    })
+    setRunning(false)
+    if (ok) {
+      reloadEvents()
+      onDone()
+      onCancel()
+    }
+  }
+
+  const chunkStr = (s: number | null, o: number | null) => (s == null ? '—' : `${s}/${o}`)
+  const eventCols: TableProps<ReindexEvent>['columns'] = [
+    {
+      title: '모델',
+      key: 'model',
+      render: (_, e) =>
+        e.from_model_name === e.to_model_name
+          ? (e.to_model_name ?? '—')
+          : `${e.from_model_name ?? '—'} → ${e.to_model_name ?? '—'}`,
+    },
+    {
+      title: '청크(크기/겹침)',
+      key: 'chunk',
+      render: (_, e) =>
+        e.from_chunk_size === e.to_chunk_size && e.from_chunk_overlap === e.to_chunk_overlap
+          ? chunkStr(e.to_chunk_size, e.to_chunk_overlap)
+          : `${chunkStr(e.from_chunk_size, e.from_chunk_overlap)} → ${chunkStr(e.to_chunk_size, e.to_chunk_overlap)}`,
+    },
+    { title: '청크 수', dataIndex: 'chunk_count', key: 'count', width: 70, align: 'right' },
+    {
+      title: '상태',
+      key: 'status',
+      width: 70,
+      render: (_, e) =>
+        e.status === 'ok' ? (
+          <Tag color="success">완료</Tag>
+        ) : (
+          <Tooltip title={e.error ?? ''}>
+            <Tag color="error">실패</Tag>
+          </Tooltip>
+        ),
+    },
+  ]
+
+  return (
+    <Modal
+      open={!!collection}
+      width={580}
+      title={collection ? `재인덱싱 · ${collection.name}` : ''}
+      okText="재인덱싱 실행"
+      cancelText="닫기"
+      confirmLoading={running}
+      okButtonProps={{ disabled: !canRun }}
+      onCancel={onCancel}
+      onOk={() => void run()}
+    >
+      {collection ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <Alert
+            type="info"
+            showIcon
+            title="새 설정으로 벡터를 다시 만듭니다"
+            description="저장된 원본에서 다시 임베딩합니다. 재인덱싱 중에는 이 컬렉션 접근이 잠깁니다(검색·업로드는 잠시 대기). 기존 평가 이력은 그대로 보존됩니다."
+          />
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <span style={{ fontSize: 14, fontWeight: 500 }}>임베딩 모델</span>
+            <Select
+              value={modelId}
+              options={models.map((m) => ({ value: m.id, label: m.name }))}
+              onChange={setModelId}
+            />
+          </label>
+          {!isEntity ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ display: 'flex', gap: 12 }}>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1 }}>
+                  <span style={{ fontSize: 14, fontWeight: 500 }}>청크 크기</span>
+                  <InputNumber
+                    style={{ width: '100%' }}
+                    min={1}
+                    value={size}
+                    onChange={(v) => setSize(v ?? collection.chunk_size)}
+                  />
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1 }}>
+                  <span style={{ fontSize: 14, fontWeight: 500 }}>청크 겹침</span>
+                  <InputNumber
+                    style={{ width: '100%' }}
+                    min={0}
+                    value={overlap}
+                    onChange={(v) => setOverlap(v ?? collection.chunk_overlap)}
+                  />
+                </label>
+              </div>
+              <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+                청크 설정을 바꾸면 원본에서 다시 자릅니다 — 이 기능 도입 후 올린 문서만 재청킹됩니다.
+              </span>
+            </div>
+          ) : (
+            <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+              엔티티 컬렉션은 1행=1청크라 청크 정책이 없습니다 — 임베딩 모델만 바꿀 수 있습니다.
+            </span>
+          )}
+          {!canRun ? (
+            <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+              바꿀 항목을 선택하세요 — 모델이나 청크 설정 중 하나는 현재와 달라야 재인덱싱합니다.
+            </span>
+          ) : null}
+          {events && events.length ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <span
+                style={{ fontSize: 13, fontWeight: 500, color: 'var(--color-text-secondary)' }}
+              >
+                재인덱싱 이력
+              </span>
+              <Table
+                size="small"
+                rowKey="id"
+                pagination={false}
+                columns={eventCols}
+                dataSource={events}
+                scroll={{ y: 160 }}
+              />
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </Modal>
+  )
+}
+
 function DocsDrawer({
   collection,
   onClose,
@@ -578,6 +769,7 @@ export default function CollectionsView({ onEvaluate }: { onEvaluate?: (cid: str
   const [docsFor, setDocsFor] = useState<Collection | null>(null)
   const [editFor, setEditFor] = useState<Collection | null>(null)
   const [searchFor, setSearchFor] = useState<Collection | null>(null)
+  const [reindexFor, setReindexFor] = useState<Collection | null>(null)
   const [confirmDel, setConfirmDel] = useState<Collection | null>(null)
   const [healthFor, setHealthFor] = useState<CollectionHealth | null>(null)
   const [checkingId, setCheckingId] = useState<string | null>(null)
@@ -753,8 +945,34 @@ export default function CollectionsView({ onEvaluate }: { onEvaluate?: (cid: str
             </Tooltip>
           )}
           {c.can_manage !== false && (
+            <Tooltip
+              title={
+                c.status === 'reindexing'
+                  ? '재인덱싱 중'
+                  : c.status === 'empty'
+                    ? '문서를 올린 뒤 재인덱싱할 수 있습니다'
+                    : '재인덱싱 — 임베딩 모델·청크 설정 변경'
+              }
+            >
+              <Button
+                type="text"
+                size="small"
+                icon={<Icon name="sync" />}
+                disabled={c.status === 'reindexing' || c.status === 'empty'}
+                onClick={() => setReindexFor(c)}
+              />
+            </Tooltip>
+          )}
+          {c.can_manage !== false && (
             <Tooltip title="삭제">
-              <Button type="text" size="small" danger icon={<Icon name="delete" />} onClick={() => setConfirmDel(c)} />
+              <Button
+                type="text"
+                size="small"
+                danger
+                icon={<Icon name="delete" />}
+                disabled={c.status === 'reindexing'}
+                onClick={() => setConfirmDel(c)}
+              />
             </Tooltip>
           )}
         </span>
@@ -772,7 +990,7 @@ export default function CollectionsView({ onEvaluate }: { onEvaluate?: (cid: str
   return (
     <Page
       title="RAG 컬렉션"
-      subtitle="문서를 임베딩해 적재하는 지식 컬렉션 — 모델·청크 정책 고정 + 문서 인제스트"
+      subtitle="문서를 임베딩해 적재하는 지식 컬렉션 — 문서 인제스트 + 재인덱싱(모델·청크 설정 변경)"
       actions={
         <Tooltip title={noEmbedModel ? '먼저 임베딩 모델을 등록하세요' : ''}>
           <Button
@@ -838,6 +1056,13 @@ export default function CollectionsView({ onEvaluate }: { onEvaluate?: (cid: str
       <DocsDrawer collection={docsFor} onClose={() => setDocsFor(null)} onChanged={reload} onEvaluate={onEvaluate} />
 
       <EditModal collection={editFor} onCancel={() => setEditFor(null)} onSaved={reload} />
+
+      <ReindexModal
+        collection={reindexFor}
+        models={models}
+        onCancel={() => setReindexFor(null)}
+        onDone={reload}
+      />
 
       <SearchDrawer collection={searchFor} onClose={() => setSearchFor(null)} />
 
