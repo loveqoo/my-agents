@@ -27,6 +27,7 @@ from . import (
     mock_remote,
     model_registry,
     net_guard,
+    node_templates,
     providers,
     rag,
     served_mcp,
@@ -97,6 +98,7 @@ _auth = [Depends(current_principal)]
 app.include_router(blocks.router, dependencies=_auth)
 app.include_router(providers.router, dependencies=_auth)
 app.include_router(model_registry.router, dependencies=_auth)
+app.include_router(node_templates.router, dependencies=_auth)  # 노드 라이브러리(스펙 316)
 app.include_router(agents.router, dependencies=_auth)
 app.include_router(
     agents.meta_router, dependencies=_auth

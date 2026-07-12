@@ -52,6 +52,7 @@ extend-immutable-calls = [
 # API 와이어 계약이 camelCase(sessionId 류) — Pydantic 스키마 필드는 PEP8 네이밍 예외.
 "packages/api/src/api/schemas.py" = ["N815"]
 "packages/api/src/api/agents/crud_routes.py" = ["N815"]
+"packages/api/src/api/node_templates.py" = ["N815"]
 
 [tool.mypy]
 python_version = "3.12"

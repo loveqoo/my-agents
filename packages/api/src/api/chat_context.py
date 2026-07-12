@@ -26,6 +26,7 @@ from .mem_config import (
     model_usable,
 )
 from .models import Agent, Collection, McpServer, ModelConfig, Session
+from .node_templates import resolve_node_refs
 from .references import config_names
 
 log = logging.getLogger("api.chat")
@@ -147,8 +148,12 @@ async def derive_pipeline_pool(cfg: dict) -> None:
     if cfg.get("impl") != "pipeline":
         return
     nodes = [n for n in (cfg.get("nodes") or []) if isinstance(n, dict)]
-    used = _used_node_tools(nodes)
     async with SessionLocal() as db:
+        # 노드 참조 해석(스펙 316) — 풀 합집합은 **해석된** 노드 기준(참조 노드의 도구·기억이 조용히
+        # 미바인딩되지 않게). cfg["nodes"]는 건드리지 않는다(저장본은 ref 유지 — 핀 참조가 진실원).
+        # 저장 경로(생성/수정)가 이 함수를 지나므로 미해결 참조는 저장 시점에 422로 이른 실패한다.
+        nodes = [n for n in await resolve_node_refs(db, nodes) if isinstance(n, dict)]
+        used = _used_node_tools(nodes)
         servers = (await db.execute(select(McpServer))).scalars().all()
         cols = list((await db.execute(select(Collection.name))).scalars().all())
     cfg["mcps"] = _mcp_pool(servers, used)
@@ -521,6 +526,12 @@ async def _load_context(
         cfg = dict(agent.config or {})
         # (스펙 211) 구 113 P0의 저장본/override 권한 분리(stored_mcps 포착)는 사용=공용 전환으로 소멸.
         cfg, persona, pinned_version = await _resolve_version_and_persona(db, agent, cfg, version)
+        # 노드 참조 해석(스펙 316) — ref 항목을 등록 노드 config 사본으로 치환. **오버라이드 병합
+        # 전에**(해석→병합): 세션 패치는 해석된 유효 노드 위에 얹는다. 미해결 참조는 422로 명확히
+        # 실패(반쪽 파이프라인 조용히 실행 금지 — 089 패턴). 핀 버전 미리보기(version=) 스냅샷의
+        # 참조도 여기서 함께 해석된다(_resolve_version_and_persona 뒤 단일 지점).
+        if not _is_remote(agent.source) and isinstance(cfg.get("nodes"), list):
+            cfg["nodes"] = await resolve_node_refs(db, cfg["nodes"])
         # 세션 오버라이드 화이트리스트(스펙 025/122/276/287 — 각 키 근거는 _apply_overrides docstring).
         allowed = {
             "model",

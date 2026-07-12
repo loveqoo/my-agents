@@ -1,6 +1,6 @@
 /* 어드민 백엔드 API 클라이언트 (007 Phase 3).
    타입은 admin/mockData.ts와 일원화 — 백엔드 출력이 동일 shape다. */
-import type { Agent, Approval, BlockCategory, Session } from './admin/mockData'
+import type { Agent, Approval, BlockCategory, PipelineNode, Session } from './admin/mockData'
 import { httpError } from './httpError'
 
 // 기본은 same-origin 상대경로 `/api` — vite dev 프록시(vite.config.ts)가 127.0.0.1:8000으로 넘긴다.
@@ -365,6 +365,40 @@ export async function uploadDocument(id: string, file: File): Promise<RagDocumen
   if (!res.ok) throw await httpError(res, 'POST', `/collections/${id}/documents`)
   return res.json() as Promise<RagDocument>
 }
+
+/* ---------- 노드 라이브러리 (스펙 316) — 노드형 파이프라인의 재사용 노드 ----------
+   등록 노드는 (name, version) 단위 불변 — 수정=새 버전 발행(update 라우트 없음).
+   에이전트 nodes[]가 {ref:{name,version}}으로 버전 핀 고정 참조. 참조 중인 버전 삭제는 409. */
+export interface NodeTemplateGroup {
+  name: string
+  kind: string // 지금은 "config"만(코드 노드는 스펙 317 예정)
+  description: string | null
+  latestVersion: number
+  versionCount: number
+  usedByCount: number
+}
+export interface NodeTemplateVersion {
+  id: string
+  version: number
+  kind: string
+  description: string | null
+  config: PipelineNode // 에이전트 노드와 동일 화이트리스트(_normalize_node)로 검증된 형태
+  created_at: string | null
+  usedBy: string[] // 이 버전을 참조하는 에이전트 이름들
+}
+export interface NodeTemplateDetail {
+  name: string
+  versions: NodeTemplateVersion[] // 최신 버전 먼저
+}
+export const listNodeTemplates = () => j<NodeTemplateGroup[]>('/node-templates')
+export const getNodeTemplate = (name: string) =>
+  j<NodeTemplateDetail>(`/node-templates/${encodeURIComponent(name)}`)
+/** 새 이름이면 v1, 기존 이름이면 다음 버전 자동 발행. 검증 위반은 422(detail 한국어). */
+export const createNodeTemplate = (body: { name: string; description?: string | null; config: PipelineNode }) =>
+  post('/node-templates', body) as Promise<NodeTemplateVersion>
+/** 참조 에이전트가 있으면 409 + detail에 에이전트 이름 목록. */
+export const deleteNodeTemplateVersion = (name: string, version: number) =>
+  del(`/node-templates/${encodeURIComponent(name)}/${version}`)
 
 /* ---------- 에이전트 ---------- */
 export const listAgents = () => j<Agent[]>('/agents')

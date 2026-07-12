@@ -597,8 +597,32 @@ class AgentConfig(BaseModel):
                 node[key] = [x for x in lst if isinstance(x, str) and len(x) <= 200]
 
     @staticmethod
+    def _normalize_node_ref(n: dict[str, Any]) -> dict[str, Any]:
+        """노드 라이브러리 참조 변형(스펙 316) — `{"ref": {"name", "version"}}`만 허용. 인라인 키와
+        혼합 금지(참조와 직접 설정 중 어느 쪽이 진실인지 모호한 반쪽 저장 차단). version은 핀 고정
+        (양의 정수 필수 — floating latest 없음). 존재 검증은 라우트가 DB로(assert_node_refs_exist)."""
+        ref = n.get("ref")
+        if (
+            not isinstance(ref, dict)
+            or not isinstance(ref.get("name"), str)
+            or not ref["name"].strip()
+        ):
+            raise ValueError("nodes 참조 항목은 ref.name(비어있지 않은 문자열)이 필요합니다.")
+        if len(ref["name"]) > 120:
+            raise ValueError("nodes 참조 항목 ref.name은 120자 이하여야 합니다.")
+        ver = ref.get("version")
+        if isinstance(ver, bool) or not isinstance(ver, int) or ver < 1:
+            raise ValueError("nodes 참조 항목 ref.version은 1 이상의 정수여야 합니다.")
+        if set(n.keys()) - {"ref"}:
+            raise ValueError("nodes 참조 항목은 ref 외 키를 가질 수 없습니다(직접 설정과 혼합 금지).")
+        return {"ref": {"name": ref["name"], "version": ver}}
+
+    @staticmethod
     def _normalize_node(n: Any) -> dict[str, Any]:
-        """단일 nodes 항목을 화이트리스트·상한 검증 후 정규화 dict로 반환."""
+        """단일 nodes 항목을 화이트리스트·상한 검증 후 정규화 dict로 반환.
+        `ref` 키가 있으면 라이브러리 참조 변형(스펙 316)으로 별도 검증."""
+        if isinstance(n, dict) and "ref" in n:
+            return AgentConfig._normalize_node_ref(n)
         if (
             not isinstance(n, dict)
             or not isinstance(n.get("prompt"), str)
@@ -723,6 +747,10 @@ class AgentOut(BaseModel):
     nodes: list[dict[str, Any]] | None = (
         None  # 노드형 파이프라인 노드 명세(스펙 259, 폼 재로드/라운드트립 보존)
     )
+    # 노드 참조 해석 결과(스펙 316, 파생·읽기 전용 — 단건 조회만 계산). 오버라이드 패널이 참조
+    # 노드의 **유효 설정**을 보여주는 근거. 미해결 참조가 있으면 None(조회 자체는 막지 않음 —
+    # 고치러 들어온 화면을 잠그지 않는다. 실행 시점엔 422로 정직 실패).
+    resolvedNodes: list[dict[str, Any]] | None = None
     ragMinScores: dict[str, float] = Field(
         default_factory=dict
     )  # 컬렉션별 문서 검색 최소 유사도(스펙 191 v2, 왕복 보존)

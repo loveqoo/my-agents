@@ -24,7 +24,7 @@ export interface AgentConfig {
   capabilities?: string[] // 능력 브로커 allowlist(스펙 106). 오케스트레이터 impl에서 위임 대상.
   toolPolicy?: ToolPolicy // 도구 승인 오버라이드(스펙 177 P2).
   artifactSpec?: ArtifactSpec // 노코드 산출물형 필드 명세(스펙 190). impl=artifact_form일 때만 의미.
-  nodes?: PipelineNode[] // 노드형 일렬 파이프라인 노드(스펙 259). impl=pipeline일 때만 의미.
+  nodes?: (PipelineNode | PipelineNodeRef)[] // 노드형 파이프라인 노드(스펙 259) — 인라인 또는 라이브러리 참조(스펙 316). impl=pipeline일 때만 의미.
   ragMinScores?: Record<string, number> // 컬렉션별 문서 검색 최소 유사도(스펙 191 v2). {컬렉션명:0~1}, 미만 제외.
 }
 
@@ -42,6 +42,15 @@ export interface PipelineNode {
   memoryQuery?: 'user' | 'input' // 회상 키워드(268). user=사용자 입력(캐시 공유, 기본), input=이 노드의 입력
   historyDepth?: number | null // 단기 기억 창(스펙 270) — 이전 대화 N개. undefined/null=에이전트 상속. carry일 때만 의미
 }
+
+/** 등록 노드 참조(스펙 316) — 노드 라이브러리의 (name, version)에 핀 고정. 새 버전이 발행돼도
+    참조는 자기 버전에 머문다(명시적으로 올릴 때만 이동). ref 항목에 인라인 키 혼합 금지(서버 422). */
+export type PipelineNodeRef = { ref: { name: string; version: number } }
+
+/** 노드 항목 판별(스펙 316, 단일 소스) — nodes[] 항목은 인라인 노드 또는 라이브러리 참조 둘 중 하나.
+    폼·상세·오버라이드가 전부 이 헬퍼로 분기한다(사본 판별식 금지 — 드리프트 0). */
+export const isNodeRef = (n: PipelineNode | PipelineNodeRef): n is PipelineNodeRef =>
+  typeof n === 'object' && n != null && 'ref' in n
 
 /** 노코드 산출물형 필드(스펙 190) — 후보 있으면 SelectBox(enum), 없으면 자유 입력. */
 export interface ArtifactField {
@@ -130,7 +139,8 @@ export interface Agent {
   capabilities?: string[] // 능력 브로커 allowlist(스펙 106)
   toolPolicy?: ToolPolicy // 도구 승인 오버라이드(스펙 177 P2) — cap_id→{approval:{required?,approver?}}
   artifactSpec?: ArtifactSpec // 노코드 산출물형 필드 명세(스펙 190) — 폼 재로드/라운드트립 보존
-  nodes?: PipelineNode[] // 노드형 파이프라인 노드(스펙 259) — 폼 재로드/라운드트립 보존
+  nodes?: (PipelineNode | PipelineNodeRef)[] // 노드형 파이프라인 노드(스펙 259) — 인라인 또는 라이브러리 참조(스펙 316), 폼 재로드/라운드트립 보존
+  resolvedNodes?: PipelineNode[] | null // 참조를 등록 config로 치환한 유효 노드 목록(스펙 316, 읽기 전용 파생) — 미해결 참조면 null
   ragMinScores?: Record<string, number> // 컬렉션별 문서 검색 최소 유사도(스펙 191 v2) — 폼 재로드/라운드트립 보존
   owner_id?: string | null // 소유자(스펙 112). null=공유/레거시
   can_manage?: boolean // 관리 가능(스펙 114) — false면 편집/삭제 숨김

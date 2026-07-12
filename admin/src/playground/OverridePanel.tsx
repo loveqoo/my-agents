@@ -5,7 +5,7 @@
    code 에이전트: 원격 실행이라 오버라이드 미적용 — read-only 안내만. */
 import { useEffect, useState } from 'react'
 import { Drawer, Slider, Switch, Button, Alert, Tag, Tooltip, Steps, Grid } from 'antd'
-import { isOrchestratorImpl, SHORT_TERM_MEMORY, type Agent, type BlockCategory, type PipelineNode } from '../admin/mockData'
+import { isOrchestratorImpl, isNodeRef, SHORT_TERM_MEMORY, type Agent, type BlockCategory, type PipelineNode } from '../admin/mockData'
 import type { Collection, Model } from '../api'
 import { PickerGroups, type PickerGroup } from '../PickerGroups'
 import { DelegationGraph } from '../admin/DelegationGraph'
@@ -41,8 +41,16 @@ export function overrideDefaults(a: Agent): Overrides {
     memories: [...(a.memories ?? [])],
     capabilities: [...(a.capabilities ?? [])],
     historyDepth: a.historyDepth ?? 20,
-    // 노드형(스펙 287) — 저장 노드의 깊은 복사(에디터가 필드를 편집해도 원본 불변).
-    nodes: a.impl === 'pipeline' && a.nodes ? structuredClone(a.nodes) : undefined,
+    // 노드형(스펙 287→316) — 베이스는 **해석된 유효 노드**(resolvedNodes: 참조를 등록 config로 치환한
+    // 파생, 서버도 해석→병합 순서라 인덱스 정렬 일치). resolvedNodes가 없으면(구 응답) 저장 nodes로
+    // 폴백하되, 참조 항목이 남아 있으면(미해결) 편집 불가 — undefined로 두고 패널이 Alert로 안내.
+    // 깊은 복사: 에디터가 필드를 편집해도 원본 불변.
+    nodes: (() => {
+      if (a.impl !== 'pipeline') return undefined
+      const base = a.resolvedNodes ?? a.nodes
+      if (!base || base.some(isNodeRef)) return undefined
+      return structuredClone(base as PipelineNode[])
+    })(),
   }
 }
 
@@ -232,6 +240,9 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
   const isExternal = agent?.source === 'external' // 외부 A2A — 코드처럼 read-only(026)
   const isOrchestrator = isOrchestratorImpl(agent?.impl) // 조율형 — capabilities로 위임(스펙 108/122)
   const isPipeline = agent?.impl === 'pipeline' // 노드형(스펙 287) — 노드가 프롬프트·모델·도구 소유
+  // 미해결 참조(스펙 316) — nodes에 ref 항목이 있는데 resolvedNodes가 null(그새 템플릿 삭제 등).
+  // 유효 설정을 알 수 없어 노드 오버라이드를 막고 Alert로 안내한다(조용한 폴백 마스킹 금지).
+  const unresolvedNodes = isPipeline && (agent?.nodes ?? []).some(isNodeRef) && agent?.resolvedNodes == null
   // 비영속(스펙 238 #4) — 편집 폼과 오버라이드 폼의 규칙 정합. 저장 방식 자체는 세션 오버라이드
   // **불가**(서버 allowed 키에 없음 — 근본 모드)이므로 read-only로 표시하고, 비영속이 무시/금지하는
   // 표면(기억 회상=235, memwrite/memedit=237)은 여기서도 disabled.
@@ -420,15 +431,27 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
             </div>
           )}
 
-          {isPipeline ? (
+          {isPipeline && unresolvedNodes ? (
+            /* 미해결 참조(스펙 316) — 해석된 유효 설정이 없어 노드 편집 비활성. 저장/실행 경로도
+               서버가 같은 이유로 명확한 설정 오류를 내므로, 여기서 정직하게 알린다. */
+            <Alert
+              type="warning"
+              showIcon
+              title="노드 참조를 해석할 수 없어 오버라이드할 수 없습니다"
+              description="이 에이전트의 노드가 참조하는 등록 노드를 찾을 수 없습니다(삭제 등). 에이전트 편집에서 참조를 바로잡은 뒤 다시 시도하세요."
+            />
+          ) : isPipeline ? (
             /* 노드형(스펙 287) — 폼과 같은 공용 노드 에디터(273 원칙)를 구조 불변 모드로.
-               노드 추가/삭제/이동·이름은 잠금(테스트 범위 밖 — 서버도 길이 일치 merge로 강제). */
+               노드 추가/삭제/이동·이름은 잠금(테스트 범위 밖 — 서버도 길이 일치 merge로 강제).
+               베이스는 해석된 유효 노드(스펙 316 resolvedNodes) — 참조 항목이 새로 생길 수 없어
+               onChange 결과는 항상 인라인 노드다(아래 캐스트의 근거). */
             <Field group>
               <div style={{ maxHeight: screens.md ? 400 : undefined, overflowY: 'auto' }}>
                 <NodeListEditor
                   fixedStructure
                   value={draft.nodes ?? []}
-                  onChange={(nodes) => set('nodes', nodes)}
+                  // 구조 불변 + 인라인 베이스(위 주석)라 참조 항목이 생기지 않음 — 인라인으로 좁힘.
+                  onChange={(nodes) => set('nodes', nodes as PipelineNode[])}
                   models={models}
                   personas={(blocks.persona?.items ?? []).map((p) => ({ name: p.name, body: p.body ?? '' }))}
                   mcpServers={blocks.mcp?.items ?? []}

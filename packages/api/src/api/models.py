@@ -19,6 +19,7 @@ from sqlalchemy import (
     LargeBinary,
     String,
     Text,
+    UniqueConstraint,
     func,
     text,
 )
@@ -288,6 +289,27 @@ class AppSetting(Base):
     __tablename__ = "app_settings"
     key: Mapped[str] = mapped_column(String(80), primary_key=True)
     value: Mapped[dict] = mapped_column(JSONB, default=dict)  # {"v": <값>} 봉투(타입 유연)
+
+
+class NodeTemplate(Base):
+    """노드 라이브러리(스펙 316) — 노드형 파이프라인 노드의 등록·공유 자산.
+
+    (name, version) 단위로 존재하고 **발행 후 불변**(수정 API 없음 — 수정=새 버전 발행). 에이전트는
+    `nodes[]`에 `{"ref": {"name", "version"}}`으로 버전을 핀 고정 참조한다 — 등록 노드를 개선해도
+    기존 참조 에이전트는 흔들리지 않는다(테스트·출시 보호, 사용자 결정 2026-07-13). kind=code(코드
+    노드, 스펙 317)만 동일 버전 덮어쓰기를 허용하는 의도된 탈출구를 가진다(본 스펙은 config만)."""
+
+    __tablename__ = "node_templates"
+    id: Mapped[uuid.UUID] = _pk()
+    name: Mapped[str] = mapped_column(String(120))  # 식별 이름(규칙, 스펙 148 준용)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    kind: Mapped[str] = mapped_column(String(20), default="config")  # config | code(스펙 317 예약)
+    # 에이전트 저장 스키마의 노드 화이트리스트(_normalize_node)를 통과한 형태만 저장(검증 재사용).
+    config: Mapped[dict] = mapped_column(JSONB, default=dict)
+    description: Mapped[str | None] = mapped_column(String(200), default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (UniqueConstraint("name", "version", name="uq_node_templates_name_version"),)
 
 
 # ----------------------------- 에이전트 -----------------------------

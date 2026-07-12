@@ -7,7 +7,7 @@ import { Tag, Button, Alert, Modal, Descriptions, Grid, Typography, Tooltip } fr
 import { VersionHistory, ExposeSwitch } from '../../shared'
 import { Icon } from '../../icons'
 import { AgentMemoryPanel } from '../AgentMemoryPanel'
-import { AGENT_STATUS, isOrchestratorImpl, SHORT_TERM_MEMORY, type Agent, type VersionMeta } from '../../mockData'
+import { AGENT_STATUS, isOrchestratorImpl, isNodeRef, SHORT_TERM_MEMORY, type Agent, type VersionMeta } from '../../mockData'
 import { typeLabel } from './AgentForm'
 import { DelegationGraph } from '../../DelegationGraph'
 import { displayName } from '../../naming'
@@ -105,7 +105,10 @@ export function AgentDetailPage({
                     <span>
                       {agent.impl === 'pipeline' ? (
                         <span>
-                          {(agent.nodes || []).map((n, i) => n.name?.trim() || `노드 ${i + 1}`).join(' → ') || '노드 없음'}
+                          {/* 참조 노드(스펙 316)는 이름을 라이브러리가 소유 — name@version으로 표기. */}
+                          {(agent.nodes || [])
+                            .map((n, i) => (isNodeRef(n) ? `${n.ref.name}@v${n.ref.version}` : n.name?.trim() || `노드 ${i + 1}`))
+                            .join(' → ') || '노드 없음'}
                         </span>
                       ) : (
                         <span style={{ fontFamily: 'var(--font-family-code)' }}>{agent.model}</span>
@@ -304,12 +307,21 @@ export function AgentDetailPage({
                       label: '노드',
                       children: (
                         <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
-                          {(agent.nodes || []).map((n, i) => (
-                            <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                              {i > 0 && <Icon name="right" size={10} style={{ color: 'var(--color-text-quaternary)' }} />}
-                              <Tag style={{ margin: 0 }}>{n.name}<span style={{ color: 'var(--color-text-tertiary)' }}> · {n.model}</span></Tag>
-                            </span>
-                          ))}
+                          {(agent.nodes || []).map((n, i) => {
+                            // 참조 노드(스펙 316): 라벨=name@version, 모델은 해석 파생(resolvedNodes,
+                            // 인덱스 정렬 일치)에서 — 미해결이면 모델 미표기(거짓 표기 금지).
+                            const label = isNodeRef(n) ? `${n.ref.name}@v${n.ref.version}` : n.name?.trim() || `노드 ${i + 1}`
+                            const model = isNodeRef(n) ? agent.resolvedNodes?.[i]?.model : n.model
+                            return (
+                              <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                {i > 0 && <Icon name="right" size={10} style={{ color: 'var(--color-text-quaternary)' }} />}
+                                <Tag style={{ margin: 0 }}>
+                                  {label}
+                                  {model ? <span style={{ color: 'var(--color-text-tertiary)' }}> · {model}</span> : null}
+                                </Tag>
+                              </span>
+                            )
+                          })}
                         </span>
                       ),
                     }]

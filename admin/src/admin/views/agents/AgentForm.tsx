@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Select, Input, Switch, Slider, Tooltip, Collapse, Alert, Modal, Segmented, Button, Tag, Steps, Checkbox } from 'antd'
-import { isOrchestratorImpl, SHORT_TERM_MEMORY, type BlockCategory, type ToolPolicy, type Agent } from '../../mockData'
+import { isOrchestratorImpl, isNodeRef, SHORT_TERM_MEMORY, type BlockCategory, type ToolPolicy, type Agent, type PipelineNode, type PipelineNodeRef } from '../../mockData'
 import { DelegationGraph } from '../../DelegationGraph'
 import { listAgentImpls, type Model, type Collection, type ImplMeta } from '../../../api'
 import { PickerGroups, type PickerGroup } from '../../../PickerGroups'
@@ -46,20 +46,23 @@ const serverOfTool = (rt: string) => rt.split('__')[0]
 
 /* 노드형 풀 파생(스펙 259/268→287 단일 출처) — 에이전트-레벨 mcps/vectorTables/memories를 노드
    합집합에서 파생한다. 폼 저장(finalize)과 오버라이드 페이로드가 공유(사본이면 드리프트 — 회고 261).
-   문서: 구저장 민이름(search_documents)=전체 컬렉션(무회귀), 그 외 search_documents__<col>. */
+   문서: 구저장 민이름(search_documents)=전체 컬렉션(무회귀), 그 외 search_documents__<col>.
+   라이브러리 참조 노드(스펙 316)는 **여기서 제외** — 클라이언트는 템플릿 config를 항상 갖고 있지
+   않으므로, 참조분의 풀은 서버가 해석(resolve_node_refs) **후** 파생한다(스펙 316 설계 2항). */
 export function derivePipelinePool(
-  nodes: { tools: string[]; memories?: string[] }[] | undefined,
+  nodes: (PipelineNode | PipelineNodeRef)[] | undefined,
   mcpItems: { name: string; tools?: string[] }[],
   collections: { name: string }[],
 ): { mcps: string[]; vectorTables: string[]; memories: string[] } {
-  const used = new Set((nodes ?? []).flatMap((n) => n.tools))
+  const inline = (nodes ?? []).filter((n): n is PipelineNode => !isNodeRef(n))
+  const used = new Set(inline.flatMap((n) => n.tools))
   const mcps = mcpItems
     .filter((s) => (s.tools ?? []).some((t) => used.has(safeToolName(s.name, t)) || used.has(t)))
     .map((s) => s.name)
   const vectorTables = used.has('search_documents')
     ? collections.map((c) => c.name)
     : collections.filter((c) => used.has(safeToolName('search_documents', c.name))).map((c) => c.name)
-  const memories = [...new Set((nodes ?? []).flatMap((n) => n.memories ?? []))]
+  const memories = [...new Set(inline.flatMap((n) => n.memories ?? []))]
   return { mcps, vectorTables, memories }
 }
 
@@ -288,7 +291,13 @@ export function AgentForm({
         ;(item?.tools ?? []).forEach((t) => rows.push({ server: srv, tool: t }))
       })
     } else {
-      const used = new Set(isPipeline ? (form.nodes ?? []).flatMap((n) => n.tools) : form.tools)
+      // 노드형은 인라인 노드의 도구만(스펙 316) — 참조 노드의 도구는 등록 config 소유라 여기 승인
+      // 오버라이드 목록에 안 뜬다(서버가 해석 후 기본 정책 적용).
+      const used = new Set(
+        isPipeline
+          ? (form.nodes ?? []).filter((n): n is PipelineNode => !isNodeRef(n)).flatMap((n) => n.tools)
+          : form.tools,
+      )
       ;(blocks.mcp?.items ?? []).forEach((s) =>
         (s.tools ?? []).forEach((t) => {
           if (used.has(safeToolName(s.name, t))) rows.push({ server: s.name, tool: t })
@@ -782,7 +791,10 @@ export function AgentForm({
           // derivePipelinePool과 동일: safeToolName 매칭). min_scores는 노드형도 소비(chat.py _rag_tools_for).
           const nodeDocCols = isPipeline
             ? (() => {
-                const used = new Set((form.nodes ?? []).flatMap((n) => n.tools))
+                // 참조 노드(스펙 316)의 문서는 등록 config 소유 — 인라인 노드만 실시간 파생.
+                const used = new Set(
+                  (form.nodes ?? []).filter((n): n is PipelineNode => !isNodeRef(n)).flatMap((n) => n.tools),
+                )
                 return collections.filter((c) => used.has(safeToolName('search_documents', c.name))).map((c) => c.name)
               })()
             : null
@@ -978,7 +990,11 @@ export function AgentForm({
                   v={
                     (form.nodes ?? []).length
                       ? `${form.nodes!.length}단계 — ${form.nodes!
-                          .map((n, i) => `${n.name?.trim() || `노드${i + 1}`}${n.model ? `(${n.model})` : ''}`)
+                          .map((n, i) =>
+                            isNodeRef(n)
+                              ? `${n.ref.name || '(참조 미선택)'}@v${n.ref.version} · 참조`
+                              : `${n.name?.trim() || `노드${i + 1}`}${n.model ? `(${n.model})` : ''}`,
+                          )
                           .join(' → ')}`
                       : '(없음 — 최소 1개 필요)'
                   }

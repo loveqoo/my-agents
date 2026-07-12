@@ -13,6 +13,7 @@ from ..chat import derive_pipeline_pool
 from ..db import get_or_404, get_session
 from ..models import Agent, AgentVersion, User
 from ..naming import assert_valid_name
+from ..node_templates import assert_node_refs_exist, resolve_node_refs
 from ..ownership import assert_may_manage, may_manage, may_use_agent, owner_of
 from ..schemas import AgentCreate, AgentOut, AgentUpdate
 from ..serializers import agent_to_out
@@ -48,6 +49,13 @@ async def list_agents(
     outs = [agent_to_out(a, pbodies) for a in rows]
     for out in outs:  # 스펙 114 — 관리 가능 여부를 각 객체에 실어 UI가 버튼 표시를 파생
         out.can_manage = may_manage(out.owner_id, principal)
+        # 노드 참조 해석 결과(스펙 316, 파생) — UI가 listAgents 단일 소스라 목록에도 채운다
+        # (오버라이드 패널·폼 미리보기가 유효 설정을 봄). 실패는 None(화면 비잠금 — 실행 시 422).
+        if isinstance(out.nodes, list):
+            try:
+                out.resolvedNodes = await resolve_node_refs(session, out.nodes)
+            except HTTPException:
+                out.resolvedNodes = None
     return outs
 
 
@@ -204,6 +212,14 @@ async def get_agent(
         raise HTTPException(status_code=404, detail="agent not found")
     out = agent_to_out(agent, await _persona_bodies(session))
     out.can_manage = may_manage(out.owner_id, principal)  # 스펙 114
+    # 노드 참조 해석 결과(스펙 316, 파생·읽기 전용) — 오버라이드 패널이 참조 노드의 유효 설정을
+    # 보게. 해석 실패(미해결 참조)는 조회를 막지 않고 None(고치러 온 화면을 잠그지 않는다 —
+    # 실행 시점의 422가 정직 통보를 맡는다).
+    if isinstance(out.nodes, list):
+        try:
+            out.resolvedNodes = await resolve_node_refs(session, out.nodes)
+        except HTTPException:
+            out.resolvedNodes = None
     return out
 
 
@@ -220,6 +236,9 @@ async def create_agent(
     _enforce_ephemeral_boundary(
         cfg
     )  # DB 쓰기 능력 금지(스펙 237)  # 완화는 admin만(스펙 177 P2 D4)
+    # 노드 참조 존재 검증(스펙 316, codex P1) — impl 무관(비노드형 저장도 실행 시 422 시한폭탄 금지).
+    # 참조 이름 advisory lock으로 삭제 가드와 직렬화(TOCTOU — 검증 후 커밋 전 삭제 봉인).
+    await assert_node_refs_exist(session, cfg.get("nodes"))
     await derive_pipeline_pool(
         cfg
     )  # 노드형 풀=노드 합집합 서버 파생(스펙 289 P2 — 폼 밖 입구도 안전)
@@ -324,6 +343,8 @@ async def update_agent(
     )  # DB 쓰기 능력 금지(스펙 237)  # 완화는 admin만(스펙 177 P2 D4)
     draft = next((v for v in agent.versions if v.status == "draft"), None)
     _preserve_impl(body, agent, draft, cfg)
+    # 노드 참조 존재 검증(스펙 316, codex P1) — impl 무관 + 이름 잠금(삭제 가드와 직렬화).
+    await assert_node_refs_exist(session, cfg.get("nodes"))
     # 노드형 풀=노드 합집합 서버 파생(스펙 289 P2) — impl 보존 **뒤**에 호출(미명시 impl이 pipeline로
     # 확정된 뒤라야 파생 게이트가 맞는다).
     await derive_pipeline_pool(cfg)
