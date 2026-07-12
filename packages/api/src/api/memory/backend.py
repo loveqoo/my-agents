@@ -45,8 +45,12 @@ class MemoryBackend(Protocol):
         실패하면 예외를 던진다**(진단이 실패를 0건으로 위장 못 하게 — graceful은 파사드가 흡수)."""
         ...
 
-    def add(self, scope: dict, messages: list[dict], infer: bool) -> None:
-        """대화/사실을 스코프 전 축에 태깅해 저장. 빈 스코프/메시지·실패 시 무시."""
+    def add(self, scope: dict, messages: list[dict], infer: bool) -> list[dict]:
+        """대화/사실을 스코프 전 축에 태깅해 저장. 빈 스코프/메시지·실패 시 무시.
+
+        반환(스펙 314): 이번에 반영된 기억 요약 `[{event, text}]`(event=ADD/UPDATE/DELETE/NONE 등
+        백엔드 원문, text=기억 본문). 없거나 실패면 `[]`. 인스펙터가 "자동 저장된 기억"으로 표시한다.
+        기존 호출부는 반환을 무시해도 무방(무회귀)."""
         ...
 
     def list_all(self, scope: dict) -> list[dict]:

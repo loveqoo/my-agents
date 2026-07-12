@@ -24,16 +24,19 @@ class InMemoryBackend:
         self._seq += 1
         return f"mem-{self._seq}"
 
-    def add(self, scope: dict, messages: list[dict], _infer: bool) -> None:
+    def add(self, scope: dict, messages: list[dict], _infer: bool) -> list[dict]:
         axes = dict(scope_axes(scope))
         if not messages or not axes:
-            return
+            return []
         # infer는 계약상 받되 LLM이 없으므로 원문 그대로 저장(verbatim) — mem0의 추출은 어댑터 고유.
+        saved: list[dict] = []
         for message in messages:
             text = (message.get("content") or "").strip()
             if not text:
                 continue
             self._store.append({"id": self._next_id(), "text": text, "axes": dict(axes)})
+            saved.append({"event": "ADD", "text": text})  # 스펙 314 요약 반환
+        return saved
 
     def _matches(self, rec: dict, axis: str, val: str) -> bool:
         return rec["axes"].get(axis) == val

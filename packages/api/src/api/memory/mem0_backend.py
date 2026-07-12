@@ -273,14 +273,26 @@ class Mem0Backend:
         hits = sorted(merged.values(), key=lambda h: h["score"], reverse=True)
         return hits[:limit]
 
-    def add(self, scope: dict, messages: list[dict], infer: bool) -> None:
+    def add(self, scope: dict, messages: list[dict], infer: bool) -> list[dict]:
         kwargs = dict(scope_axes(scope))
         if not messages or not kwargs:
-            return
+            return []
         try:
-            self._mem.add(messages, infer=infer, **kwargs)
+            res = self._mem.add(messages, infer=infer, **kwargs)
         except Exception as exc:
             log.warning("mem0 add failed: %s", exc)
+            return []
+        # mem0 add 결과 정규화(스펙 314) — {"results": [{id, memory, event}]} 형태. 버전차 방어.
+        rows = res.get("results", res) if isinstance(res, dict) else res
+        out: list[dict] = []
+        for row in rows or []:
+            if not isinstance(row, dict):
+                continue
+            text = row.get("memory") or row.get("text") or ""
+            if not text:
+                continue
+            out.append({"event": str(row.get("event") or "ADD"), "text": text})
+        return out
 
     def list_all(self, scope: dict) -> list[dict]:
         axes = scope_axes(scope)

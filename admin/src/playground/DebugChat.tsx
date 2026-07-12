@@ -13,7 +13,7 @@ import {
   dedupeConsecutive,
   type HistState,
 } from './inputHistory'
-import { Avatar, Button, Tag, Grid, Tooltip, Select, Input, Dropdown, Card } from 'antd'
+import { Avatar, Button, Tag, Grid, Tooltip, Select, Input, Dropdown, Card, Spin } from 'antd'
 import { Icon } from '../admin/icons'
 import { fmtTime } from '../admin/format'
 import { MessageContent } from './MessageContent'
@@ -949,6 +949,13 @@ function TraceChips({ trace, active, onClick }: { trace?: Trace; active: boolean
       })()}
       <Chip icon="clock-circle" color="var(--color-text-tertiary)" label={(trace.latencyMs / 1000).toFixed(2) + 's'} />
       <span style={{ fontSize: 12, color: 'var(--color-primary)', fontWeight: 500 }}>인스펙터{active ? ' ✓' : ''}</span>
+      {/* 스펙 314: 이 턴의 백그라운드 자동 기억 저장이 진행 중이면 인스펙터 링크 뒤에 로딩. 완료
+          이벤트(event: memory)가 오면 memorySaved가 채워지고 조용히 사라진다. */}
+      {trace.memoryPending && !trace.memorySaved && (
+        <Tooltip title="기억을 저장하는 중입니다 — 완료되면 인스펙터에 자동 반영됩니다.">
+          <Spin size="small" style={{ marginInlineStart: 6 }} />
+        </Tooltip>
+      )}
     </Tag>
   )
 }

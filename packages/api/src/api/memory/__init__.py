@@ -196,15 +196,17 @@ def _clamp_limit(limit: Any) -> int:  # 브로커 args의 비검증 입력 정�
         return 4
 
 
-def add(scope: dict, messages: list[dict], mem_cfg: dict | None, infer: bool = True) -> None:
+def add(scope: dict, messages: list[dict], mem_cfg: dict | None, infer: bool = True) -> list[dict]:
     """대화 턴/사실을 메모리에 저장. 무력화/실패 시 무시.
 
     infer: True(기본)면 백엔드가 사실을 추출·통합(mem0 기본). False면 messages 본문을 원문 그대로
     저장(스펙 029 — 에이전트 자가기록·관리자 저작처럼 이미 정제된 한 줄 사실용).
+
+    반환(스펙 314): 반영된 기억 요약 `[{event, text}]`(백엔드 미가용/실패 시 []). 기존 호출부는
+    반환을 무시해도 무방(무회귀).
     """
     backend = resolve_backend(mem_cfg)
-    if backend:
-        backend.add(scope, messages, infer)
+    return backend.add(scope, messages, infer) if backend else []
 
 
 def list_memories(scope: dict, mem_cfg: dict | None) -> list[dict]:

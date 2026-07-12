@@ -98,6 +98,17 @@ export interface Trace {
   modelCalls?: number // 이 턴의 모델 호출 수(실측 시)
   // 이 턴에 적용된 오버라이드(스펙 134) — 세션에 설정 다른 턴이 섞여도 턴별 구분(마스킹·캡된 값).
   overrides?: Record<string, unknown>
+  // 스펙 314 — 자동 기억 저장 상태. memoryPending=백그라운드 저장 진행 중(로딩 표시). memorySaved=
+  // 완료 결과(트레일링 event: memory / 영속 병합). 둘 다 없으면 이 턴은 자동 저장이 없다(장기 메모리 미사용).
+  memoryPending?: boolean
+  memorySaved?: MemorySaved
+}
+
+// 스펙 314 — 백그라운드 자동 기억 저장 결과 요약(비밀 마스킹·캡됨). status: ok(1건+)/none(0건)/error.
+export interface MemorySaved {
+  status: 'ok' | 'none' | 'error'
+  count: number
+  items: { event: string; text: string }[]
 }
 
 // artifact: 산출물형(스펙 188) 완성 페이로드 — 임베드 시 JS 콜백(ui-callback)이 받는 JSON 그대로.

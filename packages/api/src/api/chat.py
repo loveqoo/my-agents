@@ -933,6 +933,79 @@ def _final_trace(
     return trace, tokens
 
 
+# 백그라운드 자동 기억 저장 태스크 참조(스펙 314) — 스트림(제너레이터)이 끝나거나 클라이언트가 떠나도
+# 태스크가 GC/취소되지 않도록 강참조를 유지. 완료 시 콜백으로 스스로 제거한다.
+_BG_MEMORY_TASKS: set[asyncio.Task] = set()
+_MEMORY_SAVE_ITEM_CAP = 20  # 트레일링 이벤트/트레이스에 실을 기억 항목 상한
+_MEMORY_SAVE_TEXT_CAP = 300  # 항목 본문 표시 상한(마스킹 후, 131/191 프레임 재사용)
+_MEMORY_ADD_TIMEOUT_S = 30  # 백그라운드 저장(mem0 LLM 추출) 대기 상한 — 초과 시 pending만 해제(codex P1)
+_TRAILING_EVENT_TIMEOUT_S = 60  # 트레일링 이벤트 대기 상한 — 연결 무한 보유 방지(태스크는 계속, codex P1)
+
+
+def _summarize_saved(saved: list[dict]) -> dict:
+    """백그라운드 기억 저장 결과를 인스펙터 표시용으로 정화(스펙 314) — 비밀 마스킹+캡. status:
+    ok(1건+)/none(0건). count=원 건수(상한 전). items=[{event, text(마스킹)}]. event도 마스킹
+    (codex P2: 백엔드 계약상 event는 '원문'이라 custom 백엔드가 secret-like 값을 넣을 수 있음)."""
+    items: list[dict] = []
+    for row in (saved or [])[:_MEMORY_SAVE_ITEM_CAP]:
+        text = memory._sanitize(row.get("text", ""), cap=_MEMORY_SAVE_TEXT_CAP)
+        if not text:
+            continue
+        items.append({"event": memory._sanitize(str(row.get("event") or "ADD"), cap=16), "text": text})
+    return {"status": "ok" if items else "none", "count": len(saved or []), "items": items}
+
+
+async def _finalize_memory_trace(mid: str, summary: dict) -> None:
+    """저장 완료 후 그 assistant 메시지의 영속 trace에 memorySaved 병합(스펙 314) — 새로고침 시
+    인스펙터가 결과를 다시 불러오게 한다. 잘못된/사라진/비-assistant mid는 no-op(codex P2 — 함수
+    자체가 '남의 메시지 클로버 금지'를 보장하도록 role까지 확인)."""
+    try:
+        pk = uuid.UUID(mid)
+    except (ValueError, TypeError):
+        return
+    async with SessionLocal() as db:
+        msg = await db.get(Message, pk)
+        if msg is None or msg.role != "assistant" or not isinstance(msg.trace, dict):
+            return
+        trace = dict(msg.trace)  # 새 dict 대입으로 JSON 컬럼 dirty 플래그 확실히(in-place 변형 아님)
+        trace["memorySaved"] = summary
+        msg.trace = trace
+        await db.commit()
+
+
+async def _bg_memory_add(
+    add_scope: dict, user_text: str, full: str, mem_cfg: dict | None, mid: str | None
+) -> dict:
+    """백그라운드 자동 기억 저장(스펙 314) — done 이후 실행. **자기완결**(예외 삼킴): 저장→요약→영속
+    trace 갱신을 모두 여기서 끝내, 클라이언트가 떠나도 저장·영속이 보장된다. 반환=요약(트레일링
+    이벤트용). 자동 add scope는 user_id+run_id만(agent_id 미포함 — 누출 차단, 스펙 029/020).
+    mem0 저장이 비정상적으로 오래 걸리면 상한(_MEMORY_ADD_TIMEOUT_S)에서 손을 떼고 error 요약으로
+    마감한다(codex P1 — 무한 hang 시 pending이 안 풀리는 걸 방지; 스레드는 유실되나 드묾)."""
+    try:
+        saved = await asyncio.wait_for(
+            asyncio.to_thread(
+                memory.add,
+                add_scope,
+                [{"role": "user", "content": user_text}, {"role": "assistant", "content": full}],
+                mem_cfg,
+            ),
+            timeout=_MEMORY_ADD_TIMEOUT_S,
+        )
+        summary = _summarize_saved(saved)
+    except TimeoutError:
+        log.warning("자동 기억 저장 시간 초과(백그라운드 %ss)", _MEMORY_ADD_TIMEOUT_S)
+        summary = {"status": "error", "count": 0, "items": []}
+    except Exception:
+        log.exception("백그라운드 자동 기억 저장 실패")
+        summary = {"status": "error", "count": 0, "items": []}
+    if mid:
+        try:
+            await _finalize_memory_trace(mid, summary)
+        except Exception:
+            log.exception("영속 trace 기억 갱신 실패")
+    return summary
+
+
 async def _final_frames(
     ctx: dict,
     turn: dict,
@@ -958,6 +1031,8 @@ async def _final_frames(
         observed.append({"node": inv["node"], "ms": inv.get("ms", 0)})
     full = "".join(acc)
     total_ms = int((time.perf_counter() - t0) * 1000)
+    # 오류 턴은 영속/메모리 저장하지 않는다 (부분/실패 응답 오염 방지).
+    will_add_memory = (not errored) and turn["used_memory"] and bool(full)
     trace, tokens = _final_trace(
         ctx,
         turn,
@@ -971,7 +1046,8 @@ async def _final_frames(
         user_text=user_text,
         history_restore=history_restore,
     )
-    # 오류 턴은 영속/메모리 저장하지 않는다 (부분/실패 응답 오염 방지).
+    # 영속되는 trace에는 memoryPending을 넣지 않는다(codex P1) — 저장을 완료 못 하면(서버 재시작·hang)
+    # 영속 pending이 남아 새로고침 스피너가 영영 도는 걸 원천 차단. pending은 라이브 스트림에만 싣는다.
     mid = None
     if not errored:
         mid = await _persist(
@@ -985,16 +1061,43 @@ async def _final_frames(
         )
     if mid:
         yield _mid_frame(mid)  # 스펙 209 P1.5 — 피드백 부착용 assistant id
-    if not errored and turn["used_memory"] and full:
-        # 자동 턴 add는 add_scope(user_id+run_id만) — agent_id 미포함(누출 차단, 스펙 029).
-        await asyncio.to_thread(
-            memory.add,
-            turn["add_scope"],
-            [{"role": "user", "content": user_text}, {"role": "assistant", "content": full}],
-            ctx["mem_cfg"],
+    # P0(codex): 저장 태스크를 done을 yield하기 **전에** 띄운다. done 직후 클라이언트가 끊어(제너레이터
+    # 취소) yield 이후 코드가 재개되지 않아도, 태스크는 이미 생성·등록·detached라 끝까지 완료된다
+    # (저장·영속 보장). yield 뒤에 만들면 취소 시 태스크 자체가 안 생겨 저장이 유실된다.
+    task = None
+    live_trace = trace
+    if will_add_memory:
+        task = asyncio.ensure_future(
+            _bg_memory_add(turn["add_scope"], user_text, full, ctx["mem_cfg"], mid)
         )
-    yield f"event: trace\ndata: {json.dumps(trace, ensure_ascii=False)}\n\n"
+        _BG_MEMORY_TASKS.add(task)  # 강참조 유지(GC/취소 방지) — 완료 콜백이 스스로 제거
+        task.add_done_callback(_BG_MEMORY_TASKS.discard)
+        # memoryPending은 **라이브 스트림에만**·**mid 있을 때만** 싣는다 — mid 없으면(persistHistory=false)
+        # 완료 이벤트로 조용히 해제할 방법이 없어(mid로 패치) 스피너가 안 풀린다(codex P1).
+        if mid:
+            live_trace = {**trace, "memoryPending": True}
+    # 스펙 314: 답변+trace+done을 **먼저** 흘려 '처리 중'을 즉시 해제한다. 무거운 자동 기억 저장(mem0 LLM
+    # 추출 — 초 단위)은 위 백그라운드 태스크가 담당. 이게 done 앞을 막던 게 지연의 원인이었다.
+    yield f"event: trace\ndata: {json.dumps(live_trace, ensure_ascii=False)}\n\n"
     yield "event: done\ndata: [DONE]\n\n"
+    if task is not None and mid:
+        # 완료를 기다려 트레일링 이벤트로 조용히 알린다(status 무관 — none/error도 pending 해제용).
+        # shield로 클라이언트 취소로부터 태스크를 보호하고, wait_for로 대기 상한을 둬 저장이 비정상적으로
+        # 오래 걸려도 연결을 무한정 붙들지 않는다(codex P1 — 태스크는 계속 완료돼 영속 trace를 갱신하므로
+        # 새로고침 시 반영). 취소(클라이언트 이탈)는 재전파해 제너레이터를 정리한다.
+        try:
+            summary = await asyncio.wait_for(
+                asyncio.shield(task), timeout=_TRAILING_EVENT_TIMEOUT_S
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # TimeoutError 포함 — 트레일링 이벤트만 생략(태스크·영속은 계속)
+            summary = None
+        if summary is not None:
+            yield (
+                "event: memory\n"
+                f"data: {json.dumps({'mid': str(mid), 'memorySaved': summary}, ensure_ascii=False)}\n\n"
+            )
 
 
 @router.post("/{agent_id}/chat")

@@ -412,6 +412,25 @@ export function Playground({
             // 전송 버튼이 계속 도는 문제를 막는다(사용자 피드백 #7). finally가 다시 false 처리해도 무해.
             setStreaming(false)
           },
+          // 스펙 314: [DONE]=턴 논리 완료. 스트림은 이후 백그라운드 기억 저장 완료(event: memory)를
+          // 기다리며 열려 있을 수 있으므로, 완료 표시(스피너 해제)는 여기서도 확실히 한다.
+          onDone: () => setStreaming(false),
+          // 스펙 314: 백그라운드 자동 기억 저장 완료 — 그 mid의 턴을 **조용히** 패치(pending→saved).
+          // 이벤트가 늦게 와 사용자가 딴 세션/화면이면 그 mid가 목록에 없어 no-op(조용히 무시).
+          onMemory: (mid, memorySaved) => {
+            setConvos((c) => {
+              const arr = (c[id] || []).slice()
+              const idx = arr.findIndex((m) => m.role === 'ai' && m.id === mid)
+              if (idx < 0) return c // 그 턴이 현재 화면에 없음 → 조용히 무시(토스트·포커스 이동 없음)
+              const cur = arr[idx]
+              if (!cur.trace) return c
+              arr[idx] = {
+                ...cur,
+                trace: { ...cur.trace, memorySaved: memorySaved as Trace['memorySaved'], memoryPending: false },
+              }
+              return { ...c, [id]: arr }
+            })
+          },
         },
         controller.signal,
         sessions[id],
@@ -427,8 +446,13 @@ export function Playground({
         appendToLastAi((prev) => ({ ...prev, text: prev.text + `\n[오류] ${msg}` }))
       }
     } finally {
-      controllerRef.current = null
-      setStreaming(false)
+      // 스펙 314: 스트림이 백그라운드 기억 저장까지 열려 있다 늦게 resolve될 수 있다. 그 사이 사용자가
+      // 새 메시지를 보내 controllerRef가 교체됐으면, 이 오래된 스트림의 정리가 새 턴의 상태(전역
+      // streaming·controller)를 건드리면 안 된다 — 자기 controller일 때만 정리(교체됐으면 no-op).
+      if (controllerRef.current === controller) {
+        controllerRef.current = null
+        setStreaming(false)
+      }
     }
   }
 

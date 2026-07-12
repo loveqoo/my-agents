@@ -674,6 +674,11 @@ export interface ChatCallbacks {
   onArtifact?: (artifact: ChatArtifact) => void
   // 저장된 assistant 메시지 id(스펙 209 P1.5) — 이 응답에 피드백(👍/👎)을 부착하기 위해.
   onMessageId?: (id: string) => void
+  // 턴 논리 완료([DONE]) — 스펙 314: 스트림은 이후에도 열려 있을 수 있어(백그라운드 기억 저장 완료
+  // 이벤트 대기), 스피너 해제 등 '완료' 처리는 이 콜백으로 한다(스트림 종료가 아님).
+  onDone?: () => void
+  // 백그라운드 자동 기억 저장 완료(스펙 314) — done 뒤 트레일링. mid로 그 턴을 조용히 패치.
+  onMemory?: (mid: string, memorySaved: unknown) => void
 }
 
 function handleFrame(frame: string, cb: ChatCallbacks): boolean {
@@ -682,10 +687,16 @@ function handleFrame(frame: string, cb: ChatCallbacks): boolean {
   const dataLine = lines.find((l) => l.startsWith('data: '))
   if (!dataLine) return false
   const data = dataLine.slice(6)
-  if (data === '[DONE]') return true
+  // 스펙 314: [DONE]은 '턴 논리 완료'일 뿐 스트림 종료가 아니다 — 이후 트레일링 event: memory가 올 수
+  // 있어 계속 읽는다(리더는 서버가 스트림을 닫을 때/abort 시 끝난다). 완료 처리는 onDone로.
+  if (data === '[DONE]') {
+    cb.onDone?.()
+    return false
+  }
   try {
     const parsed = JSON.parse(data)
     if (event === 'trace') cb.onTrace?.(parsed)
+    else if (event === 'memory' && typeof parsed.mid === 'string') cb.onMemory?.(parsed.mid, parsed.memorySaved)
     else if (event === 'message_id' && typeof parsed.id === 'string') cb.onMessageId?.(parsed.id)
     else if (typeof parsed.text === 'string') cb.onToken(parsed.text)
     else if (typeof parsed.session === 'string') cb.onSession?.(parsed.session)

@@ -2,7 +2,7 @@
    Shows the resolved system prompt, retrieved memories, MCP tool calls and the
    LangGraph execution path for the currently-selected assistant turn. */
 import { useState, useEffect, type CSSProperties, type ReactNode } from 'react'
-import { Tag, Button, Collapse, Timeline, Tabs, Modal, Progress, Alert } from 'antd'
+import { Tag, Button, Collapse, Timeline, Tabs, Modal, Progress, Alert, Spin, Tooltip } from 'antd'
 import { Icon } from '../admin/icons'
 import { parseEntityText, EntityFields } from '../admin/EntityFields'
 import { JsonTree } from './JsonTree'
@@ -646,6 +646,34 @@ export function Inspector({
               {t.toolDiag.called > 0
                 ? `이 턴 도구 호출 ${t.toolDiag.called}회 — 상세는 실행 흐름 탭.`
                 : '직접 도구 호출 0회 — 이 턴은 위임(브로커) 경유로 처리됐습니다(상세는 실행 흐름 탭).'}
+            </div>
+          )}
+        </Section>
+      ) : null}
+      {/* 자동 저장된 기억(스펙 314) — 이 턴 뒤 백그라운드로 저장한다. 진행 중이면 로딩+호버 안내,
+          완료되면 저장 결과. 지금은 회상(recall)만 보이던 걸 저장(add)까지 계측(스펙 079 관측성). */}
+      {(t.memoryPending || t.memorySaved) ? (
+        <Section icon="bulb" iconColor="var(--purple-6)" title="자동 저장된 기억" count={t.memorySaved?.items.length}>
+          {t.memoryPending && !t.memorySaved ? (
+            <Tooltip title="기억을 저장하는 중입니다 — 완료되면 자동으로 반영됩니다.">
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+                <Spin size="small" /> 저장하는 중…
+              </span>
+            </Tooltip>
+          ) : t.memorySaved && t.memorySaved.status === 'ok' ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {t.memorySaved.items.map((it, i) => (
+                <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'baseline', fontSize: 12 }}>
+                  <Tag color="purple" style={{ margin: 0 }}>{it.event}</Tag>
+                  <span style={{ overflowWrap: 'anywhere' }}>{it.text}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+              {t.memorySaved?.status === 'error'
+                ? '기억 저장에 실패했습니다(백그라운드).'
+                : '이 턴에서 새로 저장된 기억이 없습니다.'}
             </div>
           )}
         </Section>
