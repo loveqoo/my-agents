@@ -133,6 +133,27 @@ async def init_db() -> None:
 
     async with SessionLocal() as session:
         await seed_if_empty(session)
+        await _recover_stale_reindex(session)
+
+
+async def _recover_stale_reindex(session: AsyncSession) -> None:
+    """부팅 시 stale 재인덱싱 잠금 회수(스펙 312) — 프로세스가 재인덱싱 중 죽으면 status가
+    'reindexing'에 갇힌다. 재인덱싱 스왑은 원자적이라 데이터는 항상 일관 상태(구 또는 신)이므로
+    'ready'로 되돌려도 안전하다(반쪽 없음). 갇힌 채 두면 그 컬렉션이 영영 접근 불가(no silent stuck).
+
+    **경계(codex F2)**: 단일 워커 배포(uvicorn --reload=워커 1) 가정. 멀티워커면 워커 B의 부팅이
+    워커 A의 *살아있는* 재인덱싱 잠금을 풀 수 있다(전역 status만 보고 회수). 진짜 멀티워커가 필요하면
+    started_at/heartbeat 리스로 "오래된 것만" 회수해야 한다(스펙 312 OUT — 이 개인 도구는 단일 워커)."""
+    from sqlalchemy import update as _update
+
+    from .models import Collection
+
+    res = await session.execute(
+        _update(Collection).where(Collection.status == "reindexing").values(status="ready")
+    )
+    await session.commit()
+    if res.rowcount:
+        logger.warning("stale 재인덱싱 잠금 %d건 회수(status reindexing→ready)", res.rowcount)
 
 
 async def get_session() -> AsyncSession:

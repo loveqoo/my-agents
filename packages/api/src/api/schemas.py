@@ -109,6 +109,35 @@ class CollectionOut(BaseModel):
     can_manage: bool = True  # 이 요청 주체가 수정/삭제 가능(스펙 114, list/get서 계산·기본 True)
 
 
+class ReindexIn(BaseModel):
+    """재인덱싱 요청(스펙 312) — 준 필드만 변경(부분). 최소 하나는 현재와 달라야 no-op이 아니다.
+
+    embedding_model_id: 임베딩 모델 교체(같은 차원 1024만). chunk_size/overlap: 재청킹(문서형만 —
+    엔티티는 1행=1청크라 무의미). 청크 변경은 원본 blob이 있는 문서만 가능."""
+
+    embedding_model_id: uuid.UUID | None = None
+    chunk_size: int | None = Field(default=None, gt=0)
+    chunk_overlap: int | None = Field(default=None, ge=0)
+
+
+class ReindexEventOut(BaseModel):
+    """재인덱싱 이력 1건(스펙 312) — 컬렉션의 모델·청크 정책 계보."""
+
+    id: uuid.UUID
+    collection_id: uuid.UUID
+    from_model_name: str | None = None
+    to_model_name: str | None = None
+    from_chunk_size: int | None = None
+    from_chunk_overlap: int | None = None
+    to_chunk_size: int | None = None
+    to_chunk_overlap: int | None = None
+    chunk_count: int
+    status: str
+    error: str | None = None
+    owner_id: str | None = None
+    created_at: datetime
+
+
 class DocumentOut(BaseModel):
     id: uuid.UUID
     collection_id: uuid.UUID

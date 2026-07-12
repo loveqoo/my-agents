@@ -342,7 +342,7 @@ async def search_collections(
 
     from . import rag_ingest
     from .db import SessionLocal
-    from .models import Chunk, Document
+    from .models import Chunk, Collection, Document
 
     q = (query or "").strip()
     if not q:
@@ -356,6 +356,29 @@ async def search_collections(
         k = max(1, min(int(top_k), 10))
     except (TypeError, ValueError):
         k = 4
+
+    # 배타 잠금(스펙 312, codex F6): 재인덱싱 중 컬렉션은 **비용 큰 질의 임베딩 호출 전에** fail-closed.
+    # 검색은 에이전트/평가 읽기 경로라 여기서 막아야 잠금이 모든 접근을 덮는다. 임베딩 뒤에 두면
+    # provider 장애가 겹칠 때 locked(409)가 아닌 embed(502)로 새어 잠금 신호가 가려진다.
+    async with SessionLocal() as db:
+        locked = (
+            (
+                await db.execute(
+                    select(Collection.name).where(
+                        Collection.id.in_([col["id"] for col in collections]),
+                        Collection.status == "reindexing",
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+    if locked:
+        raise RagSearchError(
+            "locked",
+            "재인덱싱 중",
+            f"컬렉션 재인덱싱이 진행 중입니다({', '.join(locked)}) — 잠시 후 다시 시도하세요.",
+        )
 
     # (base_url, model_id)별 질의 임베딩 캐시 — 같은 모델을 쓰는 컬렉션은 1회만 호출.
     qvec_cache: dict[tuple[str, str], list[float]] = {}
@@ -395,6 +418,8 @@ async def search_collections(
                     hits.append(
                         (float(d), filename or "(파일 미상)", text, meta, col.get("name", ""))
                     )
+    except RagSearchError:
+        raise  # 잠금 등 의도된 검색 오류는 원 메시지 보존(generic 재포장 금지)
     except Exception as exc:
         raise RagSearchError("db", "검색 예외", "문서 검색 실패(유사도 검색 중 오류).") from exc
 

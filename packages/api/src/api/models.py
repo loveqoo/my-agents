@@ -10,7 +10,18 @@ import uuid
 from datetime import datetime
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, func, text
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    LargeBinary,
+    String,
+    Text,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -146,6 +157,47 @@ class Chunk(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     document: Mapped["Document"] = relationship(back_populates="chunks")
+
+
+class DocumentBlob(Base):
+    """문서 원본 바이트(스펙 312) — 재청킹(청크 크기·겹침 변경)에 원본이 필요해 인제스트 시 보존.
+
+    Document 행은 목록 조회에서 자주 로드되므로 큰 바이트를 분리(1:1, document_id=PK). 청크는
+    text만 저장돼 모델 교체(재임베딩)엔 충분하지만, **재청킹은 원본에서 다시 잘라야** 하므로 보존.
+    이 기능 이전에 올린 문서는 blob이 없다 → 재청킹 불가(소급 한계, UI 표기)."""
+
+    __tablename__ = "document_blobs"
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True
+    )
+    data: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class CollectionReindexEvent(Base):
+    """재인덱싱 이력(스펙 312) — 컬렉션의 임베딩 모델·청크 정책 계보. 런을 뒤지지 않아도
+    "언제 뭘로 바꿨나"가 보인다. 모델 삭제 후에도 이름 박제로 계보 표기(EvalRun.agent_name 선례).
+    성공·실패 모두 남긴다(no silent — 왜 못 바꿨나 추적)."""
+
+    __tablename__ = "collection_reindex_events"
+    id: Mapped[uuid.UUID] = _pk()
+    collection_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("collections.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    from_model_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), default=None)
+    from_model_name: Mapped[str | None] = mapped_column(String(200), default=None)
+    to_model_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), default=None)
+    to_model_name: Mapped[str | None] = mapped_column(String(200), default=None)
+    # 청크 정책 계보(문서형만 유의미 — 엔티티는 1행=1청크). 미변경 시 from==to.
+    from_chunk_size: Mapped[int | None] = mapped_column(Integer, default=None)
+    from_chunk_overlap: Mapped[int | None] = mapped_column(Integer, default=None)
+    to_chunk_size: Mapped[int | None] = mapped_column(Integer, default=None)
+    to_chunk_overlap: Mapped[int | None] = mapped_column(Integer, default=None)
+    chunk_count: Mapped[int] = mapped_column(Integer, default=0)  # 재인덱싱 결과 청크 수
+    status: Mapped[str] = mapped_column(String(20), default="ok")  # ok | error
+    error: Mapped[str | None] = mapped_column(Text, default=None)
+    owner_id: Mapped[str | None] = mapped_column(String(80), index=True, default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class Provider(Base):

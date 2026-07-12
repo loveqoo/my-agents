@@ -14,7 +14,7 @@ import uuid
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
-from sqlalchemy import case, func, select, update
+from sqlalchemy import case, delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -23,7 +23,16 @@ from . import crypto, rag_ingest
 from .auth import current_principal
 from .db import get_or_404, get_session
 from .model_registry import _probe
-from .models import RAG_EMBED_DIMS, Chunk, Collection, Document, ModelConfig, User
+from .models import (
+    RAG_EMBED_DIMS,
+    Chunk,
+    Collection,
+    CollectionReindexEvent,
+    Document,
+    DocumentBlob,
+    ModelConfig,
+    User,
+)
 from .naming import validate_resource_name
 from .ownership import assert_may_manage, may_manage, owner_of
 from .references import agents_referencing, referenced_message
@@ -36,6 +45,8 @@ from .schemas import (
     CollectionUpdate,
     DocumentOut,
     DocumentPageOut,
+    ReindexEventOut,
+    ReindexIn,
     SearchHit,
 )
 from .serializers import collection_to_out
@@ -233,6 +244,7 @@ async def update_collection(
     if c is None:
         raise HTTPException(status_code=404, detail="not found")
     assert_may_manage(c, principal)  # 소유자/특권만(스펙 112)
+    _reject_if_reindexing(c)  # 재인덱싱 중 수정 차단(스펙 312 배타 잠금)
     # 임베딩 모델·dims·kind·**청크 정책**은 불변(스펙 198 — 청크 수정은 소급 안 되고 재청킹은 원본
     # 미저장이라 불가 → 수정 제거). 설명·엔티티 스키마만 갱신.
     if "entity_schema" in body.model_fields_set:
@@ -261,6 +273,7 @@ async def delete_collection(
 ) -> None:
     c = await get_or_404(session, Collection, cid)
     assert_may_manage(c, principal)  # 소유자/특권만(스펙 112)
+    _reject_if_reindexing(c)  # 재인덱싱 중 삭제 차단(스펙 312 배타 잠금)
     # 참조 무결성(스펙 093): 이 컬렉션 name을 vectorTables에 담은 에이전트가 있으면 삭제 차단.
     # 삭제하면 config에 dangling name만 남아 런타임이 조용히 RAG 없이 동작(chat.py 미해석).
     refs = await agents_referencing(session, "vectorTables", c.name)
@@ -306,6 +319,350 @@ async def collection_health(
     )
 
 
+# ----------------------------- 재인덱싱·재청킹(스펙 312) -----------------------------
+# 배타 잠금: 재인덱싱 중 컬렉션 status='reindexing' → 검색·인제스트·수정·삭제·재인덱싱 전부 차단.
+# 'reindexing'은 lockable에서 제외돼 이중 재인덱싱을 CAS가 원자적으로 막는다. 인제스트는 커밋 시점
+# 조건부 UPDATE(_persist_chunks, status!='reindexing')로 경합을 닫는다(codex F1).
+#
+# 알려진 경계(codex 적대 리뷰 — 안전 위반 아닌 미문서 경계, 개인 단일 워커 배포 전제, 스펙 312 OUT):
+#   F4: update/delete_collection의 _reject_if_reindexing은 point-in-time 가드(TOCTOU 창 존재).
+#       reindex-vs-reindex는 CAS로 원자 배타지만, 관리 CRUD-vs-reindex는 best-effort(드문 관리 액션).
+#   F5: 대상 모델 probe 실패(None)면 차원 검증을 통과시킨다 — create_collection과 동일한 관대 정책
+#       (임베딩 서버 일시 장애에도 진행). 실제 차원 불일치는 인제스트 가드2·health(가드3)가 잡는다.
+#   F7: 스왑 커밋과 status/이력 커밋 사이 크래시 시 데이터 벡터는 일관(원자 스왑)하나 이력 행이 빠질
+#       수 있다(운영 계보 누락). 런별 임베딩 모델은 EvalRun.env(스펙 240)에 별도 박제돼 비교는 가능.
+_LOCKABLE_STATUSES = ("empty", "ready", "error")
+
+
+def _reject_if_reindexing(c: Collection) -> None:
+    """잠금 중 접근 차단(no silent) — 검색/인제스트/수정/삭제 진입 가드에서 호출."""
+    if c.status == "reindexing":
+        raise HTTPException(
+            status_code=409, detail="컬렉션 재인덱싱이 진행 중입니다 — 잠시 후 다시 시도하세요."
+        )
+
+
+async def _acquire_reindex_lock(session: AsyncSession, cid: uuid.UUID) -> bool:
+    """CAS 잠금 — status를 원자적으로 reindexing 전환(check-then-act 경합 회피). 영향 행 1=획득."""
+    res = await session.execute(
+        update(Collection)
+        .where(Collection.id == cid, Collection.status.in_(_LOCKABLE_STATUSES))
+        .values(status="reindexing")
+    )
+    await session.commit()
+    return res.rowcount == 1
+
+
+async def _set_collection_status(session: AsyncSession, cid: uuid.UUID, status: str) -> None:
+    await session.execute(update(Collection).where(Collection.id == cid).values(status=status))
+    await session.commit()
+
+
+async def _embed_with_model(model: ModelConfig, chunks: list[str]) -> list:
+    """명시 모델로 청크 임베딩(재인덱싱 — _embed_chunks는 컬렉션 자기 모델 고정이라 별도).
+    같은 차원(RAG_EMBED_DIMS) 재인덱싱 불변식: 출력 차원이 저장소 고정 차원과 달라도 중단."""
+    ep = model.provider
+    if ep is None:
+        raise rag_ingest.IngestError("대상 임베딩 모델의 provider가 없습니다.")
+    vectors = await rag_ingest.embed_texts(
+        ep.base_url, crypto.decrypt(ep.api_key), model.model_id, chunks
+    )
+    bad = next((len(v) for v in vectors if len(v) != RAG_EMBED_DIMS), None)
+    if bad is not None:
+        raise rag_ingest.IngestError(
+            f"임베딩 차원({bad})이 저장소 차원({RAG_EMBED_DIMS})과 다릅니다 — 재인덱싱 중단(차원 고정)."
+        )
+    return vectors
+
+
+async def _record_reindex_event(
+    session: AsyncSession,
+    cid: uuid.UUID,
+    from_model: ModelConfig | None,
+    to_model: ModelConfig | None,
+    from_size: int,
+    from_overlap: int,
+    to_size: int,
+    to_overlap: int,
+    chunk_count: int,
+    status: str,
+    error: str | None,
+    owner_id: str | None,
+) -> None:
+    """재인덱싱 이력 1건 — 성공/실패 모두(no silent). 모델 삭제 후에도 이름 박제로 계보."""
+    session.add(
+        CollectionReindexEvent(
+            collection_id=cid,
+            from_model_id=from_model.id if from_model else None,
+            from_model_name=from_model.name if from_model else None,
+            to_model_id=to_model.id if to_model else None,
+            to_model_name=to_model.name if to_model else None,
+            from_chunk_size=from_size,
+            from_chunk_overlap=from_overlap,
+            to_chunk_size=to_size,
+            to_chunk_overlap=to_overlap,
+            chunk_count=chunk_count,
+            status=status,
+            error=error,
+            owner_id=owner_id,
+        )
+    )
+    await session.commit()
+
+
+async def _do_reindex(
+    session: AsyncSession,
+    c: Collection,
+    target_model: ModelConfig,
+    target_model_id: uuid.UUID,
+    chunk_change: bool,
+    new_size: int,
+    new_overlap: int,
+) -> int:
+    """잠금 상태에서 호출 — 새 벡터/청크를 **먼저 전량 계산(txn 미보유)** 후 한 트랜잭션으로 원자
+    스왑. 실패 시 원 상태 온전(반쪽 금지). 반환: 결과 chunk_count."""
+    if not chunk_change:
+        # 모델만 교체: 기존 청크 text를 새 모델로 재임베딩(순서 보존, 재청킹 아님).
+        rows = (
+            await session.execute(
+                select(Chunk.id, Chunk.text)
+                .where(Chunk.collection_id == c.id)
+                .order_by(Chunk.ordinal)
+            )
+        ).all()
+        if rows:
+            vectors = await _embed_with_model(target_model, [t for _id, t in rows])
+            for (chunk_id, _t), v in zip(rows, vectors, strict=True):
+                await session.execute(update(Chunk).where(Chunk.id == chunk_id).values(embedding=v))
+        await session.execute(
+            update(Collection)
+            .where(Collection.id == c.id)
+            .values(embedding_model_id=target_model_id)
+        )
+        await session.commit()
+        return len(rows)
+
+    # 재청킹(문서형): 각 문서 원본 blob에서 재분할 → 재임베딩 → 청크 교체. 전량 계산 먼저.
+    docs = (
+        (await session.execute(select(Document).where(Document.collection_id == c.id)))
+        .scalars()
+        .all()
+    )
+    rebuilt: list[tuple[Document, list[str], list]] = []
+    total = 0
+    for doc in docs:
+        blob = await session.get(DocumentBlob, doc.id)
+        if blob is None:  # 사전 가드에서 걸러지지만 방어(경합 삭제 등)
+            raise rag_ingest.IngestError(f"문서 '{doc.filename}'의 원본이 없어 재청킹 불가.")
+        text = rag_ingest.extract_text(doc.filename, doc.content_type, blob.data)
+        new_chunks = rag_ingest.chunk_text(text, new_size, new_overlap)
+        if not new_chunks:
+            raise rag_ingest.IngestError(f"문서 '{doc.filename}' 재청킹 결과가 비었습니다.")
+        vectors = await _embed_with_model(target_model, new_chunks)
+        rebuilt.append((doc, new_chunks, vectors))
+        total += len(new_chunks)
+    # 원자 스왑: 기존 청크 전량 삭제 → 새 청크 삽입 → 문서/컬렉션 갱신 → 1회 커밋.
+    await session.execute(delete(Chunk).where(Chunk.collection_id == c.id))
+    for doc, new_chunks, vectors in rebuilt:
+        for i, (t, v) in enumerate(zip(new_chunks, vectors, strict=True)):
+            session.add(
+                Chunk(
+                    document_id=doc.id,
+                    collection_id=c.id,
+                    ordinal=i,
+                    text=t,
+                    meta=None,  # 재청킹은 문서형만 — 엔티티 meta 없음
+                    embedding=v,
+                    token_count=len(t.split()),
+                )
+            )
+        doc.chunk_count = len(new_chunks)
+    await session.execute(
+        update(Collection)
+        .where(Collection.id == c.id)
+        .values(
+            embedding_model_id=target_model_id,
+            chunk_size=new_size,
+            chunk_overlap=new_overlap,
+            chunk_count=total,
+        )
+    )
+    await session.commit()
+    return total
+
+
+@router.post("/{cid}/reindex", response_model=CollectionOut)
+async def reindex_collection(
+    cid: uuid.UUID,
+    body: ReindexIn,
+    session: AsyncSession = Depends(get_session),
+    principal: User | str = Depends(current_principal),
+) -> CollectionOut:
+    """컬렉션 재인덱싱(스펙 312) — 임베딩 모델 교체(같은 차원 1024)와/또는 청크 크기·겹침 재청킹.
+    재인덱싱 중 배타 잠금(다른 접근 409). 평가 이력은 보존(건드리지 않음)."""
+    c = await _load_collection(session, cid)
+    if c is None:
+        raise HTTPException(status_code=404, detail="not found")
+    assert_may_manage(c, principal)  # 소유자/특권만(스펙 112)
+    _reject_if_reindexing(c)  # 이미 잠김이면 조기 거절(CAS로도 막지만 명확 메시지)
+
+    # ── 변경 요청 해석 + 검증 ──
+    model_change = (
+        body.embedding_model_id is not None and body.embedding_model_id != c.embedding_model_id
+    )
+    target_model = c.embedding_model
+    target_model_id = c.embedding_model_id
+    if body.embedding_model_id is not None:
+        m = await _embedding_model(session, body.embedding_model_id)
+        if m is None:
+            raise HTTPException(status_code=400, detail="임베딩 모델을 찾을 수 없습니다.")
+        if m.kind != "embedding":
+            raise HTTPException(
+                status_code=400, detail="임베딩(kind=embedding) 모델만 쓸 수 있습니다."
+            )
+        if m.provider is not None:  # 같은 차원(1024)만 — probe 실측(가드1 재사용)
+            probe = await _probe(
+                m.provider.base_url, crypto.decrypt(m.provider.api_key), m.model_id, "embedding"
+            )
+            msg = _dim_mismatch(probe.dims, RAG_EMBED_DIMS)
+            if msg:
+                raise HTTPException(status_code=409, detail=msg)
+        target_model, target_model_id = m, m.id
+
+    rechunk = body.chunk_size is not None or body.chunk_overlap is not None
+    new_size = body.chunk_size if body.chunk_size is not None else c.chunk_size
+    new_overlap = body.chunk_overlap if body.chunk_overlap is not None else c.chunk_overlap
+    if rechunk and c.kind != "document":
+        raise HTTPException(
+            status_code=400,
+            detail="청크 크기·겹침 재인덱싱은 문서형 컬렉션만 가능합니다(엔티티는 1행=1청크).",
+        )
+    chunk_change = rechunk and (new_size != c.chunk_size or new_overlap != c.chunk_overlap)
+
+    if not model_change and not chunk_change:
+        raise HTTPException(
+            status_code=400,
+            detail="변경할 내용이 없습니다(모델 또는 청크 크기·겹침 중 하나는 현재와 달라야 합니다).",
+        )
+
+    # 인제스트 진행 중(문서 parsing)이면 거절 — 재인덱싱과 인제스트 경합 최소화.
+    parsing = await session.scalar(
+        select(func.count())
+        .select_from(Document)
+        .where(Document.collection_id == cid, Document.status == "parsing")
+    )
+    if parsing:
+        raise HTTPException(
+            status_code=409, detail="인제스트가 진행 중입니다 — 완료 후 다시 시도하세요."
+        )
+
+    # 재청킹인데 원본 없는 문서가 있으면 거절(no silent — 어느 문서가 못 되는지 표기).
+    if chunk_change:
+        docs = (
+            await session.execute(
+                select(Document.id, Document.filename).where(Document.collection_id == cid)
+            )
+        ).all()
+        have = (
+            set(
+                (
+                    await session.execute(
+                        select(DocumentBlob.document_id).where(
+                            DocumentBlob.document_id.in_([d.id for d in docs])
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            if docs
+            else set()
+        )
+        missing = [d.filename for d in docs if d.id not in have]
+        if missing:
+            shown = ", ".join(missing[:5]) + (" 외" if len(missing) > 5 else "")
+            raise HTTPException(
+                status_code=400,
+                detail=f"원본이 저장되지 않은 문서가 있어 재청킹할 수 없습니다({shown}). 재업로드가 필요합니다.",
+            )
+
+    # ── 잠금 획득(CAS) → 원자 재인덱싱 → 해제(try/finally 결) ──
+    from_model = c.embedding_model
+    from_size, from_overlap = c.chunk_size, c.chunk_overlap
+    if not await _acquire_reindex_lock(session, cid):
+        raise HTTPException(
+            status_code=409, detail="다른 재인덱싱이 진행 중이거나 컬렉션이 사용 중입니다."
+        )
+    try:
+        count = await _do_reindex(
+            session, c, target_model, target_model_id, chunk_change, new_size, new_overlap
+        )
+    except Exception as exc:
+        await session.rollback()  # 반쪽 스왑 되돌림(원 청크·모델 온전)
+        await _set_collection_status(session, cid, "error")
+        detail = (
+            str(exc)
+            if isinstance(exc, rag_ingest.IngestError)
+            else f"재인덱싱 실패: {type(exc).__name__}"
+        )
+        await _record_reindex_event(
+            session,
+            cid,
+            from_model,
+            target_model,
+            from_size,
+            from_overlap,
+            new_size,
+            new_overlap,
+            0,
+            "error",
+            detail,
+            owner_of(principal),
+        )
+        raise HTTPException(status_code=500, detail=detail) from exc
+    await _set_collection_status(session, cid, "ready")
+    await _record_reindex_event(
+        session,
+        cid,
+        from_model,
+        target_model,
+        from_size,
+        from_overlap,
+        new_size,
+        new_overlap,
+        count,
+        "ok",
+        None,
+        owner_of(principal),
+    )
+    updated = await _load_collection(session, cid)
+    assert updated is not None
+    return collection_to_out(updated)
+
+
+@router.get("/{cid}/reindex-events", response_model=list[ReindexEventOut])
+async def list_reindex_events(
+    cid: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    _principal: User | str = Depends(current_principal),
+) -> list[ReindexEventOut]:
+    """재인덱싱 이력(최신순, 스펙 312) — 컬렉션 모델·청크 정책 계보."""
+    await get_or_404(session, Collection, cid)  # 존재 확인
+    rows = (
+        (
+            await session.execute(
+                select(CollectionReindexEvent)
+                .where(CollectionReindexEvent.collection_id == cid)
+                .order_by(CollectionReindexEvent.created_at.desc())
+                .limit(50)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return [ReindexEventOut.model_validate(r, from_attributes=True) for r in rows]
+
+
 # ----------------------------- retrieval 시험(스펙 072) -----------------------------
 @router.post("/{cid}/search", response_model=CollectionSearchOut)
 async def search_collection(
@@ -334,8 +691,10 @@ async def search_collection(
     try:
         hits = await runtime.search_collections([col], body.query, body.top_k)
     except runtime.RagSearchError as exc:
-        # 빈 질의는 스키마(min_length=1)가 먼저 막으므로 여기는 embed/db 실패만 — 502로 표면화.
-        raise HTTPException(status_code=502, detail=exc.tool_msg) from exc
+        # 재인덱싱 잠금(스펙 312)은 일시적 충돌 → 409(잠시 후 재시도). 빈 질의는 스키마(min_length=1)가
+        # 먼저 막으므로 그 외는 embed/db 실패 — 502로 표면화.
+        status = 409 if exc.kind == "locked" else 502
+        raise HTTPException(status_code=status, detail=exc.tool_msg) from exc
     return CollectionSearchOut(
         query=body.query,
         top_k=body.top_k,
@@ -464,7 +823,27 @@ async def _persist_chunks(
     metas: list[dict | None],
     vectors: list,
 ) -> None:
-    """청크 insert + 문서/컬렉션 집계 갱신 후 커밋(반환 없음 — doc 제자리 갱신)."""
+    """청크 insert + 문서/컬렉션 집계 갱신 후 커밋(반환 없음 — doc 제자리 갱신).
+
+    **재인덱싱 경합 차단(스펙 312, codex F1)**: 집계 UPDATE를 청크 insert *앞에서* 조건부
+    (`status != 'reindexing'`)로 먼저 실행한다. (1) 그 UPDATE가 컬렉션 행을 잠가 동시 재인덱싱 CAS를
+    직렬화하고, (2) 영향 행 0이면(재인덱싱 시작됨) 청크를 넣기 전에 취소한다 — 재인덱싱이 스왑에서
+    지우지 못할 청크가 커밋돼 유실되는 P0 데이터 손실을 막는다. 무조건 status='ready'로 덮어 잠금을
+    푸는 문제도 사라진다(집계는 여전히 원자 증분이라 동시 인제스트는 그대로 지원)."""
+    res = await session.execute(
+        update(Collection)
+        .where(Collection.id == c.id, Collection.status != "reindexing")
+        .values(
+            chunk_count=Collection.chunk_count + len(chunks),
+            doc_count=Collection.doc_count + 1,
+            status="ready",
+        )
+    )
+    if res.rowcount == 0:
+        # 재인덱싱이 시작됨(또는 컬렉션 소멸) — 이 인제스트 청크는 스왑 밖이라 무효. 넣지 않고 취소.
+        raise rag_ingest.IngestError(
+            "재인덱싱이 진행 중이라 인제스트를 취소했습니다 — 완료 후 다시 업로드하세요."
+        )
     for i, (t, v, m) in enumerate(zip(chunks, vectors, metas, strict=True)):
         session.add(
             Chunk(
@@ -479,16 +858,6 @@ async def _persist_chunks(
         )
     doc.chunk_count = len(chunks)
     doc.status = "ready"
-    # 집계 캐시는 원자적 SQL 증분 — 같은 컬렉션에 동시 인제스트해도 lost update 없음.
-    await session.execute(
-        update(Collection)
-        .where(Collection.id == c.id)
-        .values(
-            chunk_count=Collection.chunk_count + len(chunks),
-            doc_count=Collection.doc_count + 1,
-            status="ready",
-        )
-    )
     await session.commit()
     await session.refresh(doc)
 
@@ -526,6 +895,7 @@ async def ingest_document(
     if c is None:
         raise HTTPException(status_code=404, detail="not found")
     assert_may_manage(c, principal)  # 소유자/특권만(스펙 112)
+    _reject_if_reindexing(c)  # 재인덱싱 중 인제스트 차단(스펙 312 배타 잠금)
 
     # 적재 전 크기 차단(OOM 방지). size 헤더가 있으면 read 전에, 없으면 read 후 이중 점검.
     limit_mb = MAX_UPLOAD_BYTES // (1024 * 1024)
@@ -548,6 +918,10 @@ async def ingest_document(
     await session.commit()  # 문서 행은 먼저 영속화(과정 중 죽어도 흔적 남김)
     await session.refresh(doc)
     doc_id = doc.id  # rollback 후 doc는 expire되므로 id를 미리 박제(동기 lazy-load 회피)
+    # 스펙 312: 원본 바이트 보존(재청킹 필수 — 청크 크기·겹침 변경 시 원본에서 다시 자른다).
+    # 문서와 함께 영속(1:1). 인제스트가 뒤에서 실패해도 원본은 남아 재시도 근거가 된다.
+    session.add(DocumentBlob(document_id=doc_id, data=data))
+    await session.commit()
 
     try:
         chunks, metas = _split_chunks(c, doc, data, entity_rows)
@@ -575,6 +949,10 @@ async def delete_document(
         raise HTTPException(status_code=404, detail="not found")
     col = await session.get(Collection, cid)
     assert_may_manage(col, principal)  # 컬렉션 소유자/특권만(스펙 112)
+    if col is not None:
+        _reject_if_reindexing(
+            col
+        )  # 재인덱싱 중 문서 삭제 차단(스펙 312 F3 — 잠금 해제·청크 유실 방지)
     removed = doc.chunk_count
     await session.delete(doc)  # 청크 CASCADE 동반 삭제
     # 집계 캐시는 원자적 SQL 감소(greatest로 음수 방지). 마지막 문서가 빠지면 status=empty.
