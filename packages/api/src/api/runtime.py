@@ -342,7 +342,7 @@ async def search_collections(
 
     from . import rag_ingest
     from .db import SessionLocal
-    from .models import Chunk, Collection, Document
+    from .models import Chunk, Document
 
     q = (query or "").strip()
     if not q:
@@ -357,28 +357,12 @@ async def search_collections(
     except (TypeError, ValueError):
         k = 4
 
-    # 배타 잠금(스펙 312, codex F6): 재인덱싱 중 컬렉션은 **비용 큰 질의 임베딩 호출 전에** fail-closed.
-    # 검색은 에이전트/평가 읽기 경로라 여기서 막아야 잠금이 모든 접근을 덮는다. 임베딩 뒤에 두면
-    # provider 장애가 겹칠 때 locked(409)가 아닌 embed(502)로 새어 잠금 신호가 가려진다.
-    async with SessionLocal() as db:
-        locked = (
-            (
-                await db.execute(
-                    select(Collection.name).where(
-                        Collection.id.in_([col["id"] for col in collections]),
-                        Collection.status == "reindexing",
-                    )
-                )
-            )
-            .scalars()
-            .all()
-        )
-    if locked:
-        raise RagSearchError(
-            "locked",
-            "재인덱싱 중",
-            f"컬렉션 재인덱싱이 진행 중입니다({', '.join(locked)}) — 잠시 후 다시 시도하세요.",
-        )
+    # 무중단 재인덱싱(스펙 313): 검색은 재인덱싱 잠금을 **보지 않는다**. `_do_reindex`가 새 벡터를
+    # 전량 계산한 뒤 삭제+삽입을 **한 트랜잭션으로 원자 스왑**하므로, Postgres MVCC상 동시 검색(리더)은
+    # 커밋 전까지 옛 청크를, 커밋 순간부터 새 청크를 본다 — 반쪽(옛+새 혼출)은 스냅샷 격리로 원천 불가.
+    # 리더는 라이터를 기다리지 않아 스왑에 블로킹되지도 않는다. 그래서 여기서 잠금을 검사하지 않고
+    # 검색을 무중단으로 흘려보낸다(스펙 312의 검색 409 배타는 이 통찰로 폐기). 쓰기(인제스트·수정·삭제·
+    # 재인덱싱)끼리는 여전히 CAS 잠금으로 직렬화된다 — 검색만 예외.
 
     # (base_url, model_id)별 질의 임베딩 캐시 — 같은 모델을 쓰는 컬렉션은 1회만 호출.
     qvec_cache: dict[tuple[str, str], list[float]] = {}
@@ -419,7 +403,7 @@ async def search_collections(
                         (float(d), filename or "(파일 미상)", text, meta, col.get("name", ""))
                     )
     except RagSearchError:
-        raise  # 잠금 등 의도된 검색 오류는 원 메시지 보존(generic 재포장 금지)
+        raise  # 의도된 검색 오류는 원 메시지 보존(generic 재포장 금지)
     except Exception as exc:
         raise RagSearchError("db", "검색 예외", "문서 검색 실패(유사도 검색 중 오류).") from exc
 

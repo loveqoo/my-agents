@@ -430,6 +430,9 @@ async def _do_reindex(
                 .order_by(Chunk.ordinal)
             )
         ).all()
+        # 무중단(스펙 313): 읽기 스냅샷을 먼저 닫고(commit) HTTP 임베딩을 트랜잭션 밖에서 수행 →
+        # 뒤이은 UPDATE+커밋만 짧은 쓰기 트랜잭션. MVCC상 동시 검색은 이 커밋 전까지 옛 임베딩을 본다.
+        await session.commit()
         if rows:
             vectors = await _embed_with_model(target_model, [t for _id, t in rows])
             for (chunk_id, _t), v in zip(rows, vectors, strict=True):
@@ -439,7 +442,7 @@ async def _do_reindex(
             .where(Collection.id == c.id)
             .values(embedding_model_id=target_model_id)
         )
-        await session.commit()
+        await session.commit()  # ← 원자 스왑 커밋: 검색이 이 순간 새 임베딩으로 전환(반쪽 불가)
         return len(rows)
 
     # 재청킹(문서형): 각 문서 원본 blob에서 재분할 → 재임베딩 → 청크 교체. 전량 계산 먼저.
@@ -461,7 +464,9 @@ async def _do_reindex(
         vectors = await _embed_with_model(target_model, new_chunks)
         rebuilt.append((doc, new_chunks, vectors))
         total += len(new_chunks)
-    # 원자 스왑: 기존 청크 전량 삭제 → 새 청크 삽입 → 문서/컬렉션 갱신 → 1회 커밋.
+    # 원자 스왑: 기존 청크 전량 삭제 → 새 청크 삽입 → 문서/컬렉션 갱신 → 1회 커밋. 무중단(스펙 313):
+    # HTTP 임베딩은 위 루프에서 이미 끝났고 여기서 처음 쓰기 락을 잡으므로, 동시 검색은 이 커밋
+    # 전까지 옛 청크를, 커밋 순간부터 새 청크를 본다(MVCC 스냅샷 — 반쪽 불가·리더 블로킹 없음).
     await session.execute(delete(Chunk).where(Chunk.collection_id == c.id))
     for doc, new_chunks, vectors in rebuilt:
         for i, (t, v) in enumerate(zip(new_chunks, vectors, strict=True)):
@@ -691,10 +696,9 @@ async def search_collection(
     try:
         hits = await runtime.search_collections([col], body.query, body.top_k)
     except runtime.RagSearchError as exc:
-        # 재인덱싱 잠금(스펙 312)은 일시적 충돌 → 409(잠시 후 재시도). 빈 질의는 스키마(min_length=1)가
-        # 먼저 막으므로 그 외는 embed/db 실패 — 502로 표면화.
-        status = 409 if exc.kind == "locked" else 502
-        raise HTTPException(status_code=status, detail=exc.tool_msg) from exc
+        # 무중단 재인덱싱(스펙 313): 검색은 재인덱싱에 막히지 않으므로 locked(409)는 더 이상 발생하지
+        # 않는다. 빈 질의는 스키마(min_length=1)가 먼저 막으므로 여기 도달하는 건 embed/db 실패 — 502.
+        raise HTTPException(status_code=502, detail=exc.tool_msg) from exc
     return CollectionSearchOut(
         query=body.query,
         top_k=body.top_k,

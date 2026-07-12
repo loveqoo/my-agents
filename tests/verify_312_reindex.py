@@ -3,7 +3,7 @@
 측정 항목(수치):
   ① 모델 교체(mock→e5): embedding_model_id 스왑·chunk_count 불변·이력 ok·검색 결과 실제 변함.
   ② 재청킹(chunk_size ↓): chunk_count 증가(원본 blob에서 재분할)·이력에 청크 계보.
-  ③ 배타 잠금: reindexing 중 검색/인제스트/재인덱싱 전부 409 · CAS 이중획득 방지 · 성공/실패 해제.
+  ③ 쓰기 배타 잠금: reindexing 중 인제스트/재인덱싱 409(검색은 무중단 200 — 스펙 313) · CAS 이중획득 방지.
   ④ 거절: no-op 400 · 엔티티+청크파라미터 400 · 원본없는 재청킹 400.
   ⑤ 평가 이력 보존: 재인덱싱 전후 eval_runs 건수 불변.
   ⑥ stale 잠금 복구: reindexing 갇힘 → _recover_stale_reindex → ready.
@@ -156,12 +156,14 @@ async def main() -> None:
         else:
             print("  ..  rapid-mlx 없음 — 모델 교체 실증 스킵")
 
-        # ── ③ 배타 잠금: reindexing 강제 후 접근 차단 ──
+        # ── ③ 쓰기 배타 잠금: reindexing 강제 후 쓰기 차단(검색은 무중단 — 스펙 313) ──
         async with SessionLocal() as s:
             await s.execute(sa_update(Collection).where(Collection.id == cid).values(status="reindexing"))
             await s.commit()
+        # 스펙 313: 검색은 잠금을 보지 않음 — 재인덱싱 중에도 200(옛 청크 무중단 서비스). 자세한 무중단
+        # 증명은 tests/verify_313_zero_downtime.py(실동시성). 여기선 잠금 상태 검색이 막히지 않음만 확인.
         r = await c.post(f"/collections/{cid}/search", json={"query": "x", "top_k": 3})
-        check(r.status_code == 409, f"잠금 중 검색 → 409({r.status_code})")
+        check(r.status_code == 200, f"잠금 중에도 검색 무중단 → 200({r.status_code})")
         r = await c.post(f"/collections/{cid}/documents", files={"file": ("x.txt", b"hi", "text/plain")})
         check(r.status_code == 409, f"잠금 중 인제스트 → 409({r.status_code})")
         r = await c.post(f"/collections/{cid}/reindex", json={"chunk_size": 500})

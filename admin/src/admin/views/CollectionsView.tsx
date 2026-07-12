@@ -359,8 +359,9 @@ function EditModal({
 }
 
 /* ---- 문서 관리 드로어 ---- */
-/* 재인덱싱 모달(스펙 312) — 임베딩 모델 교체(같은 차원)와/또는 청크 크기·겹침 재청킹.
-   저장된 원본에서 다시 임베딩. 재인덱싱 중 컬렉션 배타 잠금(다른 접근 대기)·평가 이력 보존.
+/* 재인덱싱 모달(스펙 312 도입, 313 무중단) — 임베딩 모델 교체(같은 차원)와/또는 청크 크기·겹침 재청킹.
+   저장된 원본에서 다시 임베딩. 재인덱싱 중에도 검색은 무중단(MVCC 원자 스왑 — 진행 중엔 이전 결과,
+   완료 순간 새 결과)·업로드/편집만 잠깐 대기·평가 이력 보존.
    같은 차원(1024) 강제는 서버가 판정(모델에 차원 미저장 → 사전 필터 불가, 현재 모든 임베딩=1024). */
 function ReindexModal({
   collection,
@@ -410,7 +411,8 @@ function ReindexModal({
       body.chunk_overlap = overlap
     }
     setRunning(true)
-    // 서버가 완료까지 동기 처리(잠금→재임베딩→스왑→해제). 차원 불일치·원본 없는 문서는 4xx로 사유 노출.
+    // 서버가 완료까지 동기 처리(쓰기잠금→재임베딩→원자 스왑→해제, 검색은 무중단). 차원 불일치·원본
+    // 없는 문서는 4xx로 사유 노출.
     const ok = await runWithToast(() => reindexCollection(collection.id, body), {
       success: '재인덱싱을 마쳤습니다',
       errorPrefix: '재인덱싱 실패',
@@ -475,7 +477,7 @@ function ReindexModal({
             type="info"
             showIcon
             title="새 설정으로 벡터를 다시 만듭니다"
-            description="저장된 원본에서 다시 임베딩합니다. 재인덱싱 중에는 이 컬렉션 접근이 잠깁니다(검색·업로드는 잠시 대기). 기존 평가 이력은 그대로 보존됩니다."
+            description="저장된 원본에서 다시 임베딩합니다. 재인덱싱 중에도 검색은 무중단으로 이어집니다(진행 중엔 이전 결과, 완료 순간 새 결과). 업로드·편집만 잠깐 대기하며, 기존 평가 이력은 그대로 보존됩니다."
           />
           <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <span style={{ fontSize: 14, fontWeight: 500 }}>임베딩 모델</span>
