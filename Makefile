@@ -3,7 +3,7 @@
 
 PY_SRC = packages/api/src packages/agent/src
 
-.PHONY: lint format format-check complexity maintainability naming typecheck suite metrics metrics-fast
+.PHONY: lint format format-check complexity maintainability naming typecheck suite metrics metrics-fast sweep-debris sweep-debris-apply
 
 lint:
 	uvx ruff check $(PY_SRC)
@@ -40,3 +40,11 @@ metrics-fast: lint format-check complexity maintainability naming typecheck
 
 metrics: metrics-fast suite
 	@echo "== metrics 전판 통과 =="
+
+# 테스트 잔해 스윕(스펙 304) — 브라우저/verify 테스트가 라이브 DB에 남긴 에이전트 잔해 정리.
+# dry-run은 무해(언제나 안전), apply는 비가역. 브라우저 샷 배치 후 재사용 teardown.
+sweep-debris:
+	uv run python tests/sweep_debris.py
+
+sweep-debris-apply:
+	uv run python tests/sweep_debris.py --apply
