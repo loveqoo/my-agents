@@ -342,7 +342,7 @@
 - 네비 메뉴명 "메모리" vs 화면 어휘 "기억" 통일 검토(회고 261 — 286서 상세만 통일, 반쪽 상태)
 - shot-agent-policy-147·shot-naming-148 e2e — 284(소유 태그·필터 소멸)로 대상 표면 소멸, 수리 또는 폐기 판단 필요(286서 발견)
 - antd v6 deprecation 신규 관측: Descriptions labelStyle→styles.label (154 콘솔, 208 규칙에 따라 후속)
-- [후보] 낡은 verify 스크립트 2건 수리: verify_036_rag_ingest(KeyError 'id')·verify_056_session_cleanup_counter(3건 FAIL) — 291 이전 커밋 worktree 차등으로 기존 부채 확정(2026-07-11 재검증). ~~verify_038~~은 기존 부채가 아니라 **Phase 2 회귀**(keyword-only run_id 개명)였고 mypy 도입(Phase 4)이 적발·수리, ALL PASS 복귀. 교훈: stash 차등은 미커밋만 걷어냄 — 기준점은 스펙 시작 전 커밋 worktree로.
+- ✅**낡은 verify 스크립트 수리=스펙 307 완료**(2026-07-12, 회고 282) — verify_036(밑줄→대시 네이밍)·verify_056(일회용 DB 격리 러너로 결정화)·verify_061(seam 개명+시그니처 추종) 마감. **100·101·103은 stale 아니라 인프라**(dev 서버·mock MCP·임베딩 필요)로 재분류=서버 띄우면 exit=0. 러너 `tests/_throwaway_db.py`(virgin DB 생성·seed·격리·drop) 신설. ~~verify_038~~은 291 Phase2 회귀로 이미 수리. 교훈: stash 차등은 미커밋만 걷어냄.
 - [후보] verify_100_broker.py P1 사전 실패: _FakeAgent에 active_version 속성 없음 — 스펙 256 위임 게이트(active_version 검사) 이후 픽스처 미갱신. 원본/분할판 동일 실패(2026-07-11 Phase 3b-2서 차등 확정). 낡은 verify 3건(036·038·056)과 같은 부류.
 - ✅[스펙302 해결] verify_103_broker_rag.py(실은 컬렉션명 밑줄 금지)·verify_130/131(invocations[0] IndexError) P1 사전 실패: 스펙 294서 pristine HEAD 동일 실패로 차등 확정(내 변경 무관, 낡은 mock/픽스처). verify_100과 같은 stale verify 부류 — 일괄 갱신 대상.
 - ✅[스펙302 해결] verify_190: **stale 아닌 실 프로덕션 회귀**였음 — produce_node 애노테이션 `RunnableConfig | None`이 langgraph 1.2.5 문자열매칭 주입판정 실패→artifact 크래시, `RunnableConfig`로 복원(회고 277).
@@ -357,4 +357,4 @@
 - ✅**스펙 302 = stale verifier 정리 완료**(2026-07-11, 회고 277). 6개(084/100/103/130/131/190) 전수 진단→수선. **190은 stale 아닌 실 프로덕션 회귀**=artifact produce_node config 애노테이션이 langgraph 1.2.5 주입 판정 못 통과(문자열매칭·PEP604 유니언), `RunnableConfig`로 복원(artifact 계열 실사용 크래시 해소). 픽스처 5는 시그니처/명명/컬렉션 드리프트 추종. 6/6 PASS·codex 결함0. **교훈: 실패 verifier "낡았겠지" 방치가 실 회귀 은폐**.
 - ✅**스펙 302 후속 = agent hot-reload 봉인**(2026-07-11). `main.py:run()`(uv run api)이 `uvicorn.run(reload=True, reload_dirs=[api_src, agent_src])`로 **두 워크스페이스 소스를 다 watch** → 그간 packages/agent 미watch로 노드/flow 수정이 자동 반영 안 되던 함정(302 회귀가 오래 숨은 근원) 봉인. WatchFiles가 agent 파일 touch에 리로드 발화 실측. 배포는 uvicorn 직접(reload 없이).
 - ✅[스펙302 해결] verify_084: 몽키패치 lookup지점 이동(api.agents.memory_routes)+FakeMem threshold kwargs 흡수(회고 277).
-- [후보] verify_061_a2a_exposure 사전 실패: chat.stream_local_reply monkeypatch 실효 안 함(원본에서도 동일 실패 — 3b-1 차등 확정). 관련: chat 분할 후 파사드 재할당은 분할 모듈에 늦은 바인딩 안 됨(codex 3b-1 Low — 미문서 경계로 기록, 실사용 테스트 0. monkeypatch 필요 시 각 모듈 심볼을 직접 패치).
+- ✅**verify_061 수리=스펙 307 완료**(2026-07-12, 회고 282) — 원인은 chat.stream_local_reply가 아니라 seam 개명(`_load_exposed_ui_agent`→`_load_exposed_agent`)+`exposed_agent_a2a` 시그니처 드리프트(request/`_principal`). 실호출 이름으로 재지정+시그니처 추종+`_agent_a2a_skills` 패치로 exit=0.

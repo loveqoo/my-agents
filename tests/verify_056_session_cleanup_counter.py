@@ -24,6 +24,15 @@ from datetime import datetime, timedelta, timezone
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "packages", "api", "src"))
 
+# 격리 필수(스펙 307): 전역 cleanup_sessions dry-run의 sample은 캡이 있어, 공유 dev DB의 ambient
+# 세션이 sample을 truncate하면 자기 픽스처가 안 보여 결정성이 깨진다. 일회용 DB로 재실행(virgin =
+# 자기 픽스처만 존재). 이미 격리 자식이면(_THROWAWAY_DB) 그대로 진행.
+if not os.environ.get("_THROWAWAY_DB"):
+    import subprocess
+
+    _runner = os.path.join(ROOT, "tests", "_throwaway_db.py")
+    sys.exit(subprocess.run([sys.executable, _runner, os.path.abspath(__file__)]).returncode)
+
 from sqlalchemy import delete, select  # noqa: E402
 
 from api.batch.jobs import cleanup_sessions  # noqa: E402

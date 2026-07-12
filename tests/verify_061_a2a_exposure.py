@@ -62,8 +62,23 @@ async def _fake_stream_raises(agent_id, user_text):
     yield  # pragma: no cover — async generator로 만들기 위함
 
 
-# monkeypatch
-a2a_server._load_exposed_ui_agent = _fake_load
+async def _fake_skills(agent):
+    # 카드 skills 계산(스펙 157)은 config·DB(MCP/RAG/위임)를 읽으므로 단위 성격 보존 위해 대체한다.
+    # 카드 형태·게이트·프레이밍이 검증 대상이지 skills 세부가 아니다(그건 157 verifier 몫).
+    return [
+        {
+            "id": "chat",
+            "name": agent.name,
+            "description": "이 로컬 에이전트와 대화한다(A2A).",
+            "tags": ["chat"],
+        }
+    ]
+
+
+# monkeypatch — seam은 a2a_server가 실제로 부르는 이름을 패치(스펙 302 교훈: 재수출/구명칭 아닌 실호출
+# 지점). 스펙 061 이후 `_load_exposed_ui_agent`→`_load_exposed_agent` 개명·`_agent_a2a_skills` 신설(157).
+a2a_server._load_exposed_agent = _fake_load
+a2a_server._agent_a2a_skills = _fake_skills
 chat.stream_local_reply = _fake_stream
 
 
@@ -120,7 +135,7 @@ async def main():
         "jsonrpc": "2.0", "id": "req-1", "method": "message/send",
         "params": {"message": {"parts": [{"kind": "text", "text": "날씨 알려줘"}]}},
     }
-    resp = await a2a_server.exposed_agent_a2a("agt-x", body_send, principal="machine")
+    resp = await a2a_server.exposed_agent_a2a("agt-x", body_send, FAKE_REQUEST, _principal="machine")
     check(resp.get("jsonrpc") == "2.0" and resp.get("id") == "req-1", "D3 send JSONRPCResponse 봉투(id 에코)")
     text = a2a_client.extract_text(resp.get("result"))
     check(RUNTIME_REPLY in text, f"D3 a2a_client.extract_text가 런타임 텍스트 복원: {text!r}")
@@ -131,7 +146,8 @@ async def main():
         "agt-x",
         {"jsonrpc": "2.0", "id": "req-2", "method": "message/stream",
          "params": {"message": {"parts": [{"kind": "text", "text": "스트림"}]}}},
-        principal="machine",
+        FAKE_REQUEST,
+        _principal="machine",
     )
     body = b""
     async for chunk in stream_resp.body_iterator:
@@ -153,7 +169,10 @@ async def main():
 
     # ---- -32601: 미지원 메서드 ----
     bad = await a2a_server.exposed_agent_a2a(
-        "agt-x", {"jsonrpc": "2.0", "id": "req-3", "method": "tasks/cancel"}, principal="machine"
+        "agt-x",
+        {"jsonrpc": "2.0", "id": "req-3", "method": "tasks/cancel"},
+        FAKE_REQUEST,
+        _principal="machine",
     )
     check(bad.get("error", {}).get("code") == -32601, f"미지원 메서드 → -32601: {bad.get('error')}")
 
@@ -163,7 +182,8 @@ async def main():
         "agt-x",
         {"jsonrpc": "2.0", "id": "req-4", "method": "message/send",
          "params": {"message": {"parts": [{"kind": "text", "text": "x"}]}}},
-        principal="machine",
+        FAKE_REQUEST,
+        _principal="machine",
     )
     emsg = err_resp.get("error", {}).get("message", "")
     check(err_resp.get("error", {}).get("code") == -32000, "비에코 send 예외 → -32000")

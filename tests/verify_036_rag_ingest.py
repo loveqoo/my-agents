@@ -1,7 +1,7 @@
 """스펙 036 검증 — RAG 인제스트(컬렉션 + 문서 업로드 → 청킹 → 임베딩 → pgvector).
 
 인프로세스 httpx(ASGI) + 실 DB로 수치/불변식 단언. 검증용 모델·컬렉션을 고유 prefix
-(mdl_v036_/col_v036_)로 만들어 단언 후 **삭제**(자가정리, 실데이터 불간섭).
+(mdl-v036-/col-v036-)로 만들어 단언 후 **삭제**(자가정리, 실데이터 불간섭).
 
 happy-path는 **mock 임베딩 모델**(Mock LLM provider, `/_remote/v1/embeddings`가 입력 1건당
 RAG_EMBED_DIMS 벡터 1개 반환)로 라이브 MLX 없이 결정적으로 돈다. (in-process 앱이 outbound로
@@ -39,8 +39,8 @@ from api.rag import _dim_mismatch  # noqa: E402
 
 _AUTH = {"Authorization": f"Bearer {_token()}"}
 _fails: list[str] = []
-CP = "col_v036_"
-MP = "mdl_v036_"
+CP = "col-v036-"
+MP = "mdl-v036-"
 
 # 멀티청크를 강제하는 본문(chunk_size=200/overlap=20 → 여러 청크). 문단 구분 포함.
 DOC_TEXT = (
