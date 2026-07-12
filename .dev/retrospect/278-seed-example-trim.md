@@ -23,9 +23,18 @@
 - **시드가 상수→행 1:1이면 단위 검증의 충실도가 라이브 시드에 근접**. `_seed_personas`는 `PERSONAS`를
   그대로 `add_all` — 상수와 심긴 행 사이에 변환이 없다. 게다가 이번 변경은 **행 제거만**이라 새 제약
   위반(NOT NULL·unique)을 만들 수 없다. 그래서 postgres가 내려가 rung 2(신선 빈 DB 시드 카운트)를 못
-  돌려도, 카탈로그 상수의 카운트·참조무결·고아0을 재는 단위 verifier가 "심길 값"을 사실상 그대로 측정한다.
-  **rung 대체 가능성은 변환 유무·변경 방향으로 판단** — 추가라면 라이브 제약 검증이 꼭 필요하지만, 순수
-  제거+무변환 매핑이면 단위가 라이브를 대리한다. → [[verification-ladder-three-rungs]]
+  돌리는 동안에도, 카탈로그 상수의 카운트·참조무결·고아0을 재는 단위 verifier가 "심길 값"을 사실상 그대로
+  측정한다. **rung 대체 가능성은 변환 유무·변경 방향으로 판단** — 추가라면 라이브 제약 검증이 꼭
+  필요하지만, 순수 제거+무변환 매핑이면 단위가 라이브를 대리한다. → [[verification-ladder-three-rungs]]
+
+- **"인프라 없음"을 결론 내리기 전에 한 겹 더 — 내려간 게 데몬인지 컨테이너인지 분리**. 처음엔
+  "postgres·docker·compose 로컬 부재"로 rung 2를 미실행 처리했는데, 사용자가 "docker로 떠 있다"고
+  하자 다시 파고드니 실상은 (1) OrbStack VM 자체가 내려가 소켓 파일이 없었고(`orb start`로 기동),
+  (2) 기동 후에도 뜬 건 **다른 프로젝트**(`absence-postgres`)였고 (3) 내 `my-agents-postgres-1`은
+  7시간 전 Exited라 `docker start`로 따로 살려야 했다. "docker가 안 붙는다"는 한 신호에서 "인프라 없음"으로
+  점프하면 3겹(VM·타 컨테이너·내 컨테이너)이 뭉뚱그려진다. **사용자 보고가 내 측정과 어긋나면 내 측정을
+  의심하고 계층을 갈라라** — 덕분에 rung 2를 실제로 돌렸다(일회용 DB로 전체 alembic+seed 실측
+  2/3/0/5/0, 라이브 `agents` 무접촉 확인). → [[probe-deeper-before-concluding]] [[user-is-remote-do-host-actions-yourself]]
 
 - **RBAC/적대 rung은 스펙 성격으로 트리거 — 데이터 큐레이션엔 강제 안 됨**. 소유권 체크리스트는
   "유저별 데이터·소유권 컬럼·비가역 경로"를 만질 때 자동 적용이고, 시드 예제 트림은 그중 어디에도 안
@@ -41,8 +50,12 @@
 - **단위(rung 1)**: `verify_303_seed_trim.py` 11/11 — 카운트(페르소나2·컬렉션3·세션0·승인0)·제거항목
   부재·참조무결(dangling0)·고아0. seed가 상수→행 1:1이라 충실도 높음.
 - **게이트**: metrics-fast 0(ruff·format·xenon·MI·naming·mypy 106파일).
-- **rung 2(라이브 신선시드) 미실행**: postgres·docker·compose 로컬 부재로 지금 못 띄움. 순수 제거+무변환
-  매핑이라 라이브가 이 트림 때문에 실패할 경로 없음(위 복리 포인트). 화면 재시드(파괴적)는 사용자 명시 시.
+- **실인프라(rung 2)**: `smoke_303_fresh_seed.py` — 일회용 DB(`agents_seed_smoke_303`)에 **전체 alembic
+  마이그레이션 체인 + `seed_if_empty`** 실행 후 실측 카운트 = 페르소나2·컬렉션3·세션0·에이전트5·승인0,
+  고아 미적재. 라이브 `agents` DB 무접촉(persona=4·agents=58 불변으로 확인)·스모크 DB drop 완료.
+  (OrbStack·`my-agents-postgres-1` 기동은 내가 직접 — 위 복리 포인트.)
+- **rung 3(적대) 미해당**: 유저데이터·소유권·비가역 경로 아니라 RBAC/codex 트리거 불성립(스킵 아님).
+- 화면 재시드(현 dev DB 초기화, 파괴적)는 여전히 사용자 명시 시에만.
 
 ## 남은 것 / 주의
 - **seed는 빈 DB에만** 실행 → 현재 dev DB엔 미반영. 트림 결과를 화면으로 보려면 재시드(DB 초기화, 파괴적)
