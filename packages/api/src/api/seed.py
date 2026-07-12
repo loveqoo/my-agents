@@ -1,7 +1,8 @@
-"""초기 시드 — 어드민 UI mock 데이터를 실 DB에 적재 (테이블이 비어있을 때만).
+"""초기 시드 — 첫 설치 예제 데이터를 실 DB에 적재 (테이블이 비어있을 때만).
 
-admin/src/admin/mockData.ts 와 동일한 도메인 데이터. 실서비스 첫 기동 시 화면이
-빈 상태가 아니라 의미있는 데이터로 채워지도록 한다.
+실 DB 첫 기동 예제의 **단일 출처**다. 화면이 빈 상태가 아니라 의미있는 데이터로 채워지도록
+최소 정예(고아·빈 데모 배제)만 심는다(스펙 303). admin/src/admin/mockData.ts의 데이터 배열은
+死코드(21파일이 타입·상수만 import)이며 이 시드와 무관 — 미러 아님.
 """
 
 import os
@@ -33,24 +34,14 @@ from .served_mcp import SERVED_MCP_TOOLS, SERVED_MCP_TOOLS_META, served_url
 CHAT_MODEL_NAME = "mock-llm"
 
 # (name=식별 이름·규칙 준수, description=설명, tone, body) — 스펙 148, 210. name은 config.persona 참조 키.
+# 시드 에이전트가 실제 참조하는 2종만 유지(스펙 303) — strict-senior-engineer·calm-sre는
+# Code Reviewer/Ops Copilot 제거(스펙 046)로 참조가 끊긴 고아라 걷어냄.
 PERSONAS = [
     (
         "methodical-researcher",
         "Methodical Researcher",
         "전문적, 차분함",
         "Rigorous, source-driven, neutral. Prefer primary sources. Always cite. Lead with a one-line answer.",
-    ),
-    (
-        "strict-senior-engineer",
-        "Strict Senior Engineer",
-        "단호함, 공감적",
-        "Direct, specific, kind. Flag correctness and security first, style last. Cite exact line numbers.",
-    ),
-    (
-        "calm-sre",
-        "Calm SRE",
-        "차분함",
-        "Unflappable. Quantify before acting. Smallest safe step first. Confirm blast radius.",
     ),
     (
         "warm-secretary",
@@ -85,7 +76,8 @@ MEMORY_TYPES = [
 # 차원은 임베딩 모델에 맞춰 RAG_EMBED_DIMS로 고정. 빈(empty) 상태로 생성 — 문서는 업로드로 채운다.
 # (name, description, embed_model_name) — embed_model_name이 있으면 그 모델에 바인딩,
 # None이면 기본 임베딩 모델(mock-embed, 스펙 059). docs_kb를 mock-embed에 묶어 라이브 모델 없이
-# 결정적으로 샘플을 적재·검색하는 *대표 데모* 컬렉션으로 쓴다(스펙 048 #9). 나머지 3개는 실데이터 대기.
+# 결정적으로 샘플을 적재·검색하는 *대표 데모* 컬렉션으로 쓴다(스펙 048 #9). 나머지 2개는 실데이터 대기.
+# 시드 에이전트 vectorTables가 참조하는 3종만 유지(스펙 303) — support-tickets는 참조 0 고아라 걷어냄.
 COLLECTIONS = [
     # 이름은 규칙 준수(스펙 148 — `_` 금지→`-`). AGENTS vectorTables 참조와 일치 유지.
     (
@@ -94,7 +86,6 @@ COLLECTIONS = [
         "mock-embed",
     ),
     ("product-titles", "상품 title 임베딩 — 상품 의미 검색·추천. 문서를 업로드해 채웁니다.", None),
-    ("support-tickets", "과거 지원 티켓 요약 — 유사 사례 검색. 문서를 업로드해 채웁니다.", None),
     ("team-notes", "팀 노션 노트 — 내부 지식 의미 검색. 문서를 업로드해 채웁니다.", None),
 ]
 
@@ -203,16 +194,9 @@ AGENTS = [
 ]
 
 # sessions: session_id, agent_id(agt_), agent_name, channel, status, turns, tokens
-# sess-6c93(Code Reviewer)은 에이전트 제거(스펙 046)와 함께 삭제 — 유지 에이전트 세션만 남긴다.
-# turns/tokens는 0으로 진실화(스펙 056, learning 058): 이 데모 세션들은 Message 행을 심지 않으므로
-# 실제 턴=0이다. 부풀린 카운터(turns=14 등)는 정리 배치가 빈 세션을 고턴으로 오인해 보존하게 만들었다.
-# status·channel로 데모 다양성은 유지하되 카운터는 실제 행과 일치시킨다(빈 세션은 정직하게 0턴·정리대상).
-SESSIONS = [
-    ("sess-8f21", "agt_rsch_7f3a91", "research-assistant", "debug-console", "active", 0, 0),
-    ("sess-7a05", "agt_rsch_7f3a91", "research-assistant", "A2A · partner-x", "idle", 0, 0),
-    ("sess-5d77", "agt_sec_9d4417", "personal-secretary", "web-chat", "error", 0, 0),
-    ("sess-4b10", "agt_rsch_7f3a91", "research-assistant", "web-chat", "completed", 0, 0),
-]
+# 빈 껍데기 데모 세션(turns=0·Message 행 없음)은 전부 제거(스펙 303) — 첫 설치 세션 화면은 정직하게
+# 빈 상태로 시작해 실사용으로 채워진다("의미있는 데이터로" 원칙과 정합 — 빈 세션은 의미 데이터가 아님).
+SESSIONS: list = []
 
 # 시드 승인 데모는 repo.merge·k8s.write(제거 권한) + Code Reviewer·Ops Copilot(제거 에이전트)에
 # 묶여 있었으므로 제거(스펙 046). HIL 게이트 메커니즘(041)은 runtime 정책으로 보존 — 카탈로그에
