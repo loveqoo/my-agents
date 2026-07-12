@@ -64,7 +64,7 @@ const TITLES: Record<ViewKey, string> = {
   overview: '개요',
   agents: '에이전트',
   blocks: '빌딩 블록',
-  'node-library': '노드 라이브러리',
+  'node-library': '노드',
   models: '프로바이더·모델',
   collections: 'RAG 컬렉션',
   sessions: '세션',
@@ -124,7 +124,7 @@ export default function AdminShell({ user, onLogout }: { user: Me; onLogout: () 
     { key: 'agents', icon: <RobotOutlined />, label: '에이전트' },
     { key: 'blocks', icon: <AppstoreOutlined />, label: '빌딩 블록' },
     // 노드 라이브러리(스펙 316) — 노드형 파이프라인의 재사용 노드 카탈로그(공유, admin 전용 아님).
-    { key: 'node-library', icon: <PartitionOutlined />, label: '노드 라이브러리' },
+    { key: 'node-library', icon: <PartitionOutlined />, label: '노드' },
     { key: 'collections', icon: <FolderOpenOutlined />, label: 'RAG 컬렉션' },
     { key: 'sessions', icon: <CommentOutlined />, label: '세션' },
     { key: 'memory', icon: <ReadOutlined />, label: '메모리' },

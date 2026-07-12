@@ -253,8 +253,8 @@ export default function NodeLibraryView() {
 
   return (
     <Page
-      title="노드 라이브러리"
-      subtitle="노드형 파이프라인의 재사용 노드 — 등록하고 에이전트에서 버전을 핀 고정해 참조"
+      title="노드"
+      subtitle="미리 정의해 두는 등록 노드 — 노드형 에이전트가 버전을 핀 고정해 참조"
       actions={
         <Button type="primary" icon={<Icon name="plus" />} onClick={() => setForm({ mode: 'create' })}>
           새 노드

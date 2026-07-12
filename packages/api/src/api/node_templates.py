@@ -37,7 +37,7 @@ async def require_node_manage(principal: User | str = Depends(current_principal)
     실행 자산**이라 발행/삭제는 특권(머신 토큰·superuser·admin)만. member는 403. 읽기(목록·상세)는
     인증만 — 에이전트 폼의 참조 픽커가 소비한다. model_registry.require_model_manage와 동일 패턴."""
     if not is_privileged(principal):
-        raise HTTPException(status_code=403, detail="노드 라이브러리 관리 권한이 없습니다")
+        raise HTTPException(status_code=403, detail="등록 노드 관리 권한이 없습니다")
     return principal
 
 
@@ -101,7 +101,7 @@ async def resolve_node_refs(db: AsyncSession, nodes: list) -> list:
             raise HTTPException(
                 status_code=422,
                 detail=f"노드 참조 미해결: {ref.get('name')}@{ref.get('version')} — "
-                "노드 라이브러리에 없는 이름/버전입니다(삭제되었거나 오타).",
+                "등록 노드에 없는 이름/버전입니다(삭제되었거나 오타).",
             )
         cfg = copy.deepcopy(tpl.config or {})
         cfg.setdefault("name", tpl.name)
@@ -165,7 +165,7 @@ async def assert_node_refs_exist(db: AsyncSession, nodes: object) -> None:
             status_code=422,
             detail="노드 참조 미해결: "
             + ", ".join(f"{n}@{v}" for n, v in missing)
-            + " — 노드 라이브러리에 없는 이름/버전입니다(삭제되었거나 오타).",
+            + " — 등록 노드에 없는 이름/버전입니다(삭제되었거나 오타).",
         )
 
 

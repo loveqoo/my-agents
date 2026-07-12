@@ -338,7 +338,7 @@ export function NodeListEditor({
               value={n.ref.name || undefined}
               status={!n.ref.name.trim() ? 'error' : undefined}
               placeholder={
-                templates === null ? '불러오는 중…' : templates.length ? '노드 라이브러리에서 선택' : '등록된 노드 없음 — 노드 라이브러리에서 먼저 등록하세요'
+                templates === null ? '불러오는 중…' : templates.length ? '등록 노드에서 선택' : '등록된 노드 없음 — 「노드」 메뉴에서 먼저 등록하세요'
               }
               options={(templates ?? []).map((t) => ({
                 label: `${t.name} (최신 v${t.latestVersion})`,
@@ -394,8 +394,8 @@ export function NodeListEditor({
       {/* 동작 설명은 저작(편집) 화면에만 — 오버라이드(구조 잠금)에서는 이미 아는 내용의 반복이라 생략(스펙 287 후속). */}
       {!fixedStructure && (
         <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginBottom: 12 }}>
-          노드를 위에서 아래로 순서대로 이어 실행합니다. 노드마다 직접 설정하거나, 노드 라이브러리의 등록
-          노드를 버전 고정으로 참조할 수 있습니다. 앞 노드의 결과가 다음 노드로 전달됩니다.
+          노드를 위에서 아래로 순서대로 이어 실행합니다. 노드마다 직접 설정하거나, 등록 노드를
+          버전 고정으로 참조할 수 있습니다. 앞 노드의 결과가 다음 노드로 전달됩니다.
         </span>
       )}
       {nodes.length === 0 && (
@@ -450,7 +450,7 @@ export function NodeListEditor({
                       <>
                         <span style={{ flex: 'none', fontSize: 13, fontWeight: 500 }}>{refLabel(n)}</span>
                         <Tag color="geekblue" style={{ flex: 'none', margin: 0 }}>
-                          라이브러리
+                          등록 노드
                         </Tag>
                         {!open.includes(i) && nodeInvalid(n) && (
                           <Tag color="red" style={{ flex: 'none', margin: 0 }}>
@@ -522,7 +522,7 @@ export function NodeListEditor({
                         }}
                         options={[
                           { label: '직접 설정', value: 'inline' },
-                          { label: '라이브러리 참조', value: 'ref' },
+                          { label: '등록 노드', value: 'ref' },
                         ]}
                       />
                     )}
@@ -531,7 +531,7 @@ export function NodeListEditor({
                         // 방어적 분기 — 오버라이드 베이스는 해석된 인라인(resolvedNodes)이라 정상
                         // 경로에선 도달하지 않는다. 도달 시 정직하게 참조임을 표기(편집 불가).
                         <span style={{ fontSize: 13, color: 'var(--color-text-tertiary)' }}>
-                          라이브러리 참조 노드 — {refLabel(n)} (여기서 편집할 수 없습니다)
+                          등록 노드 참조 — {refLabel(n)} (여기서 편집할 수 없습니다)
                         </span>
                       ) : (
                         refBody(i, n)

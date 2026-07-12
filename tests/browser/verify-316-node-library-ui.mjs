@@ -49,7 +49,7 @@ try {
   await page.getByText('에이전트', { exact: true }).first().waitFor({ timeout: 10000 })
   await page.waitForTimeout(400)
 
-  await page.getByText('노드 라이브러리', { exact: true }).first().click()
+  await page.locator('.ant-menu-item', { hasText: /^노드$/ }).first().click()
   await page.waitForTimeout(800)
   const listText = await page.locator('body').innerText()
   check(listText.includes(TPL), '① 목록에 템플릿 이름')
@@ -102,8 +102,8 @@ try {
 
   const modal = page.locator('.ant-modal:visible').last()
   // Segmented "라이브러리 참조" 전환
-  const seg = modal.locator('.ant-segmented-item', { hasText: '라이브러리' }).first()
-  check(await seg.isVisible().catch(() => false), '③ 노드 카드에 "직접 설정|라이브러리 참조" Segmented')
+  const seg = modal.locator('.ant-segmented-item', { hasText: '등록 노드' }).first()
+  check(await seg.isVisible().catch(() => false), '③ 노드 카드에 "직접 설정|등록 노드" Segmented')
   await seg.click()
   await page.waitForTimeout(500)
   // 이름 Select → 템플릿 선택
@@ -133,7 +133,7 @@ try {
     `③ 저장: resolvedNodes 해석 (got ${JSON.stringify(saved?.resolvedNodes?.[0]?.prompt ?? null)})`)
 
   // ── ④ 참조된 버전 삭제 버튼 disabled + usedBy 표면화 ──
-  await page.getByText('노드 라이브러리', { exact: true }).first().click()
+  await page.locator('.ant-menu-item', { hasText: /^노드$/ }).first().click()
   await page.waitForTimeout(700)
   await page.getByText(TPL, { exact: false }).first().click()
   await page.waitForTimeout(700)
