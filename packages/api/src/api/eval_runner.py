@@ -228,7 +228,14 @@ async def eval_run_rag(collection: dict, query: str) -> dict:
         "error": False,
         "rag": {
             "hits": [
-                {"score": h["score"], "filename": h["filename"], "text": h["text"][:300]}
+                # meta는 엔티티 컬렉션의 행별 metadata(스펙149) — rag_meta_contains 판정이 읽는다(스펙310).
+                # 문서형 hit는 meta=None. 버리지 말고 실어 보낸다(전엔 score/filename/text만 남겨 판정 불가).
+                {
+                    "score": h["score"],
+                    "filename": h["filename"],
+                    "text": h["text"][:300],
+                    "meta": h.get("meta"),
+                }
                 for h in hits
             ],
             "top_score": hits[0]["score"] if hits else None,

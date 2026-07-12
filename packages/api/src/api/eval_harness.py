@@ -185,6 +185,44 @@ def rag_source_contains(frag: str) -> tuple[str, Callable[[dict], bool]]:
     )
 
 
+def rag_meta_contains(spec: str) -> tuple[str, Callable[[dict], bool]]:
+    """RAG 러너 전용(스펙 310) — 검색 hit 중 하나의 **metadata가 지정 키=값을 전부(부분 일치)** 담는지.
+    엔티티 컬렉션(스펙149)은 파일 1개에 N행이라 파일명이 정답으로 무가치 → 행별 metadata id로 특정한다.
+    arg=`키=값` 쉼표 구분(`movie_id=101` 또는 조합 `director_id=9,genre_id=6`). 값은 **스칼라 문자열 관대
+    비교**(int/float/str만, `str(3)=="3"`)·**미지정 키 무시**. **키 부재·None·bool·컨테이너는 불일치**
+    (fail-closed — codex 310: `str(None)=="None"`나 비스칼라 repr 매칭이 조용한 초록을 낸다). obs["rag"]
+    부재(agent 런)면 False(스펙140 규약). 값에 `,`·`=` 포함은 미지원(엔티티 id는 스칼라)."""
+    pairs: list[tuple[str, str]] = []
+    for item in spec.split(","):
+        k, sep, v = item.partition("=")
+        k, v = k.strip(), v.strip()
+        if not sep or not k or not v:
+            raise ValueError(
+                f"rag_meta_contains arg는 `키=값[,키=값…]` 형식이어야 합니다 (got {item!r})"
+            )
+        pairs.append((k, v))
+
+    def _eq(meta: dict, k: str, v: str) -> bool:
+        # 키가 실제로 있고, 값이 스칼라 id(bool·컨테이너·None 제외)여야 문자열 비교. 그 외 불일치(fail-closed).
+        if k not in meta:
+            return False
+        val = meta[k]
+        if val is None or isinstance(val, bool) or not isinstance(val, (str, int, float)):
+            return False
+        return str(val) == v
+
+    def _meta_matches(o: dict) -> bool:
+        for h in _rag_obs(o).get("hits", []):
+            meta = h.get("meta")
+            if not isinstance(meta, dict):  # 문서형 hit(meta=None) 등 → 불일치
+                continue
+            if all(_eq(meta, k, v) for k, v in pairs):
+                return True
+        return False
+
+    return (f"rag_meta_contains:{spec}", _meta_matches)
+
+
 # 값 = (팩토리, arg 필수 여부). 팩토리 인자 수가 제각각(arg 유무)이라 Callable[..., tuple]로 묶는다.
 _ASSERT_TYPES: dict[str, tuple[Callable[..., tuple], bool]] = {
     "trace_has": (trace_has, True),  # (팩토리, arg 필수 여부)
@@ -198,6 +236,7 @@ _ASSERT_TYPES: dict[str, tuple[Callable[..., tuple], bool]] = {
     "rag_score_gte": (rag_score_gte, True),
     "rag_score_lte": (rag_score_lte, True),  # 스펙 194
     "rag_source_contains": (rag_source_contains, True),
+    "rag_meta_contains": (rag_meta_contains, True),  # 스펙 310 — 엔티티 metadata 키=값 부분 일치
 }
 
 

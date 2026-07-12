@@ -39,6 +39,7 @@ const ASSERT_TYPES: { value: EvalAssert['type']; label: string; needsArg: boolea
   { value: 'rag_score_gte', label: 'RAG: 최고 유사도', needsArg: true, hint: '0.4', cat: 'RAG' },
   { value: 'rag_score_lte', label: 'RAG: 최고 유사도', needsArg: true, hint: '0.4', cat: 'RAG' },
   { value: 'rag_source_contains', label: 'RAG: 근거 파일명', needsArg: true, hint: '예: AB테스트.md — 이 파일이 근거로 나와야 함', cat: 'RAG' },
+  { value: 'rag_meta_contains', label: 'RAG: 엔티티 id', needsArg: true, hint: '예: movie_id=101 · 조합은 director_id=9,genre_id=6 — 이 엔티티가 나와야 함', cat: 'RAG' },
   { value: 'llm_judge', label: 'AI 판정 (비결정)', needsArg: true, hint: '예: 답변이 정중한 존댓말로 작성되었는가', cat: 'AI' },
 ]
 const catOf = (t: EvalAssert['type']): AssertCat => ASSERT_TYPES.find((x) => x.value === t)?.cat ?? '답변'
@@ -57,6 +58,7 @@ export function assertLabel(a: EvalAssert): string {
     case 'rag_score_gte': return `유사도 ${arg} 이상`
     case 'rag_score_lte': return `유사도 ${arg} 이하`
     case 'rag_source_contains': return `근거 파일 "${arg}"`
+    case 'rag_meta_contains': return `엔티티 ${arg}`
     case 'llm_judge': return `AI 판정: ${arg}`
     default: return a.type
   }

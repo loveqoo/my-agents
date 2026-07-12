@@ -815,7 +815,7 @@ export interface EvalDataset {
   generating?: boolean // 스펙 193 — 문제 자동 생성 진행 중(스피너·Skeleton·폴링 신호)
 }
 export interface EvalAssert {
-  type: 'trace_has' | 'trace_lacks' | 'output_contains' | 'no_error' | 'output_nonempty' | 'llm_judge' | 'rag_hits_gte' | 'rag_hits_lte' | 'rag_score_gte' | 'rag_score_lte' | 'rag_source_contains'
+  type: 'trace_has' | 'trace_lacks' | 'output_contains' | 'no_error' | 'output_nonempty' | 'llm_judge' | 'rag_hits_gte' | 'rag_hits_lte' | 'rag_score_gte' | 'rag_score_lte' | 'rag_source_contains' | 'rag_meta_contains'
   arg?: string
 }
 export interface EvalCaseT {
