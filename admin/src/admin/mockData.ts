@@ -1,8 +1,7 @@
-/* Admin 콘솔 데모 데이터.
-   handoff 번들 ui_kits/admin/adminData.js를 타입 포함해 그대로 이식.
-   빌딩 블록(페르소나·메모리·벡터테이블·MCP), 그 블록으로 조립한 에이전트,
-   라이브 세션, 승인 큐, 각종 상태맵. 모두 mock(데모 데이터)이며 뷰에서 useState로
-   복제해 조작한다. 실제 백엔드 연결은 이후 루프에서 점진적으로. */
+/* Admin 콘솔 공용 타입·상태맵.
+   에이전트/세션/블록의 TypeScript 타입과 상태맵(라벨·태그·색) 단일 출처. 실 데이터는 백엔드
+   API에서 받는다(seed.py가 첫 설치 예제의 단일 출처, 스펙 303). 예전 mock 데이터 배열
+   (BLOCKS·ADMIN_AGENTS·ADMIN_SESSIONS)은 死코드라 제거(스펙 305) — 타입·상수만 유지. */
 
 /* 단기 기억 카탈로그 라벨(스펙 269) — 백엔드 memory_enabled()가 무시하는 죽은 문자열(단기 기억은
    historyDepth가 소유). 기억 *선택지·표시*에서 제외하는 단일 출처(카탈로그 DB 행은 유지). */
@@ -208,94 +207,11 @@ export interface StatusMeta {
   desc?: string
 }
 
-/* ---------- 빌딩 블록 ---------- */
-export const BLOCKS: Record<string, BlockCategory> = {
-  persona: {
-    label: '페르소나', icon: 'smile', color: 'var(--magenta-6)',
-    desc: '에이전트가 따르는 성격·말투 정의(재사용 가능).',
-    items: [
-      { id: 'ps-research', name: 'Methodical Researcher', tone: '전문적, 차분함', usedBy: 1, updated: '2d ago', body: 'Rigorous, source-driven, neutral. Prefer primary sources. Always cite. Lead with a one-line answer.' },
-      { id: 'ps-senior', name: 'Strict Senior Engineer', tone: '단호함, 공감적', usedBy: 1, updated: '5d ago', body: 'Direct, specific, kind. Flag correctness and security first, style last. Cite exact line numbers.' },
-      { id: 'ps-sre', name: 'Calm SRE', tone: '차분함', usedBy: 1, updated: '1w ago', body: 'Unflappable. Quantify before acting. Smallest safe step first. Confirm blast radius.' },
-      { id: 'ps-secretary', name: 'Warm Secretary', tone: '친근함, 열정적', usedBy: 1, updated: '3d ago', body: "Friendly, concise, proactive. Protect the user's time and focus. Confirm before sending." },
-    ],
-  },
-  memory: {
-    label: '메모리 타입', icon: 'bulb', color: 'var(--purple-6)',
-    desc: '에이전트가 컨텍스트를 저장·검색하는 메모리 타입. 서로 배타적이지 않으며, 에이전트마다 여러 타입을 동시에 켤 수 있습니다.',
-    items: [
-      { id: 'mem-short', name: '단기(세션)', scope: 'In-context · mem0 아님', usedBy: 4, updated: '1w ago', body: '현재 세션의 인-컨텍스트 윈도우(historyDepth) — 최근 N턴만 모델에 전달하는 컨텍스트 절단입니다. mem0 저장소가 아니며 세션이 끝나면 사라집니다.' },
-      { id: 'mem-long', name: '장기 기억 (mem0)', scope: 'Auto · userId 유무로 결정', usedBy: 2, updated: '1w ago', body: 'mem0 장기 메모리. 켜면 대화에서 사실을 추출·저장하고 매 턴 의미적으로 유사한 top-k를 회상합니다. 스코프는 요청 userId로 자동 결정 — userId가 있으면 유저 단위(세션 가로지름)와 세션에 함께 저장하고, 없으면 현재 세션에만 저장합니다.' },
-    ],
-  },
-  embedding: {
-    label: '벡터 테이블', icon: 'appstore', color: 'var(--cyan-7)',
-    desc: '임베딩 모델로 특정 데이터를 벡터화해 만든 테이블(임베딩 데이터셋). 에이전트가 의미 검색으로 참조하는 지식 소스입니다. 에이전트마다 0개 이상 연결할 수 있습니다.',
-    items: [
-      { id: 'vt-product-titles', name: 'product_titles', model: 'text-embedding-3-large', source: 'products.title', dims: 3072, rows: 12840, status: 'synced', usedBy: 1, updated: '2h ago', body: '상품 테이블의 title 컬럼을 임베딩. 상품 의미 검색·추천에 사용.' },
-      { id: 'vt-docs-kb', name: 'docs_kb', model: 'text-embedding-3-small', source: 'help_articles.body', dims: 1536, rows: 3204, status: 'synced', usedBy: 1, updated: '1d ago', body: '헬프센터 문서 본문을 청크 단위로 임베딩한 지식베이스. RAG 답변에 사용.' },
-      { id: 'vt-tickets', name: 'support_tickets', model: 'voyage-3', source: 'tickets.summary', dims: 1024, rows: 58210, status: 'indexing', usedBy: 0, updated: '방금', body: '과거 지원 티켓 요약을 임베딩. 유사 사례 검색용. 현재 재색인 중.' },
-      { id: 'vt-notes', name: 'team_notes', model: 'nomic-embed-text', source: 'notion.pages', dims: 768, rows: 941, status: 'stale', usedBy: 1, updated: '6d ago', body: '팀 노션 노트를 로컬 임베딩. 원본 변경분 미반영(stale) — 재동기화 필요.' },
-    ],
-  },
-  mcp: {
-    label: 'MCP 서버', icon: 'thunderbolt', color: 'var(--cyan-7)',
-    desc: 'Model Context Protocol 서버. 직접 운영하는 로컬 서버는 프로토콜로 공개할 수 있고, 외부에서 공개된 MCP는 URL로 등록할 수 있습니다.',
-    items: [
-      { id: 'mcp-tavily', name: 'tavily', transport: 'stdio', tools: ['search'], usedBy: 1, status: 'connected', updated: '1d ago', published: true, endpoint: 'mcp://my-agents.local/tavily' },
-      { id: 'mcp-gcal', name: 'gcal', transport: 'http', tools: ['list', 'create'], usedBy: 1, status: 'connected', updated: '3d ago', published: false, endpoint: 'mcp://my-agents.local/gcal' },
-      { id: 'mcp-gmail', name: 'gmail', transport: 'http', tools: ['search'], usedBy: 1, status: 'disconnected', updated: '3d ago', published: false, endpoint: 'mcp://my-agents.local/gmail' },
-      { id: 'mcp-notion', name: 'notion', transport: 'http', tools: ['append'], usedBy: 1, status: 'connected', updated: '3d ago', published: true, endpoint: 'mcp://my-agents.local/notion' },
-    ],
-  },
-}
-
-/* ---------- 에이전트 ---------- */
-export const ADMIN_AGENTS: Agent[] = [
-  { id: 'research', name: 'Research Assistant', source: 'ui', agentId: 'agt_rsch_7f3a91', environments: ['sandbox', 'production'], model: 'qwen3.6-35b', status: 'online',
-    persona: 'Methodical Researcher', memories: ['단기(세션)', '장기 기억 (mem0)'], historyDepth: 20, vectorTables: ['docs_kb', 'product_titles'],
-    mcps: ['tavily'],
-    exposed: { a2a: true }, sessions: 2, created: '2026-05-30',
-    activeVersion: 'v3', versions: [
-      { version: 'v3', status: 'active', createdAt: '2026-06-12', note: 'Tightened citation rules' },
-      { version: 'v2', status: 'archived', createdAt: '2026-06-04', note: 'Web search tuning' },
-      { version: 'v1', status: 'archived', createdAt: '2026-05-30', note: 'Initial' },
-    ] },
-  /* Code Reviewer·Ops Copilot은 코드/인프라 권한 전용 데모라 제거(스펙 046). */
-  { id: 'secretary', name: 'Personal Secretary', source: 'ui', agentId: 'agt_sec_9d4417', environments: ['sandbox', 'production'], model: 'qwen3.6-35b', status: 'online',
-    persona: 'Warm Secretary', memories: ['단기(세션)', '장기 기억 (mem0)'], historyDepth: 40, vectorTables: ['team_notes'],
-    mcps: ['gcal', 'gmail', 'notion'],
-    exposed: { a2a: false }, sessions: 1, created: '2026-06-15',
-    activeVersion: 'v2', versions: [
-      { version: 'v2', status: 'active', createdAt: '2026-06-16', note: 'Warmer tone' },
-      { version: 'v1', status: 'archived', createdAt: '2026-06-15', note: 'Initial' },
-    ] },
-  /* 코드 정의 에이전트 — SDK로 빌드해 코드베이스에서 배포한 뒤, 엔드포인트 URL + 토큰으로
-     콘솔에 등록한다. 구성은 실행 중인 배포가 보고(REPORTED)하므로 여기서는 읽기 전용이며,
-     버전은 git 배포(commit)다. */
-  { id: 'translator', name: 'Doc Translator', source: 'code', agentId: 'agt_xlt_a17c33', environments: ['production'], model: 'qwen3.6-35b', status: 'online',
-    persona: '코드 정의 (SDK)', memories: ['단기(세션)'], historyDepth: 10, vectorTables: [],
-    mcps: ['tavily'],
-    exposed: { a2a: false }, sessions: 1, created: '2026-06-18', // 원격(code)은 A2A 재노출 불가 — 스펙 083
-    endpoint: 'https://agents.acme.dev/doc-translator', token: 'sk_live_a3f••••••••91c2',
-    runtime: 'my-agents-sdk · Python 2.4.1', repo: 'acme/doc-translator', commit: 'f3a91c2',
-    registeredAt: '2026-06-18', lastSync: '12분 전',
-    activeVersion: 'f3a91c2', versions: [
-      { version: 'f3a91c2', status: 'active', createdAt: '2026-06-18', note: 'Deploy · 용어집 조회 추가' },
-      { version: '9b22d01', status: 'archived', createdAt: '2026-06-14', note: 'Deploy · 초기 배포' },
-    ] },
-]
-
 /* ---------- 상태맵 ---------- */
 export const VERSION_STATUS: Record<string, StatusMeta> = {
   draft: { label: '초안', tag: 'gold', color: 'var(--gold-6)', desc: '임시 — 게시 전 테스트' },
   active: { label: '활성', tag: 'green', color: 'var(--color-success)', desc: '현재 서빙 중' },
   archived: { label: '보관', tag: 'default', color: 'var(--gray-6)', desc: '이전 버전 · 롤백용 보관' },
-}
-export const MCP_STATUS: Record<string, StatusMeta> = {
-  connected: { tag: 'green', label: 'Connected' },
-  degraded: { tag: 'gold', label: 'Degraded' },
-  disconnected: { tag: 'red', label: 'Disconnected' },
 }
 export const SESSION_STATUS: Record<string, StatusMeta> = {
   active: { label: '활성', color: 'var(--color-success)', tag: 'green' },
@@ -333,43 +249,3 @@ export const AGENT_CONFORMANCE: Record<string, StatusMeta> = {
   non_conforming: { label: '비준수', tag: 'default', icon: 'api', desc: '원격 A2A 에이전트 · in-process 인터페이스 미대상(다른 종류)' },
   config_error: { label: '설정 실패', tag: 'red', icon: 'exclamation-circle', desc: 'impl을 선언했으나 미해결(미등록/부적합) · 런타임이 서빙 거부' },
 }
-
-/* ---------- 세션 ---------- */
-export const ADMIN_SESSIONS: Session[] = [
-  { id: 'sess-8f21', agentId: 'research', agent: 'Research Assistant', channel: 'debug-console', status: 'active', turns: 6, started: '14:02', lastActivity: 'just now', tokens: 18420 },
-  { id: 'sess-7a05', agentId: 'research', agent: 'Research Assistant', channel: 'A2A · partner-x', status: 'idle', turns: 14, started: '11:40', lastActivity: '32m ago', tokens: 52110 },
-  { id: 'sess-5d77', agentId: 'secretary', agent: 'Personal Secretary', channel: 'web-chat', status: 'error', turns: 2, started: '09:18', lastActivity: '5h ago', tokens: 3110, error: 'gmail MCP disconnected' },
-  { id: 'sess-4b10', agentId: 'research', agent: 'Research Assistant', channel: 'web-chat', status: 'completed', turns: 21, started: 'Yesterday', lastActivity: 'Yesterday', tokens: 74300 },
-]
-
-/* 승인 큐는 백엔드 GET /approvals(pending 필터)에서 받는다 — mock ADMIN_APPROVALS/
-   PENDING_APPROVALS는 045에서 제거(배지=2 가짜와 실제 큐 불일치였던 #12의 잔재). */
-
-/* ---------- 후처리 (adminData.js의 IIFE들) ---------- */
-
-/* source 기본값 보정 — 명시 안 된 에이전트는 UI 구성으로 간주. (스냅샷 루프보다 먼저) */
-ADMIN_AGENTS.forEach((a) => {
-  if (!a.source) a.source = 'ui'
-})
-
-/* 모든 에이전트 버전에 편집 가능한 config 스냅샷을 붙인다.
-   에이전트의 top-level 필드 = 활성 버전의 config. 다른 버전은 복사본을 스냅샷한다. */
-ADMIN_AGENTS.forEach((a) => {
-  const snap: AgentConfig = {
-    model: a.model, persona: a.persona, memories: [...a.memories], historyDepth: a.historyDepth,
-    vectorTables: [...(a.vectorTables || [])], mcps: [...a.mcps],
-  }
-  a.versions.forEach((v) => {
-    if (!v.config) v.config = { ...snap, mcps: [...(snap.mcps || [])] }
-  })
-})
-/* MCP 서버는 draft/activate 아티팩트가 아니라 외부 연결 — enabledTools/source 기본값 부여. */
-BLOCKS.mcp.items.forEach((m) => {
-  if (!m.enabledTools) m.enabledTools = [...(m.tools || [])]
-  if (!m.source) m.source = 'local'
-})
-BLOCKS.mcp.items.push(
-  { id: 'mcp-ext-weather', name: 'acme-weather', source: 'external', transport: 'http', url: 'mcp://acme.io/weather', tools: ['forecast', 'current'], enabledTools: ['forecast', 'current'], usedBy: 0, status: 'connected', updated: '4h ago', auth: 'Bearer ****', published: false },
-  { id: 'mcp-ext-crm', name: 'partner-crm', source: 'external', transport: 'http', url: 'mcp://partner.example.com/crm', tools: ['lookup', 'create_lead'], enabledTools: ['lookup'], usedBy: 1, status: 'degraded', updated: '1d ago', auth: 'OAuth', published: false },
-)
-

@@ -105,7 +105,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
     }
   }
 
-  // 라이브 세션 카운트는 더 이상 추적하지 않는다(ADMIN_SESSIONS 제거). UX용 모달만 유지.
+  // 라이브 세션 카운트는 더 이상 추적하지 않는다. UX용 모달만 유지.
   const toggleExpose = async (agent: Agent) => {
     // 외부에서 받아온 에이전트만 재공개 금지(스펙 152) — code(제1자 SDK)는 1홉 중계 노출(스펙 154).
     if (!agent.exposed.a2a && agent.source === 'external') {

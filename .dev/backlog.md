@@ -122,6 +122,12 @@
 
 ## 완료 (요약 — 상세는 각 스펙/회고)
 
+- **첫 설치 예제 정돈 3연작(스펙 303·304·305, 2026-07-12)** — ✅303 seed 트림(고아 페르소나/컬렉션·빈
+  세션 제거, 신선시드 실측 2/3/0/5/0) ✅304 테스트 잔해 스윕(dev DB 58→5 에이전트, 프리픽스 화이트리스트
+  +seed keeplist 이중가드 `sweep_debris.py`·make 타깃, codex 검증) ✅305 mockData.ts 死배열 제거(BLOCKS·
+  ADMIN_AGENTS·ADMIN_SESSIONS+IIFE+MCP_STATUS, 타입14·상수8 보존, tsc0·build✓). 재발 방지=make
+  sweep-debris-apply(브라우저 배치 후). 미처리 후속: 일회용 DB per run·mockData.ts 개명(21 importer).
+
 - **인스펙터 정직성 3건(스펙 205, 2026-07-07)** — 전송 프롬프트 콜백 실측·토큰 usage 실측·턴=질문
   순번. 실모델 7/7.
 
