@@ -324,7 +324,7 @@
 ## 구조 리뷰 후보 (스펙 182/183 발견, 2026-07-05 — deep-reasoner 2병렬 OCP/HoC 점검)
 > 사용자 신념("당장 구현보다 구조") 점검. 백엔드 OCP·프론트 HoC. 결론: 소스 대체로 건강(메모리 백엔드·에이전트 런타임·서빙 MCP·remote축=진짜 레지스트리 OCP, DIP/LSP 준수). 정리감은 아래.
 - ✅**source 제1자/제3자 축 술어=스펙 183 완료**(회고 164) — is_remote_source 자매 축 미적용 봉합(리터럴 7곳→술어).
-- **브로커 kind 파싱 부분 OCP**: provider 라우팅은 레지스트리(`_by_kind`)인데 `_kind_of`(broker.py:57)·`_cap_resource`(broker.py:101)가 하드코딩 if-체인. 새 kind 시 함께 수정—`_cap_resource` 누락하면 per-cap RBAC 리소스 추출 오동작(인가 게이트 조용한 오류, 스펙 112 경계). → provider 계약에 흡수(`matches(cap_id)`/`resource_of`)해 순회 파생. **중간 우선**.
+- ✅**브로커 kind 파싱 OCP=스펙 306 완료**(2026-07-12, 회고 281) — `_kind_of`·`_cap_resource` 하드코딩 if-체인을 단일 `_PREFIXED_KINDS` 레지스트리+`_strip_kind` 프리미티브로 흡수(새 kind=한 곳 등록, `_cap_resource` 누락→per-cap RBAC 조용한 오추출 함정 봉인). provider 계약 `resource_of` 대신 데이터 레지스트리 택함(5 kind 추출 균일→per-provider는 과추상, 파싱 context-free). 순수 리팩터=옛 if-체인 오라클 박제 대조(바이트 동일)·드리프트 핀 introspection(codex 지적). verify_306 105/105·브로커 verifier PASS·codex 여집합 실패. **잔여**: provider `matches`/`resource_of`는 비균일 kind 생기는 날 트리거(YAGNI).
 - **broker.py 1180줄 단일 모듈** → provider들을 `broker/` 패키지로 분할(응집도 높으나 파일 격리 개선). 낮음.
 - ✅**프론트 useAsyncData/runWithToast 훅=스펙 184 완료**(회고 165) — `admin/src/hooks.ts`. 소비자 3곳 변환(AllowedHosts·Memory 2탭). **남은 것**: 나머지 ~11개 뷰 점진 이관(기계적, fast-worker 위임 후보). 폼시드 패턴(SettingsView류)은 훅 부적합—제외.
 - ✅**AgentsView.tsx 분해=스펙 185 완료**(회고 166·167): **Phase A**(서브컴포넌트 8개 파일분리, 2128→747줄)+**Phase B**(useAgents 훅으로 데이터 오케스트레이션 격리, 747→684줄). tsc0·브라우저 회귀 2종 ALL PASS(파일분리 3드로어/폼/모달 + 뮤테이션 왕복 커스텀토스트 보존)·스샷. runWithToast 미채택(커스텀 플로팅토스트 보존). **남은 것(저위험 점진, 선택)**: 나머지 ~11개 뷰 useAsyncData 이관(fast-worker 위임 후보).

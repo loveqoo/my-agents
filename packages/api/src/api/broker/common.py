@@ -24,28 +24,41 @@ CAP_KIND_MEMORY_WRITE = (
 )
 CAP_KIND_MEMORY_EDIT = "memedit"  # Memory edit provider(스펙 111 — 유저 장기 기억 수정/삭제, 대상 있는 첫 부수효과·소유권 선행).
 
+# 접두사 있는 kind 레지스트리(스펙 306, 단일 출처) — **새 kind는 여기 한 곳만 등록**하면 `_kind_of`·
+# `_cap_resource`가 파생한다. 이전엔 두 if-체인을 각각 손봐야 했고, `_cap_resource` 분기를 빠뜨리면
+# per-cap RBAC 리소스가 조용히 오추출(cap_id 전체 반환)되는 함정이었다(스펙 112 경계). agent는 접두사
+# 없는 bare(`agt_…`) fallback이라 목록 밖. 순서 무관(콜론 종단이라 어느 것도 다른 것의 접두사 아님).
+_PREFIXED_KINDS: tuple[str, ...] = (
+    CAP_KIND_MCP,
+    CAP_KIND_RAG,
+    CAP_KIND_MEMORY_WRITE,
+    CAP_KIND_MEMORY_EDIT,
+    CAP_KIND_MEMORY,
+)
+
 
 class CapabilityNotFoundError(Exception):
     """능력 미해결 — **미존재와 미허가를 구분하지 않는다**(403/404 접기, 존재 비노출)."""
+
+
+def _strip_kind(item: str, kind: str) -> str:
+    """`{kind}:` 접두사를 벗긴 나머지(없으면 원본 방어). 모든 kind의 cap 리소스 추출이 이 한 규칙으로
+    균일하다(스펙 306) — mcp만 2레벨(`server/tool`)이나 리소스는 body 전체라 동일, agent는 bare라
+    접두사가 없어 원본 그대로. 이 프리미티브를 `_cap_resource`와 `_parse_*` 별칭이 공유(중복 0)."""
+    prefix = f"{kind}:"
+    return item[len(prefix) :] if item.startswith(prefix) else item
 
 
 # ------------------------------- 네임스페이싱(스펙 101 §3.3) -------------------------------
 # allowlist·cap_id 항목은 `"<kind>:<id>"`. `mcp:<server>/<tool>`(툴 단위) 또는 `mcp:<server>`(서버 전체).
 # **접두사 없는 bare 항목 = kind agent**(하위호환 — spec 100 config 불변, agent_id는 `agt_...`라 콜론 없음).
 def _kind_of(item: str) -> str:
-    """cap_id/allowlist 항목에서 kind 파싱(별도 조회 없이 id만으로).
-    `mcp:`/`rag:` 접두사 → 해당 kind, 그 외(콜론 없는 bare `agt_...`) → agent(하위호환)."""
+    """cap_id/allowlist 항목에서 kind 파싱(별도 조회 없이 id만으로) — `_PREFIXED_KINDS` 레지스트리 순회.
+    접두사 매칭 kind 반환, 그 외(콜론 없는 bare `agt_...`) → agent(하위호환)."""
     if isinstance(item, str):
-        if item.startswith(f"{CAP_KIND_MCP}:"):
-            return CAP_KIND_MCP
-        if item.startswith(f"{CAP_KIND_RAG}:"):
-            return CAP_KIND_RAG
-        if item.startswith(f"{CAP_KIND_MEMORY_WRITE}:"):
-            return CAP_KIND_MEMORY_WRITE
-        if item.startswith(f"{CAP_KIND_MEMORY_EDIT}:"):
-            return CAP_KIND_MEMORY_EDIT
-        if item.startswith(f"{CAP_KIND_MEMORY}:"):
-            return CAP_KIND_MEMORY
+        for kind in _PREFIXED_KINDS:
+            if item.startswith(f"{kind}:"):
+                return kind
     return CAP_KIND_AGENT
 
 
@@ -60,51 +73,36 @@ def _parse_mcp(item: str) -> tuple[str, str | None]:
 
 def _parse_rag(item: str) -> str:
     """`rag:<collection_name>` → `<collection_name>`(접두사만 스트립 — 이름에 콜론/슬래시 있어도 안전).
-    RAG는 mcp의 server/tool 2레벨과 달리 1레벨(컬렉션 이름 하나). 접두사 없으면 원본 방어."""
-    return item[len(CAP_KIND_RAG) + 1 :] if item.startswith(f"{CAP_KIND_RAG}:") else item
+    RAG는 mcp의 server/tool 2레벨과 달리 1레벨(컬렉션 이름 하나). rag provider·a2a_server가 직접 소비.
+    접두사 없으면 원본 방어. `_strip_kind` 위임(스펙 306, 균일 프리미티브)."""
+    return _strip_kind(item, CAP_KIND_RAG)
 
 
 def _parse_mem(item: str) -> str:
     """`memory:<resource>` → `<resource>`(첫 출하는 `"user"`만 유효 — 주체 자신의 장기 기억).
     **대상 user_id는 cap_id에 담기지 않는다**(스펙 104 핵심 anti-leak) — 리소스는 자원 *종류*만 가리키고
     누구의 것인지는 런타임 principal에서 도출한다. 접두사 없으면 원본 방어."""
-    return item[len(CAP_KIND_MEMORY) + 1 :] if item.startswith(f"{CAP_KIND_MEMORY}:") else item
+    return _strip_kind(item, CAP_KIND_MEMORY)
 
 
 def _parse_memedit(item: str) -> str:
     """memedit cap 리소스 파싱(`memedit:user` → `user`). 미지원 리소스는 load가 거른다(존재 비노출)."""
-    return (
-        item[len(CAP_KIND_MEMORY_EDIT) + 1 :]
-        if item.startswith(f"{CAP_KIND_MEMORY_EDIT}:")
-        else item
-    )
-
-
-def _cap_resource(cap_id: str, kind: str) -> str:
-    """per-cap RBAC object의 리소스 부분(스펙 112) — `capability:{kind}:{resource}`로 특정 능력만 부여.
-    kind별 식별자: mcp=`server[/tool]`, rag=컬렉션명, memory/memwrite/memedit=`user`, agent=cap_id(agt_…).
-    kind-레벨 부여(`capability:{kind}`)와 별개로 admin이 세분 부여할 수 있게 하는 안정 키."""
-    if kind == CAP_KIND_MCP:
-        return cap_id[len(CAP_KIND_MCP) + 1 :] if cap_id.startswith(f"{CAP_KIND_MCP}:") else cap_id
-    if kind == CAP_KIND_RAG:
-        return _parse_rag(cap_id)
-    if kind == CAP_KIND_MEMORY:
-        return _parse_mem(cap_id)
-    if kind == CAP_KIND_MEMORY_WRITE:
-        return _parse_memwrite(cap_id)
-    if kind == CAP_KIND_MEMORY_EDIT:
-        return _parse_memedit(cap_id)
-    return cap_id  # agent: cap_id 자체가 리소스 식별자(agt_…)
+    return _strip_kind(item, CAP_KIND_MEMORY_EDIT)
 
 
 def _parse_memwrite(item: str) -> str:
     """`memwrite:<resource>` → `<resource>`(첫 출하 `"user"`만 — 주체 자신의 기억에 저장). `_parse_mem`과
     대칭. 대상 user_id는 cap_id에 없다(스펙 105 anti-leak, 104와 동일). 접두사 없으면 원본 방어."""
-    return (
-        item[len(CAP_KIND_MEMORY_WRITE) + 1 :]
-        if item.startswith(f"{CAP_KIND_MEMORY_WRITE}:")
-        else item
-    )
+    return _strip_kind(item, CAP_KIND_MEMORY_WRITE)
+
+
+def _cap_resource(cap_id: str, kind: str) -> str:
+    """per-cap RBAC object의 리소스 부분(스펙 112) — `capability:{kind}:{resource}`로 특정 능력만 부여.
+    **접두사 있는 kind는 균일 스트립**(스펙 306, `_strip_kind`); agent는 레지스트리 밖(bare `agt_…`)이라
+    cap_id 전체가 리소스(옛 fallback 보존 — `agent:` 접두사를 벗기지 않아 바이트 동일). kind별 식별자:
+    mcp=`server[/tool]`, rag=컬렉션명, memory/memwrite/memedit=`user`, agent=cap_id(agt_…).
+    kind-레벨 부여(`capability:{kind}`)와 별개로 admin이 세분 부여할 수 있게 하는 안정 키."""
+    return _strip_kind(cap_id, kind) if kind in _PREFIXED_KINDS else cap_id
 
 
 def _first_line(text: str, fallback: str) -> str:

@@ -74,7 +74,7 @@ class MemoryAxisProvider(ABC):
     @final
     async def candidates(self, allow: set[str]) -> list[Capability]:
         # user_id 없음(머신) → 자기 스코프 없음 → 능력 없음(DB·백엔드 미접촉). `<kind>:user`만 승격
-        # (빈/미지원 리소스 거부, 적대 리뷰 대비). _cap_resource가 kind별 파서로 리소스를 뽑는다.
+        # (빈/미지원 리소스 거부, 적대 리뷰 대비). _cap_resource가 `{kind}:` 접두사를 균일 스트립(스펙 306).
         if not self._user_id:
             return []
         if not any(
