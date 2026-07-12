@@ -11,6 +11,7 @@ import { fmtDateTime } from '../format'
 import { type Approval } from '../mockData'
 import { listApprovalsPage, resolveApproval } from '../../api'
 import { PagedListShell, type ListController } from './PagedListShell'
+import { runWithToast } from '../../hooks'
 
 function ResultTag({ item }: { item: Approval }) {
   const approved = item.status === 'approved'
@@ -52,18 +53,15 @@ export default function ApprovalsView({ onPendingChange }: { onPendingChange?: (
 
   const resolve = async (item: Approval, decision: 'approve' | 'reject', ctl?: ListController) => {
     setBusy(decision)
-    try {
-      await resolveApproval(item.id, decision)
+    const ok = await runWithToast(() => resolveApproval(item.id, decision))
+    setBusy(null)
+    if (ok) {
       if (decision === 'approve') message.success(`승인됨 — ${item.checkpoint}에서 ${item.agent} 재개 중`)
       else message.warning(`거부됨 — ${item.agent} 실행 중단`)
       setDetail(null)
       setRefreshKey((k) => k + 1)
       // 마지막 항목을 처리해 페이지가 비면 이전 페이지로(셸 관례 — ctl 있을 때만).
       if (ctl && ctl.rowCount === 1 && ctl.page > 1) ctl.setPage(ctl.page - 1)
-    } catch (e: unknown) {
-      message.error(e instanceof Error ? e.message : '결정을 처리하지 못했습니다.')
-    } finally {
-      setBusy(null)
     }
   }
 

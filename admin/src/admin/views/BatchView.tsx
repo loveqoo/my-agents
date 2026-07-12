@@ -13,6 +13,7 @@ import {
   type BatchConfig,
   type BatchRun,
 } from '../../api'
+import { runWithToast } from '../../hooks'
 
 const STATUS_PILL: Record<string, { color: string; label: string }> = {
   ok: { color: 'var(--green-6)', label: 'ok' },
@@ -176,28 +177,25 @@ export default function BatchView() {
 
   const save = async (which: 'session' | 'memory' | 'user') => {
     setSaving(which)
-    try {
-      const body =
-        which === 'session'
+    const body =
+      which === 'session'
+        ? {
+            session_retention_days: days,
+            session_cleanup_cron: cron.trim() || null,
+            min_session_turns: minTurns,
+          }
+        : which === 'memory'
           ? {
-              session_retention_days: days,
-              session_cleanup_cron: cron.trim() || null,
-              min_session_turns: minTurns,
+              memory_consolidation_threshold: threshold,
+              memory_consolidation_cron: memCron.trim() || null,
             }
-          : which === 'memory'
-            ? {
-                memory_consolidation_threshold: threshold,
-                memory_consolidation_cron: memCron.trim() || null,
-              }
-            : { test_user_email_pattern: userPattern.trim() || null }
-      applyCfg(await updateBatchConfig(body))
-      message.success('배치 설정을 저장했습니다')
-    } catch {
-      // 백엔드 422(전체 삭제 패턴 거부 등) 포함.
-      message.error('저장 실패 — 패턴이 너무 광범위하거나(전체 삭제) 형식이 잘못되었을 수 있습니다')
-    } finally {
-      setSaving(null)
-    }
+          : { test_user_email_pattern: userPattern.trim() || null }
+    // 백엔드 422(전체 삭제 패턴 거부 등) 포함.
+    await runWithToast(async () => applyCfg(await updateBatchConfig(body)), {
+      success: '배치 설정을 저장했습니다',
+      error: '저장 실패 — 패턴이 너무 광범위하거나(전체 삭제) 형식이 잘못되었을 수 있습니다',
+    })
+    setSaving(null)
   }
 
   const trigger = async (job: string, dryRun: boolean) => {

@@ -29,7 +29,7 @@ import {
   type CatalogMeta,
   type ModelProbeResult,
 } from '../../api'
-import { useAsyncData } from '../../hooks'
+import { useAsyncData, runWithToast } from '../../hooks'
 
 const codeStyle = { fontFamily: 'var(--font-family-code)', fontSize: 12 }
 
@@ -434,27 +434,25 @@ export default function ProviderModelView() {
       base_url: data.base_url.trim(),
       api_key: data.api_key,
     }
-    try {
+    const ok = await runWithToast(async () => {
       if (provModal?.editing) await updateProvider(provModal.editing.id, body)
       else {
         const created = await createProvider(body)
         setSelectedId(created.id)
       }
+    })
+    if (ok) {
       reloadProviders()
       setProvModal(null)
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : '저장에 실패했습니다')
     }
   }
 
   const deleteProviderRow = async () => {
     if (!confirmProvDel) return
-    try {
-      await deleteProvider(confirmProvDel.id)
+    const ok = await runWithToast(() => deleteProvider(confirmProvDel.id))
+    if (ok) {
       setConfirmProvDel(null)
       reloadProviders()
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : '삭제에 실패했습니다')
     }
   }
 
@@ -485,8 +483,8 @@ export default function ProviderModelView() {
       return
     }
     setBusyMid(data.model_id)
-    try {
-      await createModel({
+    const ok = await runWithToast(() =>
+      createModel({
         name: data.name.trim(),
         provider_id: selected.id,
         model_id: data.model_id.trim(),
@@ -494,41 +492,36 @@ export default function ProviderModelView() {
         is_default: data.is_default,
         params: {},
         meta,
-      })
+      }),
+    )
+    setBusyMid(null)
+    if (ok) {
       setModelModal(null)
       refresh()
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : '모델 등록에 실패했습니다')
-    } finally {
-      setBusyMid(null)
     }
   }
 
   const deleteModelRow = async () => {
     if (!confirmModelDel?.registered_id) return
+    const registeredId = confirmModelDel.registered_id
     setBusyMid(confirmModelDel.model_id)
-    try {
-      await deleteModel(confirmModelDel.registered_id)
+    // 에이전트가 이름으로 참조 중이면 서버가 409 + 안내를 준다(learning 042).
+    const ok = await runWithToast(() => deleteModel(registeredId))
+    setBusyMid(null)
+    if (ok) {
       setConfirmModelDel(null)
       refresh()
-    } catch (e) {
-      // 에이전트가 이름으로 참조 중이면 서버가 409 + 안내를 준다(learning 042).
-      message.error(e instanceof Error ? e.message : '삭제에 실패했습니다')
-    } finally {
-      setBusyMid(null)
     }
   }
 
   // 기본 모델 전환(스펙 150) — 같은 kind의 기존 기본은 서버가 자동 해제(배타).
   const makeDefault = async (reg: Model) => {
     const run = async () => {
-      try {
+      const ok = await runWithToast(async () => {
         const updated = await setDefaultModel(reg.id)
         message.success(`기본 ${updated.kind === 'chat' ? 'Chat' : 'Embedding'} 모델 → ${updated.name}`)
-        await loadRegModels()
-      } catch (e) {
-        message.error(e instanceof Error ? e.message : '기본 지정에 실패했습니다')
-      }
+      })
+      if (ok) await loadRegModels()
     }
     if (reg.kind === 'embedding') {
       // 임베딩 전환은 저장된 벡터와의 정합이 걸린다(codex 150) — 맹클릭 방지 확인 1회.

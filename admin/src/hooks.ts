@@ -48,14 +48,17 @@ export function useAsyncData<T>(
    호출자가 소유(관심사 분리) — 이 함수는 호출 데코레이션(토스트)만. */
 export async function runWithToast(
   fn: () => Promise<unknown>,
-  opts?: { success?: string; error?: string },
+  opts?: { success?: string; error?: string; errorPrefix?: string },
 ): Promise<boolean> {
   try {
     await fn()
     if (opts?.success) message.success(opts.success)
     return true
   } catch (e) {
-    message.error(opts?.error ?? (e instanceof Error ? e.message : String(e)))
+    const detail = e instanceof Error ? e.message : String(e)
+    // errorPrefix는 원인 detail을 붙여 '수정 실패: <detail>'처럼 문맥+상세를 함께 낸다(스펙 309).
+    // error(고정 문자열)와 배타 — errorPrefix가 있으면 그걸 우선한다. 성공 경로엔 관여 안 함(catch 전용).
+    message.error(opts?.errorPrefix ? `${opts.errorPrefix}: ${detail}` : (opts?.error ?? detail))
     return false
   }
 }

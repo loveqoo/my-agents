@@ -15,7 +15,7 @@ import {
   startEvalRun, listEvalRuns, getEvalRun, listAgents, listCollections, listModels, suggestEvalCases, getEvalHelperStatus, listDocuments,
   type EvalDataset, type EvalCaseT, type EvalAssert, type EvalRunT, type EvalRunDetail, type Agent, type Collection, type Model,
 } from '../../api'
-import { useAsyncData } from '../../hooks'
+import { useAsyncData, runWithToast } from '../../hooks'
 
 const { TextArea } = Input
 
@@ -276,17 +276,16 @@ function DatasetDrawer({
   const save = async (body: { input: string; asserts: EvalAssert[] }, caseId?: string) => {
     if (!dataset) return
     setBusy(true)
-    try {
-      if (caseId) await updateEvalCase(caseId, body)
-      else await createEvalCase(dataset.id, body)
+    const ok = await runWithToast(
+      () => (caseId ? updateEvalCase(caseId, body) : createEvalCase(dataset.id, body)),
+      { errorPrefix: '저장 실패' },
+    )
+    setBusy(false)
+    if (ok) {
       setEditing(null)
       setAdding(false)
       reload()
       onChanged()
-    } catch (e) {
-      message.error('저장 실패: ' + (e as Error).message)
-    } finally {
-      setBusy(false)
     }
   }
 
@@ -303,22 +302,20 @@ function DatasetDrawer({
   const start = async () => {
     if (!dataset || (isRag ? !ragTarget : !agentTarget)) return
     setStarting(true)
-    try {
-      await startEvalRun(
-        dataset.id,
-        isRag ? { collectionId: ragTarget! } : { agentId: agentTarget!, models: runModels, agentVersion: runVersion }
-      )
-      message.success(
-        runModels.length > 1
-          ? `모델 ${runModels.length}개 비교 실행 시작 — "모델 격자" 탭에서 확인하세요`
-          : '시험 실행 시작 — "실행 이력" 탭에서 확인하세요'
-      )
-      onRunStarted()
-    } catch (e) {
-      message.error('실행 실패: ' + (e as Error).message)
-    } finally {
-      setStarting(false)
-    }
+    const msg =
+      runModels.length > 1
+        ? `모델 ${runModels.length}개 비교 실행 시작 — "모델 격자" 탭에서 확인하세요`
+        : '시험 실행 시작 — "실행 이력" 탭에서 확인하세요'
+    const ok = await runWithToast(
+      () =>
+        startEvalRun(
+          dataset.id,
+          isRag ? { collectionId: ragTarget! } : { agentId: agentTarget!, models: runModels, agentVersion: runVersion },
+        ),
+      { success: msg, errorPrefix: '실행 실패' },
+    )
+    setStarting(false)
+    if (ok) onRunStarted()
   }
 
   return (

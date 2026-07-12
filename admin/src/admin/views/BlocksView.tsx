@@ -24,7 +24,7 @@ import {
   applyPersona,
   type PersonaUsageAgent,
 } from '../../api'
-import { useAsyncData } from '../../hooks'
+import { useAsyncData, runWithToast } from '../../hooks'
 
 const { TextArea } = Input
 
@@ -462,16 +462,14 @@ function PersonaForm({
   const staleCount = usage.filter((u) => u.stale).length
   const applySelected = async () => {
     if (!form.item?.id || selected.length === 0) return
+    const personaId = form.item.id
     setApplying(true)
-    try {
-      const result = await applyPersona(form.item.id, selected)
-      reloadUsage()
+    const ok = await runWithToast(async () => {
+      const result = await applyPersona(personaId, selected)
       message.success(`${result.applied.length}개 반영, ${result.skipped.length}개 건너뜀`)
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : '반영에 실패했습니다')
-    } finally {
-      setApplying(false)
-    }
+    })
+    setApplying(false)
+    if (ok) reloadUsage()
   }
   return (
     <Modal
@@ -739,26 +737,18 @@ export default function BlocksView() {
   // 도구 정보 재탐색(스펙 151) — 자격증명은 백엔드가 복호. 갱신 후 목록 재로드(드로어는 id로 재조회).
   const runRediscover = async (id: string) => {
     setRediscovering(true)
-    try {
-      await rediscoverMcp(id)
-      reload()
-      message.success('도구 정보를 새로 탐색했습니다')
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : '재탐색에 실패했습니다')
-    } finally {
-      setRediscovering(false)
-    }
+    const ok = await runWithToast(() => rediscoverMcp(id), {
+      success: '도구 정보를 새로 탐색했습니다',
+    })
+    setRediscovering(false)
+    if (ok) reload()
   }
 
   const togglePublish = async (id: string) => {
     const current = blocks.mcp?.items.find((m) => m.id === id)
     if (!current) return
-    try {
-      await publishMcp(id, !current.published)
-      reload()
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : '공개 상태 변경에 실패했습니다')
-    }
+    const ok = await runWithToast(() => publishMcp(id, !current.published))
+    if (ok) reload()
   }
 
   const upsertMcp = async (item: BlockItem) => {
@@ -777,29 +767,24 @@ export default function BlocksView() {
       published: !!item.published,
       auth: item.auth,
     }
-    try {
-      if (isEdit) await updateMcp(item.id, payload)
-      else await createMcp(payload)
+    const ok = await runWithToast(() =>
+      isEdit ? updateMcp(item.id, payload) : createMcp(payload),
+    )
+    if (ok) {
       reload()
       setMcpForm(null)
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : 'MCP 저장에 실패했습니다')
     }
   }
 
   const deleteCurrent = async () => {
     if (!detail) return
-    try {
-      if (cat === 'mcp') await deleteMcp(detail.id)
-      else {
-        const resource = RESOURCE_BY_CAT[cat]
-        if (!resource) return
-        await deleteBlockItem(resource, detail.id)
-      }
+    if (cat !== 'mcp' && !RESOURCE_BY_CAT[cat]) return
+    const ok = await runWithToast(() =>
+      cat === 'mcp' ? deleteMcp(detail.id) : deleteBlockItem(RESOURCE_BY_CAT[cat], detail.id),
+    )
+    if (ok) {
       reload()
       setDetail(null)
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : '삭제에 실패했습니다')
     }
   }
 
@@ -817,24 +802,22 @@ export default function BlocksView() {
 
   const savePersona = async (data: { id?: string; name: string; description: string; tone: string; body: string }) => {
     const payload = { name: data.name, description: data.description || null, tone: data.tone || null, body: data.body }
-    try {
-      if (data.id) await updateBlockItem('personas', data.id, payload)
-      else await createBlockItem('personas', payload)
+    const ok = await runWithToast(() =>
+      data.id ? updateBlockItem('personas', data.id, payload) : createBlockItem('personas', payload),
+    )
+    if (ok) {
       reload()
       setPersonaForm(null)
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : '페르소나 저장에 실패했습니다')
     }
   }
 
   const saveBlock = async (resource: string, id: string | undefined, payload: Record<string, unknown>) => {
-    try {
-      if (id) await updateBlockItem(resource, id, payload)
-      else await createBlockItem(resource, payload)
+    const ok = await runWithToast(() =>
+      id ? updateBlockItem(resource, id, payload) : createBlockItem(resource, payload),
+    )
+    if (ok) {
       reload()
       setBlockForm(null)
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : '저장에 실패했습니다')
     }
   }
 

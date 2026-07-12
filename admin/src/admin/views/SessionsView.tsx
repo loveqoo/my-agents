@@ -4,7 +4,7 @@
    (기존 사라지는 토스트 오류도 지속 Alert로 교정됨). counts 배지는 응답 extra로 받아 Segmented에 반영,
    status 필터는 pageResetKey로 page만 리셋(검색어 보존 — 기존 UX 유지). */
 import { useEffect, useState } from 'react'
-import { Button, Avatar, Alert, Segmented, Popconfirm, message, Descriptions } from 'antd'
+import { Button, Avatar, Alert, Segmented, Popconfirm, Descriptions } from 'antd'
 import { Page, StatusPill, Drawer, type Column } from '../shared'
 import { PagedListShell } from './PagedListShell'
 import { Icon } from '../icons'
@@ -12,6 +12,7 @@ import { SESSION_STATUS, type Session } from '../mockData'
 import { fmtTime } from '../format'
 import { listSessions, getSessionMessages, endSession, type SessionMessage, type MessageFeedback } from '../../api'
 import { FeedbackButtons } from '../../FeedbackButtons'
+import { runWithToast } from '../../hooks'
 
 export default function SessionsView() {
   const [counts, setCounts] = useState<Record<string, number>>({})
@@ -27,16 +28,15 @@ export default function SessionsView() {
   const doEnd = async () => {
     if (!detail) return
     setEnding(true)
-    try {
-      const updated = await endSession(detail.id)
-      setDetail(updated)
-      setRefreshKey((k) => k + 1)
-      message.success('세션을 종료했습니다')
-    } catch (e) {
-      message.error('세션 종료 실패: ' + (e as Error).message)
-    } finally {
-      setEnding(false)
-    }
+    const ok = await runWithToast(
+      async () => {
+        const updated = await endSession(detail.id)
+        setDetail(updated)
+      },
+      { success: '세션을 종료했습니다', errorPrefix: '세션 종료 실패' },
+    )
+    setEnding(false)
+    if (ok) setRefreshKey((k) => k + 1)
   }
 
   useEffect(() => {

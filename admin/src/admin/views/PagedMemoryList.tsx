@@ -3,11 +3,12 @@
    추출됐고, 여기는 **메모리 고유**만 남는다: 인라인 편집·삭제(마지막 항목 삭제 시 이전 페이지 보정),
    미구성(enabled=false) 안내, 스코프 라벨. 세션·컬렉션 문서와 같은 셸을 공유(드리프트 0). */
 import { useState } from 'react'
-import { Alert, Button, Input, Popconfirm, Tooltip, message } from 'antd'
+import { Alert, Button, Input, Popconfirm, Tooltip } from 'antd'
 import { PagedListShell, type ListController } from './PagedListShell'
 import { type Column } from '../shared'
 import { Icon } from '../icons'
 import { type MemoryPageItem, type MemoryPageOut } from '../../api'
+import { runWithToast } from '../../hooks'
 
 export function PagedMemoryList({
   scopeKey,
@@ -34,30 +35,28 @@ export function PagedMemoryList({
     const text = editText.trim()
     if (!text) return
     setBusy(true)
-    try {
-      await onEdit(memId, text)
+    const ok = await runWithToast(() => onEdit(memId, text), {
+      success: '수정됨',
+      errorPrefix: '수정 실패',
+    })
+    setBusy(false)
+    if (ok) {
       setEditing(null)
       await ctl.reload()
-      message.success('수정됨')
-    } catch (e) {
-      message.error('수정 실패: ' + (e as Error).message)
-    } finally {
-      setBusy(false)
     }
   }
 
   const remove = async (ctl: ListController, memId: string) => {
     setBusy(true)
-    try {
-      await onDelete(memId)
+    const ok = await runWithToast(() => onDelete(memId), {
+      success: '삭제됨',
+      errorPrefix: '삭제 실패',
+    })
+    setBusy(false)
+    if (ok) {
       // 페이지 마지막 항목 삭제로 빈 페이지가 되면 앞 페이지로.
       if (ctl.rowCount === 1 && ctl.page > 1) ctl.setPage(ctl.page - 1)
       else await ctl.reload()
-      message.success('삭제됨')
-    } catch (e) {
-      message.error('삭제 실패: ' + (e as Error).message)
-    } finally {
-      setBusy(false)
     }
   }
 

@@ -41,7 +41,7 @@ import {
   type SearchHit,
   type Model,
 } from '../../api'
-import { useAsyncData } from '../../hooks'
+import { useAsyncData, runWithToast } from '../../hooks'
 
 const { TextArea } = Input
 
@@ -301,18 +301,17 @@ function EditModal({
   const save = async () => {
     if (!collection) return
     setSaving(true)
-    try {
-      await updateCollection(collection.id, {
+    const ok = await runWithToast(() =>
+      updateCollection(collection.id, {
         description,
         // 스펙 198: 청크 크기·겹침은 생성 후 불변 → 수정에서 제거.
-      })
-      message.success('컬렉션을 수정했습니다')
+      }),
+      { success: '컬렉션을 수정했습니다' },
+    )
+    setSaving(false)
+    if (ok) {
       onSaved()
       onCancel()
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : '수정에 실패했습니다')
-    } finally {
-      setSaving(false)
     }
   }
 
@@ -389,14 +388,12 @@ function DocsDrawer({
 
   const doDeleteDoc = async (ctl: ListController, docId: string) => {
     if (!id) return
-    try {
-      await deleteDocument(id, docId)
+    const ok = await runWithToast(() => deleteDocument(id, docId))
+    if (ok) {
       // 페이지 마지막 문서 삭제로 빈 페이지가 되면 앞 페이지로(128 셸 보정 패턴).
       if (ctl.rowCount === 1 && ctl.page > 1) ctl.setPage(ctl.page - 1)
       else await ctl.reload()
       onChanged()
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : '문서 삭제에 실패했습니다')
     }
   }
 
@@ -627,8 +624,9 @@ export default function CollectionsView({ onEvaluate }: { onEvaluate?: (cid: str
         return
       }
     }
-    try {
-      await createCollection({
+    // 400=모델 누락/임베딩 아님, 409=차원 불일치 또는 이름 중복 — 서버 메시지를 그대로 노출.
+    const ok = await runWithToast(() =>
+      createCollection({
         name: data.name.trim(),
         kind: data.kind,
         entity_schema: entitySchema,
@@ -636,23 +634,20 @@ export default function CollectionsView({ onEvaluate }: { onEvaluate?: (cid: str
         embedding_model_id: data.embedding_model_id,
         chunk_size: data.chunk_size,
         chunk_overlap: data.chunk_overlap,
-      })
+      }),
+    )
+    if (ok) {
       reload()
       setCreateOpen(false)
-    } catch (e) {
-      // 400=모델 누락/임베딩 아님, 409=차원 불일치 또는 이름 중복 — 서버 메시지를 그대로 노출.
-      message.error(e instanceof Error ? e.message : '컬렉션 생성에 실패했습니다')
     }
   }
 
   const doDelete = async () => {
     if (!confirmDel) return
-    try {
-      await deleteCollection(confirmDel.id)
+    const ok = await runWithToast(() => deleteCollection(confirmDel.id))
+    if (ok) {
       reload()
       setConfirmDel(null)
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : '삭제에 실패했습니다')
     }
   }
 

@@ -24,6 +24,7 @@ import {
   type Collection,
   type Agent,
 } from '../../api'
+import { runWithToast } from '../../hooks'
 
 const ROLE_COLOR: Record<string, string> = { admin: 'volcano', member: 'blue' }
 
@@ -137,30 +138,24 @@ export default function UsersView() {
   }, [load])
 
   const toggleActive = async (u: AdminUser) => {
-    try {
+    await runWithToast(async () => {
       const updated = await setUserActive(u.id, !u.is_active)
       setUsers((xs) => xs.map((x) => (x.id === u.id ? updated : x)))
-    } catch {
-      message.error('상태 변경 실패')
-    }
+    }, { error: '상태 변경 실패' })
   }
 
   const onGrant = async (u: AdminUser, role: string) => {
-    try {
+    await runWithToast(async () => {
       const updated = await grantRole(u.id, role)
       setUsers((xs) => xs.map((x) => (x.id === u.id ? updated : x)))
-    } catch {
-      message.error('역할 부여 실패')
-    }
+    }, { error: '역할 부여 실패' })
   }
 
   const onRevoke = async (u: AdminUser, role: string) => {
-    try {
+    await runWithToast(async () => {
       const updated = await revokeRole(u.id, role)
       setUsers((xs) => xs.map((x) => (x.id === u.id ? updated : x)))
-    } catch {
-      message.error('역할 회수 실패')
-    }
+    }, { error: '역할 회수 실패' })
   }
 
   /* ---- 권한 부여(정책) — 스펙 177 P3 ---- */
@@ -173,13 +168,11 @@ export default function UsersView() {
   }
 
   const onRevokePolicy = async (p: Policy) => {
-    try {
-      await revokePolicy(p.subject, p.object, p.action)
-      message.success('권한을 회수했습니다')
-      void load()
-    } catch {
-      message.error('권한 회수 실패')
-    }
+    const ok = await runWithToast(() => revokePolicy(p.subject, p.object, p.action), {
+      success: '권한을 회수했습니다',
+      error: '권한 회수 실패',
+    })
+    if (ok) void load()
   }
 
   // 대상 축 분리(스펙 200 C) — 역할(그 역할 전원) vs 특정 유저(그 사람만). 혼재 Select의 정신모델
@@ -238,17 +231,16 @@ export default function UsersView() {
   const onGrantPolicy = async () => {
     if (!grantSubject || !grantKind) return
     setGranting(true)
-    try {
-      await grantPolicy({ subject: grantSubject, object: grantObject, action: 'invoke' })
-      message.success('권한을 부여했습니다')
+    const ok = await runWithToast(
+      () => grantPolicy({ subject: grantSubject, object: grantObject, action: 'invoke' }),
+      { success: '권한을 부여했습니다', error: '권한 부여 실패' },
+    )
+    setGranting(false)
+    if (ok) {
       setGrantSubject(undefined)
       setGrantKind(undefined)
       setGrantName('')
       void load()
-    } catch {
-      message.error('권한 부여 실패')
-    } finally {
-      setGranting(false)
     }
   }
 

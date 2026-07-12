@@ -3,7 +3,7 @@
    일치=서버 페이지네이션 부분일치 목록(행에서 수정·삭제)+추가 입력, 유사도=회상 시험(RecallPanel).
    채팅 자가기록 경로는 제거됨(스펙 051) — 유저가 채팅에서 agent_id 메모리를 못 넣게 막아 페르소나 보호. */
 import { useState } from 'react'
-import { Button, Input, Tabs, message } from 'antd'
+import { Button, Input, Tabs } from 'antd'
 import {
   pageAgentMemory,
   addAgentMemory,
@@ -13,6 +13,7 @@ import {
 } from '../../api'
 import { PagedMemoryList } from './PagedMemoryList'
 import { RecallPanel } from './RecallPanel'
+import { runWithToast } from '../../hooks'
 
 export function AgentMemoryPanel({ agentId, agentLabel }: { agentId: string; agentLabel?: string }) {
   const [mode, setMode] = useState<'exact' | 'similar'>('exact')
@@ -24,15 +25,14 @@ export function AgentMemoryPanel({ agentId, agentLabel }: { agentId: string; age
     const text = draft.trim()
     if (!text) return
     setBusy(true)
-    try {
-      await addAgentMemory(agentId, text)
+    const ok = await runWithToast(() => addAgentMemory(agentId, text), {
+      success: '에이전트 지식 추가됨',
+      errorPrefix: '추가 실패',
+    })
+    setBusy(false)
+    if (ok) {
       setDraft('')
       setRefreshKey((k) => k + 1)
-      message.success('에이전트 지식 추가됨')
-    } catch (e) {
-      message.error('추가 실패: ' + (e as Error).message)
-    } finally {
-      setBusy(false)
     }
   }
 

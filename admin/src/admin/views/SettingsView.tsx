@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { Button, Input, message } from 'antd'
 import { Page, Panel } from '../shared'
 import { getAppSettings, putAppSetting } from '../../api'
+import { runWithToast } from '../../hooks'
 
 export default function SettingsView() {
   const [orgName, setOrgName] = useState('')
@@ -23,15 +24,14 @@ export default function SettingsView() {
       return
     }
     setSaving(true)
-    try {
-      const r = await putAppSetting('a2a_org_name', orgName.trim())
-      setOrgName(String(r.a2a_org_name))
-      message.success('저장했습니다 — A2A 카드에 즉시 반영됩니다(재시작 불요)')
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : '저장에 실패했습니다')
-    } finally {
-      setSaving(false)
-    }
+    await runWithToast(
+      async () => {
+        const r = await putAppSetting('a2a_org_name', orgName.trim())
+        setOrgName(String(r.a2a_org_name))
+      },
+      { success: '저장했습니다 — A2A 카드에 즉시 반영됩니다(재시작 불요)' },
+    )
+    setSaving(false)
   }
 
   return (
