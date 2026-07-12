@@ -91,6 +91,42 @@ def _text_of(m: object) -> str:
     return str(c)
 
 
+# 도구 루프 상한(스펙 315) — ReAct 노드가 답에 수렴 못 하고 도구를 무한 반복하는 러너웨이 방지.
+# 상한 도달 시 도구를 떼고(unbound) "지금까지 찾은 것으로 답하라" 유도 → 우아하게 마무리(에러/연결
+# 끊김 대신 정직한 답). 위키가 못 답하는 개방형 질의("최신 동향")에서 14회까지 돌던 실측이 동기.
+_TOOL_ROUNDS_CAP = 6
+_CAP_NUDGE = (
+    "\n\n[안내] 이미 도구로 여러 번 검색했습니다. **추가 도구 호출 없이**, 지금까지 찾은 내용만으로 "
+    "최선의 답을 정리하세요. 확실히 확인되지 않은 부분은 단정하지 말고 '검색으로 확인되지 않았다'고 "
+    "정직하게 밝히세요."
+)
+
+
+def _count_tool_rounds(msgs: list) -> int:
+    """이 노드의 현재 도구 루프에서 지금까지 돈 라운드 수. 메시지 꼬리를 거꾸로 훑어 연속된
+    [AI(tool_calls) ← ToolMessage]* 구간의 tool_calls AI 개수를 센다. 도구 없는 일반 메시지(앞 노드
+    결과·사용자 입력·이 노드의 최종 답)를 만나면 경계로 보고 멈춘다(노드 간 carry에도 안전 — 앞 노드
+    출력은 tool_calls 없는 AI라 경계가 됨). 상태 스키마 변경 없이 순수 계산."""
+    rounds = 0
+    for m in reversed(msgs):
+        if isinstance(m, ToolMessage):
+            continue
+        if getattr(m, "tool_calls", None):
+            rounds += 1
+            continue
+        break
+    return rounds
+
+
+def _force_final_if_capped(resp: BaseMessage, capped: bool) -> BaseMessage:
+    """상한 도달 응답인데 provider가 그래도 tool_calls를 냈으면(unbound인데도 반환하는 느슨한/커스텀
+    provider) tool_calls를 떼어 **강제 종료**(스펙 315, codex P1). 이래야 _route가 tool_calls를 못 봐
+    다음 노드로 보낸다 — 캡이 provider 동작과 무관하게 airtight. 본문 비면 정직한 폴백 문구."""
+    if capped and getattr(resp, "tool_calls", None):
+        return AIMessage(content=_text_of(resp) or "여러 번 검색했지만 확실한 근거를 찾지 못했습니다.")
+    return resp
+
+
 def _norm_node_name(n: dict, i: int) -> str:
     """노드 표시 이름 — 비문자열/공백이면 순번 기본값."""
     name = n.get("name")
@@ -308,19 +344,26 @@ class LinearPipelineAgent:
                 # clean 첫 진입(스펙 260): 쌓인 대화를 걷어내고 앞 결과만 새 입력으로 격리. 재진입
                 # (도구 루프 뒤 = 마지막이 ToolMessage)은 격리 buffer 위에서 정상 누적(carry 경로).
                 reentry = bool(msgs) and isinstance(msgs[-1], ToolMessage)
-                # 노드별 회상 블록(스펙 268 P2) — 첫 진입에만 시스템 프롬프트에 덧붙임.
-                sys = SystemMessage(content=sys_content + await _recall_block(msgs, reentry))
+                # 도구 루프 상한(스펙 315): 이 노드가 도구를 이미 CAP회 돌았으면 도구를 떼고(unbound) 답을
+                # 강제한다 — 러너웨이(수렴 못 하는 개방형 질의) 방지. unbound라 tool_calls를 못 내 _route가
+                # 다음 노드로 보낸다(루프 종료). clean 첫 진입은 루프 이전이라 rounds=0(항상 bound).
+                capped = bool(node_tools) and _count_tool_rounds(msgs) >= _TOOL_ROUNDS_CAP
+                active = model if capped else bound
+                # 노드별 회상 블록(스펙 268 P2) — 첫 진입에만 시스템 프롬프트에 덧붙임. 상한 도달 시 마무리 유도.
+                sys = SystemMessage(
+                    content=sys_content + (_CAP_NUDGE if capped else "") + await _recall_block(msgs, reentry)
+                )
                 if clean and not reentry:
                     prev_text = _text_of(msgs[-1]) if msgs else ""
                     human = HumanMessage(content=prev_text)
-                    resp = await _finalize(await bound.ainvoke([sys, human]))
+                    resp = _force_final_if_capped(await _finalize(await active.ainvoke([sys, human])), capped)
                     # 이전 메시지 전부 제거 + [앞 결과 입력, 응답]만 남김(격리 경계 — 하류도 여기부터 봄).
                     removals = [RemoveMessage(id=m.id) for m in msgs if getattr(m, "id", None)]
                     return {"messages": [*removals, human, resp]}
                 # 단기 기억(스펙 270) — 이전 대화 슬라이스를 sys와 누적 msgs 사이에 주입([sys, 대화, 입력…]).
                 # 슬라이스는 상태에 누적 안 함(노드마다 자기 depth로 새로 주입) — carry/clean은 턴내 흐름만 관장.
                 history = await _history_block(reentry)
-                resp = await _finalize(await bound.ainvoke([sys, *history, *msgs]))
+                resp = _force_final_if_capped(await _finalize(await active.ainvoke([sys, *history, *msgs])), capped)
                 return {"messages": [resp]}
 
             return _step, node_tools
