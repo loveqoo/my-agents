@@ -223,6 +223,14 @@ export default function NodeLibraryView() {
       ),
     },
     {
+      key: 'kind',
+      title: '종류',
+      width: 80,
+      // 종류(스펙 317): 설정=폼 저작 / 코드=신뢰 레지스트리에서 부팅 시 자동 발행(코드 배포로만 변경).
+      render: (r) =>
+        r.kind === 'code' ? <Tag color="purple">코드</Tag> : <Tag>설정</Tag>,
+    },
+    {
       key: 'latestVersion',
       title: '최신 버전',
       width: 100,
@@ -272,8 +280,10 @@ export default function NodeLibraryView() {
         {detailName ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-              발행된 버전은 바뀌지 않습니다 — 수정하려면 원하는 버전으로 새 버전을 발행하세요. 참조 중인
-              버전은 삭제할 수 없습니다.
+              {/* 코드 노드(스펙 317)는 발행·삭제가 코드 배포 소관 — 안내를 종류에 맞춘다. */}
+              {detail?.versions[0]?.kind === 'code'
+                ? '코드로 작성된 노드입니다 — 버전 발행·삭제는 코드 배포로 이뤄지며, 에이전트는 버전을 핀 고정해 참조합니다.'
+                : '발행된 버전은 바뀌지 않습니다 — 수정하려면 원하는 버전으로 새 버전을 발행하세요. 참조 중인 버전은 삭제할 수 없습니다.'}
             </span>
             {(detail?.versions ?? []).map((v) => (
               <div
@@ -291,42 +301,56 @@ export default function NodeLibraryView() {
                   <Tag color="geekblue" style={{ margin: 0 }}>
                     v{v.version}
                   </Tag>
+                  {v.kind === 'code' && (
+                    <Tag color="purple" style={{ margin: 0 }}>
+                      코드
+                    </Tag>
+                  )}
                   <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
                     {fmtTime(v.created_at ?? '') || '—'}
                   </span>
                   <span style={{ flex: 1 }} />
-                  <Button
-                    size="small"
-                    onClick={() =>
-                      setForm({
-                        mode: 'republish',
-                        name: detailName,
-                        description: v.description ?? '',
-                        config: v.config,
-                      })
-                    }
-                  >
-                    이 버전으로 새 버전 발행
-                  </Button>
-                  {v.usedBy.length > 0 ? (
-                    <Tooltip title="참조 중인 에이전트가 있어 삭제할 수 없습니다">
-                      <Button size="small" danger disabled>
-                        삭제
-                      </Button>
-                    </Tooltip>
+                  {v.kind === 'code' ? (
+                    /* 코드 노드(스펙 317) — 발행·삭제는 코드 배포로만(API는 409). 버튼 대신 안내. */
+                    <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+                      코드로 관리됩니다 — 발행·삭제는 코드 배포로 이뤄집니다
+                    </span>
                   ) : (
-                    <Popconfirm
-                      title={`v${v.version} 버전을 삭제할까요?`}
-                      description="삭제하면 되돌릴 수 없습니다."
-                      okText="삭제"
-                      cancelText="취소"
-                      okButtonProps={{ danger: true }}
-                      onConfirm={() => void doDelete(v.version)}
-                    >
-                      <Button size="small" danger>
-                        삭제
+                    <>
+                      <Button
+                        size="small"
+                        onClick={() =>
+                          setForm({
+                            mode: 'republish',
+                            name: detailName,
+                            description: v.description ?? '',
+                            config: v.config,
+                          })
+                        }
+                      >
+                        이 버전으로 새 버전 발행
                       </Button>
-                    </Popconfirm>
+                      {v.usedBy.length > 0 || v.usedByHidden > 0 ? (
+                        <Tooltip title="참조 중인 에이전트가 있어 삭제할 수 없습니다">
+                          <Button size="small" danger disabled>
+                            삭제
+                          </Button>
+                        </Tooltip>
+                      ) : (
+                        <Popconfirm
+                          title={`v${v.version} 버전을 삭제할까요?`}
+                          description="삭제하면 되돌릴 수 없습니다."
+                          okText="삭제"
+                          cancelText="취소"
+                          okButtonProps={{ danger: true }}
+                          onConfirm={() => void doDelete(v.version)}
+                        >
+                          <Button size="small" danger>
+                            삭제
+                          </Button>
+                        </Popconfirm>
+                      )}
+                    </>
                   )}
                 </div>
                 {v.description ? <span style={{ fontSize: 13 }}>{v.description}</span> : null}
@@ -334,13 +358,19 @@ export default function NodeLibraryView() {
                 <NodeConfigSummary config={v.config} />
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                   <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>사용 에이전트:</span>
-                  {v.usedBy.length ? (
-                    v.usedBy.map((a) => (
-                      <Tag key={a} color="blue" style={{ margin: 0 }}>
-                        {a}
-                      </Tag>
-                    ))
-                  ) : (
+                  {v.usedBy.map((a) => (
+                    <Tag key={a} color="blue" style={{ margin: 0 }}>
+                      {a}
+                    </Tag>
+                  ))}
+                  {/* 가시 범위 밖 참조(스펙 317) — 이름은 못 보여줘도 수는 정직하게(삭제 disabled의 근거). */}
+                  {v.usedByHidden > 0 && (
+                    <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+                      {/* 보이는 태그가 없으면 "외"가 어색 — 수만 표기. */}
+                      {v.usedBy.length ? `외 ${v.usedByHidden}개(비공개)` : `${v.usedByHidden}개(비공개)`}
+                    </span>
+                  )}
+                  {v.usedBy.length === 0 && v.usedByHidden === 0 && (
                     <span style={{ fontSize: 12, color: 'var(--color-text-quaternary)' }}>없음</span>
                   )}
                 </div>

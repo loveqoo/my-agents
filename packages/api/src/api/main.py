@@ -47,6 +47,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     await net_guard.refresh_allowed_hosts(force=True)  # SSRF allowlist 스냅샷 warm(스펙 064)
     await init_authz()  # casbin_rule + enforcer + 기본 정책(멱등)
     await users.seed_admin()  # superuser 시드(env, fail-closed)
+    await node_templates.sync_code_nodes()  # 코드 노드 카탈로그 동기화(스펙 317 — 발행=코드 배포 반영)
     await checkpointer.init_checkpointer()  # HIL durable 체크포인터(스펙 041, graceful)
     # 좀비 평가 런 정리(스펙 137, codex #1) — create_task는 재시작을 못 넘기므로 부팅 시 running은
     # 전부 죽은 실행 → error 박제("영원한 실행 중" 잔류 방지).

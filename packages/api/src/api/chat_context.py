@@ -89,19 +89,40 @@ _NODE_OVERRIDE_FIELDS = {
 }
 
 
+def _node_patch_fields(base_n: dict) -> set[str]:
+    """이 노드에 병합 가능한 오버라이드 필드(스펙 317) — 설정 노드=화이트리스트 전체, 코드 노드=
+    manifest.overridable ∩ 화이트리스트(나머지는 코드가 소유 — 세션 패치로 못 바꾼다). 미등록
+    impl은 빈 집합(fail-closed — 어차피 실행이 설정 오류로 거부됨)."""
+    impl = base_n.get("impl")
+    if not isinstance(impl, str) or not impl.strip():
+        return _NODE_OVERRIDE_FIELDS
+    from agent.nodes import get_node_impl
+
+    node_impl = get_node_impl(impl)
+    if node_impl is None:
+        return set()
+    return _NODE_OVERRIDE_FIELDS & set(node_impl.describe().overridable)
+
+
 def _merge_node_overrides(saved: list, ov: object) -> tuple[list, str]:
     """노드형 세션 오버라이드 merge(스펙 287). 길이(=구조)가 같을 때만 인덱스별로 필드
     화이트리스트를 저장 노드 위에 덮는다. 불일치·형식 오류는 저장본 그대로 + "mismatch"
-    (조용한 드롭 금지 — 트레이스가 표면화, 스펙 125 계열). 순수 함수(테스트 단위)."""
+    (조용한 드롭 금지 — 트레이스가 표면화, 스펙 125 계열). 코드 노드(스펙 317)는 manifest가
+    선언한 표면만 병합하고, 화이트리스트 필드가 표면 밖이라 떨어지면 "partial"로 표면화
+    (조용한 무시 금지 — 무엇이 안 먹었는지 트레이스가 말한다). 순수 함수(테스트 단위)."""
     if not isinstance(ov, list) or len(ov) != len(saved):
         return saved, "mismatch"
     merged: list = []
+    dropped = False
     for base_n, ov_n in zip(saved, ov, strict=True):
         if not isinstance(base_n, dict) or not isinstance(ov_n, dict):
             return saved, "mismatch"
-        patch = {k: v for k, v in ov_n.items() if k in _NODE_OVERRIDE_FIELDS}
+        allowed = _node_patch_fields(base_n)
+        patch = {k: v for k, v in ov_n.items() if k in allowed}
+        if any(k in _NODE_OVERRIDE_FIELDS and k not in allowed for k in ov_n):
+            dropped = True  # 코드 소유 필드를 덮으려 함 — 병합은 계속, 상태로 정직 표기
         merged.append({**base_n, **patch})
-    return merged, "applied"
+    return merged, ("partial" if dropped else "applied")
 
 
 def _used_node_tools(nodes: list[dict]) -> set[str]:

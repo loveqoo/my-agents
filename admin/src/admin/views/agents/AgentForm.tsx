@@ -55,7 +55,8 @@ export function derivePipelinePool(
   collections: { name: string }[],
 ): { mcps: string[]; vectorTables: string[]; memories: string[] } {
   const inline = (nodes ?? []).filter((n): n is PipelineNode => !isNodeRef(n))
-  const used = new Set(inline.flatMap((n) => n.tools))
+  // 코드 노드(스펙 317)는 tools가 없을 수 있다(해석 항목={impl, overridable, name}) — 방어 기본값.
+  const used = new Set(inline.flatMap((n) => n.tools ?? []))
   const mcps = mcpItems
     .filter((s) => (s.tools ?? []).some((t) => used.has(safeToolName(s.name, t)) || used.has(t)))
     .map((s) => s.name)

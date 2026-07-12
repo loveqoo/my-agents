@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Input, Select, Button, Segmented, Collapse, Tag, Descriptions } from 'antd'
+import { Input, Select, Button, Segmented, Collapse, Tag, Descriptions, Alert } from 'antd'
 import { isNodeRef, type PipelineNode, type PipelineNodeRef } from '../../mockData'
 import {
   listNodeTemplates,
@@ -41,11 +41,49 @@ export const NODE_FORMAT_LABEL: Record<'text' | 'json', string> = {
   json: 'JSON',
 }
 
+/* 코드 노드 판별(스펙 317, 단일 소스) — impl이 있으면 실행을 코드(신뢰 레지스트리)가 소유.
+   prompt/model이 없을 수 있어(해석 config={impl, overridable, name}) 소비처는 이걸로 먼저 분기한다. */
+export const isCodeNode = (n: PipelineNode): boolean => typeof n.impl === 'string' && n.impl.length > 0
+
+/* 코드 노드의 오버라이드 표면 문구(스펙 317) — 요약·오버라이드 안내가 같은 문구를 쓴다. */
+export const overridableLabel = (overridable: string[] | undefined): string =>
+  overridable?.length ? `오버라이드 가능: ${overridable.join(', ')}` : '전부 코드 소유 (오버라이드 없음)'
+
 /* 노드 설정 요약(스펙 316, 읽기 전용) — 참조 노드 미리보기(에이전트 폼)와 노드 라이브러리 버전
    상세가 공유하는 단일 렌더러. "무엇이 실행되는지 가리지 않음"(beauty=trust) — 프롬프트 앞부분·
-   모델·도구·받기/형식·기억을 보여준다. */
+   모델·도구·받기/형식·기억을 보여준다. 코드 노드(스펙 317)는 프롬프트/모델 대신 구현 키와
+   오버라이드 표면을 보여준다(여기 한 곳만 고치면 두 소비처 모두 반영). */
 export function NodeConfigSummary({ config }: { config: PipelineNode }) {
   const prompt = (config.prompt ?? '').trim()
+  if (isCodeNode(config)) {
+    return (
+      <Descriptions
+        column={1}
+        size="small"
+        items={[
+          {
+            key: 'impl',
+            label: '구현',
+            children: (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <code style={{ fontFamily: 'var(--font-family-code)', fontSize: 13 }}>{config.impl}</code>
+                <Tag color="purple" style={{ margin: 0 }}>
+                  코드 노드
+                </Tag>
+              </span>
+            ),
+          },
+          {
+            key: 'overridable',
+            label: '오버라이드',
+            children: (
+              <span style={{ fontSize: 13 }}>{overridableLabel(config.overridable)}</span>
+            ),
+          },
+        ]}
+      />
+    )
+  }
   return (
     <Descriptions
       column={1}
@@ -108,6 +146,7 @@ export function NodeConfigFields({
   mcpServers,
   docOptions,
   memoryOptions,
+  visibleFields,
 }: {
   value: PipelineNode
   onChange: (patch: Partial<PipelineNode>) => void
@@ -116,109 +155,135 @@ export function NodeConfigFields({
   mcpServers: { name: string; tools?: string[] }[]
   docOptions: { label: string; value: string }[]
   memoryOptions: { label: string; value: string }[]
+  /** 렌더할 필드 화이트리스트(스펙 317 — 코드 노드 오버라이드용). 미지정=전부(기존 소비자 무회귀).
+      키는 PipelineNode 필드명(prompt/model/historyDepth/memories/tools/context/format/fields). */
+  visibleFields?: string[]
 }) {
   // 템플릿/해석 config는 선택 필드(tools 등)를 생략할 수 있다(서버 화이트리스트가 미지정 키를
   // 저장하지 않음, 스펙 316) — 폼 편집 전에 방어 기본값(undefined.filter 크래시 봉인).
+  // 코드 노드(스펙 317)는 prompt/model도 없을 수 있다 — 같은 이유로 ?? ''.
   const tools = n.tools ?? []
+  const show = (f: string) => visibleFields == null || visibleFields.includes(f)
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       {/* 프롬프트·모델·기억은 공용 컨트롤(스펙 271/274 — 라벨·옵션·가드 단일 출처). */}
-      <PromptField
-        label="프롬프트"
-        value={n.prompt}
-        onChange={(v) => onChange({ prompt: v })}
-        personas={personas}
-        placeholder="이 노드가 할 일을 지시하세요 (예: 입력을 분석해 핵심 3가지를 뽑아라)"
-        required
-      />
-      <ModelField
-        value={n.model}
-        onChange={(v) => onChange({ model: v })}
-        models={models}
-        placeholder="이 노드가 쓸 모델 선택"
-        required
-      />
+      {show('prompt') && (
+        <PromptField
+          label="프롬프트"
+          value={n.prompt ?? ''}
+          onChange={(v) => onChange({ prompt: v })}
+          personas={personas}
+          placeholder="이 노드가 할 일을 지시하세요 (예: 입력을 분석해 핵심 3가지를 뽑아라)"
+          required
+        />
+      )}
+      {show('model') && (
+        <ModelField
+          value={n.model ?? ''}
+          onChange={(v) => onChange({ model: v })}
+          models={models}
+          placeholder="이 노드가 쓸 모델 선택"
+          required
+        />
+      )}
 
       {/* 기억(단기+장기) — 에이전트 폼 기억 구획(271)과 같은 나란히 배치.
           단기는 "이전 결과만"(clean)이면 대화를 안 보므로 비활성(270 결정 (가)). */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))', gap: 10 }}>
-        <ShortTermMemoryField
-          value={n.historyDepth}
-          onChange={(v) => onChange({ historyDepth: v })}
-          allowInherit
-          disabled={(n.context ?? 'carry') === 'clean'}
-          hint={(n.context ?? 'carry') === 'clean'
-            ? '"이전 결과만"이라 이전 대화를 보지 않습니다.'
-            : '이 노드가 볼 이전 대화 턴 수(상속=에이전트 설정).'}
-        />
-        <LongTermMemoryField
-          value={n.memories ?? []}
-          onChange={(vals) => onChange({ memories: vals })}
-          options={memoryOptions}
-          queryMode={n.memoryQuery ?? 'user'}
-          onQueryModeChange={(v) => onChange({ memoryQuery: v })}
-        />
-      </div>
+      {(show('historyDepth') || show('memories')) && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))', gap: 10 }}>
+          {show('historyDepth') && (
+            <ShortTermMemoryField
+              value={n.historyDepth}
+              onChange={(v) => onChange({ historyDepth: v })}
+              allowInherit
+              disabled={(n.context ?? 'carry') === 'clean'}
+              hint={(n.context ?? 'carry') === 'clean'
+                ? '"이전 결과만"이라 이전 대화를 보지 않습니다.'
+                : '이 노드가 볼 이전 대화 턴 수(상속=에이전트 설정).'}
+            />
+          )}
+          {show('memories') && (
+            <LongTermMemoryField
+              value={n.memories ?? []}
+              onChange={(vals) => onChange({ memories: vals })}
+              options={memoryOptions}
+              queryMode={n.memoryQuery ?? 'user'}
+              onQueryModeChange={(v) => onChange({ memoryQuery: v })}
+            />
+          )}
+        </div>
+      )}
 
       {/* 도구=서버→도구 계층 트리(스펙 277) — 문서 항목은 보존해 합쳐 저장(스펙 272 병합). */}
-      <ToolTree
-        servers={mcpServers}
-        value={tools.filter((t) => !isDocTool(t))}
-        onChange={(vals) => onChange({ tools: [...vals, ...tools.filter(isDocTool)] })}
-      />
-      {/* 문서(RAG 컬렉션) — 평면 카탈로그라 트리 아님. 변경 시 도구 항목 보존(스펙 272 병합). */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        <span style={{ fontSize: 13, color: 'var(--color-text)', fontWeight: 500 }}>문서 (선택)</span>
-        <Select
-          mode="multiple"
-          allowClear
-          value={tools.filter(isDocTool)}
-          onChange={(vals) => onChange({ tools: [...tools.filter((t) => !isDocTool(t)), ...vals] })}
-          options={docOptions}
-          placeholder={docOptions.length ? '이 노드가 검색할 문서 컬렉션' : '등록된 컬렉션 없음'}
-          disabled={docOptions.length === 0}
-          style={{ width: '100%' }}
-        />
-      </div>
+      {show('tools') && (
+        <>
+          <ToolTree
+            servers={mcpServers}
+            value={tools.filter((t) => !isDocTool(t))}
+            onChange={(vals) => onChange({ tools: [...vals, ...tools.filter(isDocTool)] })}
+          />
+          {/* 문서(RAG 컬렉션) — 평면 카탈로그라 트리 아님. 변경 시 도구 항목 보존(스펙 272 병합). */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <span style={{ fontSize: 13, color: 'var(--color-text)', fontWeight: 500 }}>문서 (선택)</span>
+            <Select
+              mode="multiple"
+              allowClear
+              value={tools.filter(isDocTool)}
+              onChange={(vals) => onChange({ tools: [...tools.filter((t) => !isDocTool(t)), ...vals] })}
+              options={docOptions}
+              placeholder={docOptions.length ? '이 노드가 검색할 문서 컬렉션' : '등록된 컬렉션 없음'}
+              disabled={docOptions.length === 0}
+              style={{ width: '100%' }}
+            />
+          </div>
+        </>
+      )}
 
       {/* 받기/내보내기 한 줄(스펙 267 — 사용자 정의 문구): "이전 결과 받기"=이전 노드의 결과를
           어떻게 받을까(260 context), "응답 형식"=이 노드가 어떻게 출력할까(261 format).
           첫 노드에도 받기 노출 — A2A 연계 시 앞 에이전트의 결과가 대화로 들어오므로(사용자 확인). */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))', gap: 10 }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <span style={{ fontSize: 13, color: 'var(--color-text)', fontWeight: 500 }}>이전 결과 받기</span>
-          <Segmented
-            value={n.context ?? 'carry'}
-            onChange={(v) => onChange({ context: v as 'carry' | 'clean' })}
-            options={[
-              { label: NODE_CONTEXT_LABEL.carry, value: 'carry' },
-              { label: NODE_CONTEXT_LABEL.clean, value: 'clean' },
-            ]}
-          />
-          <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-            {(n.context ?? 'carry') === 'clean'
-              ? '앞의 대화는 걷어내고 바로 앞 결과만 받습니다.'
-              : '지금까지의 대화 전체를 보고 처리합니다.'}
-          </span>
+      {(show('context') || show('format')) && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))', gap: 10 }}>
+          {show('context') && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <span style={{ fontSize: 13, color: 'var(--color-text)', fontWeight: 500 }}>이전 결과 받기</span>
+              <Segmented
+                value={n.context ?? 'carry'}
+                onChange={(v) => onChange({ context: v as 'carry' | 'clean' })}
+                options={[
+                  { label: NODE_CONTEXT_LABEL.carry, value: 'carry' },
+                  { label: NODE_CONTEXT_LABEL.clean, value: 'clean' },
+                ]}
+              />
+              <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+                {(n.context ?? 'carry') === 'clean'
+                  ? '앞의 대화는 걷어내고 바로 앞 결과만 받습니다.'
+                  : '지금까지의 대화 전체를 보고 처리합니다.'}
+              </span>
+            </div>
+          )}
+          {show('format') && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <span style={{ fontSize: 13, color: 'var(--color-text)', fontWeight: 500 }}>응답 형식</span>
+              <Segmented
+                value={n.format ?? 'text'}
+                onChange={(v) => onChange({ format: v as 'text' | 'json' })}
+                options={[
+                  { label: NODE_FORMAT_LABEL.text, value: 'text' },
+                  { label: NODE_FORMAT_LABEL.json, value: 'json' },
+                ]}
+              />
+              <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+                {(n.format ?? 'text') === 'json'
+                  ? 'JSON 객체로만 답하게 강제합니다(어긋나면 1회 교정, 실패 시 원문).'
+                  : '모델이 쓰는 대로 내보냅니다.'}
+              </span>
+            </div>
+          )}
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <span style={{ fontSize: 13, color: 'var(--color-text)', fontWeight: 500 }}>응답 형식</span>
-          <Segmented
-            value={n.format ?? 'text'}
-            onChange={(v) => onChange({ format: v as 'text' | 'json' })}
-            options={[
-              { label: NODE_FORMAT_LABEL.text, value: 'text' },
-              { label: NODE_FORMAT_LABEL.json, value: 'json' },
-            ]}
-          />
-          <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-            {(n.format ?? 'text') === 'json'
-              ? 'JSON 객체로만 답하게 강제합니다(어긋나면 1회 교정, 실패 시 원문).'
-              : '모델이 쓰는 대로 내보냅니다.'}
-          </span>
-        </div>
-      </div>
-      {(n.format ?? 'text') === 'json' && (
+      )}
+      {/* fields는 format=json일 때만 의미 — 'fields'만 오버라이드 허용된 코드 노드도 편집 가능해야 하므로 OR. */}
+      {(show('format') || show('fields')) && (n.format ?? 'text') === 'json' && (
         <Select
           mode="tags"
           allowClear
@@ -317,9 +382,14 @@ export function NodeListEditor({
 
   // 접힘 헤더(스펙 275→287 후속) — 프롬프트 발췌만. 모델·도구 수 등 설정 나열은 노이즈라 뺐다
   // (2026-07-10 지시). 설정은 펼쳐서 보고, 미완성은 "작성 필요" Tag가 알린다.
-  // 참조 노드(스펙 316)는 name+version 선택이 곧 완성 조건.
+  // 참조 노드(스펙 316)는 name+version 선택이 곧 완성 조건. 코드 노드(스펙 317)는 발행 시 검증
+  // 완료라 항상 완성(prompt/model이 없어 인라인 판정식을 태우면 undefined 크래시 — 선분기).
   const nodeInvalid = (n: PipelineNode | PipelineNodeRef) =>
-    isNodeRef(n) ? !n.ref.name.trim() || n.ref.version < 1 : !n.prompt.trim() || !n.model.trim()
+    isNodeRef(n)
+      ? !n.ref.name.trim() || n.ref.version < 1
+      : isCodeNode(n)
+        ? false
+        : !(n.prompt ?? '').trim() || !(n.model ?? '').trim()
   const refLabel = (n: PipelineNodeRef) =>
     n.ref.name.trim() ? `${n.ref.name} · v${n.ref.version >= 1 ? n.ref.version : '?'}` : '참조 노드 선택 필요'
 
@@ -467,14 +537,26 @@ export function NodeListEditor({
                       />
                     ) : open.includes(i) ? (
                       // 구조 불변 모드(스펙 287): 이름=구조 식별자라 읽기 전용(서버가 저장본 유지).
-                      <span style={{ flex: 'none', fontSize: 13, fontWeight: 500 }}>
-                        {n.name?.trim() || `노드 ${i + 1}`}
-                      </span>
+                      <>
+                        <span style={{ flex: 'none', fontSize: 13, fontWeight: 500 }}>
+                          {n.name?.trim() || `노드 ${i + 1}`}
+                        </span>
+                        {isCodeNode(n) && (
+                          <Tag color="purple" style={{ flex: 'none', margin: 0 }}>
+                            코드
+                          </Tag>
+                        )}
+                      </>
                     ) : (
                       <>
                         <span style={{ flex: 'none', fontSize: 13, fontWeight: 500 }}>
                           {n.name?.trim() || `노드 ${i + 1}`}
                         </span>
+                        {isCodeNode(n) && (
+                          <Tag color="purple" style={{ flex: 'none', margin: 0 }}>
+                            코드
+                          </Tag>
+                        )}
                         {nodeInvalid(n) && (
                           <Tag color="red" style={{ flex: 'none', margin: 0 }}>
                             작성 필요
@@ -490,7 +572,8 @@ export function NodeListEditor({
                             textOverflow: 'ellipsis',
                           }}
                         >
-                          {n.prompt.trim().slice(0, 60)}
+                          {/* 코드 노드는 프롬프트가 없다(스펙 317) — 구현 키를 발췌 자리에. */}
+                          {isCodeNode(n) ? n.impl : (n.prompt ?? '').trim().slice(0, 60)}
                         </span>
                       </>
                     )}
@@ -536,6 +619,30 @@ export function NodeListEditor({
                       ) : (
                         refBody(i, n)
                       )
+                    ) : isCodeNode(n) ? (
+                      /* 코드 노드(스펙 317) — 오버라이드(fixedStructure) 베이스의 해석 항목.
+                         overridable에 든 필드만 편집을 열고 나머지는 렌더하지 않는다(세션 오버라이드로
+                         코드 소유 필드를 덮으면 서버가 무시·trace partial — UI에서 선차단이 최선).
+                         빈 배열이면 카드 전체가 읽기 전용 안내. */
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        <Alert
+                          type="info"
+                          showIcon
+                          title={`코드가 소유하는 노드입니다 (${n.impl}) — ${overridableLabel(n.overridable)}`}
+                        />
+                        {(n.overridable ?? []).length > 0 && (
+                          <NodeConfigFields
+                            value={n}
+                            onChange={(patch) => setNode(i, patch)}
+                            visibleFields={n.overridable}
+                            models={models}
+                            personas={personas}
+                            mcpServers={mcpServers}
+                            docOptions={docOptions}
+                            memoryOptions={memoryOptions}
+                          />
+                        )}
+                      </div>
                     ) : (
                       <NodeConfigFields
                         value={n}
@@ -570,7 +677,10 @@ export function pipelineValid(nodes: (PipelineNode | PipelineNodeRef)[] | undefi
   return (
     !!nodes?.length &&
     nodes.every((n) =>
-      isNodeRef(n) ? n.ref.name.trim() !== '' && n.ref.version >= 1 : n.prompt.trim() !== '' && n.model.trim() !== '',
+      isNodeRef(n)
+        ? n.ref.name.trim() !== '' && n.ref.version >= 1
+        : // 코드 노드(스펙 317)는 발행 시 검증 완료 — prompt/model 부재가 정상이라 항상 유효.
+          isCodeNode(n) || ((n.prompt ?? '').trim() !== '' && (n.model ?? '').trim() !== ''),
     )
   )
 }

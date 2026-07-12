@@ -14,6 +14,7 @@
 """
 
 import copy
+import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -25,9 +26,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .auth import current_principal
 from .db import get_session
 from .models import Agent, AgentVersion, NodeTemplate, User
-from .naming import assert_valid_name
+from .naming import assert_valid_name, validate_resource_name
 from .ownership import is_privileged, may_use_agent
 from .schemas import AgentConfig
+
+log = logging.getLogger("api.node_templates")
 
 router = APIRouter(prefix="/node-templates", tags=["node-templates"])
 
@@ -139,6 +142,86 @@ def visible_used_by(agents: list[Agent], principal: User | str | None) -> tuple[
     순수 함수(단위 검증)."""
     visible = [a for a in agents if may_use_agent(a, principal)]
     return sorted({a.name for a in visible}), len(agents) - len(visible)
+
+
+async def sync_code_nodes() -> None:
+    """부팅 카탈로그 동기화(스펙 317) — 코드 노드 레지스트리의 manifest를 node_templates에 반영한다.
+    발행=코드 배포의 반영, 삭제=코드 제거의 반영(API 발행/삭제 금지와 쌍):
+
+    - 같은 (name, version)이 있으면 **덮어쓰기**(합의 결정 — 코드 변경이 그 버전을 핀한 모든
+      에이전트에 전파되는 의도된 탈출구), 새 버전이면 새 행.
+    - 같은 이름의 **설정(kind=config) 노드가 이미 있으면 경고+스킵**(kind 혼합 금지 — 참조자가
+      성격을 예측할 수 없게 되는 조용한 변경 차단).
+    - 레지스트리에서 사라진 코드 노드 행은 **참조가 없을 때만** 정리(참조가 있으면 경고+보존 —
+      실행이 AgentConfigError로 정직 실패하는 쪽이 조용한 참조 파괴보다 낫다).
+    """
+    from agent.nodes import node_manifests
+
+    from .db import SessionLocal
+
+    async with SessionLocal() as db:
+        manifests = node_manifests()
+        live_keys: set[tuple[str, int]] = set()
+        # 이름 잠금(codex 317 — 발행 라우트·에이전트 저장과 같은 키로 직렬화): upsert의 kind 혼합
+        # 검사와 아래 고아 정리(usage 스캔→delete)가 경합 예외가 아니라 결정적으로 안전하게.
+        # 정렬 순 선잠금(교착 회피) — manifest 이름 + 기존 code 행 이름 전부.
+        code_names = set(
+            (await db.execute(select(NodeTemplate.name).where(NodeTemplate.kind == "code")))
+            .scalars()
+            .all()
+        )
+        for name in sorted(code_names | {mf.name for _k, mf in manifests}):
+            await _lock_template_name(db, name)
+        for key, mf in manifests:
+            err = validate_resource_name(mf.name)
+            if err:
+                log.warning("코드 노드 %r 동기화 스킵 — 이름 규칙 위반: %s", key, err)
+                continue
+            rows = (
+                (await db.execute(select(NodeTemplate).where(NodeTemplate.name == mf.name)))
+                .scalars()
+                .all()
+            )
+            if any(r.kind != "code" for r in rows):
+                log.warning(
+                    "코드 노드 %s 동기화 스킵 — 같은 이름의 설정 노드 존재(kind 혼합 금지)", mf.name
+                )
+                continue
+            live_keys.add((mf.name, mf.version))
+            cfg = {"impl": key, "overridable": list(mf.overridable)}
+            desc = (mf.description or "").strip()[:200] or None
+            row = next((r for r in rows if r.version == mf.version), None)
+            if row is not None:
+                row.config = cfg  # 동일 버전 덮어쓰기 — 코드 변경의 카탈로그 반영(핀 전파)
+                row.description = desc
+            else:
+                db.add(
+                    NodeTemplate(
+                        name=mf.name, version=mf.version, kind="code", config=cfg, description=desc
+                    )
+                )
+        # 코드에서 사라진 행 정리(참조 0일 때만) — usage 스캔은 삭제 가드와 같은 함수(드리프트 0).
+        stale = (
+            (await db.execute(select(NodeTemplate).where(NodeTemplate.kind == "code")))
+            .scalars()
+            .all()
+        )
+        stale = [r for r in stale if (r.name, r.version) not in live_keys]
+        if stale:
+            usage = await node_ref_usage(db)
+            for r in stale:
+                used = usage.get((r.name, r.version), [])
+                if used:
+                    log.warning(
+                        "코드 노드 %s@%s 가 레지스트리에서 사라졌으나 참조 에이전트 %d개가 있어 보존 — 실행은 설정 오류로 실패합니다",
+                        r.name,
+                        r.version,
+                        len(used),
+                    )
+                else:
+                    log.info("코드 노드 %s@%s 정리(코드 제거 반영, 참조 0)", r.name, r.version)
+                    await db.delete(r)
+        await db.commit()
 
 
 async def assert_node_refs_exist(db: AsyncSession, nodes: object) -> None:
@@ -299,6 +382,16 @@ async def create_node_template(
     assert_valid_name(body.name)  # 식별 이름 규칙(스펙 148) — 서버가 진실원
     config = _validated_template_config(body.config)
     await _lock_template_name(session, body.name)
+    # 코드 노드 이름공간 보호(스펙 317) — 발행은 코드 배포로만(kind 혼합 금지의 API 측 절반).
+    owner_kind = (
+        await session.execute(
+            select(NodeTemplate.kind).where(NodeTemplate.name == body.name).limit(1)
+        )
+    ).scalar_one_or_none()
+    if owner_kind == "code":
+        raise HTTPException(
+            status_code=409, detail="코드로 관리되는 노드입니다 — 발행은 코드 배포로만 이뤄집니다."
+        )
     latest = (
         await session.execute(
             select(NodeTemplate.version)
@@ -350,6 +443,12 @@ async def delete_node_template(
     ).scalar_one_or_none()
     if tpl is None:
         raise HTTPException(status_code=404, detail="node template not found")
+    if tpl.kind == "code":
+        # 삭제=코드 제거의 반영(스펙 317) — 코드에서 지우고 재배포하면 부팅 동기화가 참조 0일 때 정리.
+        raise HTTPException(
+            status_code=409,
+            detail="코드로 관리되는 노드입니다 — 코드에서 제거 후 재배포하면 자동 정리됩니다.",
+        )
     usage = await node_ref_usage(session)
     used_by = sorted({a.name for a in usage.get((name, version), [])})
     if used_by:

@@ -107,6 +107,14 @@ async def _build_eval_graph(
         params=run_params,
         memories=mem_hits,
         broker=broker,
+        # impl_config — 노코드 impl 설정 통로(codex 317 P1: eval 입구 누락 봉합). 이게 없으면 노드형/
+        # 산출물형 평가가 **기본 단일 노드로 조용히 퇴화**해 실제 서빙과 다른 것을 채점했고, 미등록
+        # 코드 노드도 설정 오류 대신 폴백 실행됐다. 채팅·A2A 서빙·승인 재개와 동일 주입(네 번째 입구).
+        impl_config=(
+            {"nodes": ctx["nodes_resolved"]}
+            if ctx.get("nodes_resolved") is not None
+            else ctx.get("artifact_spec")
+        ),
     )
     return impl.build_graph(build_ctx), broker
 
@@ -183,16 +191,21 @@ async def eval_run_agent(
     used_memory, mem_hits, persona_prompt = await _recall_memory(ctx, user_text)
 
     calls_sink: list[dict] = []
-    graph, broker = await _build_eval_graph(
-        ctx,
-        impl,
-        persona_prompt,
-        mem_hits,
-        calls_sink,
-        principal,
-        delegation_chain,
-        delegation_budget,
-    )
+    try:
+        graph, broker = await _build_eval_graph(
+            ctx,
+            impl,
+            persona_prompt,
+            mem_hits,
+            calls_sink,
+            principal,
+            delegation_chain,
+            delegation_budget,
+        )
+    except AgentConfigError as exc:
+        # 그래프 조립 시점 설정 실패(스펙 317 — 코드 노드 impl 미등록 등)도 error obs로 접는다
+        # (하네스 계약 — 케이스 error 채점, 전체 평가는 계속. 조용한 폴백 채점 금지).
+        return {"output": "", "trace_nodes": [], "error": True, "detail": f"그래프 조립 실패: {exc}"}
     messages = _window([{"role": "user", "content": user_text}], ctx["history_depth"])
     cfg = observability.with_trace(None, name=f"eval:{ctx['ext_agent_id']}")
 

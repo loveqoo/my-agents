@@ -1132,7 +1132,12 @@ async def chat(
         )
 
     conversation, history_restore = await _prepare_conversation(ctx, body)
-    turn = await _build_turn_runtime(ctx, impl, principal, user_id, user_text, conversation)
+    try:
+        turn = await _build_turn_runtime(ctx, impl, principal, user_id, user_text, conversation)
+    except AgentConfigError as e:
+        # 그래프 조립 시점 설정 실패(스펙 317 — 코드 노드 impl 미등록 등)도 resolve 실패와 동일하게
+        # 정직 통보(default 만회·조용한 스킵 금지, 089 패턴).
+        return StreamingResponse(_config_error_stream(str(e)), media_type="text/event-stream")
     graph = turn["graph"]
     thread_id, graph_input, pending_artifact = _resolve_graph_entry(ctx, body, user_text)
     capture = trace_capture.TraceCaptureHandler()

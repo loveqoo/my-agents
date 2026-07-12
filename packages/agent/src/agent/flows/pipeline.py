@@ -30,7 +30,7 @@ from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 
 from ..model import build_chat_openai
-from ..runtime import AgentBuildContext, AgentManifest
+from ..runtime import AgentBuildContext, AgentConfigError, AgentManifest
 
 if TYPE_CHECKING:
     from langchain_core.messages import BaseMessage
@@ -161,12 +161,20 @@ def _norm_history_depth(n: dict) -> int | None:
 
 def normalize_nodes(raw: object) -> list[dict]:
     """impl_config의 노드 리스트를 방어적으로 정규화(순수 — 단위 검증 가능). dict 리스트만, prompt
-    문자열 필수(빈 노드 제거), name/model/tools는 선택. 순서 보존. 잡값은 조용히 걸러 빈 리스트로."""
+    문자열 필수(빈 노드 제거), name/model/tools는 선택. 순서 보존. 잡값은 조용히 걸러 빈 리스트로.
+
+    코드 노드(스펙 317): `impl` 키가 있으면 로직이 코드에 있으므로 prompt 규칙을 적용하지 않고
+    {impl, name, model_cfg}만 통과시킨다(그 외 키는 build_step이 원본 node_cfg로 받아야 하므로
+    사본으로 보존). impl 해석·미등록 실패는 _make_step이 담당(AgentConfigError)."""
     if not isinstance(raw, list):
         return []
     out: list[dict] = []
     for i, n in enumerate(raw):
         if not isinstance(n, dict):
+            continue
+        impl = n.get("impl")
+        if isinstance(impl, str) and impl.strip():
+            out.append({**n, "impl": impl, "name": _norm_node_name(n, i)})
             continue
         prompt = n.get("prompt")
         if not isinstance(prompt, str) or not prompt.strip():
@@ -265,6 +273,19 @@ class LinearPipelineAgent:
         g = StateGraph(_State)
 
         def _make_step(nid: str, node: dict) -> tuple[Callable[[_State], Awaitable[dict]], list]:
+            # 코드 노드(스펙 317) — 신뢰 레지스트리에서 해석해 스텝을 코드가 만든다. 미등록이면
+            # AgentConfigError(default 만회·조용한 스킵 금지 — 089 패턴: 배포에서 코드가 빠졌는데
+            # 폴백하면 설정 실수를 마스킹). 도구 루프 없음(코드가 ctx.tools에서 직접 고름 — 085 U2).
+            impl_key = node.get("impl")
+            if isinstance(impl_key, str) and impl_key.strip():
+                from ..nodes import (
+                    get_node_impl,  # 지연 import(모듈 순환 회피 — nodes는 pipeline을 모름)
+                )
+
+                node_impl = get_node_impl(impl_key)
+                if node_impl is None:
+                    raise AgentConfigError(impl_key)
+                return node_impl.build_step(dict(node), ctx), []
             model = _model_from_node(node, ctx)
             node_tools = [
                 t for t in (_resolve_tool(name) for name in node["tools"]) if t is not None

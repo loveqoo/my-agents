@@ -41,6 +41,11 @@ export interface PipelineNode {
   memories?: string[] // 회상 받을 기억 블록(스펙 268 P2, 선택) — 비면 이 노드는 회상 없음
   memoryQuery?: 'user' | 'input' // 회상 키워드(268). user=사용자 입력(캐시 공유, 기본), input=이 노드의 입력
   historyDepth?: number | null // 단기 기억 창(스펙 270) — 이전 대화 N개. undefined/null=에이전트 상속. carry일 때만 의미
+  /* 코드 노드(스펙 317) — impl이 있으면 실행을 코드(신뢰 레지스트리)가 소유한다. 이때 prompt/model은
+     **런타임에 없을 수 있다**(해석 config·resolvedNodes 항목이 {impl, overridable, name}만 실음) —
+     소비처는 접근 전 가드(?? ''). overridable=세션 오버라이드가 병합할 수 있는 필드 목록(빈 배열=전부 코드 소유). */
+  impl?: string // 코드 노드 레지스트리 키(스펙 317). 없으면 일반(설정) 노드
+  overridable?: string[] // 코드 노드의 오버라이드 허용 필드(스펙 317) — impl 있을 때만 의미
 }
 
 /** 등록 노드 참조(스펙 316) — 노드 라이브러리의 (name, version)에 핀 고정. 새 버전이 발행돼도

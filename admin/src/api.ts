@@ -371,7 +371,7 @@ export async function uploadDocument(id: string, file: File): Promise<RagDocumen
    에이전트 nodes[]가 {ref:{name,version}}으로 버전 핀 고정 참조. 참조 중인 버전 삭제는 409. */
 export interface NodeTemplateGroup {
   name: string
-  kind: string // 지금은 "config"만(코드 노드는 스펙 317 예정)
+  kind: string // "config"(폼 저작) | "code"(스펙 317 — 코드 배포로만 발행·삭제)
   description: string | null
   latestVersion: number
   versionCount: number
@@ -382,9 +382,10 @@ export interface NodeTemplateVersion {
   version: number
   kind: string
   description: string | null
-  config: PipelineNode // 에이전트 노드와 동일 화이트리스트(_normalize_node)로 검증된 형태
+  config: PipelineNode // 에이전트 노드와 동일 화이트리스트(_normalize_node)로 검증된 형태. 코드 노드(스펙 317)는 {impl, overridable}
   created_at: string | null
-  usedBy: string[] // 이 버전을 참조하는 에이전트 이름들
+  usedBy: string[] // 이 버전을 참조하는 에이전트 이름들(요청 주체 가시 범위)
+  usedByHidden: number // 가시 범위 밖 참조 에이전트 수(스펙 317) — 0 아니면 "외 N개(비공개)" 표기
 }
 export interface NodeTemplateDetail {
   name: string

@@ -180,7 +180,13 @@ async def stream_local_reply(agent_id: uuid.UUID, user_text: str) -> AsyncIterat
         # 단기 기억 창(스펙 270): A2A 서빙은 무상태 단일 메시지(스펙 061 — 이전 대화 없음)라 history_window
         # 미주입(None). 메모리 프록시 미주입(위)과 같은 결 — 대화 축이 없으니 "재개 축 누락" 버그 아님.
     )
-    graph = impl.build_graph(build_ctx)
+    try:
+        graph = impl.build_graph(build_ctx)
+    except AgentConfigError as e:
+        # 그래프 조립 시점 설정 실패(스펙 317 — 코드 노드 impl 미등록 등). resolve 실패(위)와 동일하게
+        # 구체 키는 로그만, 응답은 일반 문구(089-F1 — 임의 저장값 비반영).
+        log.warning("A2A 서빙 그래프 조립 실패: %r (agent %s)", str(e), agent_id)
+        raise ValueError("에이전트 설정 실패: 노드 구현 미해결(A2A 노출 불가)") from e
     # 노출 호출은 호출당 단일 메시지(맥락은 A2A contextId가 호출측 책임 — v1 서빙은 무상태).
     messages = _window([{"role": "user", "content": user_text}], ctx["history_depth"])
     # 관측(스펙 118) — checkpointer=None이라 thread_id 불요, 콜백만 병합(미설정=무동작).

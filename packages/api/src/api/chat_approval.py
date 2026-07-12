@@ -267,8 +267,9 @@ async def _rebuild_resume_graph(
     approval: Approval,
     mem_hits: list[dict],
     mem_proxy: "_MemoryRecallProxy | None",
-) -> "tuple[CompiledStateGraph, list[dict], PolicyScopedBroker, list[dict]]":
+) -> "tuple[CompiledStateGraph, list[dict], PolicyScopedBroker, list[dict]] | None":
     """원 턴과 동일 재료로 그래프 재구성 — 반환 (graph, calls_sink, resume_broker, history_windows).
+    그래프 조립 시점 설정 실패(스펙 317 — 코드 노드 impl 미등록 등)는 None(재개 불가 graceful).
 
     서브스텝 HIL 재개(스펙 101 §3.5): 위임 cap의 interrupt를 재개하려면 원 턴과 **동일 스코프**의
     브로커를 재주입해야 한다 — 없으면 orchestrate.delegate가 broker=None으로 위임을 통째 건너뛰어
@@ -331,7 +332,14 @@ async def _rebuild_resume_graph(
             else ctx.get("artifact_spec")
         ),
     )
-    return impl.build_graph(build_ctx), calls_sink, resume_broker, resume_history_windows
+    try:
+        graph = impl.build_graph(build_ctx)
+    except AgentConfigError as e:
+        # 그래프 조립 시점 설정 실패(스펙 317 — 코드 노드 impl 미등록 등). resolve 실패(위)와 동일한
+        # graceful 거부 — 승인은 이미 결재됐고 세션은 무파손, 재개만 불가로 남긴다(500 누출 금지).
+        log.warning("resume 불가: 그래프 조립 설정 실패 '%s' (approval %s)", e, approval.approval_id)
+        return None
+    return graph, calls_sink, resume_broker, resume_history_windows
 
 
 def _extract_turn_texts(result: object) -> tuple[str, str]:
@@ -366,9 +374,10 @@ async def resume_approval(approval: Approval, decision: str) -> None:
     used_memory, mem_hits, mem_proxy, resume_recalls = await _resume_memory_inputs(
         ctx, impl, approval
     )
-    graph, calls_sink, resume_broker, resume_history_windows = await _rebuild_resume_graph(
-        ctx, impl, ckpt, approval, mem_hits, mem_proxy
-    )
+    rebuilt = await _rebuild_resume_graph(ctx, impl, ckpt, approval, mem_hits, mem_proxy)
+    if rebuilt is None:
+        return  # 그래프 조립 설정 실패(스펙 317) — 재개 불가 graceful(로그는 rebuild가 남김)
+    graph, calls_sink, resume_broker, resume_history_windows = rebuilt
     config = {"configurable": {"thread_id": thread_id}}
     # 관측(스펙 118) — 재개 경로도 Langfuse가 설정됐을 때만 콜백 부착(미설정=무동작).
     # 비영속(스펙 235) 대칭 가드(codex): 정상 ephemeral은 approval을 못 만들어 미도달이나, "과거 approval +
