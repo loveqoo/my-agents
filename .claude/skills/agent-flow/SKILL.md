@@ -20,7 +20,7 @@ description: 에이전트 플로우를 저작한다 — 두 모드. (A) 우리 �
 | source | `ui` + `config.impl=<key>` | `code` (endpoint·token·배포메타) |
 | 런타임 | `resolve_agent_runtime`이 그래프 실행 | None → `_a2a_stream` 원격 릴레이 |
 | 로직 위치 | **이 레포** `flows/<key>.py` | **레포 밖**(my-agents-sdk 배포 서비스) |
-| 정본 예시 | seed `plan-execute-demo` | seed `doc-translator` |
+| 정본 예시 | `route` impl(flows/route.py — 코드젠 산출물)·`plan_execute` impl(SDK 수기) | seed `doc-translator` |
 | 신규 보안표면 | 0(저작시점 코드젠, 스펙 099) | 0(원격 등록, 기존 A2A 경로) |
 
 **질문(모호하면 그대로 물어 확정)**: "이 에이전트를 **우리 서버 안에서 직접 실행**하나요(인프로세스
@@ -108,6 +108,11 @@ flow — 그래프를 이 레포에 코드로 짬)? 아니면 **별도 서비스
     register_agent("<key>", <ClassName>)
 ```
 이것이 유일한 등록 경로다. 동적 로딩/문자열 해석을 도입하지 않는다.
+
+> **코드젠 에이전트는 UI 편집 대상이 아니다(스펙 327)** — 범용 impl 5종(``·orchestrate·
+> orchestrate_ranked·artifact_form·pipeline) 밖의 impl을 쓰는 에이전트는 어드민 상세에서 읽기 전용
+> ("구성은 코드가 소유")으로 표시되고, 동작 확인은 **플레이그라운드**에서 한다. 새 flow의 구성 수정은
+> 코드(이 스킬)로만 — UI 편집 지원을 새로 만들지 않는다.
 
 ### A4. 검증 스크립트 생성 — `tests/verify_099_<key>.py`
 

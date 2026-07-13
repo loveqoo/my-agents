@@ -70,15 +70,14 @@ IMPLS = [
     "route",
     "orchestrate",
     "orchestrate_ranked",
-    "artifact_slotfill",
-    "artifact_targeting",
+    # artifact_slotfill·artifact_targeting은 스펙 327에서 제거(데모 소임 완료)
     "artifact_form",
 ]
 KINDS = ["agent", "mcp", "rag", "memory", "memwrite", "memedit"]
 
 BROKER_IMPLS = {"orchestrate", "orchestrate_ranked"}
 DIRECT_MEM_IMPLS = {"default", "plan_execute", "route"}  # consumes "memories"(직접 회상)
-ARTIFACT_IMPLS = {"artifact_slotfill", "artifact_targeting", "artifact_form"}
+ARTIFACT_IMPLS = {"artifact_form"}  # slotfill·targeting은 스펙 327에서 제거
 REACT_IMPLS = {"default", "plan_execute"}  # ctx.tools(mcp+rag) 소비
 
 # 결과 마커

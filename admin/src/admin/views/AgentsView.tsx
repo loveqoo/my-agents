@@ -7,6 +7,7 @@ import { Icon } from '../icons'
 import {
   AGENT_STATUS,
   AGENT_CONFORMANCE,
+  isCodeDefinedImpl,
   type Agent,
   type AgentConfig,
   type VersionMeta,
@@ -448,7 +449,8 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
           {a.can_manage === false ? (
             // 비소유(스펙 114) — 관리 잠금, 삭제 버튼도 숨김.
             <Button type="text" size="small" icon={<Icon name="lock" />} disabled title="다른 사용자 소유 — 관리 권한 없음" />
-          ) : a.source === 'code' || a.source === 'external' ? (
+          ) : a.source === 'code' || a.source === 'external' || isCodeDefinedImpl(a.impl) ? (
+            // 코드 정의 impl(스펙 327)도 원격 code와 같은 원칙 — 구성은 코드가 소유, UI 편집 잠금.
             <Button
               type="text"
               size="small"

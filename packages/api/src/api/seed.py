@@ -127,7 +127,7 @@ MCP_SERVERS = [
     # 커스텀(SDK) MCP(스펙 156, 실사용 #4) — 우리가 코드로 정의·호스팅해 서빙 가능한 MCP. 시드는
     # published=True(스펙 322 — 기본 공개해 등록 즉시 에이전트가 사용, custom은 서빙 엔드포인트로만
     # 접속되므로). source=custom이라 서빙 게이트 통과 대상이고 external 봉인(152)과 구분된다.
-    # plan-execute-demo가 커스텀 에이전트 실증인 것과 동형(커스텀 MCP 실증 시드 1행).
+    # 커스텀 MCP 실증 시드 1행(코드 정의 자산의 실증 시드라는 점에서 커스텀 impl 등록과 동형).
     (
         "calc-tools",
         "custom",
@@ -355,24 +355,56 @@ def _seed_ui_agents(session: AsyncSession, persona_body: dict[str, str]) -> None
         session.add(agent)
 
 
-def _seed_plan_execute_agent(session: AsyncSession, persona_body: dict[str, str]) -> None:
-    """in-process 커스텀 에이전트 시드(스펙 085) — source=ui(로컬 실행)이되 config.impl로 신뢰
-    레지스트리의 plan→execute 그래프를 가리킨다. DefaultUiAgent(create_agent)와 *구조가 다른*
-    다노드 그래프라, 플레이그라운드 추적에 실 노드열([plan, execute])이 뜨고 오버라이드 주입도
-    동일하게 받는다(인터페이스가 create_agent에 과적합되지 않았음을 화면으로 증명)."""
+def _seed_pipeline_demo_agent(session: AsyncSession, persona_body: dict[str, str]) -> None:
+    """노드형(pipeline) 데모 시드(스펙 327) — 계획→실행 2노드 리서치 파이프라인. 구 plan_execute
+    (SDK 커스텀 데모) 시드를 범용 노드형으로 대체(사용자 결정: 데모는 범용형으로 시연, 코드 정의
+    impl은 UI 편집 없이 플레이그라운드 테스트만). plan_execute impl 자체는 SDK 레퍼런스로
+    레지스트리에 유지(suite 픽스처 사용). 노드 tools는 **런타임명(server__tool)** — 접두사 없는
+    민이름은 도구 단위 필터에 안 걸린다(스펙 276)."""
+    wiki_tools = ["web-fetch__wiki_search", "web-fetch__wiki_page"]
     pe_cfg = {
         "model": CHAT_MODEL_NAME,
         "persona": "methodical-researcher",
         "memories": [],
         "vectorTables": [],
-        "mcps": [],
+        "mcps": ["web-fetch"],
+        "tools": [],
         "historyDepth": 20,
-        "impl": "plan_execute",
+        "impl": "pipeline",
+        "nodes": [
+            {
+                "name": "계획",
+                "model": CHAT_MODEL_NAME,
+                "tools": wiki_tools,
+                "prompt": (
+                    "사용자 질문에 답하기 위한 작업 계획을 3단계 이내로 세우세요. "
+                    "1단계는 반드시 wiki_search로 관련 문서를 찾는 것입니다. 계획만 간결하게 출력하세요."
+                ),
+                "context": "carry",
+            },
+            {
+                "name": "실행",
+                "model": CHAT_MODEL_NAME,
+                "tools": wiki_tools,
+                "prompt": (
+                    "Rigorous, source-driven, neutral. Prefer primary sources. Always cite. "
+                    "Lead with a one-line answer.\n\n"
+                    "반드시 먼저 wiki_search 도구를 호출해 관련 위키 문서를 검색하고, 그 검색 결과에 "
+                    "근거해서만 답하세요. 자체 지식으로 추측해 답하는 것을 금지합니다. "
+                    "답변에는 검색으로 확인한 문서 제목을 인용하세요."
+                ),
+                "context": "carry",
+            },
+        ],
+        "suggestedPrompts": [
+            "최신 스트리밍 UI 동향 파악해줘.",
+            "Redis와 Memcached 차이를 파악해줘.",
+        ],
     }
-    plan_execute = Agent(
+    pipeline_demo = Agent(
         agent_id="agt_plex_b5e207",
-        name="plan-execute-demo",
-        description="Plan-Execute Demo",
+        name="research-pipeline-demo",
+        description="노드형 리서치 데모 — 계획→실행 2노드가 위키 도구로 근거 답변",
         source="ui",
         model=CHAT_MODEL_NAME,
         persona=persona_body.get("methodical-researcher", "methodical-researcher"),
@@ -382,15 +414,15 @@ def _seed_plan_execute_agent(session: AsyncSession, persona_body: dict[str, str]
         status="online",
         active_version="v1",
     )
-    plan_execute.versions.append(
+    pipeline_demo.versions.append(
         AgentVersion(
             version="v1",
             status="active",
-            note="plan→execute 커스텀 SDK 데모(스펙 085)",
+            note="노드형 리서치 데모(스펙 327 — 구 plan-execute SDK 데모 대체)",
             config=dict(pe_cfg),
         )
     )
-    session.add(plan_execute)
+    session.add(pipeline_demo)
 
 
 def _seed_code_agent(session: AsyncSession) -> None:
@@ -540,10 +572,10 @@ def _seed_external_agent(session: AsyncSession) -> None:
 
 
 def _seed_agents(session: AsyncSession) -> None:
-    """에이전트 카탈로그 시드 — ui 2종 + plan-execute(085) + code(SDK, 057) + external(A2A)."""
+    """에이전트 카탈로그 시드 — ui 2종 + 노드형 데모(327) + code(SDK, 057) + external(A2A)."""
     persona_body = {name: body for name, _description, _tone, body in PERSONAS}
     _seed_ui_agents(session, persona_body)
-    _seed_plan_execute_agent(session, persona_body)
+    _seed_pipeline_demo_agent(session, persona_body)
     _seed_code_agent(session)
     _seed_external_agent(session)
 
@@ -628,6 +660,22 @@ async def _reconcile_served_mcp(session: AsyncSession) -> None:
             row.tools = list(stools)
             row.tools_meta = SERVED_MCP_TOOLS_META.get(sname)
             row.url = served_url(sname)
+
+    # 레지스트리에서 사라진 custom 행 정리(스펙 327 — targeting-catalog 제거류). 서빙 정의가 없는
+    # custom 행은 served_url이 404라 배선해도 조용한 도구 0 footgun만 남긴다. custom은 시스템 소유
+    # (여기서만 생성·사용자 자가선언 봉인)이므로 코드가 걷는 게 맞다. 단, 에이전트가 배선 중이면
+    # 보존(참조 보호 — 조용한 능력 소실 금지, 관리자가 화면에서 보고 스스로 정리).
+    from .references import agents_referencing
+
+    for stale_name in sorted(have - set(SERVED_MCP_TOOLS)):
+        row = (
+            await session.execute(select(McpServer).where(McpServer.name == stale_name))
+        ).scalar_one()
+        if row.source != "custom":
+            continue  # local/external은 관리자 저작 — 건드리지 않는다
+        if await agents_referencing(session, "mcps", stale_name):
+            continue  # 배선 중 — 조용히 지우면 능력 소실(관리자 정리 대상으로 남김)
+        await session.delete(row)
 
 
 async def seed_if_empty(session: AsyncSession) -> None:

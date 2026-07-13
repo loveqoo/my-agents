@@ -379,43 +379,9 @@ class ArtifactAgentBase(ABC):
         return g.compile(checkpointer=ctx.checkpointer)
 
 
-# ----------------------------- 데모 1: slot-fill (대조 구현) -----------------------------
-@dataclass(frozen=True)
-class SlotField:
-    key: str
-    label: str
-    hint: str = ""
-
-
-class SlotFillDemoAgent(ArtifactAgentBase):
-    """고정 필드 목록을 대화로 채우는 최단 경로 데모(스펙 188 §E-2). 동적 합성(타겟팅, P3)의
-    대조 구현 — 두 produce가 같은 뼈대에서 갈라져야 추상이 안 샌 것(둘째 구현 규율)."""
-
-    NAME = "artifact_slotfill"
-    DESCRIPTION = "고정 필드(출장 신청)를 대화로 채워 산출물을 만드는 데모(스펙 188)"
-
-    FIELDS: tuple[SlotField, ...] = (
-        SlotField("destination", "목적지", "예: 서울, 부산"),
-        SlotField("period", "기간", "예: 3월 2일부터 3일간"),
-        SlotField("budget", "예산", "예: 50만원"),
-    )
-
-    async def produce(self, ctx: ProduceContext) -> Artifact:
-        values: dict[str, str] = {}
-        for field in self.FIELDS:
-            # 빈 답이면 같은 필드를 되묻는다(무한루프 방지 상한 3회 — 그 뒤 "(미입력)" 기록).
-            for attempt in range(3):
-                suffix = f" ({field.hint})" if field.hint and attempt == 0 else ""
-                ans = ctx.ask(f"{field.label}을(를) 알려주세요{suffix}")
-                if ans:
-                    values[field.key] = ans
-                    break
-            else:
-                values[field.key] = "(미입력)"
-        return Artifact(kind="travel-request", data=values, raw=ctx.text)
-
-
 # ----------------------------- 노코드: 설정 주도(config.artifactSpec) 범용 구현 (스펙 190) -----------------------------
+# (스펙 188의 데모 구현 slot-fill·targeting은 스펙 327에서 제거 — 뼈대 무누수 측정이라는 소임을
+#  마쳤고, 역할은 아래 노코드판이 일반화로 흡수. 뼈대 ArtifactAgentBase는 그대로.)
 def normalize_artifact_fields(spec: dict | None) -> list[dict]:
     """artifactSpec에서 **유효 필드만** 뽑는다(순수·방어 — 서버 저장 검증과 런타임이 공유).
     - key: str(비어있지 않음) 필수 — 없으면 그 행 버림.
@@ -444,7 +410,7 @@ def normalize_artifact_fields(spec: dict | None) -> list[dict]:
 class ConfigDrivenArtifactAgent(ArtifactAgentBase):
     """노코드 산출물형 에이전트(스펙 190) — produce에 로직을 박지 않고 **에이전트별 설정
     (config.artifactSpec)**을 읽어 폼을 돌린다. 어드민 필드 편집기가 그 설정을 만든다.
-    셋째 구현(slot-fill·targeting에 이어) — 뼈대 무변경으로 붙어야 추상 무누수(회고 173)."""
+    뼈대(ArtifactAgentBase) 무변경으로 붙은 셋째 구현 — 추상 무누수의 증명(회고 173)."""
 
     NAME = "artifact_form"
     DESCRIPTION = "설정한 항목을 대화·폼으로 모아 산출물을 만드는 에이전트(노코드, 스펙 190)"
@@ -458,124 +424,3 @@ class ConfigDrivenArtifactAgent(ArtifactAgentBase):
             return Artifact(kind=kind, data={}, raw=ctx.text or "")
         values = await ctx.form(fields)
         return Artifact(kind=kind, data=values, raw=ctx.text or "")
-
-
-# ----------------------------- 데모 2: targeting (동적 폼 합성 — 사용자 시나리오) -----------------------------
-def match_entities(utterance: str, entities: list[dict]) -> list[dict]:
-    """발화에서 카탈로그 엔티티를 결정적으로 매칭(순수함수) — label/synonyms 부분 문자열.
-    카탈로그 순서 보존(안정) — 모델 불요·리플레이 결정적. 실 임베딩 환경에선 ctx.rag 결과가
-    이 매칭에 합류한다(produce 참고)."""
-    hits = []
-    for entity in entities:
-        keys = [entity.get("label") or "", *(entity.get("synonyms") or [])]
-        if any(k and k in (utterance or "") for k in keys):
-            hits.append(entity)
-    return hits
-
-
-_RAG_ENTITY_RE = None  # lazy compile
-
-
-def entity_ids_from_rag_text(text: str) -> list[str]:
-    """RAG 히트 텍스트에서 엔티티 id 마커(`[entity:<id>]`)를 추출(순수) — 카탈로그 문서가 이 마커를
-    본문에 심는 규약. 순서 보존·중복 제거."""
-    global _RAG_ENTITY_RE
-    if _RAG_ENTITY_RE is None:
-        import re
-
-        _RAG_ENTITY_RE = re.compile(r"\[entity:([a-z0-9_]+)\]")
-    seen: list[str] = []
-    for entity_id in _RAG_ENTITY_RE.findall(text or ""):
-        if entity_id not in seen:
-            seen.append(entity_id)
-    return seen
-
-
-async def _load_targeting_catalog(ctx: ProduceContext, catalog_mcp: str) -> list[dict]:
-    """카탈로그 엔티티 목록을 도구로 조회 — 미배선/빈 응답이면 빈 리스트."""
-    listing = await ctx.tool(f"mcp:{catalog_mcp}/list_entities", {})
-    return _first_json_obj(getattr(listing, "text", "") or "").get("entities") or []
-
-
-def _merge_rag_hits(matched: list[dict], catalog: list[dict], rag_ids: list[str]) -> list[dict]:
-    """동의어 매칭에 rag 마커 히트를 합류한 매칭 목록(순서 보존·중복 제거)."""
-    merged = list(matched)
-    merged_ids = [e["id"] for e in merged]
-    for rid in rag_ids:
-        if rid not in merged_ids:
-            ent = next((e for e in catalog if e.get("id") == rid), None)
-            if ent:
-                merged.append(ent)
-                merged_ids.append(rid)
-    return merged
-
-
-async def _synthesize_entity_fields(
-    ctx: ProduceContext, catalog_mcp: str, matched: list[dict]
-) -> list[dict]:
-    """엔티티별 성격 조회(도구) 결과로 폼 필드 목록(후보 SelectBox) 합성."""
-    fields: list[dict] = []
-    for entity in matched:
-        detail_res = await ctx.tool(f"mcp:{catalog_mcp}/get_entity", {"entity_id": entity["id"]})
-        detail = _first_json_obj(getattr(detail_res, "text", "") or "")
-        fields.append(
-            {
-                "key": entity["id"],
-                "label": detail.get("label") or entity.get("label") or entity["id"],
-                "candidates": detail.get("candidates") or [],
-                "required": True,
-            }
-        )
-    return fields
-
-
-class TargetingDemoAgent(ArtifactAgentBase):
-    """타겟팅 조건 수집 데모(스펙 188 §E-1 — 사용자 시나리오 그대로): 발화→요소 매칭(RAG+카탈로그)→
-    엔티티별 성격 조회(도구)→**폼 동적 합성**(후보 SelectBox+발화 프리필)→확인→conditions JSON.
-
-    slot-fill(정적 필드)과 같은 뼈대에서 갈라지는 **둘째 구현**(추상 무누수 측정, 스펙 102 규율).
-    매칭은 ① ctx.rag(실 임베딩 환경 — 히트 본문의 [entity:id] 마커) ② 카탈로그 동의어(결정적 폴백)의
-    합집합 — mock 임베딩 환경에서도 데모가 결정적으로 돈다(rag 오류/미배선은 조용히 폴백,
-    카탈로그 0건은 조용히 넘어가지 않고 되묻는다 — 스펙 125 원칙)."""
-
-    NAME = "artifact_targeting"
-    DESCRIPTION = "타겟팅 조건을 대화+동적 폼으로 수집하는 데모(스펙 188)"
-    CATALOG_MCP = "targeting-catalog"
-    RAG_COLLECTION = "targeting-entities"
-
-    async def produce(self, ctx: ProduceContext) -> Artifact:
-        utter = ctx.text or ctx.ask("어떤 유저를 타겟팅할까요? 조건을 문장으로 말씀해 주세요.")
-        # ① 카탈로그 목록(도구) — 없으면 정직하게 종료(빈 폼을 조용히 띄우지 않는다).
-        catalog = await _load_targeting_catalog(ctx, self.CATALOG_MCP)
-        if not catalog:
-            return Artifact(
-                kind="targeting",
-                data={
-                    "conditions": [],
-                    "error": "타겟팅 카탈로그를 찾을 수 없습니다(도구 미배선?)",
-                },
-                raw=utter,
-            )
-        # ② 매칭 = rag 마커 ∪ 동의어(결정적) — rag는 실 임베딩 환경의 1차 경로, 오류는 무시(폴백).
-        rag_res = await ctx.rag(self.RAG_COLLECTION, utter)
-        rag_ids = entity_ids_from_rag_text(getattr(rag_res, "text", "") or "")
-        matched = _merge_rag_hits(match_entities(utter, catalog), catalog, rag_ids)
-        for _ in range(2):
-            if matched:
-                break
-            utter = ctx.ask(
-                "말씀하신 조건에서 타겟팅 항목을 찾지 못했어요 — 다르게 말씀해 주시겠어요?"
-            )
-            matched = match_entities(utter, catalog)
-        if not matched:
-            return Artifact(kind="targeting", data={"conditions": []}, raw=utter)
-        # ③ 엔티티별 성격 조회(도구) → 폼 필드 합성(후보 SelectBox).
-        fields = await _synthesize_entity_fields(ctx, self.CATALOG_MCP, matched)
-        # ④ 발화 프리필(결정적 후보 매칭) → 폼 제시(confirm=True: 프리필 완전해도 확인 1회).
-        prefill = merge_text_into_fields(fields, {}, utter)
-        values = await ctx.form(fields, prefill, confirm=True)
-        conditions = [
-            {"entity_id": f["key"], "label": f["label"], "value": values.get(f["key"])}
-            for f in fields
-        ]
-        return Artifact(kind="targeting", data={"conditions": conditions}, raw=utter)

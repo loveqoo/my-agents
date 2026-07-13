@@ -45,54 +45,8 @@ def echo(text: str) -> str:
     return text
 
 
-# ---- 타겟팅 카탈로그(스펙 188 데모 — read-only·결정적, 무인증 서빙 안전 불변식 충족) ----
-# 산출물형 targeting 데모가 소비: list_entities(요소 매칭용 동의어) → get_entity(값 후보).
-_TARGETING_ENTITIES: list[dict] = [
-    {
-        "id": "purchase_history",
-        "label": "구매이력",
-        "synonyms": ["구매 이력", "구매이력", "구매", "산 적"],
-        "candidates": ["최근", "7일 전", "최근 한 달"],
-    },
-    {
-        "id": "age_band",
-        "label": "나이",
-        "synonyms": ["나이", "연령", "20대", "30대", "40대", "50대"],
-        "candidates": ["20대", "30대", "40대", "50대"],
-    },
-    {
-        "id": "region",
-        "label": "거주지(시)",
-        "synonyms": ["거주", "사는", "지역", "서울", "부산", "대구", "인천", "광주"],
-        "candidates": ["서울", "부산", "대구", "인천", "광주"],
-    },
-    {
-        "id": "gender",
-        "label": "성별",
-        "synonyms": ["성별", "남성", "여성", "남자", "여자"],
-        "candidates": ["남성", "여성"],
-    },
-]
-
-
-@tool
-def list_entities() -> str:
-    """타겟팅 엔티티 카탈로그 목록(id·label·synonyms) — JSON."""
-    import json
-
-    return json.dumps(
-        {"entities": [{k: e[k] for k in ("id", "label", "synonyms")} for e in _TARGETING_ENTITIES]},
-        ensure_ascii=False,
-    )
-
-
-@tool
-def get_entity(entity_id: str) -> str:
-    """타겟팅 엔티티의 성격 조회 — 값 후보(candidates) 포함 JSON."""
-    import json
-
-    e = next((x for x in _TARGETING_ENTITIES if x["id"] == entity_id), None)
-    return json.dumps(e or {"error": "not found"}, ensure_ascii=False)
+# (스펙 188 targeting-catalog 서빙 정의는 스펙 327에서 제거 — 유일 소비자였던
+#  TargetingDemoAgent와 함께 소멸.)
 
 
 # ---- web-fetch(스펙 201) — "사이트 주소를 조립해 패치"(사용자 설계). 위키피디아 공식 API,
@@ -192,7 +146,6 @@ def wiki_page(title: str, lang: str = "ko") -> str:
 # 서빙 MCP 정의(단일 출처) — 이름 → (도구 리스트, 메타). 시드 카탈로그·서빙 앱이 이걸 공유(드리프트 0).
 _DEFS: dict[str, list] = {
     "calc-tools": [add, multiply, echo],
-    "targeting-catalog": [list_entities, get_entity],
     "web-fetch": [wiki_search, wiki_page],  # 스펙 201 — 위키 주소 조립→패치(read-only)
 }
 
@@ -231,8 +184,6 @@ _SIDE_EFFECT_FREE_TOOLS = {
     "add",
     "multiply",
     "echo",
-    "list_entities",
-    "get_entity",  # 고정 dict 조회(스펙 188)
     "wiki_search",
     "wiki_page",  # 위키 read-only 조회(스펙 201) — 고정 호스트·바이트 캡·타임아웃
 }

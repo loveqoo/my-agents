@@ -1,7 +1,7 @@
 """verify_154 — 커스텀 에이전트 A2A 공개 (스펙 154, 실사용 #3 + 백로그 ③).
 
   V1 승격/강등: owner→None / 재스탬프·A2A 자동 off·no-takeover·머신 강등 400·비소유 404-fold.
-  V2 ui+impl 루프백: public 커스텀 플로우(plan-execute-demo) 노출 → ASGI 카드+message/send 실행.
+  V2 ui+impl 루프백: public 커스텀 플로우(research-pipeline-demo) 노출 → ASGI 카드+message/send 실행.
   V3 code 중계: mock A2A(/_remote/a2a)로 등록한 code 에이전트 노출 → ASGI 호출 → 중계 응답.
   V4 루프 가드: x-my-agents-relay 헤더 요청 → -32000(1홉 한정).
   V5 external 노출 400(152 무회귀 핀).
@@ -59,7 +59,7 @@ async def main():
     member = _P()
     tag = f"v154-{_uuid.uuid4().hex[:6]}"
     made: list = []
-    restore_pe = None  # plan-execute-demo exposed 원복
+    restore_pe = None  # research-pipeline-demo exposed 원복
 
     try:
         # ---- V1 승격/강등 ----
@@ -105,8 +105,9 @@ async def main():
         # ---- V2 ui+impl 루프백(공통 인터페이스 구현체) ----
         from api.main import app
         async with async_session() as s:
-            pe = (await s.execute(select(Agent).where(Agent.name == "plan-execute-demo"))).scalar_one_or_none()
-            check(pe is not None and (pe.config or {}).get("impl") == "plan_execute", "V2a 시드 커스텀 플로우 존재(ui+impl)")
+            pe = (await s.execute(select(Agent).where(Agent.name == "research-pipeline-demo"))).scalar_one_or_none()
+            # 스펙 327: 시드 데모가 노드형(pipeline)으로 대체 — ui+impl 커스텀 플로우라는 검증 목적은 동일.
+            check(pe is not None and (pe.config or {}).get("impl") == "pipeline", "V2a 시드 커스텀 플로우 존재(ui+impl)")
             restore_pe = dict(pe.exposed or {})
             pe.exposed = {**(pe.exposed or {}), "a2a": True}
             await s.commit()
@@ -164,7 +165,7 @@ async def main():
     finally:
         async with async_session() as s:
             if restore_pe is not None:
-                pe = (await s.execute(select(Agent).where(Agent.name == "plan-execute-demo"))).scalar_one_or_none()
+                pe = (await s.execute(select(Agent).where(Agent.name == "research-pipeline-demo"))).scalar_one_or_none()
                 if pe is not None:
                     pe.exposed = restore_pe
             for aid in made:

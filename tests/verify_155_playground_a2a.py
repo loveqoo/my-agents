@@ -94,8 +94,8 @@ async def main():
     try:
         # ---- V1 노출 ui(커스텀 플로우) message/stream ----
         async with async_session() as s:
-            pe = (await s.execute(select(Agent).where(Agent.name == "plan-execute-demo"))).scalar_one_or_none()
-            check(pe is not None, "V1a 시드 커스텀 플로우(plan-execute-demo) 존재")
+            pe = (await s.execute(select(Agent).where(Agent.name == "research-pipeline-demo"))).scalar_one_or_none()
+            check(pe is not None, "V1a 시드 커스텀 플로우(research-pipeline-demo) 존재")
             restore_pe = dict(pe.exposed or {})
             pe.exposed = {**(pe.exposed or {}), "a2a": True}
             await s.commit()
@@ -137,7 +137,7 @@ async def main():
     finally:
         async with async_session() as s:
             if restore_pe is not None:
-                pe = (await s.execute(select(Agent).where(Agent.name == "plan-execute-demo"))).scalar_one_or_none()
+                pe = (await s.execute(select(Agent).where(Agent.name == "research-pipeline-demo"))).scalar_one_or_none()
                 if pe is not None:
                     pe.exposed = restore_pe
             for aid in made:

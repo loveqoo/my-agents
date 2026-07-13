@@ -80,11 +80,13 @@ export const AGENT_TYPES: { value: string; label: string; desc: string }[] = [
 ]
 export const typeDesc = (key: string) => AGENT_TYPES.find((t) => t.value === key)?.desc ?? ''
 /* 에이전트 종류의 사용자 라벨(스펙 283, 검색 축용) — AGENT_TYPES와 단일 출처. orchestrate 계열
-   (orchestrate_ranked 등 AGENT_TYPES 밖 변형 포함)은 isOrchestratorImpl로 '조율형'에 접는다. */
+   (orchestrate_ranked 등 AGENT_TYPES 밖 변형 포함)은 isOrchestratorImpl로 '조율형'에 접고,
+   그 밖의 미지 impl(plan_execute·route 등)은 '코드 정의'로 접는다(스펙 327 — 내부 키를 그대로
+   노출하지 않는다, 스펙 108). */
 export const typeLabel = (impl?: string) =>
   isOrchestratorImpl(impl)
     ? '조율형'
-    : AGENT_TYPES.find((t) => t.value === (impl ?? ''))?.label ?? (impl || '직접 응답')
+    : (AGENT_TYPES.find((t) => t.value === (impl ?? ''))?.label ?? (impl ? '코드 정의' : '직접 응답'))
 
 /* ---- Create / edit form (composes blocks into a version config) ---- */
 export function AgentForm({
@@ -218,10 +220,11 @@ export function AgentForm({
     ['기억', consumes.includes('memories') ? 0 : form.memories.length],
   ] as [string, number][]).filter(([, n]) => n > 0)
 
-  // 종류 선택지 2개(직접 응답/조율형). 구 저장분이 exotic impl이면 값 보존해 편집 시 안 사라지게.
+  // 종류 선택지. 조율 전략 변형(orchestrate_ranked — 범용이되 AGENT_TYPES 밖)은 '조율형' 라벨로
+  // 값 보존. 그 밖의 미지 impl(코드 정의)은 상세가 편집을 열지 않아 여기 오지 않는다(스펙 327).
   const typeOptions = AGENT_TYPES.map((t) => ({ label: t.label, value: t.value }))
-  if (form.impl && !typeOptions.some((o) => o.value === form.impl)) {
-    typeOptions.push({ label: isOrchestratorImpl(form.impl) ? '조율형' : form.impl, value: form.impl })
+  if (form.impl && isOrchestratorImpl(form.impl) && !typeOptions.some((o) => o.value === form.impl)) {
+    typeOptions.push({ label: '조율형', value: form.impl })
   }
 
   // 조율형 "무엇에 맡길까요?" 그룹 — 폼 데이터에서 조립(스펙 106). 표시엔 사람이 읽는 이름만,

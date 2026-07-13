@@ -7,7 +7,7 @@ import { Tag, Button, Alert, Modal, Descriptions, Grid, Typography, Tooltip } fr
 import { VersionHistory, ExposeSwitch } from '../../shared'
 import { Icon } from '../../icons'
 import { AgentMemoryPanel } from '../AgentMemoryPanel'
-import { AGENT_STATUS, isOrchestratorImpl, isNodeRef, type Agent, type VersionMeta } from '../../mockData'
+import { AGENT_STATUS, isOrchestratorImpl, isCodeDefinedImpl, isNodeRef, type Agent, type VersionMeta } from '../../mockData'
 import { typeLabel } from './AgentForm'
 import { DelegationGraph } from '../../DelegationGraph'
 import { displayName } from '../../naming'
@@ -77,7 +77,12 @@ export function AgentDetailPage({
   const consumed = (surface: string) => consumes == null || consumes.includes(surface)
 
   const draft = (agent.versions || []).find((v) => v.status === 'draft')
+  // 코드 정의 impl(스펙 327) — **구성 편집만** 봉인(구성은 코드가 소유, 원격 code와 같은 원칙).
+  // 삭제·공개 전환·활성화·운영은 인스턴스 관리라 소유권(canManage) 기준 그대로 — 목록(AgentsView)의
+  // 삭제 버튼 정책과 정합(codex 327: 두 축을 canManage 하나로 합치면 상세만 과봉인돼 비일관).
+  const codeDefined = isCodeDefinedImpl(agent.impl)
   const canManage = agent.can_manage !== false
+  const canEdit = canManage && !codeDefined
   // 종류 라벨 — AgentForm typeLabel 단일 출처(스펙 283/286). 로컬 사본은 pipeline 등
   // AGENT_TYPES 신설 키를 놓쳐 내부 키를 그대로 노출했다(스펙 108 위반).
   const kindLabel = typeLabel(agent.impl)
@@ -397,7 +402,7 @@ export function AgentDetailPage({
                     : null}
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
-                  {canManage && (
+                  {canEdit && (
                     <Button size="small" icon={<Icon name="edit" />} onClick={() => onEdit(agent)}>편집</Button>
                   )}
                   <Button size="small" type="primary" icon={<Icon name="thunderbolt" />} onClick={() => onTest(agent, draft)}>
@@ -605,17 +610,19 @@ export function AgentDetailPage({
           <Button icon={<Icon name="copy" />} onClick={() => onClone(agent)}>
             복제
           </Button>
-          {canManage ? (
-            <>
-              <Button danger icon={<Icon name="delete" />} onClick={() => onDelete(agent)}>
-                삭제
-              </Button>
-              <Button type="primary" icon={<Icon name="edit" />} onClick={() => onEdit(agent)}>
-                {draft ? '초안 편집' : '편집(새 초안)'}
-              </Button>
-            </>
+          {canManage && (
+            <Button danger icon={<Icon name="delete" />} onClick={() => onDelete(agent)}>
+              삭제
+            </Button>
+          )}
+          {canEdit ? (
+            <Button type="primary" icon={<Icon name="edit" />} onClick={() => onEdit(agent)}>
+              {draft ? '초안 편집' : '편집(새 초안)'}
+            </Button>
           ) : (
-            <span style={{ color: 'var(--color-text-tertiary)', alignSelf: 'center' }}>다른 사용자 소유 — 관리 권한 없음</span>
+            <span style={{ color: 'var(--color-text-tertiary)', alignSelf: 'center' }}>
+              {canManage ? '코드 정의 — 구성은 코드가 소유' : '다른 사용자 소유 — 관리 권한 없음'}
+            </span>
           )}
         </>
       }
@@ -627,6 +634,14 @@ export function AgentDetailPage({
             style={{ marginBottom: 12 }}
             title="에이전트 설정 실패 — 런타임이 서빙을 거부합니다"
             description="이 에이전트는 실행 방식 설정에 문제가 있어 실행할 수 없습니다(등록되지 않았거나 형식이 맞지 않음). 담당자에게 문의하거나, 실행 방식을 기본값으로 되돌린 뒤 다시 시도하세요."
+          />
+        ) : codeDefined ? (
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 12 }}
+            title="코드 정의 에이전트 — 구성은 코드가 소유합니다"
+            description="이 에이전트의 실행 방식은 코드(SDK 또는 스킬 코드젠)로 정의되어 있습니다. 수정은 코드에서 하고, 동작 확인은 플레이그라운드에서 할 수 있습니다."
           />
         ) : null
       }

@@ -73,6 +73,17 @@ export interface ArtifactSpec {
    편집 폼·오버라이드 폼이 공유하는 단일 소스(스펙 122, 드리프트 0). */
 export const isOrchestratorImpl = (impl?: string): boolean =>
   impl === 'orchestrate' || impl === 'orchestrate_ranked'
+/* 범용(설정 주도) impl — 폼에서 만들고 UI가 구성을 소유. 이 밖의 impl(plan_execute·route 등
+   SDK 수기/스킬 코드젠)은 **코드 정의**: 구성은 코드가 소유, UI 편집 대상이 아니고 실행 확인은
+   플레이그라운드에서(스펙 327 — 원격 code 에이전트의 "읽기 전용" 원칙을 인프로세스에도 일관). */
+export const GENERIC_IMPLS: ReadonlySet<string> = new Set([
+  '', // 직접 응답(DefaultUiAgent)
+  'orchestrate',
+  'orchestrate_ranked',
+  'artifact_form',
+  'pipeline',
+])
+export const isCodeDefinedImpl = (impl?: string): boolean => !GENERIC_IMPLS.has(impl || '')
 export interface VersionMeta {
   version: string
   status: 'draft' | 'active' | 'archived'

@@ -239,21 +239,21 @@ def _bootstrap_builtins() -> None:
     **agent-flow 스킬 규약(스펙 099)**: 새 flow 생성 시 아래에 두 줄을 추가한다 —
     `from .flows.<key> import <Cls>` + `register_agent("<key>", <Cls>)`. 신뢰 등록만(런타임 eval 없음)."""
     from .examples.plan_execute import PlanExecuteAgent
-    from .flows.artifact import ConfigDrivenArtifactAgent, SlotFillDemoAgent, TargetingDemoAgent
+    from .flows.artifact import ConfigDrivenArtifactAgent
     from .flows.orchestrate import FirstMatchOrchestrateAgent, RankedOrchestrateAgent
     from .flows.pipeline import LinearPipelineAgent
     from .flows.route import RouteAgent
 
+    # 코드 정의 impl 2종(스펙 327) — SDK 수기(plan_execute, 스펙 085)·스킬 코드젠(route, 스펙 099)의
+    # 살아있는 레퍼런스. UI 편집 대상이 아니다(구성은 코드가 소유) — 플레이그라운드 테스트만.
     register_agent("plan_execute", PlanExecuteAgent)
     register_agent("route", RouteAgent)
     # 오케스트레이션 전략(스펙 102) — 공통 조상 OrchestrationAgentBase 밑 두 자식. `orchestrate`는
     # 행위보존(첫 후보), `orchestrate_ranked`는 결정적 랭킹 상위 k 조합.
     register_agent("orchestrate", FirstMatchOrchestrateAgent)
     register_agent("orchestrate_ranked", RankedOrchestrateAgent)
-    # 산출물형(스펙 188) — 공통 조상 ArtifactAgentBase 밑 데모 2종(둘째 구현 무누수 측정).
-    register_agent("artifact_slotfill", SlotFillDemoAgent)
-    register_agent("artifact_targeting", TargetingDemoAgent)
-    # 노코드 산출물형(스펙 190) — 설정(config.artifactSpec) 주도 범용 구현(셋째 구현·뼈대 무변경).
+    # 노코드 산출물형(스펙 190) — 설정(config.artifactSpec) 주도 범용 구현.
+    # (스펙 188 데모 slotfill·targeting은 스펙 327에서 제거 — 무누수 측정 소임 완료.)
     register_agent("artifact_form", ConfigDrivenArtifactAgent)
     # 노드형(스펙 259) — 설정(config.nodes) 주도 일렬 파이프라인. 노드마다 프롬프트·모델·도구.
     register_agent("pipeline", LinearPipelineAgent)
