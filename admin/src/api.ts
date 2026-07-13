@@ -296,6 +296,7 @@ export interface SearchHit {
   filename: string
   text: string
   meta?: Record<string, unknown> | null // 엔티티 metadata(스펙 149) — 문서형은 null
+  document_id?: string | null // 히트→편집 진입(스펙 333)
 }
 export interface CollectionSearchOut {
   query: string

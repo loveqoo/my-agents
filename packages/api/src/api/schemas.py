@@ -211,6 +211,7 @@ class SearchHit(BaseModel):
     filename: str
     text: str
     meta: dict[str, Any] | None = None  # 엔티티 metadata(스펙 149) — 문서형 hit은 None
+    document_id: uuid.UUID | None = None  # 히트→편집 진입(스펙 333) — 시험 표면에서 그 문서를 연다
 
 
 class CollectionSearchOut(BaseModel):

@@ -401,9 +401,10 @@ async def search_collections(
             "embed", "임베딩 예외", "문서 검색 실패(질의 임베딩 중 오류)."
         ) from exc
 
-    # 컬렉션별 cosine 검색 → 통합. 각 행: (dist, filename, text, meta, collection). dist 오름차순 = 가까움.
-    # collection = 컬렉션명 — 컬렉션별 유사도 임계값(스펙 191 v2) 후필터·인스펙터 표시에 쓴다.
-    hits: list[tuple[float, str, str, dict | None, str]] = []
+    # 컬렉션별 cosine 검색 → 통합. 각 행: (dist, filename, text, meta, document_id, collection).
+    # dist 오름차순 = 가까움. collection = 컬렉션명 — 컬렉션별 유사도 임계값(스펙 191 v2) 후필터·
+    # 인스펙터 표시. document_id = 히트→편집 진입(스펙 333).
+    hits: list[tuple[float, str, str, dict | None, str, str]] = []
     try:
         async with SessionLocal() as db:
             for col in collections:
@@ -411,16 +412,23 @@ async def search_collections(
                 dist = Chunk.embedding.cosine_distance(qvec).label("dist")
                 rows = (
                     await db.execute(
-                        select(Chunk.text, Document.filename, Chunk.meta, dist)
+                        select(Chunk.text, Document.filename, Chunk.meta, Chunk.document_id, dist)
                         .join(Document, Chunk.document_id == Document.id)
                         .where(Chunk.collection_id == col["id"])
                         .order_by(dist)
                         .limit(k)
                     )
                 ).all()
-                for text, filename, meta, d in rows:
+                for text, filename, meta, doc_id, d in rows:
                     hits.append(
-                        (float(d), filename or "(파일 미상)", text, meta, col.get("name", ""))
+                        (
+                            float(d),
+                            filename or "(파일 미상)",
+                            text,
+                            meta,
+                            str(doc_id),  # 히트→편집 진입(스펙 333) — str로 실어 JSON 직렬화 안전
+                            col.get("name", ""),
+                        )
                     )
     except RagSearchError:
         raise  # 의도된 검색 오류는 원 메시지 보존(generic 재포장 금지)
@@ -436,8 +444,15 @@ async def search_collections(
     # 동시 사용은 비권장이며, 강제 방지/스코어 정규화는 후속 스펙으로 남긴다.)
     relevant.sort(key=lambda h: h[0])
     out = [
-        {"score": 1.0 - d, "filename": filename, "text": text, "meta": meta, "collection": name}
-        for d, filename, text, meta, name in relevant[:k]
+        {
+            "score": 1.0 - d,
+            "filename": filename,
+            "text": text,
+            "meta": meta,
+            "document_id": doc_id,  # 히트→편집 진입(스펙 333)
+            "collection": name,
+        }
+        for d, filename, text, meta, doc_id, name in relevant[:k]
     ]
     # 컬렉션별 커트라인을 **표시(annotate)** — 스펙 192. 드롭이 아니라 belowCutoff/cutoff 부착:
     # 인스펙터가 "쓴 문서(used) vs 커트라인 미달로 못 쓴 문서(dropped)"를 구분해 보이게. 에이전트가
