@@ -53,3 +53,17 @@
 ## 관련
 [[292-code-node]] [[291-node-library]] · 정직 경계 판정=[[complement-attack-can-be-honest-boundary]] ·
 입구 닫힌 집합=[[injection-entrance-closed-set]] · 스펙 과장 정정·긍정문=[[prefer-positive-phrasing-in-copy]]
+
+## 후속 — 오버라이드 picker 갭 봉합(사용자 "플레이그라운드 싱크 맞나?" 질문서 발견)
+
+- **맥락 컨트롤은 자매 화면까지 승계했어야**([[context-control-propagates-to-affordances]] 재발). 318에서
+  에이전트 picker를 본 폼(`AgentForm`)에만 붙이고 플레이그라운드 `OverridePanel`엔 안 붙였다. 결과: 오버라이드
+  에서 MCP·문서는 편집되는데 **에이전트 호출만 안 보이고 못 바꾸는 비대칭**. 새 어포던스(picker)를 넣을 때
+  그걸 소비하는 **모든 화면**(폼+오버라이드)을 같은 변경에서 훑었어야 — 이 교훈이 또 나왔다.
+- **백엔드는 이미 정합이었다**(프론트만 갭). 오버라이드 허용 필드에 `tools` 포함 + 로드 시
+  `derive_pipeline_pool`이 오버라이드된 노드에서 capabilities 재파생(chat_context.py:582, learning 151
+  "폼 밖 입구도 재파생"). 즉 백엔드는 오버라이드 에이전트 도구를 받아 위임까지 태울 준비가 됐는데 프론트
+  picker만 빠져 사용자가 입력할 길이 없었다. **"싱크 맞나"는 입구별로 따로 확인**해야(폼 vs 오버라이드).
+- **사용자의 정합성 질문이 갭을 드러낸다.** 내가 "다 됐다" 보고한 뒤 사용자가 "오버라이드 포함 싱크?"로
+  물어 발견. 기능 완료 선언 전에 **자매 입구를 스스로 훑는** 체크가 필요(VERIFY318_OVERRIDE_OK로 봉합:
+  picker 노출·후보 스코프·선택→override payload에 `agent__{id}` 배선·MCP 보존 단언).

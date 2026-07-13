@@ -290,6 +290,16 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
   const memoryOptions = (blocks.memory?.items ?? [])
     .filter((m) => m.name !== SHORT_TERM_MEMORY)
     .map((m) => ({ label: m.name, value: m.name }))
+  // 노드가 호출 가능한 에이전트(스펙 318) — 편집 폼(AgentForm nodeAgentOptions)과 같은 필터를 미러:
+  // 원격(A2A) + 로컬 ui(활성 버전 보유), 자기 자신 제외(agentId 기준 — 저장된 에이전트라 id 확정).
+  // 오버라이드 패널에도 붙여 폼과 대칭(context-control이 하위 어포던스까지 승계). value=`agent__{id}`.
+  const nodeAgentOptions = agents
+    .filter((a) => (a.source === 'code' || a.source === 'external')
+      || (((a.source ?? 'ui') === 'ui') && !!a.activeVersion && a.agentId !== agent?.agentId))
+    .map((a) => ({
+      value: safeToolName('agent', a.agentId),
+      label: (a.source === 'code' || a.source === 'external') ? `${a.name} · A2A` : `${a.name} · 로컬`,
+    }))
 
   // 조율형 "무엇에 맡길까요?"(스펙 122) — 편집 폼(AgentsView capGroups)과 같은 4그룹. cap id는 값으로만,
   // 표시는 사람이 읽는 이름. draft.capabilities에 바인딩해 세션 오버라이드(백엔드 브로커가 호출자 RBAC 게이트).
@@ -457,6 +467,7 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
                   mcpServers={blocks.mcp?.items ?? []}
                   docOptions={collections.map((c) => ({ label: c.name, value: safeToolName('search_documents', c.name) }))}
                   memoryOptions={memoryOptions}
+                  agentOptions={nodeAgentOptions}
                 />
               </div>
               {/* Field hint 대신 직접 렌더 — 노드 카드 간 여백(화살표 행)과 어울리게 위 여백을 더 준다. */}
