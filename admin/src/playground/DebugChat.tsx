@@ -936,8 +936,13 @@ function TraceChips({ trace, active, onClick }: { trace?: Trace; active: boolean
           (trace.brokerCalls?.filter((b) => b.cap_id.startsWith('rag:') && !b.error).length ?? 0)
         const ragFail = trace.mcp.filter((c) => c.server === 'rag' && c.status === 'error').length +
           (trace.brokerCalls?.filter((b) => b.cap_id.startsWith('rag:') && b.error).length ?? 0)
-        const mcpOk = trace.mcp.filter((c) => c.server !== 'rag' && c.status !== 'error').length
-        const mcpFail = trace.mcp.filter((c) => c.server !== 'rag' && c.status === 'error').length
+        // mcp도 rag와 동형으로 직접(trace.mcp)+브로커(brokerCalls mcp:*) 합산(스펙 320 P3). 320이 브로커
+        // MCP 실패를 brokerCalls[].error로 표면화한 뒤에도 이 칩은 직접만 세 요약이 어긋났다. memory:·
+        // agent: cap은 mcp 칩 대상 아님(startsWith('mcp:')로 정확 배제). 성공만 mcp/실패만 mcp 실패.
+        const mcpOk = trace.mcp.filter((c) => c.server !== 'rag' && c.status !== 'error').length +
+          (trace.brokerCalls?.filter((b) => b.cap_id.startsWith('mcp:') && !b.error).length ?? 0)
+        const mcpFail = trace.mcp.filter((c) => c.server !== 'rag' && c.status === 'error').length +
+          (trace.brokerCalls?.filter((b) => b.cap_id.startsWith('mcp:') && b.error).length ?? 0)
         return (
           <>
             <Chip icon="search" color="var(--geekblue-6)" n={ragOk} label="rag" />

@@ -43,7 +43,7 @@ class _FakeBackend:
         self._hits = hits or []
         self._raise = raise_with
 
-    def search(self, scope, query, limit):
+    def search(self, scope, query, limit, **_kw):  # 실 search는 threshold 등 extra kwargs 허용(스펙 158)
         if self._raise:
             raise RuntimeError(self._raise)
         return self._hits
