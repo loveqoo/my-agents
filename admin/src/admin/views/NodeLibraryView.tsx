@@ -9,7 +9,7 @@ import { Page, DataTable, Drawer, type Column } from '../shared'
 import { validateName, NAME_HINT } from '../naming'
 import { fmtTime } from '../format'
 import { Icon } from '../icons'
-import { SHORT_TERM_MEMORY, type BlockCategory, type PipelineNode } from '../mockData'
+import { type BlockCategory, type PipelineNode } from '../mockData'
 import {
   getBlocks,
   listModels,
@@ -191,9 +191,8 @@ export default function NodeLibraryView() {
 
   const personas = (blocks?.persona?.items ?? []).map((p) => ({ name: p.name, body: p.body ?? '' }))
   const mcpServers = blocks?.mcp?.items ?? []
-  // 단기(세션)는 죽은 라벨(스펙 269) — 노드 회상 선택지에서 제외(AgentForm nodeMemoryOptions와 동일 규칙).
+  // 노드 회상 선택지 — 장기 기억(mem0). AgentForm nodeMemoryOptions와 동일 규칙.
   const memoryOptions = (blocks?.memory?.items ?? [])
-    .filter((m) => m.name !== SHORT_TERM_MEMORY)
     .map((m) => ({ label: m.name, value: m.name }))
   // 문서 검색은 컬렉션별 도구(스펙 268 P1) — 런타임명 search_documents__<컬렉션>.
   const docOptions = (collections ?? []).map((c) => ({ label: c.name, value: safeToolName('search_documents', c.name) }))

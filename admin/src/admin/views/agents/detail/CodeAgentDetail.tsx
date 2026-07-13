@@ -4,7 +4,7 @@
 import { Tag, Button, Alert, Modal, Descriptions, Grid, Typography, Tooltip } from 'antd'
 import { ExposeSwitch } from '../../../shared'
 import { Icon } from '../../../icons'
-import { SHORT_TERM_MEMORY, type Agent } from '../../../mockData'
+import { type Agent } from '../../../mockData'
 import { displayName } from '../../../naming'
 import { PersonaStaleNote } from '../PersonaStaleNote'
 import { DetailPageShell, SectionTitle, JumpCell, type DetailSection } from './DetailPageShell'
@@ -62,7 +62,7 @@ export function CodeAgentDetailPage({
                       const parts: string[] = []
                       // code 에이전트 manifest의 mcps=서버 목록 — 서버 수임을 정직 표기(스펙 286).
                       if ((agent.mcps || []).length) parts.push(`도구 서버 ${agent.mcps.length}개`)
-                      { const liveMem = (agent.memories || []).filter((m) => m !== SHORT_TERM_MEMORY); if (liveMem.length) parts.push(`기억 ${liveMem.length}개`) }
+                      { const liveMem = (agent.memories || []); if (liveMem.length) parts.push(`기억 ${liveMem.length}개`) }
                       return parts.length ? `${parts.join(' · ')} (읽기 전용)` : '연결 없음 (읽기 전용)'
                     })()}
                   </JumpCell>
@@ -124,13 +124,13 @@ export function CodeAgentDetailPage({
                 children: agent.historyDepth ? `최근 ${agent.historyDepth}개 메시지` : '기억 안 함',
               },
               // 상설 행 + 값 '없음'(스펙 286 후속, ui 상세와 동일) — "연결 없음" 각주 대체.
-              // 단기(세션) 죽은 값은 제외(스펙 269) — 단기는 위 "단기 기억"이 소유.
+              // 장기 기억(mem0) 태그만 표시 — 단기는 위 "단기 기억"(historyDepth)이 소유.
               {
                 key: 'memories',
                 label: '장기 기억',
-                children: (agent.memories || []).filter((m) => m !== SHORT_TERM_MEMORY).length ? (
+                children: (agent.memories || []).length ? (
                   <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6 }}>
-                    {agent.memories.filter((m) => m !== SHORT_TERM_MEMORY).map((m) => <Tag key={m} color="purple">{m}</Tag>)}
+                    {agent.memories.map((m) => <Tag key={m} color="purple">{m}</Tag>)}
                   </span>
                 ) : (
                   '없음'

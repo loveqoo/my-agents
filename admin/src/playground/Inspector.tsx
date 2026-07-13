@@ -7,7 +7,7 @@ import { Icon } from '../admin/icons'
 import { parseEntityText, EntityFields } from '../admin/EntityFields'
 import { JsonTree } from './JsonTree'
 import type { ChatMsg, Memory, McpCallT, Trace, RagHit } from './agentData'
-import { SHORT_TERM_MEMORY, type Agent } from '../admin/mockData'
+import { type Agent } from '../admin/mockData'
 
 function Section({
   icon,
@@ -609,8 +609,8 @@ export function Inspector({
             <Tag color="blue" style={{ whiteSpace: 'normal', height: 'auto', maxWidth: '100%', overflowWrap: 'anywhere' }}>
               {agent.name}
             </Tag>
-            {/* 단기(세션) 죽은 값은 태그로 안 보인다(스펙 269) — 단기는 historyDepth가 소유. */}
-            {(agent.memories || []).filter((m) => m !== SHORT_TERM_MEMORY).map((m) => (
+            {/* 장기 기억(mem0) 태그만 표시 — 단기는 historyDepth가 별도로 소유. */}
+            {(agent.memories || []).map((m) => (
               <Tag key={m} color="purple" style={{ whiteSpace: 'normal', height: 'auto', maxWidth: '100%', overflowWrap: 'anywhere' }}>
                 {m}
               </Tag>

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Select, Input, Switch, Slider, Tooltip, Collapse, Alert, Modal, Segmented, Button, Tag, Steps, Checkbox } from 'antd'
-import { isOrchestratorImpl, isNodeRef, SHORT_TERM_MEMORY, type BlockCategory, type ToolPolicy, type Agent, type PipelineNode, type PipelineNodeRef } from '../../mockData'
+import { isOrchestratorImpl, isNodeRef, type BlockCategory, type ToolPolicy, type Agent, type PipelineNode, type PipelineNodeRef } from '../../mockData'
 import { DelegationGraph } from '../../DelegationGraph'
 import { listAgentImpls, type Model, type Collection, type ImplMeta } from '../../../api'
 import { PickerGroups, type PickerGroup } from '../../../PickerGroups'
@@ -66,9 +66,6 @@ export function derivePipelinePool(
   const memories = [...new Set(inline.flatMap((n) => n.memories ?? []))]
   return { mcps, vectorTables, memories }
 }
-
-/* SHORT_TERM_MEMORY(스펙 269)는 mockData가 단일 출처 — 백엔드 memory_enabled()가 무시하는 죽은
-   라벨이라 기억 선택지·표시에서 제외한다(단기는 historyDepth가 소유). 저장값은 보존(finalize 무변경). */
 
 /* 에이전트 종류(사용자 언어, 스펙 108) — 내부 impl 키를 유저가 이해하는 두 선택지로 감싼다.
    ''=직접 응답(DefaultUiAgent, 자기 도구로 답함), 'orchestrate'=조율형(다른 곳에 넘김).
@@ -390,10 +387,9 @@ export function AgentForm({
   // 도구/문서 분리(스펙 272) — 노드가 둘을 별개 컨트롤로(도구=ToolTree 스펙 277, 문서=Select). 저장은
   // 여전히 n.tools 한 배열(문서=search_documents__<컬렉션>, 268 P1 무회귀) — UI만 나눈다.
   const nodeDocOptions = collections.map((c) => ({ label: c.name, value: safeToolName('search_documents', c.name) }))
-  // 노드별 기억 선택지(스펙 268 P2) — 직접형 "기억" 그룹과 같은 원천(blocks.memory). 단기(세션)은
-  // 제외(스펙 269): 노드 회상은 장기(mem0)만 대상이라, 죽은 선택지를 빼면 회상 경고(268 P3)도 소멸.
+  // 노드별 기억 선택지(스펙 268 P2) — 직접형 "기억" 그룹과 같은 원천(blocks.memory). 노드 회상은
+  // 장기 기억(mem0)만 대상(단기는 historyDepth가 별도 소유).
   const nodeMemoryOptions = (blocks.memory?.items ?? [])
-    .filter((m) => m.name !== SHORT_TERM_MEMORY)
     .map((m) => ({ label: m.name, value: m.name }))
   // 노드가 호출할 수 있는 에이전트(스펙 318) — 조율형 위임 후보(capGroups '다른 에이전트')와 같은 필터:
   // 원격(A2A) + 로컬 ui(활성 버전 보유), 자기 자신 제외. value=`agent__{id}`(백엔드 _safe_name과 동일).
@@ -1020,10 +1016,10 @@ export function AgentForm({
                 <>
                   <SummaryRow k="도구" v={form.mcps.length ? form.mcps.join(', ') : '없음'} />
                   <SummaryRow k="문서" v={form.vectorTables.length ? form.vectorTables.join(', ') : '없음'} />
-                  {/* 표시에서 단기(세션) 죽은 값 제외(스펙 269) — 단기는 세부 "단기 기억"이 소유. 저장값 불변. */}
+                  {/* 장기 기억(mem0) 개수만 표시 — 단기는 세부 "단기 기억"(historyDepth)이 소유. */}
                   <SummaryRow k="기억" v={(() => {
                     if (form.ephemeral) return '사용 안 함 (비영속)'
-                    const live = form.memories.filter((m) => m !== SHORT_TERM_MEMORY)
+                    const live = form.memories
                     return live.length ? live.join(', ') : '없음'
                   })()} />
                 </>
@@ -1035,7 +1031,7 @@ export function AgentForm({
                 if (isArtifactForm || orchestratorSelected) {
                   if (form.mcps.length) hidden.push(`도구 ${form.mcps.length}개`)
                   if (form.vectorTables.length) hidden.push(`문서 ${form.vectorTables.length}개`)
-                  { const liveMem = form.memories.filter((m) => m !== SHORT_TERM_MEMORY); if (liveMem.length) hidden.push(`기억 ${liveMem.length}개`) }
+                  { const liveMem = form.memories; if (liveMem.length) hidden.push(`기억 ${liveMem.length}개`) }
                 }
                 if (!orchestratorSelected && form.capabilities.length) hidden.push(`위임 대상 ${form.capabilities.length}개`)
                 return hidden.length ? (

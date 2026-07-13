@@ -5,7 +5,7 @@
    code 에이전트: 원격 실행이라 오버라이드 미적용 — read-only 안내만. */
 import { useEffect, useState } from 'react'
 import { Drawer, Slider, Switch, Button, Alert, Tag, Tooltip, Steps, Grid } from 'antd'
-import { isOrchestratorImpl, isNodeRef, SHORT_TERM_MEMORY, type Agent, type BlockCategory, type PipelineNode } from '../admin/mockData'
+import { isOrchestratorImpl, isNodeRef, type Agent, type BlockCategory, type PipelineNode } from '../admin/mockData'
 import type { Collection, Model } from '../api'
 import { PickerGroups, type PickerGroup } from '../PickerGroups'
 import { DelegationGraph } from '../admin/DelegationGraph'
@@ -285,10 +285,9 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
       const mcps = [...new Set([...next.map((x) => x.split('__')[0]), ...preserved])]
       return { ...d, tools: next, mcps }
     })
-  // 장기 기억 옵션(273 공용 컨트롤용) — 단기(세션)은 선택지에서 제외(스펙 269, historyDepth가 소유).
+  // 장기 기억(mem0) 옵션(273 공용 컨트롤용). 단기는 historyDepth가 별도로 소유.
   // 비영속 미선택-잠금(235·codex 238 #2)은 LongTermMemoryField의 ephemeral prop이 담당(중복 구현 소멸).
   const memoryOptions = (blocks.memory?.items ?? [])
-    .filter((m) => m.name !== SHORT_TERM_MEMORY)
     .map((m) => ({ label: m.name, value: m.name }))
   // 노드가 호출 가능한 에이전트(스펙 318) — 편집 폼(AgentForm nodeAgentOptions)과 같은 필터를 미러:
   // 원격(A2A) + 로컬 ui(활성 버전 보유), 자기 자신 제외(agentId 기준 — 저장된 에이전트라 id 확정).

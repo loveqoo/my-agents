@@ -56,13 +56,6 @@ PERSONAS = [
 # mem0 장기 메모리의 스코프(유저/세션)는 요청 userId 유무로 자동 결정되므로 별도 토글로 두지 않는다.
 MEMORY_TYPES = [
     (
-        "단기(세션)",
-        "단기(세션)",
-        "In-context · mem0 아님",
-        "현재 세션의 인-컨텍스트 윈도우(historyDepth) — 최근 N턴만 모델에 전달하는 컨텍스트 절단입니다. "
-        "mem0 저장소가 아니며 세션이 끝나면 사라집니다.",
-    ),
-    (
         "장기 기억 (mem0)",
         "장기 기억 (mem0)",
         "Auto · userId 유무로 결정",
@@ -158,7 +151,7 @@ AGENTS = [
         "ui",
         CHAT_MODEL_NAME,
         "methodical-researcher",
-        ["단기(세션)", "장기 기억 (mem0)"],
+        ["장기 기억 (mem0)"],
         20,
         ["docs-kb", "product-titles"],
         [MOCK_MCP_SERVER_NAME],
@@ -179,7 +172,7 @@ AGENTS = [
         "ui",
         CHAT_MODEL_NAME,
         "warm-secretary",
-        ["단기(세션)", "장기 기억 (mem0)"],
+        ["장기 기억 (mem0)"],
         40,
         ["team-notes"],
         [MOCK_MCP_SERVER_NAME],
@@ -370,7 +363,7 @@ def _seed_plan_execute_agent(session: AsyncSession, persona_body: dict[str, str]
     pe_cfg = {
         "model": CHAT_MODEL_NAME,
         "persona": "methodical-researcher",
-        "memories": ["단기(세션)"],
+        "memories": [],
         "vectorTables": [],
         "mcps": [],
         "historyDepth": 20,
@@ -429,7 +422,7 @@ def _seed_code_agent(session: AsyncSession) -> None:
             "manifest": {
                 "model": CHAT_MODEL_NAME,
                 "persona": "코드 정의 (SDK)",
-                "memories": ["단기(세션)"],
+                "memories": [],
                 "mcps": [MOCK_MCP_SERVER_NAME],
                 "historyDepth": 10,
             },
@@ -451,7 +444,7 @@ def _seed_code_agent(session: AsyncSession) -> None:
     code_cfg = {
         "model": CHAT_MODEL_NAME,
         "persona": "코드 정의 (SDK)",
-        "memories": ["단기(세션)"],
+        "memories": [],
         "vectorTables": [],
         "mcps": [MOCK_MCP_SERVER_NAME],
         "historyDepth": 10,

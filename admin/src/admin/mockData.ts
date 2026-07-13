@@ -3,10 +3,6 @@
    API에서 받는다(seed.py가 첫 설치 예제의 단일 출처, 스펙 303). 예전 mock 데이터 배열
    (BLOCKS·ADMIN_AGENTS·ADMIN_SESSIONS)은 死코드라 제거(스펙 305) — 타입·상수만 유지. */
 
-/* 단기 기억 카탈로그 라벨(스펙 269) — 백엔드 memory_enabled()가 무시하는 죽은 문자열(단기 기억은
-   historyDepth가 소유). 기억 *선택지·표시*에서 제외하는 단일 출처(카탈로그 DB 행은 유지). */
-export const SHORT_TERM_MEMORY = '단기(세션)'
-
 /* ---------- 타입 ---------- */
 export interface AgentConfig {
   model?: string

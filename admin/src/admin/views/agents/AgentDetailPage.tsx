@@ -7,7 +7,7 @@ import { Tag, Button, Alert, Modal, Descriptions, Grid, Typography, Tooltip } fr
 import { VersionHistory, ExposeSwitch } from '../../shared'
 import { Icon } from '../../icons'
 import { AgentMemoryPanel } from '../AgentMemoryPanel'
-import { AGENT_STATUS, isOrchestratorImpl, isNodeRef, SHORT_TERM_MEMORY, type Agent, type VersionMeta } from '../../mockData'
+import { AGENT_STATUS, isOrchestratorImpl, isNodeRef, type Agent, type VersionMeta } from '../../mockData'
 import { typeLabel } from './AgentForm'
 import { DelegationGraph } from '../../DelegationGraph'
 import { displayName } from '../../naming'
@@ -135,7 +135,7 @@ export function AgentDetailPage({
                           parts.push(`도구 서버 ${agent.mcps.length}개(전체)`)
                         }
                         if (agent.impl !== 'pipeline' && consumed('vectorTables') && (agent.vectorTables || []).length) parts.push(`문서 ${agent.vectorTables.length}개`)
-                        { const liveMem = (agent.memories || []).filter((m) => m !== SHORT_TERM_MEMORY); if (agent.impl !== 'pipeline' && consumed('memories') && liveMem.length) parts.push(`기억 ${liveMem.length}개`) }
+                        { const liveMem = (agent.memories || []); if (agent.impl !== 'pipeline' && consumed('memories') && liveMem.length) parts.push(`기억 ${liveMem.length}개`) }
                         // 위임 대상은 수만으론 빈약(사용자 지적) — 이름으로(agents 목록에서 해석).
                         const caps = agent.capabilities || []
                         if (caps.length) {
@@ -242,15 +242,15 @@ export function AgentDetailPage({
                 // 상설 행 + 값 '없음'(스펙 286 후속, 사용자 지시) — "연결 없음: …" 각주 대체.
                 // 노드형은 장기 기억·문서·도구가 노드 소유(259)라 에이전트 수준 행 자체를 두지 않고,
                 // 그 외 impl은 consumes 선언(스펙 206)이 안 읽는 표면의 행도 두지 않는다(예: 조율형=도구·문서 미소비).
-                // 단기(세션) 죽은 값은 제외(스펙 269) — 단기는 위 "단기 기억"이 소유.
+                // 장기 기억(mem0) 태그만 표시 — 단기는 위 "단기 기억"(historyDepth)이 소유.
                 ...(agent.impl !== 'pipeline' && consumed('memories')
                   ? [
                       {
                         key: 'memories',
                         label: '장기 기억',
-                        children: (agent.memories || []).filter((m) => m !== SHORT_TERM_MEMORY).length ? (
+                        children: (agent.memories || []).length ? (
                           <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6 }}>
-                            {agent.memories.filter((m) => m !== SHORT_TERM_MEMORY).map((m) => <Tag key={m} color="purple">{m}</Tag>)}
+                            {agent.memories.map((m) => <Tag key={m} color="purple">{m}</Tag>)}
                           </span>
                         ) : (
                           '없음'

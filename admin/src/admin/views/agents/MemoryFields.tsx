@@ -98,7 +98,10 @@ export function LongTermMemoryField({
           />
         </div>
       ) : (
-        <span style={HELP}>켜면 대화에서 사실을 추출·저장하고 관련 기억을 회상합니다.</span>
+        <span style={HELP}>
+          켜면 대화에서 사실을 추출·저장하고 관련 기억을 회상합니다. userId가 있으면 세션을 넘어 유저
+          단위로 기억하고, 없으면 이번 세션에만 유지합니다(요청 userId로 자동 결정).
+        </span>
       )}
     </div>
   )
