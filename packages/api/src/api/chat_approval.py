@@ -316,7 +316,9 @@ async def _rebuild_resume_graph(
     )
     # 노드 에이전트-호출 도구(스펙 318) — 재개 후 다음 노드도 위임 가능(입구 정합). pipeline만.
     if ctx.get("impl") == "pipeline":
-        tools.extend(runtime.build_agent_tools(resume_broker, await resume_broker.agent_capabilities()))
+        tools.extend(
+            runtime.build_agent_tools(resume_broker, await resume_broker.agent_capabilities())
+        )
     build_ctx = AgentBuildContext(
         persona=persona_prompt,
         model_cfg=ctx["model_cfg"],
@@ -340,7 +342,9 @@ async def _rebuild_resume_graph(
     except AgentConfigError as e:
         # 그래프 조립 시점 설정 실패(스펙 317 — 코드 노드 impl 미등록 등). resolve 실패(위)와 동일한
         # graceful 거부 — 승인은 이미 결재됐고 세션은 무파손, 재개만 불가로 남긴다(500 누출 금지).
-        log.warning("resume 불가: 그래프 조립 설정 실패 '%s' (approval %s)", e, approval.approval_id)
+        log.warning(
+            "resume 불가: 그래프 조립 설정 실패 '%s' (approval %s)", e, approval.approval_id
+        )
         return None
     return graph, calls_sink, resume_broker, resume_history_windows
 

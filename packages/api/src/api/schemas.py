@@ -614,7 +614,9 @@ class AgentConfig(BaseModel):
         if isinstance(ver, bool) or not isinstance(ver, int) or ver < 1:
             raise ValueError("nodes 참조 항목 ref.version은 1 이상의 정수여야 합니다.")
         if set(n.keys()) - {"ref"}:
-            raise ValueError("nodes 참조 항목은 ref 외 키를 가질 수 없습니다(직접 설정과 혼합 금지).")
+            raise ValueError(
+                "nodes 참조 항목은 ref 외 키를 가질 수 없습니다(직접 설정과 혼합 금지)."
+            )
         return {"ref": {"name": ref["name"], "version": ver}}
 
     @staticmethod

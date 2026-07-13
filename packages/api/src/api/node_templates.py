@@ -52,9 +52,7 @@ async def _lock_template_name(db: AsyncSession, name: str) -> None:
     삭제(usage 스캔→delete)·에이전트 저장(ref 존재 검증→commit)이 같은 키로 직렬화돼, "삭제가
     usage=0을 본 뒤 새 참조가 저장되고 삭제가 커밋"되는 레이스(dangling ref)를 닫는다. JSONB 참조라
     FK가 없어 잠금이 유일한 직렬화 수단. 트랜잭션 종료(commit/rollback) 시 자동 해제."""
-    await db.execute(
-        text("SELECT pg_advisory_xact_lock(hashtext(:k))"), {"k": f"nodetpl:{name}"}
-    )
+    await db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:k))"), {"k": f"nodetpl:{name}"})
 
 
 # ----------------------------- 참조 의미(공용 헬퍼) -----------------------------
@@ -84,11 +82,7 @@ async def resolve_node_refs(db: AsyncSession, nodes: list) -> list:
     if not keys:
         return nodes
     rows = (
-        (
-            await db.execute(
-                select(NodeTemplate).where(NodeTemplate.name.in_({k[0] for k in keys}))
-            )
-        )
+        (await db.execute(select(NodeTemplate).where(NodeTemplate.name.in_({k[0] for k in keys}))))
         .scalars()
         .all()
     )

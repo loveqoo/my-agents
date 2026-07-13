@@ -592,7 +592,10 @@ def build_rag_tool(
         t0 = time.perf_counter()
 
         def _record(
-            status: str, result: str, n: int = 0, detail: list[dict] | None = None,
+            status: str,
+            result: str,
+            n: int = 0,
+            detail: list[dict] | None = None,
             reason: str | None = None,
         ) -> None:
             entry = {
@@ -608,7 +611,9 @@ def build_rag_tool(
                 # 스펙 191 v2: 히트별 구조(컬렉션 포함) + 컬렉션별 최소 유사도 맵(인스펙터 카드·기준선용).
                 "hitsDetail": detail or [],
                 "minScores": dict(min_scores),
-                **({"error": _sanitize_preview(reason, _ERR_CAP)} if reason else {}),  # 실패 사유(스펙 320)
+                **(
+                    {"error": _sanitize_preview(reason, _ERR_CAP)} if reason else {}
+                ),  # 실패 사유(스펙 320)
             }
             calls_sink.append(entry)
 

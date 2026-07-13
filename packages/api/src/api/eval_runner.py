@@ -209,7 +209,12 @@ async def eval_run_agent(
     except AgentConfigError as exc:
         # 그래프 조립 시점 설정 실패(스펙 317 — 코드 노드 impl 미등록 등)도 error obs로 접는다
         # (하네스 계약 — 케이스 error 채점, 전체 평가는 계속. 조용한 폴백 채점 금지).
-        return {"output": "", "trace_nodes": [], "error": True, "detail": f"그래프 조립 실패: {exc}"}
+        return {
+            "output": "",
+            "trace_nodes": [],
+            "error": True,
+            "detail": f"그래프 조립 실패: {exc}",
+        }
     messages = _window([{"role": "user", "content": user_text}], ctx["history_depth"])
     cfg = observability.with_trace(None, name=f"eval:{ctx['ext_agent_id']}")
 

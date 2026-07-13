@@ -943,8 +943,12 @@ def _final_trace(
 _BG_MEMORY_TASKS: set[asyncio.Task] = set()
 _MEMORY_SAVE_ITEM_CAP = 20  # 트레일링 이벤트/트레이스에 실을 기억 항목 상한
 _MEMORY_SAVE_TEXT_CAP = 300  # 항목 본문 표시 상한(마스킹 후, 131/191 프레임 재사용)
-_MEMORY_ADD_TIMEOUT_S = 30  # 백그라운드 저장(mem0 LLM 추출) 대기 상한 — 초과 시 pending만 해제(codex P1)
-_TRAILING_EVENT_TIMEOUT_S = 60  # 트레일링 이벤트 대기 상한 — 연결 무한 보유 방지(태스크는 계속, codex P1)
+_MEMORY_ADD_TIMEOUT_S = (
+    30  # 백그라운드 저장(mem0 LLM 추출) 대기 상한 — 초과 시 pending만 해제(codex P1)
+)
+_TRAILING_EVENT_TIMEOUT_S = (
+    60  # 트레일링 이벤트 대기 상한 — 연결 무한 보유 방지(태스크는 계속, codex P1)
+)
 
 
 def _summarize_saved(saved: list[dict]) -> dict:
@@ -956,7 +960,9 @@ def _summarize_saved(saved: list[dict]) -> dict:
         text = memory._sanitize(row.get("text", ""), cap=_MEMORY_SAVE_TEXT_CAP)
         if not text:
             continue
-        items.append({"event": memory._sanitize(str(row.get("event") or "ADD"), cap=16), "text": text})
+        items.append(
+            {"event": memory._sanitize(str(row.get("event") or "ADD"), cap=16), "text": text}
+        )
     return {"status": "ok" if items else "none", "count": len(saved or []), "items": items}
 
 
@@ -972,7 +978,9 @@ async def _finalize_memory_trace(mid: str, summary: dict) -> None:
         msg = await db.get(Message, pk)
         if msg is None or msg.role != "assistant" or not isinstance(msg.trace, dict):
             return
-        trace = dict(msg.trace)  # 새 dict 대입으로 JSON 컬럼 dirty 플래그 확실히(in-place 변형 아님)
+        trace = dict(
+            msg.trace
+        )  # 새 dict 대입으로 JSON 컬럼 dirty 플래그 확실히(in-place 변형 아님)
         trace["memorySaved"] = summary
         msg.trace = trace
         await db.commit()

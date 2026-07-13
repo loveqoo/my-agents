@@ -156,7 +156,9 @@ def _force_final_if_capped(resp: BaseMessage, capped: bool) -> BaseMessage:
     provider) tool_calls를 떼어 **강제 종료**(스펙 315, codex P1). 이래야 _route가 tool_calls를 못 봐
     다음 노드로 보낸다 — 캡이 provider 동작과 무관하게 airtight. 본문 비면 정직한 폴백 문구."""
     if capped and getattr(resp, "tool_calls", None):
-        return AIMessage(content=_text_of(resp) or "여러 번 검색했지만 확실한 근거를 찾지 못했습니다.")
+        return AIMessage(
+            content=_text_of(resp) or "여러 번 검색했지만 확실한 근거를 찾지 못했습니다."
+        )
     return resp
 
 
@@ -405,20 +407,26 @@ class LinearPipelineAgent:
                 active = model if capped else bound
                 # 노드별 회상 블록(스펙 268 P2) — 첫 진입에만 시스템 프롬프트에 덧붙임. 상한 도달 시 마무리 유도.
                 sys = SystemMessage(
-                    content=sys_content + _TOOL_FENCE_GUARD + (_CAP_NUDGE if capped else "")
+                    content=sys_content
+                    + _TOOL_FENCE_GUARD
+                    + (_CAP_NUDGE if capped else "")
                     + await _recall_block(msgs, reentry)
                 )
                 if clean and not reentry:
                     prev_text = _text_of(msgs[-1]) if msgs else ""
                     human = HumanMessage(content=prev_text)
-                    resp = _force_final_if_capped(await _finalize(await active.ainvoke([sys, human])), capped)
+                    resp = _force_final_if_capped(
+                        await _finalize(await active.ainvoke([sys, human])), capped
+                    )
                     # 이전 메시지 전부 제거 + [앞 결과 입력, 응답]만 남김(격리 경계 — 하류도 여기부터 봄).
                     removals = [RemoveMessage(id=m.id) for m in msgs if getattr(m, "id", None)]
                     return {"messages": [*removals, human, resp]}
                 # 단기 기억(스펙 270) — 이전 대화 슬라이스를 sys와 누적 msgs 사이에 주입([sys, 대화, 입력…]).
                 # 슬라이스는 상태에 누적 안 함(노드마다 자기 depth로 새로 주입) — carry/clean은 턴내 흐름만 관장.
                 history = await _history_block(reentry)
-                resp = _force_final_if_capped(await _finalize(await active.ainvoke([sys, *history, *msgs])), capped)
+                resp = _force_final_if_capped(
+                    await _finalize(await active.ainvoke([sys, *history, *msgs])), capped
+                )
                 return {"messages": [resp]}
 
             return _step, node_tools
