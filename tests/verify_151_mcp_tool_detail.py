@@ -90,7 +90,8 @@ async def main():
 
     # ---- V2 discover 라이브 ----
     r = await BL.discover_mcp_tools(McpDiscoverIn(url=MOCK_MCP_URL, transport="http"))
-    check(r.ok and len(r.toolsDetail) == 3, f"V2a 라이브 탐색 ok+메타 3건 (got ok={r.ok}, {len(r.toolsDetail)})")
+    # 스펙 320이 mock에 failing_op(라이브 등록·시드 제외)를 추가해 라이브 탐색은 4건이다.
+    check(r.ok and len(r.toolsDetail) == 4, f"V2a 라이브 탐색 ok+메타 4건 (got ok={r.ok}, {len(r.toolsDetail)})")
     ws = next((d for d in r.toolsDetail if d.name == "web_search"), None)
     check(ws is not None and "검색" in ws.description and any(p.name == "query" and p.required for p in ws.params),
           "V2b web_search 설명·query 필수 파라미터")

@@ -368,6 +368,25 @@ class McpDiscoverResult(BaseModel):
     detail: str = ""
 
 
+class McpToolTestIn(BaseModel):
+    """MCP 도구 시험 호출(스펙 326) — 상세 드로어 '도구 시험'. args는 도구 시그니처대로."""
+
+    tool: str
+    args: dict[str, Any] = Field(default_factory=dict)
+    # 승인 정책(스펙 177) 걸린 도구는 confirm=True 없이 400 — 시험 통로가 HIL을 소리 없이
+    # 우회하지 않게 백엔드에서 강제(프론트 경고는 안내일 뿐).
+    confirm: bool = False
+
+
+class McpToolTestOut(BaseModel):
+    """시험 결과 — 실행 경로(build_mcp_tools)의 calls_sink에서 회수(마스킹+캡 동일 적용)."""
+
+    ok: bool
+    ms: int = 0
+    result: str | None = None  # 성공 시 결과 프리뷰(_sanitize_preview 적용분)
+    error: str | None = None  # 실패 사유(스펙 320 — 타입+메시지, 마스킹+캡)
+
+
 class ProviderProbeIn(BaseModel):
     """provider 연결 테스트(저장 전 폼). base_url 도달성 + 자격증명 확인."""
 

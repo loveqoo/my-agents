@@ -98,8 +98,15 @@ export interface BlockItem {
   /* mcp */ transport?: string
   tools?: string[]
   enabledTools?: string[]
-  /* mcp 도구 메타(스펙 151) — name→{description, params}. 탐색 시점 스냅샷 */
-  toolsMeta?: Record<string, { description?: string; params?: { name: string; type?: string; required?: boolean }[] }> | null
+  /* mcp 도구 메타(스펙 151) — name→{description, params, approval?}. 탐색 시점 스냅샷 + 승인 정책(177) */
+  toolsMeta?: Record<
+    string,
+    {
+      description?: string
+      params?: { name: string; type?: string; required?: boolean }[]
+      approval?: { required?: boolean }
+    }
+  > | null
   published?: boolean
   endpoint?: string
   served_url?: string | null // 서빙 URL(스펙 156) — source=custom일 때만, 외부가 이 URL로 등록·접속

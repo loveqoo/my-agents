@@ -215,6 +215,16 @@ export const discoverMcpTools = (body: { url: string; transport: string; auth?: 
 export const deleteMcp = (id: string) => del(`/mcp-servers/${id}`)
 /** 저장된 서버의 도구·메타 재탐색(스펙 151) — 자격증명은 백엔드가 복호해 사용. */
 export const rediscoverMcp = (id: string) => post(`/mcp-servers/${id}/rediscover`)
+/* 도구 시험(스펙 326) — 등록 도구를 인자 넣어 실호출. 실행 경로=채팅과 동일(build_mcp_tools)이라
+   결과/실패 사유가 채팅 표면과 같은 규칙(마스킹+캡, 스펙 320). 승인 정책 도구는 confirm 필수. */
+export interface McpToolTestResult {
+  ok: boolean
+  ms: number
+  result?: string | null
+  error?: string | null
+}
+export const testMcpTool = (id: string, body: { tool: string; args: Record<string, unknown>; confirm?: boolean }) =>
+  post(`/mcp-servers/${id}/test-tool`, body) as Promise<McpToolTestResult>
 export const publishMcp = (id: string, published: boolean) =>
   put(`/mcp-servers/${id}/publish`, { published })
 

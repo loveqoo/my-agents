@@ -1,7 +1,7 @@
 /* my-agents admin — Building blocks (재료) browser: personas, memory policies,
    MCP servers. Category tabs → list → detail drawer. */
 import { useState, useEffect } from 'react'
-import { Tag, Button, Tabs, Switch, Modal, Input, Select, Checkbox, Tooltip, Alert, Grid, message, Descriptions } from 'antd'
+import { Tag, Button, Tabs, Switch, Modal, Input, Select, Checkbox, Tooltip, Alert, Grid, message, Descriptions, Popconfirm } from 'antd'
 import { Page, DataTable, Drawer, type Column } from '../shared'
 import { validateName, NAME_HINT } from '../naming'
 import { fmtTime } from '../format'
@@ -15,6 +15,8 @@ import {
   publishMcp,
   discoverMcpTools,
   rediscoverMcp,
+  testMcpTool,
+  type McpToolTestResult,
   type McpToolInfo,
   type McpToolParam,
   createBlockItem,
@@ -34,6 +36,153 @@ function statusTag(map: Record<string, StatusMeta>, status?: string | null) {
   const s = status ? map[status] : undefined
   if (s) return <Tag color={s.tag}>{s.label}</Tag>
   return <Tag color="default">{status ?? '—'}</Tag>
+}
+
+/* 도구 시험(스펙 326) — 등록된 MCP 도구를 인자 넣어 실호출. 회상 시험(084)·검색 시험(072)의 MCP판.
+   실행 경로=채팅과 동일(build_mcp_tools)이라 결과·실패 사유(스펙 320)가 채팅 표면과 같은 규칙.
+   승인 정책(177) 도구는 경고 + Popconfirm 명시 확인 후 confirm=true로 실행(백엔드도 재강제). */
+function McpToolTestPanel({ item }: { item: BlockItem }) {
+  const tools = item.enabledTools || []
+  const [tool, setTool] = useState<string | undefined>(tools[0])
+  const [vals, setVals] = useState<Record<string, string>>({})
+  const [jsonArgs, setJsonArgs] = useState('{}')
+  const [running, setRunning] = useState(false)
+  const [res, setRes] = useState<McpToolTestResult | null>(null)
+  const meta = tool ? item.toolsMeta?.[tool] : undefined
+  const params = meta && Array.isArray(meta.params) ? meta.params : null // null=메타 없음 → JSON 폴백
+  const needsConfirm = !!meta?.approval?.required
+  const run = async () => {
+    if (!tool) return
+    let args: Record<string, unknown> = {}
+    if (params) {
+      args = Object.fromEntries(params.filter((p) => (vals[p.name] ?? '') !== '').map((p) => [p.name, vals[p.name]]))
+    } else {
+      try {
+        args = JSON.parse(jsonArgs || '{}') as Record<string, unknown>
+      } catch {
+        setRes({ ok: false, ms: 0, error: '인자 JSON을 해석하지 못했습니다 — 형식을 확인하세요' })
+        return
+      }
+    }
+    setRunning(true)
+    setRes(null)
+    try {
+      setRes(await testMcpTool(item.id, { tool, args, ...(needsConfirm ? { confirm: true } : {}) }))
+    } catch (e) {
+      setRes({ ok: false, ms: 0, error: e instanceof Error ? e.message : String(e) })
+    } finally {
+      setRunning(false)
+    }
+  }
+  const runBtn = (
+    <Button type="primary" size="small" icon={<Icon name="thunderbolt" />} loading={running} disabled={!tool} onClick={needsConfirm ? undefined : () => void run()}>
+      실행
+    </Button>
+  )
+  return (
+    <div
+      style={{
+        marginTop: 18,
+        padding: 16,
+        border: '1px solid var(--color-border-secondary)',
+        borderRadius: 'var(--radius-lg)',
+        background: 'var(--gray-2)',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 10,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <Icon name="experiment" size={16} style={{ color: 'var(--cyan-7)' }} />
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 14, fontWeight: 500 }}>도구 시험</div>
+          <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+            도구를 직접 호출해 동작을 확인합니다 — 결과와 실패 사유가 채팅과 같은 규칙으로 표시됩니다.
+          </div>
+        </div>
+      </div>
+      <Select
+        size="small"
+        value={tool}
+        onChange={(v) => {
+          setTool(v)
+          setVals({})
+          setRes(null)
+        }}
+        options={tools.map((t) => ({
+          value: t,
+          label: item.toolsMeta?.[t]?.approval?.required ? `${t} (승인 정책)` : t,
+        }))}
+        placeholder="시험할 도구 선택"
+        style={{ width: '100%' }}
+      />
+      {params ? (
+        params.length ? (
+          params.map((p) => (
+            <Input
+              key={p.name}
+              size="small"
+              addonBefore={<code style={{ fontSize: 12 }}>{p.name}</code>}
+              placeholder={`${p.type ?? 'string'}${p.required ? ' · 필수' : ''}`}
+              value={vals[p.name] ?? ''}
+              onChange={(e) => setVals((s) => ({ ...s, [p.name]: e.target.value }))}
+            />
+          ))
+        ) : (
+          <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>파라미터 없음 — 바로 실행할 수 있습니다.</div>
+        )
+      ) : (
+        <TextArea
+          rows={3}
+          value={jsonArgs}
+          onChange={(e) => setJsonArgs(e.target.value)}
+          placeholder='인자 JSON — 예: {"query": "hello"}'
+          style={{ fontFamily: 'var(--font-family-code)', fontSize: 12 }}
+        />
+      )}
+      {needsConfirm ? (
+        <Alert
+          type="warning"
+          showIcon
+          title="이 도구는 승인 정책이 걸려 있습니다"
+          description="시험 실행은 승인 절차 없이 바로 부수효과를 냅니다 — 대상을 확인한 뒤 실행하세요."
+        />
+      ) : null}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        {needsConfirm ? (
+          <Popconfirm title="승인 정책 도구를 바로 실행할까요?" description="부수효과가 즉시 발생합니다." okText="실행" cancelText="취소" onConfirm={() => void run()}>
+            {runBtn}
+          </Popconfirm>
+        ) : (
+          runBtn
+        )}
+        {res?.ok ? <Tag color="green" style={{ margin: 0 }}>{res.ms}ms</Tag> : null}
+      </div>
+      {res ? (
+        res.ok ? (
+          <pre
+            style={{
+              margin: 0,
+              padding: '8px 10px',
+              fontSize: 12,
+              fontFamily: 'var(--font-family-code)',
+              background: 'var(--color-bg-container)',
+              border: '1px solid var(--color-border-secondary)',
+              borderRadius: 'var(--radius-md)',
+              whiteSpace: 'pre-wrap',
+              overflowWrap: 'anywhere',
+              maxHeight: 220,
+              overflow: 'auto',
+            }}
+          >
+            {res.result || '(빈 결과)'}
+          </pre>
+        ) : (
+          <Alert type="error" showIcon title="실패 사유" description={res.error || '알 수 없는 실패'} />
+        )
+      ) : null}
+    </div>
+  )
 }
 
 /* 백엔드 McpServerIn payload — snake_case로 in. */
@@ -1262,6 +1411,9 @@ export default function BlocksView() {
                   },
                 ]}
               />
+            ) : null}
+            {cat === 'mcp' && detail.transport === 'http' && (detail.enabledTools?.length ?? 0) > 0 ? (
+              <McpToolTestPanel key={detail.id} item={detail} />
             ) : null}
             <Descriptions
               column={1}

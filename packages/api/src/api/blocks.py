@@ -29,6 +29,8 @@ from .schemas import (
     McpPublishIn,
     McpServerIn,
     McpServerOut,
+    McpToolTestIn,
+    McpToolTestOut,
     MemoryTypeIn,
     MemoryTypeOut,
     PersonaApplyIn,
@@ -510,6 +512,84 @@ async def rediscover_mcp_server(
     await session.commit()
     await session.refresh(obj)
     return mcp_to_out(obj)
+
+
+@router.post("/mcp-servers/{id}/test-tool", response_model=McpToolTestOut)
+async def test_mcp_tool(
+    id: uuid.UUID,
+    body: McpToolTestIn,
+    session: AsyncSession = Depends(get_session),
+) -> Any:
+    """저장된 MCP 서버의 도구를 **실제로 호출**해 본다(스펙 326 — 상세 드로어 '도구 시험').
+
+    실행 경로는 채팅과 같은 `build_mcp_tools`를 재사용한다(새 연결 코드 금지) — SSRF 가드·
+    allowed_hosts·자격증명 복호·어댑터 swallow 해제·결과/사유 마스킹+캡(스펙 320)이 전부 그
+    경로에 이미 산다. 결과는 래퍼의 calls_sink에서 회수(직접 반환값이 아니라 **채팅이 기록하는
+    것과 동일한 표면**을 보여준다 — 시험이 곧 실전 리허설).
+
+    승인 정책(스펙 177) 도구는 confirm=True 없이 400 — 시험 통로가 HIL을 소리 없이 우회하지
+    않게 백엔드에서 강제. 승인 래핑 자체는 tools_meta에서 approval을 걷어낸 사본으로 비활성화
+    (그래프 밖 interrupt() 불가 — confirm 게이트가 그 자리를 대신한다).
+
+    연결 실패·도구 미발견은 조용한 스킵 대신 원인 명시(스펙 322 footgun의 시험판 방지)."""
+    from .runtime import build_mcp_tools
+
+    obj = await get_or_404(session, McpServer, id)
+    tool_name = (body.tool or "").strip()
+    if tool_name not in (obj.enabled_tools or []):
+        raise HTTPException(status_code=400, detail=f"활성 도구가 아닙니다: {tool_name}")
+    if obj.transport != "http" or not (obj.url or obj.endpoint):
+        raise HTTPException(
+            status_code=400, detail="http transport + URL이 있는 서버만 시험할 수 있습니다."
+        )
+
+    meta = dict(obj.tools_meta or {})
+    approval = (meta.get(tool_name) or {}).get("approval") or {}
+    if approval.get("required") and not body.confirm:
+        raise HTTPException(
+            status_code=400,
+            detail="승인 정책이 걸린 도구입니다 — 부수효과를 확인하고 confirm으로 재시도하세요.",
+        )
+    # 승인 래핑 비활성용 사본(원본 무변경): 시험은 위 confirm 게이트가 승인 역할을 대신한다.
+    # approval 키를 지우면 리졸버의 **레거시 폴백**(_APPROVAL_ACTIONS — delete_record 등)이 되살아나
+    # 그래프 밖 interrupt()로 터지므로, {required: False} **명시 덮어쓰기**로 꺼야 한다(스펙 177 우선순위).
+    stripped_meta = {
+        t: {**(m or {}), "approval": {"required": False}} for t, m in meta.items()
+    } or {tool_name: {"approval": {"required": False}}}
+
+    token = None if crypto.is_masked(obj.auth) else crypto.decrypt(obj.auth)
+    server = {
+        "name": obj.name,
+        "url": obj.url or obj.endpoint or "",
+        "transport": obj.transport or "http",
+        "enabled_tools": [tool_name],  # 시험 대상만 빌드(불필요 래핑 생략)
+        "auth_token": token,
+        "tools_meta": stripped_meta,
+    }
+    calls_sink: list[dict] = []
+    tools = await build_mcp_tools([server], calls_sink)
+    if not tools:
+        # 조용한 스킵을 말로 — SSRF 차단/연결 실패/도구 미발견을 사용자가 구분해 조치할 수 있게.
+        raise HTTPException(
+            status_code=502,
+            detail=f"도구를 가져오지 못했습니다 — 서버({obj.name}) 연결 실패 또는 원격에 {tool_name} 없음. '도구 정보 새로 탐색'으로 상태를 확인하세요.",
+        )
+    try:
+        await tools[0].ainvoke(body.args or {})
+    except Exception as exc:
+        # 래퍼 밖 실패 = 인자 스키마 검증(StructuredTool이 _run 이전에 검사) 등 — 500 대신
+        # 시험 결과로 표면화(인자 틀림도 정당한 시험 결과다). 마스킹+캡은 채팅 표면과 동일 규칙.
+        from .runtime import _ERR_CAP, _sanitize_preview
+
+        etype = type(exc).__name__.lstrip("_")
+        return McpToolTestOut(ok=False, error=_sanitize_preview(f"{etype}: {exc}", _ERR_CAP))
+    rec = calls_sink[-1] if calls_sink else {}
+    return McpToolTestOut(
+        ok=rec.get("status") == "ok",
+        ms=int(rec.get("ms") or 0),
+        result=rec.get("result"),
+        error=rec.get("error"),
+    )
 
 
 @router.get("/mcp-servers/{id}", response_model=McpServerOut)
