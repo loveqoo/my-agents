@@ -25,6 +25,7 @@ import { validateName, NAME_HINT } from '../naming'
 import { PagedListShell, type ListController } from './PagedListShell'
 import { Icon } from '../icons'
 import { RetrievalTestDrawer } from './RetrievalTestDrawer'
+import { DocumentEditorModal } from './DocumentEditorModal'
 import {
   listCollections,
   createCollection,
@@ -559,6 +560,7 @@ function DocsDrawer({
 }) {
   const [uploading, setUploading] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0) // 업로드 후 문서 목록 재조회(셸 트리거)
+  const [editingDoc, setEditingDoc] = useState<RagDocument | null>(null) // 문서 편집(스펙 331)
   // 설정 편집(별명·설명·청크)은 스펙 176에서 EditModal(행 편집 버튼)로 이관 — 드로어는 문서만.
 
   const id = collection?.id ?? null
@@ -643,17 +645,37 @@ function DocsDrawer({
     {
       key: 'actions',
       title: '',
-      width: 60,
+      width: 92,
       align: 'right',
       render: (d) => (
-        <Popconfirm
-          title="문서를 삭제할까요?"
-          okText="삭제"
-          cancelText="취소"
-          onConfirm={() => void doDeleteDoc(ctl, d.id)}
-        >
-          <Button type="text" size="small" danger icon={<Icon name="delete" />} />
-        </Popconfirm>
+        <span style={{ display: 'inline-flex', gap: 4 }}>
+          {/* 문서 편집(스펙 331) — 소유자만·문서형만. PDF/원본 미보존은 비활성+사유 툴팁. */}
+          {collection?.can_manage !== false && !isEntity && (
+            <Tooltip
+              title={
+                d.editable
+                  ? '내용을 편집하면 바뀐 부분만 다시 임베딩됩니다'
+                  : 'PDF·원본 미보존 문서는 편집할 수 없습니다 — 재업로드로 교체하세요'
+              }
+            >
+              <Button
+                type="text"
+                size="small"
+                disabled={!d.editable}
+                icon={<Icon name="edit" />}
+                onClick={() => setEditingDoc(d)}
+              />
+            </Tooltip>
+          )}
+          <Popconfirm
+            title="문서를 삭제할까요?"
+            okText="삭제"
+            cancelText="취소"
+            onConfirm={() => void doDeleteDoc(ctl, d.id)}
+          >
+            <Button type="text" size="small" danger icon={<Icon name="delete" />} />
+          </Popconfirm>
+        </span>
       ),
     },
   ]
@@ -703,6 +725,17 @@ function DocsDrawer({
             searchPlaceholder="파일명 부분일치 검색"
             emptyText={(q) => (q ? '일치하는 문서가 없습니다.' : '문서 없음')}
             errorTitle="문서를 불러오지 못했습니다"
+          />
+
+          {/* 문서 편집 에디터(스펙 331) — 저장 시 그 문서만 재청킹·변경 청크만 재임베딩. */}
+          <DocumentEditorModal
+            collectionId={collection.id}
+            doc={editingDoc}
+            onClose={() => setEditingDoc(null)}
+            onSaved={() => {
+              setRefreshKey((k) => k + 1)
+              onChanged() // 컬렉션 청크 카운트 갱신
+            }}
           />
         </div>
       ) : null}

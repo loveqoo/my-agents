@@ -147,6 +147,9 @@ class DocumentOut(BaseModel):
     chunk_count: int
     status: str
     error: str | None = None
+    # 스펙 331 — 런타임 수정 가능 여부(문서형·비PDF·원본 blob 보존). ORM 속성이 아니라 라우트가
+    # 계산해 채운다(ORM 직렬화 경로는 False 기본 — list_documents가 정본).
+    editable: bool = False
     model_config = ORM
 
 
@@ -155,6 +158,30 @@ class DocumentPageOut(BaseModel):
 
     items: list[DocumentOut]
     total: int  # q(파일명 부분일치) 적용 후 전체 건수
+
+
+class DocumentContentOut(BaseModel):
+    """문서 원문 조회(스펙 331) — 편집 가능(문서형·비PDF·원본 보존·UTF-8)이면 text 동반,
+    아니면 text=None + reason(사유)로 정직 표면화."""
+
+    id: uuid.UUID
+    filename: str
+    editable: bool
+    text: str | None = None
+    reason: str | None = None  # editable=false 사유(UI 툴팁)
+
+
+class DocumentEditIn(BaseModel):
+    text: str = Field(min_length=1)
+
+
+class DocumentEditOut(BaseModel):
+    """문서 수정 결과(스펙 331) — 부분 재임베딩 통계를 실측 그대로 노출(reused+reembedded=chunks)."""
+
+    document: DocumentOut
+    chunks: int  # 재청킹 결과 청크 수
+    reembedded: int  # 새로 임베딩한 청크 수(내용 변경분)
+    reused: int  # 기존 벡터 재사용 청크 수(내용 동일)
 
 
 class CollectionHealth(BaseModel):

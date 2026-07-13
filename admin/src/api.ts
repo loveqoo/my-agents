@@ -281,6 +281,7 @@ export interface RagDocument {
   chunk_count: number
   status: string // parsing|embedding|ready|error
   error: string | null
+  editable?: boolean // 스펙 331 — 런타임 수정 가능(문서형·비PDF·원본 보존)
 }
 export interface CollectionHealth {
   collection_id: string
@@ -358,6 +359,24 @@ export const listDocuments = (id: string, q = '', limit = 20, offset = 0) =>
   j<DocumentPageOut>(`/collections/${id}/documents${pageQS(q, limit, offset)}`)
 export const deleteDocument = (id: string, docId: string) =>
   del(`/collections/${id}/documents/${docId}`)
+/* 문서 런타임 수정(스펙 331) — 원문 조회 + 저장(그 문서만 재청킹, 변경 청크만 재임베딩). */
+export interface DocumentContent {
+  id: string
+  filename: string
+  editable: boolean
+  text: string | null
+  reason: string | null // editable=false 사유
+}
+export interface DocumentEditResult {
+  document: RagDocument
+  chunks: number // 재청킹 결과 청크 수
+  reembedded: number // 새로 임베딩(내용 변경분)
+  reused: number // 기존 벡터 재사용(내용 동일)
+}
+export const getDocumentContent = (id: string, docId: string) =>
+  j<DocumentContent>(`/collections/${id}/documents/${docId}/content`)
+export const updateDocumentContent = (id: string, docId: string, text: string) =>
+  put(`/collections/${id}/documents/${docId}/content`, { text }) as Promise<DocumentEditResult>
 /** 문서 업로드(멀티파트). FormData는 Content-Type을 브라우저가 boundary와 함께 자동 설정 — 직접 넣지 않는다. */
 export async function uploadDocument(id: string, file: File): Promise<RagDocument> {
   const fd = new FormData()

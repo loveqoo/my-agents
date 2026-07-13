@@ -16,13 +16,18 @@ class IngestError(Exception):
     """인제스트 실패 — 메시지를 Document.error에 보존(no silent death)."""
 
 
+def is_pdf(filename: str, content_type: str | None) -> bool:
+    """PDF 판별(단일 출처) — 추출(extract_text)과 편집 가능 판정(스펙 331)이 같은 기준을 공유해야
+    'PDF인데 편집 허용' 같은 드리프트가 없다."""
+    return (content_type or "").lower().endswith("pdf") or filename.lower().endswith(".pdf")
+
+
 def extract_text(filename: str, content_type: str | None, data: bytes) -> str:
     """업로드 바이트에서 평문 추출. PDF는 pypdf, 그 외는 UTF-8 디코드.
 
     이미지 PDF·OCR·기타 형식(docx/html)은 범위 밖 — 텍스트가 안 나오면 IngestError.
     """
-    is_pdf = (content_type or "").lower().endswith("pdf") or filename.lower().endswith(".pdf")
-    if is_pdf:
+    if is_pdf(filename, content_type):
         try:
             from pypdf import PdfReader
 
