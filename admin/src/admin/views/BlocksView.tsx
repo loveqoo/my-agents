@@ -1284,9 +1284,10 @@ export default function BlocksView() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <Icon name="global" size={16} style={{ color: 'var(--cyan-7)' }} />
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 14, fontWeight: 500 }}>외부 서빙</div>
+                    <div style={{ fontSize: 14, fontWeight: 500 }}>공개 (외부 서빙)</div>
                     <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-                      이 서버의 도구를 LangGraph MCP 프로토콜로 노출합니다
+                      공개하면 에이전트가 이 도구를 사용할 수 있고, MCP 프로토콜로 외부 시스템에도
+                      노출됩니다. 새로 등록한 서버는 기본으로 공개됩니다.
                     </div>
                   </div>
                   <Switch checked={detail.published} disabled={detail.can_manage === false} onChange={() => void togglePublish(detail.id)} />
@@ -1320,10 +1321,11 @@ export default function BlocksView() {
                     </div>
                   ) : null
                 })()}
-                {/* custom 미공개 안내(스펙 156): 켜면 이 URL로 외부에 서빙된다. */}
+                {/* custom 미공개 안내(스펙 156/322): 지금 비공개 상태 + 공개하면 무엇이 가능한지(긍정문). */}
                 {!detail.published && detail.served_url ? (
                   <div style={{ marginTop: 12, fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-                    공개하면 외부가 이 URL로 등록·접속합니다: <code style={{ fontFamily: 'var(--font-family-code)' }}>{detail.served_url}</code>
+                    지금은 비공개입니다. 공개하면 에이전트가 이 도구를 사용할 수 있고, 외부도 이 URL로
+                    접속합니다: <code style={{ fontFamily: 'var(--font-family-code)' }}>{detail.served_url}</code>
                   </div>
                 ) : null}
               </div>

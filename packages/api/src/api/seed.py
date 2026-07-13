@@ -132,9 +132,9 @@ MCP_SERVERS = [
         None,
     ),
     # 커스텀(SDK) MCP(스펙 156, 실사용 #4) — 우리가 코드로 정의·호스팅해 서빙 가능한 MCP. 시드는
-    # published=False(관리자가 드로어에서 켜면 /_served/mcp/calc-tools/로 외부 공개). source=custom이라
-    # 서빙 게이트 통과 대상이고 external 봉인(152)과 구분된다. plan-execute-demo가 커스텀 에이전트
-    # 실증인 것과 동형(커스텀 MCP 실증 시드 1행).
+    # published=True(스펙 322 — 기본 공개해 등록 즉시 에이전트가 사용, custom은 서빙 엔드포인트로만
+    # 접속되므로). source=custom이라 서빙 게이트 통과 대상이고 external 봉인(152)과 구분된다.
+    # plan-execute-demo가 커스텀 에이전트 실증인 것과 동형(커스텀 MCP 실증 시드 1행).
     (
         "calc-tools",
         "custom",
@@ -143,7 +143,7 @@ MCP_SERVERS = [
         None,
         list(SERVED_MCP_TOOLS["calc-tools"]),
         "connected",
-        False,
+        True,
         None,
     ),
 ]
@@ -616,7 +616,10 @@ async def _reconcile_served_mcp(session: AsyncSession) -> None:
                     tools=list(stools),
                     enabled_tools=list(stools),
                     status="connected",
-                    published=False,
+                    # 기본 공개(스펙 322) — custom MCP는 서빙 엔드포인트로만 접속되므로 published=off면
+                    # 에이전트가 조용히 못 쓴다(footgun). 등록 즉시 사용 가능하게 기본을 오픈으로.
+                    # 서빙 대상은 무인증 안전 불변식 통과분(스펙 156). 관리자가 끄면 비공개(보존).
+                    published=True,
                     tools_meta=SERVED_MCP_TOOLS_META.get(sname),
                     owner_id=None,
                 )
