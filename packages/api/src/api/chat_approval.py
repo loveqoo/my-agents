@@ -386,9 +386,9 @@ async def resume_approval(approval: Approval, decision: str) -> None:
         return  # 그래프 조립 설정 실패(스펙 317) — 재개 불가 graceful(로그는 rebuild가 남김)
     graph, calls_sink, resume_broker, resume_history_windows = rebuilt
     config = {"configurable": {"thread_id": thread_id}}
-    # 관측(스펙 118) — 재개 경로도 Langfuse가 설정됐을 때만 콜백 부착(미설정=무동작).
+    # 관측(스펙 118→328) — 재개 경로도 OTEL이 설정됐을 때만 콜백 부착(미설정=무동작).
     # 비영속(스펙 235) 대칭 가드(codex): 정상 ephemeral은 approval을 못 만들어 미도달이나, "과거 approval +
-    # 설정을 ephemeral로 변경" 엣지에서 이 경로가 호출될 수 있어 langfuse도 대칭으로 스킵(_persist는 이미 차단).
+    # 설정을 ephemeral로 변경" 엣지에서 이 경로가 호출될 수 있어 관측도 대칭으로 스킵(_persist는 이미 차단).
     if not ctx.get("ephemeral"):
         config = observability.with_trace(config, name="chat-resume", user_id=approval.user_id)
 

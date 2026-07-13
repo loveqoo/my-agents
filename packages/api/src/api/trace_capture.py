@@ -7,7 +7,7 @@
 - on_llm_end: usage_metadata(입·출력 토큰) 합산. 모델이 usage를 안 주면 usage_seen=False로 남아
   소비자가 추정 폴백(estimated=True 표기).
 
-Langfuse 계측(스펙 118)과 별개 핸들러 — 그쪽은 무변경.
+OTEL 계측(스펙 118→328)과 별개 핸들러 — 그쪽은 무변경.
 """
 
 from __future__ import annotations

@@ -11,13 +11,13 @@
 - [ ] **노드형 확장 3부작**(사용자 제안 2026-07-13, 설계 3결정 합의: ①버전 핀 참조[발행 불변·수정=새 버전, 코드 노드만 동일 버전 덮어쓰기 허용] ②에이전트 호출=도구 방식 A·ID 기반 이름[사용자 제안 `agent:{agent_id}` — 단 provider 도구명에 `:` 불허가 흔해 `agent__{agent_id}` 제안 예정] ③재귀 가드 필수):
   - ✅**① 노드 라이브러리+버전 고정 참조 = 스펙 316 완료**(2026-07-13, 회고 291) — NodeTemplate(name,version)·ref 해석(해석→병합)·advisory lock TOCTOU 봉인·삭제 409·특권 변이 게이트·usedBy 가시성 필터·admin 뷰+폼 참조 픽커+오버라이드 베이스. codex P1 4 수정.
   - ✅**② 코드 노드 = 스펙 317 완료**(2026-07-13, 회고 292) — CustomNode Protocol+register_node(085 미러)·부팅 manifest 카탈로그 upsert·mask-pii 레퍼런스·오버라이드는 표면만·미등록 impl=설정오류(네 입구). codex P1 3(eval 입구·재개 500·sync TOCTOU)+P2 2 수정.
-  - **③ 노드에서 에이전트 호출 도구**(스펙 318 예정, 다음) — 브로커 AgentProvider(kind=agent, 로컬+A2A) 재사용, HIL·allowlist∩RBAC 승계, 호출 깊이 상한(재귀 가드) 필수. 이름 `agent__{agent_id}`(provider 도구명 `:` 불허).
+  - ✅**③ 노드에서 에이전트 호출 도구 = 스펙 318 완료**(2026-07-13, 회고 293) — build_agent_tools로 브로커를 노드 도구 표면에 연결, `agent__{agent_id}`·재귀 가드(깊이 8·너비 32)·세 입구 extend. 후속 319(도구 결과 인젝션 펜스 통일)까지 완료(회고 294). **3부작 전체 마감.**
 - [ ] **k8s 멀티 인스턴스(레플리카 N) 배포 지원**(2026-07-13 점검 — deep-reasoner 전수 + 메인 P1 코드검증). 지금 상태로 여러 인스턴스 올리면 깨짐. Dockerfile·k8s 매니페스트 아직 없음(배포 미정의)·단일 파드 `uvicorn --workers N`도 같은 프로세스 경계 문제 재현.
   - **P1 배포 차단(3)**: ①**비밀키 파드별 발산**(`crypto.py _fernet`·`auth.py`: `APP_SECRET_KEY`/`API_AUTH_TOKEN` env 없으면 파드 로컬 파일에 각자 키 생성 → 파드 A가 공유 DB에 암호화한 provider키·에이전트토큰을 파드 B가 복호화 실패 500·머신토큰도 A인증→B 401) = **k8s Secret 전 파드 동일 주입**(최우선, 주입 시 폴백경로 소멸) ②**마이그레이션이 앱 lifespan**(`main.py`→`db.py init_db` alembic upgrade head) = 동시 부팅 경합 → **initContainer/Job 단일 러너로 분리**(seed·스윕도 이관) ③**부팅 좀비 스윕이 타 레플리카 실행 죽임**(`eval_runs.py sweep_zombie_runs`/`sweep_zombie_datasets`·`db.py _recover_stale_reindex` — "부팅=이전 프로세스 죽음" 단일 전제, 레플리카 B 부팅이 A의 running eval/재인덱싱 error 박제) = **heartbeat/lease 기반 회수 또는 Job 이관**(스펙 312 OUT 빚).
   - **P2 운영 위험**: casbin enforcer 파드별 인메모리 stale(`authz.py` — 권한 취소가 타 파드 재시작 전까지 미반영, reload 경로 없음)=롤링 재시작 규칙/TTL reload·`_PENDING_ARTIFACT`(`chat_approval.py`) 프로세스 로컬→산출물형 ask/form 멀티턴이 파드 넘으면 끊김(HIL 승인재개는 DB `Approval.checkpoint`라 안전)·배경 태스크(`background.py spawn`·memory.add·eval 실행) in-process at-most-once 유실·DB `pool_size` 미설정×N파드 `max_connections` 압박·배치 서비스 `replicas=1` 고정(cron 이중 발화 방지).
   - **안심(멀티 안전 코드확인)**: HIL 체크포인터=공유 Postgres(AsyncPostgresSaver, 임의 레플리카 재개)·MCP 서빙 `stateless_http`·A2A 무상태·mem0/RAG=공유 pgvector·`sync_code_nodes` advisory lock(스펙 317)·net_guard ≤10s 수렴·요청/턴 스코프 캐시.
   - **배포 전 필수(압축)**: (1)Secret 2개 주입 (2)마이그레이션 Job 분리 (3)좀비 스윕 lease화 (4)정책변경=롤링재시작 (5)pool_size 명시+배치 replicas=1. 회사 이식 초기=팀 한정이라 과투자 없이(Secret 주입+마이그레이션 Job이 최소 조치). 세부 점검 로그는 대화 세션 참조(원하면 `.dev/`에 문서화 가능).
-- [ ] OTEL 계측(회사 이식 다리 — 관측 백엔드 교체 가능하게 Langfuse 직결을 한 겹 추상화, Prometheus/Grafana는 회사에 준비됨)
+- ✅**OTEL 계측 = 스펙 328 완료**(2026-07-13, 회고 303) — Langfuse SDK 직결 제거→OTLP 방출(자작 thin 콜백, 부착 4곳 무변경). 개인=Jaeger 컨테이너 1개로 라이브 확인, 회사=endpoint 주소만. OUT(후속 후보): 메트릭(Prometheus)·A2A traceparent 전파·로그 상관.
 - [ ] 오버라이드 서랍 2단계 모바일 실기기 확인(스펙 249 잔여 — 사용자 "다음에") — 사용자 실사용 후보 10건 (2026-07-03 접수, 원문 보존·성격별 묶음)
 - ✅**컬렉션 재인덱싱 도구=스펙 312 완료**(2026-07-12, 회고 287) — 스펙 158/160 OUT 씨앗("재인덱싱 도구") 소진. 임베딩 모델 교체(같은 차원 1024)+청크 크기·겹침 재청킹을 저장된 원본으로. 배타 잠금·이력 테이블·평가 이력 보존. mock→e5 검색 0.056→0.907 실측. codex 7건→3수정(F1 P0 데이터손실 봉인). **OUT(후속 후보)**: 차원 변경(1024↔768=전역 벡터 저장 구조 재설계, deep-reasoner 설계 선행)·~~무중단 재인덱싱~~·RAG 모델/청크 비교 격자(에이전트 141 미러)·멀티워커 stale lease·passage 접두어용 재인덱싱(스펙 160 씨앗).
 - ✅**plan-execute-demo 멈춤/이상답=스펙 315 완료**(2026-07-13, 회고 290) — "스트리밍 UI 최신 동향 검색"이 오래 멈추고 이상한 답. 실측=실행 노드가 wiki 도구를 14회 반복(수렴 실패)하다 모델 서버 연결 끊김. 실행 노드 ReAct 루프에 상한(6) 도달 시 도구 언바인드+넛지로 강제 수렴→180초+/끊김→27초 정상. 사용자가 이 멈춤에 "314 미완"으로 오인(별개 원인—세션메모리라 314 경로 안 탐). codex P1(느슨한 provider 방어) 수정. **OUT**: recursion_limit 백스톱·모델 끊김 재시도·병렬 tool_calls 실행총량 캡.
@@ -83,7 +83,7 @@
 - ✅**회상 진단 위장 버그=스펙 158 완료**(2026-07-04, 회고 136, 실사용 버그 "기억 있는데 유사도 검색 안 됨") — 근인=mem0 숨은 기본 threshold=0.1 상속→저유사도 전부 컷·"정상·0건" 위장(+M1 예외삼킴 부차). 수정=recall_diag threshold=0으로 top-k 표시(낮은점수까지→자가진단)+저장건수 진단+파사드 3분기(챗[]/브로커error/진단표면화)+로그 비밀 마스킹. codex High1/Med1. **후속 씨앗(OUT)**: arctic query-prefix 임베더 주입·재인덱싱 도구·챗 회상 threshold 튜닝(제품 결정).
 - ✅**임베더 차원 강제 버그=스펙 159 완료**(2026-07-04, 회고 137, 158 진단이 표면화한 진짜 원인) — 근인=MEM0_EMBED_DIMS가 컬럼차원+임베더요청차원 겹쳐 써 dimensions=1024 강제→snowflake(256만 허용) 400. 수정=네이티브 차원 probe(RAG 방식)해 네이티브==컬럼 미전송·≠면 컬럼길이 전송(정적기본값은 한쪽 깸). 비파괴(11건 보존). codex 2R(정적미전송 회귀→probe, 캐시키·타임아웃·env검증). **사용자 배포본에서 회상 복구 확인 완료**(다른 디바이스 정상). **후속 씨앗(OUT)**: 컬럼 마이그레이션 도구·모델별 컬럼차원 저장·broker 810/931 to_thread.
 - ✅**임베딩 query/passage 접두어=스펙 160 완료**(2026-07-04, 회고 138, 158·159 OUT 후속) — 비대칭 모델(e5·arctic) 접두어를 mem0가 무시→action별 주입(설정형 env, 기본 no-op). **측정 우선**: 로컬 e5 접두어 효과 미미 실측→하드코딩 대신 설정형, arctic만 켜게. arctic=query만·비파괴(기존 저장 무변경). codex 결함0. **후속 씨앗(OUT)**: passage 접두어용 재인덱싱 도구·모델별 접두어 UI. **배포본에서 arctic 접두어 켜고 회상 품질 실측 대기**.
-- **Langfuse 수동 span/score**(방향 2 OUT) — 자동 계측 위에 커스텀 점수(평가 하네스 연동).
+- **관측 수동 span/score**(구 방향 2 OUT — 스펙 328에서 Langfuse→OTEL 전환됨) — 자동 계측 위에 커스텀 span/score(평가 하네스 연동)를 OTEL 속성/이벤트로.
 
 ### 후속 씨앗 (급하지 않음)
 - **다단 승인 큐**(스펙 116·117 OUT) — 다중 gated/A2A cap 순차 위임 시 두 번째 이후 interrupt를 chat.py
@@ -231,7 +231,7 @@
   자동통과·HTTP 실패 숨김·예외후계속 미검증·scorer 예외 전체중단) 봉합. 판별력 실측. 방향 3 완료
   (2026-07-02, 회고 100·learning 119).
 
-- **관측·측정 계층 Langfuse**(스펙 118, 방향 2) — 기술스택엔 있으나 코드 0줄이던 Langfuse를 inert-until-
+- **관측·측정 계층 Langfuse**(스펙 118, 방향 2 — ※역사 기록: 스펙 328에서 Langfuse SDK 제거·OTEL로 대체됨) — 기술스택엔 있으나 코드 0줄이던 Langfuse를 inert-until-
   configured로 배선(키 둘 다 있을 때만 활성·없으면 no-op·graceful·비파괴 config 병합). chat.py 3곳
   (메인·재개·로컬 A2A 서빙), langfuse v4 의존성(키가 스위치). codex rung3: [P2] with_trace 타입 구멍
   (callbacks list 가정)→타입별 접기+회귀가드. 전달 관통 검증(Recorder 콜백). 방향 2 완료(2026-07-02,

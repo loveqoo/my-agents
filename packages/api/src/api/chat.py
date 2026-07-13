@@ -452,7 +452,7 @@ def _turn_config(
 ) -> dict:
     """LangGraph 실행 config — 관측 콜백(스펙 118)·실측 캡처(스펙 205) 부착."""
     config: dict[str, Any] = {"configurable": {"thread_id": thread_id}}
-    # 관측(스펙 118) — Langfuse가 설정됐을 때만 콜백 부착(미설정=무동작). 핵심 채팅 경로 무영향.
+    # 관측(스펙 118→328) — OTEL이 설정됐을 때만 콜백 부착(미설정=무동작). 핵심 채팅 경로 무영향.
     # 비영속(스펙 235): 외부 관측 기록도 스킵(고트래픽·기록 무의미 계약 — 앱 DB 밖이라도 적재 안 함).
     if not ctx.get("ephemeral"):
         config = observability.with_trace(
@@ -461,7 +461,7 @@ def _turn_config(
             session_id=ctx["session_id"],
             user_id=user_id,
         )
-    # 실측 캡처(스펙 205) — 모델 호출 메시지·usage. Langfuse 콜백과 병행(둘 다 callbacks 리스트).
+    # 실측 캡처(스펙 205) — 모델 호출 메시지·usage. OTEL 콜백과 병행(둘 다 callbacks 리스트).
     config["callbacks"] = [*list(config.get("callbacks") or []), capture]
     return config
 

@@ -28,6 +28,7 @@ from . import (
     model_registry,
     net_guard,
     node_templates,
+    observability,
     providers,
     rag,
     served_mcp,
@@ -69,6 +70,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         for _mcp in served_mcp.SERVED_MCPS.values():
             await stack.enter_async_context(_mcp.session_manager.run())
         yield
+    observability.shutdown()  # OTEL 미전송 span flush(스펙 328) — 설정 없으면 무동작
     await checkpointer.close_checkpointer()
 
 
