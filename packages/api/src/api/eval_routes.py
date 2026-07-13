@@ -29,12 +29,10 @@ from .auth import current_principal  # noqa: F401
 from .background import spawn  # noqa: F401
 from .db import SessionLocal, get_session  # noqa: F401
 from .eval_authoring import (  # noqa: F401
-    _execute_generation,
     _execute_generation_append,
     _execute_harvest,
     _execute_suggestion,
     _unharvested_count,
-    generate_dataset,
     harvest_count,
     harvest_feedback,
     helper_status,
@@ -87,7 +85,6 @@ from .eval_schemas import (  # noqa: F401
     DatasetIn,
     DatasetOut,
     DatasetPageOut,
-    GenerateIn,
     HarvestCountOut,
     HarvestIn,
     HelperStatusOut,

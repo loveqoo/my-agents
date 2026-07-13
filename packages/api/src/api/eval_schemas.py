@@ -101,12 +101,6 @@ class RunDetailOut(RunOut):
     results: list[CaseResultOut] = []
 
 
-class GenerateIn(BaseModel):
-    collection_id: uuid.UUID
-    name: str = Field(min_length=1, max_length=120)
-    count: int = Field(default=10, ge=1, le=20)
-
-
 class SuggestIn(BaseModel):
     agent_id: uuid.UUID | None = None  # 스펙 195: rag 문제집은 불필요(고정 컬렉션 사용)
     count: int = Field(default=10, ge=1, le=10)

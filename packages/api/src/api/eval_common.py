@@ -25,15 +25,11 @@ router = APIRouter(prefix="/eval", tags=["eval"])
 
 
 def _is_generating(d: EvalDataset) -> bool:
-    """진행 중 판정(단일 출처) — 두 경로: 컬렉션 생성(142)="생성 중…"(접두), AI 출제(143/195)=
-    "… · AI 출제 중…"(접미). 둘 다 봐야 출제 시에도 Skeleton이 뜬다(스펙 195 후속 — 접두만 보던 버그)."""
+    """진행 중 판정(단일 출처) — 진행 마커 2종(전부 접미): AI 출제(143/195)="… · AI 출제 중…",
+    피드백 수확(209 P2)="… · 피드백 수확 중…". 컬렉션 통째 생성(142)의 "생성 중…" 접두 분기는
+    스펙 329에서 기능과 함께 제거."""
     desc = d.description or ""
-    # 진행 마커 3종: 컬렉션 생성(접두), AI 출제(접미), 피드백 수확(접미, 스펙 209 P2).
-    return (
-        desc.startswith("생성 중")
-        or desc.endswith("AI 출제 중…")
-        or desc.endswith("피드백 수확 중…")
-    )
+    return desc.endswith("AI 출제 중…") or desc.endswith("피드백 수확 중…")
 
 
 def _dataset_out(d: EvalDataset, case_count: int, user: User | str) -> DatasetOut:

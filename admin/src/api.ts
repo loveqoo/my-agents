@@ -952,8 +952,6 @@ export const getHarvestCount = (agentId: string) =>
   j<{ available: number; dataset_id: string | null }>(`/eval/harvest-count?agent_id=${encodeURIComponent(agentId)}`)
 export const harvestFeedback = (agentId: string) =>
   post('/eval/datasets/harvest', { agent_id: agentId }) as Promise<EvalDataset>
-export const generateEvalDataset = (body: { collection_id: string; name: string; count: number }) =>
-  post('/eval/generate-dataset', body) as Promise<EvalDataset>
 export const listEvalRunsByGroup = (groupId: string) =>
   j<EvalRunT[]>(`/eval/runs?group_id=${groupId}`)
 export const listEvalRuns = (datasetId?: string) =>

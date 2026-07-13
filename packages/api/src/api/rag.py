@@ -478,7 +478,6 @@ async def _do_reindex(
                     text=t,
                     meta=None,  # 재청킹은 문서형만 — 엔티티 meta 없음
                     embedding=v,
-                    token_count=len(t.split()),
                 )
             )
         doc.chunk_count = len(new_chunks)
@@ -857,7 +856,6 @@ async def _persist_chunks(
                 text=t,
                 meta=m,  # 엔티티 metadata(스펙 149) — 문서형은 None
                 embedding=v,
-                token_count=len(t.split()),
             )
         )
     doc.chunk_count = len(chunks)

@@ -293,12 +293,12 @@ async def _resolve_run_target(
     return agent, None, agent.name
 
 
-async def _assert_run_admission(
-    session: AsyncSession, ds: EvalDataset, dataset_id: uuid.UUID
-) -> int:
-    """실행 승인 게이트 3종(생성 중 409 · 빈 문제집 400 · 중복 실행 409) — 케이스 수 반환."""
-    if dataset_id in _active_jobs or (ds.description or "").startswith("생성 중"):
-        # 골든 생성/출제 진행 중 실행 금지(codex 142/143) — 락 우선, description은 재시작 잔류용 보조.
+async def _assert_run_admission(session: AsyncSession, dataset_id: uuid.UUID) -> int:
+    """실행 승인 게이트 3종(작업 진행 중 409 · 빈 문제집 400 · 중복 실행 409) — 케이스 수 반환."""
+    if dataset_id in _active_jobs:
+        # 출제/수확 진행 중 실행 금지(codex 142/143 계보) — 판정은 _active_jobs 락 단일 출처.
+        # "생성 중" description 접두 보조판정은 스펙 329에서 제거(합법 생산자 소멸 — 사용자가 설명에
+        # 그 문구를 넣기만 해도 실행이 409로 막히던 오탐 표면).
         raise HTTPException(
             status_code=409, detail="문제 생성이 진행 중입니다 — 완료 후 실행하세요"
         )
@@ -508,7 +508,7 @@ async def start_run(
         ds, user, not_found_detail="dataset not found"
     )  # 본인 문제집만 실행(비소유 404-fold)
     agent, rag_collection, target_name = await _resolve_run_target(session, ds, body, user)
-    n_cases = await _assert_run_admission(session, ds, dataset_id)
+    n_cases = await _assert_run_admission(session, dataset_id)
     models = await _validate_compare_models(session, ds, body)
 
     # 스펙 178 비용 가드(비특권 자율 실행) — 특권은 무제한. advisory 락+judge 포함 work(codex 반영).
@@ -601,18 +601,11 @@ async def get_run(
 
 
 async def sweep_zombie_datasets() -> int:
-    """startup 정리(codex 142) — 생성 백그라운드 태스크는 재시작을 못 넘기므로, 부팅 시점의
-    "생성 중…" description은 전부 죽은 생성이다. 정직 박제(영원한 '생성 중' 방지)."""
+    """startup 정리(codex 142 계보) — AI 출제(스펙 143) 배경 태스크는 재시작을 못 넘기므로, 부팅
+    시점의 "AI 출제 중…" 접미는 전부 죽은 출제다. 중단 박제(영원한 '출제 중' 방지). 컬렉션 통째
+    생성("생성 중…" 접두)의 스윕은 스펙 329에서 기능과 함께 제거(라이브 잔여 행 0 실측)."""
     async with SessionLocal() as s:
         rows = (
-            (await s.execute(select(EvalDataset).where(EvalDataset.description.like("생성 중%"))))
-            .scalars()
-            .all()
-        )
-        for dataset in rows:
-            dataset.description = "생성 중단(서버 재시작) — 삭제 후 다시 생성하세요"
-        # AI 출제(스펙 143)도 같은 create_task라 재시작에 죽는다 — 접미 상태를 중단 박제.
-        rows2 = (
             (
                 await s.execute(
                     select(EvalDataset).where(EvalDataset.description.like("%AI 출제 중…"))
@@ -621,13 +614,13 @@ async def sweep_zombie_datasets() -> int:
             .scalars()
             .all()
         )
-        for dataset in rows2:
+        for dataset in rows:
             dataset.description = (dataset.description or "").replace(
                 "AI 출제 중…", "AI 출제 중단(서버 재시작) — 다시 시도하세요"
             )
-        if rows or rows2:
+        if rows:
             await s.commit()
-        return len(rows) + len(rows2)
+        return len(rows)
 
 
 async def sweep_zombie_runs() -> int:

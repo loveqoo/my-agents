@@ -154,7 +154,6 @@ class Chunk(Base):
     # 검색 hit에 동반 반환되어 유사도 검색 결과로 원본 행을 특정할 수 있게 한다.
     meta: Mapped[dict | None] = mapped_column(JSONB, default=None)
     embedding: Mapped[list[float]] = mapped_column(Vector(RAG_EMBED_DIMS))
-    token_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     document: Mapped["Document"] = relationship(back_populates="chunks")

@@ -6,7 +6,9 @@
 > 규칙이 아니라 종이 한 장 — 새 작업 정해지면 여기서 옮기고, 끝나면 완료로 내린다.
 
 ## 후보
-- [ ] **죽은 영역 감사(324) 잔여 3건**(2026-07-13, 스펙 324 유력/관찰 — 사용자 판단 대기): ①`POST /eval/generate-dataset` 라우트+프론트 래퍼(호출 0 — "데이터셋 자동생성" 폐기? 미출시 보존?) ②`Chunk.token_count` 컬럼 DROP(읽기 0 — 마이그레이션 동반이라 헤더 그래프 검증 필요, 회고 177 패턴) ③`_harness088.tsx`+`_harness_088.html`(빌드 미연결 — 의도적 디버그 하네스면 보존). ~~재발 방지 스킬화~~ → ✅**스펙 325 완료**(2026-07-13): `.claude/skills/dead-area-audit/SKILL.md` — 축 A~F·4기 프롬프트·규율 5종.
+- ✅**죽은 영역 감사(324) 잔여 3건 = 스펙 329 완료**(2026-07-13, 회고 304 — 감사 축 완전 마감): 사용자 결정 전부 제거 — ①generate-dataset 기계 일습+마커 화석 3곳(_is_generating 접두·좀비 스윕 생성 블록·실행 409 보조판정) ②Chunk.token_count DROP(d5795d21f6a2) ③하네스 088 2종+소비자 shot-markdown-088. ~~재발 방지 스킬화~~ → ✅**스펙 325 완료**(2026-07-13): `.claude/skills/dead-area-audit/SKILL.md` — 축 A~F·4기 프롬프트·규율 5종. 스킬 개선 씨앗(329 발견): 문자열 계약(마커·문구·포맷) 소비자 grep을 축에 추가.
+- [ ] **init_db create_all 폴백의 조용한 마이그레이션 우회**(2026-07-13, 스펙 329 codex P1이 실증): alembic upgrade 실패 시 warning만 남기고 create_all+head 스탬프(db.py:98-128) → 기존 테이블엔 create_all 무동작이라 **스키마 드리프트가 버전 기록과 어긋난 채 침묵**(틀린 테이블명 DROP이 통과한 것처럼 보였음). 처방 후보: 폴백을 virgin DB(테이블 0)에 한정+기존 DB의 upgrade 실패는 fail-fast. **k8s P1 ②(마이그레이션 Job 분리)와 합류** — Job 분리 시 자연 해소되나 로컬 dev도 같은 함정.
+- [ ] **verify-eval-ux-193.mjs 드리프트**(2026-07-13, 스펙 329 중 stash 확증 — 기존): P1(컬렉션 칩)부터 4건 실패, UI 개편으로 셀렉터 노후 추정. 브라우저 verify 스크립트 전반 노후 점검은 "verify 스위트 격리"(321 대형)와 합류 후보.
 - [ ] **기존 게이트 드리프트 2건**(2026-07-13 스펙 324 검증 중 발굴, stash 재현으로 324와 무관 확증): ①`make suite` `pipeline-rag-and-tool` flaky 악화 — echo 도구 바인딩 정상(측정), qwen3.6이 "반드시 echo 호출" 프롬프트에도 호출을 자주 건너뜀(모델 행동; 노드 프롬프트 강화 or 단언 완화 검토) ②`make complexity` rag.py `reindex_collection` rank D(스펙 312 이후 — 분해 리팩터).
 - [ ] **노드형 확장 3부작**(사용자 제안 2026-07-13, 설계 3결정 합의: ①버전 핀 참조[발행 불변·수정=새 버전, 코드 노드만 동일 버전 덮어쓰기 허용] ②에이전트 호출=도구 방식 A·ID 기반 이름[사용자 제안 `agent:{agent_id}` — 단 provider 도구명에 `:` 불허가 흔해 `agent__{agent_id}` 제안 예정] ③재귀 가드 필수):
   - ✅**① 노드 라이브러리+버전 고정 참조 = 스펙 316 완료**(2026-07-13, 회고 291) — NodeTemplate(name,version)·ref 해석(해석→병합)·advisory lock TOCTOU 봉인·삭제 409·특권 변이 게이트·usedBy 가시성 필터·admin 뷰+폼 참조 픽커+오버라이드 베이스. codex P1 4 수정.

@@ -1,8 +1,9 @@
-"""문제 저작 라우트(스펙 291 분할) — 골든 생성(142) + AI 출제(143·195) + 피드백 수확(209 P2).
+"""문제 저작 라우트(스펙 291 분할) — AI 출제(143·195) + 피드백 수확(209 P2).
 
-세 경로 모두 배경 LLM 작업: 상태는 dataset.description에 박제(진행 마커 → 완료/실패 tail 치환),
+두 경로 모두 배경 LLM 작업: 상태는 dataset.description에 박제(진행 마커 → 완료/실패 tail 치환),
 락은 eval_guards._active_jobs(엔드포인트가 동기 획득, 배경 finally가 해제). description-tail
-로직이 세 경로에 복제 결합이라 한 모듈에 둔다(스펙 291 지도 G8).
+로직이 복제 결합이라 한 모듈에 둔다(스펙 291 지도 G8). 골든셋 통째 생성(142 generate-dataset)은
+스펙 329에서 제거 — UI 진입은 195에서 이미 소거, 'AI 출제' append가 역할 대체.
 """
 
 import uuid
@@ -20,17 +21,16 @@ from .eval_common import _dataset_or_404, _dataset_out, router
 from .eval_guards import _active_jobs, _helper_llm, _member_job_guard
 from .eval_schemas import (
     DatasetOut,
-    GenerateIn,
     HarvestCountOut,
     HarvestIn,
     HelperStatusOut,
     SuggestIn,
 )
 from .models import Agent, EvalCase, EvalDataset, MessageFeedback, Session, User
-from .ownership import assert_may_manage, is_privileged, may_use_agent, owner_of
+from .ownership import assert_may_manage, is_privileged, may_use_agent
 
 # ----------------------------- 배경 작업 공통 스캐폴딩 (스펙 301) -----------------------------
-# 4개 배경 작업(생성·출제·append·수확)이 반복하던 락 lifecycle·next-order·완료 마커·실패 스탬프를 정본화.
+# 배경 작업(출제·append·수확)이 반복하던 락 lifecycle·next-order·완료 마커·실패 스탬프를 정본화.
 # 사용자 노출 문자열(마커·tail·실패 메시지)은 codex 142/143/195 경화 계약이라 호출자가 완성해 넘긴다.
 
 
@@ -115,96 +115,6 @@ async def _execute_append_job(
                 dataset_id,
                 f"{prior_desc + ' · ' if prior_desc else ''}AI 출제 실패: {str(exc)[:150]}",
             )
-
-
-# ----------------------------- 골든셋 자동 생성 (스펙 142) -----------------------------
-
-
-async def _execute_generation(dataset_id: uuid.UUID, collection_id: uuid.UUID, count: int) -> None:
-    """백그라운드 골든 생성 — 완료/실패를 dataset.description에 박제(조용한 빈 문제집 금지).
-    케이스 기준은 자기일관 골든 3종: 출처 문서 회수 + 결과 존재 + 오류 없음."""
-    from .eval_golden import generate_golden_cases
-
-    # 락 add는 엔드포인트가 동기 획득(codex #1) — 여기선 _job_lock이 해제(discard)만 소유.
-    async with _job_lock(dataset_id):
-        try:
-            from .mem_config import _default_chat_model, llm_cfg_of, model_usable
-
-            async with SessionLocal() as s:
-                cm = await _default_chat_model(s)
-            if not model_usable(cm):
-                raise RuntimeError("기본 chat 모델 미설정 — 질문 생성 불가")
-            assert cm is not None  # model_usable 보장(TypeGuard는 negative 분기 narrow 안 함)
-            llm_cfg = llm_cfg_of(cm)
-            result = await generate_golden_cases(collection_id, count, llm_cfg)
-            async with SessionLocal() as s:
-                ds = await s.get(EvalDataset, dataset_id)
-                if ds is None:
-                    return
-                for i, c in enumerate(result["cases"]):
-                    s.add(
-                        EvalCase(
-                            dataset_id=dataset_id,
-                            name=f"골든 {i + 1} · {c['filename'][:60]}",
-                            input=c["question"],
-                            order_idx=i,
-                            asserts=[
-                                {"type": "rag_source_contains", "arg": c["filename"][:500]},
-                                {"type": "rag_hits_gte", "arg": "1"},
-                                {"type": "no_error"},
-                            ],
-                        )
-                    )
-                made = len(result["cases"])
-                if made == 0:
-                    # 조용한 빈 문제집 금지(codex 142) — 0건은 성공이 아니라 실패다.
-                    ds.description = (
-                        f"생성 실패: 케이스 0건 (요청 {count}, 건너뜀 {result['skipped']}) — "
-                        "컬렉션 문서가 너무 짧거나 생성 모델 응답이 형식을 벗어났습니다. 삭제 후 다시 시도하세요"
-                    )
-                else:
-                    ds.description = (
-                        f"자동 생성 {made}건 (요청 {count}"
-                        + (f", 건너뜀 {result['skipped']}" if result["skipped"] else "")
-                        + ") — 문제는 열어서 검토·수정하세요"
-                    )
-                await s.commit()
-        except Exception as exc:
-            await _stamp_failure(
-                dataset_id, f"생성 실패: {str(exc)[:200]} — 삭제 후 다시 시도하세요"
-            )
-
-
-@router.post("/generate-dataset", response_model=DatasetOut, status_code=202)
-async def generate_dataset(
-    body: GenerateIn,
-    session: AsyncSession = Depends(get_session),
-    user: User | str = Depends(current_principal),
-) -> DatasetOut:
-    """컬렉션에서 RAG 문제집 자동 생성(스펙 142) — 문제집 즉시 반환, 케이스는 백그라운드 생성
-    (완료/실패는 description으로 확인). 컬렉션 완전성은 검색 해석기로 사전 검증."""
-    from .rag import resolve_search_collection
-
-    await resolve_search_collection(session, body.collection_id)  # 404/400 사전 검증
-    # 스펙 178 비용 가드 — 비특권 유저의 배경 생성 flood 차단(codex #1). 특권 무제한.
-    if not is_privileged(user):
-        await _member_job_guard(session, user)  # 생성 전 기존 in-flight만 카운트
-    ds = EvalDataset(
-        name=body.name,
-        description="생성 중… (문제가 곧 채워집니다)",
-        kind="rag",
-        owner_id=owner_of(user),
-        collection_id=body.collection_id,
-    )  # 스펙 193: 생성 컬렉션을 문제집에 고정
-    session.add(ds)
-    try:
-        await session.commit()
-    except Exception as err:
-        await session.rollback()
-        raise HTTPException(status_code=409, detail="같은 이름의 문제집이 이미 있습니다") from err
-    _active_jobs.add(ds.id)  # 동기 등록 — create_task 전 창을 닫아 flood 카운트 누락 방지(codex #1)
-    spawn(_execute_generation(ds.id, body.collection_id, body.count))
-    return _dataset_out(ds, 0, user)
 
 
 # ----------------------------- AI 출제 (스펙 143 — 평가 도우미 1탄) -----------------------------

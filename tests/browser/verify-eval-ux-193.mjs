@@ -1,7 +1,8 @@
 /* 스펙 193 e2e — 평가 UX 개선 3파트.
    P1) RAG 문제집에 컬렉션 고정: 드로어에 "대상 컬렉션" 칩(재선택 Select 없음) → 버튼만으로 실행.
    P2) 성적 추이 배경 구분: 실행 후 성적 추이 박스가 옅은 배경(geekblue)으로 문제 카드와 구분.
-   P3) 생성 로딩: description "생성 중…" rag 문제집 → 목록 "문제 생성 중…" 배지 + 드로어 Skeleton.
+   P3) 생성 로딩: 진행 마커 문제집 → 목록 "문제 생성 중…" 배지 + 드로어 Skeleton. (마커는 스펙 329로
+       "AI 출제 중…" 접미만 유효 — 구 "생성 중…" 접두는 기능과 함께 제거됨.)
 
    실행: PLAYWRIGHT_DIR=<dir> node tests/browser/verify-eval-ux-193.mjs */
 const pwDir = process.env.PLAYWRIGHT_DIR
@@ -102,7 +103,7 @@ try {
 
   // ── P3: generating 문제집(마지막에 생성 — 폴링이 P1/P2 방해 안 하게) → 배지 + Skeleton ──
   await closeDrawer()
-  dsG = await (await api('/eval/datasets', { method: 'POST', body: JSON.stringify({ name: `ev193-gen-${S}`, kind: 'rag', description: '생성 중… (문제가 곧 채워집니다)', collection_id: col?.id }) })).json()
+  dsG = await (await api('/eval/datasets', { method: 'POST', body: JSON.stringify({ name: `ev193-gen-${S}`, kind: 'rag', description: 'AI 출제 중…', collection_id: col?.id }) })).json()
   ok(dsG?.generating === true, `P3준비 generating=true (got ${dsG?.generating})`)
   await page.reload({ waitUntil: 'networkidle' })
   await page.getByText('평가', { exact: true }).first().click()
