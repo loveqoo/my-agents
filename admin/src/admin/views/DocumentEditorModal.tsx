@@ -20,11 +20,13 @@ export function DocumentEditorModal({
   doc,
   onClose,
   onSaved,
+  entity = false,
 }: {
   collectionId: string
   doc: RagDocument | null // null = 닫힘
   onClose: () => void
   onSaved: () => void // 저장 성공 후(목록·컬렉션 카운트 재조회)
+  entity?: boolean // 엔티티 컬렉션(스펙 332) — JSONL 행 단위 힌트·json 하이라이트
 }) {
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -59,10 +61,12 @@ export function DocumentEditorModal({
   }, [collectionId, doc])
 
   // 확장자 → 문법 하이라이트(lazy load). 미지 확장자는 하이라이트 없이 평문 편집.
+  // .jsonl은 language-data에 없어 json으로 수동 매핑(스펙 332 — 엔티티 원본).
   useEffect(() => {
     setLangExt(null)
     if (!doc) return
-    const desc = LanguageDescription.matchFilename(languages, doc.filename)
+    const name = /\.jsonl$/i.test(doc.filename) ? 'rows.json' : doc.filename
+    const desc = LanguageDescription.matchFilename(languages, name)
     if (!desc) return
     let alive = true
     void desc.load().then((l) => {
@@ -117,7 +121,9 @@ export function DocumentEditorModal({
       destroyOnHidden
       footer={[
         <span key="hint" style={{ float: 'left', fontSize: 12, color: 'var(--color-text-tertiary)', lineHeight: '32px' }}>
-          저장하면 이 문서가 다시 청킹되고, 내용이 바뀐 부분만 다시 임베딩됩니다.
+          {entity
+            ? '한 줄 = 한 엔티티(JSONL). 저장하면 바뀐 행만 다시 임베딩됩니다 — 원본은 파이프라인 재업로드가 덮을 수 있어 임시 교정 용도입니다.'
+            : '저장하면 이 문서가 다시 청킹되고, 내용이 바뀐 부분만 다시 임베딩됩니다.'}
         </span>,
         <Button key="cancel" onClick={requestClose} disabled={saving}>
           취소

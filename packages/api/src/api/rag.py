@@ -780,10 +780,13 @@ async def list_documents(
 
 
 def _doc_editable(c: Collection, doc: Document, has_blob: bool) -> tuple[bool, str | None]:
-    """편집 가능 판정(단일 출처, 스펙 331) → (editable, 불가 사유). 목록·조회·수정 세 입구가 공유."""
-    if c.kind != "document":
-        return False, "엔티티 컬렉션은 편집 대상이 아닙니다(원본이 SQL 추출물)."
-    if rag_ingest.is_pdf(doc.filename, doc.content_type):
+    """편집 가능 판정(단일 출처, 스펙 331) → (editable, 불가 사유). 목록·조회·수정 세 입구가 공유.
+    엔티티도 편집 가능(스펙 332 — JSONL 행 단위, 저장 시 행 계약+entity_schema 검증 fail-closed)."""
+    if c.kind not in ("document", "entity"):
+        # kind 화이트리스트(codex 332 P3) — DB 컬럼은 String(20)이라 미지/레거시 값이 문서형 청킹
+        # 경로로 흘러들지 않게 fail-closed.
+        return False, f"알 수 없는 컬렉션 종류({c.kind}) — 편집할 수 없습니다."
+    if c.kind == "document" and rag_ingest.is_pdf(doc.filename, doc.content_type):
         return (
             False,
             "PDF는 편집할 수 없습니다 — 수정본을 재업로드하세요(추출 평문 편집은 원본과 어긋남).",
@@ -1082,7 +1085,15 @@ async def update_document_content(
     limit_mb = MAX_UPLOAD_BYTES // (1024 * 1024)
     if len(data) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail=f"본문이 너무 큽니다(최대 {limit_mb}MB).")
-    new_chunks = rag_ingest.chunk_text(body.text, col.chunk_size, col.chunk_overlap)
+    # 재청킹 — 엔티티(스펙 332)는 JSONL 행 파싱(1행=1청크+meta, 스키마 검증 fail-closed·위반 행
+    # 번호 400 = 업로드 입구와 동일 계약), 문서형은 글자 분할. 이후 부분 재임베딩은 공통.
+    entity_rows = _parse_entity_rows(col, data)
+    if entity_rows is not None:
+        new_chunks = [t for t, _m in entity_rows]
+        new_metas: list[dict | None] = [m for _t, m in entity_rows]
+    else:
+        new_chunks = rag_ingest.chunk_text(body.text, col.chunk_size, col.chunk_overlap)
+        new_metas = [None] * len(new_chunks)
     if not new_chunks:
         raise HTTPException(status_code=400, detail="청크가 생성되지 않았습니다(빈 문서).")
 
@@ -1128,14 +1139,16 @@ async def update_document_content(
         .where(Collection.id == cid)
         .values(chunk_count=func.greatest(Collection.chunk_count - deleted + len(new_chunks), 0))
     )
-    for i, t in enumerate(new_chunks):
+    for i, (t, m) in enumerate(zip(new_chunks, new_metas, strict=True)):
         session.add(
             Chunk(
                 document_id=doc.id,
                 collection_id=cid,
                 ordinal=i,
                 text=t,
-                meta=None,  # 편집은 문서형만 — 엔티티 meta 없음
+                # 엔티티=행 metadata(스펙 332 — 텍스트 동일·meta만 변경이어도 여기서 갱신됨,
+                # 벡터는 재사용). 문서형은 None.
+                meta=m,
                 embedding=old_map[t],
             )
         )

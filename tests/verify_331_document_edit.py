@@ -209,7 +209,8 @@ async def main():
             RAG.update_document_content(cid, pdf_doc.id, DocumentEditIn(text="x"), s, sup), 400, "G2b PDF PUT → 400"
         )
 
-        # ── G3 엔티티 컬렉션 → 400 ──
+        # ── G3 엔티티 컬렉션 + 비JSONL 본문 → 400 (스펙 332로 엔티티 편집이 열려, 이제 이 400은
+        # "엔티티 제외"가 아니라 행 파싱 fail-closed에서 나온다 — 계약은 verify_332가 상세 단언) ──
         ecol = Collection(
             name=f"{tag}-ent", kind="entity", embedding_model_id=emb.id, dims=RAG_EMBED_DIMS,
             status="empty", owner_id=str(sup.id),

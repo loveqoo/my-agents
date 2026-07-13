@@ -16,6 +16,11 @@ class IngestError(Exception):
     """인제스트 실패 — 메시지를 Document.error에 보존(no silent death)."""
 
 
+def _reject_nonstandard_const(name: str) -> None:
+    """json.loads parse_constant 훅 — NaN/Infinity/-Infinity 거부(표준 JSON 아님·JSONB 저장 불가)."""
+    raise ValueError(f"비표준 JSON 상수({name})는 허용되지 않습니다")
+
+
 def is_pdf(filename: str, content_type: str | None) -> bool:
     """PDF 판별(단일 출처) — 추출(extract_text)과 편집 가능 판정(스펙 331)이 같은 기준을 공유해야
     'PDF인데 편집 허용' 같은 드리프트가 없다."""
@@ -104,7 +109,9 @@ def parse_entity_lines(raw: bytes, schema: dict | None = None) -> list[tuple[str
         if len(rows) >= ENTITY_MAX_ROWS:
             raise EntityParseError(f"행이 {ENTITY_MAX_ROWS}개를 넘습니다 — 파일을 나눠 올려주세요.")
         try:
-            obj = _json.loads(line)
+            # parse_constant — NaN/Infinity는 표준 JSON이 아니고 JSONB insert에서 500으로 터진다
+            # (codex 332 P2, 업로드·편집 두 입구 공통 봉인). ValueError는 아래서 행 번호로 감싸진다.
+            obj = _json.loads(line, parse_constant=_reject_nonstandard_const)
         except ValueError as exc:
             raise EntityParseError(f"{lineno}번째 줄: JSON 파싱 실패 — {exc}") from exc
         if not isinstance(obj, dict):

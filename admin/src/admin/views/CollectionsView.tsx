@@ -649,12 +649,14 @@ function DocsDrawer({
       align: 'right',
       render: (d) => (
         <span style={{ display: 'inline-flex', gap: 4 }}>
-          {/* 문서 편집(스펙 331) — 소유자만·문서형만. PDF/원본 미보존은 비활성+사유 툴팁. */}
-          {collection?.can_manage !== false && !isEntity && (
+          {/* 문서 편집(스펙 331, 엔티티는 332) — 소유자만. PDF/원본 미보존은 비활성+사유 툴팁. */}
+          {collection?.can_manage !== false && (
             <Tooltip
               title={
                 d.editable
-                  ? '내용을 편집하면 바뀐 부분만 다시 임베딩됩니다'
+                  ? isEntity
+                    ? '행(JSONL)을 편집하면 바뀐 행만 다시 임베딩됩니다'
+                    : '내용을 편집하면 바뀐 부분만 다시 임베딩됩니다'
                   : 'PDF·원본 미보존 문서는 편집할 수 없습니다 — 재업로드로 교체하세요'
               }
             >
@@ -727,9 +729,10 @@ function DocsDrawer({
             errorTitle="문서를 불러오지 못했습니다"
           />
 
-          {/* 문서 편집 에디터(스펙 331) — 저장 시 그 문서만 재청킹·변경 청크만 재임베딩. */}
+          {/* 문서 편집 에디터(스펙 331, 엔티티 332) — 저장 시 그 문서만 재청킹·변경 청크만 재임베딩. */}
           <DocumentEditorModal
             collectionId={collection.id}
+            entity={isEntity}
             doc={editingDoc}
             onClose={() => setEditingDoc(null)}
             onSaved={() => {
