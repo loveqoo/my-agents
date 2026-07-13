@@ -53,6 +53,15 @@
 ### 깨끗함 확인
 시드 카탈로그 전 항목 소비 추적 OK · config JSONB 키 전수 읽힘(write-only 0) · Cedar/그래프빌더 잔재 0 · FK 무결성 0 · agent_versions 고아 0.
 
+### 기각한 가설 (오탐 방지 — 다음 감사가 같은 길 안 가게)
+- `GET /_remote/sdk/.well-known/agent-card.json` 죽은 라우트? → **기각**: 리터럴 grep 0이지만 fetch_card가 well-known을 자동 부착해 실호출(정적 호출자 0 ≠ 죽음의 대표 사례).
+- `CompiledStateGraph` 미사용 import(vulture 90%)? → **기각**: 따옴표 forward-ref 반환타입에서 사용(vulture가 문자열 타입주석 못 봄).
+- AgentConfig 18필드 중 write-only? → **기각**: 전부 라운드트립 읽기 실재.
+- `ToolApprovalOverride`·`AgentCard` unused export(knip)? → **기각**: 같은 파일 내부 사용 — 죽은 코드가 아니라 과노출.
+- `mockData.ts` = mock 잔재? → **기각**: 이름과 달리 가짜 레코드 0, 순수 타입+상수 모듈(실서버 모드도 소비).
+- seed의 `manifest`/`deploy` 키 드롭? → **기각**: AgentConfig가 아니라 A2A 카드 확장(connect 분류가 읽음).
+- calc-tools·web-fetch 시드 MCP가 에이전트 미참조라 죽음? → **기각**: admin에서 배선 가능한 능력(플랫폼 목적상 정상 대기).
+
 ### 감사 중 발견한 기존 이슈(324 밖, 백로그행)
 - `make suite` `pipeline-rag-and-tool` flaky 악화 — echo 도구 바인딩은 정상(측정), qwen3.6이 도구 호출을 자주 건너뜀(모델 행동, 코드 회귀 아님 — stash 재현으로 확증).
 - `make complexity` rag.py `reindex_collection` rank D(스펙 312 이후 드리프트).
