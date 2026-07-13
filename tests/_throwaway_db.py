@@ -47,7 +47,7 @@ async def _create(url: str, tmp: str) -> None:
         await conn.execute(f'CREATE DATABASE "{tmp}" TEMPLATE template0')
     finally:
         await conn.close()
-    # pgvector 확장은 스키마 생성 전 1회(마이그레이션/ create_all이 vector 컬럼을 만든다).
+    # pgvector 확장을 선설치(빠른 격리 부팅용 — 마이그레이션 b2c3d4e5f6a7도 자체 보장, 스펙 330 F4가 실증).
     conn = await asyncpg.connect(_pg_dsn(url, tmp))
     try:
         await conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
@@ -69,7 +69,7 @@ async def _drop(url: str, tmp: str) -> None:
         await conn.close()
 
 
-# 자식 부트스트랩 — 임시 DB에 실제 스키마(alembic head, 실패 시 create_all) + 첫 설치 시드를 심는다.
+# 자식 부트스트랩 — 임시 DB에 실제 스키마(alembic head 단일 — 실패는 fail-fast, 스펙 330) + 첫 설치 시드를 심는다.
 _BOOTSTRAP = (
     "import asyncio,sys;"
     "sys.path.insert(0, 'packages/api/src');"

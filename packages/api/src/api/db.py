@@ -12,8 +12,6 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from .models import Base
-
 logger = logging.getLogger(__name__)
 
 
@@ -57,9 +55,8 @@ def _mask_dsn(dsn: str) -> str:
 async def _preflight() -> None:
     """DB 연결 프리플라이트 — 도달 불가면 명확한 조치 메시지로 RuntimeError.
 
-    이걸 init_db 맨 앞에 두면 (1) 운영자가 raw asyncpg 트레이스 대신 조치를 보고,
-    (2) create_all 폴백의 `engine.begin()`이 *또* 연결예외로 이중 throw하던 문제가
-    구조적으로 사라진다(여기까지 왔으면 DB는 도달 가능).
+    init_db 맨 앞에 둬 운영자가 raw asyncpg 트레이스 대신 조치를 보게 하고, "연결 실패"와
+    "마이그레이션 실패"(스펙 330 fail-fast)를 다른 메시지로 구분한다(여기 통과 = DB 도달 가능).
     """
     try:
         async with engine.connect() as conn:
@@ -92,42 +89,32 @@ def _alembic_config() -> Config:
 
 
 async def init_db() -> None:
-    """시작 시 DB 프리플라이트 → alembic upgrade head (실패 시 create_all 폴백) + 비어있으면 시드."""
-    await _preflight()  # DB 도달성 먼저 — 실패 시 명확 종료(폴백 이중 throw 제거)
+    """시작 시 DB 프리플라이트 → alembic upgrade head(**fail-fast, 스펙 330**) + 비어있으면 시드.
+
+    구 create_all 폴백은 제거됐다 — alembic 실패를 warning+대체 스키마+head 스탬프로 조용히
+    우회해, 고장난 마이그레이션이 성공처럼 보이고 스키마 드리프트가 버전 기록과 어긋난 채
+    침묵했다(스펙 329 codex P1 실증). alembic이 스키마의 단일 진실이다: virgin DB도 전 체인으로
+    빌드되고(pgvector 확장은 b2c3d4e5f6a7가 보장), 실패는 가리지 않고 부팅을 중단한다."""
+    await _preflight()  # DB 도달성 먼저 — 실패 시 명확 종료
     try:
         await asyncio.to_thread(command.upgrade, _alembic_config(), "head")
-    except Exception:
-        logger.warning("alembic upgrade head 실패 — create_all로 폴백합니다.", exc_info=True)
-        try:
-            async with engine.begin() as conn:
-                # 폴백도 pgvector 확장을 보장한다(마이그레이션 b2c3d4e5f6a7와 패리티). 없으면 바로 뒤
-                # create_all이 rag_chunks의 Vector 컬럼을 만들다 실패한다. 확장은 이 플랫폼의 *하드
-                # 요구*다(코어 모델이 Vector 컬럼을 선언, docker가 pgvector 이미지를 번들). 그래서
-                # "RAG만 비활성, 나머지 동작"으로 **부분 부팅하지 않는다** — create_all은 all-or-nothing
-                # 인데다(적대리뷰 058 P1), Vector 테이블만 빼고 만들면 head 스탬프와 엮여 "나중에
-                # pgvector를 고쳐도 rag_chunks가 영영 안 생기는" 더 큰 함정이 된다. 만들 수 없으면
-                # 가리지 말고 또렷한 조치 메시지로 fail-closed 한다.
-                # (이미 설치된 pgvector면 IF NOT EXISTS가 비-수퍼유저에서도 no-op이라 관리형 PG도 통과.)
-                await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-                await conn.run_sync(Base.metadata.create_all)
-        except Exception as e:
-            logger.error(
-                "create_all 폴백 실패 — 스키마를 만들 수 없습니다.\n"
-                "  · 대개 pgvector 확장 부재/권한 문제입니다(코어 모델이 Vector 컬럼을 씁니다).\n"
-                "  · `docker compose up -d postgres`(pgvector 번들 이미지)를 쓰거나,\n"
-                "    수퍼유저로 `CREATE EXTENSION vector`를 1회 실행 후 재기동하세요.",
-                exc_info=True,
-            )
-            raise RuntimeError(
-                "스키마 생성 실패 — pgvector 확장이 필요합니다(번들 postgres 이미지 사용 또는 "
-                "수퍼유저로 CREATE EXTENSION vector 후 재기동)."
-            ) from e
-        # create_all로 만든 스키마는 현재 모델(=head)과 동일하므로 head로 스탬프해
-        # alembic_version을 남긴다 → 이후 마이그레이션이 우회되지 않게.
-        try:
-            await asyncio.to_thread(command.stamp, _alembic_config(), "head")
-        except Exception:
-            logger.warning("alembic stamp head 실패", exc_info=True)
+    except Exception as e:
+        logger.error(
+            "alembic upgrade head 실패 — 부팅을 중단합니다(스펙 330: 폴백 없음).\n"
+            "  흔한 원인:\n"
+            "  · 새 마이그레이션 파일 결함(최근 리비전을 검토하세요)\n"
+            "  · DB의 alembic_version이 이 코드가 모르는 리비전(구 코드로 신 DB 부팅 — 코드를\n"
+            "    최신으로 올리거나 DATABASE_URL이 맞는 DB인지 확인)\n"
+            "  · pgvector 확장 생성 권한 부재(관리형 PG·비수퍼유저 — 번들 postgres 이미지를 쓰거나\n"
+            "    수퍼유저로 `CREATE EXTENSION vector` 1회 실행 후 재기동)\n"
+            "  · 스키마 수동 변경 드리프트(마이그레이션이 기대하는 상태와 불일치)\n"
+            "  진단: packages/api에서 `uv run alembic current` / `uv run alembic history | head`",
+            exc_info=True,
+        )
+        raise RuntimeError(
+            "DB 마이그레이션 실패 — 스키마를 조용히 대체하지 않습니다(스펙 330). "
+            "로그의 원인·진단 안내를 확인 후 재기동하세요."
+        ) from e
 
     from .seed import seed_if_empty
 

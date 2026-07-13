@@ -79,7 +79,7 @@ class Collection(Base):
     name: Mapped[str] = mapped_column(String(200), unique=True)  # 식별 이름(규칙, 스펙 148)
     # 종류 축(스펙 149): document=파일 파싱·청킹 | entity=JSONL 행 단위(1행=1청크, meta 동반).
     # 생성 후 불변(저장 형태가 다름 — 임베딩 모델과 동급). server_default=마이그레이션과 정합
-    # (create_all 폴백 DB와 alembic DB의 스키마 diff 방지, codex 149 Low).
+    # (metadata와 alembic의 스키마 diff 방지 — autogenerate 기준, codex 149 Low).
     kind: Mapped[str] = mapped_column(String(20), default="document", server_default="document")
     # 엔티티 행 검증용 JSON Schema(선택, 스펙 149) — 등록 시 업로드 행 전수 검증(내용물 드리프트 차단).
     entity_schema: Mapped[dict | None] = mapped_column(JSONB, default=None)
@@ -240,7 +240,7 @@ class ModelConfig(Base):
     kind: Mapped[str] = mapped_column(String(20), default="chat")  # chat | embedding
     is_default: Mapped[bool] = mapped_column(Boolean, default=False)
     # kind당 기본 1개 DB 불변식(스펙 150 — 동시 지정 레이스 봉인). alembic(a1b2c3d4e5f7)과 정합 —
-    # create_all 폴백 DB에도 같은 인덱스가 생기게 메타데이터에 선언.
+    # metadata에도 같은 인덱스를 선언해 autogenerate diff 0 유지.
     __table_args__ = (
         Index(
             "uq_models_default_per_kind", "kind", unique=True, postgresql_where=text("is_default")

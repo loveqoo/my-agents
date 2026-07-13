@@ -6,7 +6,8 @@ DB·MLX 서버 없이 동작하도록: G1은 engine을 가짜로 바꿔 연결�
 
 검증:
   G1. _mask_dsn 비밀번호 마스킹; _preflight 연결예외→명확 RuntimeError(메시지에 마스킹DSN·docker 힌트);
-      init_db 소스가 프리플라이트 먼저 + 폴백에 CREATE EXTENSION vector 발행.
+      init_db 소스가 프리플라이트 먼저 + 마이그레이션 실패=fail-fast(스펙 330 — create_all 폴백
+      제거, 조용한 스키마 대체·head 스탬프 없음; 행동 계약은 verify_330이 실 DB로 단언).
   G2. bootstrap_admin 입력검증(잘못된 이메일·짧은 비번→거부, DB 미접촉); escalation 가드 소스 단언
       (기존 super→0 무동작, 기존 일반→3 승격거부, 신규만 생성); seed_admin 강화경고 소스 단언(유저0만).
   G4. _model_error_hint: 연결예외+model_cfg→'Mock LLM' 힌트(base_url 포함); 비연결오류→None;
@@ -70,24 +71,18 @@ async def main() -> None:
     finally:
         db.engine = saved_engine
 
-    # ── G1. init_db 소스 — 프리플라이트 먼저 + 폴백 확장 패리티 ─────────────────
+    # ── G1. init_db 소스 — 프리플라이트 먼저 + fail-fast(스펙 330: 폴백 없음) ────
     src = inspect.getsource(db.init_db)
     check("await _preflight()" in src, "G1 init_db가 _preflight를 호출")
     pf = src.index("_preflight()")
-    begin = src.index("engine.begin()")
-    check(pf < begin, "G1 프리플라이트가 폴백(engine.begin) *앞*에 위치(이중 throw 제거)")
-    check("CREATE EXTENSION IF NOT EXISTS vector" in src,
-          "G1 폴백이 CREATE EXTENSION vector 발행(마이그레이션과 패리티)")
-    ext = src.index("CREATE EXTENSION IF NOT EXISTS vector")
-    # 주: "create_all"은 주석에도 등장하므로 실제 *호출*(Base.metadata.create_all)로 매칭.
-    create_all = src.index("Base.metadata.create_all")
-    check(ext < create_all, "G1 확장 생성이 create_all *앞*(Vector 컬럼 생성 전 확장 보장)")
-    # 적대리뷰 058 P1: create_all은 all-or-nothing이라 "RAG만 비활성"이 불가 → pgvector 부재 시
-    # 부분 부팅으로 가리지 않고 fail-closed. 폴백 실패는 명확한 RuntimeError로 부팅 중단.
-    check("pgvector 확장이 필요합니다" in src,
-          "G1 폴백 실패 → pgvector 필수 명시한 RuntimeError(fail-closed, 부분 부팅 안 함)")
-    check("부분 부팅하지 않는다" in src or "all-or-nothing" in src,
-          "G1 부분 부팅 함정 회피 의도가 코드에 문서화됨")
+    upgrade_at = src.index("command.upgrade")
+    check(pf < upgrade_at, "G1 프리플라이트가 upgrade *앞*(연결 실패와 마이그레이션 실패 구분)")
+    # 스펙 330: 폴백(대체 스키마 생성+head 스탬프)이 소스에서 소멸 — 실패는 조용히 가리지 않는다.
+    check("Base.metadata.create_all" not in src and "command.stamp" not in src,
+          "G1 create_all/stamp 폴백 부재(스펙 330 — 조용한 우회 소멸)")
+    check("raise RuntimeError" in src and "마이그레이션 실패" in src,
+          "G1 upgrade 실패 → 명확한 RuntimeError로 부팅 중단(fail-fast)")
+    check("alembic current" in src, "G1 실패 메시지에 진단 명령 안내")
 
     # ── G2. bootstrap_admin 입력검증(DB 미접촉) ────────────────────────────────
     rc = await ba.bootstrap_admin("not-an-email", "longenoughpw")

@@ -49,9 +49,11 @@ uv sync                 # 의존성 설치
 uv run api              # = uvicorn (api.main:app), 기본 127.0.0.1:8000
 ```
 
-기동 시 `init_db`가 (1) DB 연결 **프리플라이트** → (2) `alembic upgrade head`(실패 시 `create_all`
-폴백) → (3) 비어 있으면 시드를 자동 수행한다. DB가 안 떠 있으면 raw 트레이스 대신 **명확한 조치
-메시지**(어떤 `DATABASE_URL`인지 + `docker compose up -d postgres` 안내)로 부팅을 중단한다.
+기동 시 `init_db`가 (1) DB 연결 **프리플라이트** → (2) `alembic upgrade head` → (3) 비어 있으면
+시드를 자동 수행한다. 마이그레이션이 실패하면 **조용히 대체하지 않고**(스펙 330 — 구 `create_all`
+폴백 제거) 원인 후보·진단 명령을 담은 메시지로 부팅을 중단한다. DB가 안 떠 있으면 raw 트레이스
+대신 **명확한 조치 메시지**(어떤 `DATABASE_URL`인지 + `docker compose up -d postgres` 안내)로
+부팅을 중단한다.
 
 > 외부(Tailscale 등) 노출은 `API_HOST=<tailnet IP>`로만 켠다. 기본은 loopback이라 외부 비노출.
 
@@ -92,9 +94,9 @@ canned). 별도 env 설정이 필요 없고, 시드에 Mock Provider/모델(`moc
 
 | 상황 | 동작 |
 |---|---|
-| **갓 클론 (기본 경로)** | `mock-llm`(채팅)·`mock-embed`(임베딩)이 기본 시드 → **외부 모델 없이 채팅·RAG가 즉시 동작**(스펙 059). 정상 `alembic upgrade head` 경로·`create_all` 폴백 경로 모두 같은 Mock 기본으로 수렴 |
+| **갓 클론 (기본 경로)** | `mock-llm`(채팅)·`mock-embed`(임베딩)이 기본 시드 → **외부 모델 없이 채팅·RAG가 즉시 동작**(스펙 059). 스키마는 `alembic upgrade head` 단일 경로가 빌드(스펙 330) |
 | DB 미기동/연결 불가 | 프리플라이트가 명확한 조치 메시지로 부팅 중단 (`docker compose up -d postgres`) |
-| 테이블 없음 | `alembic upgrade head` 자동, 실패 시 `create_all`(+pgvector 확장) 폴백 |
+| 테이블 없음 | `alembic upgrade head`가 전 체인 자동 빌드(pgvector 확장 포함). 실패 시 폴백 없이 조치 메시지로 부팅 중단(스펙 330) |
 | pgvector 확장 부재 + 설치 권한 없음 | 명확한 메시지로 부팅 중단(pgvector 번들 이미지 사용 또는 수퍼유저로 `CREATE EXTENSION vector`) |
 | 빈 DB | `seed_if_empty`가 Provider(Mock LLM)/모델/에이전트 등 카탈로그 자동 시드 |
 | 유저 0 + ADMIN env 누락 | 부팅 시 복구 안내 경고 → `python -m api.bootstrap_admin`로 생성 |

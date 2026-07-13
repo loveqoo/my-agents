@@ -2,7 +2,7 @@
 
 라이브 `agents` DB는 건드리지 않는다. 호출자가 DATABASE_URL을 **일회용 DB**로 지정해 실행하고
 끝나면 그 DB를 drop한다(드라이버 스크립트가 생성/삭제 담당). 이 스크립트는:
-  1) init_db()로 실제 스키마 구축(alembic upgrade head, 실패 시 create_all+vector 확장)
+  1) init_db()로 실제 스키마 구축(alembic upgrade head — 실패는 fail-fast, 스펙 330)
   2) seed_if_empty()로 첫 설치 데이터 적재
   3) 심긴 행을 카운트해 트림 후 정예(페르소나2·컬렉션3·세션0·에이전트5·승인0)와 대조
 
@@ -39,7 +39,7 @@ def check(cond: bool, msg: str) -> None:
 
 
 async def main() -> None:
-    await init_db()  # 실제 스키마 경로(alembic head / create_all 폴백)
+    await init_db()  # 실제 스키마 경로(alembic head 단일 — 스펙 330)
     async with SessionLocal() as s:
         await seed_if_empty(s)
     async with SessionLocal() as s:

@@ -245,9 +245,10 @@ async def _seed_mock_provider_models(session: AsyncSession) -> None:
     외부 의존 0으로 첫 채팅/RAG가 바로 동작한다. 실 모델(MLX·OpenAI 호환 등)은 env가 아니라
     admin Provider UI에서 추가하고 기본 전환한다(Provider는 1급 엔티티 — 스펙 035). base_url은
     **이 API 자신의** OpenAI 호환 mock 엔드포인트(self-call) — API를 다른 호스트/포트로 옮기면
-    MOCK_LLM_BASE_URL로 자기주소를 맞춘다. (이 경로는 create_all 폴백에서만 도달 — 정상 alembic
-    경로는 f4a5+a1b2c3가 provider를 먼저 만들어 _empty가 False라 스킵되고, 그 경로의 기본값은
-    마이그레이션이 세운다. 스펙 059.)
+    MOCK_LLM_BASE_URL로 자기주소를 맞춘다. (정상 alembic 부팅은 f4a5+a1b2c3가 provider를 먼저
+    만들어 _empty가 False라 이 블록을 스킵하고, 기본값은 마이그레이션이 세운다 — 스펙 059. 남은
+    도달 경로는 "providers가 전부 비워진 DB의 재부팅 자가복구"뿐 — 구 도달 경로였던 create_all
+    폴백은 스펙 330에서 제거.)
     """
     mock_base = os.environ.get("MOCK_LLM_BASE_URL", "http://127.0.0.1:8000/_remote/v1")
     mock_provider = Provider(
