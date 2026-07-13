@@ -89,6 +89,30 @@ function MemoryRow({ m }: { m: Memory }) {
   )
 }
 
+/* 도구 실행 실패 사유(스펙 320) — error가 문자열일 때만 렌더(구 boolean True 폴백·성공은 아무것도 안 냄).
+   직접 도구·브로커 위임 두 표면이 같은 컴포넌트로 사유를 표시(형제 표면 정합). 백엔드가 마스킹+캡한 값. */
+function ErrorReason({ error }: { error?: boolean | string }) {
+  if (typeof error !== 'string' || !error) return null
+  return (
+    <div
+      style={{
+        fontSize: 12,
+        color: 'var(--color-error)',
+        background: 'var(--color-error-bg)',
+        border: '1px solid var(--color-error-border)',
+        borderRadius: 6,
+        padding: '6px 8px',
+        marginTop: 6,
+        overflowWrap: 'anywhere',
+        whiteSpace: 'pre-wrap',
+      }}
+    >
+      <span style={{ fontWeight: 600 }}>실패 사유: </span>
+      {error}
+    </div>
+  )
+}
+
 function McpCall({ c }: { c: McpCallT }) {
   return (
     <div style={{ border: '1px solid var(--color-border-secondary)', borderRadius: 8, padding: 12, marginTop: 10 }}>
@@ -116,6 +140,7 @@ function McpCall({ c }: { c: McpCallT }) {
       <pre style={{ ...codeBox, marginBottom: 8 }}>{JSON.stringify(c.args)}</pre>
       <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginBottom: 3 }}>result</div>
       <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', overflowWrap: 'anywhere' }}>{c.result}</div>
+      <ErrorReason error={c.error} />
     </div>
   )
 }
@@ -238,6 +263,7 @@ function RagCall({ c }: { c: McpCallT }) {
         // 옛 trace(hitsDetail 없음) 하위호환 — 기존 텍스트 폴백.
         <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', overflowWrap: 'anywhere' }}>{c.result}</div>
       )}
+      <ErrorReason error={c.error} />
     </div>
   )
 }
@@ -291,6 +317,7 @@ function BrokerRagCard({ b }: { b: BrokerCall }) {
         {!b.hits && !b.error ? <Tag color="default">0건</Tag> : null}
         <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>{b.ms}ms</span>
       </div>
+      <ErrorReason error={b.error} />
       {b.query ? (
         <div style={{ marginTop: 4 }}>
           <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>검색어: </span>
@@ -390,6 +417,7 @@ function nodeEventContent(
                 {typeof b.hits === 'number' ? <span>{b.hits}건</span> : null}
                 <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>{b.ms}ms</span>
               </div>
+              <ErrorReason error={b.error} />
               {b.subTraceNodes?.length ? (
                 // 하위 실행 흐름(스펙 256, 사용자 결정 — 트레이싱 관점): 위임받은 에이전트가 안에서
                 // 무엇을 했나(rag:X·mcp:s/t·memory:used …). 비영속이지만 관측은 온전.

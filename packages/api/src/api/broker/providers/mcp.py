@@ -220,10 +220,16 @@ class McpProvider:
 
     async def invoke(self, row: _McpBacking, args: dict) -> InvokeResult:
         import asyncio
+        import contextlib
 
         from ...runtime import _TOOL_TIMEOUT_S, _content_text
 
         cap_id = f"{CAP_KIND_MCP}:{row.server}/{row.tool_name}"
+        # 직접 경로(runtime._wrap_mcp_tool)와 동일하게 어댑터의 ToolException swallow를 끈다(스펙 320):
+        # 끄지 않으면 MCP isError가 "Error executing tool …" 정상 문자열로 삼켜져 err=None → 브로커
+        # 실패 사유가 조용히 사라진다(형제 표면 비일관 봉합 — 직접·브로커가 같은 실패 표면화 규약).
+        with contextlib.suppress(Exception):
+            row.tool.handle_tool_error = False
         try:
             async with asyncio.timeout(_TOOL_TIMEOUT_S):
                 raw = await row.tool.ainvoke(_adapt_args(row.tool, args))
@@ -231,7 +237,10 @@ class McpProvider:
             err = None
         except Exception as exc:
             text = ""
-            err = f"MCP 도구 실행 실패({row.server}/{row.tool_name}): {type(exc).__name__}"
+            # 실제 사유(str(exc))까지 실어 인스펙터 표면화(스펙 320) — 타입만으론 "왜"를 못 본다.
+            # 앞 밑줄 제거(어댑터 내부 클래스명 정돈). 마스킹+캡은 _build_frame(_sanitize)에서 백스톱.
+            etype = type(exc).__name__.lstrip("_")
+            err = f"MCP 도구 실행 실패({row.server}/{row.tool_name}): {etype}: {exc}"
         return InvokeResult(
             text=text,
             trust="untrusted",

@@ -32,6 +32,8 @@ export interface McpCallT {
   ms: number
   args: Record<string, unknown>
   result: string
+  // 실패 사유(스펙 320) — status='error'일 때 사람이 읽을 에러 메시지(마스킹+캡). 성공 기록엔 없음.
+  error?: string
   // RAG 검색 도구가 반환한 히트 수(server='rag'일 때). 스펙 079.
   hits?: number
   // 히트별 구조 + 컬렉션별 최소 유사도 맵(스펙 191 v2). 있으면 카드 렌더, 없으면 result 텍스트 폴백.
@@ -82,7 +84,8 @@ export interface Trace {
     ms: number
     hits?: number
     topScore?: number
-    error?: boolean
+    // 스펙 320: 실패 사유 문자열(구 boolean과 호환 — 사유 없으면 true 폴백). truthy면 실패 태그, 문자열이면 사유 표시.
+    error?: boolean | string
     resultPreview?: string
     // 스펙 191(RAG 위임): 히트별 카드 + 최소 유사도 기준선 + 검색 질의(직접 도구와 동일 표시-안전 값).
     hitsDetail?: RagHit[]

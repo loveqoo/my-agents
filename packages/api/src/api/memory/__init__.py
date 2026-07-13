@@ -88,11 +88,16 @@ def recall_probe(
 
 # 예외/텍스트에서 비밀로 보이는 토큰 마스킹(스펙 125) — 진단 error 문자열이 비밀을 흘리지 않게.
 # **1차 방어는 mem_cfg의 실제 api_key 값을 정확 치환**(정규식 추측이 아니라 — 어떤 형태든 확실히 제거).
-# 2차 백스톱 정규식: sk-/Bearer + 라벨(api_key·authorization·token·secret·password) 뒤 값. base_url·
-# model_id는 비밀 아님(그대로). 라벨 뒤 값은 공백/따옴표/`:`/`=` 뒤 형태를 넓게 잡는다(codex 125 H1).
+# 2차 백스톱 정규식: sk-/Bearer/Basic + 라벨(api_key·authorization·token·secret·password) 뒤 값 +
+# URL userinfo(scheme://user:pass@). base_url·model_id는 비밀 아님(그대로 — userinfo 없는 URL은
+# `@`가 없어 미매치). 라벨 뒤 값은 공백/따옴표/`:`/`=` 뒤 형태를 넓게 잡는다(codex 125 H1).
+# Basic·userinfo 추가: MCP 서버 예외 메시지가 실패 사유로 표면화되며(스펙 320) 자격증명이 섞일 수 있어
+# 라벨 없는 형태(Basic blob·URL 내 user:pass)도 마스킹한다(codex 320 P1b).
 _SECRET_RE = _re.compile(
     r"(sk-[A-Za-z0-9_\-]{6,}"
     r"|Bearer\s+[A-Za-z0-9._\-+/]{6,}"
+    r"|Basic\s+[A-Za-z0-9+/=]{8,}"
+    r"|(?<=://)[^/\s:@]+:[^/\s@]+(?=@)"  # scheme://user:pass@host 의 자격증명만(호스트/포트 보존)
     r"|(?:api[_-]?key|authorization|auth[_-]?token|access[_-]?token|token|secret|password)"
     r"['\"]?\s*[:=]\s*['\"]?(?:Bearer\s+)?[A-Za-z0-9._\-+/]{6,})",
     _re.I,

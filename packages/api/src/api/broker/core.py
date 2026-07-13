@@ -46,7 +46,12 @@ def _build_frame(node: str, cap_id: str, ms: int, res: InvokeResult) -> dict:
         if key in raw:
             inv[key] = raw[key]
     if res.error:
-        inv["error"] = True
+        # 실패 사유 문자열 보존(스펙 320) — 구 `True` 불리언은 "왜"를 버렸다(예: "capability not found"·
+        # "대상 없음"). 마스킹+캡 백스톱(사유가 새 노출 표면). 비어있지 않은 문자열은 truthy라 프론트
+        # `b.error ? …` 태그 분기 무회귀 + 사유 표시만 추가.
+        from ..memory import _sanitize  # 지연 — 순환 import 방지
+
+        inv["error"] = _sanitize(str(res.error), cap=500) or True
     if res.text:
         # 결과 본문 프리뷰(스펙 131) — 직접 MCP의 result(2000캡, 087)와 동일 계약으로 브로커도
         # 노출(플레이그라운드=정밀 디버깅). 비밀 마스킹 백스톱(125 _sanitize) + 캡. 원문 전문은

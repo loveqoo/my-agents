@@ -21,6 +21,9 @@ MOCK_MCP_SERVER_NAME = "local-tools"
 MOCK_MCP_URL = "http://127.0.0.1:8000/_remote/mcp/"
 # 이 서버가 노출하는 도구 이름 — seed/reconcile의 카탈로그 enabled_tools 기본값 단일 소스(drift 방지).
 # 권위 있는 출처는 라이브 get_tools지만, 시드 기본값은 이 상수로 통일해 평행 리터럴 드리프트를 막는다.
+# failing_op(스펙 320 검증용 실패 도구)는 여기 넣지 않는다 — seed enabled_tools에 들어가면 local-tools를
+# 문 데모 에이전트가 "실패/오류" 질의만으로 의도 실패 도구를 호출해 오염된다(codex 320 P2). 도구 자체는
+# 아래 @mcp.tool로 라이브 등록되므로, 전용 임시 서버가 enabled_tools=[failing_op]로 명시 배선해 쓴다.
 MOCK_MCP_TOOLS = ["web_search", "echo", "delete_record"]
 
 # 도구 메타 시드(스펙 151) — 아래 @mcp.tool 정의(단일 출처)의 docstring·시그니처와 수동 정합.
@@ -39,6 +42,8 @@ MOCK_MCP_TOOLS_META = {
         "params": [{"name": "record_id", "type": "string", "required": True}],
         "approval": {"required": True},  # 도구 기본 승인 정책(스펙 177 P1) — 관리자 편집 가능
     },
+    # failing_op의 meta는 시드하지 않는다(seed 카탈로그 미포함, 위 MOCK_MCP_TOOLS 주석 참고) — 전용
+    # 임시 서버가 라이브 탐색으로 스키마를 얻어 쓰므로 시드 메타가 불필요하다(codex 320 P2).
 }
 
 mcp = FastMCP("my-agents-local-tools", streamable_http_path="/", stateless_http=True)
@@ -65,6 +70,12 @@ def delete_record(record_id: str) -> str:
     """레코드를 삭제한다(위험 작업 — HIL 승인 게이트 대상, 스펙 041). 부수효과를 흉내내는 mock."""
     rid = (record_id or "").strip()
     return f"[local-tools:delete_record] 레코드 '{rid}' 삭제 완료(mock 부수효과 실행됨)."
+
+
+@mcp.tool()
+def failing_op(reason: str) -> str:
+    """의도적으로 실패하는 도구(스펙 320 — 실패 사유 표면화 검증용). reason으로 예외를 던진다."""
+    raise ValueError(f"의도된 실패: {(reason or '사유 미지정').strip()}")
 
 
 # main.py가 mount할 ASGI 앱. streamable_http_app() 호출 시점에 session_manager가 lazily 생성된다.

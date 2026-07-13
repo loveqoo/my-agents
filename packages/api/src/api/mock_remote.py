@@ -86,6 +86,12 @@ _TOOL_TRIGGERS: dict = {
         ("검색", "찾아", "문서", "search"),
         lambda t: {"query": (t or "").strip()[:200]},
     ),
+    # failing_op(스펙 320) — "실패/에러/오류" 등이 있으면 결정적으로 실패 도구를 호출해
+    # 인스펙터의 "실패 사유" 표면화를 e2e로 실습·검증한다. reason=user 텍스트(예외 메시지에 반영).
+    "failing_op": (
+        ("실패", "에러", "오류", "fail"),
+        lambda t: {"reason": (t or "").strip()[:200]},
+    ),
 }
 
 

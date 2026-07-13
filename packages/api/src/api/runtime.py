@@ -9,6 +9,7 @@ MCP 서버에 **실제로 연결**(langchain-mcp-adapters `MultiServerMCPClient`
 """
 
 import asyncio
+import contextlib
 import math
 import re
 import time
@@ -137,16 +138,34 @@ def _wrap_mcp_tool(
     permission = approval["permission"] if approval else None
     approver = (approval.get("approver") or "admin") if approval else "admin"
 
+    # 도구 실패를 이 래퍼의 단일 except로 모은다(스펙 320). langchain-mcp-adapters는 MCP
+    # `isError=True`를 ToolException(_MCPToolExecutionError)으로 만든 뒤 tool.handle_tool_error로
+    # **삼켜 정상 문자열**로 돌려준다("Error executing tool …") → status=ok로 오기록돼 사유가 사라진다.
+    # handle_tool_error를 끄면 그 예외가 아래 except로 전파돼 status=error + 실제 사유(str(exc))를
+    # 붙잡는다(전송/프로토콜 실패는 원래 ToolException이 아니라 이미 전파 — 한 경로로 수렴).
+    with contextlib.suppress(Exception):  # rt 타입이 예상 밖이면 조용히 넘어감(무회귀)
+        rt.handle_tool_error = False
+
     async def _execute(kwargs: dict, t0: float) -> str:
         # 실 부수효과: 실제 MCP 서버 도구를 호출한다. 승인됐거나 비위험 도구일 때만 도달.
+        reason: str | None = None  # 실패 사유(스펙 320) — 성공 시 None
         try:
             async with asyncio.timeout(_TOOL_TIMEOUT_S):
                 raw = await rt.ainvoke(kwargs)
             text = _content_text(raw)
             status = "ok"
         except Exception as exc:
-            text = f"도구 실행 실패({server}.{rt.name}): {type(exc).__name__}"
+            # 예외 타입에서 앞 밑줄 제거 — 어댑터 내부 클래스명(_MCPToolExecutionError)이 그대로
+            # UI에 새어 지저분해지지 않게(정돈=신뢰). 밑줄 없는 표준 예외명은 그대로 유지.
+            etype = type(exc).__name__.lstrip("_")
             status = "error"
+            # 실제 사유(str(exc))를 붙잡아 인스펙터에 표면화(스펙 320) — 예외 타입만으론 "왜"를 못 본다.
+            # 마스킹+캡 백스톱 통과(사유가 새 노출 표면 — 토큰/입력값 누출 차단, learning 092).
+            reason = _sanitize_preview(f"{etype}: {exc}", _ERR_CAP)
+            # 모델-facing 텍스트에도 사유를 싣는다(스펙 320): handle_tool_error를 끄며 어댑터의 상세
+            # 오류 문자열이 사라지므로, 트레이스뿐 아니라 에이전트도 "왜 실패했는지"를 보고 적응·재시도할
+            # 수 있게(toolbox.py agent-call 실패가 str(exc)를 싣는 선례와 동형). reason은 이미 마스킹+캡됨.
+            text = f"도구 실행 실패({server}.{rt.name}): {reason}"
         calls_sink.append(
             {
                 "server": server,
@@ -160,6 +179,7 @@ def _wrap_mcp_tool(
                 # 사용=공용 전환으로 타인이 크레덴셜 MCP를 배선할 수 있어(사용자 결정: 전부 공용), 결과에
                 # 섞인 토큰/비밀이 trace·응답으로 새지 않게 마스킹(codex 211 P2). 구 _cap은 마스킹 없었음.
                 "result": _sanitize_preview(text, _RESULT_CAP),
+                **({"error": reason} if reason else {}),  # 실패 사유(스펙 320) — 성공 기록엔 미포함
             }
         )
         return text
@@ -571,7 +591,10 @@ def build_rag_tool(
     async def _search(query: str = "", top_k: int = 4) -> str:
         t0 = time.perf_counter()
 
-        def _record(status: str, result: str, n: int = 0, detail: list[dict] | None = None) -> None:
+        def _record(
+            status: str, result: str, n: int = 0, detail: list[dict] | None = None,
+            reason: str | None = None,
+        ) -> None:
             entry = {
                 "server": "rag",
                 "tool": name,
@@ -585,6 +608,7 @@ def build_rag_tool(
                 # 스펙 191 v2: 히트별 구조(컬렉션 포함) + 컬렉션별 최소 유사도 맵(인스펙터 카드·기준선용).
                 "hitsDetail": detail or [],
                 "minScores": dict(min_scores),
+                **({"error": _sanitize_preview(reason, _ERR_CAP)} if reason else {}),  # 실패 사유(스펙 320)
             }
             calls_sink.append(entry)
 
@@ -593,7 +617,8 @@ def build_rag_tool(
                 collections, query, top_k, min_scores
             )  # 커트라인 annotate(미드롭)
         except RagSearchError as exc:
-            _record("error", exc.record_label)
+            # record_label은 짧은 라벨(무엇을), tool_msg는 사람 사유(왜) — 사유를 인스펙터에 표면화(스펙 320).
+            _record("error", exc.record_label, reason=exc.tool_msg)
             return exc.tool_msg
 
         # 스펙 192: 에이전트가 **실제로 보는 것은 used(커트라인 통과분)** — 미달 문서는 안 넘긴다(필터 의미
@@ -716,6 +741,7 @@ _ARG_VALUE_CAP = (
 _RESULT_CAP = (
     2000  # 도구 결과 문자열 상한(자) — calls_sink에 무제한 적재(trace 비대) 방어(learning 059)
 )
+_ERR_CAP = 500  # 실패 사유(에러 메시지) 상한(스펙 320) — 한 줄 사유+캡, 전문 스택은 서버 로그만(learning 092)
 _REDACT_MAX_DEPTH = 6  # args 재귀 깊이 상한 — 사이클/거대 중첩 fail-closed
 
 
