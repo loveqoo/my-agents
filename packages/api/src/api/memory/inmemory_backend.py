@@ -64,7 +64,6 @@ class InMemoryBackend:
                 prev = merged.get(rec["id"])
                 if prev is None or score > prev["score"]:
                     merged[rec["id"]] = {
-                        "type": "semantic",
                         "text": rec["text"],
                         "score": score,
                         "scope": axis,

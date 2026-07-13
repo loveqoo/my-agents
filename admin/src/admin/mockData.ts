@@ -189,14 +189,14 @@ export interface Session {
   agentId: string
   agent: string
   channel: string
-  status: 'active' | 'running' | 'awaiting' | 'draining' | 'idle' | 'error' | 'completed'
+  // 백엔드가 실제로 생산하는 status는 이 둘뿐(스펙 324 죽은 영역 감사 — awaiting/error/running/
+  // draining/idle은 한 번도 방출된 적 없는 죽은 분류라 제거).
+  status: 'active' | 'completed'
   turns: number
   started: string
   lastActivity: string
   tokens: number
   preview?: string // 첫 사용자 메시지 일부 — 사람이 알아볼 세션 라벨(스펙 055)
-  awaiting?: { permission: string; summary: string; checkpoint: string }
-  error?: string
 }
 export interface Approval {
   id: string
@@ -230,11 +230,6 @@ export const VERSION_STATUS: Record<string, StatusMeta> = {
 }
 export const SESSION_STATUS: Record<string, StatusMeta> = {
   active: { label: '활성', color: 'var(--color-success)', tag: 'green' },
-  running: { label: '실행 중', color: 'var(--color-primary)', tag: 'blue' },
-  awaiting: { label: '승인 대기', color: 'var(--purple-6)', tag: 'purple' },
-  draining: { label: '드레이닝', color: 'var(--volcano-6)', tag: 'volcano' },
-  idle: { label: '유휴', color: 'var(--gold-6)', tag: 'gold' },
-  error: { label: '오류', color: 'var(--color-error)', tag: 'red' },
   completed: { label: '완료', color: 'var(--gray-6)', tag: 'default' },
 }
 export const VECTOR_STATUS: Record<string, StatusMeta> = {
@@ -248,13 +243,6 @@ export const AGENT_STATUS: Record<string, StatusMeta> = {
   online: { label: '온라인', color: 'var(--blue-6)', tag: 'blue', desc: '온라인 — 활성 버전이 서빙 중' },
   idle: { label: '유휴', color: 'var(--gold-6)', tag: 'gold', desc: '유휴 — 초안만 있음(활성화 전)' },
   offline: { label: '오프라인', color: 'var(--red-6)', tag: 'red', desc: '오프라인 — 원격에 연결되지 않음' },
-}
-/* 에이전트가 만들어진 출처. UI 구성(이 콘솔에서 블록으로 조립) vs Code 정의(SDK로 선언해
-   코드베이스에서 배포, 엔드포인트로 등록). Code 에이전트는 여기서 읽기 전용 — 구성은 코드가 소유. */
-export const AGENT_SOURCE: Record<string, StatusMeta> = {
-  ui: { label: 'UI 구성', tag: 'default', icon: 'appstore', desc: '콘솔에서 빌딩 블록을 조합해 생성 · 편집 가능' },
-  code: { label: 'code', tag: 'geekblue', icon: 'code', desc: 'SDK로 코드 정의 · 원격 엔드포인트 실행 · 읽기 전용' },
-  external: { label: 'external', tag: 'purple', icon: 'robot', desc: 'A2A 카드로 등록한 외부 에이전트 · 읽기 전용' },
 }
 /* 공통 인터페이스 준수 분류(스펙 089). resolve_agent_runtime과 같은 게이트로 파생(파생값·저장 안 함).
    준수=로컬 적합(서빙 가능) · 비준수=원격 A2A로 in-process 인터페이스 미대상(정당한 다른 종류, 실패 아님)

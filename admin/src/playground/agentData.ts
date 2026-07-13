@@ -7,7 +7,7 @@
 import type { MessageFeedback } from '../api'
 
 export interface Memory {
-  type: 'semantic' | 'episodic' | 'procedural' | string
+  // (스펙 324) type 필드 제거 — 백엔드가 항상 "semantic"만 실던 폐기 분류의 화석.
   text: string
   score: number
   // 이 기억이 회상된 스코프 축: 'user_id'(유저 장기) | 'run_id'(세션). 없으면 미상.

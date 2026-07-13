@@ -73,7 +73,7 @@ function MemoryRow({ m }: { m: Memory }) {
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <Tag color={m.type === 'semantic' ? 'geekblue' : 'purple'}>{m.type}</Tag>
+        {/* type 태그 제거(스펙 324) — 항상 "semantic" 상수라 정보량 0이던 화석. 스코프 태그가 실질. */}
         {m.scope ? (
           <Tag color={m.scope === 'user_id' ? 'green' : 'default'}>
             {m.scope === 'user_id' ? '유저 장기' : m.scope === 'run_id' ? '세션' : m.scope}

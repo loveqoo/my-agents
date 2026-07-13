@@ -265,7 +265,7 @@ class Mem0Backend:
                 key = row.get("id") or text
                 prev = merged.get(key)
                 if prev is None or score > prev["score"]:
-                    merged[key] = {"type": "semantic", "text": text, "score": score, "scope": axis}
+                    merged[key] = {"text": text, "score": score, "scope": axis}
         # 전 축이 예외로 실패(성공 축 0)면 던진다 — 진단이 "정상·0건"으로 위장 못 하게(스펙 158, M1).
         # 부분 성공(≥1 축 반환, []도 성공)은 견고하게 결과 반환(정직한 0건은 raise 안 함, M2 오탐 방지).
         if ok_axes == 0 and last_exc is not None:

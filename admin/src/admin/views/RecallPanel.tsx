@@ -45,12 +45,7 @@ export function RecallPanel({
       emptyQueryWarn="질의를 입력하세요"
       noResultInfo="회상된 기억이 없습니다"
       errorFallback="조회에 실패했습니다"
-      renderMeta={(h) => (
-        <>
-          <Tag>{h.scope}</Tag>
-          <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>{h.type}</span>
-        </>
-      )}
+      renderMeta={(h) => <Tag>{h.scope}</Tag>}
     />
   )
 }

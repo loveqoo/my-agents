@@ -429,22 +429,6 @@ export const forkVersion = (id: string) => post(`/agents/${id}/versions`) as Pro
 export const exposeAgent = (id: string, a2a: boolean) =>
   put(`/agents/${id}/expose`, { a2a }) as Promise<Agent>
 
-/* A2A 카드의 광고 스킬(스펙 157) — 노출 에이전트가 외부에 광고하는 능력(chat+mcp+delegate+rag).
-   카드는 공개(전역 인증 밖)라 자격증명 없이 GET. 미노출/부재면 404 → 호출측이 빈 배열 처리. */
-export interface A2ASkill {
-  id: string
-  name: string
-  description: string
-  tags: string[]
-}
-export async function getA2ASkills(agentId: string): Promise<A2ASkill[]> {
-  const res = await fetch(`${BASE}/agents/${agentId}/.well-known/agent-card.json`, {
-    credentials: 'include',
-  })
-  if (!res.ok) return []
-  const card = await res.json()
-  return Array.isArray(card?.skills) ? (card.skills as A2ASkill[]) : []
-}
 /* 원격 에이전트 연결(스펙 057 — A2A 단일화) — URL 하나를 보내면 백엔드가 카드를 fetch·검증하고
    my-agents 확장 유무로 source(code=배포한 SDK / external=제3자)를 자동분류한다. 등록 진입점 단일.
    (구 registerCodeAgent `/agents/register`·registerExternalAgent `/agents/external`를 대체.) */
@@ -468,7 +452,7 @@ export const deleteUserMemory = (userId: string, memId: string) =>
 
 /* ---------- 메모리 회상 시험 (스펙 084) — 챗과 같은 코어 memory.search 직접 호출 ---------- */
 export interface MemoryHit {
-  type: string
+  // (스펙 324) type 필드 제거 — 백엔드가 항상 "semantic"만 실던 화석.
   text: string
   score: number // 내림차순(1.0=가장 관련)
   scope: string // 매치된 축(agent_id/user_id/run_id)
@@ -609,9 +593,9 @@ export const testModelConfig = (body: {
 export interface SessionPage {
   items: Session[]
   total: number
-  counts: Record<string, number> // 키 all|live|awaiting|error
+  counts: Record<string, number> // 키 all|live (스펙 324 — 죽은 버킷 awaiting/error 제거)
 }
-// 서버 페이징·필터(스펙 034). status 버킷(all|live|awaiting|error) + limit/offset.
+// 서버 페이징·필터(스펙 034). status 버킷(all|live) + limit/offset.
 // agent_id(스펙 055): 외부 agent_id로 해당 에이전트 세션만 — Playground 세션 이어가기용.
 // q(스펙 098): 메타데이터 검색 — session_id·user_id·agent_name 부분일치(서버측, status와 AND).
 /* 세션 종료(스펙 129) — status→completed. 소유권은 서버 스코프(_own_scope)가 강제. 응답=갱신된 세션. */

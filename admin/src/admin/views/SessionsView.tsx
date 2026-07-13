@@ -92,14 +92,7 @@ export default function SessionsView() {
       width: 130,
       render: (s) => {
         const st = SESSION_STATUS[s.status]
-        return s.status === 'running' ? (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 14 }}>
-            <Icon name="loading" spin size={13} style={{ color: st.color }} />
-            {st.label}
-          </span>
-        ) : (
-          <StatusPill color={st.color ?? ''} label={st.label} />
-        )
+        return <StatusPill color={st.color ?? ''} label={st.label} />
       },
     },
     {
@@ -152,8 +145,6 @@ export default function SessionsView() {
             options={[
               { label: `전체 (${counts.all ?? 0})`, value: 'all' },
               { label: `라이브 (${counts.live ?? 0})`, value: 'live' },
-              { label: `승인 대기 (${counts.awaiting ?? 0})`, value: 'awaiting' },
-              { label: `오류 (${counts.error ?? 0})`, value: 'error' },
             ]}
           />
         }
@@ -165,7 +156,7 @@ export default function SessionsView() {
         width={440}
         onClose={() => setDetail(null)}
         footer={
-          detail && (detail.status === 'active' || detail.status === 'running' || detail.status === 'idle') ? (
+          detail && detail.status === 'active' ? (
             <>
               <Button onClick={() => setDetail(null)}>닫기</Button>
               <Popconfirm
@@ -198,21 +189,6 @@ export default function SessionsView() {
                 </div>
               )
             })()}
-            {detail.error ? (
-              <div style={{ marginBottom: 16 }}>
-                <Alert type="error" showIcon title="세션 오류" description={detail.error} />
-              </div>
-            ) : null}
-            {detail.awaiting ? (
-              <div style={{ marginBottom: 16 }}>
-                <Alert
-                  type="warning"
-                  showIcon
-                  title="일시정지 — 관리자 승인 대기 중"
-                  description={`${detail.awaiting.summary} · ${detail.awaiting.permission} · 체크포인트 ${detail.awaiting.checkpoint}`}
-                />
-              </div>
-            ) : null}
             <Descriptions
               column={1}
               size="small"

@@ -208,7 +208,7 @@ class MemorySearchIn(BaseModel):
 
 
 class MemoryHit(BaseModel):
-    type: str  # "semantic" 등 — 백엔드가 분류
+    # (스펙 324) type 필드 제거 — 항상 "semantic" 상수라 정보량 0이던 폐기 분류(의미/일화/절차)의 화석.
     text: str
     score: float  # 내림차순(1.0=가장 관련)
     scope: str  # 매치된 스코프 축 이름(agent_id/user_id/run_id)
@@ -836,7 +836,7 @@ class SessionPage(BaseModel):
 
     items: list[SessionOut]
     total: int  # 현재 필터 적용 총 건수 (페이지네이터용)
-    counts: dict[str, int]  # 배지용 전체 집계, 키 all|live|awaiting|error (필터 무관)
+    counts: dict[str, int]  # 배지용 전체 집계, 키 all|live (필터 무관 — 스펙 324 죽은 버킷 제거)
 
 
 class FeedbackOut(BaseModel):

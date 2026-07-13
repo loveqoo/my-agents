@@ -38,8 +38,8 @@ const statusDot = (status: string) => STATUS_DOT[status] ?? 'var(--gray-6)'
 
 /* 모델 배지를 source별로 정직하게 (스펙 028). code 에이전트는 model 필드가 박혀 있어도
    로컬 모델로 돌지 않고 자기 원격 엔드포인트(dev=mock)로 bypass하므로 모델명을 띄우면
-   거짓이다 → "원격 (SDK)"(AGENT_SOURCE.code.label '원격'·"원격 MCP" 어휘와 일관).
-   external은 A2A 원격 → "외부 A2A"(AGENT_SOURCE.external.label과 동일). ui만 실행 모델 맞아 모델명. */
+   거짓이다 → "원격 (SDK)"("원격 MCP" 어휘와 일관). external은 A2A 원격 → "외부 A2A".
+   ui만 실행 모델이 맞아 모델명 표기. */
 function modelBadge(a: Agent): { text: string; remote: boolean; tip?: ReactNode } {
   if (a.source === 'code')
     return {
@@ -367,9 +367,9 @@ function AgentCombo({
    상태가 소실된다. 백엔드는 세션·메시지를 영속하므로(승인 시 resume_approval이 원 세션에
    최종 답변까지 영속) 여기서 골라 다시 불러오면 이어서 대화할 수 있다.
    드롭다운 열 때마다 onReload로 최신 목록을 받아 '방금 승인하고 돌아온' 세션도 즉시 보인다. */
+// 백엔드가 실제 생산하는 status 둘만(스펙 324 — 죽은 status 라벨 제거).
 const SESSION_STATUS_LABEL: Record<string, string> = {
-  active: '활성', running: '실행중', awaiting: '승인대기', draining: '정리중',
-  idle: '유휴', error: '오류', completed: '완료',
+  active: '활성', completed: '완료',
 }
 function shortSid(id: string) {
   // sess-ab12cd → sess-ab12cd 그대로 짧음. 더 길면 끝 6자만.
@@ -632,7 +632,6 @@ function SessionCombo({
                   </span>
                   {on ? <Icon name="check" size={12} style={{ color: 'var(--color-primary)', flex: 'none' }} /> : null}
                   <span style={{ flex: 1 }} />
-                  {s.status === 'awaiting' ? <Tag color="gold">{SESSION_STATUS_LABEL.awaiting}</Tag> : null}
                 </span>
                 {/* 부 메타: (preview 있으면) 해시 단축형 + 턴/상태/시각. preview 없으면 해시는
                     이미 주 라벨이라 생략. */}

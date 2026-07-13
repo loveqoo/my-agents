@@ -29,10 +29,10 @@ router = APIRouter(prefix="/sessions", tags=["sessions"])
 
 
 # 버킷 → status 매핑 (단일출처 — 프론트는 버킷 문자열만 보낸다). 스펙 034.
+# 실제 status는 active/completed 둘뿐(쓰기 지점: chat_persist active·end completed) — 한 번도
+# 생산된 적 없는 awaiting/error/running/draining 버킷은 죽은 분류라 제거(스펙 324 죽은 영역 감사).
 _STATUS_BUCKETS: dict[str, tuple[str, ...]] = {
-    "live": ("active", "running", "draining"),
-    "awaiting": ("awaiting",),
-    "error": ("error",),
+    "live": ("active",),
 }
 
 
@@ -53,7 +53,7 @@ async def _badge_counts(session: AsyncSession, own: str | None = None) -> dict:
     `own`이 주어지면(비-admin) 본인 user_id 세션만 집계 — 전역 카운트 누설 차단(스펙 067 T6).
     admin/머신(own=None)은 전역.
     """
-    counts = {"all": 0, "live": 0, "awaiting": 0, "error": 0}
+    counts = {"all": 0, "live": 0}
     q = select(Session.status, func.count()).group_by(Session.status)
     if own is not None:
         q = q.where(Session.user_id == own)
@@ -100,7 +100,7 @@ async def list_sessions(
 ) -> SessionPage:
     """세션 목록 (페이징·필터·검색·배지 집계). 스펙 034 + agent 필터(055) + 스코핑(067) + 검색(098).
 
-    - `status`: 버킷(all|live|awaiting|error). 미지정/미지의 값은 all로 폴백(관대).
+    - `status`: 버킷(all|live — 스펙 324 죽은 버킷 제거). 미지정/미지의 값은 all로 폴백(관대).
     - `agent_id`: 외부 agent_id(agt_...). 주어지면 해당 에이전트 세션만(items/total). Playground
       세션 이어가기용. 미지의 id는 빈 목록(404 아님 — 목록 API 관대).
     - `q`(098): 메타데이터 검색 — session_id·user_id·agent_name 부분일치(OR ilike). status·agent_id·

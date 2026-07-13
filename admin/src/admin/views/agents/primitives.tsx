@@ -1,5 +1,3 @@
-import { Typography } from 'antd'
-
 export function Field({ label, children }: { label: React.ReactNode; children?: React.ReactNode }) {
   return (
     <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -25,24 +23,6 @@ export function SectionHeader({ children, first }: { children: React.ReactNode; 
       }}
     >
       {children}
-    </div>
-  )
-}
-
-/* ---- Detail drawer ---- */
-export function IdRow({ label, value }: { label: React.ReactNode; value: string }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0' }}>
-      <span style={{ width: 84, flex: 'none', fontSize: 12, color: 'var(--color-text-tertiary)' }}>{label}</span>
-      {/* antd Typography copyable로 통일(스펙 204) — 수제 클립보드 span 제거. */}
-      <Typography.Text
-        code
-        copyable={{ text: value, tooltips: ['복사', '복사됨'] }}
-        ellipsis
-        style={{ flex: 1, minWidth: 0, fontFamily: 'var(--font-family-code)', fontSize: 12, color: 'var(--color-text)' }}
-      >
-        {value}
-      </Typography.Text>
     </div>
   )
 }
