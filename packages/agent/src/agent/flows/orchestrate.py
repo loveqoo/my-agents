@@ -34,7 +34,7 @@ from langgraph.graph.message import add_messages
 
 from ..model import build_chat_openai
 from ..runtime import AgentBuildContext, AgentManifest, Capability
-from ..toolbox import last_user_text
+from ..toolbox import fence_wrap, last_user_text
 
 if TYPE_CHECKING:
     from langgraph.graph.state import CompiledStateGraph
@@ -93,8 +93,8 @@ def fold_results(parts: list[tuple[Capability, str]], fence: str = "") -> str:
         return "\n\n".join(f"## 능력: {_label_safe(cap)}\n{text}" for cap, text in kept)
     # fence 주어짐 — **단일 포함 전부 펜스**(codex 115 P2: 단일 raw면 합성 지침의 펜스 출처 규칙과
     # 어긋나 악의적 단일 결과의 가짜 펜스를 출처로 오인할 수 있다 → 단일도 감싸 지침을 항상 정확히 유지).
-    begin, end = f"⟦BEGIN {fence}⟧", f"⟦END {fence}⟧"
-    return "\n\n".join(f"## 능력: {_label_safe(cap)}\n{begin}\n{text}\n{end}" for cap, text in kept)
+    # 펜스 원자는 toolbox.fence_wrap 공유(스펙 319 — 파이프라인 도구 노드와 단일 출처, 드리프트 0).
+    return "\n\n".join(f"## 능력: {_label_safe(cap)}\n{fence_wrap(text, fence)}" for cap, text in kept)
 
 
 def _fold_done(items: list[dict]) -> str:

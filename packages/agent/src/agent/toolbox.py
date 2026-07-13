@@ -32,6 +32,15 @@ def _first_line(text: str | None, cap: int = 160) -> str:
     return ((text or "").strip().splitlines() or [""])[0][:cap]
 
 
+def fence_wrap(text: str, fence: str) -> str:
+    """신뢰 불가 데이터를 nonce 펜스로 감싸기(스펙 319, 순수함수). `fence`(요청별 랜덤 nonce)는
+    호출측이 생성해 주입한다 — 헬퍼는 결정적(단위 검증 가능). untrusted 콘텐츠는 nonce를 **알 수 없어**
+    펜스를 조기 종료하거나 진짜처럼 보이는 새 구획을 만들 수 없다 → 콘텐츠 안의 어떤 `⟦END⟧`/헤더도
+    펜스 *안*에 갇혀 데이터로 격리된다(스펙 100·115 채널 격리를 파이프라인 도구 결과에 통일).
+    조율형 `fold_results`(orchestrate)와 파이프라인 도구 노드가 공유하는 단일 원자(드리프트 0)."""
+    return f"⟦BEGIN {fence}⟧\n{text}\n⟦END {fence}⟧"
+
+
 def last_user_text(state: Mapping[str, Any], roles: tuple[str | None, ...] | None = None) -> str:
     """마지막 사용자 메시지 텍스트(정본, 스펙 295). 없으면 빈 문자열. `roles=None`이면 필터 없이
     마지막 content(route/orchestrate), 지정 시 그 role만(artifact=("human","user",None))."""
