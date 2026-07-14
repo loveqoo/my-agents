@@ -57,9 +57,11 @@ uv run api              # = uvicorn (api.main:app), 기본 127.0.0.1:8000
 
 > 외부(Tailscale 등) 노출은 `API_HOST=<tailnet IP>`로만 켠다. 기본은 loopback이라 외부 비노출.
 
-> **회사망(TLS 검사) 디바이스**: 사내 CA 인증서가 있어야 외부 인터넷이 되는 환경이면 `.env`에
-> `SYSTEM_TRUSTSTORE=1`을 켠다 — OS 신뢰 저장소(사내 CA 설치 위치)를 사용해 위키 검색 등
-> 아웃바운드 HTTPS가 동작한다(스펙 339). 기본은 꺼짐.
+> **회사망(TLS 검사) 디바이스**: 사내 CA 인증서가 있어야 외부 인터넷이 되는 환경이면 — 서버는
+> http 그대로 두고 **아웃바운드 HTTPS 신뢰**만 넓힌다(스펙 339·340, 기본 꺼짐):
+> - `SYSTEM_TRUSTSTORE=1` — 사내 CA가 OS 신뢰 저장소에 설치된 경우(무파일).
+> - `EXTRA_CA_FILE=/path/to/corp-ca.pem` — 인증서가 파일로만 있는 경우. 기존 표준 CA에
+>   **추가**되므로 일반 사이트도 계속 동작한다.
 
 ### 4. Admin 콘솔 기동 + 로그인
 

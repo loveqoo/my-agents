@@ -5,17 +5,6 @@
 
 import logging
 import os
-
-# 사내 CA 지원(스펙 339, 옵트인) — 회사망 TLS 검사 환경에서 아웃바운드 HTTPS(위키 API 등)가
-# certifi 번들만 믿는 httpx에서 검증 실패한다. SYSTEM_TRUSTSTORE=1이면 OS 신뢰 저장소(사내 CA가
-# 설치된 곳)를 전역 사용(pip 동일 방식). **다른 api 모듈 import 전에** 주입해야 이후 생성되는
-# 모든 ssl 컨텍스트에 적용된다. 기본 꺼짐(사용자 결정 2026-07-14).
-if os.environ.get("SYSTEM_TRUSTSTORE", "").lower() in ("1", "true"):
-    import truststore
-
-    truststore.inject_into_ssl()
-    logging.getLogger("api.boot").info("OS 신뢰 저장소 사용(SYSTEM_TRUSTSTORE=1) — 사내 CA 지원")
-
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -23,6 +12,7 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from . import (
+    _ca_boot,  # noqa: F401  # 사내 CA 신뢰(스펙 339·340) — api 형제 모듈보다 먼저(컨텍스트 생성 전 계약)
     a2a_server,
     agents,
     allowed_hosts,
