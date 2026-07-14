@@ -15,6 +15,7 @@ from pathlib import Path
 
 from fastapi import Header, HTTPException
 
+from . import audit
 from .models import User
 
 log = logging.getLogger("api.auth")
@@ -70,8 +71,10 @@ def _make_current_principal() -> Callable[..., Awaitable[User | str]]:
         user: User | None = Depends(current_user_optional),
     ) -> User | str:
         if user is not None:  # 세션 쿠키 인증
+            audit.set_actor(audit.actor_of(user))  # 감사 actor(스펙 343) — 이메일 로컬파트
             return user
         if is_valid_machine_token(authorization):  # 머신 토큰 인증
+            audit.set_actor(audit.SYSTEM_ACTOR)  # 사람 아닌 주체
             return "machine"
         raise HTTPException(status_code=401, detail="인증 필요")
 

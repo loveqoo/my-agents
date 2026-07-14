@@ -91,7 +91,7 @@ async def _seed(owner_id: str) -> dict:
             s.add(am)
             await s.flush()
             fb = MessageFeedback(message_pk=am.id, session_pk=sess.id, rating=rating,
-                                 reason=reason, created_by=owner_id)
+                                 reason=reason, owner_id=owner_id)
             s.add(fb)
             return {"sid": sid, "asst_mid": str(am.id), "q": q, "fb_rating": rating}
 

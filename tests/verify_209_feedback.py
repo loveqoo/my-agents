@@ -2,7 +2,7 @@
 
 verify_067_live 패턴 재사용(글루 증명): 실 쿠키 principal(member/super), 머신 Bearer, DB 스코핑.
 피드백 입구의 소유권 경계를 실측한다 — 세션 소유자만 자기 세션 assistant 메시지에 피드백,
-타인 세션·비-assistant·부재는 동일 404(은폐), 머신/익명은 403(created_by 원천 없음), upsert 1건.
+타인 세션·비-assistant·부재는 동일 404(은폐), 머신/익명은 403(owner_id 원천 없음), upsert 1건.
 
 전제: API(127.0.0.1:8000)+실 DB 생존. 던짐용 계정·합성 데이터 즉석 생성/삭제.
 실행: .venv/bin/python tests/verify_209_feedback.py  (API 서버 떠 있어야 함)
@@ -158,14 +158,14 @@ async def main() -> None:
             check(r.status_code == 404, f"O1(T): member 타인 세션 피드백 → 404(은폐) — got {r.status_code}")
             check(await _fb_count(others["asst_mid"]) == 0, "O1(T): 타인 메시지 피드백 실제 미생성(주입 차단)")
 
-            # ---- O2 머신 Bearer → 403(created_by 원천 없음) ----
+            # ---- O2 머신 Bearer → 403(owner_id 원천 없음) ----
             r = await machine.put(fb_url(own), json={"rating": "up"})
             check(r.status_code == 403, f"O2: 머신 토큰 피드백 → 403(로그인 사용자만) — got {r.status_code}")
 
             # ---- O3 super(admin)는 임의 세션 피드백 가능(스코프 None) ----
             r = await superc.put(fb_url(own), json={"rating": "up"})
             check(r.status_code == 200, f"O3: super(admin) 임의 세션 피드백 → 200 — got {r.status_code}")
-            check(await _fb_count(own["asst_mid"]) == 2, "O3: member+super 각자 1건(created_by별 분리)")
+            check(await _fb_count(own["asst_mid"]) == 2, "O3: member+super 각자 1건(owner_id별 분리)")
 
             # ---- F3(codex) reason 상한 → 422(무제한 저장 팽창 차단) ----
             r = await member.put(fb_url(own), json={"rating": "up", "reason": "x" * 3000})

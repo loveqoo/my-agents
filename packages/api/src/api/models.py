@@ -26,6 +26,8 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
+from .audit import AuditMixin
+
 # RAG 청크 벡터 차원 — pgvector 컬럼은 생성 시 차원이 고정되므로(스펙 020 함정3) 이 값이 곧
 # `rag_chunks.embedding` 컬럼 차원이자 Collection 생성 시 허용 차원의 단일 출처다. 기본 임베딩
 # 모델(multilingual-e5-large=1024) 출력과 일치해야 한다. mem0(_EMBED_DIMS)와 같은 1024 기본.
@@ -41,7 +43,7 @@ def _pk() -> Mapped[uuid.UUID]:
 
 
 # ----------------------------- 빌딩 블록 -----------------------------
-class Persona(Base):
+class Persona(AuditMixin, Base):
     __tablename__ = "personas"
     id: Mapped[uuid.UUID] = _pk()
     name: Mapped[str] = mapped_column(String(200), unique=True)  # 식별 이름(규칙, 스펙 148)
@@ -49,13 +51,9 @@ class Persona(Base):
     description: Mapped[str | None] = mapped_column(String(200), default=None)
     tone: Mapped[str | None] = mapped_column(String(200), default=None)
     body: Mapped[str] = mapped_column(Text, default="")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
-    )
 
 
-class MemoryType(Base):
+class MemoryType(AuditMixin, Base):
     """메모리 타입 카탈로그 (단기(인-컨텍스트)/장기 기억(mem0)). 시드 고정값 — 스펙 020."""
 
     __tablename__ = "memory_types"
@@ -66,7 +64,7 @@ class MemoryType(Base):
     body: Mapped[str] = mapped_column(Text, default="")
 
 
-class Collection(Base):
+class Collection(AuditMixin, Base):
     """RAG 지식 컬렉션 — 문서를 임베딩해 의미 검색에 쓰는 단위(스펙 036, vector_tables 재생).
 
     임베딩 모델 1개로 묶이며 `dims`는 생성 시 probe 실측으로 고정(차원 트랩 대응, 스펙 020 함정3).
@@ -100,7 +98,6 @@ class Collection(Base):
     doc_count: Mapped[int] = mapped_column(Integer, default=0)  # 비정규화 집계 캐시
     chunk_count: Mapped[int] = mapped_column(Integer, default=0)
     status: Mapped[str] = mapped_column(String(20), default="empty")  # empty|ingesting|ready|error
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     embedding_model: Mapped["ModelConfig"] = relationship()
     documents: Mapped[list["Document"]] = relationship(
@@ -108,7 +105,7 @@ class Collection(Base):
     )
 
 
-class Document(Base):
+class Document(AuditMixin, Base):
     """RAG 컬렉션에 인제스트된 업로드 파일(스펙 036). 청크를 CASCADE로 소유."""
 
     __tablename__ = "documents"
@@ -124,7 +121,6 @@ class Document(Base):
         String(20), default="parsing"
     )  # parsing|embedding|ready|error
     error: Mapped[str | None] = mapped_column(Text, default=None)  # 실패 사유 보존(no silent death)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     collection: Mapped["Collection"] = relationship(back_populates="documents")
     chunks: Mapped[list["Chunk"]] = relationship(
@@ -132,7 +128,7 @@ class Document(Base):
     )
 
 
-class Chunk(Base):
+class Chunk(AuditMixin, Base):
     """문서 청크 + 임베딩 벡터(전용 pgvector 저장소, 스펙 036).
 
     `embedding`은 `Vector(RAG_EMBED_DIMS)`로 차원 고정. insert 전 길이 검증으로 차원 불일치를
@@ -154,12 +150,11 @@ class Chunk(Base):
     # 검색 hit에 동반 반환되어 유사도 검색 결과로 원본 행을 특정할 수 있게 한다.
     meta: Mapped[dict | None] = mapped_column(JSONB, default=None)
     embedding: Mapped[list[float]] = mapped_column(Vector(RAG_EMBED_DIMS))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     document: Mapped["Document"] = relationship(back_populates="chunks")
 
 
-class DocumentBlob(Base):
+class DocumentBlob(AuditMixin, Base):
     """문서 원본 바이트(스펙 312) — 재청킹(청크 크기·겹침 변경)에 원본이 필요해 인제스트 시 보존.
 
     Document 행은 목록 조회에서 자주 로드되므로 큰 바이트를 분리(1:1, document_id=PK). 청크는
@@ -171,10 +166,9 @@ class DocumentBlob(Base):
         ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True
     )
     data: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
-class CollectionReindexEvent(Base):
+class CollectionReindexEvent(AuditMixin, Base):
     """재인덱싱 이력(스펙 312) — 컬렉션의 임베딩 모델·청크 정책 계보. 런을 뒤지지 않아도
     "언제 뭘로 바꿨나"가 보인다. 모델 삭제 후에도 이름 박제로 계보 표기(EvalRun.agent_name 선례).
     성공·실패 모두 남긴다(no silent — 왜 못 바꿨나 추적)."""
@@ -197,10 +191,9 @@ class CollectionReindexEvent(Base):
     status: Mapped[str] = mapped_column(String(20), default="ok")  # ok | error
     error: Mapped[str | None] = mapped_column(Text, default=None)
     owner_id: Mapped[str | None] = mapped_column(String(80), index=True, default=None)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
-class Provider(Base):
+class Provider(AuditMixin, Base):
     """LLM provider = 엔드포인트 + 자격증명 (스펙 035). 모델 1:N로 매달림.
 
     provider 1회 등록 → 하위 모델 다수가 base_url/api_key를 공유(중복 제거).
@@ -218,12 +211,11 @@ class Provider(Base):
     description: Mapped[str] = mapped_column(
         String(400), default="", server_default=""
     )  # 한 줄 설명
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     models: Mapped[list["ModelConfig"]] = relationship(back_populates="provider")
 
 
-class ModelConfig(Base):
+class ModelConfig(AuditMixin, Base):
     """LLM/임베딩 모델 설정 레지스트리. 에이전트가 이름으로 골라 실행에 사용.
 
     연결처(base_url/api_key)는 자신이 매달린 `Provider`에서 상속한다(스펙 035).
@@ -249,12 +241,11 @@ class ModelConfig(Base):
     params: Mapped[dict] = mapped_column(JSONB, default=dict)  # temperature 등(런타임 파라미터)
     # models.dev 카탈로그 파생 메타(스펙 047 #7) — context·modalities·cost·capabilities. params와 분리.
     meta: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     provider: Mapped["Provider"] = relationship(back_populates="models")
 
 
-class McpServer(Base):
+class McpServer(AuditMixin, Base):
     __tablename__ = "mcp_servers"
     id: Mapped[uuid.UUID] = _pk()
     name: Mapped[str] = mapped_column(String(120), unique=True)  # 식별 이름(규칙, 스펙 148)
@@ -276,12 +267,9 @@ class McpServer(Base):
     # 소유자(스펙 112) — None=레거시/admin=admin 전용(fail-closed, 070). 생성 시 스탬프·이전 금지(069).
     owner_id: Mapped[str | None] = mapped_column(String(80), index=True, default=None)
     # 수정일(스펙 216) — 빌딩 블록 '수정일' 열 배선. Persona와 동일 패턴, onupdate는 ORM-side.
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
-    )
 
 
-class AppSetting(Base):
+class AppSetting(AuditMixin, Base):
     """앱 설정 키-값(스펙 153) — 관리자가 UI로 바꾸는 소수의 전역 설정(A2A org 등).
     키는 라우트의 닫힌 집합으로 통제(미지 키 400) — env는 배포 정체성, 여긴 운영 중 변경 값."""
 
@@ -290,7 +278,7 @@ class AppSetting(Base):
     value: Mapped[dict] = mapped_column(JSONB, default=dict)  # {"v": <값>} 봉투(타입 유연)
 
 
-class NodeTemplate(Base):
+class NodeTemplate(AuditMixin, Base):
     """노드 라이브러리(스펙 316) — 노드형 파이프라인 노드의 등록·공유 자산.
 
     (name, version) 단위로 존재하고 **발행 후 불변**(수정 API 없음 — 수정=새 버전 발행). 에이전트는
@@ -306,13 +294,12 @@ class NodeTemplate(Base):
     # 에이전트 저장 스키마의 노드 화이트리스트(_normalize_node)를 통과한 형태만 저장(검증 재사용).
     config: Mapped[dict] = mapped_column(JSONB, default=dict)
     description: Mapped[str | None] = mapped_column(String(200), default=None)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     __table_args__ = (UniqueConstraint("name", "version", name="uq_node_templates_name_version"),)
 
 
 # ----------------------------- 에이전트 -----------------------------
-class Agent(Base):
+class Agent(AuditMixin, Base):
     __tablename__ = "agents"
     id: Mapped[uuid.UUID] = _pk()
     agent_id: Mapped[str] = mapped_column(String(80), unique=True)  # 외부 식별자 agt_...
@@ -340,7 +327,6 @@ class Agent(Base):
     last_sync: Mapped[str | None] = mapped_column(String(40), default=None)
     # 소유자(스펙 112) — None=레거시/admin=admin 전용(fail-closed, 070). 생성 시 스탬프·이전 금지(069).
     owner_id: Mapped[str | None] = mapped_column(String(80), index=True, default=None)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     versions: Mapped[list["AgentVersion"]] = relationship(
         back_populates="agent",
@@ -349,7 +335,7 @@ class Agent(Base):
     )
 
 
-class AgentVersion(Base):
+class AgentVersion(AuditMixin, Base):
     __tablename__ = "agent_versions"
     id: Mapped[uuid.UUID] = _pk()
     agent_pk: Mapped[uuid.UUID] = mapped_column(
@@ -359,13 +345,12 @@ class AgentVersion(Base):
     status: Mapped[str] = mapped_column(String(20), default="draft")  # draft | active | archived
     note: Mapped[str] = mapped_column(Text, default="")
     config: Mapped[dict] = mapped_column(JSONB, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     agent: Mapped[Agent] = relationship(back_populates="versions")
 
 
 # ----------------------------- 세션/메시지 -----------------------------
-class Session(Base):
+class Session(AuditMixin, Base):
     __tablename__ = "sessions"
     # owner-선두 복합 인덱스(스펙 073, 070 P2 봉합) — member 읽기 `WHERE user_id=:own AND ...`에서
     # 타인-존재행을 인덱스 진입 단계에서 부재행과 동일하게 미스시켜 heap-fetch 타이밍 델타를 제거.
@@ -398,7 +383,7 @@ class Session(Base):
     )
 
 
-class Message(Base):
+class Message(AuditMixin, Base):
     __tablename__ = "messages"
     id: Mapped[uuid.UUID] = _pk()
     session_pk: Mapped[uuid.UUID] = mapped_column(
@@ -407,21 +392,20 @@ class Message(Base):
     role: Mapped[str] = mapped_column(String(20))  # user | assistant
     content: Mapped[str] = mapped_column(Text, default="")
     trace: Mapped[dict | None] = mapped_column(JSONB, default=None)  # 인스펙터용 트레이스
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     session: Mapped[Session] = relationship(back_populates="messages")
 
 
-class MessageFeedback(Base):
+class MessageFeedback(AuditMixin, Base):
     """응답 피드백(스펙 209) — assistant 메시지에 대한 👍/👎 + 이유. 평가 케이스 수확의 원천.
 
-    소유권: `created_by`=서버 도출 auth User UUID str(위조 불가, 세션 소유 스코프로 게이트). 한 사용자가
+    소유권: `owner_id`=서버 도출 auth User UUID str(위조 불가, 세션 소유 스코프로 게이트). 한 사용자가
     한 메시지에 1건(재클릭=upsert). session_pk는 소유 스코프 조회·수확 집계용(에이전트 세션 묶음)."""
 
     __tablename__ = "message_feedback"
     __table_args__ = (
         # 사용자당 메시지당 1건(upsert 키). 소유 스코프·수확 집계용 인덱스는 컬럼 index=True로.
-        Index("uq_message_feedback_msg_user", "message_pk", "created_by", unique=True),
+        Index("uq_message_feedback_msg_user", "message_pk", "owner_id", unique=True),
     )
     id: Mapped[uuid.UUID] = _pk()
     message_pk: Mapped[uuid.UUID] = mapped_column(
@@ -432,20 +416,18 @@ class MessageFeedback(Base):
     )
     rating: Mapped[str] = mapped_column(String(8))  # 'up' | 'down'
     reason: Mapped[str] = mapped_column(Text, default="")
-    created_by: Mapped[str] = mapped_column(String(80), index=True)  # auth User UUID str(서버 도출)
+    # 피드백 작성자(스펙 209) — auth User UUID str. **감사용 created_by(스펙 343, 이메일 로컬파트)와는
+    # 별개 개념**이라 343에서 owner_id로 개명(다른 테이블의 소유자 컬럼과 같은 이름·같은 값 형식).
+    owner_id: Mapped[str] = mapped_column(String(80), index=True)
     # 수확 링크(스펙 209 Phase 2) — 이 피드백에서 만든 평가 케이스. NULL=미수확. 케이스 삭제 시 SET NULL
     # (재수확 가능). 재수확 방지·피드백↔케이스 추적.
     harvested_case_pk: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("eval_cases.id", ondelete="SET NULL"), default=None, index=True
     )
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
-    )
 
 
 # ----------------------------- 승인 큐 -----------------------------
-class Approval(Base):
+class Approval(AuditMixin, Base):
     __tablename__ = "approvals"
     id: Mapped[uuid.UUID] = _pk()
     approval_id: Mapped[str] = mapped_column(String(80), unique=True)  # apr_...
@@ -497,6 +479,7 @@ class User(SQLAlchemyBaseUserTableUUID, Base):
 
     source: Mapped[str] = mapped_column(String(20), default="local", server_default="local")
     display_name: Mapped[str | None] = mapped_column(String(200), default=None)
+    # 감사 믹스인 비적용(스펙 343 §1 — fastapi-users 소유 테이블). 기존 created_at은 그대로 유지한다.
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -505,7 +488,7 @@ class AccessToken(SQLAlchemyBaseAccessTokenTableUUID, Base):
     created_at. 로그아웃 시 행 삭제 = 진짜 세션 무효화. (채팅 sessions와 충돌하지 않는 이름.)"""
 
 
-class Role(Base):
+class Role(AuditMixin, Base):
     """role 카탈로그 — UI 표시·관리용(어떤 role이 있나 나열). 할당의 진실 원천은 Casbin grouping
     policy(casbin_rule)지 이 테이블이 아니다."""
 
@@ -519,7 +502,7 @@ class Role(Base):
 # 시스템과 격리된 별도 배치 서비스(`api.batch`)가 쓰는 두 테이블. learning 012: 운영 설정(보존창·
 # 스케줄)은 env가 아니라 DB가 진실원. learning 033: Base.metadata에 매핑해 autogenerate가 외부
 # 테이블(mem0_memories)을 안 건드리게 한다. 지배 스펙: docs/spec/archive/038-batch-foundation-session-cleanup.md
-class BatchRun(Base):
+class BatchRun(AuditMixin, Base):
     """배치 실행 감사 로그 — 매 run을 박제(시작→ok/error + 건수). 가시성·idempotency 추적."""
 
     __tablename__ = "batch_runs"
@@ -533,7 +516,7 @@ class BatchRun(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
 
-class BatchConfig(Base):
+class BatchConfig(AuditMixin, Base):
     """배치 운영 설정(싱글톤 1행). 값은 기본 NULL → 아무 것도 자동 발화·삭제하지 않는다(보수적 기본).
 
     `session_retention_days`: NULL=비활성. N이면 last_activity가 N일보다 오래된 세션을 정리 대상으로.
@@ -559,12 +542,9 @@ class BatchConfig(Base):
     memory_consolidation_threshold: Mapped[int | None] = mapped_column(Integer, default=None)
     memory_consolidation_cron: Mapped[str | None] = mapped_column(String(120), default=None)
     test_user_email_pattern: Mapped[str | None] = mapped_column(String(200), default=None)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
-    )
 
 
-class MemorySnapshot(Base):
+class MemorySnapshot(AuditMixin, Base):
     """유저 메모리 통합(스펙 039) 전 원본 기억의 백업·롤백 앵커. 통합 작업이 원본을 삭제하기 전에
     여기 박제(text 원문 보존)한다 → 잘못돼도 수동 복원 가능(스냅샷 text를 add(infer=False)로 재적재).
 
@@ -584,10 +564,9 @@ class MemorySnapshot(Base):
     user_id: Mapped[str] = mapped_column(String(200), index=True)
     mem_id: Mapped[str] = mapped_column(String(200))
     text: Mapped[str] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
-class AllowedHost(Base):
+class AllowedHost(AuditMixin, Base):
     """SSRF 가드(스펙 042) allowlist의 **진실원**(스펙 064 — env→DB 이관).
 
     `guard_url`은 사설/루프백 대역으로의 outbound를 기본 차단하되, 이 테이블의 host는 예외로 통과시킨다.
@@ -605,11 +584,10 @@ class AllowedHost(Base):
     id: Mapped[uuid.UUID] = _pk()
     host: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     note: Mapped[str | None] = mapped_column(String(200), default=None)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 # ----------------------------- 평가 하네스 제품화 (스펙 137) -----------------------------
-class EvalDataset(Base):
+class EvalDataset(AuditMixin, Base):
     """평가 문제집(스펙 137) — 케이스 묶음. kind='agent'|'rag'(RAG 컬렉션 평가 확장축, 후속)."""
 
     __tablename__ = "eval_datasets"
@@ -638,17 +616,13 @@ class EvalDataset(Base):
     owner_id: Mapped[str | None] = mapped_column(
         String(80), index=True, default=None
     )  # 스펙 112 스탬프
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
-    )
 
     cases: Mapped[list["EvalCase"]] = relationship(
         back_populates="dataset", cascade="all, delete-orphan"
     )
 
 
-class EvalCase(Base):
+class EvalCase(AuditMixin, Base):
     """평가 문제 — 입력(질문) + 선언적 asserts(JSONB: [{"type","arg"}]).
 
     type은 eval_harness의 닫힌 scorer 집합만 허용(미지 type은 API 검증 거부 — fail-closed).
@@ -663,12 +637,11 @@ class EvalCase(Base):
     input: Mapped[str] = mapped_column(Text, nullable=False)  # 에이전트에 보낼 질문
     asserts: Mapped[list] = mapped_column(JSONB, default=list)
     order_idx: Mapped[int] = mapped_column(Integer, default=0)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     dataset: Mapped["EvalDataset"] = relationship(back_populates="cases")
 
 
-class EvalRun(Base):
+class EvalRun(AuditMixin, Base):
     """평가 실행 감사(BatchRun 미러) — running|ok|error + 점수. owner=실행자 스탬프."""
 
     __tablename__ = "eval_runs"
@@ -708,7 +681,7 @@ class EvalRun(Base):
     )
 
 
-class EvalCaseResult(Base):
+class EvalCaseResult(AuditMixin, Base):
     """케이스별 채점 결과 — assert별 상세(details)와 관측 요약(obs, 캡 적용)."""
 
     __tablename__ = "eval_case_results"
@@ -722,6 +695,5 @@ class EvalCaseResult(Base):
     obs: Mapped[dict | None] = mapped_column(
         JSONB, default=None
     )  # {output(캡), trace_nodes, error}
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     run: Mapped["EvalRun"] = relationship(back_populates="results")

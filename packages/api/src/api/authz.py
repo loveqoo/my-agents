@@ -19,6 +19,7 @@ import casbin
 from casbin_async_sqlalchemy_adapter import Adapter
 from fastapi import Depends, HTTPException
 
+from . import audit
 from .db import engine
 from .models import User
 from .users import current_active_user
@@ -192,6 +193,7 @@ def require(obj: str, act: str = "*") -> Callable[..., Awaitable[User]]:
     """
 
     async def _dep(user: User = Depends(current_active_user)) -> User:
+        audit.set_actor(audit.actor_of(user))  # 감사 actor(스펙 343) — 자체보호 라우터의 주체 진입점
         if user.is_superuser:
             return user
         if not get_enforcer().enforce(str(user.id), obj, act):

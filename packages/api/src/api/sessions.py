@@ -7,7 +7,7 @@ from sqlalchemy import delete, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from . import authz
+from . import audit, authz
 from .auth import current_principal
 from .db import get_session
 from .models import Agent, Message, MessageFeedback, Session, User
@@ -229,14 +229,14 @@ async def list_session_messages(
         select(Message).where(Message.session_pk == s.id).order_by(Message.created_at)
     )
     msgs = result.scalars().all()
-    # 요청 사용자의 이 세션 피드백 맵(스펙 209) — created_by==나만(머신/익명이면 빈 맵). 표시용 토글 상태.
+    # 요청 사용자의 이 세션 피드백 맵(스펙 209) — owner_id==나만(머신/익명이면 빈 맵). 표시용 토글 상태.
     fb_map: dict = {}
     uid = None if isinstance(principal, str) else getattr(principal, "id", None)
     if uid is not None and msgs:
         fbs = await session.execute(
             select(MessageFeedback).where(
                 MessageFeedback.session_pk == s.id,
-                MessageFeedback.created_by == str(uid),
+                MessageFeedback.owner_id == str(uid),
             )
         )
         fb_map = {fb.message_pk: fb for fb in fbs.scalars().all()}
@@ -256,8 +256,8 @@ async def list_session_messages(
 
 
 def _require_user(principal: User | str) -> str:
-    """사용자-귀속 쓰기(피드백)는 인증 User가 필요 — 머신/익명은 created_by 원천이 없어 불가(스펙 209).
-    반환=auth User UUID str(created_by 스탬프의 진실 원천, 위조 불가)."""
+    """사용자-귀속 쓰기(피드백)는 인증 User가 필요 — 머신/익명은 owner_id 원천이 없어 불가(스펙 209).
+    반환=auth User UUID str(owner_id 스탬프의 진실 원천, 위조 불가)."""
     if isinstance(principal, str) or getattr(principal, "id", None) is None:
         raise HTTPException(status_code=403, detail="로그인 사용자만 피드백할 수 있습니다")
     return str(principal.id)
@@ -300,11 +300,19 @@ async def set_message_feedback(
             session_pk=s.id,
             rating=body.rating,
             reason=body.reason,
-            created_by=uid,
+            owner_id=uid,
         )
         .on_conflict_do_update(
-            index_elements=["message_pk", "created_by"],
-            set_={"rating": body.rating, "reason": body.reason, "updated_at": func.now()},
+            index_elements=["message_pk", "owner_id"],
+            # 재클릭(upsert 갱신)도 감사 대상 — set_에 없는 컬럼은 onupdate가 발화하지 않는다
+            # (Core upsert는 UPDATE로 가지만 SQLAlchemy의 onupdate는 set_에 명시된 것만 적용).
+            # updated_by를 빼면 최초 작성자가 영원히 남는다(codex 343 P1).
+            set_={
+                "rating": body.rating,
+                "reason": body.reason,
+                "updated_at": func.now(),
+                "updated_by": audit.current_actor(),
+            },
         )
     )
     await session.execute(stmt)
@@ -319,7 +327,7 @@ async def clear_message_feedback(
     session: AsyncSession = Depends(get_session),
     principal: User | str = Depends(current_principal),
 ) -> None:
-    """피드백 취소(스펙 209). 소유 스코프 404 → 내(created_by) 피드백만 그 세션에서 삭제(멱등)."""
+    """피드백 취소(스펙 209). 소유 스코프 404 → 내(owner_id) 피드백만 그 세션에서 삭제(멱등)."""
     uid = _require_user(principal)
     s = await _get_session_or_404(
         session, session_id, authz.own_scope_write(principal)
@@ -328,7 +336,7 @@ async def clear_message_feedback(
         delete(MessageFeedback).where(
             MessageFeedback.message_pk == message_id,
             MessageFeedback.session_pk == s.id,
-            MessageFeedback.created_by == uid,
+            MessageFeedback.owner_id == uid,
         )
     )
     await session.commit()
