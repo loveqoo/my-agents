@@ -3,9 +3,11 @@
    각 패널: 설정(임계치/일수 + cron) 편집 + dry-run/실행 트리거. 하단에 공용 실행 이력.
    백엔드: GET/PATCH /admin/batch/config, POST /admin/batch/{job}/run, GET /admin/batch/runs. */
 import { useState, useEffect, useCallback } from 'react'
-import { Button, InputNumber, Input, Tag, Tooltip, Popconfirm, Space, message, Form, Tabs } from 'antd'
+import { Alert, Button, InputNumber, Input, Tag, Tooltip, Popconfirm, Space, message, Form, Tabs } from 'antd'
 import { Page, Panel, DataTable, StatusPill, type Column } from '../shared'
 import {
+  getSchedulerStatus,
+  type SchedulerStatus,
   getBatchConfig,
   updateBatchConfig,
   listBatchRuns,
@@ -133,6 +135,7 @@ function summarize(r: BatchRun): React.ReactNode {
 
 export default function BatchView() {
   const [cfg, setCfg] = useState<BatchConfig | null>(null)
+  const [sched, setSched] = useState<SchedulerStatus | null>(null)
   // session-cleanup
   const [days, setDays] = useState<number | null>(null)
   const [cron, setCron] = useState<string>('')
@@ -177,8 +180,11 @@ export default function BatchView() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [c] = await Promise.all([getBatchConfig(), loadRuns()])
+      const [c, st] = await Promise.all([getBatchConfig(), getSchedulerStatus(), loadRuns()]).then(
+        (r) => [r[0], r[1]] as const,
+      )
       applyCfg(c)
+      setSched(st)
     } catch {
       message.error('배치 설정을 불러오지 못했습니다')
     } finally {
@@ -360,6 +366,30 @@ export default function BatchView() {
         </Button>
       }
     >
+      {/* 스케줄러 가동 상태(스펙 348) — batch_runs가 0행이었던 이유는 잡이 없어서가 아니라
+          **cron을 읽어 실행할 프로세스가 없어서**였고, 그 사실이 화면 어디에도 안 보였다.
+          안 돌고 있으면 여기서 말한다(조용한 무동작 금지). */}
+      {sched && (
+        <Alert
+          type={sched.leader ? 'success' : 'warning'}
+          showIcon
+          style={{ marginBottom: 16 }}
+          title={
+            sched.leader
+              ? `자동 실행 중 — 이 서버가 스케줄러입니다 (등록 ${String(sched.jobs.length)}개)`
+              : sched.mode === 'inproc'
+                ? '자동 실행 대기 — 다른 서버가 스케줄러를 맡고 있습니다'
+                : '자동 실행 없음 — 스케줄러가 꺼져 있어 아래 작업들이 저절로 돌지 않습니다'
+          }
+          description={
+            sched.jobs.length > 0
+              ? `다음 실행: ${sched.jobs
+                  .map((j) => `${j.name} → ${j.next_run_time ? new Date(j.next_run_time).toLocaleString() : '미정'}`)
+                  .join(' · ')}`
+              : 'cron이 설정된 작업이 없습니다 — 아래 각 탭에서 스케줄을 지정하면 자동으로 실행됩니다.'
+          }
+        />
+      )}
       <Tabs
         activeKey={job}
         onChange={(k) => setJob(k as typeof job)}

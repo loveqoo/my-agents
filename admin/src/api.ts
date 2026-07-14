@@ -185,6 +185,14 @@ export interface BatchRun {
   started_at: string | null
   finished_at: string | null
 }
+export interface SchedulerStatus {
+  mode: string
+  leader: boolean
+  jobs: { name: string; next_run_time: string | null }[]
+  last_runs?: Record<string, string | null>
+}
+/** 배치 스케줄러 가동 상태(스펙 348) — 안 돌고 있으면 화면이 그렇게 말해야 한다(조용한 무동작 금지). */
+export const getSchedulerStatus = () => j<SchedulerStatus>('/admin/batch/scheduler')
 export const getBatchConfig = () => j<BatchConfig>('/admin/batch/config')
 export const updateBatchConfig = (body: Partial<BatchConfig>) =>
   patch('/admin/batch/config', body) as Promise<BatchConfig>

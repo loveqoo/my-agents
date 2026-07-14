@@ -6,10 +6,12 @@
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
+from sqlalchemy import func as safunc
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from . import authz
+from .batch import service as batch_service
 from .batch.jobs import JOBS, is_delete_all_pattern
 from .batch.runner import run_job
 from .db import get_session
@@ -80,6 +82,24 @@ async def _get_or_create_config(session: AsyncSession) -> BatchConfig:
 @router.get("/jobs", dependencies=[_run])
 async def list_jobs() -> dict:
     return {"jobs": sorted(JOBS)}
+
+
+@router.get("/scheduler", dependencies=[_run])
+async def scheduler_status(session: AsyncSession = Depends(get_session)) -> dict:
+    """스케줄러 가동 상태(스펙 348) — **안 돌면 화면이 그렇게 말한다**(조용한 무동작 금지).
+
+    `batch_runs`가 0행이었던 이유는 잡이 없어서가 아니라 **cron을 읽어 실행할 프로세스가 없어서**였다.
+    그 사실이 어디에도 안 보였다는 게 진짜 결함이라, 상태를 표면화한다.
+    """
+    st = batch_service.status()
+    last = (
+        await session.execute(
+            select(BatchRun.job_name, safunc.max(BatchRun.started_at))
+            .group_by(BatchRun.job_name)
+        )
+    ).all()
+    st["last_runs"] = {j: (t.isoformat() if t else None) for j, t in last}
+    return st
 
 
 @router.post("/{job}/run", dependencies=[_run])
@@ -153,4 +173,6 @@ async def update_config(
             setattr(cfg, field, data[field])
     await session.commit()
     await session.refresh(cfg)
+    # cron 변경을 **즉시** 반영(스펙 348) — 없으면 다음 재시작까지 안 먹는다(조용한 미반영).
+    await batch_service.reload_schedules()
     return _config_out(cfg)

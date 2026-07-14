@@ -39,6 +39,7 @@ from . import (
 )
 from .auth import current_principal
 from .authz import init_authz
+from .batch import service as batch_service
 from .db import init_db
 from .schemas import UserRead, UserUpdate
 
@@ -53,6 +54,10 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         node_templates.sync_code_nodes()
     )  # 코드 노드 카탈로그 동기화(스펙 317 — 발행=코드 배포 반영)
     await checkpointer.init_checkpointer()  # HIL durable 체크포인터(스펙 041, graceful)
+    # 배치 스케줄러(스펙 348) — 청소 잡에 **손을 달아준다**. 이게 없어서 batch_runs가 0행이었다
+    # (세션 정리·메모리 통합·체크포인트 스윕이 전부 죽은 코드였다). advisory lock으로 워커·레플리카가
+    # 여럿이어도 리더 하나만 발화한다. BATCH_SCHEDULER=off면 별도 `batch serve` 프로세스로 운영.
+    await batch_service.start_inproc()
     # 좀비 평가 런 정리(스펙 137, codex #1) — create_task는 재시작을 못 넘기므로 부팅 시 running은
     # 전부 죽은 실행 → error 박제("영원한 실행 중" 잔류 방지).
     swept = await eval_routes.sweep_zombie_runs()
@@ -78,6 +83,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
             await stack.enter_async_context(_mcp.session_manager.run())
         yield
     observability.shutdown()  # OTEL 미전송 span flush(스펙 328) — 설정 없으면 무동작
+    await batch_service.stop_inproc()  # 스케줄러 정지 + advisory lock 해제(다른 프로세스가 즉시 승계)
     await checkpointer.close_checkpointer()
 
 
