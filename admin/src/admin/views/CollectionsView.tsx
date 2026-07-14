@@ -840,7 +840,10 @@ function SearchDrawer({
             ? ({ id: editHit.document_id, filename: editHit.filename } as RagDocument)
             : null
         }
-        locate={editHit?.text}
+        // 엔티티=ordinal 줄 좌표(스펙 337 — 객체 data 행은 히트 텍스트가 원문에 없어 매칭 불가),
+        // 문서형=텍스트 매칭(청크는 원문 부분 문자열).
+        locate={collection.kind === 'entity' ? undefined : editHit?.text}
+        locateLine={collection.kind === 'entity' ? editHit?.ordinal : undefined}
         onClose={() => setEditHit(null)}
         onSaved={() => {
           onChanged?.()

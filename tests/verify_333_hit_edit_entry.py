@@ -125,6 +125,7 @@ async def main():
             hit2.document_id == edoc_id and hit2.meta == {"id": 7},
             f"H3a 엔티티 히트 document_id+meta 동반 (got {hit2.document_id}, {hit2.meta})",
         )
+        check(hit2.ordinal == 0, f"H3c 히트 ordinal 동반(스펙 337 — 줄 좌표) (got {hit2.ordinal})")
         c2 = await RAG.get_document_content(ecid, hit2.document_id, s, sup)
         check(c2.editable is True and c2.text == row, "H3b 엔티티 히트→content 사슬 관통")
 
@@ -144,8 +145,11 @@ async def main():
         # 인-챗 trace/브로커 표면(_hits_detail 화이트리스트)에는 **없어야** 한다(내부 id 비유출).
         detail = RT._hits_detail(raw)
         check(
-            detail and all("document_id" not in d and "text" not in d for d in detail),
-            f"H5 _hits_detail에 document_id/본문 비노출 (keys={sorted(detail[0].keys()) if detail else '없음'})",
+            detail
+            and all(
+                "document_id" not in d and "ordinal" not in d and "text" not in d for d in detail
+            ),
+            f"H5 _hits_detail에 document_id/ordinal/본문 비노출 (keys={sorted(detail[0].keys()) if detail else '없음'})",
         )
 
     print()
