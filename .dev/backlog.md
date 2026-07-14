@@ -6,6 +6,7 @@
 > 규칙이 아니라 종이 한 장 — 새 작업 정해지면 여기서 옮기고, 끝나면 완료로 내린다.
 
 ## 후보
+- [ ] **체크포인트 무한 누적 정리**(2026-07-14 실측, **사용자 판단=운영 시 다룰 문제** — 지금 착수 X): LangGraph `AsyncPostgresSaver`가 **슈퍼스텝 경계마다 1행** 남긴다 → 턴당 checkpoints ≈ 1(input) + 슈퍼스텝수 + 1(단일노드 personal-secretary=**3**, 멀티노드 suite-pipeline=**7**, checkpoint_writes/blobs 동배율). **삭제 경로가 코드에 아예 없음**(테이블 주인=langgraph, alembic 미관여) → 세션 끝나도 잔류. 현 dev DB: messages 516행 vs checkpoints 10,181 / writes 14,423(20~30배). 존재 이유=HIL 재개(`approvals.checkpoint=thread_id`로 되감음)라 턴 중엔 필수, **끝난 뒤가 문제**. 방안 3갈래: ①세션 종료·승인 해소 시 `saver.adelete_thread(thread_id)` ②나이 기반 TTL 정리 배치 ③HIL 미사용 에이전트는 체크포인터 미부착. 부수 관찰: 대화 히스토리가 messages·checkpoints **양쪽에 중복** 보관.
 - ✅**죽은 영역 감사(324) 잔여 3건 = 스펙 329 완료**(2026-07-13, 회고 304 — 감사 축 완전 마감): 사용자 결정 전부 제거 — ①generate-dataset 기계 일습+마커 화석 3곳(_is_generating 접두·좀비 스윕 생성 블록·실행 409 보조판정) ②Chunk.token_count DROP(d5795d21f6a2) ③하네스 088 2종+소비자 shot-markdown-088. ~~재발 방지 스킬화~~ → ✅**스펙 325 완료**(2026-07-13): `.claude/skills/dead-area-audit/SKILL.md` — 축 A~F·4기 프롬프트·규율 5종. 스킬 개선 씨앗(329 발견): 문자열 계약(마커·문구·포맷) 소비자 grep을 축에 추가.
 - ✅**init_db 폴백의 조용한 우회 = 스펙 330 완료**(2026-07-14, 회고 305): 사용자 결정=**완전 제거**(virgin 한정안 기각 — 새 DB서 고장 계속 가림). alembic 실패→조치 메시지+부팅 중단, alembic=스키마 단일 진실. verify_330(F1 fail-fast 여집합·F4 확장 보장 실증)+058/059 재작성. k8s ②(마이그레이션 Job 분리)의 선행 정지작업 완료.
 - [ ] **verify-eval-ux-193.mjs 드리프트**(2026-07-13, 스펙 329 중 stash 확증 — 기존): P1(컬렉션 칩)부터 4건 실패, UI 개편으로 셀렉터 노후 추정. 브라우저 verify 스크립트 전반 노후 점검은 "verify 스위트 격리"(321 대형)와 합류 후보.
