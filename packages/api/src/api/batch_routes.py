@@ -31,6 +31,7 @@ class BatchConfigOut(BaseModel):
     test_user_email_pattern: str | None
     checkpoint_ttl_hours: int | None
     checkpoint_cleanup_cron: str | None
+    token_cleanup_cron: str | None
 
 
 class BatchConfigIn(BaseModel):
@@ -53,6 +54,7 @@ class BatchConfigIn(BaseModel):
     # NULL=비활성. checkpoint_retention.sweep에도 <1 가드가 한 겹 더(learning 037 — 파괴적 노브 바닥).
     checkpoint_ttl_hours: int | None = Field(default=None, ge=1)
     checkpoint_cleanup_cron: str | None = None
+    token_cleanup_cron: str | None = None
 
     @field_validator("test_user_email_pattern")
     @classmethod
@@ -144,6 +146,7 @@ def _config_out(cfg: BatchConfig) -> BatchConfigOut:
         test_user_email_pattern=cfg.test_user_email_pattern,
         checkpoint_ttl_hours=cfg.checkpoint_ttl_hours,
         checkpoint_cleanup_cron=cfg.checkpoint_cleanup_cron,
+        token_cleanup_cron=cfg.token_cleanup_cron,
     )
 
 
@@ -168,6 +171,7 @@ async def update_config(
         "test_user_email_pattern",
         "checkpoint_ttl_hours",
         "checkpoint_cleanup_cron",
+        "token_cleanup_cron",
     ):
         if field in data:
             setattr(cfg, field, data[field])

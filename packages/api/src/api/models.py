@@ -554,6 +554,9 @@ class BatchConfig(AuditMixin, Base):
     # 뿐이고 대화·메시지·세션은 건드리지 않으며, 24h 문턱이 진행 중 턴을 지킨다. 끄려면 cron=NULL.
     checkpoint_ttl_hours: Mapped[int | None] = mapped_column(Integer, default=24)
     checkpoint_cleanup_cron: Mapped[str | None] = mapped_column(String(120), default="0 * * * *")
+    # 만료 토큰 회수(스펙 349) — 수명·유예는 인증 설정(AUTH_SESSION_LIFETIME)에서 읽으므로 cron만.
+    # 기본값이 있는 이유는 346과 같다: 안 치우면 무한 누적이 기본 동작이라 "안 하기"가 보수적이지 않다.
+    token_cleanup_cron: Mapped[str | None] = mapped_column(String(120), default="0 4 * * *")
 
 
 class MemorySnapshot(AuditMixin, Base):

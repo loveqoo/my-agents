@@ -75,9 +75,9 @@ TABLES: dict[str, Policy] = {
     "eval_datasets": Policy("user_data", by="route:평가 문제집 삭제"),
     # --- 회수 경로 없음(자백) ---------------------------------------------------
     "accesstoken": Policy(
-        "leaking",
-        note="로그인마다 1행. 만료(7일) 후에도 영구 잔류 — 삭제는 로그아웃 시뿐. 실측: 로그인 3회 → 3행",
-        fix_spec="349",
+        "reclaimed",
+        by="batch:token-cleanup",
+        note="로그인마다 1행. 만료(수명+유예 1일) 지난 토큰만 회수 — 살아 있는 세션은 안 끊는다(스펙 349)",
     ),
     "approvals": Policy(
         "leaking",

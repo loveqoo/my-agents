@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .. import checkpoint_retention, memory
 from ..db import SessionLocal
 from ..mem_config import default_mem_cfg
-from ..models import Agent, Approval, BatchConfig, MemorySnapshot, Session, User
+from ..models import AccessToken, Agent, Approval, BatchConfig, MemorySnapshot, Session, User
 
 log = logging.getLogger("api.batch.jobs")
 
@@ -622,10 +622,60 @@ async def cleanup_checkpoints(*, dry_run: bool, run_id: uuid.UUID | None = None)
     return await checkpoint_retention.sweep(dry_run=dry_run, ttl_hours=ttl)
 
 
+# 만료 토큰 회수의 유예(스펙 349) — 만료 직후 경계에서 지우지 않는다(시계 오차·진행 중 요청 보호).
+_TOKEN_GRACE = timedelta(days=1)
+
+
+async def cleanup_tokens(*, dry_run: bool, run_id: uuid.UUID | None = None) -> dict:  # noqa: ARG001 — runner가 키워드 호출(계약)
+    """만료된 세션 토큰 회수(스펙 349) — 로그인마다 1행 쌓이는데 지우는 코드가 로그아웃뿐이었다.
+
+    `fastapi_users`의 DatabaseStrategy는 읽을 때 `created_at >= max_age`로 **거를 뿐** 지우지 않는다.
+    즉 만료된 토큰(인증에 못 쓰는 자격증명 조각)이 DB에 영원히 남는다 — 위생·보안 부채.
+
+    **살아 있는 토큰은 절대 안 지운다**(로그인 상태를 끊는 건 파괴적 부작용). 수명은 인증과 **같은
+    출처**(`users.SESSION_LIFETIME_SECONDS`)를 읽는다 — 상수를 두 곳에 두면 한쪽만 바뀐다(드리프트).
+
+    파괴적 노브엔 바닥(learning 037): 수명이 비정상(<=0)이면 **잡을 비활성**한다 — 0을 "전부 만료"로
+    매핑하면 전 사용자 로그아웃이라는 delete-all이 된다.
+    """
+    from ..users import SESSION_LIFETIME_SECONDS
+
+    if SESSION_LIFETIME_SECONDS <= 0:
+        # 수명이 0/음수면 "모든 토큰이 만료"로 해석돼 전량 삭제가 된다 — 바닥을 깐다.
+        return {"status": "disabled", "reason": "SESSION_LIFETIME_SECONDS<=0", "deleted": 0}
+
+    cutoff = datetime.now(UTC) - timedelta(seconds=SESSION_LIFETIME_SECONDS) - _TOKEN_GRACE
+    async with SessionLocal() as session:
+        rows = (
+            await session.execute(
+                select(AccessToken.created_at).where(AccessToken.created_at < cutoff)
+            )
+        ).all()
+        n = len(rows)
+        if dry_run:
+            return {
+                "status": "dry_run",
+                "cutoff": cutoff.isoformat(),
+                "lifetime_seconds": SESSION_LIFETIME_SECONDS,
+                "would_delete": n,
+            }
+        if n:
+            await session.execute(delete(AccessToken).where(AccessToken.created_at < cutoff))
+            await session.commit()
+    log.info("만료 토큰 정리: %d행 삭제(기준 %s)", n, cutoff.isoformat())
+    return {
+        "status": "ok",
+        "cutoff": cutoff.isoformat(),
+        "lifetime_seconds": SESSION_LIFETIME_SECONDS,
+        "deleted": n,
+    }
+
+
 JOBS = {
     "session-cleanup": cleanup_sessions,
     "memory-consolidation": consolidate_user_memories,
     "a2a-cleanup": cleanup_a2a_agents,
     "user-cleanup": cleanup_test_users,
     "checkpoint-cleanup": cleanup_checkpoints,
+    "token-cleanup": cleanup_tokens,
 }
