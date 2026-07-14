@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react'
 import { Tag, Button, Alert, Modal, Descriptions, Grid, Typography, Tooltip } from 'antd'
 import { VersionHistory, ExposeSwitch } from '../../shared'
 import { Icon } from '../../icons'
+import { AuditFooter } from '../../AuditMeta'
 import { AgentMemoryPanel } from '../AgentMemoryPanel'
 import { AGENT_STATUS, isOrchestratorImpl, isCodeDefinedImpl, isNodeRef, type Agent, type VersionMeta } from '../../mockData'
 import { typeLabel } from './AgentForm'
@@ -216,6 +217,7 @@ export function AgentDetailPage({
               </div>
             )}
             <PersonaStaleNote agent={agent} onRefresh={onRefreshPersona} />
+            <AuditFooter audit={agent} />{/* 감사 메타(스펙 344) — 배경 정보라 개요 맨 아래 */}
           </section>
       ),
     },

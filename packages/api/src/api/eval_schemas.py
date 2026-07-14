@@ -8,6 +8,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from .schemas import AuditOut
+
 
 class DatasetIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)
@@ -16,7 +18,7 @@ class DatasetIn(BaseModel):
     collection_id: uuid.UUID | None = None  # 스펙 193 — kind=rag면 대상 컬렉션 고정(생성 시 저장)
 
 
-class DatasetOut(BaseModel):
+class DatasetOut(AuditOut):
     id: uuid.UUID
     name: str
     description: str | None

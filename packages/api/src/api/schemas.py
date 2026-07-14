@@ -9,6 +9,23 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 ORM = ConfigDict(from_attributes=True)
 
 
+class AuditOut(BaseModel):
+    """감사 4값 응답 믹스인 (스펙 344) — DB엔 343으로 쌓이는데 API가 안 내려주던 것.
+
+    값 공간이 **열려 있다**(스펙 343 전제): 관리자 이메일 로컬파트 · `system`(배경 작업) ·
+    `unknown`(343 이전 행) · **추후 채팅으로 들어올 미등록 최종 사용자 ID**. 그래서 이 값들은
+    `user` 테이블로 resolve하지 않고 **문자열 그대로** 내려간다(조인·프로필 링크 금지).
+
+    노출 경계: 관리 API(인증 뒤)에만 싣는다. A2A 카드·서빙 MCP 등 **외부 노출 경로엔 절대 싣지
+    않는다** — 내부 계정명이자 (추후) 고객 식별자이기 때문(verify_344 누출 핀).
+    """
+
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    created_by: str | None = None
+    updated_by: str | None = None
+
+
 def _require_non_blank(v: str) -> str:
     """검색 질의 공백 거부(스펙 296 정본) — min_length는 strip 전 길이라 공백("   ")이 통과해
     코어서 빈값으로 502가 됐다. 입력 경계서 strip 후 비면 422로 거부(서버 오류가 아니라 잘못된 입력)."""
@@ -28,10 +45,8 @@ class PersonaIn(BaseModel):
     body: str = ""
 
 
-class PersonaOut(PersonaIn):
+class PersonaOut(PersonaIn, AuditOut):
     id: uuid.UUID
-    created_at: datetime | None = None
-    updated_at: datetime | None = None
     model_config = ORM
 
 
@@ -91,7 +106,7 @@ class CollectionUpdate(BaseModel):
     entity_schema: dict[str, Any] | None = None
 
 
-class CollectionOut(BaseModel):
+class CollectionOut(AuditOut):
     id: uuid.UUID
     name: str
     kind: str = "document"  # 종류 축(스펙 149)
@@ -138,7 +153,7 @@ class ReindexEventOut(BaseModel):
     created_at: datetime
 
 
-class DocumentOut(BaseModel):
+class DocumentOut(AuditOut):
     id: uuid.UUID
     collection_id: uuid.UUID
     filename: str
@@ -365,7 +380,7 @@ class McpServerIn(BaseModel):
         return out
 
 
-class McpServerOut(McpServerIn):
+class McpServerOut(McpServerIn, AuditOut):
     id: uuid.UUID
     owner_id: str | None = None  # 소유자(스펙 112). None=공유/레거시
     can_manage: bool = True  # 요청 주체 수정/삭제 가능(스펙 114, list/get서 계산·기본 True)
@@ -451,7 +466,7 @@ class ProviderIn(BaseModel):
     description: str = ""
 
 
-class ProviderOut(BaseModel):
+class ProviderOut(AuditOut):
     id: uuid.UUID
     name: str
     protocol: str
@@ -473,7 +488,7 @@ class ModelIn(BaseModel):
     meta: dict[str, Any] = Field(default_factory=dict)  # models.dev 카탈로그 메타(스펙 047 #7)
 
 
-class ModelOut(BaseModel):
+class ModelOut(AuditOut):
     id: uuid.UUID
     name: str
     provider_id: uuid.UUID
@@ -759,7 +774,7 @@ class VersionOut(BaseModel):
     createdAt: str | None = None
 
 
-class AgentOut(BaseModel):
+class AgentOut(AuditOut):
     id: uuid.UUID
     agentId: str
     name: str  # 식별 이름(규칙, 스펙 148)

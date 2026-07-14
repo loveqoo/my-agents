@@ -26,6 +26,20 @@ async def agent_id_map(session: AsyncSession) -> dict:
     return {row.id: row.agent_id for row in rows}
 
 
+def audit_of(obj: object) -> dict:
+    """감사 4값 → Out 생성자 kwargs (스펙 344).
+
+    값은 **문자열 그대로** 통과시킨다 — user 테이블로 resolve하지 않는다(스펙 343 전제: 등록 유저는
+    관리자 부분집합이고, 추후 채팅으로 미등록 최종 사용자 ID가 이 값에 들어온다).
+    """
+    return {
+        "created_at": getattr(obj, "created_at", None),
+        "updated_at": getattr(obj, "updated_at", None),
+        "created_by": getattr(obj, "created_by", None),
+        "updated_by": getattr(obj, "updated_by", None),
+    }
+
+
 def mask_secret(s: str | None) -> str | None:
     """비밀값 출력 마스킹 — 존재 여부만 알리고 평문/암호문은 절대 노출하지 않는다."""
     return SECRET_MASK if s else None
@@ -41,6 +55,7 @@ def provider_to_out(p: Provider, model_count: int = 0) -> ProviderOut:
         kind=p.kind,
         description=p.description,
         modelCount=model_count,
+        **audit_of(p),
     )
 
 
@@ -58,6 +73,7 @@ def model_to_out(m: ModelConfig) -> ModelOut:
         is_default=m.is_default,
         params=dict(m.params or {}),
         meta=dict(m.meta or {}),
+        **audit_of(m),
     )
 
 
@@ -78,6 +94,7 @@ def collection_to_out(c: Collection) -> CollectionOut:
         chunk_count=c.chunk_count,
         status=c.status,
         owner_id=c.owner_id,  # 스펙 112(can_manage는 list/get 라우트서 세팅)
+        **audit_of(c),
     )
 
 
@@ -146,6 +163,7 @@ def agent_to_out(a: Agent, persona_bodies: dict[str, str] | None = None) -> Agen
         registeredAt=a.registered_at,
         lastSync=a.last_sync,
         card=cfg.get("card"),  # 외부 에이전트 카드 스냅샷(읽기 전용 표시용)
+        **audit_of(a),
     )
 
 

@@ -4,6 +4,16 @@
    (BLOCKS·ADMIN_AGENTS·ADMIN_SESSIONS)은 死코드라 제거(스펙 305) — 타입·상수만 유지. */
 
 /* ---------- 타입 ---------- */
+/* 감사 4값(스펙 344) — 백엔드 AuditOut. 값 공간이 **열려 있다**(스펙 343): 관리자 이메일 로컬파트 ·
+   'system'(배경 작업) · 'unknown'(감사 도입 이전) · 추후 채팅으로 들어올 **미등록 최종 사용자 ID**.
+   그래서 user 테이블로 resolve하지 않고 문자열 그대로 표시한다(프로필 링크·아바타 금지). */
+export interface Audit {
+  created_at?: string | null
+  updated_at?: string | null
+  created_by?: string | null
+  updated_by?: string | null
+}
+
 export interface AgentConfig {
   model?: string
   persona?: string
@@ -91,7 +101,7 @@ export interface VersionMeta {
   note: string
   config?: AgentConfig
 }
-export interface BlockItem {
+export interface BlockItem extends Audit {
   id: string
   name: string // 식별 이름(규칙, 스펙 148)
   description?: string | null // 설명(선택, 스펙 210) — 표시 = name 단독, 설명은 툴팁
@@ -140,7 +150,7 @@ export interface BlockCategory {
 export type ToolApprovalOverride = { required?: boolean; approver?: 'admin' | 'self' }
 export type ToolPolicy = Record<string, { approval?: ToolApprovalOverride }>
 
-export interface Agent {
+export interface Agent extends Audit {
   id: string
   name: string // 식별 이름(규칙, 스펙 148)
   description?: string | null // 설명(선택, 스펙 210) — 표시 = name 단독, 설명은 툴팁

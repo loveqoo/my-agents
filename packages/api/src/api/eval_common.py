@@ -14,6 +14,7 @@ from .eval_harness import build_asserts
 from .eval_schemas import DatasetOut
 from .models import EvalDataset, User
 from .ownership import assert_may_manage, may_manage
+from .serializers import audit_of
 
 log = logging.getLogger("api.eval")
 
@@ -45,6 +46,7 @@ def _dataset_out(d: EvalDataset, case_count: int, user: User | str) -> DatasetOu
         case_count=case_count,
         can_manage=may_manage(d.owner_id, user),
         generating=_is_generating(d),
+        **audit_of(d),  # 감사 4값(스펙 344)
     )
 
 

@@ -392,7 +392,7 @@ ERD에 선이 없다고 관계가 없는 게 아니다. 아래는 코드가 문�
 |---|---|---|
 | `agents.persona` (text) | `personas.body` | 에이전트가 페르소나 본문을 **복사해 보관**한다(페르소나 수정이 기존 에이전트를 바꾸지 않도록) |
 | `sessions.user_id`, `*.owner_id` (varchar) | `user.id` | 소유자를 문자열로 스탬프(외부 주체·머신 토큰도 담기 위해) |
-| `*.created_by` / `*.updated_by` (varchar) | `user.email`의 로컬파트 | **의도적 비정규화**(스펙 343) — 조인 없이 감사, 유저를 지워도 이력이 남는다. `system`·`unknown`처럼 유저가 아닌 값도 담긴다 |
+| `*.created_by` / `*.updated_by` (varchar) | (어떤 테이블도 아님) | **의도적으로 FK가 아니다**(스펙 343) — `user`에 등록된 사람은 **관리자(부분집합)**뿐이고, 추후 **채팅으로 미등록 최종 사용자 ID가 이 컬럼에 들어온다**. FK로 묶으면 그때 못 담는다. 값 공간 = 관리자 로컬파트 ∪ `system`·`unknown` ∪ 최종 사용자 ID(추후) |
 | `approvals.session_id` (varchar) | `sessions.session_id` | 공개 id 문자열로 참조 |
 | `approvals.checkpoint` (varchar) | `checkpoints.thread_id` | **테이블 주인이 LangGraph**라 FK를 걸 수 없다 |
 | `agents.model`, `eval_runs.model_name` | `models.name` | 이름 문자열 참조 |

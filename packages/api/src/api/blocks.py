@@ -39,7 +39,7 @@ from .schemas import (
     PersonaOut,
     PersonaUsageAgentOut,
 )
-from .serializers import _iso
+from .serializers import _iso, audit_of
 
 if TYPE_CHECKING:
     from langchain_core.tools import BaseTool
@@ -314,6 +314,17 @@ def _mcp_served_url(obj: McpServer) -> str | None:
     return served_mcp.served_url(obj.name, base)
 
 
+def _audit_json(row: object) -> dict:
+    """감사 4값을 JSON 직렬화 가능한 형태로(블록 목록은 dict를 직접 조립한다 — 스펙 344).
+    datetime은 ISO 문자열로, actor는 **문자열 그대로**(user 테이블 resolve 금지 — 스펙 343 전제)."""
+    return {
+        "created_at": _iso(getattr(row, "created_at", None)),
+        "updated_at": _iso(getattr(row, "updated_at", None)),
+        "created_by": getattr(row, "created_by", None),
+        "updated_by": getattr(row, "updated_by", None),
+    }
+
+
 def mcp_to_out(obj: McpServer) -> McpServerOut:
     """ORM → 응답 DTO. auth는 마스킹해 평문 토큰을 절대 흘리지 않는다."""
     return McpServerOut(
@@ -332,6 +343,7 @@ def mcp_to_out(obj: McpServer) -> McpServerOut:
         published=obj.published,
         auth=_mcp_auth_masked(obj),
         owner_id=obj.owner_id,  # 스펙 112(can_manage는 list서 세팅)
+        **audit_of(obj),  # 감사 4값(스펙 344)
     )
 
 
@@ -776,6 +788,7 @@ async def get_blocks(
             "body": row.body,
             "usedBy": _count_by(agents, "persona", row.name, scalar=True),
             "updated": _iso(row.updated_at),  # 수정일 배선(스펙 216) — 프론트 fmtTime이 친화 표기
+            **_audit_json(row),  # 감사 4값(스펙 344)
         }
         for row in personas
     ]
@@ -788,6 +801,7 @@ async def get_blocks(
             "body": row.body,
             "usedBy": _count_by(agents, "memories", row.name),
             "updated": "—",  # 메모리 타입은 읽기 전용(시스템 enum, spec 016) — 수정 N/A(스펙 216)
+            **_audit_json(row),  # 감사 4값(스펙 344)
         }
         for row in memory_types
     ]
@@ -806,6 +820,7 @@ async def get_blocks(
             "body": row.description,
             "usedBy": _count_by(agents, "vectorTables", row.name),
             "updated": "—",
+            **_audit_json(row),  # 감사 4값(스펙 344)
         }
         for row in collections
     ]
@@ -827,6 +842,7 @@ async def get_blocks(
                 row
             ),  # 서빙 URL(스펙 156) — custom+정의보유만, 그 외 None
             "auth": _mcp_auth_masked(row),
+            **_audit_json(row),  # 감사 4값(스펙 344)
             "usedBy": _count_by(agents, "mcps", row.name),
             "updated": _iso(row.updated_at),  # 수정일 배선(스펙 216)
             "owner_id": row.owner_id,  # 스펙 112

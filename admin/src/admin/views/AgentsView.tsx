@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { Tag, Button, Avatar, Select, Input, Switch, Tooltip, Popover, Modal, message, Tabs, Checkbox } from 'antd'
 import { Page, DataTable, type Column } from '../shared'
+import { AuditCell } from '../AuditMeta'
 import { Icon } from '../icons'
 import {
   AGENT_STATUS,
@@ -439,6 +440,13 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
         )
       },
     } satisfies Column<Agent>]),
+    {
+      key: 'audit',
+      title: '수정',
+      width: 190,
+      hideBelow: 'lg',  // 좁은 폭에선 감춘다 — 감사는 배경 정보(이름·상태가 우선, 스펙 344)
+      render: (r) => <AuditCell audit={r} />,
+    },
     {
       key: 'actions',
       width: 80,

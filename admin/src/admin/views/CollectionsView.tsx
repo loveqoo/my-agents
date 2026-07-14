@@ -21,6 +21,7 @@ import {
 } from 'antd'
 import type { UploadProps, TableProps } from 'antd'
 import { Page, DataTable, type Column } from '../shared'
+import { AuditCell, AuditFooter } from '../AuditMeta'
 import { validateName, NAME_HINT } from '../naming'
 import { PagedListShell, type ListController } from './PagedListShell'
 import { Icon } from '../icons'
@@ -660,6 +661,13 @@ function DocsDrawer({
         ),
     },
     {
+      key: 'audit',
+      title: '수정',
+      width: 190,
+      hideBelow: 'lg',  // 좁은 폭에선 감춘다 — 감사는 배경 정보(이름·상태가 우선, 스펙 344)
+      render: (r) => <AuditCell audit={r} />,
+    },
+    {
       key: 'actions',
       title: '',
       width: 92,
@@ -759,6 +767,7 @@ function DocsDrawer({
               onChanged() // 컬렉션 청크 카운트 갱신
             }}
           />
+          <AuditFooter audit={collection} />{/* 감사 메타(스펙 344) — 이 컬렉션을 누가 만들고 고쳤나 */}
         </div>
       ) : null}
     </Drawer>
@@ -961,6 +970,13 @@ export default function CollectionsView({ onEvaluate }: { onEvaluate?: (cid: str
       title: '상태',
       width: 110,
       render: (c) => collectionStatusTag(c.status),
+    },
+    {
+      key: 'audit',
+      title: '수정',
+      width: 190,
+      hideBelow: 'lg',  // 좁은 폭에선 감춘다 — 감사는 배경 정보(이름·상태가 우선, 스펙 344)
+      render: (r) => <AuditCell audit={r} />,
     },
     {
       key: 'actions',

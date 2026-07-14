@@ -1,6 +1,6 @@
 /* 어드민 백엔드 API 클라이언트 (007 Phase 3).
    타입은 admin/mockData.ts와 일원화 — 백엔드 출력이 동일 shape다. */
-import type { Agent, Approval, BlockCategory, PipelineNode, Session } from './admin/mockData'
+import type { Agent, Approval, Audit, BlockCategory, PipelineNode, Session } from './admin/mockData'
 import { httpError } from './httpError'
 
 // 기본은 same-origin 상대경로 `/api` — vite dev 프록시(vite.config.ts)가 127.0.0.1:8000으로 넘긴다.
@@ -11,7 +11,7 @@ const BASE = import.meta.env.VITE_API_BASE ?? '/api'
 // VITE_API_TOKEN은 머신 Bearer 토큰 하위호환용(헤드리스/E2E). 있으면 함께 보낸다.
 const TOKEN = import.meta.env.VITE_API_TOKEN ?? ''
 
-export type { Agent, Approval, BlockCategory, Session }
+export type { Agent, Approval, Audit, BlockCategory, Session }
 
 export interface ChatMessage {
   role: 'user' | 'assistant'
@@ -283,7 +283,7 @@ export const applyPersona = (personaId: string, agentIds: string[]) =>
 
 
 /* ---------- RAG 컬렉션 + 문서 인제스트 (스펙 036) ---------- */
-export interface Collection {
+export interface Collection extends Audit {
   id: string
   name: string // 식별 이름(규칙, 스펙 148)
   kind?: 'document' | 'entity' // 종류 축(스펙 149) — 생성 후 불변
@@ -300,7 +300,7 @@ export interface Collection {
   owner_id?: string | null // 소유자(스펙 112). null=공유/레거시
   can_manage?: boolean // 관리 가능(스펙 114) — false면 편집/삭제 숨김
 }
-export interface RagDocument {
+export interface RagDocument extends Audit {
   id: string
   collection_id: string
   filename: string
@@ -562,7 +562,7 @@ export const pageAgentMemory = (id: string, q: string, limit: number, offset: nu
 
 /* ---------- 프로바이더 (연결처 — base_url + 자격증명, 스펙 035) ---------- */
 export type ProviderKind = 'local' | 'mock' | 'remote'
-export interface Provider {
+export interface Provider extends Audit {
   id: string
   name: string
   protocol: string
@@ -583,7 +583,7 @@ export const testSavedProvider = (id: string) =>
   post(`/providers/${id}/test`) as Promise<ModelProbeResult>
 
 /* ---------- 모델 (LLM·임베딩 레지스트리) ---------- */
-export interface Model {
+export interface Model extends Audit {
   id: string
   name: string
   provider_id: string

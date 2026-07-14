@@ -3,8 +3,8 @@
 import { useState, useEffect } from 'react'
 import { Tag, Button, Tabs, Switch, Modal, Input, Select, Checkbox, Tooltip, Alert, Grid, message, Descriptions, Popconfirm } from 'antd'
 import { Page, DataTable, Drawer, type Column } from '../shared'
+import { AuditCell, AuditFooter } from '../AuditMeta'
 import { validateName, NAME_HINT } from '../naming'
-import { fmtTime } from '../format'
 import { Icon } from '../icons'
 import { VECTOR_STATUS, type BlockItem, type BlockCategory, type StatusMeta } from '../mockData'
 import {
@@ -1132,16 +1132,19 @@ export default function BlocksView() {
       {
         key: 'usedBy',
         title: '사용',
-        width: 100,
-        render: (r) => <span style={{ color: 'var(--color-text-secondary)' }}>{r.usedBy}개 에이전트</span>,
+        width: 116,  // 감사 컬럼(344)이 폭을 가져가며 "0개 에이전 트"로 깨지던 것 — nowrap + 여유폭
+        render: (r) => (
+          <span style={{ color: 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>{r.usedBy}개 에이전트</span>
+        ),
       },
       {
         key: 'updated',
-        title: '수정일',
-        width: 120,
+        title: '수정',
+        width: 190,
         align: 'right',
-        // 스펙 216: ISO→친화 표기(fmtTime), "—"(읽기 전용 메모리)는 파싱 불가라 그대로 통과.
-        render: (r) => <span style={{ color: 'var(--color-text-tertiary)' }}>{fmtTime(r.updated) || '—'}</span>,
+        // 스펙 344: 기존 "수정일"(시각만) 자리를 감사 셀로 승격 — 시각 + **수정자**, 툴팁에 4값 전체.
+        // 컬럼을 새로 늘리지 않는다(감사는 배경 정보 — 이름·사용 수가 밀리면 안 된다).
+        render: (r) => <AuditCell audit={r} />,
       },
     ]
   }
@@ -1420,9 +1423,9 @@ export default function BlocksView() {
               size="small"
               items={[
                 { key: 'usedBy', label: '사용', children: `${detail.usedBy}개 에이전트` },
-                { key: 'updated', label: '수정일', children: fmtTime(detail.updated) || '—' },
               ]}
             />
+            <AuditFooter audit={detail} />
             {cat === 'mcp' && detail.source === 'custom' ? (
               <div
                 style={{
