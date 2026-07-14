@@ -35,6 +35,9 @@ typecheck:
 suite:
 	uv run python tests/suite/run.py
 
+resource:
+	uv run python tests/verify_347_resource_gate.py
+
 metrics-fast: lint format-check complexity maintainability naming typecheck
 	@echo "== metrics-fast 통과 =="
 
