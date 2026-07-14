@@ -62,6 +62,11 @@ uv run api              # = uvicorn (api.main:app), 기본 127.0.0.1:8000
 > - `SYSTEM_TRUSTSTORE=1` — 사내 CA가 OS 신뢰 저장소에 설치된 경우(무파일).
 > - `EXTRA_CA_FILE=/path/to/corp-ca.pem` — 인증서가 파일로만 있는 경우. 기존 표준 CA에
 >   **추가**되므로 일반 사이트도 계속 동작한다.
+>
+> 사내 CA를 붙였는데도 web-fetch(위키)가 503이면 **SASE 게이트웨이의 UA 필터**를 의심한다(스펙
+> 341) — 특정 UA만 통과시키는 회사망이 있다. 그 디바이스 `.env`에만:
+> - `WEB_FETCH_UA=curl/8.7.1` — 아웃바운드 web-fetch UA 교체(기본값은 무변경). 통과 UA는 환경마다
+>   다르니 소스에 박지 않는다.
 
 ### 4. Admin 콘솔 기동 + 로그인
 

@@ -13,6 +13,8 @@ LangChain 도구(@tool) → `to_fastmcp` → `FastMCP(..., tools=[...])` → str
 정의만 있고 미공개면 404(노출 안 된 것 누출 금지, a2a_server 동형).
 """
 
+import os
+
 from langchain_core.tools import tool
 from langchain_mcp_adapters.tools import to_fastmcp
 from mcp.server.fastmcp import FastMCP
@@ -54,17 +56,29 @@ def echo(text: str) -> str:
 _WIKI_LANGS = {"ko", "en"}  # lang이 곧 호스트 — allowlist로 임의 호스트 조립 차단
 _FETCH_TIMEOUT = 8.0
 _FETCH_MAX_BYTES = 512 * 1024  # 응답 raw 바이트 캡(cap-the-raw-source)
-_FETCH_UA = "my-agents/1.0 (web-fetch custom MCP)"  # 위키 API가 UA 명시를 요구
+_FETCH_UA_DEFAULT = "my-agents/1.0 (web-fetch custom MCP)"  # 위키 API가 UA 명시를 요구
+
+
+def _fetch_ua() -> str:
+    """아웃바운드 UA(스펙 341) — `WEB_FETCH_UA` env로 덮어쓴다.
+
+    회사망 SASE 게이트웨이가 특정 UA(`curl/` 접두)만 통과시키는 환경이 있다(회사 디바이스 실측 —
+    사내 CA를 붙여도 503). 그 값은 **환경 고유**라 소스에 박지 않고 해당 디바이스 `.env`에만 둔다
+    (예: `WEB_FETCH_UA=curl/8.7.1`). 기본값 무변경 = 일반 배포 무회귀.
+    호출 시점 조회(모듈 상수 고정 X) — `.env`가 늦게 로드되는 진입점에서도 반영되도록."""
+    return os.environ.get("WEB_FETCH_UA", "").strip() or _FETCH_UA_DEFAULT
 
 
 def _wiki_get(url: str, params: dict | None = None) -> dict:
     """위키 API GET 공통 — 타임아웃·raw 바이트 캡·리다이렉트 후 호스트 재검증·JSON 파싱.
-    실패는 raise 대신 {'error': …}(도구는 graceful — 에이전트가 실패를 읽고 진행)."""
+    실패는 raise 대신 {'error': …}(도구는 graceful — 에이전트가 실패를 읽고 진행).
+
+    프로토콜은 httpx 기본(HTTP/1.1) — http2는 `http2=True` 명시 시에만 쓰이므로 강제 불필요(341 실측)."""
     import httpx
 
     try:
         with httpx.Client(
-            timeout=_FETCH_TIMEOUT, headers={"User-Agent": _FETCH_UA}, follow_redirects=True
+            timeout=_FETCH_TIMEOUT, headers={"User-Agent": _fetch_ua()}, follow_redirects=True
         ) as c:
             r = c.get(url, params=params)
         # 리다이렉트가 위키 밖으로 새면 차단 — 가드는 부수효과 발생 지점에서(installed≠covering).
