@@ -26,6 +26,7 @@ dependencies = [
     "apscheduler>=3.10",  # 격리 배치 서비스 내부 스케줄러(스펙 038)
     "opentelemetry-sdk>=1.43.0",
     "opentelemetry-exporter-otlp-proto-http>=1.43.0",
+    "truststore>=0.10.4",
 ]
 
 [project.scripts]
