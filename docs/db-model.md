@@ -1,8 +1,26 @@
 # 데이터베이스 모델 (PostgreSQL + pgvector)
 
 > 이 문서는 **살아 있는 DB에서 덤프한 실제 스키마**를 근거로 작성했다(모델 파일이 아니라 실물 —
-> 어긋나면 실물이 이긴다). 2026-07-14 기준, 36개 테이블.
+> 어긋나면 실물이 이긴다). 2026-07-14 기준, 36개 테이블. 감사 컬럼(스펙 343) 반영.
 > 스키마의 단일 진실은 **alembic**이다(스펙 330 — `init_db`의 create_all 폴백은 제거됐다).
+
+## 감사 컬럼 (스펙 343) — 아래 모든 다이어그램에 공통
+
+**우리 소유 27테이블 전부**가 아래 4컬럼을 갖는다(실측: 27/27). 다이어그램마다 반복하면 읽기만
+나빠지므로 여기 한 번만 적는다 — 각 ERD의 엔티티에는 **표시하지 않았지만 전부 붙어 있다**.
+
+| 컬럼 | 값 | 규칙 |
+|---|---|---|
+| `created_at` / `updated_at` | timestamptz, NOT NULL | 최초 삽입 시 둘 다 채워짐(created == updated) |
+| `created_by` / `updated_by` | varchar(80), NOT NULL | **이메일의 `@` 앞**(`admin@example.com` → `admin`) |
+
+- 사람이 아닌 주체(시드·마이그레이션·배치·**모든 배경 잡**)는 **`system`**. 스펙 343 이전 행은 `unknown`.
+- `created_*`는 **불변**(수정 시 옛 값으로 되돌림). "누가 만들었나"와 "누가 마지막에 만졌나"가 갈린다.
+- 값을 채우는 곳은 **앱 계층**(`api/audit.py`의 `AuditMixin` — 컬럼 default/onupdate). **DB 트리거는 없다**
+  (사용자 결정: 로직이 DB에 숨는 방식 금지). 배경 잡의 actor는 `background.spawn()` 한 관문에서 `system`.
+- **제외 9개**(외부 라이브러리 소유): checkpoint 4종 · mem0_memories · user · accesstoken · casbin_rule ·
+  alembic_version. `user`·`accesstoken`은 원래 있던 `created_at`만 갖는다.
+- ⚠️ `owner_id`(현재 소유자, 인가 판정용)와 `created_by`(최초 생성자, 감사용)는 **다른 개념**이다 — §6 참고.
 
 ## 0. 한 장 지도 — 누가 무엇을 소유하나
 
@@ -145,6 +163,7 @@ erDiagram
         uuid id PK
         uuid message_pk FK
         uuid session_pk FK
+        varchar owner_id "작성자(User UUID) — (message_pk, owner_id) 유니크"
         varchar rating "up | down"
         text reason
         uuid harvested_case_pk FK "평가 케이스로 수확되면"
@@ -373,10 +392,23 @@ ERD에 선이 없다고 관계가 없는 게 아니다. 아래는 코드가 문�
 |---|---|---|
 | `agents.persona` (text) | `personas.body` | 에이전트가 페르소나 본문을 **복사해 보관**한다(페르소나 수정이 기존 에이전트를 바꾸지 않도록) |
 | `sessions.user_id`, `*.owner_id` (varchar) | `user.id` | 소유자를 문자열로 스탬프(외부 주체·머신 토큰도 담기 위해) |
+| `*.created_by` / `*.updated_by` (varchar) | `user.email`의 로컬파트 | **의도적 비정규화**(스펙 343) — 조인 없이 감사, 유저를 지워도 이력이 남는다. `system`·`unknown`처럼 유저가 아닌 값도 담긴다 |
 | `approvals.session_id` (varchar) | `sessions.session_id` | 공개 id 문자열로 참조 |
 | `approvals.checkpoint` (varchar) | `checkpoints.thread_id` | **테이블 주인이 LangGraph**라 FK를 걸 수 없다 |
 | `agents.model`, `eval_runs.model_name` | `models.name` | 이름 문자열 참조 |
 | `mem0_memories.payload.user_id` | `user.id` | mem0가 payload JSONB에 담는다(스키마 주인이 mem0) |
+
+### owner_id와 created_by는 다르다 (자주 헷갈리는 지점)
+
+| | `owner_id` (6테이블 + `sessions.user_id`) | `created_by` (27테이블 전부) |
+|---|---|---|
+| 뜻 | **현재 소유자** — 이전될 수 있다 | **최초 생성자** — 불변 |
+| 값 | auth User **UUID** 문자열 | 이메일 **로컬파트**(또는 `system`/`unknown`) |
+| 쓰임 | **인가 판정**(볼 수 있나·고칠 수 있나) | **감사**(누가 만들었나) |
+
+`message_feedback`은 원래 작성자 컬럼을 `created_by`라 불렀는데, 343의 감사 컬럼과 **이름만 같고
+개념이 달라** `owner_id`로 개명했다(다른 테이블과 같은 이름·같은 값 형식). 인가에 `created_by`를
+쓰면 안 된다 — 소유권이 이전되면 거짓말이 된다.
 
 ## 7. 라이프사이클 주의점
 
@@ -388,3 +420,9 @@ ERD에 선이 없다고 관계가 없는 게 아니다. 아래는 코드가 문�
 - **벡터 차원은 생성 시 고정**된다(`collections.dims`, `mem0_memories.vector`, `rag_chunks.embedding`
   모두 1024). 차원이 다른 임베딩 모델로 바꾸려면 재인덱싱이 아니라 저장 구조 재설계가 필요하다.
 - **RAG 수정은 전체 교체 → 재인덱싱**이다(부분 행 편집 없음 — 원본 `document_blobs`와의 동기화 때문).
+- **감사 컬럼은 DB가 강제하지 않는다**(트리거 없음 — 스펙 343). 앱을 거치는 모든 경로(ORM·Core
+  `insert()`/`update()`)는 자동으로 채워지지만, **raw `text()` SQL이나 `.values(created_by=…)`로
+  대놓고 덮어쓰면 DB가 막지 못한다**. 그 우회가 코드에 없다는 것은 상주 스캔 테스트(verify_343
+  V9·V10·V11)가 지킨다 — 새 코드가 우회를 들이면 그 테스트가 실패한다.
+- **백필은 27테이블 full-table UPDATE**였다(마이그레이션 `a7f3c9e21b4d`). 현 규모(수천 행)에선
+  무해하나 **운영 규모에선 배치 백필·`lock_timeout`이 필요**하다.
