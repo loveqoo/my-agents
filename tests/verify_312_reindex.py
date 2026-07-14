@@ -101,8 +101,15 @@ async def main() -> None:
             f"/collections/{cid}/documents",
             files={"file": ("reindex.txt", DOC, "text/plain")},
         )
-        check(r.status_code == 201, f"문서 인제스트({r.status_code})")
-        base_chunks = r.json().get("chunk_count", 0)
+        check(r.status_code == 201, f"문서 인제스트 접수({r.status_code})")
+        # 스펙 334: 인제스트=배경 — ready까지 폴링 후 청크 수 채집(구 "즉시 ready" 전제 폐기).
+        base_chunks = 0
+        for _ in range(100):
+            rows = (await c.get(f"/collections/{cid}/documents")).json()["items"]
+            if rows and rows[0]["status"] in ("ready", "error"):
+                base_chunks = rows[0]["chunk_count"]
+                break
+            await asyncio.sleep(0.3)
         check(base_chunks >= 2, f"초기 청크 수 {base_chunks}(≥2 — 재청킹 대비)")
 
         # ⑦ 원본 blob 저장 확인
@@ -224,7 +231,13 @@ async def main() -> None:
         r = await c.get(f"/collections/{cid}/reindex-events")
         check(r.status_code == 200, f"이력 엔드포인트({r.status_code})")
         events = r.json()
-        check(len(events) >= 2, f"이력 {len(events)}건 기록(재청킹+모델교체)")
+        # 기대 이력 수는 **실행된 다리 수에 연동**(게이트 드리프트 정비, 2026-07-14) — 모델 교체
+        # 다리는 rapid-mlx 없으면 스킵되는데 고정 2건을 기대하면 일회용 DB(mock만)에서 거짓 빨강.
+        expected_events = 1 + (1 if real_id else 0)  # 재청킹(항상) + 모델교체(조건)
+        check(
+            len(events) >= expected_events,
+            f"이력 {len(events)}건 기록(기대 ≥{expected_events} — 실행된 다리 수 연동)",
+        )
         if events:
             latest = events[0]
             print(f"  ..  최신 이력: {latest.get('from_model_name')}→{latest.get('to_model_name')} "

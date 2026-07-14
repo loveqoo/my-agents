@@ -76,9 +76,14 @@ SCENARIOS: list[dict] = [
          expect=[("text_nonempty",)]),
 
     # ── 노드형(스킬: pipeline) — 노드 도구/RAG/기억 + 오버라이드는 run.py 커스텀 ──
+    # 발화를 도구 기대와 정렬(게이트 정비 2026-07-14) — 구 발화("코드네임이 뭐야?")는 echo 요구가
+    # 노드 시스템 프롬프트에만 있어 qwen3.6이 상습 무시(강화 문구로도 0/6 실측). 사용자 발화가
+    # 직접 요구하면 결정적으로 호출(실측 — 모델은 유저 지시>노드 지시). 단언은 불변(커버리지 보존).
     dict(key="pipeline-rag-and-tool", agent="pipeline",
-         turns=["회사 표준 배포 코드네임이 뭐야?"],
-         expect=[("rag_called",), ("tool_called", "echo", 1), ("text_nonempty",)]),
+         turns=["회사 표준 배포 코드네임을 검색하고, echo 도구로 그 코드네임을 울려서 결과까지 보여줘."],
+         # text_contains 코드네임(codex 336 P2) — 도구명 카운트만으론 "아무거나 echo"도 통과.
+         # 검색 사실이 최종 답까지 관통했는지를 토큰으로 고정(커버리지 축소 방지).
+         expect=[("rag_called",), ("tool_called", "echo", 1), ("text_contains", "SUITE-FACT-ALPHA-7743"), ("text_nonempty",)]),
     dict(key="pipeline-override-temperature", agent="pipeline",
          overrides={"temperature": 0.3},
          turns=["안녕이라고 답해줘."],

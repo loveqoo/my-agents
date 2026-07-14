@@ -514,6 +514,43 @@ async def rediscover_mcp_server(
     return mcp_to_out(obj)
 
 
+def _validate_tool_testable(obj: McpServer, tool_name: str, confirm: bool) -> None:
+    """도구 시험 사전 검증(스펙 326) — 활성 도구·http transport·승인 정책 confirm 게이트.
+    승인 도구는 confirm 없이 400(시험 통로가 HIL을 소리 없이 우회하지 않게 백엔드 강제)."""
+    if tool_name not in (obj.enabled_tools or []):
+        raise HTTPException(status_code=400, detail=f"활성 도구가 아닙니다: {tool_name}")
+    if obj.transport != "http" or not (obj.url or obj.endpoint):
+        raise HTTPException(
+            status_code=400, detail="http transport + URL이 있는 서버만 시험할 수 있습니다."
+        )
+    approval = ((obj.tools_meta or {}).get(tool_name) or {}).get("approval") or {}
+    if approval.get("required") and not confirm:
+        raise HTTPException(
+            status_code=400,
+            detail="승인 정책이 걸린 도구입니다 — 부수효과를 확인하고 confirm으로 재시도하세요.",
+        )
+
+
+def _build_test_server(obj: McpServer, tool_name: str) -> dict:
+    """build_mcp_tools에 넘길 시험용 서버 dict(스펙 326) — 승인 래핑 비활성 사본(원본 무변경).
+    approval 키를 지우면 리졸버의 **레거시 폴백**(_APPROVAL_ACTIONS — delete_record 등)이 되살아나
+    그래프 밖 interrupt()로 터지므로, {required: False} **명시 덮어쓰기**로 꺼야 한다(스펙 177 우선순위).
+    시험은 confirm 게이트가 승인 역할을 대신한다."""
+    meta = dict(obj.tools_meta or {})
+    stripped_meta = {
+        t: {**(m or {}), "approval": {"required": False}} for t, m in meta.items()
+    } or {tool_name: {"approval": {"required": False}}}
+    token = None if crypto.is_masked(obj.auth) else crypto.decrypt(obj.auth)
+    return {
+        "name": obj.name,
+        "url": obj.url or obj.endpoint or "",
+        "transport": obj.transport or "http",
+        "enabled_tools": [tool_name],  # 시험 대상만 빌드(불필요 래핑 생략)
+        "auth_token": token,
+        "tools_meta": stripped_meta,
+    }
+
+
 @router.post("/mcp-servers/{id}/test-tool", response_model=McpToolTestOut)
 async def test_mcp_tool(
     id: uuid.UUID,
@@ -536,36 +573,8 @@ async def test_mcp_tool(
 
     obj = await get_or_404(session, McpServer, id)
     tool_name = (body.tool or "").strip()
-    if tool_name not in (obj.enabled_tools or []):
-        raise HTTPException(status_code=400, detail=f"활성 도구가 아닙니다: {tool_name}")
-    if obj.transport != "http" or not (obj.url or obj.endpoint):
-        raise HTTPException(
-            status_code=400, detail="http transport + URL이 있는 서버만 시험할 수 있습니다."
-        )
-
-    meta = dict(obj.tools_meta or {})
-    approval = (meta.get(tool_name) or {}).get("approval") or {}
-    if approval.get("required") and not body.confirm:
-        raise HTTPException(
-            status_code=400,
-            detail="승인 정책이 걸린 도구입니다 — 부수효과를 확인하고 confirm으로 재시도하세요.",
-        )
-    # 승인 래핑 비활성용 사본(원본 무변경): 시험은 위 confirm 게이트가 승인 역할을 대신한다.
-    # approval 키를 지우면 리졸버의 **레거시 폴백**(_APPROVAL_ACTIONS — delete_record 등)이 되살아나
-    # 그래프 밖 interrupt()로 터지므로, {required: False} **명시 덮어쓰기**로 꺼야 한다(스펙 177 우선순위).
-    stripped_meta = {
-        t: {**(m or {}), "approval": {"required": False}} for t, m in meta.items()
-    } or {tool_name: {"approval": {"required": False}}}
-
-    token = None if crypto.is_masked(obj.auth) else crypto.decrypt(obj.auth)
-    server = {
-        "name": obj.name,
-        "url": obj.url or obj.endpoint or "",
-        "transport": obj.transport or "http",
-        "enabled_tools": [tool_name],  # 시험 대상만 빌드(불필요 래핑 생략)
-        "auth_token": token,
-        "tools_meta": stripped_meta,
-    }
+    _validate_tool_testable(obj, tool_name, bool(body.confirm))
+    server = _build_test_server(obj, tool_name)
     calls_sink: list[dict] = []
     tools = await build_mcp_tools([server], calls_sink)
     if not tools:

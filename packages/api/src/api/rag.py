@@ -501,44 +501,30 @@ async def _do_reindex(
     return total
 
 
-@router.post("/{cid}/reindex", response_model=CollectionOut)
-async def reindex_collection(
-    cid: uuid.UUID,
-    body: ReindexIn,
-    session: AsyncSession = Depends(get_session),
-    principal: User | str = Depends(current_principal),
-) -> CollectionOut:
-    """컬렉션 재인덱싱(스펙 312) — 임베딩 모델 교체(같은 차원 1024)와/또는 청크 크기·겹침 재청킹.
-    재인덱싱 중 배타 잠금(다른 접근 409). 평가 이력은 보존(건드리지 않음)."""
-    c = await _load_collection(session, cid)
-    if c is None:
-        raise HTTPException(status_code=404, detail="not found")
-    assert_may_manage(c, principal)  # 소유자/특권만(스펙 112)
-    _reject_if_reindexing(c)  # 이미 잠김이면 조기 거절(CAS로도 막지만 명확 메시지)
+async def _resolve_reindex_model(
+    session: AsyncSession, c: Collection, body: ReindexIn
+) -> tuple[ModelConfig, uuid.UUID, bool]:
+    """모델 교체 요청 해석+검증(스펙 312) → (대상 모델, 대상 id, 변경 여부).
+    미지정이면 현 모델 유지. 차원은 probe 실측으로 저장소(1024)와 일치해야(가드1 재사용)."""
+    if body.embedding_model_id is None:
+        return c.embedding_model, c.embedding_model_id, False
+    m = await _embedding_model(session, body.embedding_model_id)
+    if m is None:
+        raise HTTPException(status_code=400, detail="임베딩 모델을 찾을 수 없습니다.")
+    if m.kind != "embedding":
+        raise HTTPException(status_code=400, detail="임베딩(kind=embedding) 모델만 쓸 수 있습니다.")
+    if m.provider is not None:  # 같은 차원(1024)만 — probe 실측
+        probe = await _probe(
+            m.provider.base_url, crypto.decrypt(m.provider.api_key), m.model_id, "embedding"
+        )
+        msg = _dim_mismatch(probe.dims, RAG_EMBED_DIMS)
+        if msg:
+            raise HTTPException(status_code=409, detail=msg)
+    return m, m.id, body.embedding_model_id != c.embedding_model_id
 
-    # ── 변경 요청 해석 + 검증 ──
-    model_change = (
-        body.embedding_model_id is not None and body.embedding_model_id != c.embedding_model_id
-    )
-    target_model = c.embedding_model
-    target_model_id = c.embedding_model_id
-    if body.embedding_model_id is not None:
-        m = await _embedding_model(session, body.embedding_model_id)
-        if m is None:
-            raise HTTPException(status_code=400, detail="임베딩 모델을 찾을 수 없습니다.")
-        if m.kind != "embedding":
-            raise HTTPException(
-                status_code=400, detail="임베딩(kind=embedding) 모델만 쓸 수 있습니다."
-            )
-        if m.provider is not None:  # 같은 차원(1024)만 — probe 실측(가드1 재사용)
-            probe = await _probe(
-                m.provider.base_url, crypto.decrypt(m.provider.api_key), m.model_id, "embedding"
-            )
-            msg = _dim_mismatch(probe.dims, RAG_EMBED_DIMS)
-            if msg:
-                raise HTTPException(status_code=409, detail=msg)
-        target_model, target_model_id = m, m.id
 
+def _resolve_rechunk(c: Collection, body: ReindexIn) -> tuple[bool, int, int]:
+    """재청킹 요청 해석+검증(스펙 312) → (변경 여부, 새 크기, 새 겹침). 엔티티는 재청킹 불가."""
     rechunk = body.chunk_size is not None or body.chunk_overlap is not None
     new_size = body.chunk_size if body.chunk_size is not None else c.chunk_size
     new_overlap = body.chunk_overlap if body.chunk_overlap is not None else c.chunk_overlap
@@ -547,18 +533,18 @@ async def reindex_collection(
             status_code=400,
             detail="청크 크기·겹침 재인덱싱은 문서형 컬렉션만 가능합니다(엔티티는 1행=1청크).",
         )
-    chunk_change = rechunk and (new_size != c.chunk_size or new_overlap != c.chunk_overlap)
+    return (
+        rechunk and (new_size != c.chunk_size or new_overlap != c.chunk_overlap),
+        new_size,
+        new_overlap,
+    )
 
-    if not model_change and not chunk_change:
-        raise HTTPException(
-            status_code=400,
-            detail="변경할 내용이 없습니다(모델 또는 청크 크기·겹침 중 하나는 현재와 달라야 합니다).",
-        )
 
-    # 인제스트 진행 중(parsing **또는 embedding** — 스펙 334 배경 잡, codex 334 P1)이면 거절.
-    # embedding을 빼면: 배경 잡이 임베딩하는 동안 재인덱싱이 시작·완료(락 해제)된 뒤 늦은
-    # _persist_chunks가 조건부 UPDATE(status != reindexing)를 통과해 옛 모델 벡터/중복 청크가
-    # 스왑 밖에 커밋된다. (사전 검사~CAS 사이 미시 경합 창은 정직 경계 — 단일 프로세스 dev 도구.)
+async def _reject_inflight_ingest(session: AsyncSession, cid: uuid.UUID) -> None:
+    """인제스트 진행 중(parsing **또는 embedding** — 스펙 334 배경 잡, codex 334 P1)이면 409.
+    embedding을 빼면: 배경 잡이 임베딩하는 동안 재인덱싱이 시작·완료(락 해제)된 뒤 늦은
+    _persist_chunks가 조건부 UPDATE(status != reindexing)를 통과해 옛 모델 벡터/중복 청크가
+    스왑 밖에 커밋된다. (사전 검사~CAS 사이 미시 경합 창은 정직 경계 — 단일 프로세스 dev 도구.)"""
     in_flight = await session.scalar(
         select(func.count())
         .select_from(Document)
@@ -569,35 +555,62 @@ async def reindex_collection(
             status_code=409, detail="인제스트가 진행 중입니다 — 완료 후 다시 시도하세요."
         )
 
-    # 재청킹인데 원본 없는 문서가 있으면 거절(no silent — 어느 문서가 못 되는지 표기).
-    if chunk_change:
-        docs = (
-            await session.execute(
-                select(Document.id, Document.filename).where(Document.collection_id == cid)
-            )
-        ).all()
-        have = (
-            set(
-                (
-                    await session.execute(
-                        select(DocumentBlob.document_id).where(
-                            DocumentBlob.document_id.in_([d.id for d in docs])
-                        )
-                    )
-                )
-                .scalars()
-                .all()
-            )
-            if docs
-            else set()
+
+async def _reject_blobless_docs(session: AsyncSession, cid: uuid.UUID) -> None:
+    """재청킹 전제 검증(스펙 312) — 원본 blob 없는 문서가 있으면 400(no silent, 어느 문서인지 표기)."""
+    docs = (
+        await session.execute(
+            select(Document.id, Document.filename).where(Document.collection_id == cid)
         )
-        missing = [d.filename for d in docs if d.id not in have]
-        if missing:
-            shown = ", ".join(missing[:5]) + (" 외" if len(missing) > 5 else "")
-            raise HTTPException(
-                status_code=400,
-                detail=f"원본이 저장되지 않은 문서가 있어 재청킹할 수 없습니다({shown}). 재업로드가 필요합니다.",
+    ).all()
+    if not docs:
+        return
+    have = set(
+        (
+            await session.execute(
+                select(DocumentBlob.document_id).where(
+                    DocumentBlob.document_id.in_([d.id for d in docs])
+                )
             )
+        )
+        .scalars()
+        .all()
+    )
+    missing = [d.filename for d in docs if d.id not in have]
+    if missing:
+        shown = ", ".join(missing[:5]) + (" 외" if len(missing) > 5 else "")
+        raise HTTPException(
+            status_code=400,
+            detail=f"원본이 저장되지 않은 문서가 있어 재청킹할 수 없습니다({shown}). 재업로드가 필요합니다.",
+        )
+
+
+@router.post("/{cid}/reindex", response_model=CollectionOut)
+async def reindex_collection(
+    cid: uuid.UUID,
+    body: ReindexIn,
+    session: AsyncSession = Depends(get_session),
+    principal: User | str = Depends(current_principal),
+) -> CollectionOut:
+    """컬렉션 재인덱싱(스펙 312) — 임베딩 모델 교체(같은 차원 1024)와/또는 청크 크기·겹침 재청킹.
+    재인덱싱 중 배타 잠금(다른 접근 409). 평가 이력은 보존(건드리지 않음).
+    검증 4블록은 헬퍼로 분해(복잡도 게이트 rank D → 정비, 2026-07-14 — 시맨틱 불변)."""
+    c = await _load_collection(session, cid)
+    if c is None:
+        raise HTTPException(status_code=404, detail="not found")
+    assert_may_manage(c, principal)  # 소유자/특권만(스펙 112)
+    _reject_if_reindexing(c)  # 이미 잠김이면 조기 거절(CAS로도 막지만 명확 메시지)
+
+    target_model, target_model_id, model_change = await _resolve_reindex_model(session, c, body)
+    chunk_change, new_size, new_overlap = _resolve_rechunk(c, body)
+    if not model_change and not chunk_change:
+        raise HTTPException(
+            status_code=400,
+            detail="변경할 내용이 없습니다(모델 또는 청크 크기·겹침 중 하나는 현재와 달라야 합니다).",
+        )
+    await _reject_inflight_ingest(session, cid)
+    if chunk_change:
+        await _reject_blobless_docs(session, cid)
 
     # ── 잠금 획득(CAS) → 원자 재인덱싱 → 해제(try/finally 결) ──
     from_model = c.embedding_model

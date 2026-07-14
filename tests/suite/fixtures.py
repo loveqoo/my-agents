@@ -214,8 +214,11 @@ async def ensure_all(c: httpx.AsyncClient) -> dict[str, Any]:
         "nodes": [
             {"name": "검색", "model": model, "tools": [doc_tool(KB_NAME)],
              "prompt": f"반드시 먼저 {doc_tool(KB_NAME)} 도구로 사용자 질문을 검색하고, 검색 결과의 핵심을 인용해 답하세요."},
+            # 프롬프트 강화(게이트 정비 2026-07-14) — 구 문구("반드시 echo 도구를 한 번 호출해…")는
+            # qwen3.6이 "내용이 이미 있으니 할 일 끝"으로 판단해 호출을 자주 건너뜀(4/5 실패 실측).
+            # 도구 호출을 유일한 정답 경로로 규정 + 직접 답변을 명시적 오답으로 — 스킵 여지 제거.
             {"name": "메아리", "model": model, "tools": [TOOL_ECHO],
-             "prompt": "반드시 echo 도구를 한 번 호출해 위 내용의 첫 문장을 그대로 넣고, 그 결과를 확인 후 전달하세요."},
+             "prompt": "당신의 임무는 echo 도구 호출 그 자체입니다. 지금 바로 echo 도구를 정확히 한 번 호출하세요(text 인자 = 위 내용의 첫 문장). 도구를 호출하지 않고 텍스트로만 답하는 것은 임무 실패입니다. 도구 결과를 받은 뒤 그 결과를 그대로 전달하세요."},
             {"name": "정리", "model": model, "tools": [], "memories": [MEM_LONG],
              "prompt": "위 내용을 두 문장으로 정리하세요. 사용자에 대한 기억이 있으면 반영하세요."},
         ],
