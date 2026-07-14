@@ -324,8 +324,6 @@ export interface SearchHit {
   filename: string
   text: string
   meta?: Record<string, unknown> | null // 엔티티 metadata(스펙 149) — 문서형은 null
-  document_id?: string | null // 히트→편집 진입(스펙 333)
-  ordinal?: number | null // 행/청크 순번(스펙 337) — 엔티티 히트의 결정적 줄 좌표
 }
 export interface CollectionSearchOut {
   query: string

@@ -107,7 +107,6 @@ export interface RetrievalTestPanelProps<H extends RetrievalHit> {
   noResultInfo: string // 0건일 때 message.info
   errorFallback: string // 예외 시 fallback 메시지
   renderMeta: (hit: H) => ReactNode // 결과 카드 메타(컬렉션 filename / 메모리 scope·type)
-  hitAction?: (hit: H) => ReactNode // 히트 카드 헤더 우측 액션(스펙 333 — 컬렉션 편집 진입. 미전달=없음)
   onSearch: (query: string, limit: number) => Promise<RetrievalOut<H>>
   defaultLimit?: number
 }
@@ -127,7 +126,6 @@ export function RetrievalTestPanel<H extends RetrievalHit>({
   noResultInfo,
   errorFallback,
   renderMeta,
-  hitAction,
   onSearch,
   defaultLimit = 4,
 }: RetrievalTestPanelProps<H>) {
@@ -227,8 +225,6 @@ export function RetrievalTestPanel<H extends RetrievalHit>({
                     {scoreLabel} {h.score.toFixed(3)}
                   </Tag>
                   {renderMeta(h)}
-                  {/* 히트 액션(스펙 333) — 컬렉션 어댑터가 편집 진입 버튼을 주입. 우측 끝 정렬. */}
-                  {hitAction ? <span style={{ marginLeft: 'auto' }}>{hitAction(h)}</span> : null}
                 </div>
                 {(() => {
                   // 엔티티 직렬화 원문(스펙 254, 사용자: 빈 라벨 나열이 불편) — 값 있는 필드만 표로,

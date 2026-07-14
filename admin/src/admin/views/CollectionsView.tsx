@@ -770,18 +770,13 @@ function DocsDrawer({
 function SearchDrawer({
   collection,
   onClose,
-  onChanged,
 }: {
   collection: Collection | null
   onClose: () => void
-  onChanged?: () => void // 히트 편집 저장 후 컬렉션 카운트 갱신(스펙 333)
 }) {
   const ready = collection?.status === 'ready'
-  // 히트→즉시 편집(스펙 333): 검색해 보니 이 청크/행이 이상함 → 그 자리에서 교정. 히트의
-  // document_id로 합성 doc을 만들어 에디터를 열고, locate=히트 텍스트로 그 지점에 선택+스크롤.
-  const [editHit, setEditHit] = useState<SearchHit | null>(null)
+  // 히트→즉시 편집(스펙 333·337)은 스펙 338에서 제거 — 편집 진입은 문서 목록으로 일원화(사용자 결정).
   return (
-    <>
     <RetrievalTestDrawer<SearchHit>
       open={!!collection}
       title={collection ? `검색 시험 · ${collection.name}` : ''}
@@ -820,38 +815,7 @@ function SearchDrawer({
       renderMeta={(h) => (
         <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)', wordBreak: 'break-all' }}>{h.filename}</span>
       )}
-      hitAction={
-        collection?.can_manage !== false
-          ? (h) =>
-              h.document_id ? (
-                <Tooltip title="이 내용을 바로 편집합니다 — 바뀐 부분만 다시 임베딩">
-                  <Button type="text" size="small" icon={<Icon name="edit" />} onClick={() => setEditHit(h)} />
-                </Tooltip>
-              ) : null
-          : undefined
-      }
     />
-    {collection ? (
-      <DocumentEditorModal
-        collectionId={collection.id}
-        entity={collection.kind === 'entity'}
-        doc={
-          editHit?.document_id
-            ? ({ id: editHit.document_id, filename: editHit.filename } as RagDocument)
-            : null
-        }
-        // 엔티티=ordinal 줄 좌표(스펙 337 — 객체 data 행은 히트 텍스트가 원문에 없어 매칭 불가),
-        // 문서형=텍스트 매칭(청크는 원문 부분 문자열).
-        locate={collection.kind === 'entity' ? undefined : editHit?.text}
-        locateLine={collection.kind === 'entity' ? editHit?.ordinal : undefined}
-        onClose={() => setEditHit(null)}
-        onSaved={() => {
-          onChanged?.()
-          message.info('저장됐습니다 — 다시 검색해 반영을 확인하세요')
-        }}
-      />
-    ) : null}
-    </>
   )
 }
 
@@ -1158,7 +1122,7 @@ export default function CollectionsView({ onEvaluate }: { onEvaluate?: (cid: str
         onDone={reload}
       />
 
-      <SearchDrawer collection={searchFor} onClose={() => setSearchFor(null)} onChanged={reload} />
+      <SearchDrawer collection={searchFor} onClose={() => setSearchFor(null)} />
 
       <Modal
         open={!!confirmDel}
