@@ -66,6 +66,7 @@ async def _load_schedules(scheduler: AsyncIOScheduler) -> None:
     _register(scheduler, "token-cleanup", cfg.token_cleanup_cron if cfg else None)
     _register(scheduler, "approval-cleanup", cfg.approval_cleanup_cron if cfg else None)
     _register(scheduler, "history-cleanup", cfg.history_cleanup_cron if cfg else None)
+    _register(scheduler, "memory-cleanup", cfg.memory_cleanup_cron if cfg else None)
 
 
 async def _try_become_leader() -> bool:

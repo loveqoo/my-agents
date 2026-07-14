@@ -145,6 +145,45 @@ function summarize(r: BatchRun): React.ReactNode {
       )
     return <code style={{ fontSize: 12 }}>{JSON.stringify(s)}</code>
   }
+  if (r.job_name === 'history-cleanup') {
+    // 실행 이력 회수(스펙 351) — eval_runs·batch_runs·memory_snapshots 테이블별 내역을 함께 표기.
+    if (st === 'disabled') return <Tag>비활성(보존기간 미설정)</Tag>
+    const by = s.by_table as Record<string, unknown> | undefined
+    const byTxt = by
+      ? ` (eval_runs ${String(by.eval_runs ?? 0)} · batch_runs ${String(by.batch_runs ?? 0)} · memory_snapshots ${String(by.memory_snapshots ?? 0)})`
+      : ''
+    if (st === 'dry_run')
+      return (
+        <span>
+          <Tag color="geekblue">dry-run</Tag>
+          정리 예정 {String(s.would_delete ?? '?')}건{byTxt}
+        </span>
+      )
+    if (st === 'ok')
+      return (
+        <span>
+          정리 {String(s.deleted ?? '?')}건{byTxt}
+        </span>
+      )
+    return <code style={{ fontSize: 12 }}>{JSON.stringify(s)}</code>
+  }
+  if (r.job_name === 'memory-cleanup') {
+    // 도달 불가 기억 회수(스펙 352) — reclaim_unreachable 계약상 dry-run도 status:'ok'로 오므로
+    // (다른 잡들처럼 status:'dry_run'이 아님) 표시는 BatchRun.dry_run 플래그로 구분한다.
+    if (st === 'disabled') return <Tag>비활성(유예기간 미설정)</Tag>
+    if (r.dry_run)
+      return (
+        <span>
+          <Tag color="geekblue">dry-run</Tag>
+          회수 예정 {String(s.would_delete ?? '?')}건 · 유예 {String(s.grace_days ?? '?')}일
+        </span>
+      )
+    return (
+      <span>
+        회수 {String(s.deleted ?? '?')}건 · 유예 {String(s.grace_days ?? '?')}일
+      </span>
+    )
+  }
   // session-cleanup — 나이·턴 기준의 합집합(스펙 049)이라 활성 기준만 골라 표기.
   const crit = [
     s.retention_days != null ? `보존 ${String(s.retention_days)}일` : null,
@@ -189,17 +228,39 @@ export default function BatchView() {
   // approval-cleanup — 대기 중인 승인은 절대 대상 아님, 처리된 승인만 보존기간 지나면 정리.
   const [apprDays, setApprDays] = useState<number | null>(null)
   const [apprCron, setApprCron] = useState<string>('')
+  // history-cleanup (스펙 351) — 실행 이력(eval_runs·batch_runs·memory_snapshots) 보존정리.
+  const [historyDays, setHistoryDays] = useState<number | null>(null)
+  const [historyCron, setHistoryCron] = useState<string>('')
+  // memory-cleanup (스펙 352) — 도달 불가(유령) 기억 회수, 유예기간 뒤.
+  const [memGraceDays, setMemGraceDays] = useState<number | null>(null)
+  const [memCleanupCron, setMemCleanupCron] = useState<string>('')
 
   const [runs, setRuns] = useState<BatchRun[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState<
-    'session' | 'memory' | 'user' | 'checkpoint' | 'token' | 'approval' | null
+    | 'session'
+    | 'memory'
+    | 'user'
+    | 'checkpoint'
+    | 'token'
+    | 'approval'
+    | 'history'
+    | 'memoryCleanup'
+    | null
   >(null)
   const [busy, setBusy] = useState<string | null>(null) // `${job}:${dry|run}`
   // 스펙 227: 네 잡을 세로 나열 → 탭(각 잡은 설정 폼·동작이 다른 별개 도구, 탭 규칙 스펙 212).
   // 실행 이력은 공용이라 탭 아래 공통. 입력 상태는 컴포넌트 상태라 탭 전환에도 보존.
   const [job, setJob] = useState<
-    'session' | 'memory' | 'a2a' | 'user' | 'checkpoint' | 'token' | 'approval'
+    | 'session'
+    | 'memory'
+    | 'a2a'
+    | 'user'
+    | 'checkpoint'
+    | 'token'
+    | 'approval'
+    | 'history'
+    | 'memCleanup'
   >('session')
 
   const loadRuns = useCallback(async () => {
@@ -223,6 +284,10 @@ export default function BatchView() {
     setTokenCron(c.token_cleanup_cron ?? '')
     setApprDays(c.approval_retention_days)
     setApprCron(c.approval_cleanup_cron ?? '')
+    setHistoryDays(c.history_retention_days)
+    setHistoryCron(c.history_cleanup_cron ?? '')
+    setMemGraceDays(c.memory_orphan_grace_days)
+    setMemCleanupCron(c.memory_cleanup_cron ?? '')
   }, [])
 
   const load = useCallback(async () => {
@@ -265,8 +330,26 @@ export default function BatchView() {
     cfg !== null &&
     (apprDays !== cfg.approval_retention_days ||
       (apprCron || null) !== (cfg.approval_cleanup_cron || null))
+  const historyDirty =
+    cfg !== null &&
+    (historyDays !== cfg.history_retention_days ||
+      (historyCron || null) !== (cfg.history_cleanup_cron || null))
+  const memoryCleanupDirty =
+    cfg !== null &&
+    (memGraceDays !== cfg.memory_orphan_grace_days ||
+      (memCleanupCron || null) !== (cfg.memory_cleanup_cron || null))
 
-  const save = async (which: 'session' | 'memory' | 'user' | 'checkpoint' | 'token' | 'approval') => {
+  const save = async (
+    which:
+      | 'session'
+      | 'memory'
+      | 'user'
+      | 'checkpoint'
+      | 'token'
+      | 'approval'
+      | 'history'
+      | 'memoryCleanup',
+  ) => {
     setSaving(which)
     const body =
       which === 'session'
@@ -292,7 +375,17 @@ export default function BatchView() {
                     approval_retention_days: apprDays,
                     approval_cleanup_cron: apprCron.trim() || null,
                   }
-                : { test_user_email_pattern: userPattern.trim() || null }
+                : which === 'history'
+                  ? {
+                      history_retention_days: historyDays,
+                      history_cleanup_cron: historyCron.trim() || null,
+                    }
+                  : which === 'memoryCleanup'
+                    ? {
+                        memory_orphan_grace_days: memGraceDays,
+                        memory_cleanup_cron: memCleanupCron.trim() || null,
+                      }
+                    : { test_user_email_pattern: userPattern.trim() || null }
     // 백엔드 422(전체 삭제 패턴 거부 등) 포함.
     await runWithToast(async () => applyCfg(await updateBatchConfig(body)), {
       success: '배치 설정을 저장했습니다',
@@ -322,7 +415,11 @@ export default function BatchView() {
                 ? '수명 설정(AUTH_SESSION_LIFETIME) 오류로 작업이 비활성 상태입니다'
                 : job === 'approval-cleanup'
                   ? '보존기간이 설정되지 않아 작업이 비활성 상태입니다'
-                  : '보존일수가 설정되지 않아 작업이 비활성 상태입니다',
+                  : job === 'history-cleanup'
+                    ? '보존기간이 설정되지 않아 작업이 비활성 상태입니다'
+                    : job === 'memory-cleanup'
+                      ? '유예기간이 설정되지 않아 작업이 비활성 상태입니다'
+                      : '보존일수가 설정되지 않아 작업이 비활성 상태입니다',
         )
       } else if (job === 'memory-consolidation') {
         if (dryRun)
@@ -371,6 +468,24 @@ export default function BatchView() {
           dryRun
             ? `dry-run 완료 — 삭제 예정 ${String(s?.would_delete ?? 0)}건 · 대기 ${prot}건은 보호됨(실삭제 없음)`
             : `실행 완료 — ${String(s?.deleted ?? 0)}건 삭제 · 대기 ${prot}건은 보호됨`,
+        )
+      } else if (job === 'history-cleanup') {
+        const by = s?.by_table as Record<string, unknown> | undefined
+        const byTxt = by
+          ? ` (eval_runs ${String(by.eval_runs ?? 0)} · batch_runs ${String(by.batch_runs ?? 0)} · memory_snapshots ${String(by.memory_snapshots ?? 0)})`
+          : ''
+        message.success(
+          dryRun
+            ? `dry-run 완료 — 정리 예정 ${String(s?.would_delete ?? 0)}건${byTxt}(실삭제 없음)`
+            : `실행 완료 — ${String(s?.deleted ?? 0)}건 정리${byTxt}`,
+        )
+      } else if (job === 'memory-cleanup') {
+        // reclaim_unreachable은 dry-run도 status:'ok'로 응답(계약) — 여기선 트리거 호출의 dryRun
+        // 인자로 문구를 가른다(요약 status로는 구분 불가).
+        message.success(
+          dryRun
+            ? `dry-run 완료 — 회수 예정 ${String(s?.would_delete ?? 0)}건 · 유예 ${String(s?.grace_days ?? '?')}일(실삭제 없음)`
+            : `실행 완료 — ${String(s?.deleted ?? 0)}건 회수 · 유예 ${String(s?.grace_days ?? '?')}일`,
         )
       } else if (dryRun) {
         message.success(`dry-run 완료 — 삭제 예정 ${String(s?.would_delete ?? 0)}건(실삭제 없음)`)
@@ -480,6 +595,8 @@ export default function BatchView() {
           { key: 'checkpoint', label: '체크포인트' },
           { key: 'token', label: '토큰' },
           { key: 'approval', label: '승인' },
+          { key: 'history', label: '실행 이력' },
+          { key: 'memCleanup', label: '기억 정리' },
         ]}
         style={{ marginBottom: 12 }}
       />
@@ -972,6 +1089,160 @@ export default function BatchView() {
             </Popconfirm>
           </Space>
           {approvalDirty && (
+            <span style={{ marginInlineStart: 12, color: 'var(--gold-6, #d48806)', fontSize: 13 }}>
+              저장하지 않은 변경이 있습니다.
+            </span>
+          )}
+        </div>
+      </Panel>
+      )}
+
+      {/* 실행 이력 회수 (스펙 351) — eval_runs·batch_runs·memory_snapshots 보존정리, 문제집별 최근 10런 예외 */}
+      {job === 'history' && (
+      <Panel style={{ padding: 20, marginBottom: 20 }}>
+        {/* 탭이 곧 제목(스펙 250 #7) — 반복 어구 제거, 잡 식별자(코드명)만 유지(서버 로그 대조용). */}
+        <code style={{ fontFamily: 'var(--font-family-code)', fontSize: 12, color: 'var(--color-text-quaternary)' }}>history-cleanup</code>
+        <div style={{ color: 'var(--color-text-tertiary)', fontSize: 13, marginBottom: 16 }}>
+          평가 런·배치 실행 기록·메모리 스냅샷을 보존기간 뒤 회수합니다. 문제집별 <b>최근 10런은 나이와
+          무관하게 보존</b>해 성적 추이 그래프가 끊기지 않습니다.
+        </div>
+        <Form layout="vertical" component="div">
+          <Form.Item
+            label="보존일수"
+            style={{ marginBottom: 12 }}
+            extra={historyDays == null ? '비활성 — 삭제하지 않음' : `${historyDays}일 이전 기록 정리(문제집별 최근 10런 제외)`}
+          >
+            <InputNumber
+              min={1}
+              max={3650}
+              value={historyDays ?? undefined}
+              onChange={(v) => setHistoryDays(v ?? null)}
+              placeholder="비활성"
+              addonAfter="일"
+              style={{ width: 160 }}
+            />
+          </Form.Item>
+          <Form.Item
+            label="스케줄(cron)"
+            style={{ marginBottom: 0 }}
+            extra="격리 배치 서비스(batch serve)가 이 cron으로 자동 실행합니다."
+          >
+            <Input
+              value={historyCron}
+              onChange={(e) => setHistoryCron(e.target.value)}
+              placeholder="예: 0 4 * * *  (비우면 자동 실행 안 함)"
+              style={{ maxWidth: 280, fontFamily: 'var(--font-mono, monospace)' }}
+            />
+          </Form.Item>
+        </Form>
+        <div style={{ marginTop: 16 }}>
+          <Space wrap>
+            <Button
+              type="primary"
+              onClick={() => void save('history')}
+              loading={saving === 'history'}
+              disabled={!historyDirty}
+            >
+              설정 저장
+            </Button>
+            <Button
+              onClick={() => void trigger('history-cleanup', true)}
+              loading={busy === 'history-cleanup:dry'}
+              disabled={busy !== null}
+            >
+              Dry-run (미리보기)
+            </Button>
+            <Popconfirm
+              title="지금 실행하시겠습니까?"
+              description="보존기간이 지난 평가 런·배치 실행 기록·메모리 스냅샷을 실제로 삭제합니다(문제집별 최근 10런은 제외). 되돌릴 수 없습니다."
+              okText="실행"
+              cancelText="취소"
+              okButtonProps={{ danger: true }}
+              onConfirm={() => void trigger('history-cleanup', false)}
+            >
+              <Button danger loading={busy === 'history-cleanup:run'} disabled={busy !== null}>
+                지금 실행
+              </Button>
+            </Popconfirm>
+          </Space>
+          {historyDirty && (
+            <span style={{ marginInlineStart: 12, color: 'var(--gold-6, #d48806)', fontSize: 13 }}>
+              저장하지 않은 변경이 있습니다.
+            </span>
+          )}
+        </div>
+      </Panel>
+      )}
+
+      {/* 기억 정리 (스펙 352) — 도달 불가(유령) 기억만 회수, 살아있는 유저의 기억은 대상 아님 */}
+      {job === 'memCleanup' && (
+      <Panel style={{ padding: 20, marginBottom: 20 }}>
+        {/* 탭이 곧 제목(스펙 250 #7) — 반복 어구 제거, 잡 식별자(코드명)만 유지(서버 로그 대조용). */}
+        <code style={{ fontFamily: 'var(--font-family-code)', fontSize: 12, color: 'var(--color-text-quaternary)' }}>memory-cleanup</code>
+        <div style={{ color: 'var(--color-text-tertiary)', fontSize: 13, marginBottom: 16 }}>
+          유저·세션·에이전트가 모두 사라져 <b>아무도 다시 볼 수 없는 기억</b>만 회수합니다. 살아있는
+          유저의 기억은 지우지 않습니다.
+        </div>
+        <Form layout="vertical" component="div">
+          <Form.Item
+            label="유예기간"
+            style={{ marginBottom: 12 }}
+            extra={memGraceDays == null ? '비활성 — 회수하지 않음' : `${memGraceDays}일 유예 뒤 도달 불가 기억 회수`}
+          >
+            <InputNumber
+              min={1}
+              max={3650}
+              value={memGraceDays ?? undefined}
+              onChange={(v) => setMemGraceDays(v ?? null)}
+              placeholder="비활성"
+              addonAfter="일"
+              style={{ width: 160 }}
+            />
+          </Form.Item>
+          <Form.Item
+            label="스케줄(cron)"
+            style={{ marginBottom: 0 }}
+            extra="격리 배치 서비스(batch serve)가 이 cron으로 자동 실행합니다."
+          >
+            <Input
+              value={memCleanupCron}
+              onChange={(e) => setMemCleanupCron(e.target.value)}
+              placeholder="예: 0 6 * * 0  (비우면 자동 실행 안 함)"
+              style={{ maxWidth: 280, fontFamily: 'var(--font-mono, monospace)' }}
+            />
+          </Form.Item>
+        </Form>
+        <div style={{ marginTop: 16 }}>
+          <Space wrap>
+            <Button
+              type="primary"
+              onClick={() => void save('memoryCleanup')}
+              loading={saving === 'memoryCleanup'}
+              disabled={!memoryCleanupDirty}
+            >
+              설정 저장
+            </Button>
+            <Button
+              onClick={() => void trigger('memory-cleanup', true)}
+              loading={busy === 'memory-cleanup:dry'}
+              disabled={busy !== null}
+            >
+              Dry-run (미리보기)
+            </Button>
+            <Popconfirm
+              title="지금 실행하시겠습니까?"
+              description="도달 불가(유령) 기억을 실제로 삭제합니다. 살아있는 유저의 기억은 대상이 아닙니다. 되돌릴 수 없습니다."
+              okText="실행"
+              cancelText="취소"
+              okButtonProps={{ danger: true }}
+              onConfirm={() => void trigger('memory-cleanup', false)}
+            >
+              <Button danger loading={busy === 'memory-cleanup:run'} disabled={busy !== null}>
+                지금 실행
+              </Button>
+            </Popconfirm>
+          </Space>
+          {memoryCleanupDirty && (
             <span style={{ marginInlineStart: 12, color: 'var(--gold-6, #d48806)', fontSize: 13 }}>
               저장하지 않은 변경이 있습니다.
             </span>

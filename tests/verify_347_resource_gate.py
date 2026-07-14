@@ -93,34 +93,57 @@ async def main() -> None:
     check(not extra, f"G1b 대장에 유령 테이블 없음 (models.py에 없는 키: {extra})")
 
     # ---- G2 회수 주체 실재
+    # 회수 경로가 **여럿**인 테이블이 있다(mem0: 고아 배치 + 유저 삭제 + 통합 배치). ` · `로 나열하고
+    # **모든 경로를 각각** 검사한다 — 첫 경로만 보면 뒤에 붙은 허수가 무사통과한다(스펙 352에서 발견).
+    # 괄호 주석(`batch:x(설명)`)은 대상 이름에서 벗겨낸다.
     ghosts = []
     for name, p in {**RP.TABLES, **RP.EXTERNAL}.items():
         if not p.by:
             continue
-        kind, _, target = p.by.partition(":")
-        if kind == "batch" and target not in JOBS:
-            ghosts.append(f"{name} → 없는 배치 잡 {target!r}")
-        elif kind == "cascade":
-            tb = Base.metadata.tables.get(name)
-            if tb is None:
-                continue  # EXTERNAL(우리 메타데이터 밖)은 FK 검사 불가
-            parents = {
-                fk.column.table.name
-                for c in tb.columns
-                for fk in c.foreign_keys
-                if fk.ondelete == "CASCADE"
-            }
-            if target not in parents:
-                ghosts.append(f"{name} → {target}에 CASCADE FK 없음(실제: {sorted(parents)})")
-        elif kind == "chokepoint":
-            mod, _, fn = target.rpartition(".")
-            try:
-                m = importlib.import_module(f"api.{mod}")
-                if not hasattr(m, fn):
-                    ghosts.append(f"{name} → 관문 심볼 {target} 없음")
-            except ImportError:
-                ghosts.append(f"{name} → 관문 모듈 {mod} 임포트 불가")
+        for path in p.by.split(" · "):
+            kind, _, raw = path.strip().partition(":")
+            target = raw.split("(")[0].strip()
+            if kind == "batch" and target not in JOBS:
+                ghosts.append(f"{name} → 없는 배치 잡 {target!r}")
+            elif kind == "cascade":
+                tb = Base.metadata.tables.get(name)
+                if tb is None:
+                    continue  # EXTERNAL(우리 메타데이터 밖)은 FK 검사 불가
+                parents = {
+                    fk.column.table.name
+                    for c in tb.columns
+                    for fk in c.foreign_keys
+                    if fk.ondelete == "CASCADE"
+                }
+                if target not in parents:
+                    ghosts.append(f"{name} → {target}에 CASCADE FK 없음(실제: {sorted(parents)})")
+            elif kind == "chokepoint":
+                mod, _, fn = target.rpartition(".")
+                try:
+                    m = importlib.import_module(f"api.{mod}")
+                    if not hasattr(m, fn):
+                        ghosts.append(f"{name} → 관문 심볼 {target} 없음")
+                except ImportError:
+                    ghosts.append(f"{name} → 관문 모듈 {mod} 임포트 불가")
     check(not ghosts, f"G2 회수 주체가 전부 실재(없는 청소부 가리키지 않음) (허수: {ghosts})")
+
+    # ---- G5 실 DB도 닫힌 집합 — 라이브러리가 몰래 만든 테이블까지 분류를 강요한다.
+    # models.py만 대조하면 **우리가 안 만든 테이블은 안 보인다**(mem0·langgraph·casbin이 스스로
+    # 만드는 것들). codex가 스펙 352 리뷰에서 짚은 사각: mem0가 설정에 따라 보조 테이블
+    # (`mem0_memories_entities` 등)을 더 만들면 대장은 그걸 모른 채 "누수 0"이라 말한다.
+    # 그래서 **살아있는 DB의 public 테이블 집합**을 직접 읽어 대장과 대조한다.
+    async with SessionLocal() as s:
+        live = set(
+            (
+                await s.execute(
+                    text("select tablename from pg_tables where schemaname = 'public'")
+                )
+            )
+            .scalars()
+            .all()
+        )
+    undeclared = sorted(live - (set(RP.TABLES) | set(RP.EXTERNAL)))
+    check(not undeclared, f"G5 실 DB의 모든 테이블이 대장에 있음 (미분류: {undeclared})")
 
     # ---- G3 자백 강제: leaking엔 fix_spec이 반드시 있다
     unowned = [n for n, p in RP.leaking().items() if not p.fix_spec]

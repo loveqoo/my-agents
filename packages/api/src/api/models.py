@@ -565,6 +565,10 @@ class BatchConfig(AuditMixin, Base):
     # 최근 10런을 나이와 무관하게 보존한다(성적 추이 앵커). NULL/<1이면 비활성.
     history_retention_days: Mapped[int | None] = mapped_column(Integer, default=90)
     history_cleanup_cron: Mapped[str | None] = mapped_column(String(120), default="0 5 * * *")
+    # 스펙 352 — mem0 도달 불가 기억(유령) 회수. 유예: 세션 행이 없는 살아있는 대화
+    # (persistHistory=false·서비스 프린시펄)를 유령으로 오판하지 않기 위한 창.
+    memory_orphan_grace_days: Mapped[int | None] = mapped_column(Integer, default=7)
+    memory_cleanup_cron: Mapped[str | None] = mapped_column(String(120), default="30 5 * * *")
 
 
 class MemorySnapshot(AuditMixin, Base):

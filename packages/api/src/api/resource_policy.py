@@ -117,9 +117,14 @@ EXTERNAL: dict[str, Policy] = {
     "checkpoint_blobs": Policy("reclaimed", by="chokepoint:checkpoint_retention.release_thread"),
     "checkpoint_migrations": Policy("bounded", note="langgraph 스키마 버전 행(유한)"),
     "mem0_memories": Policy(
-        "leaking",
-        note="턴마다 장기기억 추가(mem0). 회수는 memory-consolidation 배치뿐인데 기본 OFF + 배치 미가동",
-        fix_spec="352",
+        "user_data",
+        by="batch:memory-cleanup(도달 불가 고아) · route:메모리 화면에서 유저가 삭제 · "
+        "batch:memory-consolidation(관리자가 임계치를 켜면 통합)",
+        note="살아있는 유저의 기억은 **사용자 자산**이다(messages와 같은 부류) — 나이·개수로 자동 "
+        "삭제하지 않는다. 회수 대상은 **도달 불가한 유령**뿐: 회상은 세 축(user_id·run_id·agent_id)"
+        "으로만 일어나므로 축이 전부 죽은 소유자를 가리키면 영영 회상 불가(스펙 352). 살아있는 유저 "
+        "기억의 **상한은 열린 결정**(제품 가시 한계 = 관리자 승인 사항) — 스코어보드 0은 '분류가 "
+        "정직하다'는 뜻이지 '무한 증가가 없다'는 뜻이 아니다.",
     ),
     "casbin_rule": Policy("bounded", note="RBAC 정책 행(관리자 페이스)"),
     "alembic_version": Policy("bounded", note="싱글 행"),

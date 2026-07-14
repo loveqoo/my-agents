@@ -177,6 +177,10 @@ export interface BatchConfig {
   token_cleanup_cron: string | null
   approval_retention_days: number | null
   approval_cleanup_cron: string | null
+  history_retention_days: number | null
+  history_cleanup_cron: string | null
+  memory_orphan_grace_days: number | null
+  memory_cleanup_cron: string | null
 }
 export interface BatchRun {
   id: string

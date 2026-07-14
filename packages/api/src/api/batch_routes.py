@@ -36,6 +36,8 @@ class BatchConfigOut(BaseModel):
     approval_cleanup_cron: str | None
     history_retention_days: int | None
     history_cleanup_cron: str | None
+    memory_orphan_grace_days: int | None
+    memory_cleanup_cron: str | None
 
 
 class BatchConfigIn(BaseModel):
@@ -65,6 +67,8 @@ class BatchConfigIn(BaseModel):
     # ge=1: 0이면 전 이력 삭제(delete-all). NULL=비활성.
     history_retention_days: int | None = Field(default=None, ge=1)
     history_cleanup_cron: str | None = None
+    memory_orphan_grace_days: int | None = Field(default=None, ge=1)
+    memory_cleanup_cron: str | None = None
 
     @field_validator("test_user_email_pattern")
     @classmethod
@@ -161,6 +165,8 @@ def _config_out(cfg: BatchConfig) -> BatchConfigOut:
         approval_cleanup_cron=cfg.approval_cleanup_cron,
         history_retention_days=cfg.history_retention_days,
         history_cleanup_cron=cfg.history_cleanup_cron,
+        memory_orphan_grace_days=cfg.memory_orphan_grace_days,
+        memory_cleanup_cron=cfg.memory_cleanup_cron,
     )
 
 
@@ -190,6 +196,8 @@ async def update_config(
         "approval_cleanup_cron",
         "history_retention_days",
         "history_cleanup_cron",
+        "memory_orphan_grace_days",
+        "memory_cleanup_cron",
     ):
         if field in data:
             setattr(cfg, field, data[field])

@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .. import checkpoint_retention, memory
 from ..db import SessionLocal
 from ..mem_config import default_mem_cfg
+from ..memory import reclaim
 from ..models import (
     AccessToken,
     Agent,
@@ -824,6 +825,23 @@ async def cleanup_history(*, dry_run: bool, run_id: uuid.UUID | None = None) -> 
     }
 
 
+async def cleanup_memories(*, dry_run: bool, run_id: uuid.UUID | None = None) -> dict:  # noqa: ARG001 — 러너가 키워드 호출(계약)
+    """mem0 기억의 **도달 불가 고아** 회수(스펙 352 — 자원 감사 캠페인의 마지막 누수 테이블).
+
+    회상은 오직 세 축(user_id·run_id·agent_id)으로만 일어난다. 한 행의 축이 **전부 죽은 소유자**를
+    가리키면 그 행은 영영 회상되지 않는다(유령). **유령만** 지운다 — 살아있는 유저의 기억은 한 행도
+    안 지운다(기억은 제품의 토대 기능, 회수가 기능을 죽이면 안 된다).
+
+    유령을 만든 건 우리 청소부들이다: mem0는 별도 pgvector 테이블이라 FK가 없어, user-cleanup이
+    유저를 지워도 그 기억이 남는다. 판정·SQL은 `memory.reclaim`에 격리(payload JSONB 결합).
+    """
+    async with SessionLocal() as session:
+        cfg = await _get_config(session)
+        grace = cfg.memory_orphan_grace_days
+        await session.commit()
+    return await reclaim.reclaim_unreachable(dry_run=dry_run, grace_days=grace)
+
+
 JOBS = {
     "session-cleanup": cleanup_sessions,
     "memory-consolidation": consolidate_user_memories,
@@ -833,4 +851,5 @@ JOBS = {
     "token-cleanup": cleanup_tokens,
     "approval-cleanup": cleanup_approvals,
     "history-cleanup": cleanup_history,
+    "memory-cleanup": cleanup_memories,
 }
