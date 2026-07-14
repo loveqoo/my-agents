@@ -47,6 +47,34 @@ async function j<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>
 }
 
+/* ---------- 배경 잡 이벤트(SSE, 스펙 335) ---------- */
+export interface IngestEvent {
+  type: 'ingest'
+  status: 'ready' | 'error'
+  filename: string
+  collection: string
+  document_id: string
+  collection_id: string
+  chunks?: number
+  error?: string
+}
+/** 전역 이벤트 스트림 구독 — EventSource(쿠키 동행·자동 재연결). 반환값 호출=구독 해제.
+ *  이벤트는 알림이지 진실이 아니다(끊긴 동안 발생분 유실 — 상태의 진실은 문서 status).
+ *  경계(codex 335): EventSource는 Authorization 헤더를 못 실어 **VITE_API_TOKEN 단독 모드에선
+ *  알림만 미동작**(쿠키 로그인 UI는 정상, 나머지 기능 무영향 — 세션 만료 시 브라우저가 재시도를
+ *  멈추고 재로그인 후 AdminShell 재마운트가 새로 구독). */
+export function openEventStream(onEvent: (ev: IngestEvent) => void): () => void {
+  const es = new EventSource(`${BASE}/events`, { withCredentials: true })
+  es.onmessage = (m) => {
+    try {
+      onEvent(JSON.parse(m.data) as IngestEvent)
+    } catch {
+      /* 형식 밖 프레임 무시(heartbeat는 comment라 onmessage에 안 온다) */
+    }
+  }
+  return () => es.close()
+}
+
 const post = (p: string, body?: unknown) =>
   j(p, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) })
 const put = (p: string, body: unknown) => j(p, { method: 'PUT', body: JSON.stringify(body) })

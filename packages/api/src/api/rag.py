@@ -21,7 +21,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from . import crypto, rag_ingest
+from . import crypto, events, rag_ingest
 from .auth import current_principal
 from .background import spawn
 from .db import SessionLocal, get_or_404, get_session
@@ -1000,6 +1000,13 @@ async def _execute_ingest(
             doc = await s.get(Document, doc_id)
             if c is None or doc is None:
                 return  # 접수 직후 컬렉션/문서 삭제 레이스 — 남길 상태 행이 없다
+            base = {  # 이벤트 공통(스펙 335) — 세션 만료 전에 스칼라 박제
+                "type": "ingest",
+                "document_id": str(doc_id),
+                "collection_id": str(cid),
+                "filename": doc.filename,
+                "collection": c.name,
+            }
             try:
                 # CPU 구간(PDF 추출·청킹)은 스레드로 — 이벤트 루프 정지 방지(스펙 334).
                 chunks, metas = await asyncio.to_thread(_split_chunks, c, doc, data, entity_rows)
@@ -1007,8 +1014,17 @@ async def _execute_ingest(
                 await s.commit()
                 vectors = await _embed_chunks(c, chunks)
                 await _persist_chunks(s, c, doc, chunks, metas, vectors)
+                events.publish({**base, "status": "ready", "chunks": len(chunks)})
             except Exception as exc:
-                await _mark_ingest_error(s, doc_id, exc)
+                marked = await _mark_ingest_error(s, doc_id, exc)
+                # error 문구는 박제본(비밀 일반화 완료)을 재사용 — 이벤트로 비밀이 새지 않는다.
+                events.publish(
+                    {
+                        **base,
+                        "status": "error",
+                        "error": (marked.error if marked else None) or "인제스트 실패",
+                    }
+                )
     except Exception as exc:  # 세션 진입/초기 조회 실패(codex 334 P2) — parsing 영구 잔류 방지
         with contextlib.suppress(Exception):  # best-effort 박제(그마저 실패면 부팅 스윕이 그물)
             async with SessionLocal() as s2:

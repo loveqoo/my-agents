@@ -39,7 +39,8 @@ import EvalView from './views/EvalView'
 import AllowedHostsView from './views/AllowedHostsView'
 import SettingsView from './views/SettingsView'
 import { Playground } from '../playground/Playground'
-import { logout as apiLogout, listApprovals, type Me } from '../api'
+import { logout as apiLogout, listApprovals, openEventStream, type Me } from '../api'
+import { notification } from 'antd'
 
 const { Sider, Header, Content } = Layout
 
@@ -104,6 +105,32 @@ export default function AdminShell({ user, onLogout }: { user: Me; onLogout: () 
   // 첫 배지값을 채운다. 승인 뷰에 들어가면 ApprovalsView가 onPendingChange로 카운트를
   // 단일 소스로 갱신(초기 로드+resolve)하므로, 여기서 [view]로 재fetch하면 두 fetch가
   // 경합해 한쪽 실패 시 배지≠목록이 재발한다 → 마운트 의존성으로 고정(적대 리뷰 045).
+  // 배경 잡 이벤트 전역 구독(스펙 335) — 어느 메뉴에 있어도 인제스트 완료/실패를 알림.
+  // 이벤트=알림(진실은 문서 status·드로어 폴링). EventSource가 자동 재연결.
+  useEffect(() => {
+    return openEventStream((ev) => {
+      if (ev.type !== 'ingest') return
+      // key=컬렉션+상태(codex 335 P2) — 대량 업로드 N건이 알림 N개로 폭주하지 않게 같은
+      // 컬렉션의 연속 알림은 최신 것으로 병합(안 닫은 실패 알림도 쌓이지 않음).
+      if (ev.status === 'ready') {
+        notification.success({
+          key: `ingest-ok-${ev.collection_id}`,
+          title: '임베딩 완료',
+          description: `${ev.filename} — ${ev.collection}에 청크 ${ev.chunks ?? 0}개 적재`,
+          placement: 'bottomRight',
+        })
+      } else {
+        notification.error({
+          key: `ingest-err-${ev.collection_id}`,
+          title: '인제스트 실패',
+          description: `${ev.filename} — ${ev.error ?? '사유 미상'}`,
+          placement: 'bottomRight',
+          duration: 0, // 실패는 손으로 닫을 때까지(놓치면 안 되는 신호)
+        })
+      }
+    })
+  }, [])
+
   const [pendingCount, setPendingCount] = useState(0)
   useEffect(() => {
     let alive = true

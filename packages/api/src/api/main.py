@@ -22,6 +22,7 @@ from . import (
     chat,
     checkpointer,
     eval_routes,
+    events,
     memory_routes,
     mock_mcp,
     mock_remote,
@@ -115,6 +116,7 @@ app.include_router(
     agents.meta_router, dependencies=_auth
 )  # /agent-impls(스펙 106) — uuid 경로 충돌 회피
 app.include_router(chat.router, dependencies=_auth)
+app.include_router(events.router, dependencies=_auth)  # 배경 잡 SSE 알림(스펙 335)
 app.include_router(sessions.router, dependencies=_auth)
 app.include_router(memory_routes.router, dependencies=_auth)
 app.include_router(rag.router, dependencies=_auth)
@@ -167,4 +169,14 @@ def run() -> None:
     # 소스를 watch해 agent flow도 hot-reload. 배포/프로덕션 실행은 uvicorn을 직접(reload 없이) 띄운다.
     src = Path(__file__).resolve()
     reload_dirs = [str(src.parents[1]), str(src.parents[4] / "packages" / "agent" / "src")]
-    uvicorn.run("api.main:app", host=host, port=port, reload=True, reload_dirs=reload_dirs)
+    # timeout_graceful_shutdown(스펙 335) — SSE 이벤트 스트림(/events)은 장수명 연결이라 기본
+    # graceful shutdown이 "연결 종료 대기"에 영원히 갇힌다(브라우저 EventSource가 열려 있으면
+    # reload가 중간에 멈춰 서버가 죽은 척). 5초 뒤 강제 종료 — EventSource는 자동 재연결한다.
+    uvicorn.run(
+        "api.main:app",
+        host=host,
+        port=port,
+        reload=True,
+        reload_dirs=reload_dirs,
+        timeout_graceful_shutdown=5,
+    )
