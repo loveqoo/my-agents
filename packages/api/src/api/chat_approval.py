@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
     from .chat import _MemoryRecallProxy
 
-from . import authz, checkpointer, memory, observability, runtime
+from . import authz, checkpoint_retention, checkpointer, memory, observability, runtime
 from .broker import BrokerContext, PolicyScopedBroker, build_providers
 from .chat_context import _load_context
 from .chat_history import _HistoryWindowProxy, _load_session_conversation, _to_base_messages
@@ -394,10 +394,18 @@ async def resume_approval(approval: Approval, decision: str) -> None:
 
     t0 = time.perf_counter()
     try:
-        result = await graph.ainvoke(Command(resume={"decision": decision}), config=config)
+        # durability="exit"(스펙 346) — 재개 경로도 그래프 종료 시점에만 체크포인트를 박는다.
+        result = await graph.ainvoke(
+            Command(resume={"decision": decision}), config=config, durability="exit"
+        )
     except Exception as exc:
         log.error("resume 실패 (approval %s): %s", approval.approval_id, exc)
         return
+
+    # 체크포인트 폐기 관문(스펙 346) — 승인이 해소돼 그래프가 끝났으면 이 스레드는 죽은 것이다.
+    # 재개 중 **또 멈췄으면**(두 번째 위험 도구) 그 상태가 유일한 재개 근거라 남긴다.
+    if "__interrupt__" not in result:
+        await checkpoint_retention.release_thread(thread_id)
 
     user_text, reply = _extract_turn_texts(result)
     total_ms = int((time.perf_counter() - t0) * 1000)

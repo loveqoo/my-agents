@@ -5,7 +5,7 @@
    - 대기/처리됨 Tabs(판정 큐 vs 감사 기록 — 성격 다른 도구, 212 규칙)
    Approve → 체크포인트에서 재개, Reject → 실행 중단(기존 resolve API 그대로). */
 import { useState } from 'react'
-import { Tag, Button, message, Tabs, Drawer, Descriptions, Grid } from 'antd'
+import { Tag, Button, message, Tabs, Drawer, Descriptions, Grid, Tooltip } from 'antd'
 import { Page } from '../shared'
 import { fmtDateTime } from '../format'
 import { type Approval } from '../mockData'
@@ -14,6 +14,15 @@ import { PagedListShell, type ListController } from './PagedListShell'
 import { runWithToast } from '../../hooks'
 
 function ResultTag({ item }: { item: Approval }) {
+  // 만료(스펙 346)는 사람의 결정이 아니다 — 배치 스윕이 TTL을 넘긴 대기 건의 체크포인트를 회수하면서
+  // 남긴 상태다. 'approved가 아니면 거부'로 그리면 **관리자가 거부한 것처럼 거짓말**하게 된다.
+  if (item.status === 'expired') {
+    return (
+      <Tooltip title="대기 시한이 지나 재개할 수 없게 된 승인입니다(자동 만료 — 사람의 결정 아님)">
+        <Tag style={{ margin: 0 }}>만료</Tag>
+      </Tooltip>
+    )
+  }
   const approved = item.status === 'approved'
   return (
     <span style={{ display: 'inline-flex', gap: 4, flexWrap: 'wrap' }}>

@@ -451,7 +451,9 @@ class Approval(AuditMixin, Base):
     # None = 마이그레이션 이전 행(대조 스킵). 재개가 다른 impl(다른 그래프 위상)로 stale checkpoint에
     # resume하는 미정의 동작을 명시 가드로 막는 대조 기준.
     impl: Mapped[str | None] = mapped_column(String(120), default=None)
-    status: Mapped[str] = mapped_column(String(20), default="pending")  # pending|approved|rejected
+    # pending|approved|rejected|expired — expired는 사람의 결정이 아니라 체크포인트 스윕이
+    # TTL을 넘긴 대기 건을 회수하며 남긴 상태다(스펙 346). 재개 불가이며 resolve는 409.
+    status: Mapped[str] = mapped_column(String(20), default="pending")
     requested_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -542,6 +544,16 @@ class BatchConfig(AuditMixin, Base):
     memory_consolidation_threshold: Mapped[int | None] = mapped_column(Integer, default=None)
     memory_consolidation_cron: Mapped[str | None] = mapped_column(String(120), default=None)
     test_user_email_pattern: Mapped[str | None] = mapped_column(String(200), default=None)
+    # 체크포인트 스윕(스펙 346). `checkpoint_ttl_hours`: 이보다 오래된 스레드만 회수(진행 중 턴·폼
+    # 대기 보호선). NULL/<1이면 비활성 — 0을 "즉시 전량 삭제"로 매핑하지 않는다(learning 037 바닥).
+    # `checkpoint_cleanup_cron`: NULL=미등록(기존 계약). 정상 경로는 턴 종료 관문이 덮고, 이 잡은
+    # 크래시가 남긴 고아와 방치된 승인 대기를 회수한다.
+    # 이 둘만 기본값이 NULL이 아니다(다른 노브의 "기본 비활성" 관례에서 벗어남 — 사유 명시):
+    # 청소하지 않으면 체크포인트가 무한 누적되는 게 **기본 동작**이라(스펙 346 실측: 대화의 20~30배),
+    # 여기선 "안 하기"가 보수적인 쪽이 아니다. 파괴 반경도 좁다 — 지우는 대상은 재개 근거(체크포인트)
+    # 뿐이고 대화·메시지·세션은 건드리지 않으며, 24h 문턱이 진행 중 턴을 지킨다. 끄려면 cron=NULL.
+    checkpoint_ttl_hours: Mapped[int | None] = mapped_column(Integer, default=24)
+    checkpoint_cleanup_cron: Mapped[str | None] = mapped_column(String(120), default="0 * * * *")
 
 
 class MemorySnapshot(AuditMixin, Base):

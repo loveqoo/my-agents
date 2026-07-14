@@ -46,6 +46,7 @@ from agent.runtime import (
 from . import (  # noqa: F401
     a2a_client,
     authz,
+    checkpoint_retention,
     checkpointer,
     crypto,
     memory,
@@ -1159,12 +1160,16 @@ async def chat(
         conversation, ctx, turn["pipeline"], turn["persona_prompt"]
     )
 
-    async def event_stream() -> AsyncIterator[str]:
+    # interrupt 수집 리스트를 **턴 스코프로 끌어올린다**(스펙 346, codex P1): 관문(아래 event_stream의
+    # finally)이 "그래프가 멈춘 채인가"를 알아야 한다. 승인 행 커밋·폼 포인터 등록은 interrupt보다
+    # **나중**이라, 그 사이 취소되면 핀이 아직 없다 — 이 리스트가 유일한 증거다.
+    interrupts: list[dict] = []
+
+    async def _run_turn() -> AsyncIterator[str]:
         t0 = time.perf_counter()
         yield f"data: {json.dumps({'session': ctx['session_id']}, ensure_ascii=False)}\n\n"
         acc: list[str] = []
         errored = False
-        interrupts: list[dict] = []
         # updates 발화 레코드 [{node, ms(실측), summary}] — 스펙 085(노드열) + 086(실측·요약).
         observed: list[dict] = []
         t_prev = t0
@@ -1175,6 +1180,11 @@ async def chat(
                 graph_input if graph_input is not None else {"messages": seed_messages},
                 config=config,
                 stream_mode=["messages", "updates"],
+                # durability="exit"(스펙 346) — 슈퍼스텝마다 쓰지 않고 **그래프가 끝날 때만** 박는다.
+                # 실측: 3노드 턴이 checkpoints 3행 → 1행. interrupt도 "끝남"이라 HIL 정지 상태는
+                # 그대로 박히고 재개도 된다(probe로 실증 — 재개 결과 정확). 중간 크래시 시 그 턴의
+                # 진행이 소실되지만, 턴은 어차피 처음부터 재시도라 잃을 게 없다.
+                durability="exit",
             ):
                 if stream_mode == "messages":
                     msg_chunk, _meta = chunk
@@ -1231,5 +1241,21 @@ async def chat(
             history_restore=history_restore,
         ):
             yield frame
+
+    async def event_stream() -> AsyncIterator[str]:
+        """턴 스트림 + **체크포인트 폐기 관문**(스펙 346).
+
+        thread_id는 턴별 고유라 턴이 끝나면 그 체크포인트는 아무도 안 읽는다 — 여기서 지운다.
+        finally라 정상 종료·에러·**클라이언트 끊김**(GeneratorExit)까지 한 지점이 덮는다.
+
+        `paused=bool(interrupts)`가 핵심이다: 그래프가 멈춘 채면 **핀(승인 행·폼 포인터)이 아직
+        안 심겼어도** 남긴다 — 핀은 interrupt 뒤에 심기므로, 그 사이 취소가 끼면 핀만 보고 판정할 때
+        재개 근거를 지워버린다(codex 적대 검토 P1).
+        """
+        try:
+            async for frame in _run_turn():
+                yield frame
+        finally:
+            await checkpoint_retention.release_thread(thread_id, paused=bool(interrupts))
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")

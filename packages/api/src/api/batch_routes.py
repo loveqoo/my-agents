@@ -27,6 +27,8 @@ class BatchConfigOut(BaseModel):
     memory_consolidation_threshold: int | None
     memory_consolidation_cron: str | None
     test_user_email_pattern: str | None
+    checkpoint_ttl_hours: int | None
+    checkpoint_cleanup_cron: str | None
 
 
 class BatchConfigIn(BaseModel):
@@ -44,6 +46,11 @@ class BatchConfigIn(BaseModel):
     # user-cleanup 대상 이메일 SQL LIKE 패턴. NULL=비활성(명시 설정 전엔 절대 삭제 안 함).
     # 가장 비가역한 노브라 delete-all 가드를 둔다(learning 037 — 파괴적 노브 바닥).
     test_user_email_pattern: str | None = Field(default=None, max_length=200)
+
+    # ge=1: ttl=0이면 방금 만든 체크포인트까지 대상이 되는 delete-all 푸트건(진행 중 턴 파괴).
+    # NULL=비활성. checkpoint_retention.sweep에도 <1 가드가 한 겹 더(learning 037 — 파괴적 노브 바닥).
+    checkpoint_ttl_hours: int | None = Field(default=None, ge=1)
+    checkpoint_cleanup_cron: str | None = None
 
     @field_validator("test_user_email_pattern")
     @classmethod
@@ -115,6 +122,8 @@ def _config_out(cfg: BatchConfig) -> BatchConfigOut:
         memory_consolidation_threshold=cfg.memory_consolidation_threshold,
         memory_consolidation_cron=cfg.memory_consolidation_cron,
         test_user_email_pattern=cfg.test_user_email_pattern,
+        checkpoint_ttl_hours=cfg.checkpoint_ttl_hours,
+        checkpoint_cleanup_cron=cfg.checkpoint_cleanup_cron,
     )
 
 
@@ -137,6 +146,8 @@ async def update_config(
         "memory_consolidation_threshold",
         "memory_consolidation_cron",
         "test_user_email_pattern",
+        "checkpoint_ttl_hours",
+        "checkpoint_cleanup_cron",
     ):
         if field in data:
             setattr(cfg, field, data[field])

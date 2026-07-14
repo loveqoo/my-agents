@@ -172,6 +172,8 @@ export interface BatchConfig {
   memory_consolidation_threshold: number | null
   memory_consolidation_cron: string | null
   test_user_email_pattern: string | null
+  checkpoint_ttl_hours: number | null
+  checkpoint_cleanup_cron: string | null
 }
 export interface BatchRun {
   id: string

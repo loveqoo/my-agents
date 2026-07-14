@@ -16,7 +16,7 @@ from sqlalchemy import ColumnElement, delete, exists, or_, select, text
 from sqlalchemy import func as safunc
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .. import memory
+from .. import checkpoint_retention, memory
 from ..db import SessionLocal
 from ..mem_config import default_mem_cfg
 from ..models import Agent, Approval, BatchConfig, MemorySnapshot, Session, User
@@ -606,9 +606,26 @@ async def cleanup_test_users(*, dry_run: bool, run_id: uuid.UUID | None = None) 
 
 
 # 작업 레지스트리 — CLI choices·API 트리거·스케줄러가 공유하는 단일 출처.
+async def cleanup_checkpoints(*, dry_run: bool, run_id: uuid.UUID | None = None) -> dict:  # noqa: ARG001 — runner가 키워드 호출(계약)
+    """체크포인트 스윕(스펙 346) — 관문을 못 탄 고아 + 방치된 승인 대기를 회수.
+
+    정상 경로는 턴 종료 관문(`checkpoint_retention.release_thread`)이 덮는다. 이 잡은 **프로세스가
+    죽은 턴**이 남긴 고아를 나이(TTL)로 회수하고, TTL을 넘긴 pending 승인은 `expired`로 만료 표시한 뒤
+    스레드를 지운다(조용한 삭제 금지 — 회고 038).
+
+    TTL은 BatchConfig.checkpoint_ttl_hours. NULL/<1이면 비활성(파괴적 노브 바닥, learning 037).
+    """
+    async with SessionLocal() as session:
+        cfg = await _get_config(session)
+        ttl = cfg.checkpoint_ttl_hours
+        await session.commit()
+    return await checkpoint_retention.sweep(dry_run=dry_run, ttl_hours=ttl)
+
+
 JOBS = {
     "session-cleanup": cleanup_sessions,
     "memory-consolidation": consolidate_user_memories,
     "a2a-cleanup": cleanup_a2a_agents,
     "user-cleanup": cleanup_test_users,
+    "checkpoint-cleanup": cleanup_checkpoints,
 }
