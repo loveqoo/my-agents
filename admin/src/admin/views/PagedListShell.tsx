@@ -59,7 +59,7 @@ export function PagedListShell<T, X = unknown>({
   pageResetKey?: string | number // 바뀌면 page=1(검색어 보존 — 필터 전환용)
   searchPlaceholder?: string
   leftSlot?: ReactNode // 검색창 왼쪽 슬롯(Radio/Segmented 필터 — 상태는 소비자 소유)
-  onExtra?: (extra: X | undefined) => void // 응답 extra(세션 counts) 소비자로 되돌림
+  onExtra?: (extra: X | undefined) => void // 응답 extra(세션 counts·문서 processing) 소비자로 되돌림
   countLabel?: (total: number, q: string) => ReactNode // 기본 "전체/일치 N건"
   emptyText?: ReactNode | ((q: string) => ReactNode)
   disabledAlert?: ReactNode // enabled=false 시(메모리 미구성). 항상 true인 도메인은 불필요

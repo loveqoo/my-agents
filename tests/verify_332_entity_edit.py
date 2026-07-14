@@ -73,6 +73,26 @@ EDITED = "\n".join(
 )
 
 
+
+
+async def _wait_ingest_ready(doc_id) -> int:
+    """배경 인제스트(스펙 334) 완료 대기 → chunk_count. 실패/타임아웃은 -1."""
+    import asyncio as _a
+    for _ in range(100):
+        async with SessionLocal() as _s:
+            row = (
+                await _s.execute(
+                    select(Document.status, Document.chunk_count).where(Document.id == doc_id)
+                )
+            ).first()
+        if row and row[0] == "ready":
+            return row[1]
+        if row and row[0] == "error":
+            return -1
+        await _a.sleep(0.3)
+    return -1
+
+
 async def _expect_http(coro, status: int, label: str) -> str:
     try:
         await coro
@@ -112,8 +132,10 @@ async def main():
             headers=Headers({"content-type": "application/jsonl"}),
         )
         doc_out = await RAG.ingest_document(cid, up, s, sup)
-        check(doc_out.status == "ready" and doc_out.chunk_count == 3, f"준비: 인제스트 3행 (got {doc_out.chunk_count})")
-        doc_id = doc_out.id
+        doc_id = doc_out.id  # expire_all 전에 박제(만료 후 속성 접근=동기 lazy-load 크래시)
+        n_rows = await _wait_ingest_ready(doc_id)  # 스펙 334: 인제스트=배경 — ready 대기
+        s.expire_all()  # 배경 잡이 다른 세션서 갱신한 상태 반영(identity map stale 회피)
+        check(n_rows == 3, f"준비: 인제스트 3행 (got {n_rows})")
 
         # ── E1 GET — editable=true + JSONL 왕복 ──
         content = await RAG.get_document_content(cid, doc_id, s, sup)

@@ -2,7 +2,7 @@
    컬렉션(임베딩 모델 고정 + 청크 정책) 생성 → 문서 업로드(인제스트 write path) →
    상태/건강 점검 → **검색 시험**(스펙 072: 인-챗 도구와 같은 코어를 타는 retrieval을
    에이전트 채팅 없이 즉석 확인). 목록/페이지 셸은 shared의 Page/DataTable, 상호작용은 antd 6. */
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
   Alert,
   Tag,
@@ -570,8 +570,9 @@ function DocsDrawer({
     setUploading(true)
     try {
       const doc = await uploadDocument(id, file)
+      // 스펙 334: 업로드=접수(임베딩은 배경) — 상태 전이는 아래 폴링이 자동 반영.
       if (doc.status === 'error') message.error(doc.error || '인제스트에 실패했습니다')
-      else message.success(`${doc.filename} 인제스트 완료`)
+      else message.success(`${doc.filename} 접수됨 — 백그라운드에서 임베딩 중입니다`)
       setRefreshKey((k) => k + 1)
       onChanged() // 컬렉션 카운트(문서·청크)도 갱신
     } catch (e) {
@@ -580,6 +581,22 @@ function DocsDrawer({
       setUploading(false)
     }
   }
+
+  // 처리 중(parsing/embedding) 문서가 보이는 동안 5초 폴링(스펙 334) — 상태 전이(→ready/error)를
+  // 자동 반영. 전이가 끝나면 폴링 중단 + 컬렉션 카운트 재조회.
+  const [processing, setProcessing] = useState(false)
+  const wasProcessing = useRef(false)
+  useEffect(() => {
+    if (processing) wasProcessing.current = true
+    else if (wasProcessing.current) {
+      wasProcessing.current = false
+      onChanged() // 방금 처리 완료 — 청크 카운트 갱신
+    }
+    if (!processing || !id) return
+    const t = setInterval(() => setRefreshKey((k) => k + 1), 5000)
+    return () => clearInterval(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [processing, id])
 
   const doDeleteDoc = async (ctl: ListController, docId: string) => {
     if (!id) return
@@ -710,9 +727,10 @@ function DocsDrawer({
               </Button>
             </Upload>
             <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+              {/* 한계 명시(스펙 334) — 거부 순간에만 보이던 캡을 사전 안내. 기본값 기준(서버 env로 조정 가능). */}
               {isEntity
-                ? '한 줄 = {"metadata": {…}, "data": {…}} 한 엔티티. 형식이 어긋난 행이 있으면 행 번호와 함께 전체가 거부됩니다.'
-                : 'PDF와 UTF-8 텍스트(.txt, .md)만 지원합니다.'}
+                ? '한 줄 = {"metadata": {…}, "data": {…}} 한 엔티티. 형식이 어긋난 행이 있으면 행 번호와 함께 전체가 거부됩니다. 파일당 최대 50,000행 · 25MB — 임베딩은 백그라운드에서 진행됩니다.'
+                : 'PDF와 UTF-8 텍스트(.txt, .md)만 지원합니다. 파일당 최대 25MB — 임베딩은 백그라운드에서 진행됩니다.'}
             </span>
           </div>
           )}
@@ -723,6 +741,7 @@ function DocsDrawer({
             fetchPage={(q, l, o) => listDocuments(collection.id, q, l, o)}
             columns={columns}
             refreshKey={refreshKey}
+            onExtra={(x) => setProcessing(((x as { processing?: number } | undefined)?.processing ?? 0) > 0)}
             pageSize={10}
             searchPlaceholder="파일명 부분일치 검색"
             emptyText={(q) => (q ? '일치하는 문서가 없습니다.' : '문서 없음')}

@@ -56,6 +56,23 @@ def _upload(name: str, data: bytes) -> UploadFile:
     return UploadFile(file=io.BytesIO(data), filename=name)
 
 
+
+
+async def _wait_ingest_ready(doc_id) -> tuple[str, int]:
+    """배경 인제스트(스펙 334) 완료 대기 → (status, chunk_count)."""
+    for _ in range(100):
+        async with async_session() as _s:
+            row = (
+                await _s.execute(
+                    select(Document.status, Document.chunk_count).where(Document.id == doc_id)
+                )
+            ).first()
+        if row and row[0] in ("ready", "error"):
+            return row[0], row[1]
+        await asyncio.sleep(0.3)
+    return "(타임아웃)", -1
+
+
 async def main():
     from api.authz import init_authz
     await init_authz()
@@ -189,7 +206,9 @@ async def main():
         async with async_session() as s:
             doc = await RG.ingest_document(col_id, file=_upload("entities.jsonl", ent_file),
                                            session=s, principal=admin)
-            check(doc.status == "ready" and doc.chunk_count == 3, f"V3c 정상 업로드 ready 3청크 (got {doc.status}/{doc.chunk_count})")
+            _doc_id = doc.id
+        _st, _n = await _wait_ingest_ready(_doc_id)  # 스펙 334: 인제스트=배경 — ready 대기
+        check(_st == "ready" and _n == 3, f"V3c 정상 업로드 ready 3청크 (got {_st}/{_n})")
         async with async_session() as s:
             chunks = (await s.execute(select(Chunk).where(Chunk.collection_id == col_id).order_by(Chunk.ordinal))).scalars().all()
             check(len(chunks) == 3 and chunks[0].meta == {"pid": 1, "order_id": "o-1"},

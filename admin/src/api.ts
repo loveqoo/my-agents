@@ -355,9 +355,13 @@ export const listReindexEvents = (id: string) =>
 export interface DocumentPageOut {
   items: RagDocument[]
   total: number
+  processing: number // 컬렉션 전체 처리 중(parsing/embedding) 문서 수(스펙 334 — 폴링 신호)
 }
-export const listDocuments = (id: string, q = '', limit = 20, offset = 0) =>
-  j<DocumentPageOut>(`/collections/${id}/documents${pageQS(q, limit, offset)}`)
+export const listDocuments = async (id: string, q = '', limit = 20, offset = 0) => {
+  const out = await j<DocumentPageOut>(`/collections/${id}/documents${pageQS(q, limit, offset)}`)
+  // PagedListShell extra 채널로 전역 처리 중 신호 전달(현재 페이지에 안 보여도 폴링이 서게).
+  return { ...out, extra: { processing: out.processing } }
+}
 export const deleteDocument = (id: string, docId: string) =>
   del(`/collections/${id}/documents/${docId}`)
 /* 문서 런타임 수정(스펙 331) — 원문 조회 + 저장(그 문서만 재청킹, 변경 청크만 재임베딩). */

@@ -158,6 +158,9 @@ class DocumentPageOut(BaseModel):
 
     items: list[DocumentOut]
     total: int  # q(파일명 부분일치) 적용 후 전체 건수
+    # 컬렉션 전체의 처리 중(parsing/embedding) 문서 수(스펙 334, codex P2) — 현재 페이지에 안
+    # 보여도 폴링이 서야 하므로 페이지·검색어와 무관한 전역 신호로 싣는다.
+    processing: int = 0
 
 
 class DocumentContentOut(BaseModel):

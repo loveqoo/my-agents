@@ -28,7 +28,7 @@ from starlette.datastructures import Headers  # noqa: E402
 
 from api import rag as RAG  # noqa: E402
 from api.db import SessionLocal  # noqa: E402
-from api.models import RAG_EMBED_DIMS, Collection, ModelConfig  # noqa: E402
+from api.models import RAG_EMBED_DIMS, Collection, Document, ModelConfig  # noqa: E402
 from api.schemas import CollectionSearchIn  # noqa: E402
 
 _fails = []
@@ -54,6 +54,25 @@ DOC_TEXT = "히트 편집 진입 검증용 문단입니다. 검색과 편집을 
 ROW_TEXT = "라라랜드 — 재즈 피아니스트와 배우 지망생의 꿈과 사랑, 2016년 뮤지컬."
 
 
+async def _wait_ingest_ready(doc_id) -> int:
+    """배경 인제스트(스펙 334) 완료 대기 → chunk_count. 실패/타임아웃은 -1."""
+    import asyncio as _a
+    for _ in range(100):
+        async with SessionLocal() as _s:
+            row = (
+                await _s.execute(
+                    select(Document.status, Document.chunk_count).where(Document.id == doc_id)
+                )
+            ).first()
+        if row and row[0] == "ready":
+            return row[1]
+        if row and row[0] == "error":
+            return -1
+        await _a.sleep(0.3)
+    return -1
+
+
+
 async def main():
     sup = _Super()
     tag = f"v333-{_uuid.uuid4().hex[:6]}"
@@ -72,13 +91,17 @@ async def main():
         )
         s.add(col)
         await s.commit()
+        cid = col.id  # expire_all 전에 박제
         up = UploadFile(io.BytesIO(DOC_TEXT.encode()), filename="doc.md",
                         headers=Headers({"content-type": "text/markdown"}))
-        doc = await RAG.ingest_document(col.id, up, s, sup)
-        sr = await RAG.search_collection(col.id, CollectionSearchIn(query=DOC_TEXT, top_k=1), s, sup)
+        doc = await RAG.ingest_document(cid, up, s, sup)
+        doc_id = doc.id  # expire_all 전에 박제
+        assert await _wait_ingest_ready(doc_id) >= 1  # 스펙 334: 배경 인제스트 ready 대기
+        s.expire_all()  # stale identity map 회피
+        sr = await RAG.search_collection(cid, CollectionSearchIn(query=DOC_TEXT, top_k=1), s, sup)
         hit = sr.results[0]
-        check(hit.document_id == doc.id, f"H1 문서형 히트 document_id 일치 (got {hit.document_id})")
-        content = await RAG.get_document_content(col.id, hit.document_id, s, sup)
+        check(hit.document_id == doc_id, f"H1 문서형 히트 document_id 일치 (got {hit.document_id})")
+        content = await RAG.get_document_content(cid, hit.document_id, s, sup)
         check(content.editable is True and content.text == DOC_TEXT, "H2 히트→content 사슬 관통")
 
         # 엔티티
@@ -88,24 +111,28 @@ async def main():
         )
         s.add(ecol)
         await s.commit()
+        ecid = ecol.id  # expire_all 전에 박제
         row = json.dumps({"metadata": {"id": 7}, "data": ROW_TEXT}, ensure_ascii=False)
         up2 = UploadFile(io.BytesIO(row.encode()), filename="rows.jsonl",
                          headers=Headers({"content-type": "application/jsonl"}))
-        edoc = await RAG.ingest_document(ecol.id, up2, s, sup)
-        sr2 = await RAG.search_collection(ecol.id, CollectionSearchIn(query=ROW_TEXT, top_k=1), s, sup)
+        edoc = await RAG.ingest_document(ecid, up2, s, sup)
+        edoc_id = edoc.id  # expire_all 전에 박제
+        assert await _wait_ingest_ready(edoc_id) >= 1  # 스펙 334: 배경 인제스트 ready 대기
+        s.expire_all()  # stale identity map 회피
+        sr2 = await RAG.search_collection(ecid, CollectionSearchIn(query=ROW_TEXT, top_k=1), s, sup)
         hit2 = sr2.results[0]
         check(
-            hit2.document_id == edoc.id and hit2.meta == {"id": 7},
+            hit2.document_id == edoc_id and hit2.meta == {"id": 7},
             f"H3a 엔티티 히트 document_id+meta 동반 (got {hit2.document_id}, {hit2.meta})",
         )
-        c2 = await RAG.get_document_content(ecol.id, hit2.document_id, s, sup)
+        c2 = await RAG.get_document_content(ecid, hit2.document_id, s, sup)
         check(c2.editable is True and c2.text == row, "H3b 엔티티 히트→content 사슬 관통")
 
         # H4 — 코어 dict 키 additive 무회귀(인-챗 도구·trace가 쓰는 기존 키 보존)
         from api import runtime as RT
 
         raw = await RT.search_collections(
-            [await RAG.resolve_search_collection(s, col.id)], DOC_TEXT, 1
+            [await RAG.resolve_search_collection(s, cid)], DOC_TEXT, 1
         )
         keys = set(raw[0].keys())
         check(

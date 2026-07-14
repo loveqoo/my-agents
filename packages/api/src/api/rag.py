@@ -9,6 +9,8 @@ retrieval(질의·유사도 검색·에이전트 도구 배선)은 037. 비밀(p
   3) 점검: GET /{id}/health — DB 컬럼/Collection 박제/모델 probe 3자 비교, drift 노출.
 """
 
+import asyncio
+import contextlib
 import os
 import uuid
 from typing import Any
@@ -21,7 +23,8 @@ from sqlalchemy.orm import selectinload
 
 from . import crypto, rag_ingest
 from .auth import current_principal
-from .db import get_or_404, get_session
+from .background import spawn
+from .db import SessionLocal, get_or_404, get_session
 from .model_registry import _probe
 from .models import (
     RAG_EMBED_DIMS,
@@ -552,13 +555,16 @@ async def reindex_collection(
             detail="변경할 내용이 없습니다(모델 또는 청크 크기·겹침 중 하나는 현재와 달라야 합니다).",
         )
 
-    # 인제스트 진행 중(문서 parsing)이면 거절 — 재인덱싱과 인제스트 경합 최소화.
-    parsing = await session.scalar(
+    # 인제스트 진행 중(parsing **또는 embedding** — 스펙 334 배경 잡, codex 334 P1)이면 거절.
+    # embedding을 빼면: 배경 잡이 임베딩하는 동안 재인덱싱이 시작·완료(락 해제)된 뒤 늦은
+    # _persist_chunks가 조건부 UPDATE(status != reindexing)를 통과해 옛 모델 벡터/중복 청크가
+    # 스왑 밖에 커밋된다. (사전 검사~CAS 사이 미시 경합 창은 정직 경계 — 단일 프로세스 dev 도구.)
+    in_flight = await session.scalar(
         select(func.count())
         .select_from(Document)
-        .where(Document.collection_id == cid, Document.status == "parsing")
+        .where(Document.collection_id == cid, Document.status.in_(("parsing", "embedding")))
     )
-    if parsing:
+    if in_flight:
         raise HTTPException(
             status_code=409, detail="인제스트가 진행 중입니다 — 완료 후 다시 시도하세요."
         )
@@ -776,7 +782,15 @@ async def list_documents(
         )
         for doc, has_blob in rows
     ]
-    return DocumentPageOut(items=items, total=total)
+    # 전역 처리 중 신호(스펙 334, codex P2) — 현재 페이지/검색어와 무관하게 컬렉션 전체 기준.
+    processing = (
+        await session.execute(
+            select(func.count())
+            .select_from(Document)
+            .where(Document.collection_id == cid, Document.status.in_(("parsing", "embedding")))
+        )
+    ).scalar_one()
+    return DocumentPageOut(items=items, total=total, processing=processing)
 
 
 def _doc_editable(c: Collection, doc: Document, has_blob: bool) -> tuple[bool, str | None]:
@@ -786,6 +800,9 @@ def _doc_editable(c: Collection, doc: Document, has_blob: bool) -> tuple[bool, s
         # kind 화이트리스트(codex 332 P3) — DB 컬럼은 String(20)이라 미지/레거시 값이 문서형 청킹
         # 경로로 흘러들지 않게 fail-closed.
         return False, f"알 수 없는 컬렉션 종류({c.kind}) — 편집할 수 없습니다."
+    if doc.status in ("parsing", "embedding"):
+        # 배경 인제스트 진행 중(스펙 334) — 지금 편집하면 잡의 적재와 스왑이 충돌(이중 청크).
+        return False, "아직 처리 중인 문서입니다 — 임베딩이 끝나면 편집할 수 있습니다."
     if c.kind == "document" and rag_ingest.is_pdf(doc.filename, doc.content_type):
         return (
             False,
@@ -924,7 +941,9 @@ async def ingest_document(
     session: AsyncSession = Depends(get_session),
     principal: User | str = Depends(current_principal),
 ) -> DocumentOut:
-    """업로드 → 파싱 → 청킹 → 임베딩 → pgvector 적재(동기). 실패는 status=error로 보존."""
+    """업로드 = **접수**(스펙 334): 파싱·형식 검증까지 동기(엔티티 위반=행 번호 400 계약 보존),
+    오래 걸리는 임베딩+적재는 배경 잡 — 즉시 201(status=parsing) 반환, 상태 전이(parsing→
+    embedding→ready/error)는 문서 목록으로 관찰. 실패는 status=error로 보존(no silent death)."""
     c = await _load_collection(session, cid)
     if c is None:
         raise HTTPException(status_code=404, detail="not found")
@@ -939,7 +958,9 @@ async def ingest_document(
     if len(data) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail=f"파일이 너무 큽니다(최대 {limit_mb}MB).")
 
-    entity_rows = _parse_entity_rows(c, data)  # 엔티티 형식 위반은 여기서 400(스펙 149)
+    # 엔티티 형식 위반은 여기서 400(스펙 149 계약 — 배경으로 밀면 400을 줄 수 없다). CPU 구간이라
+    # to_thread — 수만 행 파싱·스키마 검증이 이벤트 루프를 정지시키지 않게(스펙 334).
+    entity_rows = await asyncio.to_thread(_parse_entity_rows, c, data)
 
     doc = Document(
         collection_id=c.id,
@@ -951,24 +972,65 @@ async def ingest_document(
     session.add(doc)
     await session.commit()  # 문서 행은 먼저 영속화(과정 중 죽어도 흔적 남김)
     await session.refresh(doc)
-    doc_id = doc.id  # rollback 후 doc는 expire되므로 id를 미리 박제(동기 lazy-load 회피)
+    doc_id = doc.id
     # 스펙 312: 원본 바이트 보존(재청킹 필수 — 청크 크기·겹침 변경 시 원본에서 다시 자른다).
     # 문서와 함께 영속(1:1). 인제스트가 뒤에서 실패해도 원본은 남아 재시도 근거가 된다.
     session.add(DocumentBlob(document_id=doc_id, data=data))
     await session.commit()
 
-    try:
-        chunks, metas = _split_chunks(c, doc, data, entity_rows)
-        vectors = await _embed_chunks(c, chunks)
-        await _persist_chunks(session, c, doc, chunks, metas, vectors)
-    except Exception as exc:
-        marked = await _mark_ingest_error(session, doc_id, exc)
-        if marked is None:
-            # 실패 처리 중 문서가 동시 삭제된 레이스(delete_document) — None을 응답 검증에 흘리면
-            # 500(조용한 크래시). 정직한 거절로 접는다(스펙 290 결 — refuse loud, mypy가 적발).
-            raise HTTPException(status_code=404, detail="문서가 처리 중 삭제되었습니다") from exc
-        doc = marked
+    # 임베딩+적재는 배경(스펙 334) — 접수 즉시 반환. 잡은 자기 세션을 연다(요청 세션은 곧 닫힘).
+    spawn(_execute_ingest(doc_id, cid, data, entity_rows))
     return doc
+
+
+async def _execute_ingest(
+    doc_id: uuid.UUID,
+    cid: uuid.UUID,
+    data: bytes,
+    entity_rows: list[tuple[str, dict]] | None,
+) -> None:
+    """배경 인제스트(스펙 334) — 청킹(to_thread)→임베딩(배치)→원자 적재. 실패=status error 박제.
+
+    재시작 유실은 부팅 스윕(sweep_zombie_ingests)이 정직 박제하고, 재인덱싱 경합은
+    _persist_chunks의 조건부 UPDATE(312 F1)+재인덱싱 사전 검사(parsing/embedding 409)가 막는다.
+    문서가 그새 삭제되면 조용히 종료(CASCADE로 흔적 없음 — 정상 레이스)."""
+    try:
+        async with SessionLocal() as s:
+            c = await _load_collection(s, cid)
+            doc = await s.get(Document, doc_id)
+            if c is None or doc is None:
+                return  # 접수 직후 컬렉션/문서 삭제 레이스 — 남길 상태 행이 없다
+            try:
+                # CPU 구간(PDF 추출·청킹)은 스레드로 — 이벤트 루프 정지 방지(스펙 334).
+                chunks, metas = await asyncio.to_thread(_split_chunks, c, doc, data, entity_rows)
+                doc.status = "embedding"  # 상태 전이 — UI 폴링이 진행을 보인다
+                await s.commit()
+                vectors = await _embed_chunks(c, chunks)
+                await _persist_chunks(s, c, doc, chunks, metas, vectors)
+            except Exception as exc:
+                await _mark_ingest_error(s, doc_id, exc)
+    except Exception as exc:  # 세션 진입/초기 조회 실패(codex 334 P2) — parsing 영구 잔류 방지
+        with contextlib.suppress(Exception):  # best-effort 박제(그마저 실패면 부팅 스윕이 그물)
+            async with SessionLocal() as s2:
+                await _mark_ingest_error(s2, doc_id, exc)
+
+
+async def sweep_zombie_ingests() -> int:
+    """startup 정리(스펙 334, eval 좀비 스윕 미러) — 배경 인제스트는 재시작을 못 넘기므로 부팅
+    시점의 parsing/embedding 문서는 전부 죽은 처리다. error로 정직 박제(영원한 '처리 중' 방지).
+    blob은 보존돼 재업로드 없이 재시도할 근거가 남는다(재시도 버튼은 OUT 씨앗)."""
+    async with SessionLocal() as s:
+        rows = (
+            (await s.execute(select(Document).where(Document.status.in_(("parsing", "embedding")))))
+            .scalars()
+            .all()
+        )
+        for doc in rows:
+            doc.status = "error"
+            doc.error = "서버 재시작으로 처리가 중단되었습니다 — 다시 업로드하세요"
+        if rows:
+            await s.commit()
+        return len(rows)
 
 
 @router.delete("/{cid}/documents/{doc_id}", status_code=204)

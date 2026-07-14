@@ -7,6 +7,7 @@
 """
 
 import io
+import os
 
 import httpx
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -55,7 +56,17 @@ def extract_text(filename: str, content_type: str | None, data: bytes) -> str:
 
 # ----------------------------- 엔티티 인제스트 (스펙 149) -----------------------------
 # JSONL 행 단위: {"metadata": {...id들}, "data": {...임베딩 소스} | "문자열"} — 1행=1청크(분할 없음).
-ENTITY_MAX_ROWS = 5000  # 파일당 행 수 캡 — 초과 시 400(조용한 축소 금지)
+def _env_int(name: str, default: int) -> int:
+    """env 정수 파싱 — 오타(비숫자)로 import-time 부팅 실패하지 않게 기본값 폴백(codex 334 P3)."""
+    try:
+        return max(1, int(os.environ.get(name, str(default))))
+    except ValueError:
+        return default
+
+
+# 파일당 행 수 캡 — 초과 시 400(조용한 축소 금지). 기본 50,000은 사용자 승인 수치(스펙 334,
+# 2026-07-14 — 구 5,000은 149 때 미승인 휴리스틱이라 재결정). env로 조정 가능.
+ENTITY_MAX_ROWS = _env_int("RAG_ENTITY_MAX_ROWS", 50000)
 ENTITY_MAX_TEXT_CHARS = 8000  # 행당 임베딩 텍스트 캡 — 초과 시 400(임베딩 입력 한계)
 ENTITY_MAX_META_CHARS = 2000  # 행당 metadata 직렬화 캡(codex 149 — 검색 응답 비대 방지)
 
@@ -159,15 +170,31 @@ def chunk_text(text: str, chunk_size: int, chunk_overlap: int) -> list[str]:
     return [c for c in splitter.split_text(text) if c.strip()]
 
 
+# 임베딩 호출당 최대 입력 수(스펙 334) — 전 청크를 한 요청으로 보내면 대형 파일(수만 행)에서
+# 요청 본문이 거대해져 실 provider가 거부하거나 타임아웃. 배치 분할 후 순서 보존 병합.
+EMBED_BATCH = _env_int("RAG_EMBED_BATCH", 128)
+
+
 async def embed_texts(
     base_url: str, api_key: str | None, model_id: str, texts: list[str]
 ) -> list[list[float]]:
-    """OpenAI 호환 `/embeddings` 배치 호출 → 입력 순서대로 벡터 리스트.
+    """OpenAI 호환 `/embeddings` 호출 → 입력 순서대로 벡터 리스트.
 
+    EMBED_BATCH 단위로 분할 호출(스펙 334 — 대형 파일 대비, 인제스트·재인덱싱·편집 공통 관문).
     응답 `data`는 index 필드로 정렬 보장. 실패 시 IngestError(비밀 미포함 메시지).
     """
     if not texts:
         return []
+    out: list[list[float]] = []
+    for i in range(0, len(texts), EMBED_BATCH):
+        out.extend(await _embed_batch(base_url, api_key, model_id, texts[i : i + EMBED_BATCH]))
+    return out
+
+
+async def _embed_batch(
+    base_url: str, api_key: str | None, model_id: str, texts: list[str]
+) -> list[list[float]]:
+    """단일 HTTP 호출(배치 1개) — embed_texts가 분할해 부른다."""
     if not base_url:
         raise IngestError("임베딩 provider base_url이 없습니다.")
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
