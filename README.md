@@ -9,6 +9,7 @@
 - **DB** — PostgreSQL + pgvector (Mem0 벡터 스토어).
 
 > 작업 방식(6단계 루프)·폴더 규약은 [`CLAUDE.md`](./CLAUDE.md), 스펙은 [`docs/spec/`](./docs/spec/) 참고.
+> DB 스키마(ER 다이어그램·테이블 소유·라이프사이클)는 [`docs/db-model.md`](./docs/db-model.md).
 
 ---
 
