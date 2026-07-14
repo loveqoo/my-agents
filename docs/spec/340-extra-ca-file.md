@@ -26,3 +26,13 @@ VERIFY340_OK 5/5: V1 기본 꺼짐(표준 create_default_context) · V2 오타 �
 
 - 회사 디바이스 최종 실측(사용자: 그 디바이스 .env에 EXTRA_CA_FILE 지정 후 위키 검색) ·
   EXTRA_CA_DIR(디렉토리 방식 — 필요 실증 시).
+
+## 후속 수정 (2026-07-14, 회사 디바이스 실측이 발굴)
+
+- **버그**: `_ca_boot`이 main 최선두 import라 db.py의 `load_dotenv()`보다 먼저 env를 읽어 —
+  `.env`에만 적은 SYSTEM_TRUSTSTORE/EXTRA_CA_FILE이 조용히 무시됐다. 내 검증(V1~V5)이 전부
+  **셸 env로 주입**해서 못 본 구멍(문서는 ".env에 적으라"고 안내했으면서). `_ca_boot`이
+  load_dotenv()를 직접 선행하도록 수정 + V6(".env 파일만으로 적용") 회귀 핀.
+- 진단 부기: 사용자 "브라우저에서는 잘 동작" = 사내 CA가 OS 저장소에 있음 → 그 디바이스는
+  `SYSTEM_TRUSTSTORE=1`이 최단 경로. 503은 우리 코드에 없는 코드(a2a 제외) — 수정 후에도 503이면
+  TLS는 통과했고 사내 프록시 응답일 가능성(HTTPS_PROXY를 .env에 — httpx가 읽음).

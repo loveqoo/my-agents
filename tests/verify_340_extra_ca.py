@@ -7,6 +7,8 @@
   V3 재현: EXTRA_CA_FILE **없이** 대역 사이트 GET → 인증서 검증 실패(회사 디바이스의 현 증상).
   V4 처방: EXTRA_CA_FILE=그 CA → 같은 GET 성공(증상 해소 실증).
   V5 무회귀: EXTRA_CA_FILE 켠 채 위키(표준 CA) GET 성공 — 교체가 아니라 **추가**임을 실증.
+  V6 .env 경로(340 후속 — 회사 디바이스 실측이 잡은 구멍): 셸 env 없이 **cwd의 .env 파일만**으로
+     설정이 적용되는지(_ca_boot이 db.py의 load_dotenv보다 먼저 env를 읽던 순서 버그의 회귀 핀).
 실행: uv run --project packages/api python tests/verify_340_extra_ca.py  (V5는 외부 네트워크)
 """
 
@@ -126,6 +128,17 @@ def main():
         # V5 — 무회귀: 켠 채 표준 CA 사이트(위키)도 성공 = 교체가 아니라 추가
         out5 = _run(WIKI, {"EXTRA_CA_FILE": cert})
         check("WIKI-OK" in out5, f"V5 켠 채 표준 사이트 무회귀(추가지 교체 아님) (got {out5.splitlines()[-1][:80]})")
+
+        # V6 — .env 파일만으로 적용(셸 env 없이) — 회사 디바이스 시나리오
+        dotdir = os.path.join(td, "dotenv-cwd")
+        os.makedirs(dotdir)
+        with open(os.path.join(dotdir, ".env"), "w") as f:
+            f.write(f"EXTRA_CA_FILE={cert}\n")
+        probe_abs = PROBE.replace("'packages/api/src'", repr(os.path.join(_ROOT, "packages", "api", "src")))
+        env6 = {k: v for k, v in os.environ.items() if k not in ("EXTRA_CA_FILE", "SYSTEM_TRUSTSTORE")}
+        r6 = subprocess.run([sys.executable, "-c", probe_abs], env=env6, capture_output=True, text=True, cwd=dotdir)
+        out6 = (r6.stdout + r6.stderr).strip()
+        check(out6.splitlines()[-1] == "patched", f"V6 .env 파일만으로 적용(load_dotenv 선행) (got {out6[-60:]})")
 
     print()
     if _fails:

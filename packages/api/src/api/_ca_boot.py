@@ -14,6 +14,14 @@ import os
 import ssl
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+# .env를 여기서 먼저 로드(340 후속 수정) — 이 모듈은 main의 최선두 import라 db.py의 load_dotenv()
+# **이전**에 env를 읽는다. 이 줄이 없으면 `.env`에만 적은 SYSTEM_TRUSTSTORE/EXTRA_CA_FILE이
+# 조용히 무시된다(회사 디바이스 실측으로 발견 — 셸 env로만 검증한 내 구멍). load_dotenv는
+# 멱등이고 기존 셸 env를 덮지 않는다.
+load_dotenv()
+
 logger = logging.getLogger("api.boot")
 
 if os.environ.get("SYSTEM_TRUSTSTORE", "").lower() in ("1", "true"):
