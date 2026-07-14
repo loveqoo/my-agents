@@ -11,7 +11,7 @@ import type { ChatMsg, Trace } from './agentData'
 import type { Agent, BlockCategory, Session } from '../admin/mockData'
 import {
   listAgents, streamChat, streamChatA2A, getBlocks, listModels, listSessions, getSessionMessages, listCollections,
-  listApprovals, resolveApproval,
+  getApproval, resolveApproval,
   type ChatMessage, type Model, type Collection, type ChatFormFrame, type MessageFeedback,
 } from '../api'
 import { onAgentsChanged } from '../agentsBus'
@@ -218,8 +218,9 @@ export function Playground({
       if (cancelled) return
       tries += 1
       try {
-        const list = await listApprovals()
-        const found = list.find((a) => a.id === apid)
+        // 스펙 350: 승인 1건의 상태를 알려고 **전 목록**을 2.5초마다 받아오던 것을 단건 조회로.
+        // 승인 행이 쌓일수록 폴링 한 번의 비용이 같이 커지던 구조였다(저장 누수 → 대역폭 누수 증폭).
+        const found = await getApproval(apid).catch(() => null)
         if (found) {
           const sid = found.sessionId
           if (baseline === null) {

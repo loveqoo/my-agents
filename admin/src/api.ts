@@ -174,6 +174,9 @@ export interface BatchConfig {
   test_user_email_pattern: string | null
   checkpoint_ttl_hours: number | null
   checkpoint_cleanup_cron: string | null
+  token_cleanup_cron: string | null
+  approval_retention_days: number | null
+  approval_cleanup_cron: string | null
 }
 export interface BatchRun {
   id: string
@@ -720,6 +723,8 @@ export const setMessageFeedback = (sessionId: string, messageId: string, rating:
   put(`/sessions/${sessionId}/messages/${messageId}/feedback`, { rating, reason }) as Promise<MessageFeedback>
 export const clearMessageFeedback = (sessionId: string, messageId: string) =>
   del(`/sessions/${sessionId}/messages/${messageId}/feedback`)
+/** 승인 1건 조회(스펙 350) — 폴링을 O(전체 테이블)에서 O(1)로. 볼 수 없는 건 404(존재 비노출). */
+export const getApproval = (approvalId: string) => j<Approval>(`/approvals/${approvalId}`)
 export const listApprovals = (status?: string) =>
   j<Approval[]>(`/approvals${status ? `?status=${encodeURIComponent(status)}` : ''}`)
 // 승인 페이지 목록(스펙 251) — {items,total}. status: pending=대기 큐, resolved=처리 내역.

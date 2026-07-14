@@ -62,7 +62,7 @@ TABLES: dict[str, Policy] = {
     # --- 회수 경로 있음 ---------------------------------------------------------
     "agent_versions": Policy("reclaimed", by="cascade:agents", note="편집은 draft 재사용, 활성화당 1행(사람 페이스)"),
     "message_feedback": Policy("reclaimed", by="cascade:messages"),
-    "eval_case_results": Policy("reclaimed", by="cascade:eval_runs", note="부모(eval_runs)의 회수에 종속 — 351 이후 진짜 회수"),
+    "eval_case_results": Policy("reclaimed", by="cascade:eval_runs", note="부모(eval_runs)가 history-cleanup으로 회수되면 CASCADE로 함께 사라진다(고아 0)"),
     "eval_cases": Policy("reclaimed", by="cascade:eval_datasets", note="관리자 저작 문제집의 일부"),
     "collection_reindex_events": Policy("reclaimed", by="cascade:collections", note="재인덱싱당 1행(관리자 페이스)"),
     "document_blobs": Policy("reclaimed", by="cascade:documents", note="원본 바이트 보존은 재청킹 근거(의도된 설계, 상한 25MB)"),
@@ -80,26 +80,25 @@ TABLES: dict[str, Policy] = {
         note="로그인마다 1행. 만료(수명+유예 1일) 지난 토큰만 회수 — 살아 있는 세션은 안 끊는다(스펙 349)",
     ),
     "approvals": Policy(
-        "leaking",
-        note="위험 도구 호출마다 1행, 삭제 라우트가 리포 전체에 없음. session_id는 FK가 아니라 문자열이라 "
-        "세션 삭제로도 안 지워진다. 게다가 플레이그라운드가 페이지네이션 없는 전체 목록을 2.5초마다 폴링",
-        fix_spec="350",
+        "reclaimed",
+        by="batch:approval-cleanup",
+        note="처리된 승인만 보존기간(기본 30일) 후 회수. **pending은 재개 근거라 절대 안 지운다** — "
+        "방치 pending은 346 스윕이 expired로 바꾼 뒤 이 보존기간을 탄다(수명 사슬)",
     ),
     "eval_runs": Policy(
-        "leaking",
-        note="평가 실행마다 1행(+케이스당 결과 1행). 삭제 라우트 없음(문제집 통째 삭제만). "
-        "게다가 버전 활성화마다 최대 3런이 **자동** 생성",
-        fix_spec="351",
+        "reclaimed",
+        by="batch:history-cleanup",
+        note="평가 실행 이력 — 보존기간(기본 90일) 후 회수. **문제집별 최근 10런은 나이와 무관하게 보존**(성적 추이 앵커)",
     ),
     "batch_runs": Policy(
-        "leaking",
-        note="배치 잡 실행마다 1행(no-op/disabled 실행 포함). 삭제 코드 없음. 배치가 가동되면 매시 누적",
-        fix_spec="351",
+        "reclaimed",
+        by="batch:history-cleanup",
+        note="배치 실행 이력 — 보존기간 후 회수(348로 배치가 실제 도니 매시 쌓인다 — 청소부의 발자국도 치운다)",
     ),
     "memory_snapshots": Policy(
-        "leaking",
-        note="메모리 통합 시 원본 기억 1개당 1행(롤백 앵커). 삭제 코드 없음",
-        fix_spec="351",
+        "reclaimed",
+        by="batch:history-cleanup",
+        note="메모리 통합 롤백 앵커 — 보존기간 후 회수(90일 지난 앵커는 현실적으로 못 쓴다)",
     ),
 }
 

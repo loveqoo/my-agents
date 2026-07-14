@@ -116,6 +116,32 @@ async def list_approvals(
     return [approval_to_out(p, amap.get(p.agent_pk)) for p in result.scalars().all()]
 
 
+@router.get("/{approval_id}", response_model=ApprovalOut)
+async def get_approval(
+    approval_id: str,
+    session: AsyncSession = Depends(get_session),
+    principal: User | str = Depends(current_principal),
+) -> ApprovalOut:
+    """승인 **1건** 조회(스펙 350) — 폴링을 O(전체 테이블)에서 O(1)로.
+
+    플레이그라운드는 승인 1건의 상태를 알려고 `GET /approvals`(전 상태·LIMIT 없음)를 2.5초마다
+    최대 60회 불렀다 — 승인 행이 쌓일수록 폴링 한 번의 비용이 같이 커지는 구조였다(저장 누수가
+    대역폭 누수로 증폭).
+
+    인가는 목록과 **같은 규칙**(스펙 066): 일반 유저는 자기 것만. 볼 수 없는 건 403이 아니라
+    **404로 접는다**(존재 비노출 — learning 068).
+    """
+    own = authz.own_scope(principal, "approvals", "resolve")
+    conds = [Approval.approval_id == approval_id]
+    if own is not None:
+        conds.append(Approval.user_id == own)  # SELECT-WHERE로 밀어 거부행은 로드조차 안 함
+    row = (await session.execute(select(Approval).where(*conds))).scalars().first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="not found")
+    amap = await agent_id_map(session)
+    return approval_to_out(row, amap.get(row.agent_pk))
+
+
 @router.post("/{approval_id}/resolve", response_model=ApprovalOut)
 async def resolve_approval(
     approval_id: str,

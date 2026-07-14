@@ -109,6 +109,42 @@ function summarize(r: BatchRun): React.ReactNode {
       )
     return <code style={{ fontSize: 12 }}>{JSON.stringify(s)}</code>
   }
+  if (r.job_name === 'token-cleanup') {
+    // 로그인 세션 토큰 정리 — 살아 있는 세션은 안 건드리므로 수명 오류만 비활성 사유.
+    if (st === 'disabled') return <Tag>비활성(수명 설정 오류)</Tag>
+    if (st === 'dry_run')
+      return (
+        <span>
+          <Tag color="geekblue">dry-run</Tag>
+          삭제 예정 {String(s.would_delete ?? '?')}건
+        </span>
+      )
+    if (st === 'ok')
+      return (
+        <span>
+          삭제 {String(s.deleted ?? '?')}건
+        </span>
+      )
+    return <code style={{ fontSize: 12 }}>{JSON.stringify(s)}</code>
+  }
+  if (r.job_name === 'approval-cleanup') {
+    // 처리된 승인 보존정리 — 대기 중인 승인은 절대 대상이 아니므로 보호 건수도 표기.
+    if (st === 'disabled') return <Tag>비활성(보존기간 미설정)</Tag>
+    if (st === 'dry_run')
+      return (
+        <span>
+          <Tag color="geekblue">dry-run</Tag>
+          삭제 예정 {String(s.would_delete ?? '?')}건 · 대기 {String(s.pending_protected ?? '?')}건 보호
+        </span>
+      )
+    if (st === 'ok')
+      return (
+        <span>
+          삭제 {String(s.deleted ?? '?')}건 · 대기 {String(s.pending_protected ?? '?')}건 보호
+        </span>
+      )
+    return <code style={{ fontSize: 12 }}>{JSON.stringify(s)}</code>
+  }
   // session-cleanup — 나이·턴 기준의 합집합(스펙 049)이라 활성 기준만 골라 표기.
   const crit = [
     s.retention_days != null ? `보존 ${String(s.retention_days)}일` : null,
@@ -148,14 +184,23 @@ export default function BatchView() {
   // checkpoint-cleanup (스펙 346)
   const [ckptTtl, setCkptTtl] = useState<number | null>(null)
   const [ckptCron, setCkptCron] = useState<string>('')
+  // token-cleanup — 수명은 인증 설정(AUTH_SESSION_LIFETIME)이 소유, cron만 편집.
+  const [tokenCron, setTokenCron] = useState<string>('')
+  // approval-cleanup — 대기 중인 승인은 절대 대상 아님, 처리된 승인만 보존기간 지나면 정리.
+  const [apprDays, setApprDays] = useState<number | null>(null)
+  const [apprCron, setApprCron] = useState<string>('')
 
   const [runs, setRuns] = useState<BatchRun[]>([])
   const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState<'session' | 'memory' | 'user' | 'checkpoint' | null>(null)
+  const [saving, setSaving] = useState<
+    'session' | 'memory' | 'user' | 'checkpoint' | 'token' | 'approval' | null
+  >(null)
   const [busy, setBusy] = useState<string | null>(null) // `${job}:${dry|run}`
   // 스펙 227: 네 잡을 세로 나열 → 탭(각 잡은 설정 폼·동작이 다른 별개 도구, 탭 규칙 스펙 212).
   // 실행 이력은 공용이라 탭 아래 공통. 입력 상태는 컴포넌트 상태라 탭 전환에도 보존.
-  const [job, setJob] = useState<'session' | 'memory' | 'a2a' | 'user' | 'checkpoint'>('session')
+  const [job, setJob] = useState<
+    'session' | 'memory' | 'a2a' | 'user' | 'checkpoint' | 'token' | 'approval'
+  >('session')
 
   const loadRuns = useCallback(async () => {
     try {
@@ -175,6 +220,9 @@ export default function BatchView() {
     setUserPattern(c.test_user_email_pattern ?? '')
     setCkptTtl(c.checkpoint_ttl_hours)
     setCkptCron(c.checkpoint_cleanup_cron ?? '')
+    setTokenCron(c.token_cleanup_cron ?? '')
+    setApprDays(c.approval_retention_days)
+    setApprCron(c.approval_cleanup_cron ?? '')
   }, [])
 
   const load = useCallback(async () => {
@@ -211,8 +259,14 @@ export default function BatchView() {
     cfg !== null &&
     (ckptTtl !== cfg.checkpoint_ttl_hours ||
       (ckptCron || null) !== (cfg.checkpoint_cleanup_cron || null))
+  const tokenDirty =
+    cfg !== null && (tokenCron || null) !== (cfg.token_cleanup_cron || null)
+  const approvalDirty =
+    cfg !== null &&
+    (apprDays !== cfg.approval_retention_days ||
+      (apprCron || null) !== (cfg.approval_cleanup_cron || null))
 
-  const save = async (which: 'session' | 'memory' | 'user' | 'checkpoint') => {
+  const save = async (which: 'session' | 'memory' | 'user' | 'checkpoint' | 'token' | 'approval') => {
     setSaving(which)
     const body =
       which === 'session'
@@ -231,7 +285,14 @@ export default function BatchView() {
                 checkpoint_ttl_hours: ckptTtl,
                 checkpoint_cleanup_cron: ckptCron.trim() || null,
               }
-            : { test_user_email_pattern: userPattern.trim() || null }
+            : which === 'token'
+              ? { token_cleanup_cron: tokenCron.trim() || null }
+              : which === 'approval'
+                ? {
+                    approval_retention_days: apprDays,
+                    approval_cleanup_cron: apprCron.trim() || null,
+                  }
+                : { test_user_email_pattern: userPattern.trim() || null }
     // 백엔드 422(전체 삭제 패턴 거부 등) 포함.
     await runWithToast(async () => applyCfg(await updateBatchConfig(body)), {
       success: '배치 설정을 저장했습니다',
@@ -257,7 +318,11 @@ export default function BatchView() {
               : '통합 임계치가 설정되지 않아 작업이 비활성 상태입니다'
             : job === 'user-cleanup'
               ? '테스트 유저 이메일 패턴이 설정되지 않아 작업이 비활성 상태입니다'
-              : '보존일수가 설정되지 않아 작업이 비활성 상태입니다',
+              : job === 'token-cleanup'
+                ? '수명 설정(AUTH_SESSION_LIFETIME) 오류로 작업이 비활성 상태입니다'
+                : job === 'approval-cleanup'
+                  ? '보존기간이 설정되지 않아 작업이 비활성 상태입니다'
+                  : '보존일수가 설정되지 않아 작업이 비활성 상태입니다',
         )
       } else if (job === 'memory-consolidation') {
         if (dryRun)
@@ -292,6 +357,20 @@ export default function BatchView() {
           dryRun
             ? `dry-run 완료 — 정리 예정 ${String(s?.would_delete ?? 0)} 스레드${expTxt}(실삭제 없음)`
             : `실행 완료 — ${String(s?.deleted ?? 0)} 스레드 정리${expTxt}`,
+        )
+      } else if (job === 'token-cleanup') {
+        message.success(
+          dryRun
+            ? `dry-run 완료 — 삭제 예정 ${String(s?.would_delete ?? 0)}건(실삭제 없음)`
+            : `실행 완료 — ${String(s?.deleted ?? 0)}건 삭제`,
+        )
+      } else if (job === 'approval-cleanup') {
+        // 대기 중인 승인은 절대 대상이 아니다 — 보호 건수를 숨기지 않는다.
+        const prot = String(s?.pending_protected ?? 0)
+        message.success(
+          dryRun
+            ? `dry-run 완료 — 삭제 예정 ${String(s?.would_delete ?? 0)}건 · 대기 ${prot}건은 보호됨(실삭제 없음)`
+            : `실행 완료 — ${String(s?.deleted ?? 0)}건 삭제 · 대기 ${prot}건은 보호됨`,
         )
       } else if (dryRun) {
         message.success(`dry-run 완료 — 삭제 예정 ${String(s?.would_delete ?? 0)}건(실삭제 없음)`)
@@ -399,6 +478,8 @@ export default function BatchView() {
           { key: 'a2a', label: 'A2A 정크' },
           { key: 'user', label: '테스트 유저' },
           { key: 'checkpoint', label: '체크포인트' },
+          { key: 'token', label: '토큰' },
+          { key: 'approval', label: '승인' },
         ]}
         style={{ marginBottom: 12 }}
       />
@@ -751,6 +832,146 @@ export default function BatchView() {
             </Popconfirm>
           </Space>
           {userDirty && (
+            <span style={{ marginInlineStart: 12, color: 'var(--gold-6, #d48806)', fontSize: 13 }}>
+              저장하지 않은 변경이 있습니다.
+            </span>
+          )}
+        </div>
+      </Panel>
+      )}
+
+      {/* 토큰 정리 (스펙 038 패턴 미러) — 설정은 cron만, 수명은 인증 설정(AUTH_SESSION_LIFETIME) 소유 */}
+      {job === 'token' && (
+      <Panel style={{ padding: 20, marginBottom: 20 }}>
+        {/* 탭이 곧 제목(스펙 250 #7) — 반복 어구 제거, 잡 식별자(코드명)만 유지(서버 로그 대조용). */}
+        <code style={{ fontFamily: 'var(--font-family-code)', fontSize: 12, color: 'var(--color-text-quaternary)' }}>token-cleanup</code>
+        <div style={{ color: 'var(--color-text-tertiary)', fontSize: 13, marginBottom: 16 }}>
+          만료된 로그인 세션 토큰을 정리합니다. 로그인할 때마다 1행이 쌓이는데, 만료(기본 7일) 후에도
+          지워지지 않아 무한 누적됩니다. <b>살아 있는 세션은 끊지 않습니다</b> — 만료 후 유예 1일이 지난
+          토큰만 지웁니다. 수명은 인증 설정(AUTH_SESSION_LIFETIME)을 따릅니다.
+        </div>
+        <Form layout="vertical" component="div">
+          <Form.Item
+            label="스케줄(cron)"
+            style={{ marginBottom: 0 }}
+            extra="격리 배치 서비스(batch serve)가 이 cron으로 자동 실행합니다."
+          >
+            <Input
+              value={tokenCron}
+              onChange={(e) => setTokenCron(e.target.value)}
+              placeholder="예: 0 3 * * *  (비우면 자동 실행 안 함)"
+              style={{ maxWidth: 280, fontFamily: 'var(--font-mono, monospace)' }}
+            />
+          </Form.Item>
+        </Form>
+        <div style={{ marginTop: 16 }}>
+          <Space wrap>
+            <Button
+              type="primary"
+              onClick={() => void save('token')}
+              loading={saving === 'token'}
+              disabled={!tokenDirty}
+            >
+              설정 저장
+            </Button>
+            <Button
+              onClick={() => void trigger('token-cleanup', true)}
+              loading={busy === 'token-cleanup:dry'}
+              disabled={busy !== null}
+            >
+              Dry-run (미리보기)
+            </Button>
+            <Popconfirm
+              title="지금 실행하시겠습니까?"
+              description="만료된 토큰을 실제로 삭제합니다. 되돌릴 수 없습니다."
+              okText="실행"
+              cancelText="취소"
+              okButtonProps={{ danger: true }}
+              onConfirm={() => void trigger('token-cleanup', false)}
+            >
+              <Button danger loading={busy === 'token-cleanup:run'} disabled={busy !== null}>
+                지금 실행
+              </Button>
+            </Popconfirm>
+          </Space>
+          {tokenDirty && (
+            <span style={{ marginInlineStart: 12, color: 'var(--gold-6, #d48806)', fontSize: 13 }}>
+              저장하지 않은 변경이 있습니다.
+            </span>
+          )}
+        </div>
+      </Panel>
+      )}
+
+      {/* 승인 정리 (스펙 038 패턴 미러) — 대기 중인 승인은 절대 대상이 아님(재개 근거 보존) */}
+      {job === 'approval' && (
+      <Panel style={{ padding: 20, marginBottom: 20 }}>
+        {/* 탭이 곧 제목(스펙 250 #7) — 반복 어구 제거, 잡 식별자(코드명)만 유지(서버 로그 대조용). */}
+        <code style={{ fontFamily: 'var(--font-family-code)', fontSize: 12, color: 'var(--color-text-quaternary)' }}>approval-cleanup</code>
+        <div style={{ color: 'var(--color-text-tertiary)', fontSize: 13, marginBottom: 16 }}>
+          처리된 승인 기록을 보존기간이 지나면 정리합니다. <b>대기 중인 승인은 절대 지우지 않습니다</b> —
+          그건 멈춰 있는 작업을 재개하는 근거입니다. 보존기간을 비우면 비활성입니다.
+        </div>
+        <Form layout="vertical" component="div">
+          <Form.Item
+            label="보존기간"
+            style={{ marginBottom: 12 }}
+            extra={apprDays == null ? '비활성 — 삭제하지 않음' : `${apprDays}일 이전 처리된 승인 정리`}
+          >
+            <InputNumber
+              min={1}
+              max={3650}
+              value={apprDays ?? undefined}
+              onChange={(v) => setApprDays(v ?? null)}
+              placeholder="비활성"
+              addonAfter="일"
+              style={{ width: 160 }}
+            />
+          </Form.Item>
+          <Form.Item
+            label="스케줄(cron)"
+            style={{ marginBottom: 0 }}
+            extra="격리 배치 서비스(batch serve)가 이 cron으로 자동 실행합니다."
+          >
+            <Input
+              value={apprCron}
+              onChange={(e) => setApprCron(e.target.value)}
+              placeholder="예: 0 4 * * *  (비우면 자동 실행 안 함)"
+              style={{ maxWidth: 280, fontFamily: 'var(--font-mono, monospace)' }}
+            />
+          </Form.Item>
+        </Form>
+        <div style={{ marginTop: 16 }}>
+          <Space wrap>
+            <Button
+              type="primary"
+              onClick={() => void save('approval')}
+              loading={saving === 'approval'}
+              disabled={!approvalDirty}
+            >
+              설정 저장
+            </Button>
+            <Button
+              onClick={() => void trigger('approval-cleanup', true)}
+              loading={busy === 'approval-cleanup:dry'}
+              disabled={busy !== null}
+            >
+              Dry-run (미리보기)
+            </Button>
+            <Popconfirm
+              title="지금 실행하시겠습니까?"
+              description="보존기간이 지난 처리된 승인을 삭제합니다. 대기 중인 승인은 지우지 않습니다."
+              okText="실행"
+              cancelText="취소"
+              okButtonProps={{ danger: true }}
+              onConfirm={() => void trigger('approval-cleanup', false)}
+            >
+              <Button danger loading={busy === 'approval-cleanup:run'} disabled={busy !== null}>
+                지금 실행
+              </Button>
+            </Popconfirm>
+          </Space>
+          {approvalDirty && (
             <span style={{ marginInlineStart: 12, color: 'var(--gold-6, #d48806)', fontSize: 13 }}>
               저장하지 않은 변경이 있습니다.
             </span>

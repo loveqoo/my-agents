@@ -32,6 +32,10 @@ class BatchConfigOut(BaseModel):
     checkpoint_ttl_hours: int | None
     checkpoint_cleanup_cron: str | None
     token_cleanup_cron: str | None
+    approval_retention_days: int | None
+    approval_cleanup_cron: str | None
+    history_retention_days: int | None
+    history_cleanup_cron: str | None
 
 
 class BatchConfigIn(BaseModel):
@@ -55,6 +59,12 @@ class BatchConfigIn(BaseModel):
     checkpoint_ttl_hours: int | None = Field(default=None, ge=1)
     checkpoint_cleanup_cron: str | None = None
     token_cleanup_cron: str | None = None
+    # ge=1: 0이면 cutoff=now()라 처리된 승인 전량 삭제(delete-all 푸트건). NULL=비활성.
+    approval_retention_days: int | None = Field(default=None, ge=1)
+    approval_cleanup_cron: str | None = None
+    # ge=1: 0이면 전 이력 삭제(delete-all). NULL=비활성.
+    history_retention_days: int | None = Field(default=None, ge=1)
+    history_cleanup_cron: str | None = None
 
     @field_validator("test_user_email_pattern")
     @classmethod
@@ -147,6 +157,10 @@ def _config_out(cfg: BatchConfig) -> BatchConfigOut:
         checkpoint_ttl_hours=cfg.checkpoint_ttl_hours,
         checkpoint_cleanup_cron=cfg.checkpoint_cleanup_cron,
         token_cleanup_cron=cfg.token_cleanup_cron,
+        approval_retention_days=cfg.approval_retention_days,
+        approval_cleanup_cron=cfg.approval_cleanup_cron,
+        history_retention_days=cfg.history_retention_days,
+        history_cleanup_cron=cfg.history_cleanup_cron,
     )
 
 
@@ -172,6 +186,10 @@ async def update_config(
         "checkpoint_ttl_hours",
         "checkpoint_cleanup_cron",
         "token_cleanup_cron",
+        "approval_retention_days",
+        "approval_cleanup_cron",
+        "history_retention_days",
+        "history_cleanup_cron",
     ):
         if field in data:
             setattr(cfg, field, data[field])

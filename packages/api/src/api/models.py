@@ -557,6 +557,14 @@ class BatchConfig(AuditMixin, Base):
     # 만료 토큰 회수(스펙 349) — 수명·유예는 인증 설정(AUTH_SESSION_LIFETIME)에서 읽으므로 cron만.
     # 기본값이 있는 이유는 346과 같다: 안 치우면 무한 누적이 기본 동작이라 "안 하기"가 보수적이지 않다.
     token_cleanup_cron: Mapped[str | None] = mapped_column(String(120), default="0 4 * * *")
+    # 처리된 승인 회수(스펙 350) — pending은 재개 근거라 절대 대상이 아니다(방치 pending은 346 스윕이
+    # expired로 바꾼 뒤 이 보존기간을 탄다). NULL/<1이면 비활성.
+    approval_retention_days: Mapped[int | None] = mapped_column(Integer, default=30)
+    approval_cleanup_cron: Mapped[str | None] = mapped_column(String(120), default="30 4 * * *")
+    # 실행 이력 보존(스펙 351) — eval_runs·batch_runs·memory_snapshots 공통. eval_runs는 문제집별
+    # 최근 10런을 나이와 무관하게 보존한다(성적 추이 앵커). NULL/<1이면 비활성.
+    history_retention_days: Mapped[int | None] = mapped_column(Integer, default=90)
+    history_cleanup_cron: Mapped[str | None] = mapped_column(String(120), default="0 5 * * *")
 
 
 class MemorySnapshot(AuditMixin, Base):
