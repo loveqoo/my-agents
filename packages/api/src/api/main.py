@@ -12,7 +12,6 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from . import (
-    _ca_boot,  # noqa: F401  # 사내 CA 신뢰(스펙 339·340) — api 형제 모듈보다 먼저(컨텍스트 생성 전 계약)
     a2a_server,
     agents,
     allowed_hosts,

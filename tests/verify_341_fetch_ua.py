@@ -83,7 +83,7 @@ def main():
             f.write("WEB_FETCH_UA=curl/9.9.9-dotenv\n")
         code = (
             f"import sys; sys.path.insert(0, {os.path.join(_ROOT, 'packages', 'api', 'src')!r});"
-            "import api.main;"  # _ca_boot의 load_dotenv 경유
+            "import api.main;"  # db.py의 load_dotenv 경유(스펙 342로 _ca_boot 제거 후에도 유지 — 이 줄이 그 핀)
             "from api.served_mcp import _fetch_ua; print('UA=' + _fetch_ua())"
         )
         env5 = {k: v for k, v in os.environ.items() if k != "WEB_FETCH_UA"}
