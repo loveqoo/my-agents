@@ -644,6 +644,15 @@ async def update_mcp_server(
     new_name = data.get("name")
     if new_name is not None and new_name != obj.name:
         assert_valid_name(new_name)  # 이름 변경 시에만 규칙(기존은 grandfather, 스펙 148)
+        from . import served_mcp
+
+        if new_name in served_mcp.SERVED_MCPS:
+            # 예약 서빙 이름 개명 차단(스펙 360, codex 방어심화) — 생성 게이트(위 371줄)와 대칭.
+            # 시스템 served 행이 지워진 틈에 사용자 행을 served 이름으로 개명해 SSRF 예외 대상으로
+            # 만드는 우회를 봉인한다(그래도 url이 정확 served_url이어야 예외라 임의 내부주소는 불가).
+            raise HTTPException(
+                status_code=400, detail="예약된 서빙 MCP 이름입니다 — 다른 이름을 쓰세요."
+            )
         refs = await agents_referencing(session, "mcps", obj.name)
         if refs:
             raise HTTPException(

@@ -233,10 +233,17 @@ def mcp_connection(server: dict) -> dict | None:
     if (server.get("transport") or "").lower() not in ("http", "streamable_http"):
         return None  # stdio 등 미지원 transport
     url = server.get("url") or ""
-    try:
-        net_guard.guard_url(url)
-    except net_guard.SsrfBlockedError:
-        return None  # SSRF 차단 서버는 연결 자체를 안 함(부수효과 0)
+    # 스펙 360: 우리 자체 served MCP(플랫폼이 자기 자신에 붙는 127.0.0.1 서빙 엔드포인트)는 SSRF
+    # 판정 대상이 아니다 — 목적지가 사용자 입력이 아니라 served_url(name)로 플랫폼이 정한 고정값이라
+    # SSRF가 아니다. 데이터 리셋으로 allowed_hosts에서 127.0.0.1이 빠져도 자체 served MCP는 동작해야
+    # 한다. 예외는 의도 신호(레지스트리 이름 + served_url 정확 일치)라 사용자가 임의 url로 우회 못 함.
+    from .served_mcp import is_own_served_url
+
+    if not is_own_served_url(server.get("name"), url):
+        try:
+            net_guard.guard_url(url)
+        except net_guard.SsrfBlockedError:
+            return None  # SSRF 차단 서버는 연결 자체를 안 함(부수효과 0)
     headers: dict[str, str] = {}
     token = server.get("auth_token")
     if token:

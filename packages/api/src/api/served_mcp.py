@@ -218,6 +218,19 @@ def served_url(name: str, base: str = "http://127.0.0.1:8000") -> str:
     return f"{base.rstrip('/')}{SERVED_MCP_PREFIX}/{name}/"
 
 
+def is_own_served_url(name: str | None, url: str | None) -> bool:
+    """이 (name,url)이 **플랫폼 자체 served MCP**인가 — SSRF 가드 예외 판정용(스펙 360).
+
+    목적지가 사용자 입력이 아니라 `served_url(name)`으로 플랫폼이 결정한 고정 로컬 URL(우리 앱이
+    자기 자신에 연결)일 때만 True. 판정을 의도 신호로 타이트하게: **이름이 served 레지스트리에 있고**
+    (`SERVED_MCP_TOOLS`) **url이 그 이름의 served_url과 정확히 일치**해야 한다. 둘 다 필요.
+
+    우회 불가: served 이름(web-fetch·calc-tools)은 McpServer.name 유일 제약으로 예약 — 사용자가 그
+    이름으로 서버를 못 만든다. 다른 이름에 served URL을 박아도 name 미등록이라 False. 정확 일치라
+    prefix/traversal 애매성 없음. 예외해도 목적지는 우리 served 마운트뿐(미공개는 마운트가 404)."""
+    return bool(name) and name in SERVED_MCP_TOOLS and url == served_url(name)
+
+
 async def _is_served(name: str) -> bool:
     """서빙 게이트(스펙 156) — DB로 요청마다 확인. published + source=custom + 레지스트리 존재.
     미공개/미등록/유래 불일치면 False → 404(노출 안 된 것의 존재·구성 누출 금지, a2a_server 동형).
