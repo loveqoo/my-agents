@@ -579,7 +579,7 @@ export default function ProviderModelView() {
       </div>
       <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
         {/* 마스터 — 프로바이더 목록 */}
-        <Panel style={{ flex: '1 1 320px', minWidth: 280, maxWidth: 420 }}>
+        <Panel style={{ flex: '1 1 320px', minWidth: 'min(280px, 100%)', maxWidth: 420 }}>
           {providers.length === 0 ? (
             <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--color-text-tertiary)' }}>
               등록된 프로바이더가 없습니다
@@ -623,7 +623,7 @@ export default function ProviderModelView() {
         </Panel>
 
         {/* 디테일 — 선택 프로바이더의 실모델 */}
-        <Panel style={{ flex: '2 1 440px', minWidth: 320, padding: 20 }}>
+        <Panel style={{ flex: '2 1 440px', minWidth: 'min(320px, 100%)', padding: 20 }}>
           {!selected ? (
             <div style={{ color: 'var(--color-text-tertiary)' }}>프로바이더를 선택하세요</div>
           ) : (

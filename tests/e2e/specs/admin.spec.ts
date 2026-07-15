@@ -1,4 +1,5 @@
 import { test, expect, type APIRequestContext } from '@playwright/test'
+import { SEED } from '../seed'
 
 /* 어드민 UI(Chromium) — 실 백엔드(8000)에 연결된 상태로 주요 플로우 검증.
    생성한 데이터는 API로 정리해 시드 오염 방지. */
@@ -40,8 +41,10 @@ test('개요 — 통계 타일 + 에이전트 수가 API와 일치', async ({ pa
 
 test('에이전트 — 시드 목록 표시', async ({ page }) => {
   await page.getByRole('menuitem', { name: '에이전트' }).click()
-  await expect(page.getByText('Research Assistant').first()).toBeVisible()
-  await expect(page.getByText('Doc Translator').first()).toBeVisible()
+  // 출처 탭(스펙 284): UI 에이전트는 '내부 (UI)'(기본), 코드 에이전트는 '내부 (Code)'.
+  await expect(page.getByText(SEED.uiAgent).first()).toBeVisible()
+  await page.getByRole('tab', { name: '내부 (Code)' }).click()
+  await expect(page.getByText(SEED.codeAgent).first()).toBeVisible()
 })
 
 test('에이전트 — UI에서 생성하면 목록에 등장 (생성 후 API로 정리)', async ({ page, request }) => {
@@ -51,7 +54,10 @@ test('에이전트 — UI에서 생성하면 목록에 등장 (생성 후 API로
 
   const dialog = page.getByRole('dialog')
   await expect(dialog).toBeVisible()
-  await dialog.getByPlaceholder('예: 리서치 어시스턴트').fill(name)
+  // 식별 이름(슬러그) — 위저드 1단계. 모델·프롬프트는 기본값이 채워져 있다.
+  await dialog.getByPlaceholder('예: research-assistant').fill(name)
+  // 4단계 위저드(정체성→하는 일→세부→요약) — '다음' 3번 후 '에이전트 생성'.
+  for (let i = 0; i < 3; i++) await dialog.getByRole('button', { name: '다음' }).click()
   await dialog.getByRole('button', { name: '에이전트 생성' }).click()
 
   // 목록에 새 에이전트 등장 (실 DB 저장 → UI 갱신)
@@ -90,14 +96,14 @@ test('에이전트 — 공개(A2A) 스위치 토글 (켜기 즉시, 끄기는 �
 test('모델 — 뷰 렌더 + 시드 모델 표시', async ({ page }) => {
   await page.getByRole('menuitem', { name: '모델' }).click()
   await expect(page.getByRole('heading', { name: '모델' }).first()).toBeVisible()
-  await expect(page.getByText('qwen3.6-35b').first()).toBeVisible()
-  await expect(page.getByText('multilingual-e5-large').first()).toBeVisible()
+  await expect(page.getByText(SEED.chatModel).first()).toBeVisible()
+  await expect(page.getByText(SEED.embedModel).first()).toBeVisible()
 })
 
 test('빌딩 블록 — MCP 탭에 서버 표시', async ({ page }) => {
   await page.getByRole('menuitem', { name: '빌딩 블록' }).click()
   await page.getByRole('tab', { name: new RegExp('MCP') }).click()
-  await expect(page.getByText('tavily').first()).toBeVisible()
+  await expect(page.getByText(SEED.mcpServer).first()).toBeVisible()
 })
 
 test('빌딩 블록 — 프롬프트 등록 → 편집 (014, 생성 후 API 정리)', async ({ page, request }) => {
@@ -107,7 +113,8 @@ test('빌딩 블록 — 프롬프트 등록 → 편집 (014, 생성 후 API 정�
   await page.getByRole('button', { name: '새 항목' }).click()
   const create = page.getByRole('dialog')
   await expect(create.getByText('새 프롬프트')).toBeVisible()
-  await create.getByPlaceholder('예: 친절한 고양이').fill(name)
+  // 식별 이름(슬러그) — '예: 친절한-고양이'(대시). '예: 친절한 고양이'(공백)는 설명 필드.
+  await create.getByPlaceholder('예: 친절한-고양이').fill(name)
   // 톤 — 프리셋 선택(멀티) + 자유 입력 태그 추가
   const toneSelect = create.locator('.ant-select').first()
   await toneSelect.click()
@@ -160,35 +167,8 @@ test('빌딩 블록 — 메모리는 시스템 enum이라 읽기 전용(작성·
   await expect(page.getByRole('button', { name: '삭제' })).toHaveCount(0)
 })
 
-test('빌딩 블록 — 벡터테이블 UI 편집 시 동기화 필드(rows/status) 보존 (015, P1 회귀)', async ({ page, request }) => {
-  // rows/status를 가진 벡터테이블을 시드(이 두 필드는 폼에 노출되지 않음)
-  const name = uniq('e2e-vt')
-  const vt = await (
-    await request.post(`${API}/vector-tables`, {
-      data: { name, model: 'e5', source: 'kb://seed', dims: 1024, rows: 4242, status: 'syncing', body: '시드' },
-    })
-  ).json()
-  try {
-    await page.getByRole('menuitem', { name: '빌딩 블록' }).click()
-    await page.getByRole('tab', { name: new RegExp('벡터') }).click()
-    await page.getByText(name).first().click()
-    await page.getByRole('button', { name: '편집' }).click()
-    const edit = page.getByRole('dialog').filter({ hasText: '벡터 테이블 편집' })
-    await expect(edit).toBeVisible()
-    // 설명만 수정(rows/status는 폼에 없음) → 저장
-    await edit.getByPlaceholder('이 데이터셋의 내용').fill('수정된 설명')
-    await edit.getByRole('button', { name: '저장' }).click()
-    // rows/status가 기본값(0/synced)으로 덮어써지지 않고 보존돼야 한다
-    await expect(async () => {
-      const got = await (await request.get(`${API}/vector-tables/${vt.id}`)).json()
-      expect(got.body).toBe('수정된 설명')
-      expect(got.rows).toBe(4242)
-      expect(got.status).toBe('syncing')
-    }).toPass({ timeout: 10_000 })
-  } finally {
-    await request.delete(`${API}/vector-tables/${vt.id}`)
-  }
-})
+// (제거) '벡터테이블 UI 편집 동기화 필드 보존' — /vector-tables 엔드포인트가 제거돼(404) 폐기.
+//        벡터 데이터는 RAG 컬렉션으로 이관(별도 뷰). 스펙 366.
 
 test('세션 — 목록 렌더 + 행 클릭 시 상세', async ({ page }) => {
   await page.getByRole('menuitem', { name: '세션' }).click()
@@ -207,9 +187,12 @@ test('Playground — 실 에이전트와 대화 + 인스펙터 트레이스', as
   await expect(sender).toBeVisible({ timeout: 15_000 })
   await sender.fill('한 단어로 인사해줘')
   await sender.press('Enter')
-  // 전체 응답 완료 시 trace 도착 → 인스펙터 자동 오픈 (실 LangGraph 경로 표시)
-  await expect(page.getByText('턴 인스펙터')).toBeVisible({ timeout: 120_000 })
-  await expect(page.getByText('LangGraph 경로')).toBeVisible()
+  // 응답 완료 시 assistant 턴에 트레이스 칩('인스펙터' 링크) 등장 → 클릭해 인스펙터 오픈
+  const inspectorLink = page.getByText('인스펙터', { exact: false }).first()
+  await expect(inspectorLink).toBeVisible({ timeout: 120_000 })
+  await inspectorLink.click()
+  await expect(page.getByText('턴 인스펙터')).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByText('실행 흐름').first()).toBeVisible()
 })
 
 test('승인 — 카드 또는 빈 상태 렌더', async ({ page }) => {
