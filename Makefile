@@ -38,6 +38,14 @@ suite:
 resource:
 	uv run python tests/verify_347_resource_gate.py
 
+# 회귀망(스펙 353) — 흩어진 verify_*.py를 상시 그물로. 통과분만 그물, 드리프트는 명시 격리.
+test:               # 씨앗 그물: unit+db(상태 격리 가능·빠름). 그물 전부 통과면 exit 0.
+	uv run python tests/run_suite.py
+test-unit:          # 순수층만(무의존·병렬·최속)
+	uv run python tests/run_suite.py unit
+test-all:           # 전층(http 포함 — dev 서버 8000 전제. http는 상태 오염 취약, 참고용)
+	uv run python tests/run_suite.py all
+
 metrics-fast: lint format-check complexity maintainability naming typecheck
 	@echo "== metrics-fast 통과 =="
 
