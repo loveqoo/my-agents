@@ -14,6 +14,7 @@ hit에 scope축 태깅)을 보장한다. "mem0는 필터가 AND라 축별로 따
 import importlib
 import logging
 import os
+import threading
 from typing import Protocol, runtime_checkable
 
 log = logging.getLogger("api.memory")
@@ -84,6 +85,9 @@ _BACKENDS: dict[str, tuple[str, str]] = {
 
 # (백엔드 종류, mem_cfg 키)별 인스턴스 캐시. 값 None = 초기화 실패(graceful 무력화).
 _cache: dict[tuple, MemoryBackend | None] = {}
+# 캐시 미스 경로 직렬화(스펙 358) — resolve_backend는 동기 함수이고 챗·배치가 to_thread 워커에서
+# 동시 호출한다. 락 없으면 같은 새 mem_cfg로 두 스레드가 동시에 _construct → 풀 하나 고아 누수.
+_cache_lock = threading.Lock()
 
 
 def _backend_kind() -> str:
@@ -124,15 +128,21 @@ def resolve_backend(mem_cfg: dict | None) -> MemoryBackend | None:
         return None
     kind = _backend_kind()
     key = (kind, _cfg_key(mem_cfg))
+    # fast-path: 히트(None 실패 캐시 포함)는 락 없이 반환. `key in _cache`로 봐야 None 캐시와 미스를 구분
+    # (get() is not None만 보면 None 캐시를 매번 재구성). 스펙 358.
     if key in _cache:
         return _cache[key]
-    try:
-        backend: MemoryBackend | None = _construct(kind, mem_cfg)
-    except Exception as exc:  # 설정/런타임 오류 → graceful 무력화
-        log.warning("memory backend %r init failed, memory disabled: %s", kind, exc)
-        backend = None
-    _cache[key] = backend
-    return backend
+    # 미스 경로만 직렬화 — 동시 콜드스타트 시 _construct 중복(풀 고아 누수) 방지.
+    with _cache_lock:
+        if key in _cache:  # 재확인: 락 대기 중 다른 스레드가 채웠으면 그 인스턴스 재사용
+            return _cache[key]
+        try:
+            backend: MemoryBackend | None = _construct(kind, mem_cfg)
+        except Exception as exc:  # 설정/런타임 오류 → graceful 무력화
+            log.warning("memory backend %r init failed, memory disabled: %s", kind, exc)
+            backend = None
+        _cache[key] = backend
+        return backend
 
 
 def _reset_cache() -> None:
