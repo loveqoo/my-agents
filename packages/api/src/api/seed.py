@@ -349,9 +349,10 @@ def _seed_ui_agents(session: AsyncSession, prompt_body: dict[str, str]) -> None:
             status=status,
             active_version=active,
         )
-        for ver, vstatus, _created, note in versions:
+        for ver, _vstatus, _created, note in versions:
+            # 시드 이력은 전부 오픈됐던 버전(스펙 370 — active/archived 구분은 포인터가 대체).
             agent.versions.append(
-                AgentVersion(version=ver, status=vstatus, note=note, config=dict(cfg))
+                AgentVersion(version=ver, ever_opened=True, note=note, config=dict(cfg))
             )
         session.add(agent)
 
@@ -418,7 +419,7 @@ def _seed_pipeline_demo_agent(session: AsyncSession, prompt_body: dict[str, str]
     pipeline_demo.versions.append(
         AgentVersion(
             version="v1",
-            status="active",
+            ever_opened=True,
             note="노드형 리서치 데모(스펙 327 — 구 plan-execute SDK 데모 대체)",
             config=dict(pe_cfg),
         )
@@ -506,7 +507,7 @@ def _seed_code_agent(session: AsyncSession) -> None:
     translator.versions.append(
         AgentVersion(
             version="f3a91c2",
-            status="active",
+            ever_opened=True,
             note="Deploy · 용어집 조회 추가",
             config=dict(code_cfg),
         )
@@ -514,7 +515,7 @@ def _seed_code_agent(session: AsyncSession) -> None:
     translator.versions.append(
         AgentVersion(
             version="9b22d01",
-            status="archived",
+            ever_opened=True,
             note="Deploy · 초기 배포",
             config=dict(code_cfg),
         )

@@ -74,17 +74,30 @@ def next_version(versions: list[AgentVersion]) -> str:
     return f"v{max_n + 1}"
 
 
+def _vnum(version: str | None) -> int:
+    m = re.fullmatch(r"v(\d+)", version or "")
+    return int(m.group(1)) if m else 0
+
+
+def scratch_target(agent: Agent) -> tuple[AgentVersion | None, str]:
+    """편집 대상 산출(스펙 370 충돌 규칙) — (기존 스크래치, 새 버전 번호).
+
+    스크래치 유일 불변식: 미오픈 버전은 최대 1개, 편집은 그것을 대체한다. 번호 = 오픈+1,
+    그 슬롯이 오픈이력(ever_opened) 버전이면 불변 보호 → 최대 오픈번호+1. 아무것도 오픈 전이면
+    v1(스크래치 자체를 갱신)."""
+    scratch = next((v for v in agent.versions if not v.ever_opened), None)
+    opened = {_vnum(v.version) for v in agent.versions if v.ever_opened}
+    target = _vnum(agent.active_version) + 1
+    if target in opened:
+        target = max(opened) + 1
+    return scratch, f"v{target}"
+
+
 async def resolve_prompt(session: AsyncSession, name: str) -> str:
     """이름으로 Prompt 조회 → body 반환. 없으면 이름 그대로."""
     result = await session.execute(select(Prompt).where(Prompt.name == name))
     prompt = result.scalar_one_or_none()
     return prompt.body if prompt is not None else name
-
-
-async def _prompt_bodies(session: AsyncSession) -> dict[str, str]:
-    """{프롬프트 이름: 현재 본문} 맵(스펙 161) — agent_to_out의 promptStale 계산용. 라우트가 1회 조회."""
-    rows = (await session.execute(select(Prompt))).scalars().all()
-    return {p.name: p.body for p in rows}
 
 
 async def _load_agent(session: AsyncSession, agent_pk: uuid.UUID) -> Agent | None:
@@ -99,7 +112,7 @@ async def _reload_out(session: AsyncSession, agent_pk: uuid.UUID) -> AgentOut:
     agent = await _load_agent(session, agent_pk)
     if agent is None:
         raise HTTPException(status_code=404, detail="agent not found")
-    return agent_to_out(agent, await _prompt_bodies(session))
+    return agent_to_out(agent)
 
 
 def _find_version(agent: Agent, version: str) -> AgentVersion | None:

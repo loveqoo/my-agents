@@ -90,11 +90,16 @@ def collect() -> dict[str, list[pathlib.Path]]:
 
 
 def run_one(f: pathlib.Path) -> tuple[str, str, str]:
-    """(name, verdict, detail). verdict ∈ pass|fail|error."""
+    """(name, verdict, detail). verdict ∈ pass|fail|error.
+
+    virgin-DB 전용 테스트(자체 헤더가 `_throwaway_db.py` 사용을 명시)는 격리 러너로 감싼다 —
+    스펙 370 실측: verify_343_downgrade를 라이브 DB에 직접 돌리면 downgrade 왕복이 369/370의
+    런타임 저작 데이터(블록 이력·pins)를 지운다(손실 왕복). 마커=파일 본문의 `_throwaway_db.py`."""
+    cmd = ["uv", "run", "python", str(f)]
+    if "_throwaway_db.py" in f.read_text(errors="ignore"):
+        cmd = ["uv", "run", "python", str(TESTS / "_throwaway_db.py"), str(f)]
     try:
-        r = subprocess.run(
-            ["uv", "run", "python", str(f)], capture_output=True, text=True, timeout=120
-        )
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
     except subprocess.TimeoutExpired:
         return f.name, "error", "timeout(120s)"
     out = r.stdout + r.stderr

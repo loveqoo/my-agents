@@ -288,9 +288,6 @@ export interface PromptUsageAgent {
   stale: boolean // 이 에이전트 스냅샷이 현재 프롬프트 본문과 다름
   canManage: boolean // 요청 주체가 이 에이전트를 갱신 가능
 }
-// 에이전트 쪽: 자기 프롬프트 스냅샷을 현재 원본으로 갱신.
-export const refreshAgentPrompt = (id: string) =>
-  post(`/agents/${id}/prompt/refresh`) as Promise<Agent>
 // 프롬프트 쪽: 이 프롬프트를 쓰는 에이전트 + 오래됨 상태.
 export const listPromptAgents = (promptId: string) =>
   j<PromptUsageAgent[]>(`/prompts/${promptId}/agents`)
@@ -497,6 +494,8 @@ export const listAgents = () => j<Agent[]>('/agents')
 // 버전 운영 집계(스펙 244) — 버전별 평가·자동 회귀·피드백.
 export interface VersionOps { evalRuns: number; lastScore: number | null; lastRunAt: string | null; autoRuns: number; errorRuns: number; up: number; down: number }
 export interface AgentOps { versions: Record<string, VersionOps>; unversionedUp: number; unversionedDown: number }
+// 단건 상세(스펙 370) — stalePins(채택 배지)는 단건 GET만 계산(목록 무비용 유지).
+export const getAgent = (id: string) => j<Agent>(`/agents/${id}`)
 export const getAgentOps = (id: string) => j<AgentOps>(`/agents/${id}/ops`)
 /* 실행 방식 메타(스펙 206) — consumes: 이 impl이 읽는 설정 표면(null=미선언, 폼 전부 노출). */
 export interface ImplMeta { key: string; consumes: string[] | null }
@@ -514,9 +513,8 @@ export const setAgentVisibility = (id: string, isPublic: boolean) =>
   put(`/agents/${id}/visibility`, { public: isPublic }) as Promise<Agent>
 export const activateVersion = (id: string, version: string) =>
   post(`/agents/${id}/activate`, { version }) as Promise<Agent>
-export const revertVersion = (id: string, version: string) =>
-  post(`/agents/${id}/revert`, { version }) as Promise<Agent>
-export const forkVersion = (id: string) => post(`/agents/${id}/versions`) as Promise<Agent>
+/* 블록 새 버전 채택(스펙 370) — 오픈 버전 config 그대로 pins만 head로 재freeze한 스크래치 생성. */
+export const adoptAgent = (id: string) => post(`/agents/${id}/adopt`) as Promise<Agent>
 export const exposeAgent = (id: string, a2a: boolean) =>
   put(`/agents/${id}/expose`, { a2a }) as Promise<Agent>
 

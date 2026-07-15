@@ -107,16 +107,17 @@ function ModelBadge({ a, size }: { a: Agent; size: 'header' | 'row' }) {
    (list_agents가 draft 포함 전 버전 직렬화) — mock 상수 아님(learning 035). code/external은
    draft 상태 버전이 없어 자연히 false. */
 function hasDraft(a: Agent): boolean {
-  return (a.versions ?? []).some((v) => v.status === 'draft')
+  // 스크래치(미오픈 작업본, 스펙 370 — 구 초안).
+  return (a.versions ?? []).some((v) => !v.everOpened)
 }
 
 /* 헤더/피커에 다는 미반영 초안 배지. compact면 아이콘만(좁은 폭에서도 안내 보존). */
 function DraftBadge({ compact }: { compact?: boolean }) {
   return (
-    <Tooltip title="이 에이전트에 활성화되지 않은 초안 편집이 있습니다. Playground는 활성 버전을 실행합니다 — 변경을 반영하려면 Agents에서 초안을 활성화하세요.">
+    <Tooltip title="이 에이전트에 오픈되지 않은 작업본이 있습니다. Playground는 오픈된 버전을 실행합니다 — 변경을 반영하려면 에이전트에서 작업본을 오픈하세요.">
       <Tag color="gold" style={{ margin: 0, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
         <Icon name="edit" size={11} />
-        {compact ? null : '미반영 초안'}
+        {compact ? null : '미반영 작업본'}
       </Tag>
     </Tooltip>
   )
@@ -291,7 +292,7 @@ function AgentCombo({
                   <span style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
                     {/* 미반영 초안(스펙 078): 어느 에이전트가 미활성 편집을 안고 있는지 피커에서 구분. */}
                     {recent.includes(a.id) && !q ? <Tag bordered={false} style={{ background: 'var(--color-fill-tertiary)', fontSize: 11 }}>최근</Tag> : null}
-                    {hasDraft(a) ? <Tag color="gold">초안</Tag> : null}
+                    {hasDraft(a) ? <Tag color="gold">작업본</Tag> : null}
                     {isA2AExposed(a) ? <Tag color="green">A2A</Tag> : null}
                     {a.mcps.map((m) => (
                       <Tag key={m} color="cyan">
@@ -525,7 +526,7 @@ function VersionPicker({ agent, pinnedVersion, onPin, fullWidth }: {
       popupRender={() => (
         <div style={{ width: 220, background: 'var(--color-bg-elevated)', borderRadius: 12, boxShadow: 'var(--box-shadow)', padding: 6 }}>
           {versions.map((v) => {
-            const isActive = v.status === 'active'
+            const isActive = v.version === agent.activeVersion // 오픈 포인터(스펙 370)
             const selected = isActive ? activeIsCurrent : pinnedVersion === v.version
             return (
               <button
@@ -805,7 +806,7 @@ function ChatHeader({
         {/* 조건은 요약이 아니라 **컴포넌트 자체**로 노출(스펙 248 후속5, 사용자 교정: 요약=중복 —
             셀렉트·세그먼트가 곧 상태 표시이자 컨트롤). 스마트 노출 규칙 유지: 선택지 있을 때만. */}
         {/* 버전 칩은 모바일에서도 내용 폭(전폭+오른쪽 정렬 조합은 빈 상자처럼 보임 — 육안) */}
-        {agent.source === 'ui' && (agent.versions ?? []).some((v) => v.status !== 'active') && agent.can_manage !== false && onPinVersion && (
+        {agent.source === 'ui' && (agent.versions ?? []).some((v) => v.version !== agent.activeVersion) && agent.can_manage !== false && onPinVersion && (
           <VersionPicker agent={agent} pinnedVersion={pinnedVersion} onPin={onPinVersion} />
         )}
         {isA2AExposed(agent) && (

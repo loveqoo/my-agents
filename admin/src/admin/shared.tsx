@@ -265,17 +265,15 @@ export function Drawer({
    onNewDraft(): 새 초안 포크, onRevert(v): 초안으로 되돌리기. */
 export function VersionHistory({
   versions = [],
+  activeVersion = null,
   onActivate,
   onTest,
-  onNewDraft,
-  onRevert,
   ops,
 }: {
   versions?: VersionMeta[]
+  activeVersion?: string | null // 오픈 포인터(스펙 370) — 상태는 여기서 파생
   onActivate?: (v: VersionMeta) => void
   onTest?: (v: VersionMeta) => void
-  onNewDraft?: (() => void) | null
-  onRevert?: (v: VersionMeta) => void
   // 버전 운영 지표(스펙 244, 옵셔널 — 미전달 소비자 무회귀): version → {evalRuns,lastScore,autoRuns,up,down}
   ops?: Record<string, { evalRuns: number; lastScore: number | null; autoRuns: number; errorRuns?: number; up: number; down: number }>
 }) {
@@ -283,17 +281,14 @@ export function VersionHistory({
     <div>
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: 10 }}>
         <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-heading)', flex: 1 }}>버전</span>
-        {onNewDraft && (
-          <Button type="dashed" size="small" icon={<Icon name="plus" />} onClick={onNewDraft}>
-            새 초안
-          </Button>
-        )}
       </div>
       {/* 테두리 컨테이너 + Flex 행 스택(List v6 deprecated → Flex 조립, 스펙 208). 상태별 배경·행 구성
           보존, 항목 간 구분선은 첫 행 제외 borderTop(bordered List 디바이더 동치). */}
       <div style={{ border: '1px solid var(--color-border)', borderRadius: 8, overflow: 'hidden' }}>
         {versions.map((v, i) => {
-          const st = VERSION_STATUS[v.status] || VERSION_STATUS.archived
+          // 상태 파생(스펙 370): 오픈(포인터)=서빙 / 스크래치(미오픈)=작업본 / 오픈 이력=롤백 대상.
+          const kind = v.version === activeVersion ? 'open' : v.everOpened ? 'opened' : 'scratch'
+          const st = VERSION_STATUS[kind]
           return (
             <div
               key={v.version}
@@ -304,7 +299,7 @@ export function VersionHistory({
                 padding: '10px 14px',
                 borderTop: i > 0 ? '1px solid var(--color-border)' : undefined,
                 background:
-                  v.status === 'active' ? 'var(--color-success-bg)' : v.status === 'draft' ? 'var(--gold-1)' : 'transparent',
+                  kind === 'open' ? 'var(--color-success-bg)' : kind === 'scratch' ? 'var(--gold-1)' : 'transparent',
               }}
             >
               <code style={{ fontFamily: 'var(--font-family-code)', fontSize: 13, fontWeight: 600, color: 'var(--color-text-heading)', width: 34 }}>
@@ -336,18 +331,15 @@ export function VersionHistory({
                   )
                 })()}
               </div>
-              {v.status === 'draft' && onTest && (
+              {!v.everOpened && onTest && (
                 <Button type="primary" size="small" icon={<Icon name="thunderbolt" />} onClick={() => onTest(v)}>
                   테스트
                 </Button>
               )}
-              {v.status !== 'active' && onActivate && (
+              {v.version !== activeVersion && onActivate && (
                 <Button size="small" icon={<Icon name="check" />} onClick={() => onActivate(v)}>
-                  활성화
+                  {v.everOpened ? '재오픈(롤백)' : '오픈'}
                 </Button>
-              )}
-              {v.status !== 'draft' && onRevert && (
-                <Button type="text" size="small" icon={<Icon name="redo" />} onClick={() => onRevert(v)} title="초안으로 되돌리기" />
               )}
             </div>
           )

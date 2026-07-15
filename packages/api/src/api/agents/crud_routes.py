@@ -18,16 +18,16 @@ from ..ownership import assert_may_manage, may_manage, may_use_agent, owner_of
 from ..schemas import AgentCreate, AgentOut, AgentUpdate
 from ..serializers import agent_to_out
 from .guards import _enforce_ephemeral_boundary, _enforce_tool_policy_gate
+from ..block_versions import freeze_pins
 from .helpers import (
     _commit_or_409,
     _dedupe_agent_name,
     _load_agent,
     _new_agent_id,
-    _prompt_bodies,
     _reload_out,
     _today,
-    next_version,
     resolve_prompt,
+    scratch_target,
 )
 from .routers import router
 
@@ -45,8 +45,7 @@ async def list_agents(
     from ..ownership import may_use_agent
 
     rows = [a for a in rows if may_use_agent(a, principal)]
-    pbodies = await _prompt_bodies(session)  # 스펙 161 — promptStale 계산용(1회 조회)
-    outs = [agent_to_out(a, pbodies) for a in rows]
+    outs = [agent_to_out(a) for a in rows]
     for out in outs:  # 스펙 114 — 관리 가능 여부를 각 객체에 실어 UI가 버튼 표시를 파생
         out.can_manage = may_manage(out.owner_id, principal)
         # 노드 참조 해석 결과(스펙 316, 파생) — UI가 listAgents 단일 소스라 목록에도 채운다
@@ -210,8 +209,15 @@ async def get_agent(
         # 사용 게이트(스펙 147, codex High#1) — 타인 private는 UUID를 알아도 미존재와 동일(404-fold,
         # 068: systemPrompt·config가 단건 응답에 실리므로 목록만 막으면 열람 우회).
         raise HTTPException(status_code=404, detail="agent not found")
-    out = agent_to_out(agent, await _prompt_bodies(session))
+    out = agent_to_out(agent)
     out.can_manage = may_manage(out.owner_id, principal)  # 스펙 114
+    # 채택 배지 데이터(스펙 370 §4) — 오픈 버전 pins vs 블록 head. 단건 GET만 계산(목록은 무비용 유지).
+    if agent.active_version:
+        open_row = next((v for v in agent.versions if v.version == agent.active_version), None)
+        if open_row is not None:
+            from ..block_versions import stale_pins
+
+            out.stalePins = await stale_pins(session, open_row.pins)
     # 노드 참조 해석 결과(스펙 316, 파생·읽기 전용) — 오버라이드 패널이 참조 노드의 유효 설정을
     # 보게. 해석 실패(미해결 참조)는 조회를 막지 않고 None(고치러 온 화면을 잠그지 않는다 —
     # 실행 시점의 422가 정직 통보를 맡는다).
@@ -256,7 +262,15 @@ async def create_agent(
         active_version=None,
         owner_id=owner_of(principal),  # 생성 시 1회 스탬프(스펙 112, 069)
     )
-    agent.versions.append(AgentVersion(version="v1", status="draft", note="초기 초안", config=cfg))
+    agent.versions.append(
+        AgentVersion(
+            version="v1",
+            ever_opened=False,
+            pins=await freeze_pins(session, cfg),  # 블록 버전 못박기(스펙 370)
+            note="초기 버전",
+            config=cfg,
+        )
+    )
     session.add(agent)
     await _commit_or_409(session, "같은 식별 이름의 에이전트가 이미 있습니다.")
     return await _reload_out(session, agent.id)
@@ -302,7 +316,13 @@ async def clone_agent(
         owner_id=owner_of(principal),  # 복제자가 소유(스펙 112·069 — 원본 소유자 승계 안 함)
     )
     clone.versions.append(
-        AgentVersion(version="v1", status="draft", note=f"복제: {src.name}", config=cfg)
+        AgentVersion(
+            version="v1",
+            ever_opened=False,
+            pins=await freeze_pins(session, cfg),
+            note=f"복제: {src.name}",
+            config=cfg,
+        )
     )
     session.add(clone)
     await _commit_or_409(session, "같은 식별 이름의 에이전트가 이미 있습니다.")
@@ -318,7 +338,7 @@ def _preserve_impl(body: AgentUpdate, agent: Agent, draft: AgentVersion | None, 
     그 값 존중."""
     if "impl" not in body.config.model_fields_set:
         base = (draft.config if draft is not None else None) or dict(agent.config or {})
-        cfg["impl"] = base.get("impl")
+        cfg["impl"] = base.get("impl")  # draft=미오픈 스크래치(스펙 370 — 이름만 승계)
 
 
 # ----------------------------- 편집 = 초안 저장 -----------------------------
@@ -341,22 +361,29 @@ async def update_agent(
     _enforce_ephemeral_boundary(
         cfg
     )  # DB 쓰기 능력 금지(스펙 237)  # 완화는 admin만(스펙 177 P2 D4)
-    draft = next((v for v in agent.versions if v.status == "draft"), None)
+    draft = next((v for v in agent.versions if not v.ever_opened), None)  # 스크래치(스펙 370)
     _preserve_impl(body, agent, draft, cfg)
     # 노드 참조 존재 검증(스펙 316, codex P1) — impl 무관 + 이름 잠금(삭제 가드와 직렬화).
     await assert_node_refs_exist(session, cfg.get("nodes"))
     # 노드형 풀=노드 합집합 서버 파생(스펙 289 P2) — impl 보존 **뒤**에 호출(미명시 impl이 pipeline로
     # 확정된 뒤라야 파생 게이트가 맞는다).
     await derive_pipeline_pool(cfg)
-    if draft is not None:
-        draft.config = cfg
-        draft.note = f"Edited {_today()}"
+    # 충돌 규칙(스펙 370): 스크래치 유일 — 있으면 그 행을 새 번호·새 pins로 대체, 없으면 신설.
+    # 번호 = 오픈+1(오픈이력 슬롯이면 최대 오픈+1 — 오픈됐던 버전은 불변 보호).
+    scratch, target_ver = scratch_target(agent)
+    pins = await freeze_pins(session, cfg)  # 편집 시점 재freeze(스펙 370)
+    if scratch is not None:
+        scratch.version = target_ver
+        scratch.config = cfg
+        scratch.pins = pins
+        scratch.note = f"Edited {_today()}"
     else:
         agent.versions.append(
             AgentVersion(
-                version=next_version(agent.versions),
-                status="draft",
-                note=f"Draft from {agent.active_version}",
+                version=target_ver,
+                ever_opened=False,
+                pins=pins,
+                note=f"{agent.active_version or 'v0'}에서 편집",
                 config=cfg,
             )
         )

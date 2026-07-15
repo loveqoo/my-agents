@@ -165,3 +165,119 @@ async def count_missing_history(session: AsyncSession) -> int:
         )
         missing += (total or 0) - (with_hist or 0)
     return missing
+
+
+# ----------------------------- 에이전트 pins (스펙 370) -----------------------------
+def _cfg_block_names(cfg: dict) -> list[tuple[str, str]]:
+    """에이전트 config가 참조하는 (kind, name) 목록 — freeze 대상의 단일 출처.
+
+    prompt·model(에이전트 레벨 + 노드형 노드별 model)·mcps·memories. RAG(vectorTables)는 제외(367 —
+    라이브). 노드 프롬프트는 인라인 텍스트라 참조 아님."""
+    out: list[tuple[str, str]] = []
+    if cfg.get("prompt"):
+        out.append(("prompt", cfg["prompt"]))
+    if cfg.get("model"):
+        out.append(("model", cfg["model"]))
+    for node in cfg.get("nodes") or []:
+        if isinstance(node, dict) and node.get("model"):
+            out.append(("model", node["model"]))
+    for name in cfg.get("mcps") or []:
+        if isinstance(name, str):
+            out.append(("mcp-server", name))
+    for name in cfg.get("memories") or []:
+        if isinstance(name, str):
+            out.append(("memory-type", name))
+    return out
+
+
+_NAME_COL = {
+    "prompt": lambda: Prompt.name,
+    "model": lambda: ModelConfig.name,
+    "mcp-server": lambda: McpServer.name,
+    "memory-type": lambda: MemoryType.name,
+}
+
+
+async def _head_versions(session: AsyncSession, kind: str, names: set[str]) -> dict[str, int]:
+    """{이름: head 버전} — freeze·stale 비교 공용."""
+    if not names:
+        return {}
+    model_cls = BLOCK_KINDS[kind][0]
+    col = _NAME_COL[kind]()
+    rows = await session.execute(select(col, model_cls.version).where(col.in_(names)))
+    return {name: ver for name, ver in rows.all()}
+
+
+async def freeze_pins(session: AsyncSession, cfg: dict) -> dict:
+    """config가 참조하는 블록들의 **현재 head 버전**을 못박는다(스펙 370) — 에이전트 버전 생성/편집
+    시점에 호출. 미존재 참조(오탈자·literal 프롬프트)는 pin 없이 통과(런타임이 기존 폴백)."""
+    refs = _cfg_block_names(cfg)
+    by_kind: dict[str, set[str]] = {}
+    for kind, name in refs:
+        by_kind.setdefault(kind, set()).add(name)
+    pins: dict[str, int] = {}
+    for kind, names in by_kind.items():
+        for name, ver in (await _head_versions(session, kind, names)).items():
+            pins[f"{kind}:{name}"] = ver
+    return pins
+
+
+async def resolve_pinned(
+    session: AsyncSession, pins: dict | None, kind: str, name: str
+) -> dict | None:
+    """pins가 못박은 버전의 payload를 이력에서 읽는다 — 없으면 None(호출부가 head 폴백).
+
+    이름→block_pk는 head 행으로 해석(개명·삭제는 참조 가드가 막으므로 이름이 안정 키)."""
+    ver = (pins or {}).get(f"{kind}:{name}")
+    if not ver:
+        return None
+    model_cls = BLOCK_KINDS[kind][0]
+    col = _NAME_COL[kind]()
+    head = (await session.execute(select(model_cls).where(col == name))).scalars().first()
+    if head is None:
+        return None
+    if head.version == ver:
+        return None  # pin == head — 라이브 경로 그대로(오버레이 불필요, 최빈 경로 조회 1회 절약)
+    row = await session.scalar(
+        select(BlockVersion).where(
+            BlockVersion.kind == kind,
+            BlockVersion.block_pk == head.id,
+            BlockVersion.version == ver,
+        )
+    )
+    return dict(row.payload) if row is not None else None
+
+
+async def stale_pins(session: AsyncSession, pins: dict | None) -> list[dict]:
+    """pins 중 head가 더 새 버전인 항목 — "새 버전 채택" 배지 데이터(스펙 370 §4)."""
+    out: list[dict] = []
+    by_kind: dict[str, set[str]] = {}
+    for key in pins or {}:
+        kind, _, name = key.partition(":")
+        if kind in BLOCK_KINDS:
+            by_kind.setdefault(kind, set()).add(name)
+    for kind, names in by_kind.items():
+        heads = await _head_versions(session, kind, names)
+        for name in names:
+            pinned = (pins or {}).get(f"{kind}:{name}", 0)
+            head = heads.get(name)
+            if head is not None and head > pinned:
+                out.append({"kind": kind, "name": name, "pinned": pinned, "head": head})
+    return sorted(out, key=lambda x: (x["kind"], x["name"]))
+
+
+async def ensure_agent_pins(session: AsyncSession) -> int:
+    """pins 없는 에이전트 버전에 현재 head로 freeze 백필(멱등, 스펙 370 이관) — 과거 시점 복원은
+    불가하므로 현재 head가 정직한 최선. 반환: 백필한 버전 수."""
+    from .models import AgentVersion
+
+    rows = (
+        (await session.execute(select(AgentVersion).where(AgentVersion.pins == {})))
+        .scalars()
+        .all()
+    )
+    for vrow in rows:
+        vrow.pins = await freeze_pins(session, dict(vrow.config or {}))
+    if rows:
+        await session.commit()
+    return len(rows)

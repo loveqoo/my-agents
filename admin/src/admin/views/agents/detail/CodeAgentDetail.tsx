@@ -6,7 +6,6 @@ import { ExposeSwitch } from '../../../shared'
 import { Icon } from '../../../icons'
 import { type Agent } from '../../../mockData'
 import { displayName } from '../../../naming'
-import { PromptStaleNote } from '../PromptStaleNote'
 import { DetailPageShell, SectionTitle, JumpCell, type DetailSection } from './DetailPageShell'
 
 export function CodeAgentDetailPage({
@@ -17,7 +16,6 @@ export function CodeAgentDetailPage({
   onResync,
   onToggleExpose,
   onSetVisibility,
-  onRefreshPrompt,
 }: {
   agent: Agent
   onBack: () => void
@@ -26,7 +24,6 @@ export function CodeAgentDetailPage({
   onResync: (a: Agent) => void
   onToggleExpose: (a: Agent) => void
   onSetVisibility: (a: Agent, pub: boolean) => void
-  onRefreshPrompt: (a: Agent) => Promise<void>
 }) {
   const screens = Grid.useBreakpoint()
   const isMobile = !screens.md
@@ -104,7 +101,6 @@ export function CodeAgentDetailPage({
             showIcon
             title="SDK로 코드 정의해 원격 엔드포인트에서 실행되는 에이전트입니다. 구성은 코드가 소유하므로 콘솔에서는 읽기 전용입니다 — 변경하려면 코드를 수정해 다시 배포한 뒤 동기화하세요."
           />
-          <PromptStaleNote agent={agent} onRefresh={onRefreshPrompt} />
         </section>
       ),
     },
@@ -218,13 +214,13 @@ export function CodeAgentDetailPage({
                   style={{
                     display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px',
                     borderTop: i ? '1px solid var(--color-border-secondary)' : 'none',
-                    background: v.status === 'active' ? 'var(--color-success-bg)' : 'transparent',
+                    background: v.version === agent.activeVersion ? 'var(--color-success-bg)' : 'transparent',
                   }}
                 >
                   <code style={{ fontFamily: 'var(--font-family-code)', fontSize: 13, fontWeight: 600, color: 'var(--color-text-heading)', width: 64 }}>
                     {v.version}
                   </code>
-                  {v.status === 'active' ? <Tag color="green">서빙 중</Tag> : <Tag>이전 배포</Tag>}
+                  {v.version === agent.activeVersion ? <Tag color="green">서빙 중</Tag> : <Tag>이전 배포</Tag>}
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, color: 'var(--color-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {v.note}

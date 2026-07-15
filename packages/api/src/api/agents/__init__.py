@@ -82,7 +82,6 @@ from .helpers import (
     _find_version,
     _load_agent,
     _new_agent_id,
-    _prompt_bodies,
     _reload_out,
     _slugify_remote_agent,
     _today,
@@ -108,4 +107,4 @@ from .remote_routes import (
     resync_agent,
 )
 from .routers import meta_router, router
-from .version_routes import activate_version, fork_version, refresh_prompt, revert_version
+from .version_routes import activate_version, adopt_block_versions

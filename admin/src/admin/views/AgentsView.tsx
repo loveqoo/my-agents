@@ -1,6 +1,6 @@
 /* my-agents admin — Agents view: list created agents, view detail, and
    create / edit / delete (composing building blocks). */
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Tag, Button, Avatar, Select, Input, Switch, Tooltip, Popover, Modal, message, Tabs, Checkbox } from 'antd'
 import { Page, DataTable, type Column } from '../shared'
 import { AuditCell } from '../AuditMeta'
@@ -49,6 +49,11 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
     setStatusFilter('all')
   }
   const detail = agents.find((a) => a.id === detailId) || null
+  // 상세 진입 시 단건 재조회(스펙 370) — stalePins(채택 배지)는 단건 GET만 계산.
+  useEffect(() => {
+    if (detailId) void A.refreshOne(detailId).catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detailId])
   // 풀페이지(스펙 245→246 후속) — 사용자 지적("SDK 에이전트는 드로어 그대로")으로 **전 소스** 페이지.
   // source 미기록 레거시 행은 목록과 동일하게 ui 취급.
   const [formOpen, setFormOpen] = useState(false)
@@ -76,7 +81,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
     ...(a.nodes ? { nodes: a.nodes } : {}), // 노드형 파이프라인 노드(스펙 259)
     ragMinScores: { ...(a.ragMinScores || {}) },
   })
-  const draftOf = (a: Agent) => (a.versions || []).find((v) => v.status === 'draft')
+  const draftOf = (a: Agent) => (a.versions || []).find((v) => !v.everOpened) // 스크래치(스펙 370)
   const openCreate = () => {
     setEditing(null)
     setFormOpen(true)
@@ -147,28 +152,10 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
       message.error(String(e))
     }
   }
-  const newDraft = async (agent: Agent) => {
-    try {
-      await A.fork(agent.id)
-      message.success(`${agent.name} 새 초안 생성됨`)
-    } catch {
-      // 400: 이미 초안이 있음 등 — 서버 가드.
-      message.warning('새 초안을 만들 수 없습니다 — 이미 초안이 있는지 확인하세요')
-    }
-  }
   // 테스트 = 플레이그라운드로 실제 이동(스펙 144 #2 — 토스트만 띄우던 것은 액션 오인 유발).
   const testVersion = (agent: Agent, _v: VersionMeta) => {
     setDetailId(null)
     onOpenPlayground?.(agent.id)
-  }
-  const revertToDraft = async (agent: Agent, v: VersionMeta) => {
-    try {
-      await A.revert(agent.id, v.version)
-      message.success(`${v.version} 초안으로 되돌림${v.status === 'active' ? ' — 이전 버전으로 롤백' : ''}`)
-    } catch {
-      // 서버가 가드를 강제(400 + 한국어 detail). api.ts 에러는 status만 담으므로 일반 메시지로 안내.
-      message.warning('되돌릴 수 없습니다 — 조건을 확인하세요')
-    }
   }
 
   const save = async (data: AgentFormData) => {
@@ -271,11 +258,12 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
       message.error(String(e))
     }
   }
-  // 프롬프트 스냅샷을 현재 원본으로 갱신(스펙 161) — 저장 시점 복사본이 오래됐을 때 명시적 반영.
-  const refreshPrompt = async (agent: Agent) => {
+  // 블록 새 버전 채택(스펙 370) — pins만 head로 재freeze한 스크래치 생성(오픈은 별도 명시).
+  const adoptBlocks = async (agent: Agent) => {
     try {
-      await A.refreshPrompt(agent.id)
-      message.success(`${agent.name} 프롬프트 갱신됨`)
+      await A.adopt(agent.id)
+      await A.refreshOne(agent.id) // 배지 즉시 갱신(채택 후 stalePins 해소)
+      message.success(`${agent.name} — 블록 새 버전을 채택한 작업본을 만들었습니다(오픈해야 반영)`)
     } catch (e) {
       message.error(String(e))
     }
@@ -393,7 +381,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
               {a.card?.version ? 'v' + a.card.version : '—'}
             </code>
           )
-        const draft = (a.versions || []).find((v) => v.status === 'draft')
+        const draft = (a.versions || []).find((v) => !v.everOpened)
         return (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
             <code style={{ fontFamily: 'var(--font-family-code)', fontSize: 13, color: 'var(--color-text-heading)' }}>
@@ -503,7 +491,6 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
           onResync={resync}
           onToggleExpose={toggleExpose}
           onSetVisibility={setVisibility}
-          onRefreshPrompt={refreshPrompt}
         />
       ) : detail && detail.source === 'external' ? (
         <ExternalAgentDetailPage
@@ -525,9 +512,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
           onSetVisibility={setVisibility}
           onActivate={activateVersion}
           onTest={testVersion}
-          onRevert={revertToDraft}
-          onNewDraft={newDraft}
-          onRefreshPrompt={refreshPrompt}
+          onAdopt={adoptBlocks}
         />
       ) : (
       <>

@@ -56,6 +56,11 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         _n = await ensure_v1_rows(_s)
         if _n:
             logging.getLogger("api.blocks").info("블록 버전 v1 백필 %d건(스펙 369)", _n)
+        from .block_versions import ensure_agent_pins
+
+        _np = await ensure_agent_pins(_s)
+        if _np:
+            logging.getLogger("api.blocks").info("에이전트 pins 백필 %d건(스펙 370)", _np)
     await net_guard.refresh_allowed_hosts(force=True)  # SSRF allowlist 스냅샷 warm(스펙 064)
     await init_authz()  # casbin_rule + enforcer + 기본 정책(멱등)
     await users.seed_admin()  # superuser 시드(env, fail-closed)

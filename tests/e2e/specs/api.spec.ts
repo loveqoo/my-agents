@@ -166,7 +166,9 @@ test.describe('에이전트 CRUD + 버저닝', () => {
     expect(a.source).toBe('ui')
     expect(a.activeVersion).toBeNull()
     expect(a.versions).toHaveLength(1)
-    expect(a.versions[0].status).toBe('draft')
+    // 스펙 370: draft 상태 폐기 — v1은 미오픈 스크래치(everOpened=false) + pins(블록 버전 못박기).
+    expect(a.versions[0].everOpened).toBe(false)
+    expect(a.versions[0].pins).toBeTruthy()
 
     const got = await request.get(`/agents/${a.id}`)
     expect(got.ok()).toBeTruthy()
@@ -175,44 +177,58 @@ test.describe('에이전트 CRUD + 버저닝', () => {
     expect((await request.get(`/agents/${a.id}`)).status()).toBe(404)
   })
 
-  test('편집은 단일 초안 유지, fork는 초안 존재 시 400', async ({ request }) => {
+  test('편집 = 스크래치 유일(대체) — 미오픈 작업본은 1개만 (스펙 370)', async ({ request }) => {
     const a = await createAgent(request, uniq('agent'))
-    // 편집 → 기존 v1 draft 갱신(새 버전 안 생김)
+    // 편집 → 기존 v1 스크래치 대체(새 버전 안 생김)
     const edited = await (
       await request.put(`/agents/${a.id}`, {
         data: { name: a.name, config: { ...a.versions[0].config, historyDepth: 40 } },
       })
     ).json()
-    expect(edited.versions.filter((v: { status: string }) => v.status === 'draft')).toHaveLength(1)
-    // fork → 이미 draft 있으니 400
+    expect(edited.versions.filter((v: { everOpened: boolean }) => !v.everOpened)).toHaveLength(1)
+    expect(edited.versions).toHaveLength(1) // 대체 — 행 수 불변
+    // 구 fork 라우트는 제거됨(편집이 곧 다음 버전 작업)
     const fork = await request.post(`/agents/${a.id}/versions`)
-    expect(fork.status()).toBe(400)
+    expect([404, 405]).toContain(fork.status())
     await request.delete(`/agents/${a.id}`)
   })
 
-  test('activate → online, 재activate 400, 유일 active revert 400', async ({ request }) => {
+  test('오픈(activate) → online·everOpened, 같은 버전 재오픈 400 (스펙 370)', async ({ request }) => {
     const a = await createAgent(request, uniq('agent'))
     const act = await request.post(`/agents/${a.id}/activate`, { data: { version: 'v1' } })
     expect(act.ok()).toBeTruthy()
     const body = await act.json()
     expect(body.activeVersion).toBe('v1')
     expect(body.status).toBe('online')
-    // 이미 active인 v1 재활성화 → 400
+    expect(body.versions[0].everOpened).toBe(true) // 오픈 이력 = 영구 불변 보호
+    // 이미 오픈된 v1 재오픈 → 400
     expect((await request.post(`/agents/${a.id}/activate`, { data: { version: 'v1' } })).status()).toBe(400)
-    // 유일 active revert → 400 (승격할 archived 없음)
-    expect((await request.post(`/agents/${a.id}/revert`, { data: { version: 'v1' } })).status()).toBe(400)
+    // 구 revert 라우트는 제거됨(예전 버전 오픈이 곧 롤백)
+    expect([404, 405]).toContain((await request.post(`/agents/${a.id}/revert`, { data: { version: 'v1' } })).status())
     await request.delete(`/agents/${a.id}`)
   })
 
-  test('롤백: archived 버전 활성화', async ({ request }) => {
+  test('롤백 = 예전 버전 재오픈 + 오픈이력 보호(편집 시 max+1) (스펙 370)', async ({ request }) => {
     const a = await createAgent(request, uniq('agent'))
-    await request.post(`/agents/${a.id}/activate`, { data: { version: 'v1' } }) // v1 active
-    await request.post(`/agents/${a.id}/versions`) // fork → v2 draft
-    await request.post(`/agents/${a.id}/activate`, { data: { version: 'v2' } }) // v2 active, v1 archived
+    await request.post(`/agents/${a.id}/activate`, { data: { version: 'v1' } }) // v1 오픈
+    // 편집 → v2 스크래치 → v2 오픈
+    await request.put(`/agents/${a.id}`, {
+      data: { name: a.name, config: { ...a.versions[0].config, historyDepth: 33 } },
+    })
+    await request.post(`/agents/${a.id}/activate`, { data: { version: 'v2' } })
+    // 롤백: v1 재오픈
     const rolled = await (await request.post(`/agents/${a.id}/activate`, { data: { version: 'v1' } })).json()
     expect(rolled.activeVersion).toBe('v1')
     const v2 = rolled.versions.find((v: { version: string }) => v.version === 'v2')
-    expect(v2.status).toBe('archived')
+    expect(v2.everOpened).toBe(true) // 오픈 이력 보존(불변 보호)
+    // 롤백 상태에서 편집 → 슬롯 v2는 보호 → v3 신설
+    const edited = await (
+      await request.put(`/agents/${a.id}`, {
+        data: { name: a.name, config: { ...a.versions[0].config, historyDepth: 44 } },
+      })
+    ).json()
+    const vers = edited.versions.map((v: { version: string }) => v.version).sort()
+    expect(vers).toEqual(['v1', 'v2', 'v3'])
     await request.delete(`/agents/${a.id}`)
   })
 

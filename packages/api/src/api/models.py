@@ -358,13 +358,21 @@ class Agent(AuditMixin, Base):
 
 
 class AgentVersion(AuditMixin, Base):
+    """에이전트 불변 단조 버전(스펙 370 — 구 draft/active/archived 상태기계 폐기).
+
+    상태는 에이전트의 오픈 포인터(Agent.active_version) 하나 — 버전 자신은 ever_opened(오픈 이력,
+    한 번 오픈되면 영구 불변 보호)와 pins(블록 버전 못박기 `{"<kind>:<name>": <ver>}`)만 가진다.
+    미오픈 스크래치는 에이전트당 최대 1개(편집이 대체) — 구 단일 초안 불변식의 후계.
+    """
+
     __tablename__ = "agent_versions"
     id: Mapped[uuid.UUID] = _pk()
     agent_pk: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("agents.id", ondelete="CASCADE"), index=True
     )
     version: Mapped[str] = mapped_column(String(40))
-    status: Mapped[str] = mapped_column(String(20), default="draft")  # draft | active | archived
+    ever_opened: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    pins: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
     note: Mapped[str] = mapped_column(Text, default="")
     config: Mapped[dict] = mapped_column(JSONB, default=dict)
 

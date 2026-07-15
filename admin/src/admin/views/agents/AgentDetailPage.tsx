@@ -12,7 +12,6 @@ import { AGENT_STATUS, isOrchestratorImpl, isCodeDefinedImpl, isNodeRef, type Ag
 import { typeLabel } from './AgentForm'
 import { DelegationGraph } from '../../DelegationGraph'
 import { displayName } from '../../naming'
-import { PromptStaleNote } from './PromptStaleNote'
 import { FeedbackHarvestButton } from './FeedbackHarvestButton'
 import { getAgentOps, listAgentImpls, type AgentOps, type ImplMeta } from '../../../api'
 import { DetailPageShell, JumpCell, type DetailSection } from './detail/DetailPageShell'
@@ -35,9 +34,7 @@ export function AgentDetailPage({
   onSetVisibility,
   onActivate,
   onTest,
-  onRevert,
-  onNewDraft,
-  onRefreshPrompt,
+  onAdopt,
 }: {
   agent: Agent
   agents?: Agent[] // 위임 구조 조립용(스펙 257 — 전체 목록의 capabilities 그래프)
@@ -49,9 +46,7 @@ export function AgentDetailPage({
   onSetVisibility: (a: Agent, pub: boolean) => void
   onActivate: (a: Agent, v: VersionMeta) => void
   onTest: (a: Agent, v: VersionMeta) => void
-  onRevert: (a: Agent, v: VersionMeta) => void
-  onNewDraft: (a: Agent) => void
-  onRefreshPrompt: (a: Agent) => Promise<void>
+  onAdopt: (a: Agent) => Promise<void>
 }) {
   const screens = Grid.useBreakpoint()
   const isMobile = !screens.md
@@ -77,7 +72,7 @@ export function AgentDetailPage({
   const consumes = agent.impl ? (implMetas[agent.impl] ?? null) : null
   const consumed = (surface: string) => consumes == null || consumes.includes(surface)
 
-  const draft = (agent.versions || []).find((v) => v.status === 'draft')
+  const draft = (agent.versions || []).find((v) => !v.everOpened) // 스크래치(스펙 370 — 구 초안)
   // 코드 정의 impl(스펙 327) — **구성 편집만** 봉인(구성은 코드가 소유, 원격 code와 같은 원칙).
   // 삭제·공개 전환·활성화·운영은 인스턴스 관리라 소유권(canManage) 기준 그대로 — 목록(AgentsView)의
   // 삭제 버튼 정책과 정합(codex 327: 두 축을 canManage 하나로 합치면 상세만 과봉인돼 비일관).
@@ -216,7 +211,21 @@ export function AgentDetailPage({
                 )}
               </div>
             )}
-            <PromptStaleNote agent={agent} onRefresh={onRefreshPrompt} />
+            {(agent.stalePins || []).length > 0 && (
+              <Alert
+                type="info"
+                showIcon
+                style={{ marginTop: 12 }}
+                title={`블록에 새 버전이 있습니다 — ${(agent.stalePins || [])
+                  .map((s) => `${s.name} v${s.pinned}→v${s.head}`)
+                  .join(' · ')}`}
+                action={
+                  <Button size="small" onClick={() => void onAdopt(agent)}>
+                    채택(새 작업본)
+                  </Button>
+                }
+              />
+            )}
             <AuditFooter audit={agent} />{/* 감사 메타(스펙 344) — 배경 정보라 개요 맨 아래 */}
           </section>
       ),
@@ -380,7 +389,7 @@ export function AgentDetailPage({
             {draft ? (
               <div style={{ marginBottom: 14, border: '1px solid var(--gold-3)', background: 'var(--gold-1)', borderRadius: 'var(--radius-lg)', padding: 14 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                  <Tag color="gold">초안 {draft.version}</Tag>
+                  <Tag color="gold">작업본 {draft.version}</Tag>
                   <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)', flex: 1 }}>{draft.note}</span>
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, fontSize: 12 }}>
@@ -411,21 +420,21 @@ export function AgentDetailPage({
                     테스트
                   </Button>
                   {canManage && (
-                    <Button size="small" icon={<Icon name="check" />} onClick={() => onActivate(agent, draft)}>활성화</Button>
+                    <Button size="small" icon={<Icon name="check" />} onClick={() => onActivate(agent, draft)}>오픈</Button>
                   )}
                 </div>
               </div>
             ) : null}
             <VersionHistory
               versions={agent.versions || []}
+              activeVersion={agent.activeVersion}
               onActivate={(v) => onActivate(agent, v)}
               onTest={(v) => onTest(agent, v)}
-              onRevert={(v) => onRevert(agent, v)}
-              onNewDraft={draft ? null : () => onNewDraft(agent)}
               ops={ops?.versions}
             />
             <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginTop: 8 }}>
-              편집은 항상 초안에 저장됩니다 — 활성 버전은 계속 서빙. 초안을 테스트한 뒤 활성화해 게시하세요.
+              편집은 작업본(스크래치)에 저장됩니다 — 오픈된 버전은 계속 서빙. 테스트한 뒤 오픈해 게시하고,
+              이전 버전은 재오픈으로 되돌릴 수 있습니다.
             </div>
           </section>
       ),
@@ -619,7 +628,7 @@ export function AgentDetailPage({
           )}
           {canEdit ? (
             <Button type="primary" icon={<Icon name="edit" />} onClick={() => onEdit(agent)}>
-              {draft ? '초안 편집' : '편집(새 초안)'}
+              {draft ? '작업본 편집' : '편집(새 작업본)'}
             </Button>
           ) : (
             <span style={{ color: 'var(--color-text-tertiary)', alignSelf: 'center' }}>

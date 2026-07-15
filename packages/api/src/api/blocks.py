@@ -154,14 +154,47 @@ async def prompt_apply(
     applied: list[uuid.UUID] = []
     skipped: list[uuid.UUID] = []
     found = {a.id for a in agents}
+    # 스펙 370: in-place 스냅샷 갱신(구 161)은 불변 버전 모델과 비정합(오픈 버전 동작이 버전 없이
+    # 바뀜) → **채택 스크래치 생성**으로 재구현. 반영은 각 에이전트에서 오픈해야 서빙된다(명시적).
+    from sqlalchemy.orm import selectinload as _sl
+
+    from .block_versions import freeze_pins
+    from .models import AgentVersion as _AV
+
     for agent in agents:
-        # 이 프롬프트를 실제 참조하고(활성 config) 관리 권한이 있어야 반영. 아니면 skip.
         if (
             is_first_party(agent.source)
             and _config_has(agent.config, "prompt", obj.name)
             and may_manage(agent.owner_id, principal)
         ):
-            agent.prompt = obj.body  # 스냅샷 = 현재 본문(in-place, 이름 불변이라 새 버전 없음)
+            from .agents.helpers import _today, scratch_target
+
+            loaded = (
+                await session.execute(
+                    select(Agent).where(Agent.id == agent.id).options(_sl(Agent.versions))
+                )
+            ).scalar_one()
+            scratch, target_ver = scratch_target(loaded)
+            base = next(
+                (v for v in loaded.versions if v.version == loaded.active_version), None
+            )
+            cfg = dict((base.config if base is not None else loaded.config) or {})
+            pins = await freeze_pins(session, cfg)
+            if scratch is not None:
+                scratch.version = target_ver
+                scratch.config = cfg
+                scratch.pins = pins
+                scratch.note = f"프롬프트 새 버전 채택 {_today()}"
+            else:
+                loaded.versions.append(
+                    _AV(
+                        version=target_ver,
+                        ever_opened=False,
+                        pins=pins,
+                        note=f"프롬프트 새 버전 채택 {_today()}",
+                        config=cfg,
+                    )
+                )
             applied.append(agent.id)
         else:
             skipped.append(agent.id)

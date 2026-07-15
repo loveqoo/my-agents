@@ -418,7 +418,7 @@ function DatasetDrawer({
                 onChange={setRunVersion}
                 options={versions.map((v) => ({
                   value: v.version,
-                  label: `${v.version} · ${v.status === 'active' ? '활성' : v.status === 'draft' ? '초안' : '보관'}`,
+                  label: `${v.version} · ${!v.everOpened ? '스크래치' : '오픈 이력'}`,
                 }))}
               />
             )

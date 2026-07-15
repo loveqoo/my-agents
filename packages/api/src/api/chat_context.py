@@ -35,8 +35,36 @@ log = logging.getLogger("api.chat")
 _is_remote = is_remote_source
 
 
-async def _chat_model_cfg(db: AsyncSession, name: str) -> dict | None:
-    """레지스트리 chat 모델(name→provider 상속) 해석 — 미존재/불완전이면 None."""
+async def _pinned_model_cfg(db: AsyncSession, pins: dict | None, name: str) -> dict | None:
+    """pin이 head와 다를 때만 이력 payload로 model_cfg 구성(스펙 370) — 369 경계 그대로
+    저작 내용(model_id·params·provider_id)은 pin, 연결처 비밀(base_url·api_key)은 라이브 provider."""
+    from .block_versions import resolve_pinned
+    from .models import Provider as _Provider
+
+    payload = await resolve_pinned(db, pins, "model", name)
+    if payload is None:
+        return None
+    prov = None
+    if payload.get("provider_id"):
+        try:
+            prov = await db.get(_Provider, uuid.UUID(str(payload["provider_id"])))
+        except ValueError:
+            prov = None
+    if prov is None or not prov.base_url or not payload.get("model_id"):
+        return None  # 불완전 pin — head 폴백(정직 degrade)
+    return {
+        "base_url": prov.base_url,
+        "api_key": crypto.decrypt(prov.api_key),
+        "model_id": payload["model_id"],
+        "params": dict(payload.get("params") or {}),
+    }
+
+
+async def _chat_model_cfg(db: AsyncSession, name: str, pins: dict | None = None) -> dict | None:
+    """레지스트리 chat 모델(name→provider 상속) 해석 — pin 우선(스펙 370), 미존재/불완전이면 None."""
+    pinned = await _pinned_model_cfg(db, pins, name)
+    if pinned is not None:
+        return pinned
     m = (
         await db.execute(
             select(ModelConfig)
@@ -50,7 +78,7 @@ async def _chat_model_cfg(db: AsyncSession, name: str) -> dict | None:
 
 
 async def _resolve_node_models(
-    db: AsyncSession, nodes: list, default_cfg: dict | None
+    db: AsyncSession, nodes: list, default_cfg: dict | None, pins: dict | None = None
 ) -> list[dict]:
     """노드형(스펙 259) 노드별 모델을 레지스트리에서 미리 해석해 `model_cfg`를 심는다(085 U2 — impl은
     DB 미접촉). 에이전트 모델 해석과 **동일 조회**(`ModelConfig.name==name, kind=="chat"`, provider
@@ -66,7 +94,7 @@ async def _resolve_node_models(
         cfg = None
         if isinstance(name, str) and name.strip():
             if name not in cache:
-                cache[name] = await _chat_model_cfg(db, name)
+                cache[name] = await _chat_model_cfg(db, name, pins)
             cfg = cache[name]
         # 심은 model_cfg는 해석된 노드 모델(없으면 에이전트 기본으로 폴백 — impl의 _model_from_node).
         resolved.append({**node, "model_cfg": cfg or default_cfg})
@@ -244,12 +272,19 @@ async def _resolve_version_and_prompt(
     if vrow is None:
         raise HTTPException(status_code=404, detail=f"버전을 찾을 수 없습니다: {version}")
     cfg = dict(vrow.config or {})
-    from .models import Prompt as _Prompt
+    # 미리보기 실행도 pin 우선(스펙 370) — 그 버전이 못박은 본문으로(head 폴백=레거시·literal).
+    from .block_versions import resolve_pinned
 
-    prow = (
-        await db.execute(select(_Prompt).where(_Prompt.name == cfg.get("prompt", "")))
-    ).scalar_one_or_none()
-    prompt = prow.body if prow is not None else cfg.get("prompt", "")
+    pinned = await resolve_pinned(db, vrow.pins, "prompt", cfg.get("prompt", ""))
+    if pinned is not None:
+        prompt = pinned.get("body", "")
+    else:
+        from .models import Prompt as _Prompt
+
+        prow = (
+            await db.execute(select(_Prompt).where(_Prompt.name == cfg.get("prompt", "")))
+        ).scalar_one_or_none()
+        prompt = prow.body if prow is not None else cfg.get("prompt", "")
     return cfg, prompt, version
 
 
@@ -314,7 +349,9 @@ def _filter_capabilities(cfg: dict) -> list:
     ]
 
 
-async def _resolve_model(db: AsyncSession, cfg: dict, overrides: dict | None) -> dict:
+async def _resolve_model(
+    db: AsyncSession, cfg: dict, overrides: dict | None, pins: dict | None = None
+) -> dict:
     """chat 모델을 레지스트리에서만 해석(env 안 봄) — 반환 model_cfg dict(연결처는 provider 상속, 스펙 035).
 
     에이전트가 고른 이름 → 없으면 기본(is_default) chat 모델 → 그것도 없으면 명확히 400.
@@ -322,6 +359,10 @@ async def _resolve_model(db: AsyncSession, cfg: dict, overrides: dict | None) ->
     호출자가 다른 모델로 실행된 걸 모른 채 지나간다). 저장 설정의 미지정·미등록은 기존 기본 폴백
     유지(graceful — 범위 밖, 백로그)."""
     model_name = cfg.get("model")
+    if model_name:
+        pinned = await _pinned_model_cfg(db, pins, model_name)  # pin 우선(스펙 370)
+        if pinned is not None:
+            return pinned
     m = None
     if model_name:
         m = (
@@ -392,7 +433,9 @@ async def _resolve_mem_cfg(db: AsyncSession, model_cfg: dict | None) -> dict | N
     }
 
 
-async def _resolve_mcp_servers(db: AsyncSession, cfg: dict) -> tuple[list[dict], list]:
+async def _resolve_mcp_servers(
+    db: AsyncSession, cfg: dict, pins: dict | None = None
+) -> tuple[list[dict], list]:
     """등록된 MCP 서버를 runtime.build_mcp_tools가 붙을 수 있는 dict로 해석(스펙 054).
 
     auth_token은 저장된 Fernet 암호문을 복호화한 평문(provider.api_key 동형) — 마스킹/빈값이면
@@ -405,20 +448,35 @@ async def _resolve_mcp_servers(db: AsyncSession, cfg: dict) -> tuple[list[dict],
     노드 도구가 조용히 미바인딩된다(codex 276 Low). 조율형은 capabilities가 도구를 관장. 그래서 이
     둘은 필터 미적용(풀=전체) — UI finalize의 "pipeline/조율형은 tools:[] 저장" 규칙을 백엔드에서도
     강제(의도 값 게이트, 클라이언트 신뢰 안 함). 반환 (mcp_servers, tool_names)."""
+    from .block_versions import resolve_pinned
+
     mcp_servers: list[dict] = []
     mcps = config_names(cfg, "mcps")  # 삭제 가드와 동일 normalizer(drift 0, codex P2)
     if mcps:
         rows = (await db.execute(select(McpServer).where(McpServer.name.in_(mcps)))).scalars().all()
         for row in rows:
             token = None if crypto.is_masked(row.auth) else crypto.decrypt(row.auth)
+            # pin 오버레이(스펙 370) — 저작 내용(url/transport/enabled_tools/tools_meta)은
+            # 못박은 버전 payload, 비밀(auth)·운영(published/status)은 head 라이브(369 경계).
+            pinned = await resolve_pinned(db, pins, "mcp-server", row.name)
+            if pinned is not None:
+                url = pinned.get("url") or pinned.get("endpoint") or ""
+                transport = pinned.get("transport") or "http"
+                enabled = list(pinned.get("enabled_tools") or [])
+                tools_meta = pinned.get("tools_meta") or {}
+            else:
+                url = row.url or row.endpoint or ""
+                transport = row.transport or "http"
+                enabled = list(row.enabled_tools or [])
+                tools_meta = row.tools_meta or {}
             mcp_servers.append(
                 {
                     "name": row.name,
-                    "url": row.url or row.endpoint or "",
-                    "transport": row.transport or "http",
-                    "enabled_tools": list(row.enabled_tools or []),
+                    "url": url,
+                    "transport": transport,
+                    "enabled_tools": enabled,
                     "auth_token": token,
-                    "tools_meta": row.tools_meta or {},  # 도구 승인 정책 리졸버용(스펙 177)
+                    "tools_meta": tools_meta,  # 도구 승인 정책 리졸버용(스펙 177)
                 }
             )
     impl_key = cfg.get("impl")
@@ -519,12 +577,14 @@ async def _resolve_session(
     }
 
 
-async def _resolve_nodes_for_ctx(db: AsyncSession, ctx: dict, remote: bool) -> list[dict] | None:
+async def _resolve_nodes_for_ctx(
+    db: AsyncSession, ctx: dict, remote: bool, pins: dict | None = None
+) -> list[dict] | None:
     """노드형(스펙 259)이면 노드별 모델을 **플랫폼이 미리 해석**해 심는다(085 U2: build_graph는 DB
     미접촉). 로컬(ui) 경로에서만 의미 — 비노드형/원격은 None."""
     if remote or not isinstance(ctx.get("nodes"), list):
         return None
-    return await _resolve_node_models(db, ctx["nodes"], ctx["model_cfg"])
+    return await _resolve_node_models(db, ctx["nodes"], ctx["model_cfg"], pins)
 
 
 async def _load_context(
@@ -638,11 +698,26 @@ async def _load_context(
             if _prow is not None:
                 ctx["prompt_name"] = _ref
                 ctx["prompt_id"] = str(_prow)
+        # 실행 버전의 pins(스펙 370) — 못박은 블록 버전으로 해석(모델·MCP·노드 모델). 원격/레거시
+        # (pins 없음)는 빈 dict → 전부 head 폴백(무회귀).
+        pins: dict = {}
+        if not remote and ctx["exec_version"]:
+            from .models import AgentVersion as _AV
+
+            _vrow = (
+                await db.execute(
+                    select(_AV.pins).where(
+                        _AV.agent_pk == agent.id, _AV.version == ctx["exec_version"]
+                    )
+                )
+            ).scalar_one_or_none()
+            pins = dict(_vrow or {})
+        ctx["pins"] = pins
         # 코드·외부 에이전트는 비로컬(원격/A2A) 실행이라 로컬 모델이 필요 없다(건너뜀 = None).
-        ctx["model_cfg"] = await _resolve_model(db, cfg, overrides) if not remote else None
-        ctx["nodes_resolved"] = await _resolve_nodes_for_ctx(db, ctx, remote)
+        ctx["model_cfg"] = await _resolve_model(db, cfg, overrides, pins) if not remote else None
+        ctx["nodes_resolved"] = await _resolve_nodes_for_ctx(db, ctx, remote, pins)
         ctx["mem_cfg"] = await _resolve_mem_cfg(db, ctx["model_cfg"])
-        ctx["mcp_servers"], ctx["tool_names"] = await _resolve_mcp_servers(db, cfg)
+        ctx["mcp_servers"], ctx["tool_names"] = await _resolve_mcp_servers(db, cfg, pins)
         ctx["rag_collections"], ctx["rag_unresolved"] = await _resolve_rag(db, cfg, remote)
         # 컬렉션별 최소 유사도 맵(스펙 191 v2) — {컬렉션명: 임계값}. 미만 문서를 검색 코어에서 드롭.
         # downstream(build_rag_tool·RagProvider)이 범위(0<x≤1)·컬렉션 한정 재검증하므로 raw 통과({}=무필터).

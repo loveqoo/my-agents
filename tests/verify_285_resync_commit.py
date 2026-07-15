@@ -139,8 +139,13 @@ async def main() -> None:
         row = await _row(pk)
         ck(row.commit == "bbbb222", f"③ commit 재보고 A→B (got {row.commit})")
         ck(row.active_version == "bbbb222", f"③ active_version=B (got {row.active_version})")
-        st = {v.version: v.status for v in row.versions}
-        ck(st.get("bbbb222") == "active" and st.get("aaaa111") == "archived", f"③ 버전 전이(057 F4): {st}")
+        # 스펙 370: active/archived 상태 폐기 — active는 포인터(active_version)가 진실원,
+        # 버전 행은 ever_opened(배포 이력)만 가진다.
+        st = {v.version: v.ever_opened for v in row.versions}
+        ck(
+            row.active_version == "bbbb222" and st.get("bbbb222") is True and st.get("aaaa111") is True,
+            f"③ 버전 전이(057 F4→370): pointer=B·이력 보존 {st}",
+        )
         ck(row.repo == "org/svc2" and row.runtime == "python-3.13", f"③ repo·runtime 재보고 (got {row.repo}/{row.runtime})")
 
         # ④ A→B→A 재왕복: 기존 A 행 승격(중복 금지)
@@ -148,7 +153,10 @@ async def main() -> None:
         await _resync(pk)
         row = await _row(pk)
         versions_a = [v for v in row.versions if v.version == "aaaa111"]
-        ck(len(versions_a) == 1 and versions_a[0].status == "active", f"④ 재왕복: A 행 승격·중복 0 (count={len(versions_a)})")
+        ck(
+            len(versions_a) == 1 and row.active_version == "aaaa111",
+            f"④ 재왕복: A 포인터 복귀·중복 0 (count={len(versions_a)})",
+        )
         ck(row.active_version == "aaaa111", f"④ active_version=A 복귀")
 
         # ⑤ 확장 없는 카드(external화된 응답) → deploy 메타 보존(무회귀)

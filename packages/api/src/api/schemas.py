@@ -784,7 +784,8 @@ class AgentUpdate(BaseModel):
 
 class VersionOut(BaseModel):
     version: str
-    status: str
+    everOpened: bool = False  # 오픈 이력(스펙 370) — True=영구 불변 보호, False=스크래치(편집이 대체)
+    pins: dict[str, int] = Field(default_factory=dict)  # 블록 버전 못박기 {kind:name → ver}
     note: str = ""
     config: dict[str, Any] = Field(default_factory=dict)
     createdAt: str | None = None
@@ -800,9 +801,8 @@ class AgentOut(AuditOut):
     prompt: str  # 프롬프트 이름(블록 참조, UI 표시용)
     temperature: float | None = None  # 에이전트 영속 온도(스펙 077). None=자동(모델 등록값)
     systemPrompt: str = ""  # 해석된 시스템 프롬프트 본문(런타임이 쓰는 것 = 저장 시점 스냅샷)
-    promptStale: bool = (
-        False  # 스냅샷이 현재 원본 프롬프트와 다름(스펙 161) — 로컬만 계산, 맵 미주입시 False
-    )
+    # 오픈 버전 pins 중 블록 head가 더 새 버전인 항목(스펙 370 §4 채택 배지) — 단건 GET만 계산.
+    stalePins: list[dict[str, Any]] = Field(default_factory=list)
     historyDepth: int
     persistHistory: bool = True
     ephemeral: bool = False

@@ -74,7 +74,7 @@ async def register_code_agent(
         agent.versions.append(
             AgentVersion(
                 version=body.commit,
-                status="active",
+                ever_opened=True,
                 note="Deploy · 등록 시 동기화",
                 config=cfg,
             )
@@ -154,19 +154,15 @@ async def _resync_display_only(
 
 
 def _transition_active_commit(agent: Agent, new_commit: str, cfg: dict) -> None:
-    """commit 변경 시 버전 행을 057 F4 불변식대로 전이(active_version은 항상 실재 active 행)."""
+    """commit 변경 시 버전 행 전이(057 F4) — 스펙 370: active는 포인터(active_version)가 진실원.
+    code 버전 행은 배포 이력이므로 전부 ever_opened=True(오픈 이력 보호와 동형)."""
     agent.commit = new_commit
     existing = _find_version(agent, new_commit)
-    for version in agent.versions:
-        if version.status == "active":
-            version.status = "archived"
-    if existing is not None:
-        existing.status = "active"  # A→B→A 재왕복: 기존 행 승격(중복 행 금지)
-    else:
+    if existing is None:  # A→B→A 재왕복: 기존 행 재사용(중복 행 금지)
         agent.versions.append(
             AgentVersion(
                 version=new_commit,
-                status="active",
+                ever_opened=True,
                 note="resync 재보고(스펙 285)",
                 config=dict(cfg),
             )

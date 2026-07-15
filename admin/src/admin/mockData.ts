@@ -96,7 +96,8 @@ export const GENERIC_IMPLS: ReadonlySet<string> = new Set([
 export const isCodeDefinedImpl = (impl?: string): boolean => !GENERIC_IMPLS.has(impl || '')
 export interface VersionMeta {
   version: string
-  status: 'draft' | 'active' | 'archived'
+  everOpened: boolean // 오픈 이력(스펙 370) — true=영구 불변 보호, false=스크래치(편집이 대체)
+  pins?: Record<string, number> // 블록 버전 못박기 {kind:name → ver}
   createdAt: string
   note: string
   config?: AgentConfig
@@ -182,7 +183,7 @@ export interface Agent extends Audit {
   sessions: number
   created: string
   systemPrompt?: string // 해석된 프롬프트 본문(저장 시점 스냅샷)
-  promptStale?: boolean // 스냅샷이 현재 원본 프롬프트와 다름(스펙 161)
+  stalePins?: { kind: string; name: string; pinned: number; head: number }[] // 채택 배지(스펙 370)
   activeVersion: string
   versions: VersionMeta[]
   /* 공통 인터페이스 준수 분류(스펙 089) — 백엔드가 resolve와 같은 게이트로 파생.
@@ -253,9 +254,10 @@ export interface StatusMeta {
 
 /* ---------- 상태맵 ---------- */
 export const VERSION_STATUS: Record<string, StatusMeta> = {
-  draft: { label: '초안', tag: 'gold', color: 'var(--gold-6)', desc: '임시 — 게시 전 테스트' },
-  active: { label: '활성', tag: 'green', color: 'var(--color-success)', desc: '현재 서빙 중' },
-  archived: { label: '보관', tag: 'default', color: 'var(--gray-6)', desc: '이전 버전 · 롤백용 보관' },
+  // 스펙 370 — 상태는 파생: 오픈(포인터)=서빙, 오픈 이력=재오픈(롤백) 가능, 스크래치=미오픈 작업본.
+  scratch: { label: '스크래치', tag: 'gold', color: 'var(--gold-6)', desc: '미오픈 작업본 — 편집이 대체' },
+  open: { label: '오픈', tag: 'green', color: 'var(--color-success)', desc: '현재 서빙 중' },
+  opened: { label: '오픈 이력', tag: 'default', color: 'var(--gray-6)', desc: '재오픈(롤백) 가능 · 불변' },
 }
 export const SESSION_STATUS: Record<string, StatusMeta> = {
   active: { label: '활성', color: 'var(--color-success)', tag: 'green' },

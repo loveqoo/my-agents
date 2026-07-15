@@ -22,12 +22,11 @@ import {
   cloneAgent,
   setAgentVisibility,
   activateVersion as apiActivateVersion,
-  revertVersion as apiRevertVersion,
-  forkVersion as apiForkVersion,
+  adoptAgent as apiAdoptAgent,
+  getAgent as apiGetAgent,
   exposeAgent,
   connectAgent as apiConnectAgent,
   resyncAgent,
-  refreshAgentPrompt,
   listModels,
   listCollections,
   type Model,
@@ -48,10 +47,9 @@ export interface UseAgents {
   setVisibility: (id: string, pub: boolean) => Promise<Agent>
   expose: (id: string, on: boolean) => Promise<Agent>
   activate: (id: string, version: string) => Promise<Agent>
-  fork: (id: string) => Promise<Agent>
-  revert: (id: string, version: string) => Promise<Agent>
+  adopt: (id: string) => Promise<Agent>
+  refreshOne: (id: string) => Promise<Agent> // 단건 재조회(stalePins 등 상세 전용 파생 필드)
   resync: (id: string) => Promise<Agent>
-  refreshPrompt: (id: string) => Promise<Agent>
 }
 
 export function useAgents(): UseAgents {
@@ -96,9 +94,8 @@ export function useAgents(): UseAgents {
     setVisibility: async (id, pub) => replace(await setAgentVisibility(id, pub)),
     expose: async (id, on) => replace(await exposeAgent(id, on)),
     activate: async (id, version) => replace(await apiActivateVersion(id, version)),
-    fork: async (id) => replace(await apiForkVersion(id)),
-    revert: async (id, version) => replace(await apiRevertVersion(id, version)),
+    adopt: async (id) => replace(await apiAdoptAgent(id)),
+    refreshOne: async (id) => replace(await apiGetAgent(id)),
     resync: async (id) => replace(await resyncAgent(id)),
-    refreshPrompt: async (id) => replace(await refreshAgentPrompt(id)),
   }
 }

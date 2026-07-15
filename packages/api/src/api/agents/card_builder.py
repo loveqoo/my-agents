@@ -107,11 +107,11 @@ def _rows_from_card_versions(
                 continue
             vstatus = _clip(raw_version.get("status"), 20) or "archived"
             if vstatus == "active" and active_version_id is None:
-                active_version_id = vid
+                active_version_id = vid  # 카드 status는 포인터 해석에만 소비(스펙 370)
             versions.append(
                 AgentVersion(
                     version=vid,
-                    status=vstatus,
+                    ever_opened=True,  # 원격 배포 이력 — 전부 불변 보호(스펙 370)
                     note=raw_version.get("note")
                     if isinstance(raw_version.get("note"), str)
                     else "",
@@ -134,7 +134,7 @@ def _versions_from_deploy(deploy: dict, cfg: dict) -> tuple[list[AgentVersion], 
         # active_version을 세팅 — 실재하는 row를 보장한다.
         synth = _clip(commit, 40)
         versions.append(
-            AgentVersion(version=synth, status="active", note="Deploy · 카드 동기화", config=cfg)
+            AgentVersion(version=synth, ever_opened=True, note="Deploy · 카드 동기화", config=cfg)
         )
         active_version_id = synth
     return versions, active_version_id
