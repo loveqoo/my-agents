@@ -66,7 +66,7 @@ export interface Trace {
   // 회상에 쓴 쿼리(=user_text 에코) — 0건 회상이어도 "조회 이력"을 인스펙터에 남긴다. 스펙 079.
   memoryQuery?: string
   // 노드별 회상 기록(스펙 268 P2, 노드형) — 프록시가 조회마다 남김. cached=캐시 반환(조회 공유).
-  memoryRecalls?: { node: string; query: string; hits: number; cached: boolean }[]
+  memoryRecalls?: { node: string; query: string; hits: number; cached: boolean; memories?: Memory[] }[]
   // 이 턴에 구성된 RAG 컬렉션명(도구 호출 여부와 무관하게 노출). 스펙 037/079.
   ragCollections?: string[]
   // 요청됐으나 해석 실패한 컬렉션명(조용히 비는 footgun을 드러냄). 스펙 079.

@@ -79,6 +79,15 @@ async def main():
         check(calls[0][0] == {"user_id": "u1", "run_id": "s1"}, "P2 스코프 고정(생성 시 값 그대로)")
         r4 = await proxy("   ", node="D")  # 공백 키워드 = None과 동일(기본 키워드 폴백, 캐시 히트)
         check(r4 == "hit:사용자 질문" and rec[3]["cached"] is True, "P2 공백 키워드→기본 폴백(캐시 공유)")
+        # ── 스펙 359: record가 회상 내용(memories)을 실어 인스펙터가 표준 경로처럼 렌더 ──
+        check(all("memories" in r for r in rec), "359 전 record가 memories 필드 보유")
+        check(rec[0]["memories"] == [{"memory": "hit:사용자 질문"}],
+              f"359 record에 회상 히트 실림 (got {rec[0].get('memories')})")
+        check(all(r["hits"] == len(r["memories"]) for r in rec), "359 hits 카운트 = memories 길이")
+        # 캐시 공유 행(cached=True)도 내용 자기완결 — 노드별 "무엇을 읽었나" 온전
+        check(rec[1]["cached"] is True and rec[1]["memories"] == [{"memory": "hit:사용자 질문"}],
+              "359 캐시 공유 행도 회상 내용 보유(노드 자기완결)")
+        check(rec[2]["memories"] == [{"memory": "hit:노드 입력"}], "359 키워드별 다른 내용 정확 귀속")
         # 빈 기본 키워드 프록시(재개 등) — 빈 조회는 기록 자체를 안 남김
         proxy2 = _MemoryRecallProxy({}, {"cfg": 1}, "", [])
         check(await proxy2(None, node="E") == "", "P2 기본 키워드 없음 → 빈 문자열(무해)")

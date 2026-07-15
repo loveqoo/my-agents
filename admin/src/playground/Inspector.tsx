@@ -454,11 +454,16 @@ function nodeEventContent(
     return (
       <div>
         {recalls.map((r, i) => (
-          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 12, marginTop: 4 }}>
-            <Icon name="bulb" size={12} style={{ color: 'var(--purple-6)' }} />
-            <span>기억 회상 {r.hits}건</span>
-            {r.cached ? <Tag color="purple" style={{ margin: 0 }}>조회 공유(캐시)</Tag> : null}
-            <span style={{ fontFamily: 'var(--font-family-code)', color: 'var(--color-text-tertiary)', overflowWrap: 'anywhere' }}>«{r.query}»</span>
+          <div key={i} style={{ marginTop: 4 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 12 }}>
+              <Icon name="bulb" size={12} style={{ color: 'var(--purple-6)' }} />
+              <span>기억 회상 {r.hits}건</span>
+              {r.cached ? <Tag color="purple" style={{ margin: 0 }}>조회 공유(캐시)</Tag> : null}
+              <span style={{ fontFamily: 'var(--font-family-code)', color: 'var(--color-text-tertiary)', overflowWrap: 'anywhere' }}>«{r.query}»</span>
+            </div>
+            {/* 회상 내용(스펙 359) — 표준 retrieve_memory 경로와 같은 MemoryRow(drift 0). 노드가 무엇을
+                읽었나를 실행흐름에 복원(그전엔 카운트만 보이고 내용은 프롬프트에만 있었다). */}
+            {(r.memories ?? []).map((m, j) => <MemoryRow key={j} m={m} />)}
           </div>
         ))}
       </div>

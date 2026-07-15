@@ -120,6 +120,19 @@ try {
   check(rc[0]?.cached === false && rc[1]?.cached === true, `P2: 2번째 회상=캐시 공유 (got ${JSON.stringify(rc.map((r) => r.cached))})`)
   check(rc[0]?.node === '기억확인' && rc[1]?.node === '마무리', `P2: 노드 귀속 (got ${JSON.stringify(rc.map((r) => r.node))})`)
   check((chat.outLen ?? 0) > 0, `응답 수신(${chat.outLen}자, ${chat.latencyMs}ms)`)
+  // (c) 스펙 359 — 회상 record가 내용(memories)을 실어 인스펙터가 표준 경로처럼 렌더한다.
+  //     전제: admin 스코프에 회상 쿼리(=유저 메시지)와 동일 텍스트의 기억이 시드돼 있어야 히트가 난다
+  //     (mock 임베딩은 전체텍스트 해시라 정확 일치만 매칭). 미시드면 hits=0이라 이 블록은 skip 안내.
+  if ((rc[0]?.hits ?? 0) > 0) {
+    check(Array.isArray(rc[0]?.memories) && rc[0].memories.length > 0,
+      `359: 회상 record에 내용(memories) 실림 (hits=${rc[0]?.hits}, mem=${rc[0]?.memories?.length})`)
+    check(typeof rc[0]?.memories?.[0]?.text === 'string' && rc[0].memories[0].text.length > 0,
+      `359: 회상 내용에 text 존재 (got ${JSON.stringify(rc[0]?.memories?.[0]?.text)?.slice(0, 40)})`)
+    check((rc[1]?.memories?.length ?? 0) > 0,
+      `359: 캐시 공유 행(마무리)도 내용 자기완결 (mem=${rc[1]?.memories?.length})`)
+  } else {
+    log(`  SKIP  359 내용 단언 — 회상 히트 0(admin 기억 미시드). 데이터경로는 verify_268 단위가 커버.`)
+  }
 
   log('\n' + (fails.length ? `FAILED ${fails.length}: ${fails.join(' | ')}` : 'ALL GREEN'))
   if (fails.length) process.exitCode = 1

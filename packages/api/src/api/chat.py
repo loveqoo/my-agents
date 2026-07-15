@@ -177,7 +177,7 @@ class _MemoryRecallProxy:
         self._scope = dict(scope)
         self._cfg = mem_cfg
         self._default = default_query or ""
-        self._cache: dict[str, tuple[str, int]] = {}  # query → (포맷 텍스트, 건수)
+        self._cache: dict[str, tuple[str, list[dict]]] = {}  # query → (포맷 텍스트, 회상 히트)
         self.records = records
 
     async def __call__(self, query: str | None = None, node: str = "") -> str:
@@ -187,12 +187,21 @@ class _MemoryRecallProxy:
         cached = q in self._cache
         if not cached:
             hits = await asyncio.to_thread(memory.search, self._scope, q, self._cfg)
-            self._cache[q] = (memory.format_memory_hits(hits) if hits else "", len(hits))
-        text, n = self._cache[q]
+            self._cache[q] = (memory.format_memory_hits(hits) if hits else "", hits)
+        text, hits = self._cache[q]
         # 기록 쿼리는 비밀 마스킹(codex 268 P3 — 타 트레이스 표면과 정합): input 모드 키워드는 앞 노드
         # 출력이라 비밀이 섞일 수 있음(_sanitize가 sk-… 등 마스킹, 캡 120).
         self.records.append(
-            {"node": node, "query": memory._sanitize(q, cap=120), "hits": n, "cached": cached}
+            {
+                "node": node,
+                "query": memory._sanitize(q, cap=120),
+                "hits": len(hits),
+                "cached": cached,
+                # 회상 내용(스펙 359) — 표준 retrieve_memory 경로(t.memories)와 같은
+                # {text, score, scope} 리스트로 실어 인스펙터가 MemoryRow로 렌더한다. 내용 마스킹은
+                # 표준 경로와 파리티(자기 스코프 저장 기억, 이미 무마스킹 노출 — 새 노출 아님).
+                "memories": hits,
+            }
         )
         return text
 
