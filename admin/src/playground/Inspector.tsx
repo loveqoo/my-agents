@@ -499,7 +499,7 @@ function NodeTimeline({ t }: { t: Trace }) {
             if (x.node.startsWith('broker_invoke:')) brokerTotals.set(x.node, (brokerTotals.get(x.node) ?? 0) + 1)
           }
           const brokerSeen = new Map<string, number>()
-          return t.graph.map((n) => {
+          const graphItems = t.graph.map((n) => {
           const meta = nodeMeta(n.node)
           const tctx = isToolNode(n.node)
             ? { summary: n.summary, toolsIdx: toolsSeen++, toolsTotal }
@@ -532,6 +532,29 @@ function NodeTimeline({ t }: { t: Trace }) {
             ),
           }
           })
+          // 스펙 361: 단순/표준 에이전트는 회상을 그래프 실행 *전에* 프롬프트로 주입해 실제 그래프에
+          // retrieve_memory 노드가 없다(start→model→end). 그러면 t.memories(회상)가 어디에도 안 붙어
+          // "mem 4"는 세는데 실행흐름엔 안 보인다(사용자 신고). 실 그래프에 그 노드가 없으면 회상을
+          // 맨 앞 합성 스텝으로 넣어 위상 독립적으로 보인다 — retrieve_memory 렌더 재사용(drift 0).
+          const hasRecallNode = t.graph.some((n) => n.node === 'retrieve_memory')
+          const recallContent = hasRecallNode ? null : nodeEventContent(t, 'retrieve_memory')
+          if (!recallContent) return graphItems
+          const rm = nodeMeta('retrieve_memory')
+          return [
+            {
+              dot: <Icon name={rm.icon} size={13} style={{ color: rm.color }} />,
+              children: (
+                <div style={{ paddingBottom: 4 }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-heading)' }}>{rm.text}</span>
+                    <span style={{ fontSize: 11, color: 'var(--color-text-quaternary)', fontFamily: 'var(--font-family-code)' }}>턴 시작 회상</span>
+                  </div>
+                  <div style={{ marginTop: 6 }}>{recallContent}</div>
+                </div>
+              ),
+            },
+            ...graphItems,
+          ]
         })()}
       />
     </div>
