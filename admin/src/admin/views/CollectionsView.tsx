@@ -660,13 +660,10 @@ function DocsDrawer({
           docStatusTag(d.status)
         ),
     },
-    {
-      key: 'audit',
-      title: '수정',
-      width: 190,
-      hideBelow: 'lg',  // 좁은 폭에선 감춘다 — 감사는 배경 정보(이름·상태가 우선, 스펙 344)
-      render: (r) => <AuditCell audit={r} />,
-    },
+    // audit '수정' 컬럼은 드로워(size=640)에선 뺀다(스펙 355). hideBelow는 **뷰포트** 브레이크포인트
+    // 기준(Grid.useBreakpoint)이라 넓은 화면+좁은 드로워 조합에서 안 먹어, 190px 컬럼이 파일명 폭을
+    // 0으로 밀어 세로로 짜부라뜨렸다. 좁은 드로워는 이름·상태 우선(스펙 344 hideBelow의 의도를 드로워
+    // 폭에 실현). 컬렉션 목록 뷰(넓음)의 audit 컬럼은 그대로 유지.
     {
       key: 'actions',
       title: '',
