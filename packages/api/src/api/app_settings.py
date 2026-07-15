@@ -30,8 +30,26 @@ def _check_short_str(v: Any, label: str, maxlen: int = 80) -> str:
 
 
 # 닫힌 키 집합 — key: (기본값, 검증기). 새 설정은 여기에 추가(스펙 153).
+def _check_gate_runs(v: Any) -> int:
+    """평가 게이트 최소 성공 회수(스펙 372) — 0=게이트 꺼짐, 음수/비정수 400."""
+    if isinstance(v, bool) or not isinstance(v, int) or v < 0:
+        raise HTTPException(status_code=400, detail="최소 평가 회수는 0 이상의 정수여야 합니다.")
+    return v
+
+
+def _check_gate_score(v: Any) -> float:
+    """평가 게이트 최소 평균 점수(스펙 372) — 0~1, 0=게이트 꺼짐."""
+    if isinstance(v, bool) or not isinstance(v, (int, float)) or not (0 <= float(v) <= 1):
+        raise HTTPException(status_code=400, detail="최소 평균 점수는 0~1 사이여야 합니다.")
+    return float(v)
+
+
 _KEYS: dict[str, tuple[Any, Any]] = {
     "a2a_org_name": ("my-agents", lambda v: _check_short_str(v, "organization 이름")),
+    # 평가 게이트(스펙 372=367-E) — 둘 다 0이면 꺼짐(무회귀 기본). 켜면 스크래치 첫 오픈이
+    # "성공 평가 회수 ≥ min_runs AND 평균 점수 ≥ min_score"를 통과해야 한다(롤백은 면제).
+    "eval_gate_min_runs": (0, _check_gate_runs),
+    "eval_gate_min_score": (0.0, _check_gate_score),
 }
 
 

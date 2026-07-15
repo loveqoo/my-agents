@@ -199,7 +199,7 @@ def _wrap_mcp_tool(
         )
         return text
 
-    async def _run(config: RunnableConfig = None, **kwargs: Any) -> str:  # noqa: RUF013 — langchain 주입 규약(정확 어노테이션 필수)
+    async def _run(config: RunnableConfig = None, **kwargs: Any) -> str:
         t0 = time.perf_counter()
         sink = _sink_from(config, calls_sink)
         if permission is None:
@@ -663,7 +663,7 @@ def build_rag_tool(
     async def _search(
         query: str = "",
         top_k: int = 4,
-        config: RunnableConfig = None,  # noqa: RUF013 — langchain 주입 규약(정확 어노테이션 필수)
+        config: RunnableConfig = None,
     ) -> str:
         t0 = time.perf_counter()
         sink = _sink_from(config, calls_sink)  # 스펙 371 D3 — per-turn sink를 호출 인자로
