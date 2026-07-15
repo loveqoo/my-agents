@@ -24,6 +24,12 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("api.memory")
 
+# mem0의 엔티티/그래프 메모리(spaCy 기반)는 우리가 **안 쓴다**(_build_config에 graph_store 없음 —
+# llm·embedder·vector_store만). 그런데 mem0는 부팅 시 spaCy 로드를 시도해 "Failed to load spaCy ...
+# install mem0ai[nlp]" WARNING을 뱉는다(구남님이 콘솔에서 '설치 실패'로 본 그 메시지). 우리 사용엔
+# 무해하므로 이 로거만 정확히 눌러 노이즈를 없앤다 — 다른 mem0 경고는 그대로 둔다(스펙 356).
+logging.getLogger("mem0.utils.spacy_models").setLevel(logging.ERROR)
+
 # pgvector 테이블 차원은 생성 시 고정된다 — 기본 임베딩 모델(레지스트리)의 출력 차원과 반드시 일치해야 한다.
 # 불일치 시 insert가 깨지고 mem0 add는 except로 삼켜 메모리가 조용히 죽는다(스펙 019). 현재 기본
 # multilingual-e5-large=1024(라이브 probe로 검증). 기본 임베딩 모델을 바꾸면 이 값(또는 env)을 맞춰라.
