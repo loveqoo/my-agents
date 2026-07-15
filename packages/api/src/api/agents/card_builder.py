@@ -49,7 +49,7 @@ def _build_external_agent(
     재fetch해 endpoint·status를 갱신한다 — 저장 안 하면 stale endpoint를 재연결 없이 못 고친다."""
     cfg = {
         "model": "",  # 외부는 로컬 모델 미해석
-        "persona": "",
+        "prompt": "",
         "memories": [],
         "vectorTables": [],
         "mcps": [],
@@ -62,7 +62,7 @@ def _build_external_agent(
         name=_clip(card.get("name"), 200) or "외부 에이전트",
         source="external",
         model="",
-        persona="",
+        prompt="",
         history_depth=10,
         config=cfg,
         exposed={"a2a": False},  # 우리가 소비측(클라이언트) — 서버측 노출과 무관
@@ -82,7 +82,7 @@ def _cfg_from_manifest(card: dict, ext: dict, card_url: str | None) -> dict:
         history_depth = 10
     return {
         "model": manifest.get("model") or "",
-        "persona": manifest.get("persona") or "",
+        "prompt": manifest.get("prompt") or "",
         "memories": manifest.get("memories") if isinstance(manifest.get("memories"), list) else [],
         "vectorTables": [],
         "mcps": manifest.get("mcps") if isinstance(manifest.get("mcps"), list) else [],
@@ -145,7 +145,7 @@ def _build_code_agent_from_card(
 ) -> Agent:
     """제1자(SDK 배포) A2A 카드 + my-agents 확장 → code Agent (스펙 057).
 
-    config는 ext["manifest"](model/persona/mcps/…)에서 채우고 카드 스냅샷을 함께 보존한다.
+    config는 ext["manifest"](model/prompt/mcps/…)에서 채우고 카드 스냅샷을 함께 보존한다.
     repo/commit/runtime·AgentVersion은 ext["deploy"]에서 만든다. **전부 카드에서 fetch — 프론트
     날조 없음**. A2A 호출엔 카드 url+token만 쓰지만(현 external과 동일), 저장 config는 1급 표시·resync용.
     """
@@ -158,7 +158,7 @@ def _build_code_agent_from_card(
         name=_clip(card.get("name"), 200) or _clip(deploy.get("repo"), 200) or "SDK 에이전트",
         source="code",
         model=_clip(cfg["model"], 120) or "",
-        persona=cfg["persona"],  # Text 컬럼 — 무제한
+        prompt=cfg["prompt"],  # Text 컬럼 — 무제한
         history_depth=cfg["historyDepth"],
         config=cfg,
         exposed={"a2a": False},

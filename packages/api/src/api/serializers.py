@@ -102,15 +102,15 @@ def _iso(dt: datetime | None) -> str | None:
     return dt.isoformat() if dt is not None else None
 
 
-def agent_to_out(a: Agent, persona_bodies: dict[str, str] | None = None) -> AgentOut:
+def agent_to_out(a: Agent, prompt_bodies: dict[str, str] | None = None) -> AgentOut:
     cfg = dict(a.config or {})
-    # personaStale(스펙 161): 저장 시점 스냅샷(a.persona)이 현재 원본 페르소나 본문과 다른가.
-    # persona_bodies 맵({name: body})을 주입한 라우트만 계산 — 로컬(ui/code)·이름이 실제 블록(맵에
+    # promptStale(스펙 161): 저장 시점 스냅샷(a.prompt)이 현재 원본 프롬프트 본문과 다른가.
+    # prompt_bodies 맵({name: body})을 주입한 라우트만 계산 — 로컬(ui/code)·이름이 실제 블록(맵에
     # 존재)·본문 상이일 때만 True. 외부/A2A·literal 이름(맵에 없음)·동일 본문 → False.
-    persona_stale = False
-    if persona_bodies is not None and is_first_party(a.source):
-        cur = persona_bodies.get(cfg.get("persona", a.persona))
-        persona_stale = cur is not None and cur != a.persona
+    prompt_stale = False
+    if prompt_bodies is not None and is_first_party(a.source):
+        cur = prompt_bodies.get(cfg.get("prompt", a.prompt))
+        prompt_stale = cur is not None and cur != a.prompt
     return AgentOut(
         id=a.id,
         agentId=a.agent_id,
@@ -118,10 +118,10 @@ def agent_to_out(a: Agent, persona_bodies: dict[str, str] | None = None) -> Agen
         description=a.description,  # 설명(스펙 210)
         source=a.source,
         model=cfg.get("model", a.model),
-        persona=cfg.get("persona", a.persona),
+        prompt=cfg.get("prompt", a.prompt),
         temperature=cfg.get("temperature"),  # 에이전트 영속 온도(스펙 077, 폼 재로드용)
-        systemPrompt=a.persona,  # 해석된 본문(서빙용 = 저장 시점 스냅샷)
-        personaStale=persona_stale,  # 스냅샷 vs 현재 원본(스펙 161)
+        systemPrompt=a.prompt,  # 해석된 본문(서빙용 = 저장 시점 스냅샷)
+        promptStale=prompt_stale,  # 스냅샷 vs 현재 원본(스펙 161)
         historyDepth=cfg.get("historyDepth", a.history_depth),
         persistHistory=cfg.get("persistHistory", True),
         ephemeral=cfg.get("ephemeral", False),

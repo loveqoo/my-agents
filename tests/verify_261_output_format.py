@@ -60,7 +60,7 @@ def _install_scripted(scripted):
 
 
 def _ctx(nodes):
-    return AgentBuildContext(persona="", model_cfg=MODEL_CFG, tools=[], impl_config={"nodes": nodes})
+    return AgentBuildContext(prompt="", model_cfg=MODEL_CFG, tools=[], impl_config={"nodes": nodes})
 
 
 async def _run(nodes):

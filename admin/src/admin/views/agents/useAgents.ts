@@ -27,7 +27,7 @@ import {
   exposeAgent,
   connectAgent as apiConnectAgent,
   resyncAgent,
-  refreshAgentPersona,
+  refreshAgentPrompt,
   listModels,
   listCollections,
   type Model,
@@ -51,7 +51,7 @@ export interface UseAgents {
   fork: (id: string) => Promise<Agent>
   revert: (id: string, version: string) => Promise<Agent>
   resync: (id: string) => Promise<Agent>
-  refreshPersona: (id: string) => Promise<Agent>
+  refreshPrompt: (id: string) => Promise<Agent>
 }
 
 export function useAgents(): UseAgents {
@@ -99,6 +99,6 @@ export function useAgents(): UseAgents {
     fork: async (id) => replace(await apiForkVersion(id)),
     revert: async (id, version) => replace(await apiRevertVersion(id, version)),
     resync: async (id) => replace(await resyncAgent(id)),
-    refreshPersona: async (id) => replace(await refreshAgentPersona(id)),
+    refreshPrompt: async (id) => replace(await refreshAgentPrompt(id)),
   }
 }

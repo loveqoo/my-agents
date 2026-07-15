@@ -12,10 +12,10 @@ async function deleteAgentByName(request: APIRequestContext, name: string) {
   if (a) await request.delete(`${API}/agents/${a.id}`)
 }
 
-async function deletePersonaByName(request: APIRequestContext, name: string) {
-  const list = await (await request.get(`${API}/personas`)).json()
+async function deletePromptByName(request: APIRequestContext, name: string) {
+  const list = await (await request.get(`${API}/prompts`)).json()
   const p = list.find((x: { name: string; id: string }) => x.name === name)
-  if (p) await request.delete(`${API}/personas/${p.id}`)
+  if (p) await request.delete(`${API}/prompts/${p.id}`)
 }
 
 test.beforeEach(async ({ page }) => {
@@ -100,13 +100,13 @@ test('빌딩 블록 — MCP 탭에 서버 표시', async ({ page }) => {
   await expect(page.getByText('tavily').first()).toBeVisible()
 })
 
-test('빌딩 블록 — 페르소나 등록 → 편집 (014, 생성 후 API 정리)', async ({ page, request }) => {
-  const name = uniq('e2e-persona')
+test('빌딩 블록 — 프롬프트 등록 → 편집 (014, 생성 후 API 정리)', async ({ page, request }) => {
+  const name = uniq('e2e-prompt')
   await page.getByRole('menuitem', { name: '빌딩 블록' }).click()
-  // persona 탭이 기본 — "새 항목"으로 작성 폼 오픈
+  // prompt 탭이 기본 — "새 항목"으로 작성 폼 오픈
   await page.getByRole('button', { name: '새 항목' }).click()
   const create = page.getByRole('dialog')
-  await expect(create.getByText('새 페르소나')).toBeVisible()
+  await expect(create.getByText('새 프롬프트')).toBeVisible()
   await create.getByPlaceholder('예: 친절한 고양이').fill(name)
   // 톤 — 프리셋 선택(멀티) + 자유 입력 태그 추가
   const toneSelect = create.locator('.ant-select').first()
@@ -115,7 +115,7 @@ test('빌딩 블록 — 페르소나 등록 → 편집 (014, 생성 후 API 정�
   await page.getByTitle('격식체', { exact: true }).click()
   await toneSelect.locator('input').fill('자유톤')
   await toneSelect.locator('input').press('Enter')
-  await create.getByPlaceholder(/너는 고양이다/).fill('너는 테스트 페르소나다.')
+  await create.getByPlaceholder(/너는 고양이다/).fill('너는 테스트 프롬프트다.')
   await create.getByRole('button', { name: '등록' }).click()
 
   // 목록에 등장
@@ -123,7 +123,7 @@ test('빌딩 블록 — 페르소나 등록 → 편집 (014, 생성 후 API 정�
 
   // 톤이 쉼표 조인 문자열로 저장됐는지(API) — 프리셋 2종 + 자유 1종
   await expect(async () => {
-    const list = await (await request.get(`${API}/personas`)).json()
+    const list = await (await request.get(`${API}/prompts`)).json()
     const p = list.find((x: { name: string; tone: string | null }) => x.name === name)
     expect(p?.tone).toBe('친근함, 격식체, 자유톤')
   }).toPass({ timeout: 10_000 })
@@ -131,19 +131,19 @@ test('빌딩 블록 — 페르소나 등록 → 편집 (014, 생성 후 API 정�
   // 행 클릭 → 상세 → 편집 → 본문 변경 → 저장
   await page.getByText(name).first().click()
   await page.getByRole('button', { name: '편집' }).click()
-  const edit = page.getByRole('dialog').filter({ hasText: '페르소나 편집' })
+  const edit = page.getByRole('dialog').filter({ hasText: '프롬프트 편집' })
   await expect(edit).toBeVisible()
   await edit.getByPlaceholder(/너는 고양이다/).fill('수정된 본문이다.')
   await edit.getByRole('button', { name: '저장' }).click()
 
   // 저장 후 본문 반영 확인(API)
   await expect(async () => {
-    const list = await (await request.get(`${API}/personas`)).json()
+    const list = await (await request.get(`${API}/prompts`)).json()
     const p = list.find((x: { name: string; body: string }) => x.name === name)
     expect(p?.body).toBe('수정된 본문이다.')
   }).toPass({ timeout: 10_000 })
 
-  await deletePersonaByName(request, name)
+  await deletePromptByName(request, name)
 })
 
 test('빌딩 블록 — 메모리는 시스템 enum이라 읽기 전용(작성·편집·삭제 버튼 없음) (016)', async ({ page }) => {

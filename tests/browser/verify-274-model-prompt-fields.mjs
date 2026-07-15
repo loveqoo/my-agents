@@ -1,7 +1,7 @@
 /* 모델·프롬프트 공용 컨트롤 검증 (스펙 274) — 필수 단언(UI 기능적).
    ① 버그 수정 실증: 등록 embedding 모델이 에이전트 폼 모델 옵션에 안 나옴(chat만).
    ② 노드 카드 배치(사용자 지시): 프롬프트→모델→단기→장기→도구→문서→받기→형식 DOM 순서.
-   ③ 페르소나 로더 기능(노드): 가져오기 선택→TextArea에 body 채워짐.
+   ③ 프롬프트 로더 기능(노드): 가져오기 선택→TextArea에 body 채워짐.
    ④ 오버라이드: 공용 모델/프롬프트 컨트롤 존재 + 로더 기능.
    ⑤ 미등록 값 보존: ghost 모델 저장분 편집 시 선택 유지.
 
@@ -22,7 +22,7 @@ const log = (...a) => console.log(...a)
 const fails = []
 const check = (c, m) => { log((c ? '  ok  ' : ' FAIL ') + m); if (!c) fails.push(m) }
 const GHOST = 'ghost-model-274'
-const cleanup = { agents: [], personas: [] }
+const cleanup = { agents: [], prompts: [] }
 
 async function closeModal() {
   const cancel = page.getByRole('button', { name: /^취소$/ }).first()
@@ -51,20 +51,20 @@ try {
   const chatName = models.find((m) => m.kind === 'chat')?.name
   log(`  ..  registry: chat=${chatName} embedding=${embName}`)
 
-  // 페르소나 자가 픽스처(③④ 로더 검증용 — 시드 의존 금지, 회고 248 ③)
-  const pfx = await page.request.post(`${URL}/api/personas`, {
-    data: { name: 'p274-' + Date.now().toString(36), body: '너는 274 테스트 페르소나다. 간결히 답하라.' },
+  // 프롬프트 자가 픽스처(③④ 로더 검증용 — 시드 의존 금지, 회고 248 ③)
+  const pfx = await page.request.post(`${URL}/api/prompts`, {
+    data: { name: 'p274-' + Date.now().toString(36), body: '너는 274 테스트 프롬프트다. 간결히 답하라.' },
   })
   const pfxJ = await pfx.json().catch(() => null)
-  if (pfxJ?.id) cleanup.personas.push(pfxJ.id)
-  log(`  ..  persona fixture: ${pfx.status()}`)
+  if (pfxJ?.id) cleanup.prompts.push(pfxJ.id)
+  log(`  ..  prompt fixture: ${pfx.status()}`)
   // blocks는 뷰 mount 시 로드 — 픽스처 반영 위해 리로드.
   await page.reload({ waitUntil: 'networkidle' })
   await page.waitForTimeout(800)
   const blocksDbg = await page.evaluate(async () => {
     const r = await fetch('/api/blocks', { credentials: 'include' })
     const j = await r.json().catch(() => null)
-    return { status: r.status, keys: j ? Object.keys(j) : null, personaItems: j?.persona?.items?.map((x) => x.name) ?? null }
+    return { status: r.status, keys: j ? Object.keys(j) : null, promptItems: j?.prompt?.items?.map((x) => x.name) ?? null }
   })
   log('  ..  blocks=' + JSON.stringify(blocksDbg))
 
@@ -84,7 +84,7 @@ try {
   }
   await page.keyboard.press('Escape'); await page.waitForTimeout(200)
 
-  // ── ②③ 노드형: 카드 배치 순서 + 페르소나 로더 ──
+  // ── ②③ 노드형: 카드 배치 순서 + 프롬프트 로더 ──
   const typeField = page.locator('label', { hasText: '에이전트 종류' }).first()
   await typeField.locator('.ant-select').first().click()
   await page.waitForTimeout(300)
@@ -105,9 +105,9 @@ try {
   const sorted = idx.every((v) => v >= 0)
   check(sorted, `노드 카드 배치 순서(사용자 지시) ${order.join('→')} (idx=${JSON.stringify(idx)})`)
 
-  // ③ 페르소나 로더: 가져오기 → TextArea 채워짐
+  // ③ 프롬프트 로더: 가져오기 → TextArea 채워짐
   // antd v6 단일 Select는 값/placeholder를 .ant-select-content에 렌더(selection-placeholder 없음).
-  const loaderSel = page.locator('.ant-modal .ant-select', { hasText: '등록 페르소나에서 가져오기' })
+  const loaderSel = page.locator('.ant-modal .ant-select', { hasText: '등록 프롬프트에서 가져오기' })
   if (await loaderSel.count()) {
     await loaderSel.first().click()
     await page.waitForTimeout(300)
@@ -117,19 +117,19 @@ try {
       await page.waitForTimeout(300)
       const ta = page.locator('.ant-modal textarea').last()
       const val = await ta.inputValue()
-      check(val.trim().length > 0, `노드 페르소나 로더 → 프롬프트 채워짐 (${val.slice(0, 30)}…)`)
+      check(val.trim().length > 0, `노드 프롬프트 로더 → 프롬프트 채워짐 (${val.slice(0, 30)}…)`)
     } else {
-      log('  ..  페르소나 블록 없음 — ③ 스킵')
+      log('  ..  프롬프트 블록 없음 — ③ 스킵')
     }
   } else {
-    log('  ..  페르소나 로더 미노출(블록 없음) — ③ 스킵')
+    log('  ..  프롬프트 로더 미노출(블록 없음) — ③ 스킵')
   }
   await closeModal()
 
   // ── ⑤ 미등록 모델 보존: ghost 모델 에이전트 편집 시 선택 유지 ──
   const gname = 'ghost-274-' + Date.now().toString(36)
   const gr = await page.request.post(`${URL}/api/agents`, {
-    data: { name: gname, config: { model: GHOST, persona: '테스트', mcps: [], memories: [] } },
+    data: { name: gname, config: { model: GHOST, prompt: '테스트', mcps: [], memories: [] } },
   })
   const g = await gr.json(); if (g?.id) cleanup.agents.push(g.id)
   if (gr.ok()) {
@@ -155,7 +155,7 @@ try {
   // ── ④ 오버라이드: 공용 모델/프롬프트 + 로더 기능 ──
   const pname = 'mp274-pg-' + Date.now().toString(36)
   const pr = await page.request.post(`${URL}/api/agents`, {
-    data: { name: pname, config: { model: 'mock-llm', persona: '테스트', mcps: [], memories: [] } },
+    data: { name: pname, config: { model: 'mock-llm', prompt: '테스트', mcps: [], memories: [] } },
   })
   const p = await pr.json(); if (p?.id) cleanup.agents.push(p.id)
   await page.getByRole('menuitem', { name: 'Playground' }).click()
@@ -170,7 +170,7 @@ try {
   const dModelLabel = await drawer.getByText('모델', { exact: true }).count()
   const dPromptLabel = await drawer.getByText('시스템 프롬프트', { exact: true }).count()
   check(dModelLabel > 0 && dPromptLabel > 0, `오버라이드에 공용 모델/시스템 프롬프트 라벨 (${dModelLabel}/${dPromptLabel})`)
-  const dLoader = drawer.locator('.ant-select', { hasText: '등록 페르소나에서 가져오기' })
+  const dLoader = drawer.locator('.ant-select', { hasText: '등록 프롬프트에서 가져오기' })
   if (await dLoader.count()) {
     await dLoader.first().click()
     await page.waitForTimeout(300)
@@ -180,7 +180,7 @@ try {
       await page.waitForTimeout(300)
       const dta = drawer.locator('textarea').first()
       const dval = await dta.inputValue()
-      check(dval.trim().length > 0, `오버라이드 페르소나 로더 → 시스템 프롬프트 채워짐 (${dval.slice(0, 30)}…)`)
+      check(dval.trim().length > 0, `오버라이드 프롬프트 로더 → 시스템 프롬프트 채워짐 (${dval.slice(0, 30)}…)`)
     }
   } else {
     log('  ..  오버라이드 로더 미노출(블록 없음) — 스킵')
@@ -193,6 +193,6 @@ try {
   process.exitCode = 1
 } finally {
   for (const id of cleanup.agents) { try { await page.request.delete(`${URL}/api/agents/${id}`) } catch {} }
-  for (const id of cleanup.personas) { try { await page.request.delete(`${URL}/api/personas/${id}`) } catch {} }
+  for (const id of cleanup.prompts) { try { await page.request.delete(`${URL}/api/prompts/${id}`) } catch {} }
   await browser.close()
 }

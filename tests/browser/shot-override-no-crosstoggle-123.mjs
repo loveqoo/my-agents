@@ -42,7 +42,7 @@ try {
 
   const mr = await page.request.post(`${URL}/api/mcp-servers`, { data: { name: MCP, source: 'local', transport: 'http', url: 'http://127.0.0.1:9/mcp' } })
   const mcp = await mr.json(); if (mcp?.id) cleanup.mcps.push(mcp.id)
-  const or = await page.request.post(`${URL}/api/agents`, { data: { name: ORCH, config: { model: 'mock-llm', persona: '', impl: 'orchestrate', capabilities: [`mcp:${MCP}`] } } })
+  const or = await page.request.post(`${URL}/api/agents`, { data: { name: ORCH, config: { model: 'mock-llm', prompt: '', impl: 'orchestrate', capabilities: [`mcp:${MCP}`] } } })
   const o = await or.json(); if (o?.id) cleanup.agents.push(o.id)
 
   await page.getByRole('menuitem', { name: 'Playground' }).click()

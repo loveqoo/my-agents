@@ -55,7 +55,7 @@ def _canonical_tokens(
 
 
 async def _recall_memory(ctx: dict, user_text: str) -> tuple[bool, list, str]:
-    """메모리 회상(읽기 전용 — 무오염) → (used_memory, mem_hits, persona_prompt). add는 절대 안 함."""
+    """메모리 회상(읽기 전용 — 무오염) → (used_memory, mem_hits, prompt_prompt). add는 절대 안 함."""
     used_memory = memory.memory_enabled(ctx["memories"]) and ctx["mem_cfg"] is not None
     recall_scope = {"user_id": None, "run_id": None, "agent_id": ctx["ext_agent_id"]}
     mem_hits = (
@@ -63,18 +63,18 @@ async def _recall_memory(ctx: dict, user_text: str) -> tuple[bool, list, str]:
         if used_memory
         else []
     )
-    persona_prompt = ctx["persona"]
+    prompt_prompt = ctx["prompt"]
     if mem_hits:
-        persona_prompt = (
-            f"{persona_prompt}\n\n# 관련 기억(회상됨)\n{memory.format_memory_hits(mem_hits)}"
+        prompt_prompt = (
+            f"{prompt_prompt}\n\n# 관련 기억(회상됨)\n{memory.format_memory_hits(mem_hits)}"
         )
-    return used_memory, mem_hits, persona_prompt
+    return used_memory, mem_hits, prompt_prompt
 
 
 async def _build_eval_graph(
     ctx: dict,
     impl: CustomAgent,
-    persona_prompt: str,
+    prompt_prompt: str,
     mem_hits: list,
     calls_sink: list[dict],
     principal: User | str,
@@ -104,7 +104,7 @@ async def _build_eval_graph(
         tools.extend(runtime.build_agent_tools(broker, await broker.agent_capabilities()))
     run_params = {} if ctx["temperature"] is None else {"temperature": ctx["temperature"]}
     build_ctx = AgentBuildContext(
-        persona=persona_prompt,
+        prompt=prompt_prompt,
         model_cfg=ctx["model_cfg"],
         tools=tools,
         checkpointer=None,  # HIL cap은 fail-closed(interrupt→예외→error 관측)
@@ -192,14 +192,14 @@ async def eval_run_agent(
             "detail": "로컬(ui) 에이전트가 아니거나 채팅 모델이 없습니다(평가는 로컬 에이전트만)",
         }
 
-    used_memory, mem_hits, persona_prompt = await _recall_memory(ctx, user_text)
+    used_memory, mem_hits, prompt_prompt = await _recall_memory(ctx, user_text)
 
     calls_sink: list[dict] = []
     try:
         graph, broker = await _build_eval_graph(
             ctx,
             impl,
-            persona_prompt,
+            prompt_prompt,
             mem_hits,
             calls_sink,
             principal,

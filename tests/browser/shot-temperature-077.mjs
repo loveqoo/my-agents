@@ -1,7 +1,7 @@
-/* 스펙 077 검증 — 온도 에이전트 필드 + 오버라이드 페르소나 대칭. 시스템 Chrome.
+/* 스펙 077 검증 — 온도 에이전트 필드 + 오버라이드 프롬프트 대칭. 시스템 Chrome.
    (A) 생성 모달: Temperature 라벨·Switch·Slider 존재 → 토글 ON 시 값 0.7 표시(자동→수동).
-   (B) Playground 오버라이드 드로어: '페르소나 블록에서 채우기' Select 존재 →
-       첫 페르소나 선택 시 아래 시스템 프롬프트 TextArea가 채워짐(빈→비지 않음).
+   (B) Playground 오버라이드 드로어: '프롬프트 블록에서 채우기' Select 존재 →
+       첫 프롬프트 선택 시 아래 시스템 프롬프트 TextArea가 채워짐(빈→비지 않음).
 
    실행: PLAYWRIGHT_DIR=<repo>/tests/e2e/node_modules/playwright \
          node tests/browser/shot-temperature-077.mjs /tmp/temp077 */
@@ -57,7 +57,7 @@ try {
   await page.getByRole('button', { name: '취소' }).first().click()
   await page.waitForTimeout(400)
 
-  // ===== (B) Playground 오버라이드 페르소나 Select =====
+  // ===== (B) Playground 오버라이드 프롬프트 Select =====
   await page.getByText('Playground', { exact: true }).first().click()
   await page.waitForTimeout(1200)
   // 기본 에이전트가 code면 오버라이드가 bypass되므로 web(ui) 에이전트로 전환.
@@ -77,23 +77,23 @@ try {
   // 오버라이드 드로어 열기
   await page.getByRole('button', { name: /오버라이드/ }).first().click()
   await page.waitForTimeout(700)
-  const personaFill = await page.getByText('페르소나 블록에서 채우기', { exact: true }).count()
-  log('B_PERSONA_SELECT_LABEL=' + personaFill + ' (expect >=1; 코드/외부 에이전트면 0=정상 bypass)')
+  const promptFill = await page.getByText('프롬프트 블록에서 채우기', { exact: true }).count()
+  log('B_PROMPT_SELECT_LABEL=' + promptFill + ' (expect >=1; 코드/외부 에이전트면 0=정상 bypass)')
 
-  if (personaFill > 0) {
+  if (promptFill > 0) {
     // 시스템 프롬프트 TextArea(드로어 내 유일) 초기값.
     const ta = page.locator('.ant-drawer textarea').first()
     const taBefore = await ta.inputValue().catch(() => '')
-    // 페르소나 Select 열기(antd6: clickable=.ant-select-content) → 라벨로 스코프해 첫 옵션 선택.
-    await page.locator('label', { hasText: '페르소나 블록에서 채우기' }).locator('.ant-select').first().click()
+    // 프롬프트 Select 열기(antd6: clickable=.ant-select-content) → 라벨로 스코프해 첫 옵션 선택.
+    await page.locator('label', { hasText: '프롬프트 블록에서 채우기' }).locator('.ant-select').first().click()
     await page.waitForTimeout(400)
     // antd6 옵션 클래스 폴백.
     let opts = page.locator('.ant-select-item-option')
     if (!(await opts.count())) opts = page.locator('.ant-select-item')
     const optCount = await opts.count()
-    log('B_PERSONA_OPTIONS=' + optCount)
+    log('B_PROMPT_OPTIONS=' + optCount)
     if (optCount > 0) {
-      // 마지막 옵션 선택(현재 로드된 페르소나=첫 옵션과 다른 것이라야 변화가 드러남).
+      // 마지막 옵션 선택(현재 로드된 프롬프트=첫 옵션과 다른 것이라야 변화가 드러남).
       const pick = opts.nth(optCount - 1)
       const pickLabel = (await pick.textContent().catch(() => '')) ?? ''
       await pick.click()
@@ -102,7 +102,7 @@ try {
       log('B_PICKED=' + pickLabel.trim() + ' BEFORE_LEN=' + (taBefore?.length ?? 0) + ' AFTER_LEN=' + (taAfter?.length ?? 0))
       log('B_FILLED=' + (taAfter.length > 0 && taAfter !== taBefore))
     }
-    await page.screenshot({ path: `${OUT}-B-override-persona.png`, fullPage: true })
+    await page.screenshot({ path: `${OUT}-B-override-prompt.png`, fullPage: true })
   } else {
     await page.screenshot({ path: `${OUT}-B-override-bypass.png`, fullPage: true })
   }

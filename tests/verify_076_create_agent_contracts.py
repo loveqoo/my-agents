@@ -26,7 +26,7 @@ def _build_with_stub(monkeypatch_model):
     mdl.ChatOpenAI = lambda **kw: monkeypatch_model  # noqa: E731
     try:
         return m.build_agent(
-            persona="너는 간결한 비서다.",
+            prompt="너는 간결한 비서다.",
             model_cfg={"base_url": "http://x", "model_id": "stub", "params": {}},
         )
     finally:

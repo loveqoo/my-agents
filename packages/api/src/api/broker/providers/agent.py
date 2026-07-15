@@ -42,11 +42,11 @@ def _a2a_text(args: dict) -> str:
 
 
 def _hook_for(agent: Agent) -> str:
-    """한 줄 후크 — 카드 description → persona → name 순 첫 비어있지 않은 줄(≤200자). load-bearing:
+    """한 줄 후크 — 카드 description → prompt → name 순 첫 비어있지 않은 줄(≤200자). load-bearing:
     발견 선택 품질이 여기 달렸다(설계결정 3)."""
     card = (agent.config or {}).get("card")
     desc = card.get("description") if isinstance(card, dict) else None
-    for cand in (desc, agent.persona, agent.name):
+    for cand in (desc, agent.prompt, agent.name):
         if cand and str(cand).strip():
             return str(cand).strip().splitlines()[0][:200]
     return ""

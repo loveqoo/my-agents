@@ -1,6 +1,6 @@
 """에이전트 서비스 도메인 테이블.
 
-빌딩 블록(페르소나·메모리타입·벡터테이블·권한·MCP 서버)은 개별 테이블,
+빌딩 블록(프롬프트·메모리타입·벡터테이블·권한·MCP 서버)은 개별 테이블,
 에이전트는 컬럼 + config jsonb + agent_versions, 그리고 세션/메시지/승인.
 지배 스펙: docs/spec/007-real-agent-service.md
 """
@@ -43,8 +43,8 @@ def _pk() -> Mapped[uuid.UUID]:
 
 
 # ----------------------------- 빌딩 블록 -----------------------------
-class Persona(AuditMixin, Base):
-    __tablename__ = "personas"
+class Prompt(AuditMixin, Base):
+    __tablename__ = "prompts"
     id: Mapped[uuid.UUID] = _pk()
     name: Mapped[str] = mapped_column(String(200), unique=True)  # 식별 이름(규칙, 스펙 148)
     # 설명(선택, 스펙 210) — 구 별명(alias) 개명: 표시는 name 단독, 설명은 툴팁 등 부가정보.
@@ -266,7 +266,7 @@ class McpServer(AuditMixin, Base):
     )  # 암호화 저장(Fernet, 스펙 054 F) — 응답은 마스킹
     # 소유자(스펙 112) — None=레거시/admin=admin 전용(fail-closed, 070). 생성 시 스탬프·이전 금지(069).
     owner_id: Mapped[str | None] = mapped_column(String(80), index=True, default=None)
-    # 수정일(스펙 216) — 빌딩 블록 '수정일' 열 배선. Persona와 동일 패턴, onupdate는 ORM-side.
+    # 수정일(스펙 216) — 빌딩 블록 '수정일' 열 배선. Prompt와 동일 패턴, onupdate는 ORM-side.
 
 
 class AppSetting(AuditMixin, Base):
@@ -310,9 +310,9 @@ class Agent(AuditMixin, Base):
     model: Mapped[str] = mapped_column(
         String(120), default="mock-llm"
     )  # 미지정 시 기본 모델(스펙 059)
-    persona: Mapped[str] = mapped_column(Text, default="")  # 해석된 페르소나 본문(서빙용)
+    prompt: Mapped[str] = mapped_column(Text, default="")  # 해석된 프롬프트 본문(서빙용)
     history_depth: Mapped[int] = mapped_column(Integer, default=20)
-    # config = {model, persona, memories[], vectorTables[], mcps[], historyDepth}
+    # config = {model, prompt, memories[], vectorTables[], mcps[], historyDepth}
     config: Mapped[dict] = mapped_column(JSONB, default=dict)
     exposed: Mapped[dict] = mapped_column(JSONB, default=lambda: {"a2a": False})
     status: Mapped[str] = mapped_column(String(20), default="idle")  # online | idle | offline
@@ -396,7 +396,7 @@ class Message(AuditMixin, Base):
     # 묶어 분석 가능케 한다(예전엔 세션+시간순만이라 턴 경계 소실). HIL/폼 재개가 얽혀도 한 턴 1 id.
     # 과거 행은 null(소급 안 함 — thread_id 이미 소실). index로 turn 그룹핑 조회.
     turn_id: Mapped[str | None] = mapped_column(String(200), index=True, default=None)
-    # 프롬프트(페르소나) 출처(스펙 364, 옵션 b) — 이 턴에 실제 쓰인 프롬프트. assistant 행에만 스탬프
+    # 프롬프트(프롬프트) 출처(스펙 364, 옵션 b) — 이 턴에 실제 쓰인 프롬프트. assistant 행에만 스탬프
     # (user 행은 프롬프트 무관). 라이브러리 참조면 id·name 有, 인라인/오버라이드면 null(정직). FK 아님
     # (provenance는 프롬프트 삭제 후에도 살아남아야 — 역사 기록). body 스냅샷은 trace.promptSnapshot.
     prompt_id: Mapped[str | None] = mapped_column(String(80), index=True, default=None)

@@ -95,12 +95,12 @@ ok(set(call.args.keys()) == {"name", "arguments"}, f"3e call_tool 스키마 인�
 
 # ── 4) 플랜 계획 문구 분기 + 그래프 배선 ─────────────────────────────────────
 mcfg = {"base_url": "http://127.0.0.1:9", "model_id": "probe"}
-g_disc = PlanExecuteAgent().build_graph(AgentBuildContext(persona="p", model_cfg=mcfg, tools=many))
+g_disc = PlanExecuteAgent().build_graph(AgentBuildContext(prompt="p", model_cfg=mcfg, tools=many))
 ok("tools" in set(g_disc.get_graph().nodes), "4a discovery 모드도 tools 노드 배선(089 T와 일관)")
 # plan 노드 문구 — discovery면 검색 안내
 plan_out = asyncio.run(g_disc.nodes["plan"].bound.ainvoke({"messages": [], "plan": ""}))
 ok("search_tools" in plan_out["plan"], f"4b discovery 계획 문구=검색 안내 ({plan_out['plan'][:60]}…)")
-g_few = PlanExecuteAgent().build_graph(AgentBuildContext(persona="p", model_cfg=mcfg, tools=[wiki_probe]))
+g_few = PlanExecuteAgent().build_graph(AgentBuildContext(prompt="p", model_cfg=mcfg, tools=[wiki_probe]))
 plan_few = asyncio.run(g_few.nodes["plan"].bound.ainvoke({"messages": [], "plan": ""}))
 ok("wiki_probe" in plan_few["plan"], "4c 소수 도구 계획 문구=이름 나열(202 무회귀)")
 

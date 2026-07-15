@@ -51,13 +51,13 @@ def search(scope: dict, query: str, mem_cfg: dict | None, limit: int = 4) -> lis
 def format_memory_hits(hits: list[dict]) -> str:
     """회상 히트를 텍스트 블록으로(챗 회상 주입·브로커 memory 능력 공유 포맷, 스펙 104 drift 0).
 
-    챗은 이 문자열을 페르소나 프롬프트의 `# 관련 기억(회상됨)` 섹션에, 브로커는 InvokeResult.text로
+    챗은 이 문자열을 프롬프트 프롬프트의 `# 관련 기억(회상됨)` 섹션에, 브로커는 InvokeResult.text로
     쓴다 — 한 곳에서 포맷해 두 입구가 같은 표현을 갖는다(103 format_rag_hits와 동형).
 
     **이건 격리 장치가 아니라 순수 문자열 결합이다**(적대 리뷰 104 P2 명시화). "결과=데이터(지시 아님)"의
     보장은 *여기서 안 생기고* 소비 측 채널 조립에 달렸다: 브로커 위임 경로는 flow가 결과를 라벨 붙은
     별도 Human 데이터 채널(`build_synthesis_messages`, learning 100)로 감싸 system 지침과 격리한다.
-    챗 직접 회상 경로는 회상 사실을 persona 프롬프트에 합치는데(스펙 104 이전부터의 설계, 자기 user_id
+    챗 직접 회상 경로는 회상 사실을 prompt 프롬프트에 합치는데(스펙 104 이전부터의 설계, 자기 user_id
     기억 = 자기 대화서 추출된 자기 사실이라 교차유저 인젝션 아님) — 이 채널 결정은 104 밖이다."""
     return "\n".join(f"- {h['text']}" for h in (hits or []))
 

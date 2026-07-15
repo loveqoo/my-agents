@@ -62,7 +62,7 @@ def unit_checks() -> None:
 
     # U4 미등록 impl → 그래프 빌드 시 AgentConfigError(폴백 마스킹 0)
     ctx = AgentBuildContext(
-        persona="", model_cfg={"base_url": "http://x", "api_key": "k", "model_id": "m", "params": {}},
+        prompt="", model_cfg={"base_url": "http://x", "api_key": "k", "model_id": "m", "params": {}},
         tools=[], impl_config={"nodes": [{"impl": "ghost-impl", "name": "유령"}]},
     )
     try:
@@ -200,7 +200,7 @@ async def http_checks() -> None:
                 "name": agent_name,
                 "config": {
                     "model": "mock-llm",
-                    "persona": "",
+                    "prompt": "",
                     "impl": "pipeline",
                     "nodes": [{"ref": {"name": "mask-pii", "version": 1}}],
                 },
@@ -235,7 +235,7 @@ async def http_checks() -> None:
             "/agents",
             json={
                 "name": f"v317-ghost-a-{uuid.uuid4().hex[:6]}",
-                "config": {"model": "mock-llm", "persona": "", "impl": "pipeline",
+                "config": {"model": "mock-llm", "prompt": "", "impl": "pipeline",
                            "nodes": [{"ref": {"name": ghost, "version": 1}}]},
             },
         )

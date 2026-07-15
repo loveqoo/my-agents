@@ -58,8 +58,8 @@ async def main() -> None:
 
     def mk_agent(owner):
         a = Agent(agent_id=f"e178_{uuid.uuid4().hex[:6]}", name=f"e178-{uuid.uuid4().hex[:4]}",
-                  source="ui", model="mock-chat", persona="", history_depth=5,
-                  config={"model": "mock-chat", "persona": "", "memories": [], "vectorTables": [],
+                  source="ui", model="mock-chat", prompt="", history_depth=5,
+                  config={"model": "mock-chat", "prompt": "", "memories": [], "vectorTables": [],
                           "mcps": [], "historyDepth": 5},
                   exposed={"a2a": False}, status="idle", owner_id=owner)
         return a

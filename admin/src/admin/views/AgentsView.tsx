@@ -59,7 +59,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
 
   const configOf = (a: Agent): AgentConfig => ({
     model: a.model,
-    persona: a.persona,
+    prompt: a.prompt,
     temperature: a.temperature ?? null,
     memories: [...(a.memories || [])],
     historyDepth: a.historyDepth,
@@ -174,7 +174,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
   const save = async (data: AgentFormData) => {
     const config: AgentConfig = {
       model: data.model,
-      persona: data.persona,
+      prompt: data.prompt,
       temperature: data.temperature,
       memories: data.memories,
       historyDepth: data.historyDepth,
@@ -271,11 +271,11 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
       message.error(String(e))
     }
   }
-  // 페르소나 스냅샷을 현재 원본으로 갱신(스펙 161) — 저장 시점 복사본이 오래됐을 때 명시적 반영.
-  const refreshPersona = async (agent: Agent) => {
+  // 프롬프트 스냅샷을 현재 원본으로 갱신(스펙 161) — 저장 시점 복사본이 오래됐을 때 명시적 반영.
+  const refreshPrompt = async (agent: Agent) => {
     try {
-      await A.refreshPersona(agent.id)
-      message.success(`${agent.name} 페르소나 갱신됨`)
+      await A.refreshPrompt(agent.id)
+      message.success(`${agent.name} 프롬프트 갱신됨`)
     } catch (e) {
       message.error(String(e))
     }
@@ -367,7 +367,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
         )
       },
     },
-    // 페르소나 컬럼 제거(스펙 284 ④). UI 탭엔 에이전트 종류(283 typeLabel 단일 출처, 284 ③).
+    // 프롬프트 컬럼 제거(스펙 284 ④). UI 탭엔 에이전트 종류(283 typeLabel 단일 출처, 284 ③).
     ...(tab === 'ui'
       ? [{
           key: 'type',
@@ -503,7 +503,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
           onResync={resync}
           onToggleExpose={toggleExpose}
           onSetVisibility={setVisibility}
-          onRefreshPersona={refreshPersona}
+          onRefreshPrompt={refreshPrompt}
         />
       ) : detail && detail.source === 'external' ? (
         <ExternalAgentDetailPage
@@ -527,7 +527,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
           onTest={testVersion}
           onRevert={revertToDraft}
           onNewDraft={newDraft}
-          onRefreshPersona={refreshPersona}
+          onRefreshPrompt={refreshPrompt}
         />
       ) : (
       <>
@@ -689,7 +689,7 @@ export default function AgentsView({ onOpenPlayground, meId }: { onOpenPlaygroun
                   name: a.name,
                   description: a.description ?? '',
                   model: c.model || a.model,
-                  persona: c.persona || a.persona,
+                  prompt: c.prompt || a.prompt,
                   temperature: c.temperature ?? a.temperature ?? null,
                   memories: [...(c.memories || [])],
                   historyDepth: c.historyDepth != null ? c.historyDepth : a.historyDepth,

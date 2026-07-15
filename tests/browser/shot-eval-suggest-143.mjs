@@ -171,11 +171,11 @@ try {
   // ---------- K4: "AI 출제 i (RAG)"/"AI 출제 i (역할)" 문제 카드 혼재 + 태그 ----------
   const cardTexts = await cardLoc().allInnerTexts().catch(() => [])
   const ragCards = cardTexts.filter((t) => /AI 출제 \d+ \(RAG\)/.test(t) && t.includes('trace_has: rag:'))
-  const personaCards = cardTexts.filter((t) => /AI 출제 \d+ \(역할\)/.test(t) && t.includes('llm_judge:'))
-  const k4 = ragCards.length > 0 && personaCards.length > 0
+  const promptCards = cardTexts.filter((t) => /AI 출제 \d+ \(역할\)/.test(t) && t.includes('llm_judge:'))
+  const k4 = ragCards.length > 0 && promptCards.length > 0
   check(
     k4,
-    `K4: RAG형 카드(${ragCards.length}건, "trace_has: rag:" 태그) + 역할형 카드(${personaCards.length}건, "llm_judge:" 태그) 혼재(${k4})`
+    `K4: RAG형 카드(${ragCards.length}건, "trace_has: rag:" 태그) + 역할형 카드(${promptCards.length}건, "llm_judge:" 태그) 혼재(${k4})`
   )
   if (!k4) console.log('카드 텍스트=', JSON.stringify(cardTexts))
 

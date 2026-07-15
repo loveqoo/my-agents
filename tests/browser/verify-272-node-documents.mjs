@@ -103,7 +103,7 @@ try {
     }
     const nm = 'rt-272-' + Date.now().toString(36)
     const config = {
-      model: 'qwen3.6-35b', persona: '', impl: 'pipeline', historyDepth: 20, persistHistory: true, ephemeral: false,
+      model: 'qwen3.6-35b', prompt: '', impl: 'pipeline', historyDepth: 20, persistHistory: true, ephemeral: false,
       memories: [], mcps: [], vectorTables: [],
       nodes: [{ name: '검색', prompt: '검색하고 답하라', model: 'qwen3.6-35b', context: 'carry',
                 tools: ['web-fetch__wiki_search', 'search_documents__docs-kb'] }],

@@ -113,7 +113,7 @@ try {
 
   // ── R2) API로 min=0 에이전트 → 히트 카드 + 범례 + 검색어 ──
   const cfgB = {
-    model: 'mock-llm', persona: a.persona, memories: [], historyDepth: 10,
+    model: 'mock-llm', prompt: a.prompt, memories: [], historyDepth: 10,
     vectorTables: ['docs-kb'], mcps: [], ragMinScores: {},
   }
   const created = await fetch(`${API}/agents`, {

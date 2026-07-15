@@ -24,7 +24,7 @@ def check(cond, msg):
 t = _overrides_trace({"model": "m1", "temperature": 0.9, "이상한키": "x", "historyDepth": 5})
 check(t == {"model": "m1", "temperature": 0.9, "historyDepth": 5}, f"V1 허용 키만 (got {t})")
 
-t2 = _overrides_trace({"systemPrompt": "페르소나 api_key: sk-LEAK-777777 " + "가" * 500})
+t2 = _overrides_trace({"systemPrompt": "프롬프트 api_key: sk-LEAK-777777 " + "가" * 500})
 check(t2 is not None and "sk-LEAK-777777" not in t2["systemPrompt"] and "«secret»" in t2["systemPrompt"],
       "V2a systemPrompt 비밀 마스킹")
 check(len(t2["systemPrompt"]) <= 301, f"V2b 캡 300 (got {len(t2['systemPrompt'])})")

@@ -16,7 +16,7 @@ export interface Audit {
 
 export interface AgentConfig {
   model?: string
-  persona?: string
+  prompt?: string
   temperature?: number | null // 에이전트 영속 온도(스펙 077). null=자동(모델 등록값)
   memories?: string[]
   historyDepth?: number
@@ -108,7 +108,7 @@ export interface BlockItem extends Audit {
   usedBy: number
   updated: string
   body?: string
-  /* persona */ tone?: string
+  /* prompt */ tone?: string
   /* memory */ key?: string
   /* memory */ scope?: string
   /* embedding */ model?: string
@@ -158,7 +158,7 @@ export interface Agent extends Audit {
   environments: string[]
   model: string
   status: 'online' | 'idle' | 'offline'
-  persona: string
+  prompt: string
   temperature?: number | null // 에이전트 영속 온도(스펙 077). null/미지정=자동(모델 등록값)
   memories: string[]
   historyDepth: number
@@ -180,8 +180,8 @@ export interface Agent extends Audit {
   exposed: { a2a: boolean }
   sessions: number
   created: string
-  systemPrompt?: string // 해석된 페르소나 본문(저장 시점 스냅샷)
-  personaStale?: boolean // 스냅샷이 현재 원본 페르소나와 다름(스펙 161)
+  systemPrompt?: string // 해석된 프롬프트 본문(저장 시점 스냅샷)
+  promptStale?: boolean // 스냅샷이 현재 원본 프롬프트와 다름(스펙 161)
   activeVersion: string
   versions: VersionMeta[]
   /* 공통 인터페이스 준수 분류(스펙 089) — 백엔드가 resolve와 같은 게이트로 파생.

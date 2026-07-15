@@ -113,7 +113,7 @@ async def main():
             {"name": "n2", "prompt": "P2", "model_cfg": MODEL_CFG, "tools": [], "context": "carry"},  # depth 미지정→None(상속)
             {"name": "n3", "prompt": "P3", "model_cfg": MODEL_CFG, "tools": [], "context": "clean", "historyDepth": 40},
         ]
-        ctx = AgentBuildContext(persona="", model_cfg=MODEL_CFG, tools=[],
+        ctx = AgentBuildContext(prompt="", model_cfg=MODEL_CFG, tools=[],
                                 impl_config={"nodes": nodes}, history_window=fake_window)
         await LinearPipelineAgent().build_graph(ctx).ainvoke({"messages": [HumanMessage(content="CUR")]})
         by_prompt = {k: v for k, v in seen}
@@ -132,13 +132,13 @@ async def main():
         # graceful: 프록시 예외 → 대화 없이 노드 생존
         async def boom(depth=None, node="", record=True):
             raise RuntimeError("window down")
-        ctx2 = AgentBuildContext(persona="", model_cfg=MODEL_CFG, tools=[],
+        ctx2 = AgentBuildContext(prompt="", model_cfg=MODEL_CFG, tools=[],
                                  impl_config={"nodes": [nodes[0]]}, history_window=boom)
         out2 = await LinearPipelineAgent().build_graph(ctx2).ainvoke({"messages": [HumanMessage(content="X")]})
         check(len(out2["messages"]) == 2, "엔진: 프록시 예외에도 노드 생존(graceful)")
 
         # history_window=None(비노드형 시뮬레이션): 주입 없이 정상
-        ctx3 = AgentBuildContext(persona="", model_cfg=MODEL_CFG, tools=[],
+        ctx3 = AgentBuildContext(prompt="", model_cfg=MODEL_CFG, tools=[],
                                  impl_config={"nodes": [nodes[0]]}, history_window=None)
         seen.clear()
         await LinearPipelineAgent().build_graph(ctx3).ainvoke({"messages": [HumanMessage(content="Y")]})

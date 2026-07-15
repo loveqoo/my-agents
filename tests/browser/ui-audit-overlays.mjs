@@ -119,9 +119,9 @@ const OVERLAYS = [
     },
   },
   {
-    key: 'persona-edit',
+    key: 'prompt-edit',
     async open(page, isMobile) {
-      await navTo(page, 'blocks', isMobile) // 페르소나가 기본 탭(BlocksView cat='persona')
+      await navTo(page, 'blocks', isMobile) // 프롬프트가 기본 탭(BlocksView cat='prompt')
       await clickFirstRow(page, isMobile)
       await page.waitForTimeout(500) // 상세 드로어 열림
       // exact 매칭 금지 — antd Button 아이콘의 role=img aria-label(예: "edit")이 접근성 이름 앞에

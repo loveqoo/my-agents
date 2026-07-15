@@ -1,17 +1,17 @@
-/* 스펙 161 브라우저 스모크 — 페르소나 스냅샷 동기화 UI 배선 확인.
+/* 스펙 161 브라우저 스모크 — 프롬프트 스냅샷 동기화 UI 배선 확인.
    목적: 콘솔 에러 없이 렌더되는지(런타임 에러 0) + 섹션이 깨지지 않고 나타나는지.
    (a) 에이전트 목록 → 첫 에이전트 상세 드로어 열기
-   (b) 재료(Blocks) → 페르소나 탭 → 첫 페르소나 → 편집 드로어 열기
+   (b) 재료(Blocks) → 프롬프트 탭 → 첫 프롬프트 → 편집 드로어 열기
 
    실행: PLAYWRIGHT_DIR=<abs>/tests/e2e/node_modules/playwright \
          ADMIN_EMAIL=admin@example.com ADMIN_PASSWORD=adminpass123 \
-         node tests/browser/shot-persona-sync-161.mjs tests/browser/out-161 */
+         node tests/browser/shot-prompt-sync-161.mjs tests/browser/out-161 */
 const pwDir = process.env.PLAYWRIGHT_DIR
 const _pw = await import(pwDir ? `${pwDir}/index.js` : 'playwright')
 const chromium = _pw.chromium ?? _pw.default?.chromium
 
 const URL = process.env.ADMIN_URL ?? 'http://127.0.0.1:5173'
-const OUT = process.argv[2] ?? '/tmp/persona-sync-161'
+const OUT = process.argv[2] ?? '/tmp/prompt-sync-161'
 const EMAIL = process.env.ADMIN_EMAIL ?? 'admin@example.com'
 const PASSWORD = process.env.ADMIN_PASSWORD ?? 'adminpass123'
 
@@ -41,15 +41,15 @@ try {
   await page.getByText('에이전트', { exact: true }).first().waitFor({ timeout: 10000 })
   await page.waitForTimeout(800)
 
-  // (a) 에이전트 목록 → 페르소나를 가진(ui/code) 에이전트 상세 드로어 — 첫 행은 external(A2A)일 수 있어
-  // 페르소나 필드 자체가 없다(설계상 정상). ReadonlyConfig(code)·AgentDetail(ui) 둘 다 확인.
+  // (a) 에이전트 목록 → 프롬프트를 가진(ui/code) 에이전트 상세 드로어 — 첫 행은 external(A2A)일 수 있어
+  // 프롬프트 필드 자체가 없다(설계상 정상). ReadonlyConfig(code)·AgentDetail(ui) 둘 다 확인.
   await page.getByText('에이전트', { exact: true }).first().click()
   await page.waitForTimeout(1000)
   const codeRow = page.locator('table tbody tr', { hasText: 'Doc Translator' }).first()
   await codeRow.waitFor({ timeout: 10000 })
   await codeRow.click()
   await page.waitForTimeout(1000)
-  ok(await page.getByText('페르소나', { exact: true }).first().isVisible().catch(() => false), '에이전트 상세(code): 페르소나 항목 렌더')
+  ok(await page.getByText('프롬프트', { exact: true }).first().isVisible().catch(() => false), '에이전트 상세(code): 프롬프트 항목 렌더')
   await page.screenshot({ path: `${OUT}/1a-agent-detail-code.png`, fullPage: true })
   await page.keyboard.press('Escape')
   await page.waitForTimeout(500)
@@ -58,28 +58,28 @@ try {
   await uiRow.waitFor({ timeout: 10000 })
   await uiRow.click()
   await page.waitForTimeout(1000)
-  ok(await page.getByText('페르소나', { exact: true }).first().isVisible().catch(() => false), '에이전트 상세(ui): 페르소나 항목 렌더')
+  ok(await page.getByText('프롬프트', { exact: true }).first().isVisible().catch(() => false), '에이전트 상세(ui): 프롬프트 항목 렌더')
   await page.screenshot({ path: `${OUT}/1b-agent-detail-ui.png`, fullPage: true })
   await page.keyboard.press('Escape')
   await page.waitForTimeout(500)
 
-  // (b) 재료(Blocks) → 페르소나 탭 → 첫 항목 → 편집 드로어
+  // (b) 재료(Blocks) → 프롬프트 탭 → 첫 항목 → 편집 드로어
   await page.getByText('빌딩 블록', { exact: true }).first().click()
   await page.waitForTimeout(1000)
-  await page.getByRole('tab', { name: /페르소나/ }).click()
+  await page.getByRole('tab', { name: /프롬프트/ }).click()
   await page.waitForTimeout(800)
-  const firstPersonaRow = page.locator('table tbody tr').first()
-  await firstPersonaRow.waitFor({ timeout: 10000 })
-  await firstPersonaRow.click()
+  const firstPromptRow = page.locator('table tbody tr').first()
+  await firstPromptRow.waitFor({ timeout: 10000 })
+  await firstPromptRow.click()
   await page.waitForTimeout(800)
   await page.getByRole('button', { name: '편집' }).click()
   await page.waitForTimeout(1000)
-  ok(await page.getByText('이 페르소나를 쓰는 에이전트', { exact: true }).isVisible().catch(() => false), '페르소나 편집: 사용 에이전트 섹션 렌더')
+  ok(await page.getByText('이 프롬프트를 쓰는 에이전트', { exact: true }).isVisible().catch(() => false), '프롬프트 편집: 사용 에이전트 섹션 렌더')
   const applyBtn = page.getByRole('button', { name: '선택 에이전트에 반영' })
-  ok(await applyBtn.count() > 0, '페르소나 편집: 반영 버튼 렌더')
-  await page.getByText('이 페르소나를 쓰는 에이전트', { exact: true }).scrollIntoViewIfNeeded()
+  ok(await applyBtn.count() > 0, '프롬프트 편집: 반영 버튼 렌더')
+  await page.getByText('이 프롬프트를 쓰는 에이전트', { exact: true }).scrollIntoViewIfNeeded()
   await page.waitForTimeout(300)
-  await page.screenshot({ path: `${OUT}/2-persona-edit.png`, fullPage: true })
+  await page.screenshot({ path: `${OUT}/2-prompt-edit.png`, fullPage: true })
 
   // 로그인 전 401(요청 최초 인증 확인)·favicon 404·앱 전역 antd6 Alert `message`→`title` 폐기 경고는
   // 이 화면 밖에서도 항상 나는 기존 잡음(스펙 161과 무관, git stash 대조로 확인) — 제외하고 판정.

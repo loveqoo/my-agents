@@ -56,7 +56,7 @@ _MODEL_CFG = {
 
 
 def _ctx(**kw) -> AgentBuildContext:
-    base = dict(persona="당신은 테스트 에이전트입니다.", model_cfg=_MODEL_CFG, tools=[])
+    base = dict(prompt="당신은 테스트 에이전트입니다.", model_cfg=_MODEL_CFG, tools=[])
     base.update(kw)
     return AgentBuildContext(**base)
 
@@ -85,7 +85,7 @@ def unit_checks() -> None:
     # plan-execute는 plan·execute 노드를 실제로 가진다 — create_agent(단일 model 노드)와 구조가 다름.
     check({"plan", "execute"} <= plan_nodes, f"U2 plan-execute 다노드 구조(plan·execute) (got {plan_nodes})")
     check("plan" not in default_nodes, "U2 default 그래프엔 plan 노드 없음(구조 상이 = 누수 측정 토대)")
-    # ctx.persona 주입이 단일 출처 — plan-execute가 ctx.persona를 읽어 execute 노드 system에 합친다
+    # ctx.prompt 주입이 단일 출처 — plan-execute가 ctx.prompt를 읽어 execute 노드 system에 합친다
     # (클로저 캡처). 빌드가 ctx 없이 자기 DB를 읽지 않음을 구조로 보장(빌드는 ctx만 받음).
     check(g_plan is not None, "U2 plan-execute가 주입 ctx만으로 그래프 빌드(자기설정 직접 안 읽음)")
 
@@ -181,7 +181,7 @@ async def http_checks() -> None:
         # H0 두 에이전트 생성 — ui(기본)와 ui+impl=plan_execute. 자체 정리(끝에 DELETE).
         r_ui = await c.post("/agents", json={
             "name": f"v085-ui-{uuid.uuid4().hex[:6]}",
-            "config": {"model": "mock-llm", "persona": "", "historyDepth": 10},
+            "config": {"model": "mock-llm", "prompt": "", "historyDepth": 10},
         })
         check(r_ui.status_code == 201, f"H0 ui 에이전트 생성 201 (got {r_ui.status_code})")
         ui_id = r_ui.json()["id"]
@@ -189,7 +189,7 @@ async def http_checks() -> None:
 
         r_pe = await c.post("/agents", json={
             "name": f"v085-plex-{uuid.uuid4().hex[:6]}",
-            "config": {"model": "mock-llm", "persona": "", "historyDepth": 10,
+            "config": {"model": "mock-llm", "prompt": "", "historyDepth": 10,
                        "impl": "plan_execute"},
         })
         check(r_pe.status_code == 201, f"H0 plan_execute 에이전트 생성 201 (got {r_pe.status_code})")
@@ -231,7 +231,7 @@ async def http_checks() -> None:
         # → 다음 chat이 DefaultUiAgent로 silent 되돌아감([plan,execute] 사라짐).
         r_edit = await c.put(f"/agents/{pe_id}", json={
             "name": None,
-            "config": {"model": "mock-llm", "persona": "", "historyDepth": 10},  # impl 의도적 누락
+            "config": {"model": "mock-llm", "prompt": "", "historyDepth": 10},  # impl 의도적 누락
         })
         check(r_edit.status_code == 200, f"H5 impl 없는 편집 PUT 200 (got {r_edit.status_code})")
         r_act = await c.post(f"/agents/{pe_id}/activate", json={"version": "v1"})

@@ -41,7 +41,7 @@ const created = await (await fetch(`${API}/agents`, {
   body: JSON.stringify({
     name: NAME, alias: null,
     config: {
-      model: 'mock-llm', persona: 'methodical-researcher', temperature: null,
+      model: 'mock-llm', prompt: 'methodical-researcher', temperature: null,
       memories: [], historyDepth: 10, persistHistory: true,
       vectorTables: [], mcps: [], impl: 'artifact_targeting',
       capabilities: ['mcp:targeting-catalog'], toolPolicy: {},

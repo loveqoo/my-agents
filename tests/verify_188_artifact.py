@@ -78,7 +78,7 @@ def graph_checks() -> None:
     def _run(agent, tid: str, answers: list[str]) -> tuple[dict, list[str]]:
         """user 첫 발화 후, interrupt마다 answers를 순서대로 재개. (최종 state values, 질문들) 반환."""
         graph = agent.build_graph(
-            AgentBuildContext(persona="p", model_cfg=None, checkpointer=InMemorySaver())
+            AgentBuildContext(prompt="p", model_cfg=None, checkpointer=InMemorySaver())
         )
         questions: list[str] = []
         result = asyncio.run(
@@ -132,7 +132,7 @@ def graph_checks() -> None:
     broker = CountingBroker()
     agent = ToolThenAskAgent()
     graph = agent.build_graph(
-        AgentBuildContext(persona="p", model_cfg=None, checkpointer=InMemorySaver(), broker=broker)
+        AgentBuildContext(prompt="p", model_cfg=None, checkpointer=InMemorySaver(), broker=broker)
     )
     r = asyncio.run(graph.ainvoke({"messages": [{"role": "user", "content": "go"}]}, config=_cfg("t-replay")))
     r = asyncio.run(graph.ainvoke(Command(resume={"type": "text", "message": "답1"}), config=_cfg("t-replay")))
@@ -189,7 +189,7 @@ def graph_checks() -> None:
             return Artifact(kind="form-demo", data=vals)
 
     graph = FormDemoAgent().build_graph(
-        AgentBuildContext(persona="p", model_cfg=None, checkpointer=InMemorySaver())
+        AgentBuildContext(prompt="p", model_cfg=None, checkpointer=InMemorySaver())
     )
     r = asyncio.run(graph.ainvoke({"messages": [{"role": "user", "content": "시작"}]}, config=_cfg("t-form")))
     p0 = r["__interrupt__"][0].value
@@ -218,7 +218,7 @@ def graph_checks() -> None:
             return Artifact(kind="cf", data=vals)
 
     g2 = ConfirmFormAgent().build_graph(
-        AgentBuildContext(persona="p", model_cfg=None, checkpointer=InMemorySaver())
+        AgentBuildContext(prompt="p", model_cfg=None, checkpointer=InMemorySaver())
     )
     r = asyncio.run(g2.ainvoke({"messages": [{"role": "user", "content": "부산 살아"}]}, config=_cfg("t-cf")))
     check(r["__interrupt__"][0].value.get("kind") == "form", "FC1 confirm 폼 제시")
@@ -239,7 +239,7 @@ def graph_checks() -> None:
             return {"not": "an artifact"}
 
     bad_graph = BadAgent().build_graph(
-        AgentBuildContext(persona="p", model_cfg=None, checkpointer=InMemorySaver())
+        AgentBuildContext(prompt="p", model_cfg=None, checkpointer=InMemorySaver())
     )
     try:
         asyncio.run(bad_graph.ainvoke({"messages": [{"role": "user", "content": "x"}]}, config=_cfg("t-bad")))

@@ -1,6 +1,6 @@
-"""FastAPI 앱 — 페르소나 등록 + chat 노출.
+"""FastAPI 앱 — 프롬프트 등록 + chat 노출.
 
-지배 스펙: docs/spec/002-persona-registry-and-chat.md
+지배 스펙: docs/spec/002-prompt-registry-and-chat.md
 """
 
 import logging

@@ -91,16 +91,16 @@ async def _persist(
         if store_messages:
             # 프롬프트 출처(스펙 364) — assistant 행에 id/name 스탬프(분석 축)·body 스냅샷은 trace에
             # (원본 편집 후에도 그 턴 재현 가능). turn_id는 두 행 공통(턴 그룹핑 키).
-            prompt_id = ctx.get("persona_id")
-            prompt_name = ctx.get("persona_name")
+            prompt_id = ctx.get("prompt_id")
+            prompt_name = ctx.get("prompt_name")
             a_trace = trace
-            if a_trace is not None and (prompt_id or prompt_name or ctx.get("persona")):
+            if a_trace is not None and (prompt_id or prompt_name or ctx.get("prompt")):
                 a_trace = {
                     **a_trace,
                     "promptSnapshot": {
                         "id": prompt_id,
                         "name": prompt_name,
-                        "body": ctx.get("persona", ""),
+                        "body": ctx.get("prompt", ""),
                     },
                 }
             db.add(Message(session_pk=session_pk, role="user", content=user_text, turn_id=turn_id))

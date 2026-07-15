@@ -36,7 +36,7 @@ def _require_non_blank(v: str) -> str:
 
 
 # ----------------------------- 빌딩 블록 -----------------------------
-class PersonaIn(BaseModel):
+class PromptIn(BaseModel):
     name: str = Field(max_length=200)  # 식별 이름(규칙, 스펙 148) — DB String(200) 정합(codex 148)
     description: str | None = Field(
         default=None, max_length=200
@@ -45,27 +45,27 @@ class PersonaIn(BaseModel):
     body: str = ""
 
 
-class PersonaOut(PersonaIn, AuditOut):
+class PromptOut(PromptIn, AuditOut):
     id: uuid.UUID
     model_config = ORM
 
 
-class PersonaUsageAgentOut(BaseModel):
-    """페르소나를 쓰는 에이전트 1건(스펙 161) — 편집 화면 "사용 에이전트·오래됨" 목록용."""
+class PromptUsageAgentOut(BaseModel):
+    """프롬프트를 쓰는 에이전트 1건(스펙 161) — 편집 화면 "사용 에이전트·오래됨" 목록용."""
 
     id: uuid.UUID
     agentId: str
     name: str
     description: str | None = None
-    stale: bool  # 이 에이전트 스냅샷이 현재 페르소나 본문과 다름
+    stale: bool  # 이 에이전트 스냅샷이 현재 프롬프트 본문과 다름
     canManage: bool  # 요청 주체가 이 에이전트를 갱신할 수 있음(스펙 112/114)
 
 
-class PersonaApplyIn(BaseModel):
-    agentIds: list[uuid.UUID]  # 이 페르소나 최신 본문을 반영할 에이전트들
+class PromptApplyIn(BaseModel):
+    agentIds: list[uuid.UUID]  # 이 프롬프트 최신 본문을 반영할 에이전트들
 
 
-class PersonaApplyOut(BaseModel):
+class PromptApplyOut(BaseModel):
     applied: list[uuid.UUID]  # 실제 갱신된 에이전트
     skipped: list[uuid.UUID]  # 관리 불가/미참조로 건너뜀
 
@@ -522,7 +522,7 @@ class AvailableModelsOut(BaseModel):
 # ----------------------------- 에이전트 -----------------------------
 class AgentConfig(BaseModel):
     model: str = "mock-llm"  # 미지정 시 기본 모델(스펙 059)
-    persona: str = ""  # 페르소나 이름(블록 참조)
+    prompt: str = ""  # 프롬프트 이름(블록 참조)
     temperature: float | None = (
         None  # 에이전트 영속 온도(스펙 077). None=자동(모델 등록 params 적용)
     )
@@ -781,11 +781,11 @@ class AgentOut(AuditOut):
     description: str | None = None  # 설명(자유 표기, 스펙 210) — 표시는 name 단독
     source: str
     model: str
-    persona: str  # 페르소나 이름(블록 참조, UI 표시용)
+    prompt: str  # 프롬프트 이름(블록 참조, UI 표시용)
     temperature: float | None = None  # 에이전트 영속 온도(스펙 077). None=자동(모델 등록값)
     systemPrompt: str = ""  # 해석된 시스템 프롬프트 본문(런타임이 쓰는 것 = 저장 시점 스냅샷)
-    personaStale: bool = (
-        False  # 스냅샷이 현재 원본 페르소나와 다름(스펙 161) — 로컬만 계산, 맵 미주입시 False
+    promptStale: bool = (
+        False  # 스냅샷이 현재 원본 프롬프트와 다름(스펙 161) — 로컬만 계산, 맵 미주입시 False
     )
     historyDepth: int
     persistHistory: bool = True
@@ -872,7 +872,7 @@ class RegisterCodeAgentIn(BaseModel):
     token: str
     name: str | None = None
     model: str = "claude-sonnet-4"
-    persona: str = "코드 정의 (SDK)"
+    prompt: str = "코드 정의 (SDK)"
     runtime: str | None = None
     repo: str | None = None
     commit: str | None = None

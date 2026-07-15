@@ -1,6 +1,6 @@
 """등록된 에이전트와의 대화 (SSE 스트리밍).
 
-persona + (선택)mem0 장기 메모리 + (선택)MCP 합성 툴을 LangGraph로 합성해 실행하고,
+prompt + (선택)mem0 장기 메모리 + (선택)MCP 합성 툴을 LangGraph로 합성해 실행하고,
 세션/메시지/트레이스를 영속화한다. 트레이스는 Playground 인스펙터가 소비.
 
 지배 스펙: docs/spec/007-real-agent-service.md (Phase 2)
@@ -324,7 +324,7 @@ async def _build_turn_runtime(
     user_text: str,
     conversation: list[dict],
 ) -> dict:
-    """그래프 빌드 재료(회상·창 프록시·도구·브로커·페르소나) 준비 — 턴 상태 dict 반환."""
+    """그래프 빌드 재료(회상·창 프록시·도구·브로커·프롬프트) 준비 — 턴 상태 dict 반환."""
     (
         add_scope,
         recall_scope,
@@ -351,14 +351,14 @@ async def _build_turn_runtime(
     # RAG 검색 도구 — vectorTables가 실 컬렉션으로 해석됐을 때만(스펙 037). 노드형은 컬렉션별 도구
     # 추가(스펙 268 P1 — _rag_tools_for).
     tools.extend(_rag_tools_for(ctx, calls_sink))
-    # 회상된 기억은 persona(시스템 프롬프트)에 합친다. 별도 system 메시지로 주입하면
+    # 회상된 기억은 prompt(시스템 프롬프트)에 합친다. 별도 system 메시지로 주입하면
     # create_agent의 system_prompt와 충돌해 모델 채팅 템플릿이 거부한다
     # ("System message must be at the beginning"). 단일 system 프롬프트 유지.
-    persona_prompt = ctx["persona"]
+    prompt_prompt = ctx["prompt"]
     if mem_hits:
         # 브로커 memory 능력과 공유하는 포맷(스펙 104 drift 0) — 회상 텍스트 표현이 한 곳.
         recalled = memory.format_memory_hits(mem_hits)
-        persona_prompt = f"{persona_prompt}\n\n# 관련 기억(회상됨)\n{recalled}"
+        prompt_prompt = f"{prompt_prompt}\n\n# 관련 기억(회상됨)\n{recalled}"
     run_params = {} if ctx["temperature"] is None else {"temperature": ctx["temperature"]}
     # HIL 체크포인터(스펙 041). 있으면 위험 도구가 interrupt로 일시정지·재개될 수 있다. 없으면
     # 기존 무상태 동작(무회귀) — 단 위험 도구가 호출되면 interrupt가 예외로 새 fail-closed(미실행).
@@ -384,7 +384,7 @@ async def _build_turn_runtime(
     if ctx.get("impl") == "pipeline":
         tools.extend(runtime.build_agent_tools(broker, await broker.agent_capabilities()))
     build_ctx = AgentBuildContext(
-        persona=persona_prompt,
+        prompt=prompt_prompt,
         model_cfg=ctx["model_cfg"],
         tools=tools,
         checkpointer=ckpt,
@@ -408,7 +408,7 @@ async def _build_turn_runtime(
         "tools": tools,
         "calls_sink": calls_sink,
         "pipeline": pipeline,
-        "persona_prompt": persona_prompt,
+        "prompt_prompt": prompt_prompt,
         "add_scope": add_scope,
         "recall_scope": recall_scope,
         "used_memory": used_memory,
@@ -477,7 +477,7 @@ def _turn_config(
 
 
 def _seed_and_sent(
-    conversation: list[dict], ctx: dict, pipeline: bool, persona_prompt: str
+    conversation: list[dict], ctx: dict, pipeline: bool, prompt_prompt: str
 ) -> tuple[list[dict], list[dict], list[dict]]:
     """윈도 절단·전송 전문·그래프 시드 — 반환 (messages, sent_messages, seed_messages).
 
@@ -488,7 +488,7 @@ def _seed_and_sent(
     시드(무회귀). sent_messages는 에이전트-레벨 뷰로 유지(상속 노드=동일 집합, 커스텀 depth는 node
     timeline 192·historyWindows로 관측)."""
     messages = _window(conversation, ctx["history_depth"])
-    sent_messages = _build_sent_messages(persona_prompt, messages)
+    sent_messages = _build_sent_messages(prompt_prompt, messages)
     seed_messages = messages[-1:] if (pipeline and messages) else messages
     return messages, sent_messages, seed_messages
 
@@ -1170,7 +1170,7 @@ async def chat(
     capture = trace_capture.TraceCaptureHandler()
     config = _turn_config(ctx, thread_id, user_id, capture)
     messages, sent_messages, seed_messages = _seed_and_sent(
-        conversation, ctx, turn["pipeline"], turn["persona_prompt"]
+        conversation, ctx, turn["pipeline"], turn["prompt_prompt"]
     )
 
     # interrupt 수집 리스트를 **턴 스코프로 끌어올린다**(스펙 346, codex P1): 관문(아래 event_stream의

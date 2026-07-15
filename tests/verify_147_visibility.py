@@ -61,7 +61,7 @@ async def main():
     # 실데이터: private 에이전트 하나 임시 생성(owner 스탬프)
     tag = f"v147-{_uuid.uuid4().hex[:6]}"
     async with async_session() as s:
-        priv = Agent(name=f"{tag}-priv", agent_id=f"{tag}-priv", owner_id=owner_id, config={"model": "", "persona": "p"})
+        priv = Agent(name=f"{tag}-priv", agent_id=f"{tag}-priv", owner_id=owner_id, config={"model": "", "prompt": "p"})
         s.add(priv); await s.commit(); priv_id = priv.id
     try:
         # V2 expose 게이트

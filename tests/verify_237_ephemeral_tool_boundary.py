@@ -79,7 +79,7 @@ async def run() -> bool:
             # T1 — 생성 게이트
             r = await c.post("/agents", json={
                 "name": f"e237a-{uuid.uuid4().hex[:6]}",
-                "config": {"model": "mock-llm", "persona": "x", "ephemeral": True,
+                "config": {"model": "mock-llm", "prompt": "x", "ephemeral": True,
                            "impl": "orchestrate", "capabilities": ["memwrite:user"]},
             })
             if r.status_code < 300:
@@ -89,11 +89,11 @@ async def run() -> bool:
             # T2 — 수정 게이트
             base = (await c.post("/agents", json={
                 "name": f"e237b-{uuid.uuid4().hex[:6]}",
-                "config": {"model": "mock-llm", "persona": "x"},
+                "config": {"model": "mock-llm", "prompt": "x"},
             })).json()
             made.append(base["id"])
             r = await c.put(f"/agents/{base['id']}", json={
-                "config": {"model": "mock-llm", "persona": "x", "ephemeral": True,
+                "config": {"model": "mock-llm", "prompt": "x", "ephemeral": True,
                            "impl": "orchestrate", "capabilities": ["memedit:user"]},
             })
             ck(r.status_code == 422, f"T2 수정: ephemeral+memedit → 422 (got {r.status_code})")
@@ -103,7 +103,7 @@ async def run() -> bool:
             col = next((x["name"] for x in cols if x["name"] == "docs-kb"), None)
             r = await c.post("/agents", json={
                 "name": f"e237c-{uuid.uuid4().hex[:6]}",
-                "config": {"model": "mock-llm", "persona": "읽기 실습", "ephemeral": True,
+                "config": {"model": "mock-llm", "prompt": "읽기 실습", "ephemeral": True,
                            "mcps": ["local-tools"], **({"vectorTables": [col]} if col else {})},
             })
             ck(r.status_code < 300, f"T3 저장: ephemeral+MCP+RAG 허용 (got {r.status_code})")
@@ -135,7 +135,7 @@ async def run() -> bool:
             # T6 — 런타임 방어: DB 직접 변조(입구 게이트 우회한 과거 저장분 시뮬레이션)
             legacy = (await c.post("/agents", json={
                 "name": f"e237d-{uuid.uuid4().hex[:6]}",
-                "config": {"model": "mock-llm", "persona": "x", "impl": "orchestrate",
+                "config": {"model": "mock-llm", "prompt": "x", "impl": "orchestrate",
                            "capabilities": ["memwrite:user", "memory:user"]},
             })).json()
             made.append(legacy["id"])

@@ -43,7 +43,7 @@ try {
     if (!cur.ok) return { step: 'get', status: cur.status }
     const config = {
       model: 'qwen3.6-35b',
-      persona: 'methodical-researcher',
+      prompt: 'methodical-researcher',
       impl: 'pipeline',
       historyDepth: 20, persistHistory: true, ephemeral: false,
       memories: ['단기(세션)'],

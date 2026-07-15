@@ -31,7 +31,7 @@ try {
 
   // 직접형(impl 미지정) mock-llm 에이전트 — 결정적, 기본 memories=[]·historyDepth=20.
   const ar = await page.request.post(`${URL}/api/agents`, {
-    data: { name: AGENT, config: { model: 'mock-llm', persona: '테스트용', mcps: [], memories: [] } },
+    data: { name: AGENT, config: { model: 'mock-llm', prompt: '테스트용', mcps: [], memories: [] } },
   })
   const a = await ar.json()
   check(ar.ok(), `테스트 에이전트 생성 (${ar.status()})`)

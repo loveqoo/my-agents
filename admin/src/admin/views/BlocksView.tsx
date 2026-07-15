@@ -1,4 +1,4 @@
-/* my-agents admin — Building blocks (재료) browser: personas, memory policies,
+/* my-agents admin — Building blocks (재료) browser: prompts, memory policies,
    MCP servers. Category tabs → list → detail drawer. */
 import { useState, useEffect } from 'react'
 import { Tag, Button, Tabs, Switch, Modal, Input, Select, Checkbox, Tooltip, Alert, Grid, message, Descriptions, Popconfirm } from 'antd'
@@ -22,9 +22,9 @@ import {
   createBlockItem,
   updateBlockItem,
   deleteBlockItem,
-  listPersonaAgents,
-  applyPersona,
-  type PersonaUsageAgent,
+  listPromptAgents,
+  applyPrompt,
+  type PromptUsageAgent,
 } from '../../api'
 import { useAsyncData, runWithToast } from '../../hooks'
 
@@ -208,7 +208,7 @@ interface McpServerIn {
    embedding은 더 이상 여기 없다 — /vector-tables 엔드포인트가 제거되고
    "RAG 컬렉션" 전용 뷰(스펙 036)로 이관됐다. CollectionsView 참고. */
 const RESOURCE_BY_CAT: Record<string, string> = {
-  persona: 'personas',
+  prompt: 'prompts',
   memory: 'memory-types',
 }
 
@@ -532,8 +532,8 @@ function McpForm({
   )
 }
 
-/* 페르소나 등록/편집 폼 — 이름·톤·본문(시스템 프롬프트). mode로 생성/수정 공용. */
-type PersonaFormState = { mode: 'create' | 'edit'; item?: BlockItem }
+/* 프롬프트 등록/편집 폼 — 이름·톤·본문(시스템 프롬프트). mode로 생성/수정 공용. */
+type PromptFormState = { mode: 'create' | 'edit'; item?: BlockItem }
 
 /* 미리 정의된 톤 프리셋(기본 10종). tags 모드라 자유 입력도 가능. */
 const TONE_PRESETS = [
@@ -557,12 +557,12 @@ const splitTones = (tone: string | null | undefined): string[] =>
     .filter(Boolean)
 const joinTones = (tones: string[]): string => tones.map((t) => t.trim()).filter(Boolean).join(', ')
 
-function PersonaForm({
+function PromptForm({
   form,
   onCancel,
   onSave,
 }: {
-  form: PersonaFormState | null
+  form: PromptFormState | null
   onCancel: () => void
   onSave: (data: { id?: string; name: string; description: string; tone: string; body: string }) => void
 }) {
@@ -586,10 +586,10 @@ function PersonaForm({
       setBody('')
     }
   }, [form])
-  // 이 페르소나를 쓰는 에이전트(스펙 161) — 편집 모드에서만 로드·표시. 편집 대상 페르소나 id 기준.
+  // 이 프롬프트를 쓰는 에이전트(스펙 161) — 편집 모드에서만 로드·표시. 편집 대상 프롬프트 id 기준.
   const usageId = form?.mode === 'edit' ? form.item?.id : undefined
-  const { data: rawUsage, loading: usageLoading, reload: reloadUsage } = useAsyncData<PersonaUsageAgent[]>(
-    () => (usageId ? listPersonaAgents(usageId) : Promise.resolve([])),
+  const { data: rawUsage, loading: usageLoading, reload: reloadUsage } = useAsyncData<PromptUsageAgent[]>(
+    () => (usageId ? listPromptAgents(usageId) : Promise.resolve([])),
     [usageId],
     { errorMsg: '사용 에이전트 목록을 불러오지 못했습니다' },
   )
@@ -611,10 +611,10 @@ function PersonaForm({
   const staleCount = usage.filter((u) => u.stale).length
   const applySelected = async () => {
     if (!form.item?.id || selected.length === 0) return
-    const personaId = form.item.id
+    const promptId = form.item.id
     setApplying(true)
     const ok = await runWithToast(async () => {
-      const result = await applyPersona(personaId, selected)
+      const result = await applyPrompt(promptId, selected)
       message.success(`${result.applied.length}개 반영, ${result.skipped.length}개 건너뜀`)
     })
     setApplying(false)
@@ -624,7 +624,7 @@ function PersonaForm({
     <Modal
       open={!!form}
       width={560}
-      title={isEdit ? '페르소나 편집 · ' + (form.item?.name ?? '') : '새 페르소나'}
+      title={isEdit ? '프롬프트 편집 · ' + (form.item?.name ?? '') : '새 프롬프트'}
       okText={isEdit ? '저장' : '등록'}
       cancelText="취소"
       onCancel={onCancel}
@@ -635,7 +635,7 @@ function PersonaForm({
           type="info"
           showIcon
           style={{ marginBottom: 0 }}
-          title="페르소나는 에이전트의 성격·말투·역할을 정의하는 시스템 프롬프트입니다. 에이전트 편집기에서 이름으로 선택해 재사용합니다."
+          title="프롬프트는 에이전트의 성격·말투·역할을 정의하는 시스템 프롬프트입니다. 에이전트 편집기에서 이름으로 선택해 재사용합니다."
         />
         <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <span style={{ fontSize: 14, fontWeight: 500 }}>식별 이름</span>
@@ -681,9 +681,9 @@ function PersonaForm({
         </label>
         {isEdit ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, borderTop: '1px solid var(--color-border-secondary)', paddingTop: 12 }}>
-            <span style={{ fontSize: 14, fontWeight: 500 }}>이 페르소나를 쓰는 에이전트</span>
+            <span style={{ fontSize: 14, fontWeight: 500 }}>이 프롬프트를 쓰는 에이전트</span>
             <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-              이 페르소나 사용 {usage.length}개 · 오래됨 {staleCount}개
+              이 프롬프트 사용 {usage.length}개 · 오래됨 {staleCount}개
             </span>
             {usageLoading ? (
               <span style={{ fontSize: 13, color: 'var(--color-text-tertiary)' }}>불러오는 중…</span>
@@ -708,7 +708,7 @@ function PersonaForm({
                 ))}
               </div>
             ) : (
-              <span style={{ fontSize: 13, color: 'var(--color-text-tertiary)' }}>이 페르소나를 쓰는 에이전트가 없습니다</span>
+              <span style={{ fontSize: 13, color: 'var(--color-text-tertiary)' }}>이 프롬프트를 쓰는 에이전트가 없습니다</span>
             )}
             <Button size="small" loading={applying} disabled={selected.length === 0} onClick={applySelected} style={{ alignSelf: 'flex-start' }}>
               선택 에이전트에 반영
@@ -850,10 +850,10 @@ function BlockForm({
 
 export default function BlocksView() {
   const isMobileTabs = !Grid.useBreakpoint().md // 모바일 탭 축소(스펙 133)
-  const [cat, setCat] = useState('persona')
+  const [cat, setCat] = useState('prompt')
   const [detail, setDetail] = useState<BlockItem | null>(null)
   const [mcpForm, setMcpForm] = useState<McpFormState | null>(null) // { mode:'register'|'edit', item? }
-  const [personaForm, setPersonaForm] = useState<PersonaFormState | null>(null)
+  const [promptForm, setPromptForm] = useState<PromptFormState | null>(null)
   const [blockForm, setBlockForm] = useState<BlockFormState | null>(null)
 
   /* 새 데이터로 열린 drawer의 detail을 id로 재조회(없으면 닫음). */
@@ -938,9 +938,9 @@ export default function BlocksView() {
   }
 
   const createCurrent = () => {
-    /* 카테고리별 전용 폼 오픈. persona·mcp는 자체 폼, 나머지는 BLOCK_FORMS 공용 폼. */
-    if (cat === 'persona') {
-      setPersonaForm({ mode: 'create' })
+    /* 카테고리별 전용 폼 오픈. prompt·mcp는 자체 폼, 나머지는 BLOCK_FORMS 공용 폼. */
+    if (cat === 'prompt') {
+      setPromptForm({ mode: 'create' })
       return
     }
     if (BLOCK_FORMS[cat]) {
@@ -949,14 +949,14 @@ export default function BlocksView() {
     }
   }
 
-  const savePersona = async (data: { id?: string; name: string; description: string; tone: string; body: string }) => {
+  const savePrompt = async (data: { id?: string; name: string; description: string; tone: string; body: string }) => {
     const payload = { name: data.name, description: data.description || null, tone: data.tone || null, body: data.body }
     const ok = await runWithToast(() =>
-      data.id ? updateBlockItem('personas', data.id, payload) : createBlockItem('personas', payload),
+      data.id ? updateBlockItem('prompts', data.id, payload) : createBlockItem('prompts', payload),
     )
     if (ok) {
       reload()
-      setPersonaForm(null)
+      setPromptForm(null)
     }
   }
 
@@ -1095,7 +1095,7 @@ export default function BlocksView() {
           render: (r) => <span style={{ color: 'var(--color-text-secondary)' }}>{r.usedBy}</span>,
         },
       ]
-    // persona + memory
+    // prompt + memory
     return [
       {
         key: 'name',
@@ -1110,10 +1110,10 @@ export default function BlocksView() {
       },
       {
         key: 'meta',
-        title: key === 'persona' ? '톤' : '범위',
+        title: key === 'prompt' ? '톤' : '범위',
         width: 200,
         render: (r) =>
-          key === 'persona' ? (
+          key === 'prompt' ? (
             splitTones(r.tone).length ? (
               <span>
                 {splitTones(r.tone).map((t) => (
@@ -1219,8 +1219,8 @@ export default function BlocksView() {
               <Button type="primary" icon={<Icon name="edit" />} onClick={() => detail && setMcpForm({ mode: 'edit', item: detail })}>
                 연결 편집
               </Button>
-            ) : cat === 'persona' ? (
-              <Button type="primary" icon={<Icon name="edit" />} onClick={() => detail && setPersonaForm({ mode: 'edit', item: detail })}>
+            ) : cat === 'prompt' ? (
+              <Button type="primary" icon={<Icon name="edit" />} onClick={() => detail && setPromptForm({ mode: 'edit', item: detail })}>
                 편집
               </Button>
             ) : BLOCK_FORMS[cat] ? (
@@ -1515,7 +1515,7 @@ export default function BlocksView() {
         ) : null}
       </Drawer>
       <McpForm form={mcpForm} onCancel={() => setMcpForm(null)} onSave={upsertMcp} />
-      <PersonaForm form={personaForm} onCancel={() => setPersonaForm(null)} onSave={savePersona} />
+      <PromptForm form={promptForm} onCancel={() => setPromptForm(null)} onSave={savePrompt} />
       <BlockForm form={blockForm} onCancel={() => setBlockForm(null)} onSave={saveBlock} />
     </Page>
   )

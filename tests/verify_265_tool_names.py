@@ -39,7 +39,7 @@ MODEL_CFG = {"base_url": "http://x", "api_key": "k", "model_id": "m", "params": 
 
 def _graph_nodes(node_tools_decl, pool_names):
     ctx = AgentBuildContext(
-        persona="", model_cfg=MODEL_CFG,
+        prompt="", model_cfg=MODEL_CFG,
         tools=[_tool(n) for n in pool_names],
         impl_config={"nodes": [{"name": "n", "prompt": "p", "model_cfg": MODEL_CFG, "tools": node_tools_decl}]},
     )

@@ -92,8 +92,8 @@ async def main():
         check(cases[0].name == "사람이 쓴 문제" and len(ai_cases) >= 3,
               f"S3b 기존 보존+AI {len(ai_cases)}건 추가(요청 4, ≥3 허용)")
         has_rag = any("(RAG)" in c.name and any(a["type"] == "trace_has" for a in c.asserts) for c in ai_cases)
-        has_persona = any("(역할)" in c.name and any(a["type"] == "llm_judge" for a in c.asserts) for c in ai_cases)
-        check(has_rag and has_persona, f"S3c RAG형+역할형 혼합 (rag={has_rag}, persona={has_persona})")
+        has_prompt = any("(역할)" in c.name and any(a["type"] == "llm_judge" for a in c.asserts) for c in ai_cases)
+        check(has_rag and has_prompt, f"S3c RAG형+역할형 혼합 (rag={has_rag}, prompt={has_prompt})")
         ok_asserts = all(build_asserts(c.asserts) for c in ai_cases)
         check(ok_asserts and all(c.input.endswith("?") for c in ai_cases), "S3d 전건 build_asserts 통과+질문 형식")
         check(ds2.description.startswith("원본 설명 · AI 출제") and "건 추가" in ds2.description,

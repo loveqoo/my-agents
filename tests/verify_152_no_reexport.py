@@ -112,9 +112,9 @@ async def main():
         # V4 에이전트 기존 봉인 핀
         async with async_session() as s:
             ext_agent = Agent(agent_id=f"{tag}-ea", name=f"{tag}-ea", source="external",
-                              config={"model": "", "persona": ""}, exposed={"a2a": False})
+                              config={"model": "", "prompt": ""}, exposed={"a2a": False})
             code_agent = Agent(agent_id=f"{tag}-ca", name=f"{tag}-ca", source="code",
-                               config={"model": "", "persona": ""}, exposed={"a2a": False})
+                               config={"model": "", "prompt": ""}, exposed={"a2a": False})
             s.add_all([ext_agent, code_agent])
             await s.commit()
             made_agents.extend([ext_agent.id, code_agent.id])
@@ -156,7 +156,7 @@ async def main():
                                published=True, owner_id=str(_uuid.uuid4()))  # 타인 소유
             s.add(shared)
             member_agent = Agent(agent_id=f"{tag}-ma", name=f"{tag}-ma", owner_id=member_id,
-                                 config={"model": "", "persona": "", "mcps": [f"{tag}-dirty"],
+                                 config={"model": "", "prompt": "", "mcps": [f"{tag}-dirty"],
                                          "memories": [], "vectorTables": [],
                                          "historyDepth": 5})
             s.add(member_agent)

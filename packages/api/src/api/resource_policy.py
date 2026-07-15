@@ -48,7 +48,7 @@ class Policy:
 TABLES: dict[str, Policy] = {
     # --- 관리자가 만드는 카탈로그(사람 페이스, 자동 증식 없음) -------------------
     "agents": Policy("bounded", note="관리자가 생성/삭제(사람 페이스). 삭제 라우트 있음"),
-    "personas": Policy("bounded", note="관리자 저작 블록(사람 페이스)"),
+    "prompts": Policy("bounded", note="관리자 저작 블록(사람 페이스)"),
     "mcp_servers": Policy("bounded", note="관리자 등록(사람 페이스)"),
     "providers": Policy("bounded", note="관리자 등록(사람 페이스)"),
     "models": Policy("bounded", note="관리자 등록(사람 페이스)"),

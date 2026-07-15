@@ -65,7 +65,7 @@ async def main():
         # ---- V1 승격/강등 ----
         async with async_session() as s:
             a = Agent(agent_id=f"{tag}-vis", name=f"{tag}-vis", source="ui",
-                      owner_id=str(member.id), config={"model": "", "persona": ""},
+                      owner_id=str(member.id), config={"model": "", "prompt": ""},
                       exposed={"a2a": False})
             s.add(a)
             await s.commit()
@@ -126,7 +126,7 @@ async def main():
         remote_base = os.environ.get("REMOTE_AGENT_BASE", "http://127.0.0.1:8000/_remote/a2a")
         async with async_session() as s:
             ca = Agent(agent_id=f"{tag}-code", name=f"{tag}-code", source="code",
-                       owner_id=None, config={"model": "", "persona": ""},
+                       owner_id=None, config={"model": "", "prompt": ""},
                        exposed={"a2a": False}, endpoint=remote_base,
                        token=crypto.encrypt("sk_live_demo"))
             s.add(ca)
@@ -152,7 +152,7 @@ async def main():
         # ---- V5 external 노출 400(152 무회귀) ----
         async with async_session() as s:
             ea = Agent(agent_id=f"{tag}-ext", name=f"{tag}-ext", source="external",
-                       config={"model": "", "persona": ""}, exposed={"a2a": False})
+                       config={"model": "", "prompt": ""}, exposed={"a2a": False})
             s.add(ea)
             await s.commit()
             made.append(ea.id)

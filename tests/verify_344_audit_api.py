@@ -1,7 +1,7 @@
 """verify_344 — 감사값 API 노출 + **누출 경계** (스펙 344).
 
   A1 관리 API가 감사 4값을 실제로 내려준다(스키마 선언이 아니라 **응답 실물**):
-     /agents · /collections · /mcp-servers · /providers · /models · /personas · /blocks(4카테고리).
+     /agents · /collections · /mcp-servers · /providers · /models · /prompts · /blocks(4카테고리).
   A2 값이 DB와 일치(허구 아님) — 새로 만든 리소스의 created_by == 로그인 유저의 이메일 로컬파트.
   A3 **누출 핀**: A2A 에이전트 카드에 감사키가 **없다**. 감사값은 내부 계정명이고, 스펙 343 전제상
      추후 **미등록 최종 사용자(고객) ID**가 들어온다 — 외부 노출 경로로 새면 고객 식별자 누출이다.
@@ -61,7 +61,7 @@ def main() -> None:
     login()
 
     # A1 — 관리 API 응답 실물에 4값
-    for path in ("/agents", "/collections", "/mcp-servers", "/providers", "/models", "/personas"):
+    for path in ("/agents", "/collections", "/mcp-servers", "/providers", "/models", "/prompts"):
         items = _req(path)
         first = items[0] if isinstance(items, list) and items else {}
         have = [k for k in AUDIT if k in first]
@@ -75,9 +75,9 @@ def main() -> None:
     ]
     check(not missing_cat, f"A1b /blocks 전 카테고리 감사 노출 (누락: {missing_cat})")
 
-    # A2 — 값이 DB 진실과 일치: 새로 만든 페르소나의 created_by == 이메일 로컬파트
+    # A2 — 값이 DB 진실과 일치: 새로 만든 프롬프트의 created_by == 이메일 로컬파트
     name = f"verify344-{int(time.time())}"
-    created = _req("/personas", "POST", {"name": name, "body": "audit api check"})
+    created = _req("/prompts", "POST", {"name": name, "body": "audit api check"})
     check(
         created.get("created_by") == EMAIL.split("@")[0],
         f"A2 생성 응답 created_by == 이메일 로컬파트 (got {created.get('created_by')!r})",
@@ -86,7 +86,7 @@ def main() -> None:
         created.get("created_at") and created.get("updated_by") == created.get("created_by"),
         "A2b 최초 삽입 = 4값 채워짐(created == updated)",
     )
-    _req(f"/personas/{created['id']}", "DELETE")  # 정리
+    _req(f"/prompts/{created['id']}", "DELETE")  # 정리
 
     # A3 — A2A 카드 누출 핀(외부 노출 경로, 인증 없이도 공개)
     agents = _req("/agents")

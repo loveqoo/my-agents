@@ -1,5 +1,5 @@
 /* plan-execute-demo를 노드형(impl=pipeline)으로 전환하고 실모델로 동작 테스트 (스펙 264).
-   admin 로그인 → PUT /agents/{id}(v6 초안: 계획→실행 2노드, wiki 도구, 페르소나 본문 내장) →
+   admin 로그인 → PUT /agents/{id}(v6 초안: 계획→실행 2노드, wiki 도구, 프롬프트 본문 내장) →
    activate → chat SSE(실모델 qwen3.6-35b) → 트레이스 그래프에 계획→실행 순서·토큰 수신 단언.
    가역: v5 보존(revert 가능).
 
@@ -42,11 +42,11 @@ try {
     const cur = await jf(`/api/agents/${id}`)
     if (!cur.ok) return { step: 'get', status: cur.status }
     const prevActive = cur.j.activeVersion
-    // 노드형 전환 config — 계획(모델이 진짜 계획 수립)→실행(페르소나 내장+wiki 도구). carry 둘 다
+    // 노드형 전환 config — 계획(모델이 진짜 계획 수립)→실행(프롬프트 내장+wiki 도구). carry 둘 다
     // (실행은 원 질문+계획 둘 다 봐야 함). mcps는 노드 도구 합집합(web-fetch).
     const config = {
       model: 'qwen3.6-35b',
-      persona: 'methodical-researcher', // 206 보존(노드형에선 미사용)
+      prompt: 'methodical-researcher', // 206 보존(노드형에선 미사용)
       impl: 'pipeline',
       historyDepth: 20, persistHistory: true, ephemeral: false,
       memories: ['단기(세션)'],

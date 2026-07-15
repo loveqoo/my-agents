@@ -50,12 +50,12 @@ const selectAgent = async (name) => {
 let id = null
 try {
   // ── 준비: min=0.5(docs-kb) 에이전트를 API로 생성 → mock 저점수 문서가 '미달'로 표시되게. ──
-  const persona = '너는 문서를 검색하는 조수다.'
+  const prompt = '너는 문서를 검색하는 조수다.'
   const created = await fetch(`${API}/agents`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: cookie },
     body: JSON.stringify({
       name: NAME,
-      config: { model: 'mock-llm', persona, memories: [], historyDepth: 10, vectorTables: ['docs-kb'], mcps: [], ragMinScores: { 'docs-kb': 0.5 } },
+      config: { model: 'mock-llm', prompt, memories: [], historyDepth: 10, vectorTables: ['docs-kb'], mcps: [], ragMinScores: { 'docs-kb': 0.5 } },
     }),
   })
   id = (await created.json().catch(() => ({})))?.id

@@ -72,7 +72,7 @@ async def integration_checks() -> None:
         async with httpx.AsyncClient(transport=t, base_url="http://t", timeout=60) as c:
             _as(alice)
             r = await c.post("/agents", json={"name": f"o114-{uuid.uuid4().hex[:6]}",
-                             "config": {"model": "mock-llm", "persona": "", "historyDepth": 6}})
+                             "config": {"model": "mock-llm", "prompt": "", "historyDepth": 6}})
             aid = r.json()["id"]; made.append(aid)
             check(r.json().get("owner_id") == str(alice.id), "H1 생성 응답 owner_id=alice")
             check(r.json().get("can_manage") is True, "H1 생성 응답 can_manage=True(행위자)")
@@ -80,7 +80,7 @@ async def integration_checks() -> None:
             # NULL-owned 레거시 1개
             async with SessionLocal() as db:
                 leg = Agent(agent_id=f"agt_o114_{uuid.uuid4().hex[:6]}", name="leg", source="ui",
-                            model="mock-llm", persona="", history_depth=6, config={"model": "mock-llm"},
+                            model="mock-llm", prompt="", history_depth=6, config={"model": "mock-llm"},
                             exposed={"a2a": False}, status="idle", owner_id=None)
                 db.add(leg); await db.commit(); made.append(str(leg.id))
 

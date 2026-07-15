@@ -1,6 +1,6 @@
 /* 노드형(일렬 파이프라인) 저작→저장→왕복 기능 검증 (스펙 259) — 시스템 Chrome.
-   admin 로그인 → 새 에이전트 → 종류=노드형 → (모델/페르소나 숨김 확인) → 하는 일: 노드 추가·
-   프롬프트/모델/도구 입력·페르소나 불러오기 → 요약(처리 단계 확인) → 생성 → 브라우저 세션으로
+   admin 로그인 → 새 에이전트 → 종류=노드형 → (모델/프롬프트 숨김 확인) → 하는 일: 노드 추가·
+   프롬프트/모델/도구 입력·프롬프트 불러오기 → 요약(처리 단계 확인) → 생성 → 브라우저 세션으로
    GET /api/agents 재조회해 config.nodes 보존을 단언(외형 아닌 기능 검증 — 메모리 규칙).
 
    실행: PLAYWRIGHT_DIR=<abs>/tests/e2e/node_modules/playwright \
@@ -54,10 +54,10 @@ try {
   await page.getByPlaceholder('예: research-assistant').fill(NAME)
   await pickFieldSelect('에이전트 종류', '노드형')
   await page.waitForTimeout(400)
-  // 노드형이면 모델/페르소나 숨김 + 안내(종류 필드 아래 합류, 스펙 263) 노출
+  // 노드형이면 모델/프롬프트 숨김 + 안내(종류 필드 아래 합류, 스펙 263) 노출
   const noteVisible = await page.getByText('노드는 다음 "하는 일" 단계에서 추가합니다', { exact: false }).isVisible().catch(() => false)
-  const modelFieldHidden = !(await page.locator('label', { hasText: '페르소나' }).first().isVisible().catch(() => false))
-  check(noteVisible && modelFieldHidden, '단계0: 노드형 선택 시 모델/페르소나 숨김 + 안내 노출(종류 아래)')
+  const modelFieldHidden = !(await page.locator('label', { hasText: '프롬프트' }).first().isVisible().catch(() => false))
+  check(noteVisible && modelFieldHidden, '단계0: 노드형 선택 시 모델/프롬프트 숨김 + 안내 노출(종류 아래)')
   await page.screenshot({ path: `${OUT}-step0.png` })
 
   // 다음 → 단계 1 하는 일
@@ -89,19 +89,19 @@ try {
   await page.getByText('JSON', { exact: true }).first().click({ force: true })
   await page.waitForTimeout(200)
 
-  // 둘째 노드 + 페르소나 불러오기(있으면) → 프롬프트 자동 채움 확인
+  // 둘째 노드 + 프롬프트 불러오기(있으면) → 프롬프트 자동 채움 확인
   await page.getByRole('button', { name: /노드 추가/ }).click()
   await page.waitForTimeout(300)
-  const personaLoad = page.getByText('등록 페르소나에서 가져오기', { exact: true }).last()
-  if (await personaLoad.isVisible().catch(() => false)) {
-    await personaLoad.click({ force: true })
+  const promptLoad = page.getByText('등록 프롬프트에서 가져오기', { exact: true }).last()
+  if (await promptLoad.isVisible().catch(() => false)) {
+    await promptLoad.click({ force: true })
     await page.waitForTimeout(300)
     const popt = page.locator('.ant-select-dropdown:visible .ant-select-item-option')
     if (await popt.count() > 0) { await popt.first().click(); await page.waitForTimeout(300) }
     const after2 = await promptBoxes.nth(1).inputValue()
-    check(after2.trim().length > 0, '단계1: 페르소나 불러오기가 노드 프롬프트를 채움(결정 #1)')
+    check(after2.trim().length > 0, '단계1: 프롬프트 불러오기가 노드 프롬프트를 채움(결정 #1)')
   } else {
-    log('  info  등록 페르소나 없음 — 둘째 노드 수동 입력')
+    log('  info  등록 프롬프트 없음 — 둘째 노드 수동 입력')
   }
   if (!(await promptBoxes.nth(1).inputValue()).trim()) await promptBoxes.nth(1).fill('요약해서 한 문단으로 정리하라')
   await page.waitForTimeout(200)

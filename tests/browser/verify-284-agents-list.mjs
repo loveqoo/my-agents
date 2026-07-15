@@ -1,7 +1,7 @@
 /* 에이전트 목록 재설계 검증 (스펙 284) — 필수 단언(UI 기능적).
    ① 출처 탭 3개·기본 Internal(UI)·전환 시 소스별 목록. 소유/소스 Select 부재.
    ② 내 것 행 tint(배경 스타일)·가시성/소유 태그 부재. ③ UI 탭 '종류' Tag, Code 탭엔 부재.
-   ④ 페르소나 컬럼 부재. ⑤ 탭별 검색 placeholder + 종류 검색(283 무회귀). ⑥ 상태=색 점+툴팁.
+   ④ 프롬프트 컬럼 부재. ⑤ 탭별 검색 placeholder + 종류 검색(283 무회귀). ⑥ 상태=색 점+툴팁.
 
    실행: PLAYWRIGHT_DIR=<abs>/tests/e2e/node_modules/playwright \
          ADMIN_EMAIL=admin@example.com ADMIN_PASSWORD=adminpass123 \
@@ -33,7 +33,7 @@ try {
   // 내 것 픽스처(노드형 — 종류 태그도 함께 확인)
   const made = await page.evaluate(async (nm) => {
     const r = await fetch('/api/agents', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: nm, config: { model: 'mock-llm', persona: '', impl: 'pipeline', nodes: [{ name: 'n', prompt: 'p', model: 'mock-llm', tools: [] }] } }) })
+      body: JSON.stringify({ name: nm, config: { model: 'mock-llm', prompt: '', impl: 'pipeline', nodes: [{ name: 'n', prompt: 'p', model: 'mock-llm', tools: [] }] } }) })
     return r.ok ? (await r.json()).id : null
   }, MINE)
   if (made) cleanup.agents.push(made)
@@ -48,9 +48,9 @@ try {
   const pageText = await page.locator('main, body').first().innerText()
   check(!pageText.includes('소유: 전체') && !pageText.includes('소스: 전체'), `① 소유/소스 Select 부재`)
 
-  // ── ④⑤ 페르소나 컬럼 부재 + placeholder ──
+  // ── ④⑤ 프롬프트 컬럼 부재 + placeholder ──
   const headTxt = await page.locator('.dt-antd thead').first().innerText().catch(() => '')
-  check(!headTxt.includes('페르소나'), `④ 페르소나 컬럼 부재 (head=${JSON.stringify(headTxt.replace(/\n/g, ' '))})`)
+  check(!headTxt.includes('프롬프트'), `④ 프롬프트 컬럼 부재 (head=${JSON.stringify(headTxt.replace(/\n/g, ' '))})`)
   check(headTxt.includes('종류'), `③ UI 탭에 '종류' 컬럼`)
   check((await page.getByPlaceholder('이름 검색').count()) > 0, `⑤ 이름 검색 placeholder`)
   check((await page.locator('.ant-select', { hasText: '종류: 전체' }).count()) > 0, `⑤ UI 탭 종류 Select`)

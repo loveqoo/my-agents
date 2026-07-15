@@ -72,7 +72,7 @@ async def run() -> bool:
         try:
             a = (await c.post("/agents", json={
                 "name": f"ops244-{uuid.uuid4().hex[:6]}",
-                "config": {"model": "mock-llm", "persona": "운영 집계"},
+                "config": {"model": "mock-llm", "prompt": "운영 집계"},
             })).json()
             agents.append(a["id"])
             v1 = await _activate_draft(c, a["id"])
@@ -117,7 +117,7 @@ async def run() -> bool:
                f"O2 v1 평가 집계 (runs={v1ops.get('evalRuns')} score={v1ops.get('lastScore')})")
 
             # O3 — v2 활성화 → 자동 회귀가 v2에 집계, v1 지표 불변
-            await c.put(f"/agents/{a['id']}", json={"config": {"model": "mock-llm", "persona": "운영 집계 v2"}})
+            await c.put(f"/agents/{a['id']}", json={"config": {"model": "mock-llm", "prompt": "운영 집계 v2"}})
             v2 = await _activate_draft(c, a["id"])
             await asyncio.sleep(1.0)
             for _ in range(60):
@@ -136,7 +136,7 @@ async def run() -> bool:
             # O4 — 다른 에이전트 격리
             b = (await c.post("/agents", json={
                 "name": f"iso244-{uuid.uuid4().hex[:6]}",
-                "config": {"model": "mock-llm", "persona": "x"},
+                "config": {"model": "mock-llm", "prompt": "x"},
             })).json()
             agents.append(b["id"])
             ops_b = (await c.get(f"/agents/{b['id']}/ops")).json()

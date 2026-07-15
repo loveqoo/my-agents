@@ -23,11 +23,11 @@ from .helpers import (
     _dedupe_agent_name,
     _load_agent,
     _new_agent_id,
-    _persona_bodies,
+    _prompt_bodies,
     _reload_out,
     _today,
     next_version,
-    resolve_persona,
+    resolve_prompt,
 )
 from .routers import router
 
@@ -45,7 +45,7 @@ async def list_agents(
     from ..ownership import may_use_agent
 
     rows = [a for a in rows if may_use_agent(a, principal)]
-    pbodies = await _persona_bodies(session)  # 스펙 161 — personaStale 계산용(1회 조회)
+    pbodies = await _prompt_bodies(session)  # 스펙 161 — promptStale 계산용(1회 조회)
     outs = [agent_to_out(a, pbodies) for a in rows]
     for out in outs:  # 스펙 114 — 관리 가능 여부를 각 객체에 실어 UI가 버튼 표시를 파생
         out.can_manage = may_manage(out.owner_id, principal)
@@ -210,7 +210,7 @@ async def get_agent(
         # 사용 게이트(스펙 147, codex High#1) — 타인 private는 UUID를 알아도 미존재와 동일(404-fold,
         # 068: systemPrompt·config가 단건 응답에 실리므로 목록만 막으면 열람 우회).
         raise HTTPException(status_code=404, detail="agent not found")
-    out = agent_to_out(agent, await _persona_bodies(session))
+    out = agent_to_out(agent, await _prompt_bodies(session))
     out.can_manage = may_manage(out.owner_id, principal)  # 스펙 114
     # 노드 참조 해석 결과(스펙 316, 파생·읽기 전용) — 오버라이드 패널이 참조 노드의 유효 설정을
     # 보게. 해석 실패(미해결 참조)는 조회를 막지 않고 None(고치러 온 화면을 잠그지 않는다 —
@@ -248,7 +248,7 @@ async def create_agent(
         description=(body.description or "").strip() or None,  # 설명(자유 표기, 스펙 210)
         source="ui",
         model=body.config.model,
-        persona=await resolve_persona(session, body.config.persona),
+        prompt=await resolve_prompt(session, body.config.prompt),
         history_depth=body.config.historyDepth,
         config=cfg,
         exposed={"a2a": False},
@@ -274,7 +274,7 @@ async def clone_agent(
     **복제자**에게 스탬프(원본 소유자 승계 금지 — 069 no-takeover). 미존재/미가시 원본은 404-fold."""
     src = await _load_agent(session, agent_id)
     if src is None or not may_use_agent(src, principal):
-        # codex High#2 — 타인 private를 복제하면 설정(페르소나·능력)이 내 소유로 유출되고
+        # codex High#2 — 타인 private를 복제하면 설정(프롬프트·능력)이 내 소유로 유출되고
         # 복제본 채팅으로 사용 게이트가 무력화된다. "가시하면 복제"의 가시=may_use(147 이후).
         raise HTTPException(status_code=404, detail="agent not found")
     cfg = dict(src.config or {})
@@ -293,7 +293,7 @@ async def clone_agent(
         description=f"{src.description or src.name} (복사본)"[:200],
         source="ui",
         model=cfg.get("model") or src.model,
-        persona=await resolve_persona(session, cfg.get("persona") or ""),
+        prompt=await resolve_prompt(session, cfg.get("prompt") or ""),
         history_depth=cfg.get("historyDepth") or src.history_depth,
         config=cfg,
         exposed={"a2a": False},

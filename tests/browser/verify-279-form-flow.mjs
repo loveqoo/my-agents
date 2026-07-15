@@ -1,5 +1,5 @@
 /* 에이전트 폼 흐름 3종 검증 (스펙 279) — 필수 단언(UI 기능적).
-   ① step① 순서: 식별 이름→설명→에이전트 종류→모델→페르소나(커서 탐색).
+   ① step① 순서: 식별 이름→설명→에이전트 종류→모델→프롬프트(커서 탐색).
    ② 비영속: 장기=기선택 제거·새 선택 잠금(placeholder), 단기=활성 유지+안내 hint(사용자 재확인 설계).
    ③ step② 직접형: 도구·문서 단일 Collapse(헤더에 둘 다), 승인 오버라이드는 초기 부재→도구 체크 시
       도구와 문서 사이 출현. 저장 왕복: tools+vectorTables+toolPolicy 반영.
@@ -37,7 +37,7 @@ try {
 
   // ── ① step① 순서(커서 탐색 — 앞 매치 뒤부터) ──
   const t1 = await modal.innerText()
-  const order1 = ['식별 이름', '설명', '에이전트 종류', '모델', '페르소나']
+  const order1 = ['식별 이름', '설명', '에이전트 종류', '모델', '프롬프트']
   let cur = 0
   const idx1 = order1.map((l) => { const at = t1.indexOf(l, cur); if (at >= 0) cur = at + l.length; return at })
   check(idx1.every((v) => v >= 0), `① step① 순서 ${order1.join('→')} (idx=${JSON.stringify(idx1)})`)

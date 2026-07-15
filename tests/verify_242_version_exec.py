@@ -1,6 +1,6 @@
 """verify_242 — 버전 지정 실행(내부 서빙)+버전별 평가(스펙 242).
 
-V1 초안(v2, 다른 페르소나) 지정 채팅 → 그 버전 config로 실행(sentMessages system=초안 페르소나)
+V1 초안(v2, 다른 프롬프트) 지정 채팅 → 그 버전 config로 실행(sentMessages system=초안 프롬프트)
    + trace.agentVersion=v2·versionPinned
 V2 무지정 채팅 → trace.agentVersion=활성(v1)
 V3 미존재 버전 → 404
@@ -75,14 +75,14 @@ async def run() -> bool:
         try:
             a = (await c.post("/agents", json={
                 "name": f"vx242-{uuid.uuid4().hex[:6]}",
-                "config": {"model": "mock-llm", "persona": "V1-PERSONA-MARK"},
+                "config": {"model": "mock-llm", "prompt": "V1-PROMPT-MARK"},
             })).json()
             aid = a["id"]
             v1 = await _activate_draft(c, aid)  # v1 활성
 
-            # 초안 v2: 페르소나 변경 + 도구 배선(활성엔 없음 — V4 인과 증명 축)
+            # 초안 v2: 프롬프트 변경 + 도구 배선(활성엔 없음 — V4 인과 증명 축)
             await c.put(f"/agents/{aid}", json={
-                "config": {"model": "mock-llm", "persona": "V2-PERSONA-MARK", "mcps": ["local-tools"]},
+                "config": {"model": "mock-llm", "prompt": "V2-PROMPT-MARK", "mcps": ["local-tools"]},
             })
             g = (await c.get(f"/agents/{aid}")).json()
             v2 = next((v["version"] for v in g.get("versions", []) if v.get("status") == "draft"), None)
@@ -93,7 +93,7 @@ async def run() -> bool:
             })
             tr = _last_trace(r.text)
             sysmsg = next((m["content"] for m in tr.get("sentMessages") or [] if m.get("role") == "system"), "")
-            ck("V2-PERSONA-MARK" in sysmsg, f"V1a 초안 config로 실행(system=초안 페르소나)")
+            ck("V2-PROMPT-MARK" in sysmsg, f"V1a 초안 config로 실행(system=초안 프롬프트)")
             ck(tr.get("agentVersion") == v2 and tr.get("versionPinned") is True,
                f"V1b trace 버전 기록 (agentVersion={tr.get('agentVersion')} pinned={tr.get('versionPinned')})")
 
@@ -101,7 +101,7 @@ async def run() -> bool:
             r = await c.post(f"/agents/{aid}/chat", json={"messages": [{"role": "user", "content": "안녕"}]})
             tr = _last_trace(r.text)
             sysmsg = next((m["content"] for m in tr.get("sentMessages") or [] if m.get("role") == "system"), "")
-            ck("V1-PERSONA-MARK" in sysmsg and tr.get("agentVersion") == v1 and not tr.get("versionPinned"),
+            ck("V1-PROMPT-MARK" in sysmsg and tr.get("agentVersion") == v1 and not tr.get("versionPinned"),
                f"V2 무지정=활성 실행 (agentVersion={tr.get('agentVersion')})")
 
             # V3 — 미존재 버전

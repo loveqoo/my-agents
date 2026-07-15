@@ -59,7 +59,7 @@ try {
   await page.waitForTimeout(800)
   const fm = page.locator('.ant-modal-body:visible').last()
   const formText = (await fm.count()) ? (await fm.textContent()) ?? '' : ''
-  check(/에이전트 생성|종류/.test(formText) && /이름|페르소나|모델/.test(formText),
+  check(/에이전트 생성|종류/.test(formText) && /이름|프롬프트|모델/.test(formText),
     `F1 생성 폼(AgentForm) 렌더 (${formText.length}자)`)
   await page.screenshot({ path: `${OUT}/decomp-185-form.png` })
   await page.keyboard.press('Escape'); await page.waitForTimeout(500)

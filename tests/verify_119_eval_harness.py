@@ -136,7 +136,7 @@ async def passthrough():
                 print("SKIP passthrough: RAG 컬렉션 없음(시드 필요)")
                 return
             cap = f"rag:{cols[0]['name']}"
-            base = {"model": "mock-llm", "persona": "", "historyDepth": 6, "impl": "orchestrate"}
+            base = {"model": "mock-llm", "prompt": "", "historyDepth": 6, "impl": "orchestrate"}
             a_cap = (await c.post("/agents", json={"name": f"ev-cap-{uuid.uuid4().hex[:6]}",
                      "config": {**base, "capabilities": [cap]}})).json()
             a_none = (await c.post("/agents", json={"name": f"ev-none-{uuid.uuid4().hex[:6]}",

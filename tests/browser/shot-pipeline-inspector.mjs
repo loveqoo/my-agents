@@ -34,7 +34,7 @@ try {
   const setup = await page.evaluate(async (nm) => {
     const H = { 'Content-Type': 'application/json' }
     const config = {
-      model: 'mock-llm', persona: '', impl: 'pipeline',
+      model: 'mock-llm', prompt: '', impl: 'pipeline',
       historyDepth: 20, persistHistory: true, ephemeral: false,
       nodes: [
         { name: '분석', prompt: '입력을 분석하라', model: 'mock-llm', tools: [], context: 'carry' },

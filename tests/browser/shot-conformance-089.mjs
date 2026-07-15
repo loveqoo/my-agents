@@ -41,7 +41,7 @@ try {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: 'CONF089 설정실패 데모',
-        config: { model: 'mock-llm', persona: '', historyDepth: 10, impl: 'does_not_exist_089' },
+        config: { model: 'mock-llm', prompt: '', historyDepth: 10, impl: 'does_not_exist_089' },
       }),
     })
     return { status: r.status, body: await r.json() }

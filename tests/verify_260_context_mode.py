@@ -62,7 +62,7 @@ def _install_fake(sink, scripted=None):
 
 
 def _ctx(nodes, tools=()):
-    return AgentBuildContext(persona="", model_cfg=MODEL_CFG, tools=list(tools),
+    return AgentBuildContext(prompt="", model_cfg=MODEL_CFG, tools=list(tools),
                              impl_config={"nodes": nodes})
 
 

@@ -1,6 +1,6 @@
 /* 스펙 177 P3 UI 검증 — 죽은 "권한" 개념 제거 + 능력 부여 패널 신설. 시스템 Chrome.
    슈퍼유저 로그인 →
-     (1) 빌딩 블록: '권한' 탭 부재 + 남은 4탭(페르소나/메모리/벡터/MCP) 존재.
+     (1) 빌딩 블록: '권한' 탭 부재 + 남은 4탭(프롬프트/메모리/벡터/MCP) 존재.
      (2) 유저: '능력 부여 (정책)' 패널 렌더.
    실행: PLAYWRIGHT_DIR=<dir> node tests/browser/shot-perm-removed-177.mjs [outPrefix] */
 const pwDir = process.env.PLAYWRIGHT_DIR
@@ -34,7 +34,7 @@ try {
   await page.waitForTimeout(1000)
   const permTab = await page.getByRole('tab', { name: /권한/ }).count()
   ok(permTab === 0, `'권한' 탭 부재 (found=${permTab})`)
-  for (const t of ['페르소나', 'MCP']) {
+  for (const t of ['프롬프트', 'MCP']) {
     const c = await page.getByRole('tab', { name: new RegExp(t) }).count()
     ok(c > 0, `'${t}' 탭 유지 (found=${c})`)
   }

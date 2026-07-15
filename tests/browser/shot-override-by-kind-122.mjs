@@ -61,13 +61,13 @@ try {
   const mcp = await mcpRes.json(); if (mcp?.id) cleanup.mcps.push(mcp.id)
 
   const dRes = await page.request.post(`${URL}/api/agents`, {
-    data: { name: DIRECT, config: { model: 'mock-llm', persona: '', impl: '', mcps: [MCP] } },
+    data: { name: DIRECT, config: { model: 'mock-llm', prompt: '', impl: '', mcps: [MCP] } },
   })
   check(dRes.ok(), `S2 직접형 시드 (${dRes.status()})`)
   const d = await dRes.json(); if (d?.id) cleanup.agents.push(d.id)
 
   const oRes = await page.request.post(`${URL}/api/agents`, {
-    data: { name: ORCH, config: { model: 'mock-llm', persona: '', impl: 'orchestrate', capabilities: [`mcp:${MCP}`] } },
+    data: { name: ORCH, config: { model: 'mock-llm', prompt: '', impl: 'orchestrate', capabilities: [`mcp:${MCP}`] } },
   })
   check(oRes.ok(), `S3 조율형 시드 (${oRes.status()})`)
   const o = await oRes.json(); if (o?.id) cleanup.agents.push(o.id)

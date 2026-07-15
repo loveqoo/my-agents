@@ -140,11 +140,11 @@ def run() -> None:
 
     _mcfg = {"base_url": "http://127.0.0.1:9", "model_id": "probe"}  # 구성만(네트워크 무접촉)
     g_tools = PlanExecuteAgent().build_graph(
-        AgentBuildContext(persona="p", model_cfg=_mcfg, tools=[probe_202])
+        AgentBuildContext(prompt="p", model_cfg=_mcfg, tools=[probe_202])
     )
     check("tools" in set(g_tools.get_graph().nodes), "T1 주입 도구 → tools 노드 배선(가용성)")
     g_plain = PlanExecuteAgent().build_graph(
-        AgentBuildContext(persona="p", model_cfg=_mcfg, tools=[])
+        AgentBuildContext(prompt="p", model_cfg=_mcfg, tools=[])
     )
     check("tools" not in set(g_plain.get_graph().nodes), "T2 도구 없음 → 기존 2노드(무회귀)")
 
@@ -175,7 +175,7 @@ async def http_checks() -> None:
         # H1 ui(impl 없음) → conforming.
         r_ui = await c.post("/agents", json={
             "name": f"v089-ui-{uuid.uuid4().hex[:6]}",
-            "config": {"model": "mock-llm", "persona": "", "historyDepth": 10},
+            "config": {"model": "mock-llm", "prompt": "", "historyDepth": 10},
         })
         check(r_ui.status_code == 201, f"H1 ui 생성 201 (got {r_ui.status_code})")
         ui_id = r_ui.json()["id"]
@@ -185,7 +185,7 @@ async def http_checks() -> None:
         # H2 ui + 미해결 impl(저장 허용=합의 B) → config_error. 생성 응답·GET 둘 다 표대로.
         r_bad = await c.post("/agents", json={
             "name": f"v089-bad-{uuid.uuid4().hex[:6]}",
-            "config": {"model": "mock-llm", "persona": "", "historyDepth": 10,
+            "config": {"model": "mock-llm", "prompt": "", "historyDepth": 10,
                        "impl": "does_not_exist_089"},
         })
         check(r_bad.status_code == 201, f"H2 미해결 impl 저장 허용 201(합의 B) (got {r_bad.status_code})")

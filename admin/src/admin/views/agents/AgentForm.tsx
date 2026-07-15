@@ -13,14 +13,14 @@ import { ArtifactSpecEditor, artifactSpecValid } from './ArtifactSpecEditor'
 import { NodeListEditor, pipelineValid } from './NodeListEditor'
 import type { AgentFormData } from './types'
 
-/* 빈 폼 기본값 — persona는 로드된 blocks에서, model은 등록된 첫 chat 모델에서
+/* 빈 폼 기본값 — prompt는 로드된 blocks에서, model은 등록된 첫 chat 모델에서
    계산한다(둘 다 없으면 빈 값). 가상 모델명 하드코딩 금지(스펙 023). */
 export function blankForm(blocks: Record<string, BlockCategory>, models: Model[]): AgentFormData {
   return {
     name: '',
     description: '',
     model: models.find((m) => m.kind === 'chat')?.name ?? '',
-    persona: blocks.persona?.items?.[0]?.name ?? '',
+    prompt: blocks.prompt?.items?.[0]?.name ?? '',
     temperature: null,
     memories: [],
     historyDepth: 20,
@@ -120,17 +120,17 @@ export function AgentForm({
     /* eslint-disable-next-line */
   }, [open])
 
-  // /blocks가 폼을 연 뒤 늦게 도착하면 생성 모드의 빈 persona를 첫 항목으로 채운다
-  // (페르소나 없는 에이전트 생성 방지).
+  // /blocks가 폼을 연 뒤 늦게 도착하면 생성 모드의 빈 prompt를 첫 항목으로 채운다
+  // (프롬프트 없는 에이전트 생성 방지).
   useEffect(() => {
-    const first = blocks.persona?.items?.[0]?.name
+    const first = blocks.prompt?.items?.[0]?.name
     if (open && mode === 'create' && first) {
-      setForm((f) => (f.persona ? f : { ...f, persona: first }))
+      setForm((f) => (f.prompt ? f : { ...f, prompt: first }))
     }
   }, [open, mode, blocks])
 
   // 등록 모델(/models)이 폼을 연 뒤 늦게 도착하면 생성 모드의 빈 model을 첫 등록
-  // chat 모델로 채운다(가상 모델명 폴백 방지 — persona와 동일 패턴).
+  // chat 모델로 채운다(가상 모델명 폴백 방지 — prompt와 동일 패턴).
   useEffect(() => {
     const first = models.find((m) => m.kind === 'chat')?.name
     if (open && mode === 'create' && first) {
@@ -381,9 +381,9 @@ export function AgentForm({
   const pipelineInvalid = isPipeline && !pipelineValid(form.nodes)
 
   // 노드형 편집기 데이터(스펙 259). 모델 옵션화는 공용 ModelField(274)가 — models를 그대로 넘긴다.
-  // 페르소나=blocks 본문(불러오기용), 도구=개별 MCP 도구 + 문서 검색. safeToolName은 모듈 스코프
+  // 프롬프트=blocks 본문(불러오기용), 도구=개별 MCP 도구 + 문서 검색. safeToolName은 모듈 스코프
   // (스펙 276 — 직접형 피커도 공유).
-  const nodePersonas = (blocks.persona?.items ?? []).map((p) => ({ name: p.name, body: p.body ?? '' }))
+  const nodePrompts = (blocks.prompt?.items ?? []).map((p) => ({ name: p.name, body: p.body ?? '' }))
   // 문서 검색은 컬렉션별 도구(스펙 268 P1) — "검색 노드는 A만, 검증 노드는 B만". 런타임 이름
   // search_documents__<컬렉션>(백엔드 _rag_tools_for 미러). 구저장 민이름(search_documents=전체)은
   // 백엔드가 계속 해석(무회귀) — 새 저작은 컬렉션별만 노출.
@@ -514,7 +514,7 @@ export function AgentForm({
             }
           />
         )}
-        {/* ── 단계 ① 정체성(스펙 239) — 이름·설명·종류·모델·페르소나·저장 방식 ── */}
+        {/* ── 단계 ① 정체성(스펙 239) — 이름·설명·종류·모델·프롬프트·저장 방식 ── */}
         {step === 0 && (
           <>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))', gap: 16 }}>
@@ -534,7 +534,7 @@ export function AgentForm({
             <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>화면에는 이름만 표시되며, 이 설명은 마우스 오버 시에만 노출됩니다</span>
           </Field>
         </div>
-        {/* 종류 선행(스펙 279 ①, 사용자 지시) — 종류가 모델·페르소나 설정의 위치(에이전트 레벨 vs
+        {/* 종류 선행(스펙 279 ①, 사용자 지시) — 종류가 모델·프롬프트 설정의 위치(에이전트 레벨 vs
             노드)를 결정하므로 이름·설명 바로 뒤에 온다. 옵션마다 설명 내장(스펙 238 #3). */}
         <Field label="에이전트 종류">
           <Select
@@ -553,11 +553,11 @@ export function AgentForm({
           />
           <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
             {typeDesc(form.impl)}
-            {/* 노드형(스펙 263): 원인 필드(종류) 아래에 다음 행동 안내 — 모델·페르소나도 노드가 소유. */}
-            {isPipeline ? ' 노드는 다음 "하는 일" 단계에서 추가합니다(모델·페르소나도 노드마다).' : ''}
+            {/* 노드형(스펙 263): 원인 필드(종류) 아래에 다음 행동 안내 — 모델·프롬프트도 노드가 소유. */}
+            {isPipeline ? ' 노드는 다음 "하는 일" 단계에서 추가합니다(모델·프롬프트도 노드마다).' : ''}
           </span>
         </Field>
-        {/* 모델·페르소나는 종류 다음(스펙 279 ①) — 노드형은 노드가 소유하므로 숨김(스펙 259 결정 #1·#2). */}
+        {/* 모델·프롬프트는 종류 다음(스펙 279 ①) — 노드형은 노드가 소유하므로 숨김(스펙 259 결정 #1·#2). */}
         {isPipeline ? null : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))', gap: 16 }}>
           {/* 공용 모델 컨트롤(스펙 274) — chat 필터·미등록 보존이 ModelField 한 곳(274 이전엔 여기만
@@ -574,12 +574,12 @@ export function AgentForm({
               ) : undefined
             }
           />
-          <Field label="페르소나">
+          <Field label="프롬프트">
             <Select
-              value={form.persona}
-              onChange={(v) => set('persona', v)}
+              value={form.prompt}
+              onChange={(v) => set('prompt', v)}
               style={{ width: '100%' }}
-              options={(blocks.persona?.items ?? []).map((p) => ({ label: p.name, value: p.name }))}
+              options={(blocks.prompt?.items ?? []).map((p) => ({ label: p.name, value: p.name }))}
             />
           </Field>
         </div>
@@ -652,7 +652,7 @@ export function AgentForm({
             value={form.nodes}
             onChange={(nodes) => set('nodes', nodes)}
             models={models}
-            personas={nodePersonas}
+            prompts={nodePrompts}
             mcpServers={blocks.mcp?.items ?? []}
             docOptions={nodeDocOptions}
             memoryOptions={nodeMemoryOptions}
@@ -969,14 +969,14 @@ export function AgentForm({
               <SummaryRow k="이름" v={form.name.trim() || '(미입력)'} bad={!form.name.trim() || !!nameErr} />
               {form.description.trim() && <SummaryRow k="설명" v={form.description.trim()} />}
               <SummaryRow k="종류" v={`${typeLabel} — ${typeDesc(form.impl)}`} />
-              {/* 노드형(스펙 263): 에이전트-레벨 모델/페르소나는 안 쓰이는데(페르소나=미사용, 모델=노드
+              {/* 노드형(스펙 263): 에이전트-레벨 모델/프롬프트는 안 쓰이는데(프롬프트=미사용, 모델=노드
                   폴백뿐) 요약에 1급처럼 뜨면 거짓 확인(사용자가 정하지 않은 숨은 기본값). 정직하게 대체. */}
               {isPipeline ? (
                 <SummaryRow k="모델·프롬프트" v="노드마다 설정 — 아래 처리 단계 참고" />
               ) : (
                 <>
                   <SummaryRow k="모델" v={form.model || '(없음)'} />
-                  <SummaryRow k="페르소나" v={form.persona || '(없음)'} />
+                  <SummaryRow k="프롬프트" v={form.prompt || '(없음)'} />
                 </>
               )}
               <SummaryRow k="저장 방식" v={form.ephemeral ? '비영속 (1회성) — 대화·기록을 남기지 않음' : '영속 — 대화와 기록 저장'} />

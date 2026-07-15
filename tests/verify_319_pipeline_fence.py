@@ -149,7 +149,7 @@ def graph_checks() -> None:
     pipeline._model_from_node = _stub_model  # 모델만 스텁(그래프 배선·펜스 노드는 실제)
     try:
         ctx = AgentBuildContext(
-            persona="너는 도우미다",
+            prompt="너는 도우미다",
             model_cfg={"model_id": "stub", "base_url": "x", "api_key": "x"},
             tools=[probe_tool],
             impl_config={

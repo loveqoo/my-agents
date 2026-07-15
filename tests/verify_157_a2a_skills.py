@@ -67,32 +67,32 @@ async def main():
             coll = (await s.execute(select(Collection.name))).scalars().first()
 
         # ---- V1 MCP 에이전트 ----
-        v1 = await _mk(tag, "mcp", {"mcps": ["local-tools"], "persona": "", "model": ""})
+        v1 = await _mk(tag, "mcp", {"mcps": ["local-tools"], "prompt": "", "model": ""})
         made.append(v1)
         # ---- V2 조율형(agent+mcp+rag) — 위임 대상은 remote(code+endpoint)여야 광고됨(codex High) ----
-        sub = await _mk(tag, "sub", {"mcps": [], "persona": "", "model": ""}, exposed=False,
+        sub = await _mk(tag, "sub", {"mcps": [], "prompt": "", "model": ""}, exposed=False,
                         source="code", endpoint="http://127.0.0.1:8000/_remote/a2a")
         made.append(sub)
         sub_aid = f"{tag}-sub"
         caps = [f"agent:{sub_aid}", "mcp:local-tools/echo"]
         if coll:
             caps.append(f"rag:{coll}")
-        v2 = await _mk(tag, "orch", {"mcps": [], "capabilities": caps, "persona": "", "model": ""})
+        v2 = await _mk(tag, "orch", {"mcps": [], "capabilities": caps, "prompt": "", "model": ""})
         made.append(v2)
         # ---- V7 누출 봉인: ui(미노출) 서브에이전트는 delegate로 광고 안 됨(이름 누출·거짓 능력 차단) ----
-        hidden_sub = await _mk(tag, "hidsub", {"mcps": [], "persona": "", "model": ""}, exposed=False,
+        hidden_sub = await _mk(tag, "hidsub", {"mcps": [], "prompt": "", "model": ""}, exposed=False,
                                source="ui", description="Secret HR Agent")
         made.append(hidden_sub)
         v7 = await _mk(tag, "leakparent", {"mcps": [], "capabilities": [f"agent:{tag}-hidsub"],
-                                           "persona": "", "model": ""})
+                                           "prompt": "", "model": ""})
         made.append(v7)
         # ---- V3 dangling ----
         v3 = await _mk(tag, "dang", {"mcps": ["nope-server"],
                                      "capabilities": [f"agent:{tag}-ghost", "mcp:ghost/x", "rag:no-such-coll"],
-                                     "persona": "", "model": ""})
+                                     "prompt": "", "model": ""})
         made.append(v3)
         # ---- V4 미노출 ----
-        v4 = await _mk(tag, "hidden", {"mcps": [], "persona": "", "model": ""}, exposed=False)
+        v4 = await _mk(tag, "hidden", {"mcps": [], "prompt": "", "model": ""}, exposed=False)
         made.append(v4)
         # ---- V5 캡: 60개 실 도구를 가진 MCP 서버 → 60 mcp 스킬 + chat = 61 → 50으로 잘림 ----
         big_tools = [f"tool{i}" for i in range(60)]
@@ -104,7 +104,7 @@ async def main():
             s.add(ms)
             await s.commit()
             made_mcp.append(big_srv)
-        v5 = await _mk(tag, "big", {"mcps": [big_srv], "persona": "", "model": ""})
+        v5 = await _mk(tag, "big", {"mcps": [big_srv], "prompt": "", "model": ""})
         made.append(v5)
 
         # ---- V8 stdio transport 서버는 광고 안 함(runtime 미연결과 일치, codex Med1) ----
@@ -114,7 +114,7 @@ async def main():
                             enabled_tools=["s_tool"], status="connected", published=False, owner_id=None))
             await s.commit()
             made_mcp.append(stdio_srv)
-        v8 = await _mk(tag, "stdioagent", {"mcps": [stdio_srv], "persona": "", "model": ""})
+        v8 = await _mk(tag, "stdioagent", {"mcps": [stdio_srv], "prompt": "", "model": ""})
         made.append(v8)
 
         # ---- V9 enabled_tools=[]는 런타임서 "서버 전체" → 카드도 tools 스냅샷으로 광고(codex Med2) ----
@@ -125,7 +125,7 @@ async def main():
                             enabled_tools=[], status="connected", published=False, owner_id=None))
             await s.commit()
             made_mcp.append(allsrv)
-        v9 = await _mk(tag, "allagent", {"mcps": [allsrv], "persona": "", "model": ""})
+        v9 = await _mk(tag, "allagent", {"mcps": [allsrv], "prompt": "", "model": ""})
         made.append(v9)
 
         async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1:8000", timeout=60) as c:

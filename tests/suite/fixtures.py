@@ -36,7 +36,7 @@ TOOL_ECHO = "local-tools__echo"
 TOOL_SEARCH = "local-tools__web_search"
 TOOL_DELETE = "local-tools__delete_record"  # 승인 필요(HIL)
 
-PERSONA = (
+PROMPT = (
     "당신은 기능 테스트 도우미입니다. 간결한 한국어로 답하세요. "
     "도구 사용을 지시받으면 반드시 그 도구를 호출한 뒤 결과를 요약하세요."
 )
@@ -188,7 +188,7 @@ async def ensure_all(c: httpx.AsyncClient) -> dict[str, Any]:
     mem_state = await ensure_memory_seed()
 
     model = chat_m["name"]
-    base = {"model": model, "persona": PERSONA, "historyDepth": 20}
+    base = {"model": model, "prompt": PROMPT, "historyDepth": 20}
     agents: dict[str, dict] = {}
 
     # serve=True: 조율형 위임 대상은 활성 버전 보유(서빙 중)가 조건(스펙 256).

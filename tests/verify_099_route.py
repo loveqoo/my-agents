@@ -53,7 +53,7 @@ _MODEL_CFG = {
 
 
 def _ctx(**kw) -> AgentBuildContext:
-    base = dict(persona="당신은 테스트 라우터입니다.", model_cfg=_MODEL_CFG, tools=[])
+    base = dict(prompt="당신은 테스트 라우터입니다.", model_cfg=_MODEL_CFG, tools=[])
     base.update(kw)
     return AgentBuildContext(**base)
 
@@ -145,7 +145,7 @@ async def http_checks() -> None:
         # H0 route 에이전트 생성(ui+impl=route). 자체 정리.
         r = await c.post("/agents", json={
             "name": f"v099-route-{uuid.uuid4().hex[:6]}",
-            "config": {"model": "mock-llm", "persona": "", "historyDepth": 10, "impl": "route"},
+            "config": {"model": "mock-llm", "prompt": "", "historyDepth": 10, "impl": "route"},
         })
         check(r.status_code == 201, f"H0 route 에이전트 생성 201 (got {r.status_code})")
         out = r.json()

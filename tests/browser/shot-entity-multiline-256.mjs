@@ -48,7 +48,7 @@ fs.writeFileSync(
   goodFile,
   [1, 2].map((n) => JSON.stringify({
     metadata: { pid: n },
-    data: { full_path: '', column_name: 'category_value', filter_name: `페르소나 ${n}`, description: DESC, default_value: '', candidate: '' },
+    data: { full_path: '', column_name: 'category_value', filter_name: `프롬프트 ${n}`, description: DESC, default_value: '', candidate: '' },
   })).join('\n') + '\n'
 )
 
@@ -114,7 +114,7 @@ try {
   const searchDrawer = page.locator('.ant-drawer')
   await searchDrawer.getByText(`검색 시험 · ${NEW_NAME}`, { exact: true }).waitFor({ timeout: 5000 })
   await page.waitForTimeout(300)
-  await searchDrawer.locator('textarea').first().fill('페르소나 자동차')
+  await searchDrawer.locator('textarea').first().fill('프롬프트 자동차')
   await searchDrawer.getByRole('button', { name: /검색/ }).click()
   await page.waitForTimeout(1800)
 

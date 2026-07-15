@@ -48,7 +48,7 @@ try {
       return { ok: r.ok, status: r.status, j, t }
     }
     const config = {
-      model: 'qwen3.6-35b', persona: '', impl: 'pipeline', historyDepth: 20,
+      model: 'qwen3.6-35b', prompt: '', impl: 'pipeline', historyDepth: 20,
       persistHistory: true, ephemeral: false, memories: ['장기 기억 (mem0)'], mcps: [], vectorTables: [],
       nodes: [
         { name: '검색', context: 'carry', model: 'qwen3.6-35b', tools: [], prompt: '질문을 간결히 파악하세요.' },

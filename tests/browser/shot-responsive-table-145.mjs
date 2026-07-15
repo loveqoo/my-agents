@@ -16,7 +16,7 @@
       fixed 하에서 나머지 컬럼은 자동 분배.
 
    에이전트 리스트 컬럼 9개(코드 확인, admin/src/admin/views/AgentsView.tsx ~1508행):
-   에이전트·소스·준수·페르소나·MCP·버전·공개·상태·(액션, title 없음이나 th 자체는 렌더).
+   에이전트·소스·준수·프롬프트·MCP·버전·공개·상태·(액션, title 없음이나 th 자체는 렌더).
 
    폭별 판정(수정 반영, screens.lg 브레이크포인트=992 기준):
    - 1400/1024(≥992=lg true): 데스크톱 표 — 래퍼 가로 스크롤 0(scrollWidth==clientWidth ±2px),

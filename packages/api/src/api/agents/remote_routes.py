@@ -41,7 +41,7 @@ async def register_code_agent(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     cfg = {
         "model": body.model,
-        "persona": body.persona,
+        "prompt": body.prompt,
         "memories": body.memories,
         "vectorTables": [],
         "mcps": body.mcps,
@@ -55,7 +55,7 @@ async def register_code_agent(
         description=raw_name,
         source="code",
         model=body.model,
-        persona=body.persona,
+        prompt=body.prompt,
         history_depth=body.historyDepth,
         config=cfg,
         exposed={"a2a": False},

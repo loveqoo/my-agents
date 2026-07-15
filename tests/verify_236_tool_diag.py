@@ -74,7 +74,7 @@ async def run() -> bool:
         try:
             tooled = (await c.post("/agents", json={
                 "name": f"td-{uuid.uuid4().hex[:6]}",
-                "config": {"model": "mock-llm", "persona": "도구 실습", "mcps": [local] + ([wiki] if wiki else [])},
+                "config": {"model": "mock-llm", "prompt": "도구 실습", "mcps": [local] + ([wiki] if wiki else [])},
             })).json()
             made.append(tooled["id"])
 
@@ -106,7 +106,7 @@ async def run() -> bool:
             # T3 — 도구 없는 에이전트: toolDiag 자체가 없어야(오진 금지)
             bare = (await c.post("/agents", json={
                 "name": f"bare-{uuid.uuid4().hex[:6]}",
-                "config": {"model": "mock-llm", "persona": "무도구"},
+                "config": {"model": "mock-llm", "prompt": "무도구"},
             })).json()
             made.append(bare["id"])
             tr = await _chat(c, bare["id"], "검색 삭제 wiki_search")  # 트리거 단어가 있어도 도구가 없으니 무관

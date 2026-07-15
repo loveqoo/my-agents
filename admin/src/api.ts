@@ -273,30 +273,30 @@ export const testMcpTool = (id: string, body: { tool: string; args: Record<strin
 export const publishMcp = (id: string, published: boolean) =>
   put(`/mcp-servers/${id}/publish`, { published })
 
-/* 카테고리별 생성/수정/삭제 (BlocksView). resource: personas|memory-types|vector-tables */
+/* 카테고리별 생성/수정/삭제 (BlocksView). resource: prompts|memory-types|vector-tables */
 export const createBlockItem = (resource: string, body: unknown) => post(`/${resource}`, body)
 export const updateBlockItem = (resource: string, id: string, body: unknown) =>
   put(`/${resource}/${id}`, body)
 export const deleteBlockItem = (resource: string, id: string) => del(`/${resource}/${id}`)
 
-/* 페르소나 스냅샷 동기화 (스펙 161) — 복사본 유지 + 명시적 반영. */
-export interface PersonaUsageAgent {
+/* 프롬프트 스냅샷 동기화 (스펙 161) — 복사본 유지 + 명시적 반영. */
+export interface PromptUsageAgent {
   id: string
   agentId: string
   name: string
   description?: string | null
-  stale: boolean // 이 에이전트 스냅샷이 현재 페르소나 본문과 다름
+  stale: boolean // 이 에이전트 스냅샷이 현재 프롬프트 본문과 다름
   canManage: boolean // 요청 주체가 이 에이전트를 갱신 가능
 }
-// 에이전트 쪽: 자기 페르소나 스냅샷을 현재 원본으로 갱신.
-export const refreshAgentPersona = (id: string) =>
-  post(`/agents/${id}/persona/refresh`) as Promise<Agent>
-// 페르소나 쪽: 이 페르소나를 쓰는 에이전트 + 오래됨 상태.
-export const listPersonaAgents = (personaId: string) =>
-  j<PersonaUsageAgent[]>(`/personas/${personaId}/agents`)
-// 페르소나 쪽: 선택 에이전트들에 최신 본문 반영.
-export const applyPersona = (personaId: string, agentIds: string[]) =>
-  post(`/personas/${personaId}/apply`, { agentIds }) as Promise<{ applied: string[]; skipped: string[] }>
+// 에이전트 쪽: 자기 프롬프트 스냅샷을 현재 원본으로 갱신.
+export const refreshAgentPrompt = (id: string) =>
+  post(`/agents/${id}/prompt/refresh`) as Promise<Agent>
+// 프롬프트 쪽: 이 프롬프트를 쓰는 에이전트 + 오래됨 상태.
+export const listPromptAgents = (promptId: string) =>
+  j<PromptUsageAgent[]>(`/prompts/${promptId}/agents`)
+// 프롬프트 쪽: 선택 에이전트들에 최신 본문 반영.
+export const applyPrompt = (promptId: string, agentIds: string[]) =>
+  post(`/prompts/${promptId}/apply`, { agentIds }) as Promise<{ applied: string[]; skipped: string[] }>
 
 
 /* ---------- RAG 컬렉션 + 문서 인제스트 (스펙 036) ---------- */

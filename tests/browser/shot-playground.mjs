@@ -29,7 +29,7 @@ try {
   // 에이전트가 로드돼 헤더 AgentCombo 버튼이 뜰 때까지 — 모델 배지 텍스트로 대기.
   await page.waitForTimeout(1500)
   // 헤더의 picker 버튼(에이전트 이름 + 모델 배지)을 눌러 드롭다운 펼치기.
-  // AgentCombo 버튼은 헤더 첫 번째 <button> (avatar+name+model). persona/이름으로 찾는다.
+  // AgentCombo 버튼은 헤더 첫 번째 <button> (avatar+name+model). prompt/이름으로 찾는다.
   const combo = page.locator('button').filter({ hasText: '코드 정의' }).first()
   await combo.click().catch(() => {})
   await page.waitForTimeout(600)

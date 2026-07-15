@@ -33,7 +33,7 @@ try {
 
   // 노드형 픽스처 — 노드 2(n1=echo 도구, n2=없음).
   const ar = await page.request.post(`${URL}/api/agents`, {
-    data: { name: AGENT, config: { model: 'mock-llm', persona: '', impl: 'pipeline', mcps: ['local-tools'],
+    data: { name: AGENT, config: { model: 'mock-llm', prompt: '', impl: 'pipeline', mcps: ['local-tools'],
       nodes: [
         { name: 'n1', prompt: '분석해라', model: 'mock-llm', tools: ['local-tools__echo'] },
         { name: 'n2', prompt: '요약해라', model: 'mock-llm', tools: [] },

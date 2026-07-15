@@ -30,9 +30,9 @@ try {
     const H = { 'Content-Type': 'application/json' }
     const jf = async (url, body) => { const r = await fetch(url, { method: 'POST', credentials: 'include', headers: H, body: JSON.stringify(body) }); return r.ok ? (await r.json()).id : null }
     return {
-      d: await jf('/api/agents', { name: D, config: { model: 'mock-llm', persona: 't' } }),
-      p: await jf('/api/agents', { name: P, config: { model: 'mock-llm', persona: '', impl: 'pipeline', nodes: [{ name: 'n', prompt: 'p', model: 'mock-llm', tools: [] }] } }),
-      o: await jf('/api/agents', { name: O, config: { model: 'mock-llm', persona: 't', impl: 'orchestrate', capabilities: [] } }),
+      d: await jf('/api/agents', { name: D, config: { model: 'mock-llm', prompt: 't' } }),
+      p: await jf('/api/agents', { name: P, config: { model: 'mock-llm', prompt: '', impl: 'pipeline', nodes: [{ name: 'n', prompt: 'p', model: 'mock-llm', tools: [] }] } }),
+      o: await jf('/api/agents', { name: O, config: { model: 'mock-llm', prompt: 't', impl: 'orchestrate', capabilities: [] } }),
     }
   }, { D, P, O })
   for (const id of Object.values(made)) if (id) cleanup.agents.push(id)

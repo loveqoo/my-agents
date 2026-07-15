@@ -40,7 +40,7 @@ try {
     }
     // 1) 생성 — 2노드(분석 carry / 요약 clean, JSON+키)
     const config = {
-      model: 'mock-llm', persona: '', impl: 'pipeline',
+      model: 'mock-llm', prompt: '', impl: 'pipeline',
       historyDepth: 20, persistHistory: true, ephemeral: false,
       nodes: [
         { name: '분석', prompt: '입력을 분석하라', model: 'mock-llm', tools: [], context: 'carry' },

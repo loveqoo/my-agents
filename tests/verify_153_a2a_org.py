@@ -90,7 +90,7 @@ async def main():
         # V3 카드 통합 — 노출 ui 에이전트 생성 후 ASGI로 카드 fetch
         async with async_session() as s:
             made_agent = Agent(agent_id=f"{tag}-ag", name=f"{tag}-ag", source="ui",
-                               config={"model": "", "persona": ""}, exposed={"a2a": True},
+                               config={"model": "", "prompt": ""}, exposed={"a2a": True},
                                active_version="v1")
             s.add(made_agent)
             await s.commit()

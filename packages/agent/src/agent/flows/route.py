@@ -41,7 +41,7 @@ class RouteAgent:
 
     def describe(self) -> AgentManifest:
         return AgentManifest(
-            consumes=("memories",),  # 스펙 206 — 분기 데모: 도구·문서 미소비(persona 회상만)
+            consumes=("memories",),  # 스펙 206 — 분기 데모: 도구·문서 미소비(prompt 회상만)
             name="route",
             description="분기 라우터(classify→answer_a/answer_b) — 조건분기 예제 커스텀 에이전트",
             supports_hil=False,  # 위험 도구 게이트·interrupt 없음(순수 분기) — 정직하게 표기
@@ -49,7 +49,7 @@ class RouteAgent:
 
     def build_graph(self, ctx: AgentBuildContext) -> CompiledStateGraph:
         model = build_chat_openai(ctx.model_cfg, ctx.params)
-        persona = ctx.persona  # 오버라이드 병합 후 주입된 페르소나(주입 단일 출처)
+        prompt = ctx.prompt  # 오버라이드 병합 후 주입된 프롬프트(주입 단일 출처)
 
         def classify(state: _State) -> dict:
             # 결정적 — 모델 호출 없음. 노드 발화가 updates 스트림→추적 타임라인에 남는다.
@@ -59,13 +59,13 @@ class RouteAgent:
             return "answer_a" if state["route"] == "a" else "answer_b"
 
         async def answer_a(state: _State) -> dict:
-            sys = SystemMessage(content=f"{persona}\n\n# 모드\n질문에 직접·간결하게 답하세요.")
+            sys = SystemMessage(content=f"{prompt}\n\n# 모드\n질문에 직접·간결하게 답하세요.")
             resp = await model.ainvoke([sys, *state["messages"]])
             return {"messages": [resp]}
 
         async def answer_b(state: _State) -> dict:
             sys = SystemMessage(
-                content=f"{persona}\n\n# 모드\n입력을 정리하고 필요한 부연을 덧붙여 답하세요."
+                content=f"{prompt}\n\n# 모드\n입력을 정리하고 필요한 부연을 덧붙여 답하세요."
             )
             resp = await model.ainvoke([sys, *state["messages"]])
             return {"messages": [resp]}

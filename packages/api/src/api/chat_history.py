@@ -139,15 +139,15 @@ _SENT_MSG_CHAR_CAP = 2000
 _SENT_MSG_COUNT_CAP = 30
 
 
-def _build_sent_messages(persona_prompt: str, messages: list[dict]) -> list[dict]:
-    """전송 프롬프트 전문 캡처(스펙 131) — 실제 그래프 입력(system=persona+회상 포함)을 표시용으로.
+def _build_sent_messages(prompt_prompt: str, messages: list[dict]) -> list[dict]:
+    """전송 프롬프트 전문 캡처(스펙 131) — 실제 그래프 입력(system=prompt+회상 포함)을 표시용으로.
 
     안전장치: (a) 메시지당 자수 캡, (b) 개수 캡(초과분은 생략 표식 1건으로), (c) **비밀 마스킹 백스톱**
-    (codex 131 #2 — 페르소나/오버라이드에 사용자가 적은 API 키가 trace JSONB에 복제되지 않게,
+    (codex 131 #2 — 프롬프트/오버라이드에 사용자가 적은 API 키가 trace JSONB에 복제되지 않게,
     125 _sanitize 재사용). 원문 전문은 저장하지 않는다(캡 절단본)."""
     from .memory import _sanitize as _mask
 
-    out = [{"role": "system", "content": _mask(persona_prompt, cap=_SENT_MSG_CHAR_CAP)}]
+    out = [{"role": "system", "content": _mask(prompt_prompt, cap=_SENT_MSG_CHAR_CAP)}]
     tail = messages[-_SENT_MSG_COUNT_CAP:]
     omitted = len(messages) - len(tail)
     if omitted > 0:

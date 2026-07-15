@@ -12,7 +12,7 @@ import { AGENT_STATUS, isOrchestratorImpl, isCodeDefinedImpl, isNodeRef, type Ag
 import { typeLabel } from './AgentForm'
 import { DelegationGraph } from '../../DelegationGraph'
 import { displayName } from '../../naming'
-import { PersonaStaleNote } from './PersonaStaleNote'
+import { PromptStaleNote } from './PromptStaleNote'
 import { FeedbackHarvestButton } from './FeedbackHarvestButton'
 import { getAgentOps, listAgentImpls, type AgentOps, type ImplMeta } from '../../../api'
 import { DetailPageShell, JumpCell, type DetailSection } from './detail/DetailPageShell'
@@ -37,7 +37,7 @@ export function AgentDetailPage({
   onTest,
   onRevert,
   onNewDraft,
-  onRefreshPersona,
+  onRefreshPrompt,
 }: {
   agent: Agent
   agents?: Agent[] // 위임 구조 조립용(스펙 257 — 전체 목록의 capabilities 그래프)
@@ -51,7 +51,7 @@ export function AgentDetailPage({
   onTest: (a: Agent, v: VersionMeta) => void
   onRevert: (a: Agent, v: VersionMeta) => void
   onNewDraft: (a: Agent) => void
-  onRefreshPersona: (a: Agent) => Promise<void>
+  onRefreshPrompt: (a: Agent) => Promise<void>
 }) {
   const screens = Grid.useBreakpoint()
   const isMobile = !screens.md
@@ -106,7 +106,7 @@ export function AgentDetailPage({
                   key: 'run',
                   label: '실행',
                   children: (
-                    // 모델·활성 세션만(스펙 286 후속 — 페르소나는 구성 탭이 소유).
+                    // 모델·활성 세션만(스펙 286 후속 — 프롬프트는 구성 탭이 소유).
                     // 노드형은 모델이 노드마다 달라 대표 모델 표기가 거짓(2026-07-10) — 노드 흐름으로 대체.
                     <span>
                       {agent.impl === 'pipeline' ? (
@@ -216,7 +216,7 @@ export function AgentDetailPage({
                 )}
               </div>
             )}
-            <PersonaStaleNote agent={agent} onRefresh={onRefreshPersona} />
+            <PromptStaleNote agent={agent} onRefresh={onRefreshPrompt} />
             <AuditFooter audit={agent} />{/* 감사 메타(스펙 344) — 배경 정보라 개요 맨 아래 */}
           </section>
       ),
@@ -233,12 +233,12 @@ export function AgentDetailPage({
               layout={isMobile ? 'vertical' : 'horizontal'}
               labelStyle={{ width: 120 }}
               items={[
-                // 노드형은 모델·페르소나도 노드 소유(실행=노드별 model_cfg, 최상위 persona 미참조 —
+                // 노드형은 모델·프롬프트도 노드 소유(실행=노드별 model_cfg, 최상위 prompt 미참조 —
                 // pipeline.py) — 행 자체를 두지 않는다(2026-07-10). 노드별 모델은 아래 "노드" 행이 표시.
                 ...(agent.impl !== 'pipeline'
                   ? [
                       { key: 'model', label: '모델', children: <span style={{ fontFamily: 'var(--font-family-code)' }}>{agent.model}</span> },
-                      { key: 'persona', label: '페르소나', children: agent.persona || '없음' },
+                      { key: 'prompt', label: '프롬프트', children: agent.prompt || '없음' },
                     ]
                   : []),
                 {
@@ -389,7 +389,7 @@ export function AgentDetailPage({
                         const cfg = draft.config
                         const diffs: string[] = []
                         if (cfg.model !== agent.model) diffs.push('모델 → ' + cfg.model)
-                        if (cfg.persona !== agent.persona) diffs.push('페르소나 → ' + cfg.persona)
+                        if (cfg.prompt !== agent.prompt) diffs.push('프롬프트 → ' + cfg.prompt)
                         if ((cfg.memories || []).join() !== (agent.memories || []).join()) diffs.push('장기 기억 변경됨')
                         if (cfg.historyDepth !== agent.historyDepth) diffs.push('단기 기억 → ' + (cfg.historyDepth || 0))
                         if ((cfg.vectorTables || []).join() !== (agent.vectorTables || []).join()) diffs.push('문서 변경됨')

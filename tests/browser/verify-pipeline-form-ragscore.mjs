@@ -1,5 +1,5 @@
 /* 노드형 편집 폼 정직성 점검 후속(2026-07-10, learning 152 기준).
-   ① 새 에이전트(노드형) 1단계: 모델·페르소나 필드 부재(노드 소유 — 기존 보장 회귀).
+   ① 새 에이전트(노드형) 1단계: 모델·프롬프트 필드 부재(노드 소유 — 기존 보장 회귀).
    ② 2단계(하는 일): 노드에 문서 컬렉션을 넣으면 "최소 유사도" 슬라이더가 즉시 나타나고,
       빼면 사라진다(저장된 풀이 아니라 편집 중 노드에서 실시간 파생).
    ③ 3단계(세부): Temperature 안내에 "모든 노드의 모델에 적용" 명시(pipeline.py:79 소비 사실).
@@ -41,8 +41,8 @@ try {
   await page.locator('.ant-select-dropdown:visible .ant-select-item-option', { hasText: '노드형' }).first().click()
   await page.waitForTimeout(400)
 
-  // ── ① 1단계: 모델·페르소나 부재 ──
-  check((await form.getByText('페르소나', { exact: true }).count()) === 0, `① 1단계 페르소나 필드 부재(노드 소유)`)
+  // ── ① 1단계: 모델·프롬프트 부재 ──
+  check((await form.getByText('프롬프트', { exact: true }).count()) === 0, `① 1단계 프롬프트 필드 부재(노드 소유)`)
   check((await form.getByText('모델', { exact: true }).count()) === 0, `① 1단계 모델 필드 부재(노드 소유)`)
 
   // ── ② 2단계: 문서 넣고 빼기 → 슬라이더 실시간 파생 ──

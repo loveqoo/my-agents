@@ -189,7 +189,7 @@ async def http_checks() -> None:
         # plan_execute 커스텀 에이전트 생성(자체 정리).
         r_pe = await c.post("/agents", json={
             "name": f"v086-plex-{uuid.uuid4().hex[:6]}",
-            "config": {"model": "mock-llm", "persona": "", "historyDepth": 10,
+            "config": {"model": "mock-llm", "prompt": "", "historyDepth": 10,
                        "impl": "plan_execute"},
         })
         check(r_pe.status_code == 201, f"H0 plan_execute 생성 201 (got {r_pe.status_code})")

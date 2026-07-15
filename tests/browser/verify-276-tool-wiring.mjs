@@ -121,7 +121,7 @@ try {
   const rt = await page.evaluate(async (nm) => {
     const H = { 'Content-Type': 'application/json' }
     const jf = async (url, opt) => { const r = await fetch(url, { credentials: 'include', headers: H, ...opt }); return { ok: r.ok, status: r.status, j: await r.json().catch(() => null) } }
-    const config = { model: 'mock-llm', persona: '간결히 답하라', mcps: ['local-tools'], tools: ['local-tools__echo'], memories: [] }
+    const config = { model: 'mock-llm', prompt: '간결히 답하라', mcps: ['local-tools'], tools: ['local-tools__echo'], memories: [] }
     const cr = await jf('/api/agents', { method: 'POST', body: JSON.stringify({ name: nm, config }) })
     if (!cr.ok) return { step: 'create', status: cr.status }
     const draft = (cr.j.versions || []).find((v) => v.status === 'draft') || (cr.j.versions || [])[0]
@@ -145,7 +145,7 @@ try {
   const ctl = await page.evaluate(async (nm) => {
     const H = { 'Content-Type': 'application/json' }
     const jf = async (url, opt) => { const r = await fetch(url, { credentials: 'include', headers: H, ...opt }); return { ok: r.ok, j: await r.json().catch(() => null) } }
-    const config = { model: 'mock-llm', persona: '간결히 답하라', mcps: ['local-tools'], memories: [] }
+    const config = { model: 'mock-llm', prompt: '간결히 답하라', mcps: ['local-tools'], memories: [] }
     const cr = await jf('/api/agents', { method: 'POST', body: JSON.stringify({ name: nm, config }) })
     if (!cr.ok) return { step: 'create' }
     const draft = (cr.j.versions || []).find((v) => v.status === 'draft') || (cr.j.versions || [])[0]
@@ -164,7 +164,7 @@ try {
     const H = { 'Content-Type': 'application/json' }
     const jf = async (url, opt) => { const r = await fetch(url, { credentials: 'include', headers: H, ...opt }); return { ok: r.ok, j: await r.json().catch(() => null) } }
     const config = {
-      model: 'mock-llm', persona: '', impl: 'pipeline',
+      model: 'mock-llm', prompt: '', impl: 'pipeline',
       mcps: ['local-tools'], tools: ['local-tools__echo'], // 직접형 잔재를 흉내 — 게이트가 무시해야
       nodes: [{ name: '검색', context: 'carry', model: 'mock-llm', tools: ['local-tools__web_search'],
                 prompt: 'web_search 도구로 검색하라' }],

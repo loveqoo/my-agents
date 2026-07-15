@@ -188,7 +188,7 @@ async def http_checks() -> None:
                 "name": agent_name,
                 "config": {
                     "model": "mock-llm",
-                    "persona": "",
+                    "prompt": "",
                     "impl": "pipeline",
                     "mcps": [],
                     "tools": [],
@@ -236,7 +236,7 @@ async def http_checks() -> None:
                 "name": f"v316-bad-{uuid.uuid4().hex[:6]}",
                 "config": {
                     "model": "mock-llm",
-                    "persona": "",
+                    "prompt": "",
                     "impl": "pipeline",
                     "nodes": [{"ref": {"name": TPL, "version": 99}}],
                 },
@@ -252,7 +252,7 @@ async def http_checks() -> None:
                 "name": f"v316-noimpl-{uuid.uuid4().hex[:6]}",
                 "config": {
                     "model": "mock-llm",
-                    "persona": "",
+                    "prompt": "",
                     "nodes": [{"ref": {"name": TPL, "version": 99}}],
                 },
             },
@@ -284,7 +284,7 @@ async def http_checks() -> None:
                 "description": None,
                 "config": {
                     "model": "mock-llm",
-                    "persona": "",
+                    "prompt": "",
                     "impl": "pipeline",
                     "nodes": [{"ref": {"name": TPL, "version": new_ver}}],
                 },

@@ -166,7 +166,7 @@ export function isA2AExposed(agent: Agent): boolean {
 }
 
 
-/* Rich agent picker — replaces the left rail. Shows avatar, persona, model and
+/* Rich agent picker — replaces the left rail. Shows avatar, prompt, model and
    MCP chips per agent in a dropdown. */
 function AgentCombo({
   agent,
@@ -180,7 +180,7 @@ function AgentCombo({
   fullWidth?: boolean
 }) {
   const [open, setOpen] = useState(false)
-  // 에이전트 조회(스펙 248) — 검색(이름·모델·페르소나 부분일치) + 최근 사용 순(localStorage).
+  // 에이전트 조회(스펙 248) — 검색(이름·모델·프롬프트 부분일치) + 최근 사용 순(localStorage).
   const [q, setQ] = useState('')
   const recent: string[] = (() => {
     try { return JSON.parse(localStorage.getItem('pg_recent_agents') || '[]') } catch { return [] }
@@ -190,7 +190,7 @@ function AgentCombo({
     .filter((a) => {
       const needle = q.trim().toLowerCase()
       if (!needle) return true
-      return [a.name, a.model, a.persona].some((f) => (f || '').toLowerCase().includes(needle))
+      return [a.name, a.model, a.prompt].some((f) => (f || '').toLowerCase().includes(needle))
     })
     .slice()
     .sort((x, y) => rank(x.id) - rank(y.id) || (x.name || '').localeCompare(y.name || ''))
@@ -287,7 +287,7 @@ function AgentCombo({
                     <span style={{ flex: 1 }} />
                     <ModelBadge a={a} size="row" />
                   </span>
-                  {/* 페르소나 줄 비노출(사용자 지시) — 행은 이름·모델 + 태그 2줄로 압축. */}
+                  {/* 프롬프트 줄 비노출(사용자 지시) — 행은 이름·모델 + 태그 2줄로 압축. */}
                   <span style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
                     {/* 미반영 초안(스펙 078): 어느 에이전트가 미활성 편집을 안고 있는지 피커에서 구분. */}
                     {recent.includes(a.id) && !q ? <Tag bordered={false} style={{ background: 'var(--color-fill-tertiary)', fontSize: 11 }}>최근</Tag> : null}
@@ -367,7 +367,7 @@ function AgentCombo({
           >
             {/* 실행 주체를 한눈에 — ui=모델명, code=코드 정의, external=외부 A2A (스펙 028). */}
             <ModelBadge a={agent} size="header" />
-            {agent.persona}
+            {agent.prompt}
           </span>
         </span>
         {/* 초안 표식은 헤더 신호 배지(DraftBadge — 설명 툴팁 보유)가 canonical(스펙 248 후속,

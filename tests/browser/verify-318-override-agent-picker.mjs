@@ -36,7 +36,7 @@ try {
   await page.getByText('에이전트', { exact: true }).first().waitFor({ timeout: 10000 })
 
   // expert(위임 대상) — ui 로컬, 활성 버전 보유(위임 자격).
-  const er = await apiPost('/agents', { name: EXPERT, config: { model: 'mock-llm', persona: '너는 전문가다.' } })
+  const er = await apiPost('/agents', { name: EXPERT, config: { model: 'mock-llm', prompt: '너는 전문가다.' } })
   const expert = await er.json()
   check(er.ok() && !!expert?.id, `expert 생성 (${er.status()}, id=${expert?.id})`)
   if (expert?.id) cleanup.agents.push(expert.id)
@@ -46,7 +46,7 @@ try {
   if (draft) await apiPost(`/agents/${expert.id}/activate`, { version: draft })
 
   // 노드형(에이전트 도구 없이 시작) — n1은 MCP 도구만.
-  const pr = await apiPost('/agents', { name: PIPE, config: { model: 'mock-llm', persona: '', impl: 'pipeline',
+  const pr = await apiPost('/agents', { name: PIPE, config: { model: 'mock-llm', prompt: '', impl: 'pipeline',
     mcps: ['local-tools'],
     nodes: [{ name: 'n1', prompt: '분석해라', model: 'mock-llm', tools: ['local-tools__echo'] }] } })
   const pipe = await pr.json()

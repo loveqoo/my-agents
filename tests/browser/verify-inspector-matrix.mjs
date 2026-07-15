@@ -21,10 +21,10 @@ const stamp = Date.now().toString(36)
 
 // 능력별 config 팩토리 — 유형(단순/노드형) × 능력(memory) 셀.
 const memConfigSimple = () => ({
-  model: MODEL, persona: '', memories: ['장기 기억 (mem0)'], mcps: [], vectorTables: [],
+  model: MODEL, prompt: '', memories: ['장기 기억 (mem0)'], mcps: [], vectorTables: [],
 })
 const memConfigPipeline = () => ({
-  model: MODEL, persona: '', impl: 'pipeline', memories: ['장기 기억 (mem0)'], mcps: [], vectorTables: [],
+  model: MODEL, prompt: '', impl: 'pipeline', memories: ['장기 기억 (mem0)'], mcps: [], vectorTables: [],
   nodes: [
     { name: '확인', context: 'carry', model: MODEL, tools: [], memories: ['장기 기억 (mem0)'], memoryQuery: 'user', prompt: '위 내용을 한 문장으로 요약하세요.' },
   ],

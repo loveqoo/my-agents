@@ -50,7 +50,7 @@ async function createAgent(request: APIRequestContext, name: string, config: obj
       name,
       config: {
         model: 'local-mlx',
-        persona: 'Calm SRE',
+        prompt: 'Calm SRE',
         memories: [],
         vectorTables: [],
         permissions: [],
@@ -82,28 +82,28 @@ test.describe('블록', () => {
     const res = await request.get('/blocks')
     expect(res.ok()).toBeTruthy()
     const blocks = await res.json()
-    for (const key of ['persona', 'memory', 'embedding', 'permission', 'mcp']) {
+    for (const key of ['prompt', 'memory', 'embedding', 'permission', 'mcp']) {
       expect(blocks[key], key).toBeTruthy()
       expect(Array.isArray(blocks[key].items)).toBeTruthy()
       expect(blocks[key].items.length).toBeGreaterThan(0)
     }
   })
 
-  test('persona 생성 → 수정 → 목록/본문 반영 → 삭제', async ({ request }) => {
-    const name = uniq('persona')
-    const created = await (await request.post('/personas', { data: { name, tone: 't', body: 'b' } })).json()
+  test('prompt 생성 → 수정 → 목록/본문 반영 → 삭제', async ({ request }) => {
+    const name = uniq('prompt')
+    const created = await (await request.post('/prompts', { data: { name, tone: 't', body: 'b' } })).json()
     expect(created.id).toBeTruthy()
-    const list = await (await request.get('/personas')).json()
+    const list = await (await request.get('/prompts')).json()
     expect(list.some((p: { name: string }) => p.name === name)).toBeTruthy()
     // 수정(PUT): 본문·톤 변경이 반영되어야 한다 (014 작성 UI가 쓰는 경로)
     const edited = await (
-      await request.put(`/personas/${created.id}`, { data: { name, tone: 't2', body: 'b2' } })
+      await request.put(`/prompts/${created.id}`, { data: { name, tone: 't2', body: 'b2' } })
     ).json()
     expect(edited.tone).toBe('t2')
     expect(edited.body).toBe('b2')
-    const got = await (await request.get(`/personas/${created.id}`)).json()
+    const got = await (await request.get(`/prompts/${created.id}`)).json()
     expect(got.body).toBe('b2')
-    const del = await request.delete(`/personas/${created.id}`)
+    const del = await request.delete(`/prompts/${created.id}`)
     expect(del.status()).toBe(204)
   })
 
@@ -149,23 +149,23 @@ test.describe('블록', () => {
     expect((await request.delete(`/permissions/${pm.id}`)).status()).toBe(204)
   })
 
-  test('작성한 페르소나 → 단순 에이전트 systemPrompt로 해석', async ({ request }) => {
-    const name = uniq('persona')
+  test('작성한 프롬프트 → 단순 에이전트 systemPrompt로 해석', async ({ request }) => {
+    const name = uniq('prompt')
     const body = '너는 고양이다. 문장 끝에 냐옹을 붙여라.'
-    const p = await (await request.post('/personas', { data: { name, tone: '장난', body } })).json()
-    // 그 페르소나를 이름으로 선택한 단순 에이전트
+    const p = await (await request.post('/prompts', { data: { name, tone: '장난', body } })).json()
+    // 그 프롬프트를 이름으로 선택한 단순 에이전트
     const agent = await (
       await request.post('/agents', {
         data: {
           name: uniq('냐옹'),
-          config: { model: 'qwen3.6-35b', persona: name, memories: [], vectorTables: [], permissions: [], mcps: [], historyDepth: 6, persistHistory: true },
+          config: { model: 'qwen3.6-35b', prompt: name, memories: [], vectorTables: [], permissions: [], mcps: [], historyDepth: 6, persistHistory: true },
         },
       })
     ).json()
-    // 서빙용 해석 본문이 페르소나 body여야 한다 (resolve_persona)
+    // 서빙용 해석 본문이 프롬프트 body여야 한다 (resolve_prompt)
     expect(agent.systemPrompt).toBe(body)
     await request.delete(`/agents/${agent.id}`)
-    await request.delete(`/personas/${p.id}`)
+    await request.delete(`/prompts/${p.id}`)
   })
 
   test('MCP 생성 → publish 토글 → 삭제', async ({ request }) => {
@@ -238,9 +238,9 @@ test.describe('에이전트 CRUD + 버저닝', () => {
     await request.delete(`/agents/${a.id}`)
   })
 
-  test('단순 에이전트(페르소나만) 생성 → 실제 대화 가능', async ({ request }) => {
+  test('단순 에이전트(프롬프트만) 생성 → 실제 대화 가능', async ({ request }) => {
     test.setTimeout(150_000)
-    // 부가기능(mcp·memory·vectorTable·permission) 없이 페르소나만
+    // 부가기능(mcp·memory·vectorTable·permission) 없이 프롬프트만
     const a = await createAgent(request, uniq('simple'), {
       mcps: [],
       memories: [],

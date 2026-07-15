@@ -40,7 +40,7 @@ def is_remote_source(source: str) -> bool:
 
 def is_first_party(source: str) -> bool:
     """제1자 에이전트 소스인가 — ui(로컬 빌더)·code(제1자 SDK 배포). 우리가 저작·제어하며 로컬
-    페르소나·설정을 갖고, A2A 노출·페르소나 갱신의 대상이다. external(제3자 A2A 카드)만 제외.
+    프롬프트·설정을 갖고, A2A 노출·프롬프트 갱신의 대상이다. external(제3자 A2A 카드)만 제외.
 
     **단일 술어**(스펙 183) — is_remote_source의 자매 축. 제1자/제3자 판정 리터럴 드리프트를 0으로
     (a2a 노출·재공개 차단 등 보안 게이트가 이 축에 걸려, 흩어진 리터럴은 새 source 추가 시 조용한
@@ -58,15 +58,15 @@ def is_third_party(source: str) -> bool:
 @dataclass
 class AgentBuildContext:
     """플랫폼이 커스텀 에이전트에 *주입*하는 모든 것. 오버라이드는 이미 병합된 상태로 도착한다
-    (persona=오버라이드 병합 후 system_prompt, model_cfg=레지스트리 해석 후). 에이전트는 이 ctx만
+    (prompt=오버라이드 병합 후 system_prompt, model_cfg=레지스트리 해석 후). 에이전트는 이 ctx만
     보고 그래프를 만든다 — 자기 설정을 DB에서 직접 읽지 않는다(주입 단일 출처)."""
 
-    persona: str
+    prompt: str
     model_cfg: dict | None
     tools: list = field(default_factory=list)
     checkpointer: Any = None  # HIL durable 체크포인터(스펙 041). None이면 무상태.
     params: dict = field(default_factory=dict)  # temperature 등 런타임 파라미터
-    memories: list = field(default_factory=list)  # 회상된 기억(플랫폼이 이미 persona에 합칠 수도)
+    memories: list = field(default_factory=list)  # 회상된 기억(플랫폼이 이미 prompt에 합칠 수도)
     overrides: dict | None = None  # 원본 오버라이드(에이전트가 추가 키를 읽고 싶을 때)
     broker: Any = None  # 능력 브로커(스펙 100). 플랫폼이 **정책으로 미리 스코프**해 주입. None이면
     # 발견 공집합(deny-by-default). 에이전트는 이 핸들만 보고 능력을 오케스트레이션한다(정책·DB 미접촉).
@@ -169,7 +169,7 @@ class DefaultUiAgent:
 
     def build_graph(self, ctx: AgentBuildContext) -> CompiledStateGraph:
         return build_agent(
-            ctx.persona, ctx.params, ctx.tools, ctx.model_cfg, checkpointer=ctx.checkpointer
+            ctx.prompt, ctx.params, ctx.tools, ctx.model_cfg, checkpointer=ctx.checkpointer
         )
 
 

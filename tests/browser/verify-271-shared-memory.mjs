@@ -109,7 +109,7 @@ try {
       return { ok: r.ok, status: r.status, j, t }
     }
     const config = {
-      model: 'qwen3.6-35b', persona: '', impl: '',
+      model: 'qwen3.6-35b', prompt: '', impl: '',
       historyDepth: 40, persistHistory: true, ephemeral: false,
       memories: ['장기 기억 (mem0)'], mcps: [], vectorTables: [],
     }

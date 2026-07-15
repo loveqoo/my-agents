@@ -46,7 +46,7 @@ try {
   const agRes = await page.request.post(`${URL}/api/agents`, {
     data: {
       name: AGENT,
-      config: { model: 'mock-llm', persona: '', impl: 'orchestrate', capabilities: [`mcp:${MCP}`] },
+      config: { model: 'mock-llm', prompt: '', impl: 'orchestrate', capabilities: [`mcp:${MCP}`] },
     },
   })
   check(agRes.ok(), `S2 조율형 에이전트 시드 (status ${agRes.status()})`)

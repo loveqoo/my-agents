@@ -30,7 +30,7 @@ from ..auth import current_principal
 from ..background import spawn
 from ..chat import derive_pipeline_pool, resolve_agent_mem_cfg
 from ..db import get_session
-from ..models import Agent, AgentVersion, Persona
+from ..models import Agent, AgentVersion, Prompt
 from ..naming import slugify_name
 from ..ownership import assert_may_manage, is_privileged, may_manage, may_use_agent, owner_of
 from ..schemas import (
@@ -82,12 +82,12 @@ from .helpers import (
     _find_version,
     _load_agent,
     _new_agent_id,
-    _persona_bodies,
+    _prompt_bodies,
     _reload_out,
     _slugify_remote_agent,
     _today,
     next_version,
-    resolve_persona,
+    resolve_prompt,
 )
 from .memory_routes import (
     AgentMemoryIn,
@@ -108,4 +108,4 @@ from .remote_routes import (
     resync_agent,
 )
 from .routers import meta_router, router
-from .version_routes import activate_version, fork_version, refresh_persona, revert_version
+from .version_routes import activate_version, fork_version, refresh_prompt, revert_version

@@ -115,7 +115,7 @@ async def main():
         remote_base = os.environ.get("REMOTE_AGENT_BASE", "http://127.0.0.1:8000/_remote/a2a")
         async with async_session() as s:
             ca = Agent(agent_id=f"{tag}-code", name=f"{tag}-code", source="code",
-                       owner_id=None, config={"model": "", "persona": ""},
+                       owner_id=None, config={"model": "", "prompt": ""},
                        exposed={"a2a": True}, endpoint=remote_base,
                        token=crypto.encrypt("sk_live_demo"))
             s.add(ca)

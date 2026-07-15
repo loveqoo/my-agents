@@ -137,7 +137,7 @@ export default function OverviewView({ onGo }: { onGo: (v: string) => void }) {
                 divider={i > 0}
                 avatar={<Avatar size="small" style={{ background: 'var(--gray-12)' }}><Icon name="robot" size={13} /></Avatar>}
                 title={<span style={{ fontWeight: 500, fontSize: 14 }}>{a.name}</span>}
-                description={<span style={{ fontSize: 12 }}>{a.persona}</span>}
+                description={<span style={{ fontSize: 12 }}>{a.prompt}</span>}
                 trailing={<StatusPill color={st?.color ?? 'var(--gray-6)'} label={st?.label ?? a.status} />}
               />
             )

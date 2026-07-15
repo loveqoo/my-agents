@@ -2,11 +2,11 @@
 
    memory `ui-verification-must-be-functional`: 외형(렌더·tsc)만 보면 기능이 깨진 채 "완료"가 된다.
    그래서 스샷이 아니라 **DB 실측값과 대조**한다:
-     U1 블록(페르소나) 목록의 '수정' 컬럼에 방금 만든 페르소나의 actor(admin)가 뜬다.
+     U1 블록(프롬프트) 목록의 '수정' 컬럼에 방금 만든 프롬프트의 actor(admin)가 뜬다.
      U2 그 행 상세(드로어)의 감사 메타 줄에 생성자·수정자가 뜬다.
      U3 배경 작업이 만진 자원은 'system'으로 뜬다(343 경계가 화면에 그대로).
      U4 A2A 카드(외부 노출)엔 감사값이 없다 — 누출 핀(고객 ID 노출 방지).
-   실행: PLAYWRIGHT_DIR=... node tests/browser/verify-344-audit-ui.mjs <personaName>
+   실행: PLAYWRIGHT_DIR=... node tests/browser/verify-344-audit-ui.mjs <promptName>
 */
 import { chromium } from '/Users/anthony/.npm/_npx/9833c18b2d85bc59/node_modules/playwright/index.mjs'
 

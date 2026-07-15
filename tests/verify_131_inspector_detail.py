@@ -104,13 +104,13 @@ async def main() -> None:
         runtime.search_collections = orig
 
 
-    # V6 — sentMessages 헬퍼(codex 131 #2·#3): 페르소나 비밀 마스킹 + 개수 상한(생략 표식)
+    # V6 — sentMessages 헬퍼(codex 131 #2·#3): 프롬프트 비밀 마스킹 + 개수 상한(생략 표식)
     from api.chat import _build_sent_messages
-    sm = _build_sent_messages("페르소나 api_key: sk-PERSONA-LEAK-99999", [
+    sm = _build_sent_messages("프롬프트 api_key: sk-PROMPT-LEAK-99999", [
         {"role": "user", "content": f"m{i}"} for i in range(50)
     ])
-    check("sk-PERSONA-LEAK-99999" not in sm[0]["content"] and "«secret»" in sm[0]["content"],
-          f"V6a system(페르소나) 비밀 마스킹 (got {sm[0]['content'][:40]!r})")
+    check("sk-PROMPT-LEAK-99999" not in sm[0]["content"] and "«secret»" in sm[0]["content"],
+          f"V6a system(프롬프트) 비밀 마스킹 (got {sm[0]['content'][:40]!r})")
     check(len(sm) == 1 + 1 + 30 and sm[1]["role"] == "notice" and "생략" in sm[1]["content"],
           f"V6b 개수 상한 30+생략 표식 (got len={len(sm)}, [1]={sm[1]})")
     check(sm[-1]["content"] == "m49", "V6c 최근 메시지 보존(꼬리 유지)")

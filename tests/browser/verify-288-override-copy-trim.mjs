@@ -32,7 +32,7 @@ try {
   await page.getByText('에이전트', { exact: true }).first().waitFor({ timeout: 10000 })
 
   const ar = await page.request.post(`${URL}/api/agents`, {
-    data: { name: AGENT, config: { model: 'mock-llm', persona: '', impl: 'pipeline', mcps: ['local-tools'],
+    data: { name: AGENT, config: { model: 'mock-llm', prompt: '', impl: 'pipeline', mcps: ['local-tools'],
       nodes: [
         { name: 'n1', prompt: '분석해라', model: 'mock-llm', tools: ['local-tools__echo'] },
         { name: 'n2', prompt: '요약해라', model: 'mock-llm', tools: [] },

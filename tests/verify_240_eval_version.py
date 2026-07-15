@@ -54,7 +54,7 @@ async def run() -> bool:
         try:
             a = (await c.post("/agents", json={
                 "name": f"v240-{uuid.uuid4().hex[:6]}",
-                "config": {"model": "mock-llm", "persona": "평가 귀속", "mcps": ["local-tools"]},
+                "config": {"model": "mock-llm", "prompt": "평가 귀속", "mcps": ["local-tools"]},
             })).json()
             made_agents.append(a["id"])
             v0 = a.get("activeVersion") or a.get("active_version")
@@ -78,7 +78,7 @@ async def run() -> bool:
 
             # V2 — 편집(초안 v2 생성)→활성화→재실행: 새 버전이 박제되나
             await c.put(f"/agents/{a['id']}", json={
-                "config": {"model": "mock-llm", "persona": "평가 귀속 v2", "mcps": ["local-tools"]},
+                "config": {"model": "mock-llm", "prompt": "평가 귀속 v2", "mcps": ["local-tools"]},
             })
             g = (await c.get(f"/agents/{a['id']}")).json()
             draft = next((v["version"] for v in g.get("versions", []) if v.get("status") == "draft"), None)

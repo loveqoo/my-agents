@@ -173,7 +173,7 @@ _CAP_ID = {
 
 def cell_config(impl: str, kind: str, res: dict) -> dict:
     """이 셀의 실 저장 config(오버라이드 아님)."""
-    cfg: dict = {"model": "mock-llm", "persona": "매트릭스 테스트", "historyDepth": 6}
+    cfg: dict = {"model": "mock-llm", "prompt": "매트릭스 테스트", "historyDepth": 6}
     if impl != "default":
         cfg["impl"] = impl
     if impl in ARTIFACT_IMPLS:
@@ -365,7 +365,7 @@ async def run() -> int:
         probe_id = None
         try:
             probe_id = await _mk(c, "default", "memprobe", {
-                "model": "mock-llm", "persona": "probe", "historyDepth": 6, "memories": [LONG_TERM_MEMORY],
+                "model": "mock-llm", "prompt": "probe", "historyDepth": 6, "memories": [LONG_TERM_MEMORY],
             })
             sig = _signals(await _chat_direct_memory(c, probe_id))
             direct_mem_ok = sig["memories"] > 0
@@ -414,7 +414,7 @@ async def run() -> int:
         print("\n[negative controls — 능력 0개 에이전트는 발동 신호 0(memory 인과 대조 포함)]")
         neg_prompt = "레코드 rec-001 삭제 검색 등산 장기 기억 저장 doc-translator"
         for impl in IMPLS:
-            cfg = {"model": "mock-llm", "persona": "대조군", "historyDepth": 6}
+            cfg = {"model": "mock-llm", "prompt": "대조군", "historyDepth": 6}
             if impl != "default":
                 cfg["impl"] = impl
             if impl in ARTIFACT_IMPLS:

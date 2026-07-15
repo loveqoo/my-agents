@@ -1,6 +1,6 @@
 """빌딩 블록 카탈로그 CRUD + 관리자 UI 집계 (REST).
 
-페르소나·메모리타입·MCP 서버의 전체 CRUD와, 관리자 콘솔이 한 번에 읽는 4개
+프롬프트·메모리타입·MCP 서버의 전체 CRUD와, 관리자 콘솔이 한 번에 읽는 4개
 카테고리 집계(`GET /blocks`)를 제공한다. embedding 카테고리는 RAG 컬렉션(스펙 036)을
 읽기 전용으로 비춘다 — 컬렉션 CRUD/인제스트는 `rag.py`(`/collections`)가 담당한다.
 """
@@ -19,7 +19,7 @@ from agent.runtime import is_first_party
 from . import crypto
 from .auth import current_principal
 from .db import get_or_404, get_session
-from .models import Agent, Collection, McpServer, MemoryType, Persona, User
+from .models import Agent, Collection, McpServer, MemoryType, Prompt, User
 from .naming import assert_valid_name
 from .ownership import assert_may_manage, may_manage, may_use_agent, owner_of
 from .references import _config_has, agents_referencing, referenced_message
@@ -33,11 +33,11 @@ from .schemas import (
     McpToolTestOut,
     MemoryTypeIn,
     MemoryTypeOut,
-    PersonaApplyIn,
-    PersonaApplyOut,
-    PersonaIn,
-    PersonaOut,
-    PersonaUsageAgentOut,
+    PromptApplyIn,
+    PromptApplyOut,
+    PromptIn,
+    PromptOut,
+    PromptUsageAgentOut,
 )
 from .serializers import _iso, audit_of
 
@@ -63,65 +63,65 @@ async def _commit_or_409(session: AsyncSession, detail: str) -> None:
         raise HTTPException(status_code=409, detail=detail) from err
 
 
-# ----------------------------- 페르소나 -----------------------------
-@router.get("/personas", response_model=list[PersonaOut])
-async def list_personas(session: AsyncSession = Depends(get_session)) -> Any:
-    result = await session.execute(select(Persona))
+# ----------------------------- 프롬프트 -----------------------------
+@router.get("/prompts", response_model=list[PromptOut])
+async def list_prompts(session: AsyncSession = Depends(get_session)) -> Any:
+    result = await session.execute(select(Prompt))
     return result.scalars().all()
 
 
-@router.post("/personas", response_model=PersonaOut, status_code=201)
-async def create_persona(body: PersonaIn, session: AsyncSession = Depends(get_session)) -> Any:
+@router.post("/prompts", response_model=PromptOut, status_code=201)
+async def create_prompt(body: PromptIn, session: AsyncSession = Depends(get_session)) -> Any:
     assert_valid_name(body.name)  # 식별 이름 규칙(스펙 148)
-    obj = Persona(**_norm_description(body.model_dump()))
+    obj = Prompt(**_norm_description(body.model_dump()))
     session.add(obj)
-    await _commit_or_409(session, "같은 식별 이름의 페르소나가 이미 있습니다.")
+    await _commit_or_409(session, "같은 식별 이름의 프롬프트가 이미 있습니다.")
     await session.refresh(obj)
     return obj
 
 
-@router.get("/personas/{id}", response_model=PersonaOut)
-async def get_persona(id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> Any:
-    return await get_or_404(session, Persona, id)
+@router.get("/prompts/{id}", response_model=PromptOut)
+async def get_prompt(id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> Any:
+    return await get_or_404(session, Prompt, id)
 
 
-@router.put("/personas/{id}", response_model=PersonaOut)
-async def update_persona(
-    id: uuid.UUID, body: PersonaIn, session: AsyncSession = Depends(get_session)
+@router.put("/prompts/{id}", response_model=PromptOut)
+async def update_prompt(
+    id: uuid.UUID, body: PromptIn, session: AsyncSession = Depends(get_session)
 ) -> Any:
-    obj = await get_or_404(session, Persona, id)
+    obj = await get_or_404(session, Prompt, id)
     if body.name != obj.name:
         assert_valid_name(body.name)  # 이름 변경 시에만 규칙(기존은 grandfather, 스펙 148)
-        # rename도 config["persona"] 참조를 깬다 — MCP(093)와 동일 가드(codex 148 High)
-        refs = await agents_referencing(session, "persona", obj.name)
+        # rename도 config["prompt"] 참조를 깬다 — MCP(093)와 동일 가드(codex 148 High)
+        refs = await agents_referencing(session, "prompt", obj.name)
         if refs:
             raise HTTPException(
-                status_code=409, detail=referenced_message(refs, "페르소나", action="이름 변경")
+                status_code=409, detail=referenced_message(refs, "프롬프트", action="이름 변경")
             )
     for key, value in _norm_description(body.model_dump()).items():
         setattr(obj, key, value)
-    await _commit_or_409(session, "같은 식별 이름의 페르소나가 이미 있습니다.")
+    await _commit_or_409(session, "같은 식별 이름의 프롬프트가 이미 있습니다.")
     await session.refresh(obj)
     return obj
 
 
-@router.get("/personas/{id}/agents", response_model=list[PersonaUsageAgentOut])
-async def persona_agents(
+@router.get("/prompts/{id}/agents", response_model=list[PromptUsageAgentOut])
+async def prompt_agents(
     id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
     principal: User | str = Depends(current_principal),
 ) -> Any:
-    """이 페르소나를 쓰는 에이전트 + 각 오래됨(stale) 상태(스펙 161). 편집 화면이 "N개 사용·M개
-    오래됨"과 선택 반영 대상을 그린다. stale = 에이전트 스냅샷(agent.persona) != 현재 본문(obj.body)."""
-    obj = await get_or_404(session, Persona, id)
+    """이 프롬프트를 쓰는 에이전트 + 각 오래됨(stale) 상태(스펙 161). 편집 화면이 "N개 사용·M개
+    오래됨"과 선택 반영 대상을 그린다. stale = 에이전트 스냅샷(agent.prompt) != 현재 본문(obj.body)."""
+    obj = await get_or_404(session, Prompt, id)
     agents = (await session.execute(select(Agent))).scalars().all()
     return [
-        PersonaUsageAgentOut(
+        PromptUsageAgentOut(
             id=a.id,
             agentId=a.agent_id,
             name=a.name,
             description=a.description,
-            stale=(a.persona != obj.body),
+            stale=(a.prompt != obj.body),
             canManage=may_manage(a.owner_id, principal),
         )
         for a in agents
@@ -129,50 +129,50 @@ async def persona_agents(
         # 누출하지 않는다(일반 list/get/chat과 동일 게이트). admin/machine은 전부, member는 본인+public.
         if is_first_party(a.source)
         and may_use_agent(a, principal)
-        and _config_has(a.config, "persona", obj.name)
+        and _config_has(a.config, "prompt", obj.name)
     ]
 
 
-@router.post("/personas/{id}/apply", response_model=PersonaApplyOut)
-async def persona_apply(
+@router.post("/prompts/{id}/apply", response_model=PromptApplyOut)
+async def prompt_apply(
     id: uuid.UUID,
-    body: PersonaApplyIn,
+    body: PromptApplyIn,
     session: AsyncSession = Depends(get_session),
     principal: User | str = Depends(current_principal),
 ) -> Any:
-    """선택 에이전트들의 페르소나 스냅샷을 이 페르소나 최신 본문으로 반영(스펙 161). **각 에이전트
-    can_manage 게이트** — 관리 불가/이 페르소나 미참조 대상은 건너뛴다(남의 에이전트 무단 변경 금지)."""
-    obj = await get_or_404(session, Persona, id)
+    """선택 에이전트들의 프롬프트 스냅샷을 이 프롬프트 최신 본문으로 반영(스펙 161). **각 에이전트
+    can_manage 게이트** — 관리 불가/이 프롬프트 미참조 대상은 건너뛴다(남의 에이전트 무단 변경 금지)."""
+    obj = await get_or_404(session, Prompt, id)
     want = set(body.agentIds)
     agents = (await session.execute(select(Agent).where(Agent.id.in_(want)))).scalars().all()
     applied: list[uuid.UUID] = []
     skipped: list[uuid.UUID] = []
     found = {a.id for a in agents}
     for agent in agents:
-        # 이 페르소나를 실제 참조하고(활성 config) 관리 권한이 있어야 반영. 아니면 skip.
+        # 이 프롬프트를 실제 참조하고(활성 config) 관리 권한이 있어야 반영. 아니면 skip.
         if (
             is_first_party(agent.source)
-            and _config_has(agent.config, "persona", obj.name)
+            and _config_has(agent.config, "prompt", obj.name)
             and may_manage(agent.owner_id, principal)
         ):
-            agent.persona = obj.body  # 스냅샷 = 현재 본문(in-place, 이름 불변이라 새 버전 없음)
+            agent.prompt = obj.body  # 스냅샷 = 현재 본문(in-place, 이름 불변이라 새 버전 없음)
             applied.append(agent.id)
         else:
             skipped.append(agent.id)
     skipped.extend(aid for aid in want if aid not in found)  # 미존재도 skip으로 정직 보고
     if applied:
         await session.commit()
-    return PersonaApplyOut(applied=applied, skipped=skipped)
+    return PromptApplyOut(applied=applied, skipped=skipped)
 
 
-@router.delete("/personas/{id}", status_code=204)
-async def delete_persona(id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> None:
-    obj = await get_or_404(session, Persona, id)
-    # 참조 중 삭제 차단(093 operation-symmetry를 페르소나에도 — codex 148 High): 지우면
-    # resolve_persona가 name 문자열 자체를 시스템 프롬프트로 쓰는 조용한 degrade가 생긴다.
-    refs = await agents_referencing(session, "persona", obj.name)
+@router.delete("/prompts/{id}", status_code=204)
+async def delete_prompt(id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> None:
+    obj = await get_or_404(session, Prompt, id)
+    # 참조 중 삭제 차단(093 operation-symmetry를 프롬프트에도 — codex 148 High): 지우면
+    # resolve_prompt가 name 문자열 자체를 시스템 프롬프트로 쓰는 조용한 degrade가 생긴다.
+    refs = await agents_referencing(session, "prompt", obj.name)
     if refs:
-        raise HTTPException(status_code=409, detail=referenced_message(refs, "페르소나"))
+        raise HTTPException(status_code=409, detail=referenced_message(refs, "프롬프트"))
     await session.delete(obj)
     await session.commit()
 
@@ -714,8 +714,8 @@ async def publish_mcp_server(
 
 # ----------------------------- 집계 (관리자 UI) -----------------------------
 _CATEGORY_META: dict[str, dict[str, str]] = {
-    "persona": {
-        "label": "페르소나",
+    "prompt": {
+        "label": "프롬프트",
         "icon": "smile",
         "color": "var(--magenta-6)",
         "desc": "에이전트가 따르는 성격·말투 정의(재사용 가능).",
@@ -775,7 +775,7 @@ async def get_blocks(
 ) -> dict[str, Any]:
     agents = list((await session.execute(select(Agent))).scalars().all())
 
-    personas = list((await session.execute(select(Persona))).scalars().all())
+    prompts = list((await session.execute(select(Prompt))).scalars().all())
     memory_types = list((await session.execute(select(MemoryType))).scalars().all())
     collections = list(
         (
@@ -788,18 +788,18 @@ async def get_blocks(
     )
     mcp_servers = list((await session.execute(select(McpServer))).scalars().all())
 
-    persona_items = [
+    prompt_items = [
         {
             "id": str(row.id),
             "name": row.name,
             "description": row.description,  # 설명(스펙 210)
             "tone": row.tone,
             "body": row.body,
-            "usedBy": _count_by(agents, "persona", row.name, scalar=True),
+            "usedBy": _count_by(agents, "prompt", row.name, scalar=True),
             "updated": _iso(row.updated_at),  # 수정일 배선(스펙 216) — 프론트 fmtTime이 친화 표기
             **_audit_json(row),  # 감사 4값(스펙 344)
         }
-        for row in personas
+        for row in prompts
     ]
     memory_items = [
         {
@@ -861,7 +861,7 @@ async def get_blocks(
     ]
 
     return {
-        "persona": {**_CATEGORY_META["persona"], "items": persona_items},
+        "prompt": {**_CATEGORY_META["prompt"], "items": prompt_items},
         "memory": {**_CATEGORY_META["memory"], "items": memory_items},
         "embedding": {**_CATEGORY_META["embedding"], "items": embedding_items},
         "mcp": {**_CATEGORY_META["mcp"], "items": mcp_items},

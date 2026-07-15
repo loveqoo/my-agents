@@ -1,4 +1,4 @@
-"""공용 헬퍼 — 이름 규칙(스펙 148)·버전 문자열·페르소나 해석·로드/재직렬화.
+"""공용 헬퍼 — 이름 규칙(스펙 148)·버전 문자열·프롬프트 해석·로드/재직렬화.
 
 agent.versions 는 lazy 관계라 async 세션 밖에서 로드하면 실패하므로,
 조회/뮤테이션 후 항상 selectinload(Agent.versions) 로 eager-load 한다.
@@ -14,7 +14,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from ..models import Agent, AgentVersion, Persona
+from ..models import Agent, AgentVersion, Prompt
 from ..naming import slugify_name
 from ..schemas import AgentOut
 from ..serializers import agent_to_out
@@ -74,16 +74,16 @@ def next_version(versions: list[AgentVersion]) -> str:
     return f"v{max_n + 1}"
 
 
-async def resolve_persona(session: AsyncSession, name: str) -> str:
-    """이름으로 Persona 조회 → body 반환. 없으면 이름 그대로."""
-    result = await session.execute(select(Persona).where(Persona.name == name))
-    persona = result.scalar_one_or_none()
-    return persona.body if persona is not None else name
+async def resolve_prompt(session: AsyncSession, name: str) -> str:
+    """이름으로 Prompt 조회 → body 반환. 없으면 이름 그대로."""
+    result = await session.execute(select(Prompt).where(Prompt.name == name))
+    prompt = result.scalar_one_or_none()
+    return prompt.body if prompt is not None else name
 
 
-async def _persona_bodies(session: AsyncSession) -> dict[str, str]:
-    """{페르소나 이름: 현재 본문} 맵(스펙 161) — agent_to_out의 personaStale 계산용. 라우트가 1회 조회."""
-    rows = (await session.execute(select(Persona))).scalars().all()
+async def _prompt_bodies(session: AsyncSession) -> dict[str, str]:
+    """{프롬프트 이름: 현재 본문} 맵(스펙 161) — agent_to_out의 promptStale 계산용. 라우트가 1회 조회."""
+    rows = (await session.execute(select(Prompt))).scalars().all()
     return {p.name: p.body for p in rows}
 
 
@@ -99,7 +99,7 @@ async def _reload_out(session: AsyncSession, agent_pk: uuid.UUID) -> AgentOut:
     agent = await _load_agent(session, agent_pk)
     if agent is None:
         raise HTTPException(status_code=404, detail="agent not found")
-    return agent_to_out(agent, await _persona_bodies(session))
+    return agent_to_out(agent, await _prompt_bodies(session))
 
 
 def _find_version(agent: Agent, version: str) -> AgentVersion | None:

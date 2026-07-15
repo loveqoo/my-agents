@@ -69,7 +69,7 @@ async def main_checks():
 
     broker = CountingBroker([_READ_CAP, _GATED_CAP])
     ctx = AgentBuildContext(
-        persona="오케스트레이터", model_cfg={"base_url": "http://x", "model_id": "mock-llm"},
+        prompt="오케스트레이터", model_cfg={"base_url": "http://x", "model_id": "mock-llm"},
         tools=[], broker=broker, checkpointer=MemorySaver(),
     )
     graph = FixedOrder().build_graph(ctx)
@@ -110,7 +110,7 @@ async def main_checks():
     #     승인 대상이 뒤바뀔 여지가 없다(discover_calls == 1).
     b4 = CountingBroker([_GATED_CAP])  # 단일 gated — 첫(=유일) cap이 interrupt
     g4 = FixedOrder().build_graph(AgentBuildContext(
-        persona="o", model_cfg={"base_url": "http://x", "model_id": "m"}, tools=[],
+        prompt="o", model_cfg={"base_url": "http://x", "model_id": "m"}, tools=[],
         broker=b4, checkpointer=MemorySaver()))
     c4 = {"configurable": {"thread_id": "v116-h4"}}
     async for mode, chunk in g4.astream({"messages": [("user", "요청")]}, config=c4, stream_mode=["updates"]):
@@ -131,7 +131,7 @@ async def main_checks():
     #     않음**(fail-closed) — 이 안전 불변식을 실측한다.
     b5 = CountingBroker([_GATED_CAP, _GATED2_CAP])
     g5 = FixedOrder().build_graph(AgentBuildContext(
-        persona="o", model_cfg={"base_url": "http://x", "model_id": "m"}, tools=[],
+        prompt="o", model_cfg={"base_url": "http://x", "model_id": "m"}, tools=[],
         broker=b5, checkpointer=MemorySaver()))
     c5 = {"configurable": {"thread_id": "v116-h5"}}
     first = None

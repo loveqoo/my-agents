@@ -38,7 +38,7 @@ try {
   // ── ① API로 expert 생성 + 활성화(로컬 위임 자격 = 활성 버전) ──
   const r0 = await api('/agents', {
     method: 'POST',
-    body: JSON.stringify({ name: EXPERT, config: { model: 'mock-llm', persona: '너는 전문가다.' } }),
+    body: JSON.stringify({ name: EXPERT, config: { model: 'mock-llm', prompt: '너는 전문가다.' } }),
   })
   check(r0.status === 201, `① expert 생성 201 (got ${r0.status})`)
   const expert = await r0.json()

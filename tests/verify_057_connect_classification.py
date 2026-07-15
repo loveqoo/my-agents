@@ -93,7 +93,7 @@ async def main() -> None:
     out = await _connect(SDK_URL)
     check(out.source == "code", f"C2 SDK 카드 → source='code' (실제={out.source})")
     check(out.model == "mock-chat", f"C2 config.model이 manifest와 일치 (실제={out.model})")
-    check(out.persona == "정확한 기술 번역가 (SDK)", f"C2 persona가 manifest와 일치 (실제={out.persona})")
+    check(out.prompt == "정확한 기술 번역가 (SDK)", f"C2 prompt가 manifest와 일치 (실제={out.prompt})")
     check("용어집 일관성 유지" in (out.memories or []), "C2 memories가 manifest에서 채워짐")
     check(out.endpoint == A2A_ENDPOINT, f"C2 endpoint=카드 url (실제={out.endpoint})")
     check(out.repo == "acme/doc-translator" and out.commit == "f3a91c2",
@@ -105,7 +105,7 @@ async def main() -> None:
     # ── C3. connect(weather) → source='external' ───────────────────────────
     out = await _connect(WEATHER_URL)
     check(out.source == "external", f"C3 plain 카드 → source='external' (실제={out.source})")
-    check(out.model == "" and out.persona == "", "C3 로컬 모델/페르소나 미해석(빈값)")
+    check(out.model == "" and out.prompt == "", "C3 로컬 모델/프롬프트 미해석(빈값)")
     check(not out.mcps and not out.memories, "C3 로컬 mcps/memories 빔(불투명)")
     check(out.endpoint == A2A_ENDPOINT, f"C3 endpoint=카드 url (실제={out.endpoint})")
     check(not out.versions, "C3 external은 버전 없음")
@@ -143,7 +143,7 @@ async def main() -> None:
                  "capabilities": {"streaming": True}}
     # F3: 거대/잡 문자열이 bounded 컬럼 상한으로 절단(commit 500 방지).
     big = "z" * 500
-    ext_big = {"manifest": {"model": big, "persona": "p"},
+    ext_big = {"manifest": {"model": big, "prompt": "p"},
                "deploy": {"commit": big, "runtime": big, "repo": big}}
     a = _build_code_agent_from_card({**base_card, "name": big}, ext_big, None, True)
     check(len(a.model) <= 120, f"C6 model 컬럼 상한 절단(실제 len={len(a.model)})")

@@ -1,6 +1,6 @@
 /* 공용 프롬프트 컨트롤(스펙 274) — **텍스트 작성(사본) 표면** 전용: 노드 카드·오버라이드 드로어.
-   라벨 줄에 "등록 페르소나에서 가져오기" 콤팩트 로더(learning 078: 세로 스택·형제 폭 다툼 금지),
-   블록을 고르면 body가 TextArea에 복사되고 이후 자유편집. 에이전트 폼의 페르소나는 **참조 저장**
+   라벨 줄에 "등록 프롬프트에서 가져오기" 콤팩트 로더(learning 078: 세로 스택·형제 폭 다툼 금지),
+   블록을 고르면 body가 TextArea에 복사되고 이후 자유편집. 에이전트 폼의 프롬프트는 **참조 저장**
    (블록 이름을 저장, 런타임 해석)이라 시맨틱이 달라 여기 안 태운다(247 "같은 개념≠같은 컴포넌트"). */
 import { Select, Input } from 'antd'
 
@@ -11,7 +11,7 @@ export function PromptField({
   label,
   value,
   onChange,
-  personas,
+  prompts,
   placeholder,
   required = false,
   hint,
@@ -19,7 +19,7 @@ export function PromptField({
   label: string // 노드='프롬프트', 오버라이드='시스템 프롬프트'
   value: string
   onChange: (v: string) => void
-  personas: { name: string; body: string }[]
+  prompts: { name: string; body: string }[]
   placeholder?: string
   required?: boolean // 노드=true(비면 error status)
   hint?: string
@@ -28,15 +28,15 @@ export function PromptField({
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
         <span style={LABEL}>{label}</span>
-        {personas.length > 0 && (
+        {prompts.length > 0 && (
           <Select
             size="small"
             style={{ width: 200 }}
             value={undefined}
-            placeholder="등록 페르소나에서 가져오기"
-            options={personas.map((p) => ({ label: p.name, value: p.name }))}
+            placeholder="등록 프롬프트에서 가져오기"
+            options={prompts.map((p) => ({ label: p.name, value: p.name }))}
             onChange={(name) => {
-              const p = personas.find((x) => x.name === name)
+              const p = prompts.find((x) => x.name === name)
               if (p) onChange(p.body)
             }}
           />

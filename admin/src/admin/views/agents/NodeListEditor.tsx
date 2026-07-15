@@ -16,7 +16,7 @@ import { ToolTree } from './ToolTree'
    ArtifactSpecEditor(190) 관용구 계승: 테두리 카드 + add/remove + per-item 설정 + xxxValid 게이트.
    각 노드 = { 이름 · 프롬프트 · 모델 · 도구 } 인라인 설정 **또는** 노드 라이브러리 참조(스펙 316,
    {ref:{name,version}} — 버전 핀 고정). 노드를 위→아래 순서대로 이어 실행(일렬).
-   - learning 078: 라벨+설명은 세로 스택(형제 flex 폭 다툼 금지) — 프롬프트 라벨 줄에 페르소나 불러오기.
+   - learning 078: 라벨+설명은 세로 스택(형제 flex 폭 다툼 금지) — 프롬프트 라벨 줄에 프롬프트 불러오기.
    - beauty=trust: 단계 번호 배지 + 노드 사이 ↓ 연결로 "일렬" 흐름을 시각화.
    - 에이전트-레벨 도구는 숨김(스펙 259 결정 #2) — 도구는 노드가 직접 고르고, 풀은 합집합에서 파생. */
 // 문서 검색 도구 판별(스펙 272) — 노드 tools에 컬렉션은 search_documents__<컬렉션>(268 P1)으로 저장.
@@ -142,7 +142,7 @@ export function NodeConfigFields({
   value: n,
   onChange,
   models,
-  personas,
+  prompts,
   mcpServers,
   docOptions,
   memoryOptions,
@@ -152,7 +152,7 @@ export function NodeConfigFields({
   value: PipelineNode
   onChange: (patch: Partial<PipelineNode>) => void
   models: { name: string; kind: string }[]
-  personas: { name: string; body: string }[]
+  prompts: { name: string; body: string }[]
   mcpServers: { name: string; tools?: string[] }[]
   docOptions: { label: string; value: string }[]
   memoryOptions: { label: string; value: string }[]
@@ -176,7 +176,7 @@ export function NodeConfigFields({
           label="프롬프트"
           value={n.prompt ?? ''}
           onChange={(v) => onChange({ prompt: v })}
-          personas={personas}
+          prompts={prompts}
           placeholder="이 노드가 할 일을 지시하세요 (예: 입력을 분석해 핵심 3가지를 뽑아라)"
           required
         />
@@ -324,7 +324,7 @@ export function NodeListEditor({
   value,
   onChange,
   models,
-  personas,
+  prompts,
   mcpServers,
   docOptions,
   memoryOptions,
@@ -334,7 +334,7 @@ export function NodeListEditor({
   value: (PipelineNode | PipelineNodeRef)[] | undefined
   onChange: (nodes: (PipelineNode | PipelineNodeRef)[]) => void
   models: { name: string; kind: string }[] // 등록 모델(필터·옵션화는 공용 ModelField가, 스펙 274)
-  personas: { name: string; body: string }[]
+  prompts: { name: string; body: string }[]
   mcpServers: { name: string; tools?: string[] }[] // MCP 서버 카탈로그(ToolTree용, 스펙 277)
   docOptions: { label: string; value: string }[] // 문서 컬렉션(search_documents__<col>)
   memoryOptions: { label: string; value: string }[]
@@ -659,7 +659,7 @@ export function NodeListEditor({
                             onChange={(patch) => setNode(i, patch)}
                             visibleFields={n.overridable}
                             models={models}
-                            personas={personas}
+                            prompts={prompts}
                             mcpServers={mcpServers}
                             docOptions={docOptions}
                             memoryOptions={memoryOptions}
@@ -672,7 +672,7 @@ export function NodeListEditor({
                         value={n}
                         onChange={(patch) => setNode(i, patch)}
                         models={models}
-                        personas={personas}
+                        prompts={prompts}
                         mcpServers={mcpServers}
                         docOptions={docOptions}
                         memoryOptions={memoryOptions}

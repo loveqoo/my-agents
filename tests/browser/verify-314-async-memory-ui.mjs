@@ -49,7 +49,7 @@ try {
     method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: cookie },
     body: JSON.stringify({
       name: NAME,
-      config: { model: 'mock-llm', persona: '너는 친절한 비서다.', memories: [LONG_TERM], historyDepth: 10 },
+      config: { model: 'mock-llm', prompt: '너는 친절한 비서다.', memories: [LONG_TERM], historyDepth: 10 },
     }),
   })
   id = (await created.json().catch(() => ({})))?.id

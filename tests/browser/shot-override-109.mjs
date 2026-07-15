@@ -29,7 +29,7 @@ try {
 
   // ui(web) 직접형 에이전트를 직접 만든다 — 시드 에이전트명 의존은 낡는다(273 갱신).
   const ar = await page.request.post(`${URL}/api/agents`, {
-    data: { name: AGENT, config: { model: 'mock-llm', persona: '테스트용', mcps: [], memories: [] } },
+    data: { name: AGENT, config: { model: 'mock-llm', prompt: '테스트용', mcps: [], memories: [] } },
   })
   const a = await ar.json(); if (a?.id) cleanup.agents.push(a.id)
 

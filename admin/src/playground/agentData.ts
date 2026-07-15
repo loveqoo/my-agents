@@ -94,7 +94,7 @@ export interface Trace {
     local?: boolean // 로컬 인프로세스 위임(스펙 256) — A2A와 호출 방식 구분 표식
     subTraceNodes?: string[] // 하위 실행 흐름(canonical 노드, 상한 50 — 트레이싱 관통)
   }[]
-  // 전송 프롬프트 전문(스펙 131) — 실제 그래프에 넣은 배열(조립 system=persona+회상 포함), 메시지당
+  // 전송 프롬프트 전문(스펙 131) — 실제 그래프에 넣은 배열(조립 system=prompt+회상 포함), 메시지당
   // 2000자 캡. 재개 턴은 N/A(체크포인트 내부 재개 — 스펙 131 경계).
   sentMessages?: { role: string; content: string }[]
   sentMessagesSource?: 'measured' | 'reconstructed' // 스펙 205 — 실측(모델 콜백) vs 재구성(131 폴백)

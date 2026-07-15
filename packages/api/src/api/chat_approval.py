@@ -182,7 +182,7 @@ async def _load_resume_target(
     if ckpt is None:
         log.warning("resume 불가: 체크포인터 비활성 (approval %s)", approval.approval_id)
         return None
-    # 원 턴과 동일하게 컨텍스트·도구·페르소나를 재구성(같은 세션 id → 기존 세션 로딩, 새로 안 만듦).
+    # 원 턴과 동일하게 컨텍스트·도구·프롬프트를 재구성(같은 세션 id → 기존 세션 로딩, 새로 안 만듦).
     ctx = await _load_context(approval.agent_pk, approval.session_id)
     try:
         impl = resolve_agent_runtime(ctx)
@@ -235,7 +235,7 @@ async def _resume_memory_inputs(
     노드 회상이 원 요청자의 세션-가로지름 기억을 그대로 쓰게(원 턴과 동일 스코프). 없으면 None(머신 발).
     스펙 233 봉합(이중 배선 축 — 신규 chat과 동일 게이트를 재개 경로에도): impl이 "memories"를
     consumes로 선언할 때만 회상(폼 "무시됩니다"를 재개 경로에서도 참으로).
-    재개 주체=admin이라 user/run 축 회상은 의미가 약하나, 페르소나 톤 유지를 위해 agent 축 회상만이라도
+    재개 주체=admin이라 user/run 축 회상은 의미가 약하나, 프롬프트 톤 유지를 위해 agent 축 회상만이라도
     접목(없어도 무해). 자동 메모리 add는 user_id 부재로 생략(빚). 노드형은 선조회 생략(메인 경로 대칭,
     스펙 268 P2) — 프록시가 노드별 조회(기본 키워드=approval.summary, 원 턴과 동일 재료)."""
     from .chat import _MemoryRecallProxy  # 파사드 역방향 — 지연 import(순환 회피)
@@ -299,11 +299,11 @@ async def _rebuild_resume_graph(
             resume_history_windows,
             drop_last=False,
         )
-    persona_prompt = ctx["persona"]
+    prompt_prompt = ctx["prompt"]
     if mem_hits:
         # 브로커 memory 능력과 공유하는 포맷(스펙 104 drift 0) — 회상 텍스트 표현이 한 곳.
         recalled = memory.format_memory_hits(mem_hits)
-        persona_prompt = f"{persona_prompt}\n\n# 관련 기억(회상됨)\n{recalled}"
+        prompt_prompt = f"{prompt_prompt}\n\n# 관련 기억(회상됨)\n{recalled}"
     run_params = {} if ctx["temperature"] is None else {"temperature": ctx["temperature"]}
     resume_broker = await _build_resume_broker(
         approval.user_id,
@@ -320,7 +320,7 @@ async def _rebuild_resume_graph(
             runtime.build_agent_tools(resume_broker, await resume_broker.agent_capabilities())
         )
     build_ctx = AgentBuildContext(
-        persona=persona_prompt,
+        prompt=prompt_prompt,
         model_cfg=ctx["model_cfg"],
         tools=tools,
         checkpointer=ckpt,

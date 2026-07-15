@@ -63,7 +63,7 @@ def main() -> None:
         {"key": "email", "label": "이메일", "required": True},
     ]}
     graph = ConfigDrivenArtifactAgent().build_graph(
-        AgentBuildContext(persona="p", model_cfg=None, checkpointer=InMemorySaver(), impl_config=SPEC)
+        AgentBuildContext(prompt="p", model_cfg=None, checkpointer=InMemorySaver(), impl_config=SPEC)
     )
     r = asyncio.run(graph.ainvoke({"messages": [{"role": "user", "content": "가입할게"}]}, config=_cfg("t-c")))
     pf = r["__interrupt__"][0].value
@@ -80,7 +80,7 @@ def main() -> None:
     # ------------------------------------------------------------ [E] 빈 명세
     print("[E] 빈/없는 명세 — 조용한 빈 폼 금지, 빈 산출물로 종료")
     g2 = ConfigDrivenArtifactAgent().build_graph(
-        AgentBuildContext(persona="p", model_cfg=None, checkpointer=InMemorySaver(), impl_config={"fields": []})
+        AgentBuildContext(prompt="p", model_cfg=None, checkpointer=InMemorySaver(), impl_config={"fields": []})
     )
     r = asyncio.run(g2.ainvoke({"messages": [{"role": "user", "content": "hi"}]}, config=_cfg("t-e")))
     check("__interrupt__" not in r and r.get("artifact", {}).get("kind") == "form-result"
@@ -89,7 +89,7 @@ def main() -> None:
     # ------------------------------------------------------------ [D] 이중 입력(텍스트 병합)
     print("[D] 이중 입력 — 폼 대기 중 텍스트 후보 병합")
     g3 = ConfigDrivenArtifactAgent().build_graph(
-        AgentBuildContext(persona="p", model_cfg=None, checkpointer=InMemorySaver(),
+        AgentBuildContext(prompt="p", model_cfg=None, checkpointer=InMemorySaver(),
                           impl_config={"kind": "pick", "fields": [
                               {"key": "size", "label": "크기", "candidates": ["소", "대"], "required": True}]})
     )

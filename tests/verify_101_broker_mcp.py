@@ -85,7 +85,7 @@ _MODEL_CFG = {
 
 
 def _ctx(**kw) -> AgentBuildContext:
-    base = dict(persona="당신은 오케스트레이터입니다.", model_cfg=_MODEL_CFG, tools=[])
+    base = dict(prompt="당신은 오케스트레이터입니다.", model_cfg=_MODEL_CFG, tools=[])
     base.update(kw)
     return AgentBuildContext(**base)
 
@@ -271,7 +271,7 @@ async def integration_flow_http(client: httpx.AsyncClient) -> None:
     print("[H] 통합 — orchestrate 플로우 MCP 서브스텝(HTTP, super 쿠키) → broker_invoke:mcp 노드")
     r = await client.post("/agents", json={
         "name": f"v101-flow-{uuid.uuid4().hex[:6]}",
-        "config": {"model": "mock-llm", "persona": "", "historyDepth": 10,
+        "config": {"model": "mock-llm", "prompt": "", "historyDepth": 10,
                    "impl": "orchestrate", "capabilities": [ECHO_CAP]},
     })
     check(r.status_code == 201, f"H5 orchestrate 에이전트 생성 201 (got {r.status_code})")
@@ -333,7 +333,7 @@ async def hil_http_roundtrip(client: httpx.AsyncClient) -> None:
     print("[H] 통합 — 서브스텝 HIL 풀 HTTP(chat→approval 프레임→resolve, resume 브로커 재주입 글루)")
     r = await client.post("/agents", json={
         "name": f"v101-hil-{uuid.uuid4().hex[:6]}",
-        "config": {"model": "mock-llm", "persona": "", "historyDepth": 10,
+        "config": {"model": "mock-llm", "prompt": "", "historyDepth": 10,
                    "impl": "orchestrate", "capabilities": [DELETE_CAP]},
     })
     check(r.status_code == 201, f"H7 HIL 에이전트 생성 201 (got {r.status_code})")

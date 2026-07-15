@@ -37,10 +37,10 @@ async def run():
     transport = httpx.ASGITransport(app=app)
     try:
         async with httpx.AsyncClient(transport=transport, base_url="http://t", headers=auth, timeout=60) as c:
-            # 원본: 조율형 + 능력 + requires_approval + 페르소나 설정.
+            # 원본: 조율형 + 능력 + requires_approval + 프롬프트 설정.
             src = (await c.post("/agents", json={
                 "name": f"clone-src-{uuid.uuid4().hex[:6]}",
-                "config": {"model": "mock-llm", "persona": "", "historyDepth": 9,
+                "config": {"model": "mock-llm", "prompt": "", "historyDepth": 9,
                            "impl": "orchestrate", "capabilities": ["rag:x", "mcp:y/z"],
                            "requires_approval": True, "temperature": 0.3},
             })).json()

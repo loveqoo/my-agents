@@ -39,7 +39,7 @@ class _Agent:
         self.agent_id = agent_id
         self.id = _uuid.uuid4()
         self.name = name
-        self.persona = name  # _hook_for가 읽음
+        self.prompt = name  # _hook_for가 읽음
         self.owner_id = owner_id
         self.source = source
         self.active_version = active_version

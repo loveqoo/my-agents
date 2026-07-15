@@ -218,15 +218,15 @@ async def resolve_agent_mem_cfg(db: AsyncSession, agent: Agent) -> dict | None:
 # ---------------------------- _load_context 단계 헬퍼 (스펙 291 분해) ----------------------------
 
 
-async def _resolve_version_and_persona(
+async def _resolve_version_and_prompt(
     db: AsyncSession, agent: Agent, cfg: dict, version: str | None
 ) -> tuple[dict, str, str | None]:
     """버전 지정 실행(스펙 242) — 그 버전의 config 스냅샷으로 소스 전환(초안 미리보기·버전 테스트).
 
-    persona는 스냅샷에 이름만 있으므로 지금 본문으로 재해석(activate와 동일 규칙).
-    반환 (cfg, persona, pinned_version). version 미지정이면 저장 config·persona 그대로."""
+    prompt는 스냅샷에 이름만 있으므로 지금 본문으로 재해석(activate와 동일 규칙).
+    반환 (cfg, prompt, pinned_version). version 미지정이면 저장 config·prompt 그대로."""
     if not version:
-        return cfg, agent.persona, None
+        return cfg, agent.prompt, None
     if _is_remote(agent.source):
         raise HTTPException(
             status_code=400,
@@ -244,13 +244,13 @@ async def _resolve_version_and_persona(
     if vrow is None:
         raise HTTPException(status_code=404, detail=f"버전을 찾을 수 없습니다: {version}")
     cfg = dict(vrow.config or {})
-    from .models import Persona as _Persona
+    from .models import Prompt as _Prompt
 
     prow = (
-        await db.execute(select(_Persona).where(_Persona.name == cfg.get("persona", "")))
+        await db.execute(select(_Prompt).where(_Prompt.name == cfg.get("prompt", "")))
     ).scalar_one_or_none()
-    persona = prow.body if prow is not None else cfg.get("persona", "")
-    return cfg, persona, version
+    prompt = prow.body if prow is not None else cfg.get("prompt", "")
+    return cfg, prompt, version
 
 
 def _coerce_history_depth(cfg: dict, agent: Agent) -> None:
@@ -265,7 +265,7 @@ def _coerce_history_depth(cfg: dict, agent: Agent) -> None:
 
 
 def _apply_overrides(
-    cfg: dict, persona: str, overrides: dict | None, agent: Agent, allowed: set
+    cfg: dict, prompt: str, overrides: dict | None, agent: Agent, allowed: set
 ) -> tuple[dict, str, str | None, dict | None]:
     """web 한정 세션 오버라이드 병합(스펙 025) — 화이트리스트 키만, 저장 에이전트는 불변.
 
@@ -277,25 +277,25 @@ def _apply_overrides(
     - vectorTables(스펙 287): 노드형 문서 풀 파생의 실효 축 — RAG 읽기(사용=공용 정책 211).
     - nodes(스펙 287): 구조 불변 강제 merge(allowed와 분리 — 통짜 교체가 아니라 저장 노드 위
       필드 merge, 추가/삭제=범위 밖). 미적용 사유(mismatch)는 트레이스가 표면화.
-    반환 (cfg, persona, nodes_status, passthrough) — passthrough=적용된 원본 오버라이드(미적용=None):
+    반환 (cfg, prompt, nodes_status, passthrough) — passthrough=적용된 원본 오버라이드(미적용=None):
     in-process 커스텀 에이전트가 화이트리스트 밖 키도 읽게 ctx["overrides"]로 전달(스펙 085)."""
     if not overrides or _is_remote(agent.source):
-        return cfg, persona, None, None
+        return cfg, prompt, None, None
     cfg.update({k: v for k, v in overrides.items() if k in allowed})
     if "historyDepth" in overrides:
         _coerce_history_depth(cfg, agent)
-    # systemPrompt는 비어있지 않을 때만 persona를 덮어쓴다 — 빈/공백 문자열로
-    # 저장된 페르소나를 지우지 않도록(백엔드 자체 가드, 클라이언트 신뢰 안 함. codex P1).
+    # systemPrompt는 비어있지 않을 때만 prompt를 덮어쓴다 — 빈/공백 문자열로
+    # 저장된 프롬프트를 지우지 않도록(백엔드 자체 가드, 클라이언트 신뢰 안 함. codex P1).
     sp = overrides.get("systemPrompt")
     if isinstance(sp, str) and sp.strip():
-        persona = sp
+        prompt = sp
     nodes_status: str | None = None
     if overrides.get("nodes") is not None:
         if isinstance(cfg.get("nodes"), list):
             cfg["nodes"], nodes_status = _merge_node_overrides(cfg["nodes"], overrides["nodes"])
         else:
             nodes_status = "mismatch"  # 노드형이 아닌 에이전트에 nodes를 보냄
-    return cfg, persona, nodes_status, overrides
+    return cfg, prompt, nodes_status, overrides
 
 
 def _filter_capabilities(cfg: dict) -> list:
@@ -553,11 +553,11 @@ async def _load_context(
         agent = await get_or_404(db, Agent, agent_id, detail="agent not found")
         cfg = dict(agent.config or {})
         # (스펙 211) 구 113 P0의 저장본/override 권한 분리(stored_mcps 포착)는 사용=공용 전환으로 소멸.
-        cfg, persona, pinned_version = await _resolve_version_and_persona(db, agent, cfg, version)
+        cfg, prompt, pinned_version = await _resolve_version_and_prompt(db, agent, cfg, version)
         # 노드 참조 해석(스펙 316) — ref 항목을 등록 노드 config 사본으로 치환. **오버라이드 병합
         # 전에**(해석→병합): 세션 패치는 해석된 유효 노드 위에 얹는다. 미해결 참조는 422로 명확히
         # 실패(반쪽 파이프라인 조용히 실행 금지 — 089 패턴). 핀 버전 미리보기(version=) 스냅샷의
-        # 참조도 여기서 함께 해석된다(_resolve_version_and_persona 뒤 단일 지점).
+        # 참조도 여기서 함께 해석된다(_resolve_version_and_prompt 뒤 단일 지점).
         if not _is_remote(agent.source) and isinstance(cfg.get("nodes"), list):
             cfg["nodes"] = await resolve_node_refs(db, cfg["nodes"])
         # 세션 오버라이드 화이트리스트(스펙 025/122/276/287 — 각 키 근거는 _apply_overrides docstring).
@@ -571,8 +571,8 @@ async def _load_context(
             "tools",
             "vectorTables",
         }
-        cfg, persona, nodes_status, applied_overrides = _apply_overrides(
-            cfg, persona, overrides, agent, allowed
+        cfg, prompt, nodes_status, applied_overrides = _apply_overrides(
+            cfg, prompt, overrides, agent, allowed
         )
         remote = _is_remote(agent.source)
         # 노드형 풀 서버 파생(스펙 289 P2) — 로드 시 무조건 재파생: 폼 밖 입구(API 직생성·구저장·
@@ -581,7 +581,7 @@ async def _load_context(
         if not remote:
             await derive_pipeline_pool(cfg)
         ctx = {
-            "persona": persona,
+            "prompt": prompt,
             "ext_agent_id": agent.agent_id,
             "agent_name": agent.name,
             "agent_pk": agent.id,
@@ -619,25 +619,25 @@ async def _load_context(
             "pinned_version": pinned_version,
             "exec_version": pinned_version or agent.active_version,
         }
-        # 프롬프트(페르소나) 출처(스펙 364) — 이 턴에 실제 쓰인 프롬프트를 이력에 남겨 턴 분석/재현을
+        # 프롬프트(프롬프트) 출처(스펙 364) — 이 턴에 실제 쓰인 프롬프트를 이력에 남겨 턴 분석/재현을
         # 가능케 한다. systemPrompt 오버라이드로 임시 프롬프트가 쓰였으면 라이브러리 참조가 아니므로
-        # 이름/id 없음(정직). cfg["persona"]는 이름이거나 인라인 본문 — 실제 Persona 행이 매칭될 때만
+        # 이름/id 없음(정직). cfg["prompt"]는 이름이거나 인라인 본문 — 실제 Prompt 행이 매칭될 때만
         # 이름/id를 남기고(짧은 라이브러리 키), 인라인이면 null(본문은 아래 promptSnapshot이 보존).
-        ctx["persona_name"] = None
-        ctx["persona_id"] = None
+        ctx["prompt_name"] = None
+        ctx["prompt_id"] = None
         _sp = (applied_overrides or {}).get("systemPrompt")
         _override_prompt = isinstance(_sp, str) and bool(_sp.strip())
         # 원격(code/external)은 프롬프트가 원격 측에 있어 로컬 라이브러리 참조가 무의미 → 출처 미기록.
-        _ref = "" if (remote or _override_prompt) else (cfg.get("persona") or "")
+        _ref = "" if (remote or _override_prompt) else (cfg.get("prompt") or "")
         if _ref:
-            from .models import Persona as _Persona
+            from .models import Prompt as _Prompt
 
             _prow = (
-                await db.execute(select(_Persona.id).where(_Persona.name == _ref))
+                await db.execute(select(_Prompt.id).where(_Prompt.name == _ref))
             ).scalar_one_or_none()
             if _prow is not None:
-                ctx["persona_name"] = _ref
-                ctx["persona_id"] = str(_prow)
+                ctx["prompt_name"] = _ref
+                ctx["prompt_id"] = str(_prow)
         # 코드·외부 에이전트는 비로컬(원격/A2A) 실행이라 로컬 모델이 필요 없다(건너뜀 = None).
         ctx["model_cfg"] = await _resolve_model(db, cfg, overrides) if not remote else None
         ctx["nodes_resolved"] = await _resolve_nodes_for_ctx(db, ctx, remote)

@@ -46,14 +46,14 @@ class PlanExecuteAgent:
                 "mcps",
                 "vectorTables",
                 "memories",
-            ),  # 202부터 ctx.tools(mcp+rag)·persona(회상) 소비
+            ),  # 202부터 ctx.tools(mcp+rag)·prompt(회상) 소비
             description="2노드(plan→execute) 예제 커스텀 에이전트 — 인터페이스 누수 측정용",
             supports_hil=False,  # 위험 도구 게이트 없음(순수 2노드) — 정직하게 표기
         )
 
     def build_graph(self, ctx: AgentBuildContext) -> CompiledStateGraph:
         model = build_chat_openai(ctx.model_cfg, ctx.params)
-        persona = ctx.persona  # 오버라이드 병합 후 주입된 페르소나(주입 단일 출처)
+        prompt = ctx.prompt  # 오버라이드 병합 후 주입된 프롬프트(주입 단일 출처)
         # 플랫폼 주입 도구(config.mcps 유래, HIL/트레이스 래핑 포함) — 하이브리드 게이트(스펙 203):
         # 임계 이하 직접 바인딩, 초과면 검색 창구(search_tools·call_tool)로 컨텍스트 보호.
         from ..toolbox import effective_tools
@@ -93,7 +93,7 @@ class PlanExecuteAgent:
                 )
                 tool_hint = f"\n\n# 사용 가능한 도구 — 계획상 필요할 때만 호출\n{lines}"
             sys = SystemMessage(
-                content=f"{persona}\n\n# 작업 계획\n{state['plan']}\n위 계획에 따라 답하세요.{tool_hint}"
+                content=f"{prompt}\n\n# 작업 계획\n{state['plan']}\n위 계획에 따라 답하세요.{tool_hint}"
             )
             resp = await bound.ainvoke([sys, *state["messages"]])
             return {"messages": [resp]}

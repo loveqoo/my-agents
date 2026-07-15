@@ -163,7 +163,7 @@ async def http_checks() -> None:
         # 전문가(위임 대상) — 로컬 ui, 활성 버전 보유(위임 자격). mock-llm이 평문 답.
         r = await c.post("/agents", json={
             "name": f"v318-expert-{uuid.uuid4().hex[:6]}",
-            "config": {"model": "mock-llm", "persona": "너는 전문가다. 받은 질문에 답한다."},
+            "config": {"model": "mock-llm", "prompt": "너는 전문가다. 받은 질문에 답한다."},
         })
         check(r.status_code == 201, f"H0 전문가 생성 201 (got {r.status_code})")
         expert = r.json()
@@ -178,7 +178,7 @@ async def http_checks() -> None:
         # H1 풀 파생 — 노드 tools의 agent__{id} → capabilities 파생(저장 시 derive_pipeline_pool)
         agent_tool = f"agent__{expert_id}"
         cfg = {
-            "model": "mock-llm", "persona": "", "impl": "pipeline",
+            "model": "mock-llm", "prompt": "", "impl": "pipeline",
             "nodes": [{"name": "위임노드", "prompt": "전문가에게 물어라", "model": "mock-llm", "tools": [agent_tool]}],
         }
         derived = dict(cfg)

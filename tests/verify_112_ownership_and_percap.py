@@ -159,7 +159,7 @@ async def integration_checks() -> None:
             # 스탬프: alice가 에이전트 생성 → owner=alice.
             _as(alice)
             r = await c.post("/agents", json={"name": f"own-{uuid.uuid4().hex[:6]}",
-                                              "config": {"model": "mock-llm", "persona": "", "historyDepth": 6}})
+                                              "config": {"model": "mock-llm", "prompt": "", "historyDepth": 6}})
             check(r.status_code == 201, f"H1 alice 에이전트 생성 201 (got {r.status_code})")
             aid = r.json()["id"]  # 라우트가 uuid.UUID 경로 → 응답 id = pk(uuid str)
             made_ids.append(aid)
@@ -169,34 +169,34 @@ async def integration_checks() -> None:
 
             # 관리 게이트: bob(타 member)이 alice 것 수정/삭제 → 404-fold.
             _as(bob)
-            r_upd = await c.put(f"/agents/{aid}", json={"config": {"model": "mock-llm", "persona": "x", "historyDepth": 6}})
+            r_upd = await c.put(f"/agents/{aid}", json={"config": {"model": "mock-llm", "prompt": "x", "historyDepth": 6}})
             check(r_upd.status_code == 404, f"H2 타 member 수정 → 404-fold (got {r_upd.status_code})")
             r_del = await c.delete(f"/agents/{aid}")
             check(r_del.status_code == 404, f"H2 타 member 삭제 → 404-fold (got {r_del.status_code})")
 
             # 자가잠금 핀: alice 본인 수정 → OK.
             _as(alice)
-            r_own = await c.put(f"/agents/{aid}", json={"config": {"model": "mock-llm", "persona": "mine", "historyDepth": 6}})
+            r_own = await c.put(f"/agents/{aid}", json={"config": {"model": "mock-llm", "prompt": "mine", "historyDepth": 6}})
             check(r_own.status_code == 200, f"H3 자가잠금 핀: 본인 수정 OK (got {r_own.status_code})")
 
             # 특권: superuser가 alice 것 수정 → OK.
             _as(admin)
-            r_adm = await c.put(f"/agents/{aid}", json={"config": {"model": "mock-llm", "persona": "adm", "historyDepth": 6}})
+            r_adm = await c.put(f"/agents/{aid}", json={"config": {"model": "mock-llm", "prompt": "adm", "historyDepth": 6}})
             check(r_adm.status_code == 200, f"H4 특권(superuser) 타인 것 수정 OK (got {r_adm.status_code})")
 
             # NULL-owned(레거시): owner_id=None 에이전트 직접 삽입 → member 거부, 특권 OK.
             async with SessionLocal() as db:
                 legacy = Agent(agent_id=f"agt_legacy_{uuid.uuid4().hex[:6]}", name="legacy", source="ui",
-                               model="mock-llm", persona="", history_depth=6, config={"model": "mock-llm"},
+                               model="mock-llm", prompt="", history_depth=6, config={"model": "mock-llm"},
                                exposed={"a2a": False}, status="idle", owner_id=None)
                 db.add(legacy); await db.commit(); await db.refresh(legacy)
                 legacy_id = str(legacy.id)  # 라우트는 uuid pk 경로
             made_ids.append(legacy_id)
             _as(bob)
-            r_leg = await c.put(f"/agents/{legacy_id}", json={"config": {"model": "mock-llm", "persona": "x", "historyDepth": 6}})
+            r_leg = await c.put(f"/agents/{legacy_id}", json={"config": {"model": "mock-llm", "prompt": "x", "historyDepth": 6}})
             check(r_leg.status_code == 404, f"H5 NULL-owned member 수정 → 404(admin 전용 fail-closed) (got {r_leg.status_code})")
             _as(admin)
-            r_leg2 = await c.put(f"/agents/{legacy_id}", json={"config": {"model": "mock-llm", "persona": "ok", "historyDepth": 6}})
+            r_leg2 = await c.put(f"/agents/{legacy_id}", json={"config": {"model": "mock-llm", "prompt": "ok", "historyDepth": 6}})
             check(r_leg2.status_code == 200, f"H5 NULL-owned 특권 수정 OK (got {r_leg2.status_code})")
 
             # H6 (codex P1): 에이전트 메모리 변조 라우트도 게이트. bob이 alice 것 메모리 add/patch/delete → 404.
@@ -210,8 +210,8 @@ async def integration_checks() -> None:
             # H7 (codex P1): 404-fold body 통일 — 미존재와 비소유가 같은 detail(존재 비노출).
             _as(bob)
             import uuid as _uuid
-            r_missing = await c.put(f"/agents/{_uuid.uuid4()}", json={"config": {"model": "mock-llm", "persona": "x", "historyDepth": 6}})
-            r_notmine = await c.put(f"/agents/{aid}", json={"config": {"model": "mock-llm", "persona": "x", "historyDepth": 6}})
+            r_missing = await c.put(f"/agents/{_uuid.uuid4()}", json={"config": {"model": "mock-llm", "prompt": "x", "historyDepth": 6}})
+            r_notmine = await c.put(f"/agents/{aid}", json={"config": {"model": "mock-llm", "prompt": "x", "historyDepth": 6}})
             check(r_missing.status_code == 404 and r_notmine.status_code == 404
                   and r_missing.json().get("detail") == r_notmine.json().get("detail"),
                   f"H7 404-fold body 통일: 미존재='{r_missing.json().get('detail')}' == 비소유='{r_notmine.json().get('detail')}'")

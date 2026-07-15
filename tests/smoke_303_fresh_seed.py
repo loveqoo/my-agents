@@ -4,7 +4,7 @@
 끝나면 그 DB를 drop한다(드라이버 스크립트가 생성/삭제 담당). 이 스크립트는:
   1) init_db()로 실제 스키마 구축(alembic upgrade head — 실패는 fail-fast, 스펙 330)
   2) seed_if_empty()로 첫 설치 데이터 적재
-  3) 심긴 행을 카운트해 트림 후 정예(페르소나2·컬렉션3·세션0·에이전트5·승인0)와 대조
+  3) 심긴 행을 카운트해 트림 후 정예(프롬프트2·컬렉션3·세션0·에이전트5·승인0)와 대조
 
 실행: DATABASE_URL=<throwaway> uv run python tests/smoke_303_fresh_seed.py
 """
@@ -25,10 +25,10 @@ if _url.rsplit("/", 1)[-1] == "agents" or "smoke" not in _url:
 from sqlalchemy import func, select  # noqa: E402
 
 from api.db import SessionLocal, init_db  # noqa: E402
-from api.models import Agent, Approval, Collection, Persona, Session  # noqa: E402
+from api.models import Agent, Approval, Collection, Prompt, Session  # noqa: E402
 from api.seed import seed_if_empty  # noqa: E402
 
-EXPECT = {"Persona": 2, "Collection": 3, "Session": 0, "Agent": 5, "Approval": 0}
+EXPECT = {"Prompt": 2, "Collection": 3, "Session": 0, "Agent": 5, "Approval": 0}
 _fails: list[str] = []
 
 
@@ -45,7 +45,7 @@ async def main() -> None:
     async with SessionLocal() as s:
         counts = {}
         for name, model in [
-            ("Persona", Persona),
+            ("Prompt", Prompt),
             ("Collection", Collection),
             ("Session", Session),
             ("Agent", Agent),
@@ -53,16 +53,16 @@ async def main() -> None:
         ]:
             counts[name] = (await s.scalar(select(func.count()).select_from(model))) or 0
         # 심긴 이름도 뽑아 고아 제거를 눈으로 확인.
-        pnames = sorted(p for p in (await s.execute(select(Persona.name))).scalars())
+        pnames = sorted(p for p in (await s.execute(select(Prompt.name))).scalars())
         cnames = sorted(c for c in (await s.execute(select(Collection.name))).scalars())
 
     print(f"\n심긴 카운트: {counts}")
-    print(f"페르소나: {pnames}")
+    print(f"프롬프트: {pnames}")
     print(f"컬렉션:   {cnames}\n")
     for name, exp in EXPECT.items():
         check(counts[name] == exp, f"{name} == {exp} (실제 {counts[name]})")
     check(
-        "strict-senior-engineer" not in pnames and "calm-sre" not in pnames, "고아 페르소나 미적재"
+        "strict-senior-engineer" not in pnames and "calm-sre" not in pnames, "고아 프롬프트 미적재"
     )
     check("support-tickets" not in cnames, "고아 컬렉션 미적재")
 

@@ -6,7 +6,7 @@
   S1 **처녀 DB unknown 0건**(완료 조건): 우리 소유 27테이블 전수 질의 — created_by/updated_by에
      'unknown'인 행이 하나도 없다.
   S2 시드 행이 system: Mock LLM provider + mock 모델 2개의 created_by='system'.
-  S3 앱 시드(ORM)도 system: agents·personas·collections.
+  S3 앱 시드(ORM)도 system: agents·prompts·collections.
   S4 **재발 방지 스캔**: 343(a7f3c9e21b4d) 이후 리비전에 INSERT INTO가 있으면 같은 문장에
      created_by가 있어야 한다 — 다음 데이터 마이그레이션이 같은 함정에 빠지지 않게.
 
@@ -32,7 +32,7 @@ OWNED = [
     "batch_runs", "collection_reindex_events", "collections", "document_blobs", "documents",
     "eval_case_results", "eval_cases", "eval_datasets", "eval_runs", "mcp_servers",
     "memory_snapshots", "memory_types", "message_feedback", "messages", "models",
-    "node_templates", "personas", "providers", "rag_chunks", "roles", "sessions",
+    "node_templates", "prompts", "providers", "rag_chunks", "roles", "sessions",
 ]
 
 
@@ -83,7 +83,7 @@ async def main() -> None:
             await s.execute(
                 text(
                     "select 'agents', created_by from agents "
-                    "union all select 'personas', created_by from personas "
+                    "union all select 'prompts', created_by from prompts "
                     "union all select 'collections', created_by from collections"
                 )
             )

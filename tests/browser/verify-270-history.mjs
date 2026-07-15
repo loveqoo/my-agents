@@ -39,7 +39,7 @@ try {
       return { ok: r.ok, status: r.status, j, t }
     }
     const config = {
-      model: 'qwen3.6-35b', persona: '', impl: 'pipeline',
+      model: 'qwen3.6-35b', prompt: '', impl: 'pipeline',
       historyDepth: 20, persistHistory: false, ephemeral: false,
       memories: [], mcps: [], vectorTables: [],
       nodes: [

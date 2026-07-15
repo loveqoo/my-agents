@@ -15,18 +15,18 @@ from langgraph.graph.state import CompiledStateGraph
 
 from .model import build_chat_openai
 
-# 기본 페르소나 (CLI 등 호출자가 지정하지 않을 때)
-PERSONA = "당신은 간결하고 친절한 한국어 비서입니다. 사용자의 질문에 명확하고 짧게 답하세요."
+# 기본 프롬프트 (CLI 등 호출자가 지정하지 않을 때)
+PROMPT = "당신은 간결하고 친절한 한국어 비서입니다. 사용자의 질문에 명확하고 짧게 답하세요."
 
 
 def build_agent(
-    persona: str = PERSONA,
+    prompt: str = PROMPT,
     params: dict | None = None,
     tools: list | None = None,
     model_cfg: dict | None = None,
     checkpointer: Any = None,
 ) -> CompiledStateGraph:
-    """persona/params/tools로 단일 ReAct 에이전트를 만든다.
+    """prompt/params/tools로 단일 ReAct 에이전트를 만든다.
 
     **모델은 항상 등록된 설정(model_cfg)에서 온다 — env는 보지 않는다.**
     model_cfg = {base_url, api_key, model_id, params}. 호출자(API)가 모델 레지스트리에서
@@ -42,9 +42,9 @@ def build_agent(
     from .toolbox import DISCOVERY_HINT, effective_tools
 
     eff_tools, discovery = effective_tools(tools)
-    system_prompt = f"{persona}\n\n# 도구 안내\n{DISCOVERY_HINT}" if discovery else persona
-    # create_agent = 구 create_react_agent 후속(스펙 076). persona 파라미터는 prompt→system_prompt.
-    # 정적 문자열 persona만 쓰므로 1:1 대응(콜러블 prompt 제거 영향 없음). 반환물은 동일한 컴파일
+    system_prompt = f"{prompt}\n\n# 도구 안내\n{DISCOVERY_HINT}" if discovery else prompt
+    # create_agent = 구 create_react_agent 후속(스펙 076). prompt 파라미터는 prompt→system_prompt.
+    # 정적 문자열 prompt만 쓰므로 1:1 대응(콜러블 prompt 제거 영향 없음). 반환물은 동일한 컴파일
     # LangGraph 그래프 → invoke/astream/ainvoke(Command)/__interrupt__ 계약 보존(verify_041로 증명).
     return create_agent(
         model=model, tools=eff_tools, system_prompt=system_prompt, checkpointer=checkpointer

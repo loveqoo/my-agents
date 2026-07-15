@@ -122,7 +122,7 @@ async def main() -> int:
         # ---- U: 사용=공용 — other 저작 에이전트에 owner의 MCP 배선 ----
         r = await other.post("/agents", json={
             "agentId": AGENT_ID, "name": "probe211-agent", "source": "ui",
-            "config": {"model": "mock-llm", "persona": "", "mcps": [MCP_NAME],
+            "config": {"model": "mock-llm", "prompt": "", "mcps": [MCP_NAME],
                         "historyDepth": 5},
         })
         check(r.status_code in (200, 201), f"U1 비소유 에이전트가 타인 MCP 참조 저장({r.status_code})")

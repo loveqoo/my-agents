@@ -34,7 +34,7 @@ try {
 
   // 원본 시드(세션 쿠키로 프록시 /api 사용) — 테스트 독립성 확보.
   const seed = await page.request.post(`${URL}/api/agents`, {
-    data: { name: SRC, config: { model: 'mock-llm', persona: '', capabilities: [], impl: 'orchestrate' } },
+    data: { name: SRC, config: { model: 'mock-llm', prompt: '', capabilities: [], impl: 'orchestrate' } },
   })
   check(seed.ok(), `S 원본 시드 생성 (status ${seed.status()})`)
   const srcAgent = await seed.json()

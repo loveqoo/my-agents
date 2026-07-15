@@ -67,8 +67,8 @@ async def main() -> None:
     c2 = await _cols("message_feedback")
     check("created_by" in c2 and "owner_id" not in c2 and "updated_by" not in c2,
           f"D2 downgrade = 감사 컬럼 제거·created_by(구 이름) 복귀 (got {sorted(c2)})")
-    c2p = await _cols("personas")
-    check(not ({"created_by", "updated_by"} & c2p), f"D2b 다른 테이블도 감사 컬럼 제거 (personas: {sorted(c2p)})")
+    c2p = await _cols("prompts")
+    check(not ({"created_by", "updated_by"} & c2p), f"D2b 다른 테이블도 감사 컬럼 제거 (prompts: {sorted(c2p)})")
 
     await _sync(command.upgrade, cfg, REV)  # 재적용(멱등)
     c3 = await _cols("message_feedback")

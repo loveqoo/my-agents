@@ -5,7 +5,7 @@ export interface AgentFormData {
   name: string // 식별 이름(규칙, 스펙 148)
   description: string // 설명(선택, 스펙 210) — ''=없음
   model: string
-  persona: string
+  prompt: string
   temperature: number | null // null=자동(모델 등록값), 수동이면 0–2(스펙 077)
   memories: string[]
   historyDepth: number

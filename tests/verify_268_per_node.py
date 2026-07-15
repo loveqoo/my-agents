@@ -127,7 +127,7 @@ async def main():
             {"name": "n2", "prompt": "P2", "model_cfg": MODEL_CFG, "tools": []},  # 기억 미선택
             {"name": "n3", "prompt": "P3", "model_cfg": MODEL_CFG, "tools": [], "memories": ["단기(세션)"], "memoryQuery": "input"},
         ]
-        ctx = AgentBuildContext(persona="", model_cfg=MODEL_CFG, tools=[],
+        ctx = AgentBuildContext(prompt="", model_cfg=MODEL_CFG, tools=[],
                                 impl_config={"nodes": nodes}, memory_recall=fake_recall)
         out = await LinearPipelineAgent().build_graph(ctx).ainvoke({"messages": [HumanMessage(content="USER_IN")]})
         sys_of = {k: v for k, v in seen_sys}
@@ -143,7 +143,7 @@ async def main():
         async def boom(query=None, node=""):
             raise RuntimeError("mem down")
 
-        ctx2 = AgentBuildContext(persona="", model_cfg=MODEL_CFG, tools=[],
+        ctx2 = AgentBuildContext(prompt="", model_cfg=MODEL_CFG, tools=[],
                                  impl_config={"nodes": [nodes[0]]}, memory_recall=boom)
         out2 = await LinearPipelineAgent().build_graph(ctx2).ainvoke({"messages": [HumanMessage(content="X")]})
         check(len(out2["messages"]) == 2, "엔진: 프록시 예외에도 노드 생존(graceful)")
@@ -161,7 +161,7 @@ async def main():
             {"name": "A", "prompt": "PA", "model_cfg": MODEL_CFG, "tools": ["probe"]},
             {"name": "A__tools", "prompt": "PB", "model_cfg": MODEL_CFG, "tools": []},
         ]
-        ctx3 = AgentBuildContext(persona="", model_cfg=MODEL_CFG, tools=[probe],
+        ctx3 = AgentBuildContext(prompt="", model_cfg=MODEL_CFG, tools=[probe],
                                  impl_config={"nodes": nodes_clash})
         g3 = LinearPipelineAgent().build_graph(ctx3)
         g3nodes = set(g3.get_graph().nodes)

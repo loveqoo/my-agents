@@ -391,7 +391,7 @@ async def remote_sdk_agent_card() -> dict:
         "x-my-agents": {
             "manifest": {
                 "model": "mock-chat",
-                "persona": "정확한 기술 번역가 (SDK)",
+                "prompt": "정확한 기술 번역가 (SDK)",
                 "memories": ["용어집 일관성 유지"],
                 "mcps": [],
                 "historyDepth": 10,

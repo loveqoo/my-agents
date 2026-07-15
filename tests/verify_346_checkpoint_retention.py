@@ -271,7 +271,7 @@ async def main() -> None:
     models = _req("/models")
     chat_model = next(m for m in models if m.get("kind") == "chat")
     form_agent = _req("/agents", "POST", {
-        "name": f"{tag}-form", "persona": "폼 수집기", "modelId": chat_model["id"],
+        "name": f"{tag}-form", "prompt": "폼 수집기", "modelId": chat_model["id"],
         "config": {"impl": "artifact_form", "artifactSpec": {"kind": "signup", "fields": [
             {"key": "email", "label": "이메일", "required": True}]}},
     })

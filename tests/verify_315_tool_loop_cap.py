@@ -74,7 +74,7 @@ def _run(stop_after=None, rogue_unbound=False):
     fake = _FakeModel(stop_after=stop_after, rogue_unbound=rogue_unbound)
     pl._model_from_node = lambda node, ctx: fake  # noqa: ARG005
     ctx = AgentBuildContext(
-        persona="", model_cfg=MODEL_CFG, tools=[_tool()],
+        prompt="", model_cfg=MODEL_CFG, tools=[_tool()],
         impl_config={"nodes": [{"name": "실행", "prompt": "검색해 답하라", "model_cfg": MODEL_CFG, "tools": [TOOL]}]},
     )
     g = LinearPipelineAgent().build_graph(ctx)

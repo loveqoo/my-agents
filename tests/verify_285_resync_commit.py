@@ -55,7 +55,7 @@ def _card() -> dict:
         "capabilities": {"streaming": False},
         "skills": [{"id": "s", "name": "s", "description": "d", "tags": []}],
         "x-my-agents": {
-            "manifest": {"model": "remote-model", "persona": "p", "historyDepth": 10},
+            "manifest": {"model": "remote-model", "prompt": "p", "historyDepth": 10},
             "deploy": {"commit": STATE["commit"], "repo": STATE["repo"], "runtime": STATE["runtime"]},
         },
     }

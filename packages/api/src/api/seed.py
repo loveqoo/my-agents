@@ -22,7 +22,7 @@ from .models import (
     McpServer,
     MemoryType,
     ModelConfig,
-    Persona,
+    Prompt,
     Provider,
     Session,
 )
@@ -33,10 +33,10 @@ from .served_mcp import SERVED_MCP_TOOLS, SERVED_MCP_TOOLS_META, served_url
 # admin Provider UI에서 추가하고 기본 전환한다. 가상 모델명(claude-*/gpt-*) 금지.
 CHAT_MODEL_NAME = "mock-llm"
 
-# (name=식별 이름·규칙 준수, description=설명, tone, body) — 스펙 148, 210. name은 config.persona 참조 키.
+# (name=식별 이름·규칙 준수, description=설명, tone, body) — 스펙 148, 210. name은 config.prompt 참조 키.
 # 시드 에이전트가 실제 참조하는 2종만 유지(스펙 303) — strict-senior-engineer·calm-sre는
 # Code Reviewer/Ops Copilot 제거(스펙 046)로 참조가 끊긴 고아라 걷어냄.
-PERSONAS = [
+PROMPTS = [
     (
         "methodical-researcher",
         "Methodical Researcher",
@@ -141,7 +141,7 @@ MCP_SERVERS = [
     ),
 ]
 
-# agent_id, name(식별·규칙), description(설명), source, model, persona, memories, historyDepth, vectorTables, mcps, a2a, status, activeVersion, versions[(version,status,createdAt,note)]
+# agent_id, name(식별·규칙), description(설명), source, model, prompt, memories, historyDepth, vectorTables, mcps, a2a, status, activeVersion, versions[(version,status,createdAt,note)]
 AGENTS = [
     # 코드/인프라 권한·MCP 제거(스펙 046)에 맞춰 web.search/tavily만 유지.
     (
@@ -202,9 +202,9 @@ async def _empty(session: AsyncSession, model: type) -> bool:
     return (count or 0) == 0
 
 
-def _seed_personas(session: AsyncSession) -> None:
-    """PERSONAS 카탈로그를 행으로 적재."""
-    session.add_all([Persona(name=n, description=d, tone=t, body=b) for n, d, t, b in PERSONAS])
+def _seed_prompts(session: AsyncSession) -> None:
+    """PROMPTS 카탈로그를 행으로 적재."""
+    session.add_all([Prompt(name=n, description=d, tone=t, body=b) for n, d, t, b in PROMPTS])
 
 
 def _seed_memory_types(session: AsyncSession) -> None:
@@ -310,7 +310,7 @@ async def _seed_collections(session: AsyncSession) -> None:
     )
 
 
-def _seed_ui_agents(session: AsyncSession, persona_body: dict[str, str]) -> None:
+def _seed_ui_agents(session: AsyncSession, prompt_body: dict[str, str]) -> None:
     """AGENTS 카탈로그(ui 소스)를 버전 이력과 함께 적재."""
     for (
         aid,
@@ -318,7 +318,7 @@ def _seed_ui_agents(session: AsyncSession, persona_body: dict[str, str]) -> None
         description,
         source,
         model,
-        persona,
+        prompt,
         mems,
         hist,
         vts,
@@ -330,7 +330,7 @@ def _seed_ui_agents(session: AsyncSession, persona_body: dict[str, str]) -> None
     ) in AGENTS:
         cfg = {
             "model": model,
-            "persona": persona,
+            "prompt": prompt,
             "memories": list(mems),
             "vectorTables": list(vts),
             "mcps": list(mcps),
@@ -342,7 +342,7 @@ def _seed_ui_agents(session: AsyncSession, persona_body: dict[str, str]) -> None
             description=description,
             source=source,
             model=model,
-            persona=persona_body.get(persona, persona),
+            prompt=prompt_body.get(prompt, prompt),
             history_depth=hist,
             config=cfg,
             exposed={"a2a": a2a},
@@ -356,7 +356,7 @@ def _seed_ui_agents(session: AsyncSession, persona_body: dict[str, str]) -> None
         session.add(agent)
 
 
-def _seed_pipeline_demo_agent(session: AsyncSession, persona_body: dict[str, str]) -> None:
+def _seed_pipeline_demo_agent(session: AsyncSession, prompt_body: dict[str, str]) -> None:
     """노드형(pipeline) 데모 시드(스펙 327) — 계획→실행 2노드 리서치 파이프라인. 구 plan_execute
     (SDK 커스텀 데모) 시드를 범용 노드형으로 대체(사용자 결정: 데모는 범용형으로 시연, 코드 정의
     impl은 UI 편집 없이 플레이그라운드 테스트만). plan_execute impl 자체는 SDK 레퍼런스로
@@ -365,7 +365,7 @@ def _seed_pipeline_demo_agent(session: AsyncSession, persona_body: dict[str, str
     wiki_tools = ["web-fetch__wiki_search", "web-fetch__wiki_page"]
     pe_cfg = {
         "model": CHAT_MODEL_NAME,
-        "persona": "methodical-researcher",
+        "prompt": "methodical-researcher",
         "memories": [],
         "vectorTables": [],
         "mcps": ["web-fetch"],
@@ -408,7 +408,7 @@ def _seed_pipeline_demo_agent(session: AsyncSession, persona_body: dict[str, str
         description="노드형 리서치 데모 — 계획→실행 2노드가 위키 도구로 근거 답변",
         source="ui",
         model=CHAT_MODEL_NAME,
-        persona=persona_body.get("methodical-researcher", "methodical-researcher"),
+        prompt=prompt_body.get("methodical-researcher", "methodical-researcher"),
         history_depth=20,
         config=pe_cfg,
         exposed={"a2a": False},
@@ -454,7 +454,7 @@ def _seed_code_agent(session: AsyncSession) -> None:
         "x-my-agents": {
             "manifest": {
                 "model": CHAT_MODEL_NAME,
-                "persona": "코드 정의 (SDK)",
+                "prompt": "코드 정의 (SDK)",
                 "memories": [],
                 "mcps": [MOCK_MCP_SERVER_NAME],
                 "historyDepth": 10,
@@ -476,7 +476,7 @@ def _seed_code_agent(session: AsyncSession) -> None:
     }
     code_cfg = {
         "model": CHAT_MODEL_NAME,
-        "persona": "코드 정의 (SDK)",
+        "prompt": "코드 정의 (SDK)",
         "memories": [],
         "vectorTables": [],
         "mcps": [MOCK_MCP_SERVER_NAME],
@@ -489,7 +489,7 @@ def _seed_code_agent(session: AsyncSession) -> None:
         description="Doc Translator",
         source="code",
         model=CHAT_MODEL_NAME,
-        persona="코드 정의 (SDK)",
+        prompt="코드 정의 (SDK)",
         history_depth=10,
         config=code_cfg,
         exposed={"a2a": False},
@@ -551,11 +551,11 @@ def _seed_external_agent(session: AsyncSession) -> None:
         description=ext_card["name"],
         source="external",
         model="",
-        persona="",
+        prompt="",
         history_depth=10,
         config={
             "model": "",
-            "persona": "",
+            "prompt": "",
             "memories": [],
             "vectorTables": [],
             "mcps": [],
@@ -574,9 +574,9 @@ def _seed_external_agent(session: AsyncSession) -> None:
 
 def _seed_agents(session: AsyncSession) -> None:
     """에이전트 카탈로그 시드 — ui 2종 + 노드형 데모(327) + code(SDK, 057) + external(A2A)."""
-    persona_body = {name: body for name, _description, _tone, body in PERSONAS}
-    _seed_ui_agents(session, persona_body)
-    _seed_pipeline_demo_agent(session, persona_body)
+    prompt_body = {name: body for name, _description, _tone, body in PROMPTS}
+    _seed_ui_agents(session, prompt_body)
+    _seed_pipeline_demo_agent(session, prompt_body)
     _seed_code_agent(session)
     _seed_external_agent(session)
 
@@ -681,8 +681,8 @@ async def _reconcile_served_mcp(session: AsyncSession) -> None:
 
 async def seed_if_empty(session: AsyncSession) -> None:
     """각 카탈로그가 비어있으면 시드. 부분 시드 가능(독립적)."""
-    if await _empty(session, Persona):
-        _seed_personas(session)
+    if await _empty(session, Prompt):
+        _seed_prompts(session)
     if await _empty(session, MemoryType):
         _seed_memory_types(session)
     if await _empty(session, McpServer):

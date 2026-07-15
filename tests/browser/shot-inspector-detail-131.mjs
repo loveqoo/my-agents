@@ -95,15 +95,15 @@ try {
   // role 태그는 antd Tag 뒤에 글자수(예: "system88자")가 공백 없이 바로 붙어 렌더되므로
   // \b(단어 경계) 대신 태그 뒤 숫자로 경계를 잡는다(실측: "system88자", "user17자").
   const roleTagsOk = /\bsystem\d/.test(bodyText) && !/\buser\d/.test(bodyText) && /user 입력 \d+개는 채팅에서 확인/.test(bodyText)
-  const personaOk = /Friendly/.test(bodyText)
+  const promptOk = /Friendly/.test(bodyText)
   // 메시지 수 카운트: "전송 프롬프트" 옆 Tag 배지(예: "전송 프롬프트" 다음 줄에 숫자만 있는 Tag) —
   // Section 컴포넌트가 title 옆에 count Tag를 렌더하므로 "전송 프롬프트\n2" 류 패턴으로 확인.
   const countMatch = bodyText.match(/전송 프롬프트\s*\n?\s*(\d+)/)
   const countOk = !!countMatch && Number(countMatch[1]) >= 2
   check(roleTagsOk, 'D2a: system 태그 표시 + user 패널 생략(생략 안내문 존재)')
-  check(personaOk, 'D2b: system 패널에 페르소나 텍스트("Friendly") 표시')
+  check(promptOk, 'D2b: system 패널에 프롬프트 텍스트("Friendly") 표시')
   check(countOk, `D2c: 메시지 수 카운트 표시(실측: ${countMatch ? countMatch[1] : '없음'})`)
-  const d2 = roleTagsOk && personaOk && countOk
+  const d2 = roleTagsOk && promptOk && countOk
 
   // D3: "문서 검색 (RAG)" 섹션의 브로커 행 아래 "검색 결과 본문" Collapse 존재 → 클릭 →
   // "[문서 검색 결과" 텍스트와 "유사도" 표시(실 스니펫).

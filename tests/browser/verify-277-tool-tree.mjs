@@ -158,7 +158,7 @@ try {
 
   // ── ⑤ 오버라이드에도 트리 ──
   const pr = await page.evaluate(async (nm) => {
-    const r = await fetch('/api/agents', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: nm, config: { model: 'mock-llm', persona: 't', mcps: [], tools: [] } }) })
+    const r = await fetch('/api/agents', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: nm, config: { model: 'mock-llm', prompt: 't', mcps: [], tools: [] } }) })
     return r.ok ? (await r.json()).id : null
   }, 'tt277-ov-' + rand)
   if (pr) cleanup.agents.push(pr)

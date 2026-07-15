@@ -101,7 +101,7 @@ try {
     record('J1', '"새 에이전트" 클릭', '생성 폼(모달)이 열린다', status, actual, s)
   }
 
-  // J1 #2 — 이름·모델·페르소나 채우고 생성.
+  // J1 #2 — 이름·모델·프롬프트 채우고 생성.
   let creationOk = false
   if (scorecard.find((r) => r.journey === 'J1' && r.step === 1).status === 'ok') {
     let status = 'blocked'
@@ -109,7 +109,7 @@ try {
     try {
       await page.locator('.ant-modal-container').getByPlaceholder('예: research-assistant').fill(AGENT_NAME)
       const modelPicked = await selectFirstOptionByLabel('.ant-modal-container', '모델')
-      const personaPicked = await selectFirstOptionByLabel('.ant-modal-container', '페르소나')
+      const promptPicked = await selectFirstOptionByLabel('.ant-modal-container', '프롬프트')
       // 종류(impl)는 기본값(직접 응답) 그대로 둔다(브리프 지시).
       // 위저드(스펙 239): 정체성 → 하는 일 → 세부 → 요약까지 "다음"으로 이동해야 생성 버튼이 나온다.
       for (let i = 0; i < 3; i++) {
@@ -122,7 +122,7 @@ try {
       const okBtn = page.locator('.ant-modal-footer').getByRole('button', { name: '에이전트 생성', exact: true })
       const disabled = await okBtn.isDisabled().catch(() => false)
       if (disabled) {
-        actual = `생성 버튼이 비활성 상태(이름/모델/페르소나 값 문제 의심). model=${modelPicked}, persona=${personaPicked}`
+        actual = `생성 버튼이 비활성 상태(이름/모델/프롬프트 값 문제 의심). model=${modelPicked}, prompt=${promptPicked}`
       } else {
         await okBtn.click()
         // 토스트("...생성됨 — v1 초안...") 또는 모달이 닫히는지로 성공 판정.
@@ -135,7 +135,7 @@ try {
         const modalClosed = (await page.locator('.ant-modal-container').filter({ hasText: '에이전트 생성' }).count()) === 0
         if (toastShown || modalClosed) {
           status = 'ok'
-          actual = `생성 완료(토스트 표시=${toastShown}, 모달 닫힘=${modalClosed}). model=${modelPicked}, persona=${personaPicked}`
+          actual = `생성 완료(토스트 표시=${toastShown}, 모달 닫힘=${modalClosed}). model=${modelPicked}, prompt=${promptPicked}`
           creationOk = true
         } else {
           const errMsg = await page.locator('.ant-message-notice').first().textContent().catch(() => null)
@@ -148,14 +148,14 @@ try {
     const s = await shot('j1-2-after-create')
     record(
       'J1',
-      '이름 입력·모델/페르소나 선택 후 생성',
+      '이름 입력·모델/프롬프트 선택 후 생성',
       '에이전트가 만들어지고 목록/상세에 보인다',
       status,
       actual,
       s,
     )
   } else {
-    record('J1', '이름 입력·모델/페르소나 선택 후 생성', '에이전트가 만들어지고 목록/상세에 보인다', 'blocked', '이전 단계(모달 열기)가 blocked라 진행 불가', null)
+    record('J1', '이름 입력·모델/프롬프트 선택 후 생성', '에이전트가 만들어지고 목록/상세에 보인다', 'blocked', '이전 단계(모달 열기)가 blocked라 진행 불가', null)
   }
 
   // 생성된 에이전트 id 확보(정리용 + 이후 단계 검증용).

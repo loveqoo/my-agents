@@ -1,15 +1,15 @@
-"""스펙 364 검증 — 대화 이력에 턴 id + 프롬프트(페르소나) 출처 기록.
+"""스펙 364 검증 — 대화 이력에 턴 id + 프롬프트(프롬프트) 출처 기록.
 
 실서버(8000)에 로그인→에이전트 생성→채팅 여러 턴→messages 테이블 실측(HTTP+DB 통합 rung).
 단순 에이전트가 유저 메시지와 답을 각각 한 행으로 저장하던 이력에, 한 턴의 두 행이 같은 turn_id로
 묶이고 assistant 행에 프롬프트 id/이름 + trace.promptSnapshot(body)이 남는지 확인한다.
 
   C1  한 턴의 user+assistant가 같은 turn_id(비어있지 않음), 서로 다른 턴은 다른 turn_id.
-  C3  assistant.prompt_id=페르소나 id·prompt_name=페르소나 이름, trace.promptSnapshot.body=그 턴 본문.
+  C3  assistant.prompt_id=프롬프트 id·prompt_name=프롬프트 이름, trace.promptSnapshot.body=그 턴 본문.
   C4  systemPrompt 오버라이드 턴은 prompt_id/name=null(라이브러리 참조 아님)·스냅샷 body=오버라이드 텍스트.
   C6  ephemeral 에이전트는 메시지 미저장(무회귀 — 스탬프도 없음).
 
-전제: 서버 8000(새 코드), 시드 페르소나 존재. 실행: .venv/bin/python tests/verify_364_turn_provenance.py
+전제: 서버 8000(새 코드), 시드 프롬프트 존재. 실행: .venv/bin/python tests/verify_364_turn_provenance.py
 """
 import os
 import sys
@@ -48,11 +48,11 @@ def _session_from_sse(text_body: str) -> str | None:
 def main() -> None:
     eng = create_engine(DB)
     with eng.connect() as c:
-        prow = c.execute(text("select id, name, body from personas order by name limit 1")).first()
+        prow = c.execute(text("select id, name, body from prompts order by name limit 1")).first()
     if prow is None:
-        raise SystemExit("시드 페르소나 없음 — 전제 불충족")
-    persona_id, persona_name, persona_body = str(prow[0]), prow[1], prow[2]
-    print(f"  --  대상 페르소나: {persona_name} ({persona_id[:8]})")
+        raise SystemExit("시드 프롬프트 없음 — 전제 불충족")
+    prompt_id, prompt_name, prompt_body = str(prow[0]), prow[1], prow[2]
+    print(f"  --  대상 프롬프트: {prompt_name} ({prompt_id[:8]})")
 
     cli = httpx.Client(base_url=BASE, timeout=120.0)
     r = cli.post("/auth/login", data={"username": EMAIL, "password": PASSWORD})
@@ -81,10 +81,10 @@ def main() -> None:
     import uuid as _uuid
 
     tag = _uuid.uuid4().hex[:6]
-    # ── 일반(라이브러리 페르소나) 에이전트: 두 턴 ──────────────────────────────
+    # ── 일반(라이브러리 프롬프트) 에이전트: 두 턴 ──────────────────────────────
     aid = make_agent(
         f"v364-lib-{tag}",
-        {"model": "mock-llm", "persona": persona_name, "mcps": [], "memories": [], "vectorTables": []},
+        {"model": "mock-llm", "prompt": prompt_name, "mcps": [], "memories": [], "vectorTables": []},
     )
     sess = chat(aid, "364 첫 번째 턴입니다", None)
     check(bool(sess), f"채팅 턴1 세션 생성 (session={sess})")
@@ -119,9 +119,9 @@ def main() -> None:
     for i in (0, 1):
         a = turns[i][1]
         snap = (a.trace or {}).get("promptSnapshot") or {}
-        check(a.prompt_id == persona_id, f"C3: 턴{i+1} assistant.prompt_id=페르소나 id")
-        check(a.prompt_name == persona_name, f"C3: 턴{i+1} assistant.prompt_name=페르소나 이름")
-        check(snap.get("body") == persona_body, f"C3: 턴{i+1} promptSnapshot.body=페르소나 본문")
+        check(a.prompt_id == prompt_id, f"C3: 턴{i+1} assistant.prompt_id=프롬프트 id")
+        check(a.prompt_name == prompt_name, f"C3: 턴{i+1} assistant.prompt_name=프롬프트 이름")
+        check(snap.get("body") == prompt_body, f"C3: 턴{i+1} promptSnapshot.body=프롬프트 본문")
 
     # C4 — 오버라이드 턴 assistant: 라이브러리 참조 아님(null) + 스냅샷=오버라이드 텍스트
     ov = turns[2][1]
@@ -132,7 +132,7 @@ def main() -> None:
     # ── C6 ephemeral: 메시지 미저장 ───────────────────────────────────────────
     eid = make_agent(
         f"v364-eph-{tag}",
-        {"model": "mock-llm", "persona": persona_name, "mcps": [], "memories": [], "vectorTables": [], "ephemeral": True},
+        {"model": "mock-llm", "prompt": prompt_name, "mcps": [], "memories": [], "vectorTables": [], "ephemeral": True},
     )
     esess = chat(eid, "364 ephemeral 턴", None)
     with eng.connect() as c:

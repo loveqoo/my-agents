@@ -21,7 +21,7 @@ const BARE_MSG = `363 맨턴 유니크 질문 ${stamp} 어떻게 지내` // 시�
 const NOFIRE = '호출되지 않았습니다' // 도구 무발동 Alert 제목 일부
 
 const simpleMemMcp = () => ({
-  model: MODEL, persona: '', memories: ['장기 기억 (mem0)'], mcps: ['calc-tools'], vectorTables: [],
+  model: MODEL, prompt: '', memories: ['장기 기억 (mem0)'], mcps: ['calc-tools'], vectorTables: [],
 })
 
 const browser = await chromium.launch({ channel: 'chrome', headless: true })

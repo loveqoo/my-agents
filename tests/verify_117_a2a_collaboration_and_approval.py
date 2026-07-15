@@ -71,7 +71,7 @@ async def part_a_http_e2e():
         async with httpx.AsyncClient(transport=transport, base_url="http://t", headers=auth, timeout=120) as c:
             r = await c.post("/agents", json={
                 "name": f"{pfx}-orch",
-                "config": {"model": "mock-llm", "persona": "", "historyDepth": 10,
+                "config": {"model": "mock-llm", "prompt": "", "historyDepth": 10,
                            "impl": "orchestrate", "capabilities": [target_id]},
             })
             check(r.status_code == 201, f"A0 조율형 생성 201 (got {r.status_code})")
@@ -133,7 +133,7 @@ async def part_schema_roundtrip():
                                      base_url="http://t", headers=auth, timeout=60) as c:
             r = await c.post("/agents", json={
                 "name": f"{pfx}-rt",
-                "config": {"model": "mock-llm", "persona": "", "requires_approval": True},
+                "config": {"model": "mock-llm", "prompt": "", "requires_approval": True},
             })
             check(r.status_code == 201, f"B0 생성 201 (got {r.status_code})")
             made = r.json()["id"]

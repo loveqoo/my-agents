@@ -44,9 +44,9 @@ try {
   const made = await page.evaluate(async ({ D, P, O }) => {
     const H = { 'Content-Type': 'application/json' }
     const jf = async (body) => { const r = await fetch('/api/agents', { method: 'POST', credentials: 'include', headers: H, body: JSON.stringify(body) }); return r.ok ? await r.json() : null }
-    const d = await jf({ name: D, config: { model: 'mock-llm', persona: 't', mcps: ['local-tools'], tools: ['local-tools__echo', 'local-tools__web_search'], memories: ['장기 기억 (mem0)'] } })
-    const p = await jf({ name: P, config: { model: 'mock-llm', persona: '', impl: 'pipeline', nodes: [{ name: 'n1', prompt: 'p', model: 'mock-llm', tools: [] }, { name: 'n2', prompt: 'p', model: 'mock-llm', tools: [] }] } })
-    const o = d?.agentId ? await jf({ name: O, config: { model: 'mock-llm', persona: 't', impl: 'orchestrate', capabilities: [d.agentId],
+    const d = await jf({ name: D, config: { model: 'mock-llm', prompt: 't', mcps: ['local-tools'], tools: ['local-tools__echo', 'local-tools__web_search'], memories: ['장기 기억 (mem0)'] } })
+    const p = await jf({ name: P, config: { model: 'mock-llm', prompt: '', impl: 'pipeline', nodes: [{ name: 'n1', prompt: 'p', model: 'mock-llm', tools: [] }, { name: 'n2', prompt: 'p', model: 'mock-llm', tools: [] }] } })
+    const o = d?.agentId ? await jf({ name: O, config: { model: 'mock-llm', prompt: 't', impl: 'orchestrate', capabilities: [d.agentId],
       // 미소비 표면 데이터(스펙 206 — orchestrate consumes=capabilities·memories): 도구는 저장돼도 상세에 안 보여야 한다
       mcps: ['local-tools'], tools: ['local-tools__echo'], memories: ['장기 기억 (mem0)'] } }) : null
     return { d: d?.id, p: p?.id, o: o?.id }
@@ -63,7 +63,7 @@ try {
   check(overview.includes('기억 1개') && !overview.includes('메모리'), `④ 개요 '기억 1'(메모리 아님)`)
   check(overview.includes('피드백 없음') && !overview.includes('아직') && !overview.includes('지표 없음'), `④ 운영 행 '피드백 없음'('아직' 제거)`)
   // 후속: 개요 요약 행 압축(사용자 5지시)
-  check(!overview.includes('페르소나'), `⑤ 실행 행 페르소나 제거(모델·세션만)`)
+  check(!overview.includes('프롬프트'), `⑤ 실행 행 프롬프트 제거(모델·세션만)`)
   check(overview.includes('v1 · 미서빙') && !overview.includes('활성화 필요'), `⑤ 버전 행 'v1 · 미서빙' 압축 (got ${JSON.stringify(overview.match(/v1[^\n]*/)?.[0] ?? '')})`)
   check(overview.includes('비공개') && !overview.includes('private') && !overview.includes('소유자만'), `⑤ 공개 행 '비공개'(한국어 어휘) 압축`)
   check((await page.locator('span[aria-label="A2A 꺼짐"]').count()) > 0, `⑤ A2A 상태 점(회색=꺼짐) 존재`)
@@ -113,8 +113,8 @@ try {
   const cfg2 = await page.locator('.ant-descriptions').first().innerText()
   check(cfg2.includes('n1') && cfg2.includes('n2') && cfg2.includes('mock-llm'), `② 구성 탭 노드 행(이름·모델)`)
   check(!cfg2.includes('장기 기억') && !(await page.getByText('연결 없음', { exact: false }).count()), `⑦ 노드형: 에이전트 수준 행·각주 없음(노드 소유)`)
-  // 후속(2026-07-10): 노드형 구성 탭에 최상위 모델·페르소나 행 부재(노드 소유 — pipeline.py 미참조)
-  check(!cfg2.includes('페르소나'), `⑨ 구성 탭 페르소나 행 부재(노드형)`)
+  // 후속(2026-07-10): 노드형 구성 탭에 최상위 모델·프롬프트 행 부재(노드 소유 — pipeline.py 미참조)
+  check(!cfg2.includes('프롬프트'), `⑨ 구성 탭 프롬프트 행 부재(노드형)`)
   check(!/^모델\t|\n모델\t|\n모델\n/.test(cfg2), `⑨ 구성 탭 최상위 모델 행 부재(노드형)`)
 
   // ── 조율형 상세: 위임 대상=이름 노출(수만으론 빈약 — 후속) ──
@@ -130,7 +130,7 @@ try {
   await page.waitForTimeout(500)
   const cfg3 = await page.locator('.ant-descriptions').first().innerText()
   check(!cfg3.includes('도구') && !cfg3.includes('문서'), `⑩ 조율형 구성 탭 도구·문서 행 부재(미소비) (got ${JSON.stringify(cfg3.slice(0, 120))})`)
-  check(cfg3.includes('장기 기억') && cfg3.includes('페르소나') && cfg3.includes('모델'), `⑩ 조율형 구성 탭 모델·페르소나·장기 기억 행 존재(소비)`)
+  check(cfg3.includes('장기 기억') && cfg3.includes('프롬프트') && cfg3.includes('모델'), `⑩ 조율형 구성 탭 모델·프롬프트·장기 기억 행 존재(소비)`)
 
   log('\n' + (fails.length ? `FAILED ${fails.length}: ${fails.join(' | ')}` : 'ALL GREEN'))
   if (fails.length) process.exitCode = 1

@@ -68,7 +68,7 @@ async def run() -> bool:
         try:
             a = (await c.post("/agents", json={
                 "name": f"reg241-{uuid.uuid4().hex[:6]}",
-                "config": {"model": "mock-llm", "persona": "회귀 실습"},
+                "config": {"model": "mock-llm", "prompt": "회귀 실습"},
             })).json()
             agents.append(a["id"])
             v1 = await _activate_draft(c, a["id"])  # v1 활성화(자동 회귀는 문제집 없어 0)
@@ -83,7 +83,7 @@ async def run() -> bool:
             ck(len(rs) == 1 and rs[0]["status"] == "ok", f"R1 베이스라인 수동 런 완료 (v={rs[0].get('agent_version')})")
 
             # R2 편집→v2 활성화 → 자동 회귀 런
-            await c.put(f"/agents/{a['id']}", json={"config": {"model": "mock-llm", "persona": "회귀 실습 v2"}})
+            await c.put(f"/agents/{a['id']}", json={"config": {"model": "mock-llm", "prompt": "회귀 실습 v2"}})
             v2 = await _activate_draft(c, a["id"])
             await asyncio.sleep(1.0)  # fire-and-forget 태스크 시작 여유
             rs = await _wait_all_done(c, ds_id)
@@ -96,7 +96,7 @@ async def run() -> bool:
             # R3 문제집 없는 에이전트 — 활성화해도 아무 일 없음(전체 런 수 불변)
             b = (await c.post("/agents", json={
                 "name": f"noreg-{uuid.uuid4().hex[:6]}",
-                "config": {"model": "mock-llm", "persona": "x"},
+                "config": {"model": "mock-llm", "prompt": "x"},
             })).json()
             agents.append(b["id"])
             before = len(await _runs(c, ds_id))

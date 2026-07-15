@@ -80,7 +80,7 @@ def main():
         {"name": "검토", "prompt": "검토", "model_cfg": MODEL_CFG, "tools": ["nonexistent_tool"]},
     ]
     ctx = AgentBuildContext(
-        persona="",
+        prompt="",
         model_cfg=MODEL_CFG,
         tools=[_fake_tool("search_documents"), _fake_tool("other")],
         impl_config={"nodes": nodes},
@@ -95,7 +95,7 @@ def main():
     check("작성__tools" not in gnodes, "U5 도구 없는 노드는 ToolNode 없음")
 
     # U4 빈 노드 → 단일 패스스루(크래시 안 함)
-    ctx2 = AgentBuildContext(persona="", model_cfg=MODEL_CFG, tools=[], impl_config={"nodes": []})
+    ctx2 = AgentBuildContext(prompt="", model_cfg=MODEL_CFG, tools=[], impl_config={"nodes": []})
     g2 = impl.build_graph(ctx2)
     check(len(g2.get_graph().nodes) >= 1, "U4 빈 노드 → 단일 패스스루(정직, 크래시 0)")
 

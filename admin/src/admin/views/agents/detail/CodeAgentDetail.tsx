@@ -6,7 +6,7 @@ import { ExposeSwitch } from '../../../shared'
 import { Icon } from '../../../icons'
 import { type Agent } from '../../../mockData'
 import { displayName } from '../../../naming'
-import { PersonaStaleNote } from '../PersonaStaleNote'
+import { PromptStaleNote } from '../PromptStaleNote'
 import { DetailPageShell, SectionTitle, JumpCell, type DetailSection } from './DetailPageShell'
 
 export function CodeAgentDetailPage({
@@ -17,7 +17,7 @@ export function CodeAgentDetailPage({
   onResync,
   onToggleExpose,
   onSetVisibility,
-  onRefreshPersona,
+  onRefreshPrompt,
 }: {
   agent: Agent
   onBack: () => void
@@ -26,7 +26,7 @@ export function CodeAgentDetailPage({
   onResync: (a: Agent) => void
   onToggleExpose: (a: Agent) => void
   onSetVisibility: (a: Agent, pub: boolean) => void
-  onRefreshPersona: (a: Agent) => Promise<void>
+  onRefreshPrompt: (a: Agent) => Promise<void>
 }) {
   const screens = Grid.useBreakpoint()
   const isMobile = !screens.md
@@ -46,7 +46,7 @@ export function CodeAgentDetailPage({
                 key: 'run',
                 label: '실행',
                 children: (
-                  // 모델·활성 세션만(스펙 286 후속 — ui 상세와 같은 문법, 페르소나는 구성 탭이 소유).
+                  // 모델·활성 세션만(스펙 286 후속 — ui 상세와 같은 문법, 프롬프트는 구성 탭이 소유).
                   <span>
                     <span style={{ fontFamily: 'var(--font-family-code)' }}>{agent.model}</span>
                     <span style={{ color: 'var(--color-text-tertiary)' }}> · 활성 세션 {agent.sessions ?? 0}개</span>
@@ -104,7 +104,7 @@ export function CodeAgentDetailPage({
             showIcon
             title="SDK로 코드 정의해 원격 엔드포인트에서 실행되는 에이전트입니다. 구성은 코드가 소유하므로 콘솔에서는 읽기 전용입니다 — 변경하려면 코드를 수정해 다시 배포한 뒤 동기화하세요."
           />
-          <PersonaStaleNote agent={agent} onRefresh={onRefreshPersona} />
+          <PromptStaleNote agent={agent} onRefresh={onRefreshPrompt} />
         </section>
       ),
     },
@@ -117,7 +117,7 @@ export function CodeAgentDetailPage({
             {...kv}
             items={[
               { key: 'model', label: '모델', children: <span style={{ fontFamily: 'var(--font-family-code)' }}>{agent.model}</span> },
-              { key: 'persona', label: '페르소나', children: agent.persona || '없음' },
+              { key: 'prompt', label: '프롬프트', children: agent.prompt || '없음' },
               {
                 key: 'history',
                 label: '단기 기억',

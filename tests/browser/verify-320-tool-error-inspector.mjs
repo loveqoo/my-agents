@@ -58,7 +58,7 @@ try {
     body: JSON.stringify({
       name: AGENT,
       config: {
-        model: 'mock-llm', persona: '', impl: 'pipeline', mcps: [SRV],
+        model: 'mock-llm', prompt: '', impl: 'pipeline', mcps: [SRV],
         nodes: [{ name: 'n1', prompt: '요청을 처리해라', model: 'mock-llm', tools: [FAIL_TOOL] }],
       },
     }),

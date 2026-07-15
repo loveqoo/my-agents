@@ -30,7 +30,7 @@ from sqlalchemy import insert, select, text, update  # noqa: E402
 from api import audit  # noqa: E402
 from api.audit import AuditMixin  # noqa: E402
 from api.db import SessionLocal, init_db  # noqa: E402
-from api.models import Base, Persona  # noqa: E402
+from api.models import Base, Prompt  # noqa: E402
 
 _fails: list[str] = []
 passed = 0
@@ -41,7 +41,7 @@ OWNED = [
     "batch_runs", "collection_reindex_events", "collections", "document_blobs", "documents",
     "eval_case_results", "eval_cases", "eval_datasets", "eval_runs", "mcp_servers",
     "memory_snapshots", "memory_types", "message_feedback", "messages", "models",
-    "node_templates", "personas", "providers", "rag_chunks", "roles", "sessions",
+    "node_templates", "prompts", "providers", "rag_chunks", "roles", "sessions",
 ]
 AUDIT_COLS = {"created_at", "updated_at", "created_by", "updated_by"}
 
@@ -103,11 +103,11 @@ async def main() -> None:
     name1 = f"audit-orm-{uuid.uuid4().hex[:8]}"
     async with SessionLocal() as s:
         # V1 — ORM insert
-        p = Persona(name=name1, body="x")
+        p = Prompt(name=name1, body="x")
         s.add(p)
         await s.commit()
         row = (await s.execute(text(
-            "select created_at, updated_at, created_by, updated_by from personas where name=:n"
+            "select created_at, updated_at, created_by, updated_by from prompts where name=:n"
         ), {"n": name1})).one()
         c_at, u_at, c_by, u_by = row
         check(all(v is not None for v in row) and c_by == "tester" and u_by == "tester",
@@ -116,10 +116,10 @@ async def main() -> None:
 
         # V2 — Core insert() (비-ORM 경로, 대량)
         names = [f"audit-core-{uuid.uuid4().hex[:8]}" for _ in range(3)]
-        await s.execute(insert(Persona), [{"name": n, "body": "y"} for n in names])
+        await s.execute(insert(Prompt), [{"name": n, "body": "y"} for n in names])
         await s.commit()
         rows = (await s.execute(text(
-            "select created_by, updated_by, created_at, updated_at from personas where name = any(:ns)"
+            "select created_by, updated_by, created_at, updated_at from prompts where name = any(:ns)"
         ), {"ns": names})).all()
         check(len(rows) == 3 and all(r[0] == "tester" and r[1] == "tester" and r[2] and r[3] for r in rows),
               f"V2 Core insert() 대량도 4컬럼 채움 ({len(rows)}행, by={rows[0][0] if rows else '-'})")
@@ -127,23 +127,23 @@ async def main() -> None:
         # V3 — Core update(): updated_* 갱신, created_* 보존
         audit.set_actor("editor")
         await asyncio.sleep(0.01)
-        await s.execute(update(Persona).where(Persona.name == name1).values(body="z"))
+        await s.execute(update(Prompt).where(Prompt.name == name1).values(body="z"))
         await s.commit()
         r3 = (await s.execute(text(
-            "select created_at, updated_at, created_by, updated_by from personas where name=:n"
+            "select created_at, updated_at, created_by, updated_by from prompts where name=:n"
         ), {"n": name1})).one()
         check(r3[2] == "tester" and r3[3] == "editor" and r3[1] > r3[0],
               f"V3 Core update() = updated_by 갱신·created_by 보존 (created_by={r3[2]}, updated_by={r3[3]})")
 
         # V4 — ORM 위변조 시도: created_* 덮어쓰기 → 되돌려짐
-        obj = (await s.execute(select(Persona).where(Persona.name == name1))).scalar_one()
+        obj = (await s.execute(select(Prompt).where(Prompt.name == name1))).scalar_one()
         orig_by, orig_at = obj.created_by, obj.created_at
         obj.created_by = "attacker"
         obj.created_at = obj.created_at.replace(year=2000)
         obj.body = "tampered"
         await s.commit()
         r4 = (await s.execute(text(
-            "select created_at, created_by from personas where name=:n"
+            "select created_at, created_by from prompts where name=:n"
         ), {"n": name1})).one()
         check(r4[1] == orig_by and r4[0] == orig_at,
               f"V4 created_* 위변조 시도 무시(before_flush 되돌림) (got by={r4[1]})")
@@ -177,13 +177,13 @@ async def main() -> None:
 
     async def _bg() -> None:
         async with SessionLocal() as s2:
-            s2.add(Persona(name=bg_name, body="bg"))
+            s2.add(Prompt(name=bg_name, body="bg"))
             await s2.commit()
 
     await spawn(_bg())
     async with SessionLocal() as s3:
         bg_by = (await s3.execute(text(
-            "select created_by from personas where name=:n"
+            "select created_by from prompts where name=:n"
         ), {"n": bg_name})).scalar_one()
     check(bg_by == "system",
           f"V12 배경 잡(spawn)은 요청 actor 미승계 → system (got {bg_by!r}, 요청자='requester')")

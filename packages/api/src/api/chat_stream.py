@@ -181,7 +181,7 @@ async def stream_local_reply(agent_id: uuid.UUID, user_text: str) -> AsyncIterat
         )
     run_params = {} if ctx["temperature"] is None else {"temperature": ctx["temperature"]}
     build_ctx = AgentBuildContext(
-        persona=ctx["persona"],
+        prompt=ctx["prompt"],
         model_cfg=ctx["model_cfg"],
         tools=tools,
         checkpointer=None,

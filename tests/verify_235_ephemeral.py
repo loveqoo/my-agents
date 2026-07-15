@@ -82,7 +82,7 @@ async def run() -> bool:
             # (1) 비영속 에이전트 — config.ephemeral=true, 능력 0개(순수 추론).
             eph = (await c.post("/agents", json={
                 "name": f"eph-{uuid.uuid4().hex[:6]}",
-                "config": {"model": "mock-llm", "persona": "1회성 추론", "ephemeral": True},
+                "config": {"model": "mock-llm", "prompt": "1회성 추론", "ephemeral": True},
             })).json()
             made.append(eph["id"])
             ck(eph.get("config", {}).get("ephemeral") is True or True, "E0 ephemeral 에이전트 저장")
@@ -99,7 +99,7 @@ async def run() -> bool:
             # (2) 대조군 — 비-ephemeral은 세션·메시지 + 체크포인터가 늘어야(테스트가 영속을 실제로 감지함을 증명).
             norm = (await c.post("/agents", json={
                 "name": f"norm-{uuid.uuid4().hex[:6]}",
-                "config": {"model": "mock-llm", "persona": "일반"},
+                "config": {"model": "mock-llm", "prompt": "일반"},
             })).json()
             made.append(norm["id"])
             n0 = await _counts()

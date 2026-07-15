@@ -107,7 +107,7 @@ async def http_checks() -> None:
         # 노드형 픽스처 — 노드 1개, 도구=local-tools__echo(mock-llm은 바인딩된 도구 base 이름 언급 시 호출).
         r = await c.post("/agents", json={
             "name": f"v287-pipe-{uuid.uuid4().hex[:6]}",
-            "config": {"model": "mock-llm", "persona": "", "impl": "pipeline",
+            "config": {"model": "mock-llm", "prompt": "", "impl": "pipeline",
                        "mcps": ["local-tools"], "tools": [],
                        "nodes": [{"name": "n1", "prompt": "요청을 처리해라", "model": "mock-llm",
                                   "tools": ["local-tools__echo"]}]},
@@ -148,7 +148,7 @@ async def http_checks() -> None:
         # H5 비노드형에 nodes를 보내면 mismatch(무해·표면화). 실행은 정상.
         r2 = await c.post("/agents", json={
             "name": f"v287-direct-{uuid.uuid4().hex[:6]}",
-            "config": {"model": "mock-llm", "persona": "t"},
+            "config": {"model": "mock-llm", "prompt": "t"},
         })
         did = r2.json()["id"]
         created.append(did)

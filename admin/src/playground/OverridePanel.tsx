@@ -69,7 +69,7 @@ export function overridePayload(
   const p: Record<string, unknown> = {}
   if (applied.model && applied.model !== base.model) p.model = applied.model
   if (applied.temperature != null && applied.temperature !== base.temperature) p.temperature = applied.temperature
-  // 빈 systemPrompt로 persona를 지우지 않도록 — 비어있지 않고 달라진 경우만.
+  // 빈 systemPrompt로 prompt를 지우지 않도록 — 비어있지 않고 달라진 경우만.
   if (applied.systemPrompt.trim() && applied.systemPrompt !== base.systemPrompt) p.systemPrompt = applied.systemPrompt
   if (!sameSet(applied.mcps, base.mcps)) p.mcps = applied.mcps
   // 도구 단위 배선(스펙 276) — tools가 달라지면 mcps(서버 로드 원천)도 함께 보낸다(토글이 파생 유지).
@@ -462,7 +462,7 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
                   // 구조 불변 + 인라인 베이스(위 주석)라 참조 항목이 생기지 않음 — 인라인으로 좁힘.
                   onChange={(nodes) => set('nodes', nodes as PipelineNode[])}
                   models={models}
-                  personas={(blocks.persona?.items ?? []).map((p) => ({ name: p.name, body: p.body ?? '' }))}
+                  prompts={(blocks.prompt?.items ?? []).map((p) => ({ name: p.name, body: p.body ?? '' }))}
                   mcpServers={blocks.mcp?.items ?? []}
                   docOptions={collections.map((c) => ({ label: c.name, value: safeToolName('search_documents', c.name) }))}
                   memoryOptions={memoryOptions}
@@ -475,7 +475,7 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
               </span>
             </Field>
           ) : (<>
-          {/* 모델·시스템 프롬프트 = 공용 컨트롤(스펙 274) — chat 필터·미등록 보존·페르소나 로더가
+          {/* 모델·시스템 프롬프트 = 공용 컨트롤(스펙 274) — chat 필터·미등록 보존·프롬프트 로더가
               단일 출처. 프롬프트의 "가져오기"는 라벨 줄 콤팩트 로더로 축약(별도 Field 2개→1구획, 077 대칭 유지). */}
           <ModelField
             value={draft.model}
@@ -487,9 +487,9 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
             label="시스템 프롬프트"
             value={draft.systemPrompt}
             onChange={(v) => set('systemPrompt', v)}
-            personas={(blocks.persona?.items ?? []).map((p) => ({ name: p.name, body: p.body ?? '' }))}
+            prompts={(blocks.prompt?.items ?? []).map((p) => ({ name: p.name, body: p.body ?? '' }))}
             placeholder={agent.systemPrompt ? undefined : '(저장된 시스템 프롬프트 없음)'}
-            hint="비워두면 저장된 페르소나가 그대로 쓰입니다."
+            hint="비워두면 저장된 프롬프트가 그대로 쓰입니다."
           />
           </>)}
           </>)}

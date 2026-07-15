@@ -99,13 +99,13 @@ async def _insert_stale(conn) -> str:
         "capabilities": {"streaming": False},  # 단건 message/send 경로
     }
     pk = await conn.fetchval(
-        "INSERT INTO agents (id, agent_id, name, source, model, persona, history_depth, "
+        "INSERT INTO agents (id, agent_id, name, source, model, prompt, history_depth, "
         "config, exposed, status, endpoint, token) "
         "VALUES (gen_random_uuid(), $1, $2, 'external', '', '', 10, $3, $4, 'online', $5, NULL) "
         "RETURNING id",
         TEST_AGENT_ID,
         "063 stale 테스트",
-        json.dumps({"card": card, "model": "", "persona": "", "memories": [],
+        json.dumps({"card": card, "model": "", "prompt": "", "memories": [],
                     "vectorTables": [], "mcps": [], "historyDepth": 10}),
         json.dumps({"a2a": False}),
         STALE_EP,

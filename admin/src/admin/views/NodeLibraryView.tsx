@@ -37,7 +37,7 @@ type TplFormState =
 function NodeTemplateForm({
   form,
   models,
-  personas,
+  prompts,
   mcpServers,
   docOptions,
   memoryOptions,
@@ -46,7 +46,7 @@ function NodeTemplateForm({
 }: {
   form: TplFormState | null
   models: Model[]
-  personas: { name: string; body: string }[]
+  prompts: { name: string; body: string }[]
   mcpServers: { name: string; tools?: string[] }[]
   docOptions: { label: string; value: string }[]
   memoryOptions: { label: string; value: string }[]
@@ -157,7 +157,7 @@ function NodeTemplateForm({
           value={config}
           onChange={(patch) => setConfig((c) => ({ ...c, ...patch }))}
           models={models}
-          personas={personas}
+          prompts={prompts}
           mcpServers={mcpServers}
           docOptions={docOptions}
           memoryOptions={memoryOptions}
@@ -189,7 +189,7 @@ export default function NodeLibraryView() {
   )
   const [form, setForm] = useState<TplFormState | null>(null)
 
-  const personas = (blocks?.persona?.items ?? []).map((p) => ({ name: p.name, body: p.body ?? '' }))
+  const prompts = (blocks?.prompt?.items ?? []).map((p) => ({ name: p.name, body: p.body ?? '' }))
   const mcpServers = blocks?.mcp?.items ?? []
   // 노드 회상 선택지 — 장기 기억(mem0). AgentForm nodeMemoryOptions와 동일 규칙.
   const memoryOptions = (blocks?.memory?.items ?? [])
@@ -382,7 +382,7 @@ export default function NodeLibraryView() {
       <NodeTemplateForm
         form={form}
         models={models ?? []}
-        personas={personas}
+        prompts={prompts}
         mcpServers={mcpServers}
         docOptions={docOptions}
         memoryOptions={memoryOptions}

@@ -83,7 +83,7 @@ _MODEL_CFG = {
 
 
 def _ctx(**kw) -> AgentBuildContext:
-    base = dict(persona="당신은 오케스트레이터입니다.", model_cfg=_MODEL_CFG, tools=[])
+    base = dict(prompt="당신은 오케스트레이터입니다.", model_cfg=_MODEL_CFG, tools=[])
     base.update(kw)
     return AgentBuildContext(**base)
 
@@ -163,7 +163,7 @@ def unit_checks() -> None:
     check("## 능력: web_search" in folded and "## 능력: delete_record" in folded
           and "결과A" in folded and "결과B" in folded,
           "U5 fold_results 다중 → 능력별 라벨로 구분")
-    msgs = build_synthesis_messages("페르소나", folded, [])
+    msgs = build_synthesis_messages("프롬프트", folded, [])
     sys_msg, data_msg = msgs[0], msgs[1]
     check(isinstance(sys_msg, SystemMessage) and "결과A" not in sys_msg.content
           and "결과B" not in sys_msg.content,

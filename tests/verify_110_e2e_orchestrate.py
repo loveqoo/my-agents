@@ -64,7 +64,7 @@ async def run() -> bool:
         query = col  # discover는 lexical 부분일치 — cap id의 부분문자열(컬렉션명)로 확정 발견.
         print(f"[setup] 조율형 위임 대상 cap = {cap}, 발견 질의 = {query!r}")
 
-        base = {"model": "mock-llm", "persona": "", "historyDepth": 6, "impl": "orchestrate"}
+        base = {"model": "mock-llm", "prompt": "", "historyDepth": 6, "impl": "orchestrate"}
         made: list[str] = []
         try:
             # (1) 위임: 능력 1개 조율형 → 채팅 1턴 → broker_invoke 노드 존재.
