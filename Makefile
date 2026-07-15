@@ -3,7 +3,7 @@
 
 PY_SRC = packages/api/src packages/agent/src
 
-.PHONY: lint format format-check complexity maintainability naming typecheck suite metrics metrics-fast sweep-debris sweep-debris-apply test test-unit test-all e2e
+.PHONY: lint format format-check complexity maintainability naming typecheck suite metrics metrics-fast sweep-debris sweep-debris-apply test test-unit test-all e2e perf-build
 
 lint:
 	uvx ruff check $(PY_SRC)
@@ -45,6 +45,9 @@ test-unit:          # 순수층만(무의존·병렬·최속)
 	uv run python tests/run_suite.py unit
 test-all:           # 전층(http 포함 — dev 서버 8000 전제. http는 상태 오염 취약, 참고용)
 	uv run python tests/run_suite.py all
+
+perf-build:         # 빌드 핫패스 베이스라인(스펙 368) — 전제: 실서버 8000(계측 포함 코드).
+	uv run python tests/measure_build_hotpath.py
 
 e2e:                # E2E(Playwright): api(Bearer)+admin/mobile(브라우저) 전수. 전제 API(8000)+Postgres.
 	@echo "== E2E: API(8000) 가동 전제. vite(5173)는 없으면 자동 기동, 인증은 global-setup 쿠키 로그인 =="

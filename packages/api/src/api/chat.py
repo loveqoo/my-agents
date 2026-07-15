@@ -325,6 +325,9 @@ async def _build_turn_runtime(
     conversation: list[dict],
 ) -> dict:
     """그래프 빌드 재료(회상·창 프록시·도구·브로커·프롬프트) 준비 — 턴 상태 dict 반환."""
+    # 빌드 단계별 계측(스펙 368) — 매턴 재구성 비용을 분해해 trace.buildMs로 노출(캐시 367-D의 잣대).
+    # 단계 사이 소량 글루(프록시 생성·프롬프트 결합)는 인접 단계에 귀속(오차 서브 ms).
+    _t0 = time.perf_counter()
     (
         add_scope,
         recall_scope,
@@ -333,6 +336,7 @@ async def _build_turn_runtime(
         mem_proxy,
         memory_recalls,
     ) = await _memory_inputs(ctx, impl, user_id, user_text)
+    _t_mem = time.perf_counter()
     pipeline = ctx.get("nodes_resolved") is not None
     # 단기 기억 창 프록시(스펙 270) — 노드형에만 주입. 전체 대화를 쥐고 노드별 depth로 슬라이스(현재 턴은
     # 그래프가 별도 시드하므로 프록시는 [:-1]로 분리). 기본 depth=에이전트 historyDepth(노드 미지정 시 상속).
@@ -347,10 +351,12 @@ async def _build_turn_runtime(
     tools = await runtime.build_mcp_tools(
         ctx["mcp_servers"], calls_sink, ctx.get("toolPolicy"), ctx.get("tool_names")
     )
+    _t_mcp = time.perf_counter()
     # 채팅 자가기록 도구는 제거됨(스펙 051) — agent_id 메모리는 어드민 저작 전용. 회상은 유지.
     # RAG 검색 도구 — vectorTables가 실 컬렉션으로 해석됐을 때만(스펙 037). 노드형은 컬렉션별 도구
     # 추가(스펙 268 P1 — _rag_tools_for).
     tools.extend(_rag_tools_for(ctx, calls_sink))
+    _t_rag = time.perf_counter()
     # 회상된 기억은 prompt(시스템 프롬프트)에 합친다. 별도 system 메시지로 주입하면
     # create_agent의 system_prompt와 충돌해 모델 채팅 템플릿이 거부한다
     # ("System message must be at the beginning"). 단일 system 프롬프트 유지.
@@ -383,6 +389,7 @@ async def _build_turn_runtime(
     # 경로라 도구 풀에 얹지 않는다 — 행위 보존). 후보=broker가 이미 스코프(권한 상승 0).
     if ctx.get("impl") == "pipeline":
         tools.extend(runtime.build_agent_tools(broker, await broker.agent_capabilities()))
+    _t_broker = time.perf_counter()
     build_ctx = AgentBuildContext(
         prompt=prompt_prompt,
         model_cfg=ctx["model_cfg"],
@@ -402,8 +409,11 @@ async def _build_turn_runtime(
             else ctx.get("artifact_spec")
         ),
     )
+    graph = impl.build_graph(build_ctx)
+    _t_graph = time.perf_counter()
+    _ms = lambda a, b: round((b - a) * 1000, 1)  # noqa: E731
     return {
-        "graph": impl.build_graph(build_ctx),
+        "graph": graph,
         "broker": broker,
         "tools": tools,
         "calls_sink": calls_sink,
@@ -415,6 +425,14 @@ async def _build_turn_runtime(
         "mem_hits": mem_hits,
         "memory_recalls": memory_recalls,
         "history_windows": history_windows,
+        "build_ms": {
+            "memory": _ms(_t0, _t_mem),
+            "mcp": _ms(_t_mem, _t_mcp),
+            "rag": _ms(_t_mcp, _t_rag),
+            "broker": _ms(_t_rag, _t_broker),
+            "graph": _ms(_t_broker, _t_graph),
+            "total": _ms(_t0, _t_graph),
+        },
     }
 
 
@@ -943,6 +961,8 @@ def _final_trace(
         graph_observations=observed,
     )
     trace["contextMessages"] = len(messages)  # 모델에 넣은 메시지 수(historyDepth 적용 결과)
+    if turn.get("build_ms"):
+        trace["buildMs"] = turn["build_ms"]  # 매턴 그래프 재구성 비용 분해(스펙 368 — 캐시 367-D 잣대)
     _annotate_execution(trace, ctx, turn, capture=capture, sent_messages=sent_messages, impl=impl)
     _annotate_context_sources(
         trace, ctx, turn, user_text=user_text, history_restore=history_restore
