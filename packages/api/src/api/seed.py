@@ -661,6 +661,11 @@ async def _reconcile_served_mcp(session: AsyncSession) -> None:
             row.tools = list(stools)
             row.tools_meta = SERVED_MCP_TOOLS_META.get(sname)
             row.url = served_url(sname)
+            # reconcile도 콘텐츠 변경(코드 배포로 도구 정의가 바뀜) → 버전 관문 경유(스펙 369 C6).
+            # 무변경 부팅은 payload 동일이라 자동 no-op(부팅마다 버전이 오르지 않는다).
+            from .block_versions import record_block_version
+
+            await record_block_version(session, "mcp-server", row)
 
     # 레지스트리에서 사라진 custom 행 정리(스펙 327 — targeting-catalog 제거류). 서빙 정의가 없는
     # custom 행은 served_url이 404라 배선해도 조용한 도구 0 footgun만 남긴다. custom은 시스템 소유
@@ -676,6 +681,9 @@ async def _reconcile_served_mcp(session: AsyncSession) -> None:
             continue  # local/external은 관리자 저작 — 건드리지 않는다
         if await agents_referencing(session, "mcps", stale_name):
             continue  # 배선 중 — 조용히 지우면 능력 소실(관리자 정리 대상으로 남김)
+        from .block_versions import delete_block_history
+
+        await delete_block_history(session, "mcp-server", row.id)  # 스펙 369
         await session.delete(row)
 
 

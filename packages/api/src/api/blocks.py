@@ -18,12 +18,14 @@ from agent.runtime import is_first_party
 
 from . import crypto
 from .auth import current_principal
+from .block_versions import BLOCK_KINDS, delete_block_history, record_block_version
 from .db import get_or_404, get_session
-from .models import Agent, Collection, McpServer, MemoryType, Prompt, User
+from .models import Agent, BlockVersion, Collection, McpServer, MemoryType, Prompt, User
 from .naming import assert_valid_name
 from .ownership import assert_may_manage, may_manage, may_use_agent, owner_of
 from .references import _config_has, agents_referencing, referenced_message
 from .schemas import (
+    BlockVersionOut,
     McpDiscoverIn,
     McpDiscoverResult,
     McpPublishIn,
@@ -77,6 +79,8 @@ async def create_prompt(body: PromptIn, session: AsyncSession = Depends(get_sess
     session.add(obj)
     await _commit_or_409(session, "같은 식별 이름의 프롬프트가 이미 있습니다.")
     await session.refresh(obj)
+    await record_block_version(session, "prompt", obj)  # v1 이력(스펙 369)
+    await session.commit()
     return obj
 
 
@@ -100,7 +104,9 @@ async def update_prompt(
             )
     for key, value in _norm_description(body.model_dump()).items():
         setattr(obj, key, value)
-    await _commit_or_409(session, "같은 식별 이름의 프롬프트가 이미 있습니다.")
+    # 콘텐츠 변경이면 버전+1 + 이력 append(스펙 369 관문) — 동시 편집 레이스는 UNIQUE가 commit서 막음.
+    await record_block_version(session, "prompt", obj)
+    await _commit_or_409(session, "같은 식별 이름의 프롬프트가 이미 있거나 동시 편집과 겹쳤습니다.")
     await session.refresh(obj)
     return obj
 
@@ -173,6 +179,7 @@ async def delete_prompt(id: uuid.UUID, session: AsyncSession = Depends(get_sessi
     refs = await agents_referencing(session, "prompt", obj.name)
     if refs:
         raise HTTPException(status_code=409, detail=referenced_message(refs, "프롬프트"))
+    await delete_block_history(session, "prompt", obj.id)  # 폴리모픽 이력 동일 tx 정리(스펙 369)
     await session.delete(obj)
     await session.commit()
 
@@ -190,8 +197,10 @@ async def create_memory_type(
 ) -> Any:
     obj = MemoryType(**body.model_dump())
     session.add(obj)
-    await session.commit()
+    await _commit_or_409(session, "같은 key의 메모리 타입이 이미 있습니다.")
     await session.refresh(obj)
+    await record_block_version(session, "memory-type", obj)  # v1 이력(스펙 369)
+    await session.commit()
     return obj
 
 
@@ -207,7 +216,8 @@ async def update_memory_type(
     obj = await get_or_404(session, MemoryType, id)
     for key, value in body.model_dump().items():
         setattr(obj, key, value)
-    await session.commit()
+    await record_block_version(session, "memory-type", obj)  # 스펙 369 관문
+    await _commit_or_409(session, "동시 편집과 겹쳤습니다 — 다시 시도하세요.")
     await session.refresh(obj)
     return obj
 
@@ -215,6 +225,7 @@ async def update_memory_type(
 @router.delete("/memory-types/{id}", status_code=204)
 async def delete_memory_type(id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> None:
     obj = await get_or_404(session, MemoryType, id)
+    await delete_block_history(session, "memory-type", obj.id)  # 스펙 369
     await session.delete(obj)
     await session.commit()
 
@@ -343,6 +354,7 @@ def mcp_to_out(obj: McpServer) -> McpServerOut:
         published=obj.published,
         auth=_mcp_auth_masked(obj),
         owner_id=obj.owner_id,  # 스펙 112(can_manage는 list서 세팅)
+        version=obj.version,  # 스펙 369
         **audit_of(obj),  # 감사 4값(스펙 344)
     )
 
@@ -397,6 +409,8 @@ async def create_mcp_server(
     session.add(obj)
     await _commit_or_409(session, "같은 식별 이름의 MCP 서버가 이미 있습니다.")
     await session.refresh(obj)
+    await record_block_version(session, "mcp-server", obj)  # v1 이력(스펙 369)
+    await session.commit()
     return mcp_to_out(obj)
 
 
@@ -521,7 +535,10 @@ async def rediscover_mcp_server(
     )
     obj.enabled_tools = [t for t in (obj.enabled_tools or []) if t in result.tools]
     obj.status = "connected"
-    await session.commit()
+    # 재탐색도 콘텐츠 변경(tools/tools_meta — 에이전트 동작 결정) → 버전 관문 경유(스펙 369).
+    # 도구 무변경 재탐색은 payload 동일이라 자동 no-op.
+    await record_block_version(session, "mcp-server", obj)
+    await _commit_or_409(session, "동시 편집과 겹쳤습니다 — 다시 시도하세요.")
     await session.refresh(obj)
     return mcp_to_out(obj)
 
@@ -669,7 +686,9 @@ async def update_mcp_server(
         obj.auth = None
     else:
         obj.auth = crypto.encrypt(auth_in)
-    await _commit_or_409(session, "같은 식별 이름의 MCP 서버가 이미 있습니다.")
+    # auth(비밀)는 payload 제외라 auth-only 변경은 버전 무증가(스펙 369 §2 경계).
+    await record_block_version(session, "mcp-server", obj)
+    await _commit_or_409(session, "같은 식별 이름의 MCP 서버가 이미 있거나 동시 편집과 겹쳤습니다.")
     await session.refresh(obj)
     return mcp_to_out(obj)
 
@@ -687,6 +706,7 @@ async def delete_mcp_server(
     refs = await agents_referencing(session, "mcps", obj.name)
     if refs:
         raise HTTPException(status_code=409, detail=referenced_message(refs, "MCP 서버"))
+    await delete_block_history(session, "mcp-server", obj.id)  # 스펙 369
     await session.delete(obj)
     await session.commit()
 
@@ -797,6 +817,7 @@ async def get_blocks(
             "body": row.body,
             "usedBy": _count_by(agents, "prompt", row.name, scalar=True),
             "updated": _iso(row.updated_at),  # 수정일 배선(스펙 216) — 프론트 fmtTime이 친화 표기
+            "version": row.version,  # 스펙 369
             **_audit_json(row),  # 감사 4값(스펙 344)
         }
         for row in prompts
@@ -854,6 +875,7 @@ async def get_blocks(
             **_audit_json(row),  # 감사 4값(스펙 344)
             "usedBy": _count_by(agents, "mcps", row.name),
             "updated": _iso(row.updated_at),  # 수정일 배선(스펙 216)
+            "version": row.version,  # 스펙 369
             "owner_id": row.owner_id,  # 스펙 112
             "can_manage": may_manage(row.owner_id, principal),  # 스펙 114 — UI 편집/삭제 표시 파생
         }
@@ -866,3 +888,37 @@ async def get_blocks(
         "embedding": {**_CATEGORY_META["embedding"], "items": embedding_items},
         "mcp": {**_CATEGORY_META["mcp"], "items": mcp_items},
     }
+
+
+# ----------------------------- 블록 버전 이력(스펙 369) -----------------------------
+@router.get("/block-versions/{kind}/{block_pk}", response_model=list[BlockVersionOut])
+async def list_block_versions(
+    kind: str, block_pk: uuid.UUID, session: AsyncSession = Depends(get_session)
+) -> Any:
+    """블록 이력 목록(최신순) — 5종 공유 제네릭(스펙 369 §4). kind 오탈자는 404."""
+    if kind not in BLOCK_KINDS:
+        raise HTTPException(status_code=404, detail=f"알 수 없는 블록 종류: {kind}")
+    rows = await session.execute(
+        select(BlockVersion)
+        .where(BlockVersion.kind == kind, BlockVersion.block_pk == block_pk)
+        .order_by(BlockVersion.version.desc())
+    )
+    return rows.scalars().all()
+
+
+@router.get("/block-versions/{kind}/{block_pk}/{version}", response_model=BlockVersionOut)
+async def get_block_version(
+    kind: str, block_pk: uuid.UUID, version: int, session: AsyncSession = Depends(get_session)
+) -> Any:
+    if kind not in BLOCK_KINDS:
+        raise HTTPException(status_code=404, detail=f"알 수 없는 블록 종류: {kind}")
+    row = await session.scalar(
+        select(BlockVersion).where(
+            BlockVersion.kind == kind,
+            BlockVersion.block_pk == block_pk,
+            BlockVersion.version == version,
+        )
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="그 버전의 이력이 없습니다.")
+    return row

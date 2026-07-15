@@ -51,6 +51,7 @@ class Prompt(AuditMixin, Base):
     description: Mapped[str | None] = mapped_column(String(200), default=None)
     tone: Mapped[str | None] = mapped_column(String(200), default=None)
     body: Mapped[str] = mapped_column(Text, default="")
+    version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")  # 스펙 369
 
 
 class MemoryType(AuditMixin, Base):
@@ -62,6 +63,24 @@ class MemoryType(AuditMixin, Base):
     name: Mapped[str] = mapped_column(String(120))
     scope: Mapped[str | None] = mapped_column(String(80), default=None)
     body: Mapped[str] = mapped_column(Text, default="")
+    version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")  # 스펙 369
+
+
+class BlockVersion(AuditMixin, Base):
+    """블록 버전 이력(스펙 369) — 5종 블록 공유 폴리모픽 append-only 이력.
+
+    payload = 그 버전의 저작 내용 스냅샷(운영 상태·비밀 제외 — 경계는 block_versions.payload_for가
+    단일 출처). kind별 테이블이 달라 FK 불가 — 블록 삭제 시 이력은 앱 레벨 같은 트랜잭션에서 삭제.
+    UNIQUE(kind, block_pk, version)이 동시 편집 이중 append를 막는다(충돌=409).
+    """
+
+    __tablename__ = "block_versions"
+    __table_args__ = (UniqueConstraint("kind", "block_pk", "version", name="uq_block_version"),)
+    id: Mapped[uuid.UUID] = _pk()
+    kind: Mapped[str] = mapped_column(String(20))  # prompt|memory-type|mcp-server|model|provider
+    block_pk: Mapped[uuid.UUID] = mapped_column(index=True)
+    version: Mapped[int] = mapped_column(Integer)
+    payload: Mapped[dict] = mapped_column(JSONB, default=dict)
 
 
 class Collection(AuditMixin, Base):
@@ -211,6 +230,7 @@ class Provider(AuditMixin, Base):
     description: Mapped[str] = mapped_column(
         String(400), default="", server_default=""
     )  # 한 줄 설명
+    version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")  # 스펙 369
 
     models: Mapped[list["ModelConfig"]] = relationship(back_populates="provider")
 
@@ -241,6 +261,7 @@ class ModelConfig(AuditMixin, Base):
     params: Mapped[dict] = mapped_column(JSONB, default=dict)  # temperature 등(런타임 파라미터)
     # models.dev 카탈로그 파생 메타(스펙 047 #7) — context·modalities·cost·capabilities. params와 분리.
     meta: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")  # 스펙 369
 
     provider: Mapped["Provider"] = relationship(back_populates="models")
 
@@ -266,6 +287,7 @@ class McpServer(AuditMixin, Base):
     )  # 암호화 저장(Fernet, 스펙 054 F) — 응답은 마스킹
     # 소유자(스펙 112) — None=레거시/admin=admin 전용(fail-closed, 070). 생성 시 스탬프·이전 금지(069).
     owner_id: Mapped[str | None] = mapped_column(String(80), index=True, default=None)
+    version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")  # 스펙 369
     # 수정일(스펙 216) — 빌딩 블록 '수정일' 열 배선. Prompt와 동일 패턴, onupdate는 ORM-side.
 
 

@@ -47,6 +47,18 @@ class PromptIn(BaseModel):
 
 class PromptOut(PromptIn, AuditOut):
     id: uuid.UUID
+    version: int = 1  # 단조 불변 버전(스펙 369)
+    model_config = ORM
+
+
+class BlockVersionOut(AuditOut):
+    """블록 버전 이력 1건(스펙 369) — 5종 공유 폴리모픽. payload=그 버전의 저작 내용."""
+
+    id: uuid.UUID
+    kind: str
+    block_pk: uuid.UUID
+    version: int
+    payload: dict[str, Any] = Field(default_factory=dict)
     model_config = ORM
 
 
@@ -79,6 +91,7 @@ class MemoryTypeIn(BaseModel):
 
 class MemoryTypeOut(MemoryTypeIn):
     id: uuid.UUID
+    version: int = 1  # 스펙 369
     model_config = ORM
 
 
@@ -387,6 +400,7 @@ class McpServerOut(McpServerIn, AuditOut):
     # 서빙 URL(스펙 156) — source=custom이고 레지스트리에 정의가 있을 때만. 외부가 이 URL로 등록·접속.
     # published=False면 아직 서빙 안 되지만(404) UI가 "공개하면 여기로 서빙" 안내에 쓴다. 그 외 None.
     served_url: str | None = None
+    version: int = 1  # 스펙 369
     model_config = ORM
 
 
@@ -474,6 +488,7 @@ class ProviderOut(AuditOut):
     api_key: str | None = None  # 마스킹되어 내려옴
     kind: str = "remote"  # local|mock|remote
     description: str = ""
+    version: int = 1  # 스펙 369
     modelCount: int = 0  # 매달린 모델 수(삭제 차단 안내·표시용)
 
 
@@ -502,6 +517,7 @@ class ModelOut(AuditOut):
     meta: dict[str, Any] = Field(
         default_factory=dict
     )  # 카탈로그 파생(context·modalities·cost·caps)
+    version: int = 1  # 스펙 369
 
 
 # 통합 뷰의 GET /models 실모델 나열·토글용(스펙 047 #8).

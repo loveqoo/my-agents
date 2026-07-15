@@ -107,6 +107,7 @@ export interface BlockItem extends Audit {
   description?: string | null // 설명(선택, 스펙 210) — 표시 = name 단독, 설명은 툴팁
   usedBy: number
   updated: string
+  version?: number // 단조 불변 버전(스펙 369)
   body?: string
   /* prompt */ tone?: string
   /* memory */ key?: string

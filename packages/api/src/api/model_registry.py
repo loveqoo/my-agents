@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from . import crypto
+from .block_versions import delete_block_history, record_block_version
 from .auth import current_principal
 from .db import get_or_404, get_session
 from .models import Agent, AgentVersion, Collection, ModelConfig, Provider, User
@@ -244,6 +245,9 @@ async def create_model(body: ModelIn, session: AsyncSession = Depends(get_sessio
     )
     session.add(m)
     await _commit_or_409(session, "동시 변경 충돌 또는 중복 — 다시 시도하세요.")
+    await session.refresh(m)
+    await record_block_version(session, "model", m)  # v1 이력(스펙 369)
+    await session.commit()
     reloaded = await _get_with_provider(session, m.id)
     assert reloaded is not None  # 방금 커밋한 행의 재로드 — 동시 삭제 레이스 외엔 불가
     return model_to_out(reloaded)
@@ -272,6 +276,8 @@ async def update_model(
     m.is_default = body.is_default
     m.params = body.params
     m.meta = body.meta
+    # is_default·meta는 payload 제외(스펙 369 §2) — 운영-only 변경은 버전 무증가.
+    await record_block_version(session, "model", m)
     await _commit_or_409(session, "동시 변경 충돌 또는 중복 — 다시 시도하세요.")
     reloaded = await _get_with_provider(session, m.id)
     assert reloaded is not None  # 방금 커밋한 행의 재로드 — 동시 삭제 레이스 외엔 불가
@@ -352,5 +358,6 @@ async def delete_model(model_id: uuid.UUID, session: AsyncSession = Depends(get_
             status_code=409,
             detail=f"이 임베딩 모델을 사용하는 RAG 컬렉션 {col_refs}개가 있습니다 — 먼저 해당 컬렉션을 삭제하세요.",
         )
+    await delete_block_history(session, "model", m.id)  # 스펙 369
     await session.delete(m)
     await session.commit()

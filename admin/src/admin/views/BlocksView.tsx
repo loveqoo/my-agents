@@ -1,9 +1,10 @@
 /* my-agents admin — Building blocks (재료) browser: prompts, memory policies,
    MCP servers. Category tabs → list → detail drawer. */
 import { useState, useEffect } from 'react'
-import { Tag, Button, Tabs, Switch, Modal, Input, Select, Checkbox, Tooltip, Alert, Grid, message, Descriptions, Popconfirm } from 'antd'
+import { Tag, Button, Tabs, Switch, Modal, Input, Select, Checkbox, Tooltip, Alert, Grid, message, Descriptions, Popconfirm, Collapse } from 'antd'
 import { Page, DataTable, Drawer, type Column } from '../shared'
 import { AuditCell, AuditFooter } from '../AuditMeta'
+import { fmtTime } from '../format'
 import { validateName, NAME_HINT } from '../naming'
 import { Icon } from '../icons'
 import { VECTOR_STATUS, type BlockItem, type BlockCategory, type StatusMeta } from '../mockData'
@@ -25,6 +26,8 @@ import {
   listPromptAgents,
   applyPrompt,
   type PromptUsageAgent,
+  listBlockVersions,
+  type BlockVersionRow,
 } from '../../api'
 import { useAsyncData, runWithToast } from '../../hooks'
 
@@ -529,6 +532,72 @@ function McpForm({
         )}
       </div>
     </Modal>
+  )
+}
+
+/* 블록 버전 이력(스펙 369) — append-only 불변 이력 열람(최신순). 블록엔 롤백 없음(못박기=에이전트 몫). */
+function BlockVersionHistory({ kind, blockPk }: { kind: string; blockPk: string }) {
+  const [rows, setRows] = useState<BlockVersionRow[] | null>(null)
+  useEffect(() => {
+    let live = true
+    setRows(null)
+    listBlockVersions(kind, blockPk)
+      .then((r) => { if (live) setRows(r) })
+      .catch(() => { if (live) setRows([]) })
+    return () => { live = false }
+  }, [kind, blockPk])
+  if (!rows?.length) return null
+  return (
+    <div style={{ marginTop: 12 }}>
+      <Collapse
+        size="small"
+        items={[
+          {
+            key: 'history',
+            label: <span style={{ fontSize: 13 }}>버전 이력 ({rows.length})</span>,
+            children: (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {rows.map((r) => (
+                  <Collapse
+                    key={r.id}
+                    size="small"
+                    ghost
+                    items={[
+                      {
+                        key: r.id,
+                        label: (
+                          <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', fontSize: 12 }}>
+                            <Tag color="blue" style={{ margin: 0 }}>v{r.version}</Tag>
+                            <span style={{ color: 'var(--color-text-tertiary)' }}>
+                              {fmtTime(r.created_at)} · {r.created_by ?? '—'}
+                            </span>
+                          </span>
+                        ),
+                        children: (
+                          <pre
+                            style={{
+                              margin: 0,
+                              fontSize: 11,
+                              fontFamily: 'var(--font-family-code)',
+                              whiteSpace: 'pre-wrap',
+                              wordBreak: 'break-all',
+                              maxHeight: 220,
+                              overflow: 'auto',
+                            }}
+                          >
+                            {JSON.stringify(r.payload, null, 2)}
+                          </pre>
+                        ),
+                      },
+                    ]}
+                  />
+                ))}
+              </div>
+            ),
+          },
+        ]}
+      />
+    </div>
   )
 }
 
@@ -1262,6 +1331,9 @@ export default function BlocksView() {
               column={1}
               size="small"
               items={[
+                ...(detail.version
+                  ? [{ key: 'version', label: '버전', children: <Tag color="blue">v{detail.version}</Tag> }]
+                  : []),
                 ...(detail.model
                   ? [{ key: 'model', label: '임베딩 모델', children: <Tag color="geekblue">{detail.model}</Tag> }]
                   : []),
@@ -1332,6 +1404,12 @@ export default function BlocksView() {
                 ...(detail.auth ? [{ key: 'auth', label: '인증', children: <Tag>{detail.auth}</Tag> }] : []),
               ]}
             />
+            {cat !== 'embedding' ? (
+              <BlockVersionHistory
+                kind={cat === 'mcp' ? 'mcp-server' : cat === 'memory' ? 'memory-type' : 'prompt'}
+                blockPk={detail.id}
+              />
+            ) : null}
             {cat === 'mcp' && detail.tools ? (
               /* 도구 카드(스펙 151) — 이름·활성·설명·파라미터 표. 메타 없는 기존 행은 이름만(grandfather). */
               <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>

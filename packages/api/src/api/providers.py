@@ -18,6 +18,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from . import catalog, crypto
+from .block_versions import delete_block_history, record_block_version
 from .db import get_or_404, get_session
 from .model_registry import _probe, require_model_manage
 from .models import ModelConfig, Provider
@@ -94,6 +95,8 @@ async def create_provider(
     session.add(p)
     await session.commit()
     await session.refresh(p)
+    await record_block_version(session, "provider", p)  # v1 이력(스펙 369)
+    await session.commit()
     return provider_to_out(p, 0)
 
 
@@ -209,6 +212,8 @@ async def update_provider(
         p.api_key = None  # 명시적 제거
     else:
         p.api_key = crypto.encrypt(body.api_key)
+    # api_key(비밀)는 payload 제외(스펙 369 §2) — 키 로테이션만은 버전 무증가.
+    await record_block_version(session, "provider", p)
     await session.commit()
     await session.refresh(p)
     counts = await _model_counts(session)
@@ -234,5 +239,6 @@ async def delete_provider(
             status_code=409,
             detail=f"이 provider에 매달린 모델 {n}개가 있습니다 — 먼저 모델을 제거하세요.",
         )
+    await delete_block_history(session, "provider", p.id)  # 스펙 369
     await session.delete(p)
     await session.commit()

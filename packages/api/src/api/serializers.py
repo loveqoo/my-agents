@@ -54,6 +54,7 @@ def provider_to_out(p: Provider, model_count: int = 0) -> ProviderOut:
         api_key=mask_secret(p.api_key),
         kind=p.kind,
         description=p.description,
+        version=p.version,  # 스펙 369
         modelCount=model_count,
         **audit_of(p),
     )
@@ -73,6 +74,7 @@ def model_to_out(m: ModelConfig) -> ModelOut:
         is_default=m.is_default,
         params=dict(m.params or {}),
         meta=dict(m.meta or {}),
+        version=m.version,  # 스펙 369
         **audit_of(m),
     )
 

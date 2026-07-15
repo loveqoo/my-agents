@@ -298,6 +298,19 @@ export const listPromptAgents = (promptId: string) =>
 export const applyPrompt = (promptId: string, agentIds: string[]) =>
   post(`/prompts/${promptId}/apply`, { agentIds }) as Promise<{ applied: string[]; skipped: string[] }>
 
+/* ---------- 블록 버전 이력 (스펙 369) — 5종 공유 폴리모픽, append-only 불변 ---------- */
+export interface BlockVersionRow {
+  id: string
+  kind: string
+  block_pk: string
+  version: number
+  payload: Record<string, unknown>
+  created_at?: string
+  created_by?: string
+}
+export const listBlockVersions = (kind: string, blockPk: string) =>
+  j<BlockVersionRow[]>(`/block-versions/${kind}/${blockPk}`)
+
 
 /* ---------- RAG 컬렉션 + 문서 인제스트 (스펙 036) ---------- */
 export interface Collection extends Audit {
