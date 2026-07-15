@@ -236,13 +236,20 @@ class MemoryWriteProvider(MemoryAxisProvider):
                 raw=raw,
             )
         # 스코프는 **오직** principal 도출 user_id(agent_id·run_id·args 불가). infer=False=승인한 원문 저장.
-        await asyncio.to_thread(
+        stored = await asyncio.to_thread(
             memory.add,
             {"user_id": self._user_id},
             [{"role": "user", "content": text}],
             mem_cfg,
             False,
         )
+        if not stored:  # add는 임베더 장애 등을 삼켜 []를 돌린다 — 저장 안 됐는데 "저장됨" 위장 금지(스펙 357 P2)
+            return InvokeResult(
+                text="",
+                trust="untrusted",
+                error="장기 기억 저장에 실패했습니다(메모리 백엔드 오류).",
+                raw=raw,
+            )
         # 결과=저장 확인. 반향된 사실이 데이터 채널로 흐를 수 있어 trust=untrusted(일관).
         return InvokeResult(
             text=f"장기 기억에 저장했습니다: {text}", trust="untrusted", error=None, raw=raw

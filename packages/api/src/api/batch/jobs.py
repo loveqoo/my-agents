@@ -320,6 +320,7 @@ async def consolidate_user_memories(*, dry_run: bool, run_id: uuid.UUID | None =
         }
 
     consolidated = []
+    failed_users: list[str] = []  # add가 조용히 실패해 삭제를 건너뛴 유저(silent green 제거, 스펙 357)
     total_before = total_after = 0
     for uid, mems in candidates:
         if len(mems) > _MAX_CONSOLIDATE_INPUT:  # 상한 초과 → 스킵(원본 보존, 청크 통합은 debt §7)
@@ -351,10 +352,26 @@ async def consolidate_user_memories(*, dry_run: bool, run_id: uuid.UUID | None =
                 )
             await session.commit()
         # ② 통합본 적재 — 이미 정제된 한 줄 사실이라 infer=False(재추출로 모양 안 바뀌게).
+        # add는 임베더 장애 등을 except로 삼켜 []를 돌린다(mem0_backend). infer=False+실사실이라
+        # 성공은 항상 ≥1행 → **빈 반환=실패**. 하나라도 실패면 파괴적 삭제를 건너뛴다(스펙 357 P1):
+        # 통합본이 라이브에 없는데 원본을 지우면 유실이므로, 삭제 스킵(원본 잔존=중복이지 손실 아님)
+        # + 정직한 실패 보고. learning 061 — 삭제라는 비가역 앞에선 fail-closed가 옳다.
+        add_failed = False
         for fact in new_facts:
-            await asyncio.to_thread(
+            stored = await asyncio.to_thread(
                 memory.add, {"user_id": uid}, [{"role": "user", "content": fact}], mem_cfg, False
             )
+            if not stored:
+                add_failed = True
+                break
+        if add_failed:
+            log.error(
+                "memory-consolidation: user=%s 통합본 적재 실패(add 빈 반환 — 임베더 장애 의심) "
+                "→ 원본 삭제 건너뜀(스냅샷 보존, 유실 방지)",
+                uid,
+            )
+            failed_users.append(uid)
+            continue
         # ③ 불변식 3 — 박제한 그 mem_id만 삭제(스캔 이후 추가분은 안 건드림).
         deleted = 0
         for mem in mems:
@@ -381,17 +398,26 @@ async def consolidate_user_memories(*, dry_run: bool, run_id: uuid.UUID | None =
         total_before += len(mems)
         total_after += len(new_facts)
 
-    log.info(
-        "memory-consolidation: %d명 통합 (before=%d → after=%d)",
-        len(consolidated),
-        total_before,
-        total_after,
-    )
+    if failed_users:
+        log.error(
+            "memory-consolidation: %d명 통합 성공, %d명 적재 실패로 삭제 스킵 → status=degraded",
+            len(consolidated),
+            len(failed_users),
+        )
+    else:
+        log.info(
+            "memory-consolidation: %d명 통합 (before=%d → after=%d)",
+            len(consolidated),
+            total_before,
+            total_after,
+        )
     return {
-        "status": "ok",
+        # add가 조용히 실패해 삭제를 건너뛴 유저가 있으면 degraded — status:ok로 위장 금지(스펙 357).
+        "status": "degraded" if failed_users else "ok",
         "threshold": threshold,
         "users_scanned": len(user_ids),
         "consolidated": consolidated,
+        "failed": failed_users,
         "total_before": total_before,
         "total_after": total_after,
     }

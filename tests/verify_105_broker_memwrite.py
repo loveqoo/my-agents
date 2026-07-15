@@ -72,6 +72,14 @@ class FakeMemAdd:
 
     def add(self, messages, infer, **kwargs):
         self.adds.append((kwargs, messages))
+        # 실 mem0 계약 충실: 저장 성공은 {"results":[{id,memory,event}]}를 돌린다(스펙 357이 add 반환을
+        # 검사 — 성공은 ≥1행). 예전엔 반환 무시라 None으로 뒀으나 이제 계약 준수가 필요.
+        return {
+            "results": [
+                {"id": f"m{i}", "memory": m["content"], "event": "ADD"}
+                for i, m in enumerate(messages)
+            ]
+        }
 
     def search(self, query, filters, top_k):
         (axis, val), = filters.items()

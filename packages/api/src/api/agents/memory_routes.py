@@ -153,13 +153,15 @@ async def add_agent_memory(
     text = body.text.strip()
     if not text:
         raise HTTPException(status_code=400, detail="빈 메모리는 저장할 수 없습니다")
-    await asyncio.to_thread(
+    stored = await asyncio.to_thread(
         memory.add,
         {"agent_id": agent.agent_id},
         [{"role": "user", "content": text}],
         mem_cfg,
         False,  # infer=False — 정제된 사실 원문 저장
     )
+    if not stored:  # add는 임베더 장애 등을 삼켜 []를 돌린다 — 저장 실패를 ok로 위장 금지(스펙 357 P2)
+        raise HTTPException(status_code=502, detail="메모리 저장에 실패했습니다(백엔드 오류)")
     return {"ok": True}
 
 
