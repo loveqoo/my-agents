@@ -599,6 +599,12 @@ export function Inspector({
   if (!agent) return null
   const t: Trace | undefined = turn && turn.role === 'ai' ? turn.trace : undefined
   const empty = !t
+  // 이 턴에 메모리 회상이 실제로 일어났나(스펙 363) — 단순·표준 경로(t.memories) 또는 노드형
+  // (t.memoryRecalls에 내용 있는 회상). 회상은 프롬프트 선주입이라 calls_sink(=toolDiag.called)에
+  // 안 잡히므로, 도구 무발동 진단 박스(236)가 회상 턴을 "텅 빈 턴"으로 오탐하지 않게 별도 신호로 쓴다.
+  const recalledThisTurn =
+    (t?.memories?.length ?? 0) > 0 ||
+    (t?.memoryRecalls ?? []).some((r) => (r.memories?.length ?? 0) > 0)
 
   // 프롬프트·설정 탭 — 턴 메타(전송 프롬프트·오버라이드). 노드 이벤트가 아니라 실행 흐름과 분리.
   const promptTab = t ? (
@@ -768,8 +774,10 @@ export function Inspector({
                 <NodeTimeline t={t} />
                 {/* 도구 무발동 진단(스펙 236) — 무발동 턴은 흐름에 tools 노드가 아예 안 떠 조용하다.
                     "왜"를 찾는 곳이 이 기본 탭이므로 여기서 바로 안내(상세 목록은 프롬프트·설정 탭).
-                    brokerCalls 있으면 억제 — 브로커 경유로 일한 턴을 "무발동"으로 오진 금지(codex 236 #2). */}
-                {t.toolDiag && t.toolDiag.called === 0 && !t.brokerCalls?.length ? (
+                    brokerCalls 있으면 억제 — 브로커 경유로 일한 턴을 "무발동"으로 오진 금지(codex 236 #2).
+                    recalledThisTurn도 억제(스펙 363) — 359/362로 회상이 흐름에 렌더된 뒤로 흐름이 안
+                    비므로, 메모리로 답한 턴에 이 박스가 뜨면 회상 바로 아래서 모순처럼 읽힌다(오탐). */}
+                {t.toolDiag && t.toolDiag.called === 0 && !t.brokerCalls?.length && !recalledThisTurn ? (
                   <Alert
                     type="info"
                     showIcon
