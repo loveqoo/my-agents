@@ -53,6 +53,32 @@ function modelBadge(a: Agent): { text: string; remote: boolean; tip?: ReactNode 
     }
   if (a.source === 'external')
     return { text: '외부 A2A', remote: true, tip: a.card?.url ?? a.endpoint }
+  // 노드형(스펙 259) — 실행 모델은 노드마다 다르다. 상위 `model`은 실행에서 미참조(노드 미지정 시
+  // 폴백만, learning 152)이므로 단일 배지로 띄우면 거짓이다(사용자 신고: 노드에 실모델을 넣었는데
+  // 상단 배지가 상위 기본값 mock-llm으로 뜸). 노드 모델을 정직하게 표기한다.
+  if (a.impl === 'pipeline') {
+    const nodeModels = [
+      ...new Set((a.resolvedNodes ?? []).map((n) => n.model).filter((m): m is string => !!m)),
+    ]
+    if (nodeModels.length === 1)
+      return { text: nodeModels[0], remote: false, tip: '노드형 — 모든 노드가 이 모델을 사용합니다.' }
+    if (nodeModels.length > 1)
+      return {
+        text: `노드별 ${nodeModels.length}개`,
+        remote: false,
+        tip: (
+          <span style={{ whiteSpace: 'pre-line' }}>
+            {['노드형 — 노드마다 모델이 다릅니다:', ...nodeModels].join('\n')}
+          </span>
+        ),
+      }
+    // 노드 미해결(참조 미해결 등)·모델 미지정 → 상위 폴백값을 표기하되 노드형임을 안내(단일 모델 단언 회피).
+    return {
+      text: a.model || '노드별',
+      remote: false,
+      tip: '노드형 — 노드 모델 미해결이라 에이전트 기본 모델로 폴백합니다.',
+    }
+  }
   return { text: a.model, remote: false }
 }
 
