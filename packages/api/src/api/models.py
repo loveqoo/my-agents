@@ -392,6 +392,15 @@ class Message(AuditMixin, Base):
     role: Mapped[str] = mapped_column(String(20))  # user | assistant
     content: Mapped[str] = mapped_column(Text, default="")
     trace: Mapped[dict | None] = mapped_column(JSONB, default=None)  # 인스펙터용 트레이스
+    # 턴 id(스펙 364) — 한 턴의 user+assistant 두 행에 같은 값(=런타임 thread_id). 이력을 턴 단위로
+    # 묶어 분석 가능케 한다(예전엔 세션+시간순만이라 턴 경계 소실). HIL/폼 재개가 얽혀도 한 턴 1 id.
+    # 과거 행은 null(소급 안 함 — thread_id 이미 소실). index로 turn 그룹핑 조회.
+    turn_id: Mapped[str | None] = mapped_column(String(200), index=True, default=None)
+    # 프롬프트(페르소나) 출처(스펙 364, 옵션 b) — 이 턴에 실제 쓰인 프롬프트. assistant 행에만 스탬프
+    # (user 행은 프롬프트 무관). 라이브러리 참조면 id·name 有, 인라인/오버라이드면 null(정직). FK 아님
+    # (provenance는 프롬프트 삭제 후에도 살아남아야 — 역사 기록). body 스냅샷은 trace.promptSnapshot.
+    prompt_id: Mapped[str | None] = mapped_column(String(80), index=True, default=None)
+    prompt_name: Mapped[str | None] = mapped_column(String(200), default=None)
 
     session: Mapped[Session] = relationship(back_populates="messages")
 

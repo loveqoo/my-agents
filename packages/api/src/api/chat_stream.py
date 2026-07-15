@@ -118,6 +118,9 @@ async def _a2a_stream(ctx: dict, user_text: str, user_id: str | None) -> AsyncIt
         "a2a": True,
     }
     if not errored and full.strip():  # 공백-only 응답은 영속하지 않음(적대리뷰 L1)
+        # 원격(A2A)은 로컬 그래프 thread_id가 없어 턴 id를 여기서 생성(로컬 포맷 미러, 스펙 364) —
+        # 원격 턴도 이력에서 turn_id로 묶이게(프롬프트 출처는 원격 측이라 미기록=null, chat_context 가드).
+        turn_id = f"{ctx['ext_agent_id']}:{ctx['session_id']}:{uuid.uuid4().hex[:8]}"
         mid = await _persist(
             ctx,
             user_text,
@@ -126,6 +129,7 @@ async def _a2a_stream(ctx: dict, user_text: str, user_id: str | None) -> AsyncIt
             tokens,
             ctx["persist_history"],
             user_id=user_id,
+            turn_id=turn_id,
         )
         yield _mid_frame(mid)  # 스펙 209 P1.5 — 피드백 부착용 assistant id
     yield f"event: trace\ndata: {json.dumps(trace, ensure_ascii=False)}\n\n"

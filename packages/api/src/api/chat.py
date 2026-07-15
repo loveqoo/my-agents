@@ -613,6 +613,7 @@ async def _ask_frames(
         ask_tokens,
         ctx["persist_history"],
         user_id=user_id,
+        turn_id=thread_id,
     )
     yield _mid_frame(mid)  # 스펙 209 P1.5
     yield f"event: trace\ndata: {json.dumps(ask_trace, ensure_ascii=False)}\n\n"
@@ -676,6 +677,7 @@ async def _form_frames(
         form_tokens,
         ctx["persist_history"],
         user_id=user_id,
+        turn_id=thread_id,
     )
     yield _mid_frame(mid)  # 스펙 209 P1.5
     yield f"event: trace\ndata: {json.dumps(form_trace, ensure_ascii=False)}\n\n"
@@ -1044,6 +1046,7 @@ async def _final_frames(
     user_text: str,
     user_id: str | None,
     history_restore: dict | None,
+    thread_id: str | None = None,
 ) -> AsyncIterator[str]:
     """턴 종결 — 브로커 서브스텝 합류·trace 조립·영속·자동 기억·trace/done 프레임."""
     # 브로커 서브스텝 호출을 관측 타임라인에 합류(스펙 100/101 설계결정 7 — broker.invoke가
@@ -1081,6 +1084,7 @@ async def _final_frames(
             tokens,
             ctx["persist_history"],
             user_id=user_id,
+            turn_id=thread_id,
         )
     if mid:
         yield _mid_frame(mid)  # 스펙 209 P1.5 — 피드백 부착용 assistant id
@@ -1248,6 +1252,7 @@ async def chat(
             user_text=user_text,
             user_id=user_id,
             history_restore=history_restore,
+            thread_id=thread_id,
         ):
             yield frame
 

@@ -619,6 +619,25 @@ async def _load_context(
             "pinned_version": pinned_version,
             "exec_version": pinned_version or agent.active_version,
         }
+        # 프롬프트(페르소나) 출처(스펙 364) — 이 턴에 실제 쓰인 프롬프트를 이력에 남겨 턴 분석/재현을
+        # 가능케 한다. systemPrompt 오버라이드로 임시 프롬프트가 쓰였으면 라이브러리 참조가 아니므로
+        # 이름/id 없음(정직). cfg["persona"]는 이름이거나 인라인 본문 — 실제 Persona 행이 매칭될 때만
+        # 이름/id를 남기고(짧은 라이브러리 키), 인라인이면 null(본문은 아래 promptSnapshot이 보존).
+        ctx["persona_name"] = None
+        ctx["persona_id"] = None
+        _sp = (applied_overrides or {}).get("systemPrompt")
+        _override_prompt = isinstance(_sp, str) and bool(_sp.strip())
+        # 원격(code/external)은 프롬프트가 원격 측에 있어 로컬 라이브러리 참조가 무의미 → 출처 미기록.
+        _ref = "" if (remote or _override_prompt) else (cfg.get("persona") or "")
+        if _ref:
+            from .models import Persona as _Persona
+
+            _prow = (
+                await db.execute(select(_Persona.id).where(_Persona.name == _ref))
+            ).scalar_one_or_none()
+            if _prow is not None:
+                ctx["persona_name"] = _ref
+                ctx["persona_id"] = str(_prow)
         # 코드·외부 에이전트는 비로컬(원격/A2A) 실행이라 로컬 모델이 필요 없다(건너뜀 = None).
         ctx["model_cfg"] = await _resolve_model(db, cfg, overrides) if not remote else None
         ctx["nodes_resolved"] = await _resolve_nodes_for_ctx(db, ctx, remote)

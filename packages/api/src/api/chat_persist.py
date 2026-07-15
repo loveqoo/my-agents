@@ -65,6 +65,7 @@ async def _persist(
     tokens: dict,
     store_messages: bool,
     user_id: str | None = None,
+    turn_id: str | None = None,
 ) -> str | None:
     """세션 카운터는 항상 갱신. 메시지(user/assistant+트레이스)는 store_messages일 때만 저장.
 
@@ -88,8 +89,30 @@ async def _persist(
         session_pk = sess.id
         assistant_mid: str | None = None
         if store_messages:
-            db.add(Message(session_pk=session_pk, role="user", content=user_text))
-            am = Message(session_pk=session_pk, role="assistant", content=reply, trace=trace)
+            # 프롬프트 출처(스펙 364) — assistant 행에 id/name 스탬프(분석 축)·body 스냅샷은 trace에
+            # (원본 편집 후에도 그 턴 재현 가능). turn_id는 두 행 공통(턴 그룹핑 키).
+            prompt_id = ctx.get("persona_id")
+            prompt_name = ctx.get("persona_name")
+            a_trace = trace
+            if a_trace is not None and (prompt_id or prompt_name or ctx.get("persona")):
+                a_trace = {
+                    **a_trace,
+                    "promptSnapshot": {
+                        "id": prompt_id,
+                        "name": prompt_name,
+                        "body": ctx.get("persona", ""),
+                    },
+                }
+            db.add(Message(session_pk=session_pk, role="user", content=user_text, turn_id=turn_id))
+            am = Message(
+                session_pk=session_pk,
+                role="assistant",
+                content=reply,
+                trace=a_trace,
+                turn_id=turn_id,
+                prompt_id=prompt_id,
+                prompt_name=prompt_name,
+            )
             db.add(am)
             await db.flush()  # am.id 확보(피드백 부착용, 스펙 209 P1.5)
             assistant_mid = str(am.id)

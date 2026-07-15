@@ -429,4 +429,6 @@ async def resume_approval(approval: Approval, decision: str) -> None:
     if resume_history_windows:
         # 재개 후 단기 기억 창도 표면화(스펙 270 — 메인 경로 미러, 재개 축 전수 재구성 규율).
         trace["historyWindows"] = resume_history_windows
-    await _persist(ctx, user_text, reply, trace, tokens, ctx["persist_history"], user_id=None)
+    await _persist(
+        ctx, user_text, reply, trace, tokens, ctx["persist_history"], user_id=None, turn_id=thread_id
+    )
