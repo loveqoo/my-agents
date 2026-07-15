@@ -50,9 +50,9 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     # 블록 v1 백필(스펙 369, 멱등) — 기존 DB 이관·처녀 시드 모두 같은 불변식(블록 수==이력 보유 수)에
     # 도달. payload 정의는 block_versions.py 단일 출처라 마이그레이션 SQL 중복 없음.
     from .block_versions import ensure_v1_rows
-    from .db import SessionLocal as _SL
+    from .db import SessionLocal as _BootSession
 
-    async with _SL() as _s:
+    async with _BootSession() as _s:
         _n = await ensure_v1_rows(_s)
         if _n:
             logging.getLogger("api.blocks").info("블록 버전 v1 백필 %d건(스펙 369)", _n)

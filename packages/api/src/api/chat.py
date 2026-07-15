@@ -11,6 +11,7 @@ prompt + (선택)mem0 장기 메모리 + (선택)MCP 합성 툴을 LangGraph로 
 """
 
 import asyncio
+import hashlib
 import json
 import logging
 import secrets
@@ -316,6 +317,54 @@ async def _memory_inputs(
     return add_scope, recall_scope, used_memory, mem_hits, mem_proxy, memory_recalls
 
 
+# ── 그래프 팩토리 캐시(스펙 371 D3, 구남님 설계) ────────────────────────────────
+# 그래프는 원래 무상태(랭그래프 동시성 안전) — 요청별 상태를 호출 인자로 옮긴 뒤(promptless 빌드 +
+# config sink) 빌드 결정 요소의 지문으로 캐시한다. 호출부는 신규/캐시본 구분을 모른다(팩토리가 은닉).
+# 오버라이드는 우회가 아니라 지문에 흡수: 모델/도구가 다르면 다른 지문=다른 엔트리.
+_GRAPH_CACHE: dict[str, dict] = {}  # fp → {"graph", "tools", "hint"}
+_GRAPH_CACHE_MAX = 128
+graph_cache_stats = {"hits": 0, "misses": 0}
+
+
+def _graph_fingerprint(ctx: dict) -> str | None:
+    """캐시 적격(단순형 default)이면 빌드 결정 요소의 지문, 아니면 None(새 인스턴스 경로).
+
+    지문 = 모델 정체(연결·model_id·params·temperature) + MCP 도구 집합(이름·**블록 버전**·auth 지문 —
+    369 불변성으로 버전이 콘텐츠를 유일하게 가리킴) + 도구 필터 + 승인 정책 + RAG 배선 + 체크포인터
+    유무. 비밀은 sha256 지문으로만(평문 키 저장 금지). 노드형/조율형/산출물형은 per-turn 재료(브로커·
+    프록시)가 그래프에 얽혀 제외(후속)."""
+    if ctx.get("nodes_resolved") is not None or ctx.get("artifact_spec") is not None:
+        return None
+    if (ctx.get("impl") or "default") != "default":
+        return None
+    mc = ctx.get("model_cfg") or {}
+    if not mc:
+        return None
+
+    def _fp(text: str) -> str:
+        return hashlib.sha256((text or "").encode()).hexdigest()[:12]
+
+    blob = {
+        "model": [
+            mc.get("base_url"),
+            _fp(mc.get("api_key") or ""),
+            mc.get("model_id"),
+            json.dumps(mc.get("params") or {}, sort_keys=True),
+            ctx.get("temperature"),
+        ],
+        "mcp": sorted(
+            [s["name"], s.get("version") or 0, _fp(s.get("auth_token") or "")]
+            for s in ctx.get("mcp_servers") or []
+        ),
+        "tool_filter": sorted(ctx.get("tool_names") or []),
+        "policy": json.dumps(ctx.get("toolPolicy") or {}, sort_keys=True),
+        "rag": _fp(json.dumps(ctx.get("rag_collections") or [], sort_keys=True, default=str)),
+        "rag_min": json.dumps(ctx.get("rag_min_scores") or {}, sort_keys=True),
+        "ckpt": not ctx.get("ephemeral"),
+    }
+    return hashlib.sha256(json.dumps(blob, sort_keys=True, default=str).encode()).hexdigest()
+
+
 async def _build_turn_runtime(
     ctx: dict,
     impl: CustomAgent,
@@ -348,15 +397,24 @@ async def _build_turn_runtime(
         else None
     )
     calls_sink: list[dict] = []
-    tools = await runtime.build_mcp_tools(
-        ctx["mcp_servers"], calls_sink, ctx.get("toolPolicy"), ctx.get("tool_names")
-    )
-    _t_mcp = time.perf_counter()
-    # 채팅 자가기록 도구는 제거됨(스펙 051) — agent_id 메모리는 어드민 저작 전용. 회상은 유지.
-    # RAG 검색 도구 — vectorTables가 실 컬렉션으로 해석됐을 때만(스펙 037). 노드형은 컬렉션별 도구
-    # 추가(스펙 268 P1 — _rag_tools_for).
-    tools.extend(_rag_tools_for(ctx, calls_sink))
-    _t_rag = time.perf_counter()
+    # 그래프 팩토리(스펙 371 D3) — 지문 적격이면 캐시 조회. 적중 시 도구 빌드·컴파일 전부 생략
+    # (도구는 config sink라 공유 안전 — 트레이스는 per-turn calls_sink로 분리).
+    fp = _graph_fingerprint(ctx)
+    cached = _GRAPH_CACHE.get(fp) if fp else None
+    if cached is not None:
+        graph_cache_stats["hits"] += 1
+        tools = cached["tools"]
+        _t_mcp = _t_rag = time.perf_counter()
+    else:
+        tools = await runtime.build_mcp_tools(
+            ctx["mcp_servers"], calls_sink, ctx.get("toolPolicy"), ctx.get("tool_names")
+        )
+        _t_mcp = time.perf_counter()
+        # 채팅 자가기록 도구는 제거됨(스펙 051) — agent_id 메모리는 어드민 저작 전용. 회상은 유지.
+        # RAG 검색 도구 — vectorTables가 실 컬렉션으로 해석됐을 때만(스펙 037). 노드형은 컬렉션별 도구
+        # 추가(스펙 268 P1 — _rag_tools_for).
+        tools.extend(_rag_tools_for(ctx, calls_sink))
+        _t_rag = time.perf_counter()
     # 회상된 기억은 prompt(시스템 프롬프트)에 합친다. 별도 system 메시지로 주입하면
     # create_agent의 system_prompt와 충돌해 모델 채팅 템플릿이 거부한다
     # ("System message must be at the beginning"). 단일 system 프롬프트 유지.
@@ -409,7 +467,38 @@ async def _build_turn_runtime(
             else ctx.get("artifact_spec")
         ),
     )
-    graph = impl.build_graph(build_ctx)
+    if cached is not None:
+        graph = cached["graph"]
+        seed_hint = cached["hint"]
+    elif fp is not None:
+        # promptless 빌드(스펙 371 D3) — 시스템 프롬프트는 seed 선두 SystemMessage로(스파이크 실증).
+        # discovery 힌트는 도구 집합의 함수라 캐시 엔트리에 동봉(per-turn 프롬프트에 얹음).
+        from agent.toolbox import DISCOVERY_HINT, effective_tools
+
+        _, _discovery = effective_tools(tools)
+        seed_hint = f"\n\n# 도구 안내\n{DISCOVERY_HINT}" if _discovery else ""
+        graph = impl.build_graph(
+            AgentBuildContext(
+                prompt="",
+                model_cfg=build_ctx.model_cfg,
+                tools=build_ctx.tools,
+                checkpointer=build_ctx.checkpointer,
+                params=build_ctx.params,
+                memories=build_ctx.memories,
+                overrides=build_ctx.overrides,
+                broker=build_ctx.broker,
+                memory_recall=build_ctx.memory_recall,
+                history_window=build_ctx.history_window,
+                impl_config=build_ctx.impl_config,
+            )
+        )
+        graph_cache_stats["misses"] += 1
+        if len(_GRAPH_CACHE) >= _GRAPH_CACHE_MAX:
+            _GRAPH_CACHE.pop(next(iter(_GRAPH_CACHE)))  # 최고령 축출(삽입순)
+        _GRAPH_CACHE[fp] = {"graph": graph, "tools": tools, "hint": seed_hint}
+    else:
+        graph = impl.build_graph(build_ctx)
+        seed_hint = ""
     _t_graph = time.perf_counter()
     _ms = lambda a, b: round((b - a) * 1000, 1)  # noqa: E731
     return {
@@ -425,6 +514,9 @@ async def _build_turn_runtime(
         "mem_hits": mem_hits,
         "memory_recalls": memory_recalls,
         "history_windows": history_windows,
+        # 스펙 371 D3 — promptless 그래프면 시스템 프롬프트(+discovery 힌트)를 seed 선두 메시지로.
+        "prompt_in_messages": fp is not None,
+        "seed_system": (prompt_prompt + seed_hint) if fp is not None else prompt_prompt,
         "build_ms": {
             "memory": _ms(_t0, _t_mem),
             "mcp": _ms(_t_mem, _t_mcp),
@@ -476,10 +568,19 @@ def _resolve_graph_entry(
 
 
 def _turn_config(
-    ctx: dict, thread_id: str, user_id: str | None, capture: trace_capture.TraceCaptureHandler
+    ctx: dict,
+    thread_id: str,
+    user_id: str | None,
+    capture: trace_capture.TraceCaptureHandler,
+    calls_sink: list[dict] | None = None,
 ) -> dict:
-    """LangGraph 실행 config — 관측 콜백(스펙 118)·실측 캡처(스펙 205) 부착."""
+    """LangGraph 실행 config — 관측 콜백(스펙 118)·실측 캡처(스펙 205)·per-turn 트레이스 sink(스펙 371).
+
+    mcp_calls_sink: 캐시된 그래프의 도구(_wrap_mcp_tool·build_rag_tool)가 호출 시점에 읽는 이 턴의
+    기록 리스트 — 그래프를 턴끼리 공유해도 트레이스가 안 섞인다(구성→호출 인자 이동)."""
     config: dict[str, Any] = {"configurable": {"thread_id": thread_id}}
+    if calls_sink is not None:
+        config["configurable"]["mcp_calls_sink"] = calls_sink
     # 관측(스펙 118→328) — OTEL이 설정됐을 때만 콜백 부착(미설정=무동작). 핵심 채팅 경로 무영향.
     # 비영속(스펙 235): 외부 관측 기록도 스킵(고트래픽·기록 무의미 계약 — 앱 DB 밖이라도 적재 안 함).
     if not ctx.get("ephemeral"):
@@ -495,7 +596,11 @@ def _turn_config(
 
 
 def _seed_and_sent(
-    conversation: list[dict], ctx: dict, pipeline: bool, prompt_prompt: str
+    conversation: list[dict],
+    ctx: dict,
+    pipeline: bool,
+    prompt_prompt: str,
+    system_in_seed: bool = False,
 ) -> tuple[list[dict], list[dict], list[dict]]:
     """윈도 절단·전송 전문·그래프 시드 — 반환 (messages, sent_messages, seed_messages).
 
@@ -508,6 +613,10 @@ def _seed_and_sent(
     messages = _window(conversation, ctx["history_depth"])
     sent_messages = _build_sent_messages(prompt_prompt, messages)
     seed_messages = messages[-1:] if (pipeline and messages) else messages
+    if system_in_seed and prompt_prompt:
+        # promptless 그래프(스펙 371 D3) — 시스템 프롬프트를 그래프 입력 선두로(스파이크 실증:
+        # system_prompt=None + 단일 선두 system = 기존과 동일 동작, 상태에 1개만).
+        seed_messages = [{"role": "system", "content": prompt_prompt}, *seed_messages]
     return messages, sent_messages, seed_messages
 
 
@@ -1188,9 +1297,13 @@ async def chat(
     graph = turn["graph"]
     thread_id, graph_input, pending_artifact = _resolve_graph_entry(ctx, body, user_text)
     capture = trace_capture.TraceCaptureHandler()
-    config = _turn_config(ctx, thread_id, user_id, capture)
+    config = _turn_config(ctx, thread_id, user_id, capture, calls_sink=turn["calls_sink"])
     messages, sent_messages, seed_messages = _seed_and_sent(
-        conversation, ctx, turn["pipeline"], turn["prompt_prompt"]
+        conversation,
+        ctx,
+        turn["pipeline"],
+        turn["seed_system"],  # 캐시 경로: 프롬프트+회상+discovery 힌트(비캐시=prompt_prompt 동일)
+        system_in_seed=turn["prompt_in_messages"],
     )
 
     # interrupt 수집 리스트를 **턴 스코프로 끌어올린다**(스펙 346, codex P1): 관문(아래 event_stream의

@@ -42,7 +42,12 @@ def build_agent(
     from .toolbox import DISCOVERY_HINT, effective_tools
 
     eff_tools, discovery = effective_tools(tools)
-    system_prompt = f"{prompt}\n\n# 도구 안내\n{DISCOVERY_HINT}" if discovery else prompt
+    # 빈 프롬프트 = promptless 그래프(스펙 371 D3 — 시스템 프롬프트는 호출자가 선두 SystemMessage로
+    # 주입, discovery 힌트도 호출자 몫). create_agent(system_prompt=None)이라 그래프가 턴 무관 불변.
+    if not prompt:
+        system_prompt = None
+    else:
+        system_prompt = f"{prompt}\n\n# 도구 안내\n{DISCOVERY_HINT}" if discovery else prompt
     # create_agent = 구 create_react_agent 후속(스펙 076). prompt 파라미터는 prompt→system_prompt.
     # 정적 문자열 prompt만 쓰므로 1:1 대응(콜러블 prompt 제거 영향 없음). 반환물은 동일한 컴파일
     # LangGraph 그래프 → invoke/astream/ainvoke(Command)/__interrupt__ 계약 보존(verify_041로 증명).

@@ -15,8 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from . import crypto
-from .block_versions import delete_block_history, record_block_version
 from .auth import current_principal
+from .block_versions import delete_block_history, record_block_version
 from .db import get_or_404, get_session
 from .models import Agent, AgentVersion, Collection, ModelConfig, Provider, User
 from .ownership import is_privileged

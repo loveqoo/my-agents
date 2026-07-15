@@ -39,7 +39,7 @@ def hist(cli: httpx.Client, kind: str, pk: str) -> list[dict]:
     return r.json()
 
 
-def main() -> None:  # noqa: PLR0915
+def main() -> None:
     tag = uuid.uuid4().hex[:6]
     cli = httpx.Client(base_url=BASE, timeout=60.0)
     r = cli.post("/auth/login", data={"username": EMAIL, "password": PASSWORD})
@@ -175,14 +175,25 @@ def main() -> None:  # noqa: PLR0915
         }
         with eng.connect() as c:
             missing_total = 0
+            orphans_total = 0
             for kind, table in kinds.items():
-                total = c.execute(text(f"select count(*) from {table}")).scalar()
-                have = c.execute(
-                    text("select count(distinct block_pk) from block_versions where kind=:k"),
+                # 양방향(스펙 371 교정): 이력 없는 블록 0 **그리고** head 없는 고아 이력 0.
+                missing_total += c.execute(
+                    text(
+                        f"select count(*) from {table} h where not exists "
+                        "(select 1 from block_versions bv where bv.kind=:k and bv.block_pk=h.id)"
+                    ),
                     {"k": kind},
-                ).scalar()
-                missing_total += (total or 0) - (have or 0)
+                ).scalar() or 0
+                orphans_total += c.execute(
+                    text(
+                        "select count(distinct bv.block_pk) from block_versions bv "
+                        f"where bv.kind=:k and not exists (select 1 from {table} h where h.id=bv.block_pk)"
+                    ),
+                    {"k": kind},
+                ).scalar() or 0
             check(missing_total == 0, f"C2 이력 없는 블록 0 (missing={missing_total})")
+            check(orphans_total == 0, f"C2b 고아 이력 0 (orphans={orphans_total}) — 부트 청소 후 기준")
     finally:
         # 정리 — 생성 역순(모델→프로바이더 FK)
         for path, oid in reversed(created):

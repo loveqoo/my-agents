@@ -469,9 +469,13 @@ async def _resolve_mcp_servers(
                 transport = row.transport or "http"
                 enabled = list(row.enabled_tools or [])
                 tools_meta = row.tools_meta or {}
+            # 유효 버전(스펙 371 D1 캐시 키) — pin이 있으면 그 버전, 없으면 head의 현재 버전.
+            # 369 불변성 덕에 (name, version)이 콘텐츠를 유일하게 가리킨다(무효화 로직 불요).
+            eff_version = (pins or {}).get(f"mcp-server:{row.name}") or row.version
             mcp_servers.append(
                 {
                     "name": row.name,
+                    "version": eff_version,
                     "url": url,
                     "transport": transport,
                     "enabled_tools": enabled,
@@ -702,12 +706,12 @@ async def _load_context(
         # (pins 없음)는 빈 dict → 전부 head 폴백(무회귀).
         pins: dict = {}
         if not remote and ctx["exec_version"]:
-            from .models import AgentVersion as _AV
+            from .models import AgentVersion as _AgentVer
 
             _vrow = (
                 await db.execute(
-                    select(_AV.pins).where(
-                        _AV.agent_pk == agent.id, _AV.version == ctx["exec_version"]
+                    select(_AgentVer.pins).where(
+                        _AgentVer.agent_pk == agent.id, _AgentVer.version == ctx["exec_version"]
                     )
                 )
             ).scalar_one_or_none()

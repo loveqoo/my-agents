@@ -119,9 +119,19 @@ async def delete_block_history(session: AsyncSession, kind: str, block_pk: uuid.
 
 
 async def ensure_v1_rows(session: AsyncSession) -> int:
-    """이력 없는 블록에 v1 백필(멱등) — 부트·시드 공용. 기존 DB 이관과 처녀 빌드가 같은 불변식
-    (블록 행 수 == 이력 보유 블록 수)에 도달한다. 반환: 새로 백필한 블록 수."""
+    """이력 없는 블록에 v1 백필 + 고아 이력 청소(멱등) — 부트·시드 공용. 기존 DB 이관과 처녀
+    빌드가 같은 불변식(블록 행 수 == 이력 보유 블록 수, 고아 0)에 도달한다. 고아 = 라우트 밖
+    삭제 경로(테스트 ORM 정리 등)가 남긴 head 없는 이력 — 폴리모픽이라 FK cascade가 없어
+    부트가 걷는다(스펙 371 실측: -8 고아가 불변식을 음수로 깼다). 반환: 백필한 블록 수."""
     created = 0
+    for kind, (model_cls, _) in BLOCK_KINDS.items():
+        # 고아 청소 — head가 사라진 block_pk의 이력 제거.
+        head_ids = select(model_cls.id)
+        await session.execute(
+            sa_delete(BlockVersion).where(
+                BlockVersion.kind == kind, BlockVersion.block_pk.not_in(head_ids)
+            )
+        )
     for kind, (model_cls, to_payload) in BLOCK_KINDS.items():
         have = {
             pk
@@ -141,8 +151,7 @@ async def ensure_v1_rows(session: AsyncSession) -> int:
                 )
             )
             created += 1
-    if created:
-        await session.commit()
+    await session.commit()  # 백필 + 고아 청소 반영(둘 다 멱등)
     return created
 
 
@@ -205,7 +214,7 @@ async def _head_versions(session: AsyncSession, kind: str, names: set[str]) -> d
     model_cls = BLOCK_KINDS[kind][0]
     col = _NAME_COL[kind]()
     rows = await session.execute(select(col, model_cls.version).where(col.in_(names)))
-    return {name: ver for name, ver in rows.all()}
+    return dict(rows.all())
 
 
 async def freeze_pins(session: AsyncSession, cfg: dict) -> dict:

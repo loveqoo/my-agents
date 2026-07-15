@@ -7,11 +7,17 @@
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
 from typing import Literal, overload
 
 from langchain_openai import ChatOpenAI
 
 _MISSING_MSG = "모델 설정이 필요합니다 (base_url/model_id) — 모델을 등록하세요."
+
+# 프로바이더별 클라이언트 풀(스펙 371 D2) — 프로세스-로컬, 상한 초과 시 최고령 축출.
+_CLIENT_POOL: dict[tuple, ChatOpenAI] = {}
+_CLIENT_POOL_MAX = 64
 
 
 # on_missing="raise"(기본)면 None 불가 → 호출부가 model을 바로 쓴다. "none"이면 None 가능(artifact).
@@ -55,10 +61,37 @@ def build_chat_openai(
     params = params or {}
     temperature = params.get("temperature", cfg_params.get("temperature", default_temperature))
     enable_thinking = cfg_params.get("enable_thinking", False)
-    return ChatOpenAI(
+    api_key = cfg.get("api_key") or "sk-noauth"
+    # 클라이언트 풀(스펙 371 D2) — 같은 연결·모델·파라미터면 인스턴스 재사용(ChatOpenAI는 호출간
+    # 무상태·async-safe). 목적은 생성 비용(~0.1ms)이 아니라 **커넥션 재사용**(실 프로바이더 TLS
+    # 핸드셰이크 — mock 루프백 사각지대). 키에 api_key 지문 포함 → 로테이션=새 인스턴스.
+    # 루프별 격리 — httpx async 클라이언트는 자기 이벤트 루프에 묶인다. 서버는 루프 하나라 늘
+    # 적중하고, 루프를 새로 여는 컨텍스트(in-process 테스트의 asyncio.run 반복)는 루프마다 새
+    # 인스턴스(죽은 루프의 엔트리는 LRU가 축출). 루프 밖(동기)이면 풀 미사용.
+    try:
+        loop_id = id(asyncio.get_running_loop())
+    except RuntimeError:
+        loop_id = None
+    key = (
+        loop_id,
+        base_url,
+        hashlib.sha256(api_key.encode()).hexdigest()[:8],
+        model_id,
+        temperature,
+        enable_thinking,
+    )
+    pooled = _CLIENT_POOL.get(key) if loop_id is not None else None
+    if pooled is not None:
+        return pooled
+    client = ChatOpenAI(
         base_url=base_url,
-        api_key=cfg.get("api_key") or "sk-noauth",
+        api_key=api_key,
         model=model_id,
         temperature=temperature,
         extra_body={"chat_template_kwargs": {"enable_thinking": enable_thinking}},
     )
+    if loop_id is not None:
+        if len(_CLIENT_POOL) >= _CLIENT_POOL_MAX:
+            _CLIENT_POOL.pop(next(iter(_CLIENT_POOL)))  # 최고령 축출(삽입순)
+        _CLIENT_POOL[key] = client
+    return client

@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from ..auth import current_principal
+from ..block_versions import freeze_pins
 from ..chat import derive_pipeline_pool
 from ..db import get_or_404, get_session
 from ..models import Agent, AgentVersion, User
@@ -18,7 +19,6 @@ from ..ownership import assert_may_manage, may_manage, may_use_agent, owner_of
 from ..schemas import AgentCreate, AgentOut, AgentUpdate
 from ..serializers import agent_to_out
 from .guards import _enforce_ephemeral_boundary, _enforce_tool_policy_gate
-from ..block_versions import freeze_pins
 from .helpers import (
     _commit_or_409,
     _dedupe_agent_name,

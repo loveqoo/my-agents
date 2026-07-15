@@ -10,14 +10,19 @@ MCP 서버에 **실제로 연결**(langchain-mcp-adapters `MultiServerMCPClient`
 
 import asyncio
 import contextlib
+import hashlib
+import logging
 import math
 import re
 import time
 from typing import Any
 
 from langchain_core.messages import ToolMessage
+from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool, StructuredTool
 from langgraph.types import interrupt
+
+log = logging.getLogger("api.runtime")
 
 
 def is_tool_message(msg: Any) -> bool:
@@ -123,6 +128,16 @@ def _content_text(result: Any) -> str:
     return str(result)
 
 
+def _sink_from(config: Any, fallback: list[dict]) -> list[dict]:
+    """호출 시점 트레이스 sink 해석(스펙 371 D3) — RunnableConfig.configurable["mcp_calls_sink"]
+    우선(그래프 캐시 경로: per-turn 값을 호출 인자로), 없으면 빌드 시 클로저(비캐시 경로 무회귀)."""
+    try:
+        sink = (config or {}).get("configurable", {}).get("mcp_calls_sink")
+    except AttributeError:
+        sink = None
+    return sink if isinstance(sink, list) else fallback
+
+
 def _wrap_mcp_tool(
     server: str, rt: BaseTool, calls_sink: list[dict], approval: dict | None
 ) -> StructuredTool:
@@ -146,7 +161,7 @@ def _wrap_mcp_tool(
     with contextlib.suppress(Exception):  # rt 타입이 예상 밖이면 조용히 넘어감(무회귀)
         rt.handle_tool_error = False
 
-    async def _execute(kwargs: dict, t0: float) -> str:
+    async def _execute(kwargs: dict, t0: float, sink: list[dict]) -> str:
         # 실 부수효과: 실제 MCP 서버 도구를 호출한다. 승인됐거나 비위험 도구일 때만 도달.
         reason: str | None = None  # 실패 사유(스펙 320) — 성공 시 None
         try:
@@ -166,7 +181,7 @@ def _wrap_mcp_tool(
             # 오류 문자열이 사라지므로, 트레이스뿐 아니라 에이전트도 "왜 실패했는지"를 보고 적응·재시도할
             # 수 있게(toolbox.py agent-call 실패가 str(exc)를 싣는 선례와 동형). reason은 이미 마스킹+캡됨.
             text = f"도구 실행 실패({server}.{rt.name}): {reason}"
-        calls_sink.append(
+        sink.append(
             {
                 "server": server,
                 "tool": rt.name,
@@ -184,10 +199,11 @@ def _wrap_mcp_tool(
         )
         return text
 
-    async def _run(**kwargs: Any) -> str:
+    async def _run(config: RunnableConfig = None, **kwargs: Any) -> str:  # noqa: RUF013 — langchain 주입 규약(정확 어노테이션 필수)
         t0 = time.perf_counter()
+        sink = _sink_from(config, calls_sink)
         if permission is None:
-            return await _execute(kwargs, t0)
+            return await _execute(kwargs, t0, sink)
         # 위험 도구: 실 부수효과 이전에 일시정지. interrupt()는 첫 호출 시 그래프를 멈추고,
         # admin이 Command(resume={"decision":...})로 재개하면 그 값을 반환한다(도구는 처음부터
         # 재실행되지만 interrupt 이전엔 부수효과가 없어 정확히 1회만 ainvoke — 스펙 041 probe로 검증).
@@ -206,9 +222,9 @@ def _wrap_mcp_tool(
         )
         approved = isinstance(decision, dict) and decision.get("decision") == "approve"
         if not approved:
-            # 거부: 부수효과 0(ainvoke·calls_sink 미emit) — 에이전트는 이 사실로 마무리.
+            # 거부: 부수효과 0(ainvoke·sink 미emit) — 에이전트는 이 사실로 마무리.
             return "거부됨 — 관리자가 실행을 승인하지 않았습니다."
-        return await _execute(kwargs, t0)
+        return await _execute(kwargs, t0, sink)
 
     desc = rt.description or f"{server} 서버의 {rt.name} 도구."
     if permission is not None:
@@ -272,6 +288,48 @@ def selected_for_server(server: str, selected: list[str] | None) -> set[str] | N
     return mine or None
 
 
+# ── MCP 도구 사양 캐시(스펙 371 D1) ─────────────────────────────────────────────
+# get_tools(HTTP 디스커버리) 결과(raw 도구)를 (서버명, 블록 버전, auth 지문) 키로 캐시.
+# 369 불변성: 버전 payload가 append-only 불변 → TTL 무한·무효화 로직 불요(새 버전=새 키,
+# auth 로테이션=새 지문). per-turn 래핑(_wrap_mcp_tool: calls_sink·승인)은 캐시하지 않고 매턴
+# 재수행 — 동시 턴 트레이스 교차 오염이 구조적으로 불가. 프로세스-로컬(단일 uvicorn 전제).
+_TOOL_SPEC_CACHE: "dict[tuple, list]" = {}
+_TOOL_SPEC_CACHE_MAX = 256
+_TOOL_SPEC_LOCK = asyncio.Lock()  # miss 직렬화(같은 서버 동시 miss의 중복 디스커버리 방지)
+mcp_tool_cache_stats = {"hits": 0, "misses": 0}  # 검증용(스펙 371 C2)
+
+
+def _tool_spec_cache_key(server: dict) -> tuple:
+    auth_fp = hashlib.sha256((server.get("auth_token") or "").encode()).hexdigest()[:8]
+    return (server["name"], server.get("version") or 0, auth_fp)
+
+
+async def _raw_tools_cached(server: dict, conn: dict | None) -> list | None:
+    """서버의 raw 도구 목록 — 캐시 적중이면 아웃바운드 0, miss면 실연결·디스커버리 후 적재."""
+    key = _tool_spec_cache_key(server)
+    cached = _TOOL_SPEC_CACHE.get(key)
+    if cached is not None:
+        mcp_tool_cache_stats["hits"] += 1
+        return cached
+    if conn is None:
+        return None  # miss인데 연결 준비 실패(SSRF 차단 등) — 호출부가 스킵
+    async with _TOOL_SPEC_LOCK:
+        cached = _TOOL_SPEC_CACHE.get(key)  # double-check(락 대기 중 채워졌으면 재사용)
+        if cached is not None:
+            mcp_tool_cache_stats["hits"] += 1
+            return cached
+        from langchain_mcp_adapters.client import MultiServerMCPClient
+
+        client = MultiServerMCPClient({server["name"]: conn})
+        raw = await client.get_tools(server_name=server["name"])
+        mcp_tool_cache_stats["misses"] += 1
+        if len(_TOOL_SPEC_CACHE) >= _TOOL_SPEC_CACHE_MAX:
+            _TOOL_SPEC_CACHE.pop(next(iter(_TOOL_SPEC_CACHE)))  # 최고령 축출(삽입순)
+        _TOOL_SPEC_CACHE[key] = raw
+        log.info("MCP 도구 사양 캐시 적재: %s v%s (%d개)", key[0], key[1], len(raw))
+        return raw
+
+
 async def build_mcp_tools(
     servers: list[dict],
     calls_sink: list[dict],
@@ -288,14 +346,19 @@ async def build_mcp_tools(
     오류여도 그 서버만 건너뛰고 나머지는 살린다(부분 실패
     격리 — 에이전트는 계속 실행). 각 도구는 `_wrap_mcp_tool`로 트레이스·HIL·graceful 래핑된다.
     """
-    from langchain_mcp_adapters.client import MultiServerMCPClient  # 지연 임포트(모듈 경량 유지)
-
-    from . import net_guard
-
-    await net_guard.refresh_allowed_hosts()  # DB allowlist 무재시작 반영(스펙 064) — 루프 전 1회
     connections: dict[str, dict] = {}
     meta: dict[str, dict] = {}
+    pending = [s for s in servers if _tool_spec_cache_key(s) not in _TOOL_SPEC_CACHE]
+    if pending:
+        from . import net_guard
+
+        # 가드(mcp_connection)보다 **먼저** 갱신 — 콜드 스냅샷 위에서 가드를 돌리면 정당한 서버가
+        # 조용히 잘린다(스펙 371 실측: 순서 뒤집혔을 때 calc-tools 매턴 탈락). miss 있을 때만.
+        await net_guard.refresh_allowed_hosts()  # DB allowlist 무재시작 반영(스펙 064)
     for server in servers:
+        if server not in pending:
+            meta[server["name"]] = server  # 캐시 적중 예정 — 연결 준비 불요(스펙 371 D1)
+            continue
         conn = mcp_connection(
             server
         )  # transport 검사·SSRF 가드 공유 헬퍼(브로커와 드리프트 0, 스펙 101)
@@ -304,15 +367,16 @@ async def build_mcp_tools(
         connections[server["name"]] = conn
         meta[server["name"]] = server
 
-    if not connections:
+    if not meta:
         return []
 
-    client = MultiServerMCPClient(connections)
     tools: list[StructuredTool] = []
     for name, s in meta.items():
         try:
-            raw_tools = await client.get_tools(server_name=name)
+            raw_tools = await _raw_tools_cached(s, connections.get(name))
         except Exception:
+            continue
+        if raw_tools is None:
             continue
         enabled = set(s.get("enabled_tools") or [])
         sel = selected_for_server(name, selected_tools)  # 도구 단위 배선 필터(스펙 276)
@@ -596,8 +660,13 @@ def build_rag_tool(
     # 컬렉션별 임계값 맵 정규화(스펙 191 v2) — 배선된 컬렉션으로 한정, 값 0<x≤1만 유효.
     min_scores = _norm_min_scores(min_scores, [c.get("name", "") for c in collections])
 
-    async def _search(query: str = "", top_k: int = 4) -> str:
+    async def _search(
+        query: str = "",
+        top_k: int = 4,
+        config: RunnableConfig = None,  # noqa: RUF013 — langchain 주입 규약(정확 어노테이션 필수)
+    ) -> str:
         t0 = time.perf_counter()
+        sink = _sink_from(config, calls_sink)  # 스펙 371 D3 — per-turn sink를 호출 인자로
 
         def _record(
             status: str,
@@ -623,7 +692,7 @@ def build_rag_tool(
                     {"error": _sanitize_preview(reason, _ERR_CAP)} if reason else {}
                 ),  # 실패 사유(스펙 320)
             }
-            calls_sink.append(entry)
+            sink.append(entry)
 
         try:
             results = await search_collections(

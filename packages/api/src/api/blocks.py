@@ -159,7 +159,7 @@ async def prompt_apply(
     from sqlalchemy.orm import selectinload as _sl
 
     from .block_versions import freeze_pins
-    from .models import AgentVersion as _AV
+    from .models import AgentVersion as _AgentVer
 
     for agent in agents:
         if (
@@ -187,7 +187,7 @@ async def prompt_apply(
                 scratch.note = f"프롬프트 새 버전 채택 {_today()}"
             else:
                 loaded.versions.append(
-                    _AV(
+                    _AgentVer(
                         version=target_ver,
                         ever_opened=False,
                         pins=pins,

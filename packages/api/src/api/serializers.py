@@ -5,7 +5,7 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agent.runtime import classify_runtime, is_first_party
+from agent.runtime import classify_runtime
 
 from .crypto import SECRET_MASK
 from .models import Agent, Approval, Collection, ModelConfig, Provider, Session
