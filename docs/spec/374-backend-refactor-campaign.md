@@ -63,6 +63,14 @@ god-function 테스트 사각**이다. 즉 버그 수정이 아니라 진짜 구
 - Tier 3(핫/파괴): 봉합 후 **codex 적대 리뷰**로 "쪼개며 흘린 것 없는가" 대조 후 출하.
 - per-spec 커밋(각 항목 = 스펙 슬롯 or 374 하위 단위), 푸시는 구남님 명시 시만.
 
+## 진행 현황 (2026-07-16)
+
+- **Tier 1 완주**: 375(MCP 캡)·376(RAG 임베딩 검증)·377(eval admission) — DRY 단일화 3건.
+- **Tier 2 진행**: 378(schemas→9모듈 패키지)·379(models→11모듈 패키지)·380(runtime→rag_runtime 추출) 완료.
+  **남음**: rag.py 분할(1256줄 라우터→`rag/` 패키지)·chat_context typed builder(ctx dict→DTO 계약 변경).
+- 전부 동작 불변(SUITE_OK·e2e 39/39·수치 보존) per-spec 커밋. 미푸시. 구남님 결정: **남은 둘은 집중해서
+  별도로**(마라톤 세션 끝 급조 회피). 재개 시 최우선 = rag.py 분할 → chat_context.
+
 ## OUT / 열린 결정 (구남님 승인 필요)
 
 - **얼마나·어느 순서로** — Tier 1만? 전체 캠페인? tier별 체크포인트 vs 자율 완주?
