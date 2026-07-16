@@ -5,7 +5,7 @@
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, StrictBool, field_validator
 from sqlalchemy import func as safunc
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -110,19 +110,35 @@ async def scheduler_status(session: AsyncSession = Depends(get_session)) -> dict
     st = batch_service.status()
     last = (
         await session.execute(
-            select(BatchRun.job_name, safunc.max(BatchRun.started_at))
-            .group_by(BatchRun.job_name)
+            select(BatchRun.job_name, safunc.max(BatchRun.started_at)).group_by(BatchRun.job_name)
         )
     ).all()
     st["last_runs"] = {j: (t.isoformat() if t else None) for j, t in last}
     return st
 
 
+class TriggerBody(BaseModel):
+    # StrictBool: 파괴적 잡의 안전 플래그라 body는 **진짜 JSON boolean만** 받는다(스펙 383, codex 적대리뷰
+    # P1). 강제변환을 허용하면 {"dry_run": "off"}·0·"no"가 조용히 False(진짜 실행)로 떨어진다 — 모호한
+    # 값은 조용히 위험쪽으로 바꾸지 말고 422로 거부. query는 원래 문자열 관례라 lenient(bool) 유지(UI 보존).
+    dry_run: StrictBool | None = None
+
+
 @router.post("/{job}/run", dependencies=[_run])
-async def trigger(job: str, dry_run: bool = Query(False)) -> dict:
+async def trigger(
+    job: str,
+    body: TriggerBody | None = None,
+    dry_run: bool | None = Query(None),
+) -> dict:
     if job not in JOBS:
         raise HTTPException(status_code=404, detail=f"미지의 작업: {job}")
-    return await run_job(job, dry_run=dry_run)
+    # 안전 계약(스펙 383): 파괴적 삭제 잡이라 어느 소스도 dry_run을 명시 안 하면 **dry-run**으로 떨어진다
+    # (안전 플래그의 기본값=안전값, learning 037 "파괴적 노브 바닥"). 진짜 실행은 명시적 dry_run=false 요구.
+    # 정밀도: body > query > 기본값(true) — body는 흔한 실수(query 대신 JSON) 봉합, 전엔 조용히 무시됐다.
+    resolved = body.dry_run if body and body.dry_run is not None else dry_run
+    if resolved is None:
+        resolved = True
+    return await run_job(job, dry_run=resolved)
 
 
 @router.get("/runs", dependencies=[_run])
