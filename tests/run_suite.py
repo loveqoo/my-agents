@@ -72,6 +72,25 @@ KNOWN_DRIFT: dict[str, str] = {
     "verify_318_node_agent_call.py": "환경/상태: 노드 에이전트 위임 brokerCalls(실 principal·세션 상태 전제, http 상태 의존)",
     "verify_369_block_versioning.py": "환경: http 상태 오염 취약(단독 통과, test-all 순서서 실패)",
     "verify_068_live.py": "인프라: D6 member resume가 'connection is closed'로 500(baseline 동일·사전존재, ctx dict→DTO는 봉합). 별도 조사(asyncpg 커넥션 수명)",
+    # --- http 층 triage(2026-07-16 스펙 384). 전부 테스트 쪽(앱 결함 아님) — 공유 라이브 DB 격리
+    #     하네스(백로그 대형)가 근본 해결. baseline(2fbd224) 동일 실패=사전존재. 개별 전제 추격은
+    #     두더지잡기라 정직한 사유로 격리(부채 가시화). 순수 드리프트 verify_047은 고쳐 그물 복귀.
+    "verify_036_rag_ingest.py": "전제: RAG 테스트가 기대 컬렉션 못 찾음(공유 DB 상태), 격리 필요",
+    "verify_037_rag_retrieval.py": "전제: RAG 회수 컬렉션 미발견 → default 없는 next()가 StopIteration(테스트 취약)",
+    "verify_072_rag_search.py": "전제: RAG 검색 기대 컬렉션 미발견 → next() StopIteration(테스트 취약, 앱 무죄)",
+    "verify_103_broker_rag.py": "전제: 브로커-RAG 컬렉션 상태 전제(공유 DB), baseline 동일 실패",
+    "verify_101_broker_mcp.py": "환경: delete→interrupt가 라이브 서버서 H6 미발동(인프로세스 verify_233은 통과=코드 정상, 데이터/환경 차이)",
+    "verify_102_orchestration_strategy.py": "환경: H8/H10 delete→interrupt 라이브 미발동(verify_233 인프로세스 통과, baseline 동일)",
+    "verify_054_mcp_auth_at_rest.py": "전제: MCP 생성 201 실패 후 body['id'] KeyError(공유 DB 상태)",
+    "verify_054_mcp_real_runtime.py": "환경: stdio transport 실 MCP 런타임 전제(T6, 서버 부재 시 실패)",
+    "verify_084_memory_search.py": "노후/환경: 기억 검색 hit 구조 단언이 mem0 백엔드/데이터에 의존",
+    "verify_034_session_pagination.py": "노후+전제: awaiting/error 버킷 제거(스펙324) 반영했으나 counts 버킷수·live 델타(37 vs 25) 단언이 배지 스코핑+공유 DB에 취약(격리 필요)",
+    "verify_055_session_agent_filter.py": "전제: 공유 DB 세션 오염으로 필터 결과 초과(A live 6건 초과 포함)",
+    "verify_098_session_search.py": "전제: 공유 DB 잔여 세션이 검색 결과 오염(sess_v098_MARKERID_1 혼입)",
+    "verify_048_sample_ingest.py": "전제: 컬렉션 생성 201 실패 후 col['id'] KeyError(공유 DB 상태)",
+    "verify_057_connect_classification.py": "하네스: asyncio Task가 다른 이벤트루프에 attach(테스트 이벤트루프 버그, 앱 무관)",
+    "verify_063_live.py": "전제: 테스트 _cleanup이 route 우회 agent 직접 insert → created_by NOT NULL 위반(스펙343, 앱 라우트는 정상)",
+    "verify_093_delete_reference_guard.py": "전제: 테스트 _cleanup이 route 우회 raw 모델 삭제 → 잔여 컬렉션 FK 위반(앱 delete_model 가드는 409로 정상)",
 }
 
 # 러너 자신·인자 필요·특수 스크립트는 스위트에서 제외(그물 대상 아님).

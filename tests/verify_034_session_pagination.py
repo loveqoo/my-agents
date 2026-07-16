@@ -104,7 +104,7 @@ async def main() -> None:
 
             # --- 핵심 불변식: total(status=X) == counts[X] ---
             print("[invariant] total(status=X) == counts[X]")
-            for bucket in ("all", "live", "awaiting", "error"):
+            for bucket in ("all", "live"):  # awaiting/error 버킷은 스펙 324서 죽은 분류로 제거
                 rb = (await c.get("/sessions", params={"status": bucket, "limit": 1})).json()
                 check(rb["total"] == rb["counts"][bucket],
                       f"{bucket}: total({rb['total']}) == counts.{bucket}({rb['counts'][bucket]})")

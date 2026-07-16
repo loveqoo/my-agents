@@ -112,9 +112,9 @@ async def main() -> None:
         await s.commit()
         await s.refresh(agent2)
         s.add(AgentVersion(
-            agent_pk=agent2.id, version="v1", status="archived",
+            agent_pk=agent2.id, version="v1",
             config={"model": f"{_TAG}_model"},
-        ))
+        ))  # status 필드는 스펙 367/369서 제거(버전 상태=Agent.active_version 포인터·ever_opened)
         await s.commit()
         ver_blocked = False
         try:
