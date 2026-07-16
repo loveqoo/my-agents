@@ -20,6 +20,14 @@ from . import crypto
 from .auth import current_principal
 from .block_versions import BLOCK_KINDS, delete_block_history, record_block_version
 from .db import get_or_404, get_session
+from .mcp_tool_meta import (
+    PARAM_NAME_CAP,
+    PARAM_TYPE_CAP,
+    TOOL_DESC_CAP,
+    TOOL_NAME_CAP,
+    TOOL_PARAMS_CAP,
+    TOOLS_META_CAP,
+)
 from .models import Agent, BlockVersion, Collection, McpServer, MemoryType, Prompt, User
 from .naming import assert_valid_name
 from .ownership import assert_may_manage, may_manage, may_use_agent, owner_of
@@ -271,10 +279,8 @@ async def delete_memory_type(id: uuid.UUID, session: AsyncSession = Depends(get_
 
 
 # ----------------------------- MCP 서버 -----------------------------
-# 도구 메타 캡(스펙 151) — 원격 유래 문자열이라 표시·저장 상한을 입력 경계에서 건다.
-_TOOL_DESC_CAP = 500
-_TOOL_PARAMS_CAP = 30
-_TOOLS_META_CAP = 100  # 서버당 메타 저장 도구 수 상한
+# 도구 메타 캡(스펙 151·375) — 원격 유래 문자열이라 표시·저장 상한을 입력 경계에서 건다.
+# 상한은 mcp_tool_meta 단일 출처(schemas 입력 검증과 공유 — 드리프트 0).
 
 
 def _tool_info(t: "BaseTool") -> dict:
@@ -294,7 +300,7 @@ def _tool_info(t: "BaseTool") -> dict:
             required = set(js.get("required") or [])
         except Exception:
             pass
-        for pname, ps in list(props.items())[:_TOOL_PARAMS_CAP]:
+        for pname, ps in list(props.items())[:TOOL_PARAMS_CAP]:
             ptype = "any"
             if isinstance(ps, dict):
                 if isinstance(ps.get("type"), str):
@@ -307,13 +313,17 @@ def _tool_info(t: "BaseTool") -> dict:
                         or "any"
                     )
             params.append(
-                {"name": str(pname)[:80], "type": str(ptype)[:40], "required": pname in required}
+                {
+                    "name": str(pname)[:PARAM_NAME_CAP],
+                    "type": str(ptype)[:PARAM_TYPE_CAP],
+                    "required": pname in required,
+                }
             )
     except Exception:
         params = []
     return {
-        "name": str(getattr(t, "name", ""))[:120],
-        "description": str(getattr(t, "description", "") or "")[:_TOOL_DESC_CAP],
+        "name": str(getattr(t, "name", ""))[:TOOL_NAME_CAP],
+        "description": str(getattr(t, "description", "") or "")[:TOOL_DESC_CAP],
         "params": params,
     }
 
@@ -327,7 +337,7 @@ def _tools_meta_from_details(details: list[dict], prior: dict | None = None) -> 
     reconcile 왕복만 잡는 결함). 도구명이 재탐색으로 사라지면 그 approval도 함께 사라진다(정상)."""
     prior = prior or {}
     out: dict = {}
-    for detail in details[:_TOOLS_META_CAP]:
+    for detail in details[:TOOLS_META_CAP]:
         name = detail.get("name")
         if not name:
             continue
@@ -487,7 +497,7 @@ async def _live_discover(url: str, token: str | None) -> McpDiscoverResult:
     ms = int((time.perf_counter() - t0) * 1000)
     names = [t.name for t in tools]
     # 메타(설명·파라미터, 스펙 151) — dict를 pydantic이 McpToolInfo로 검증·강제(모델 생성 시).
-    details: list[Any] = [_tool_info(t) for t in tools[:_TOOLS_META_CAP]]
+    details: list[Any] = [_tool_info(t) for t in tools[:TOOLS_META_CAP]]
     return McpDiscoverResult(
         ok=True,
         reachable=True,

@@ -6,6 +6,15 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from .mcp_tool_meta import (
+    PARAM_NAME_CAP,
+    PARAM_TYPE_CAP,
+    TOOL_DESC_CAP,
+    TOOL_NAME_CAP,
+    TOOL_PARAMS_CAP,
+    TOOLS_META_CAP,
+)
+
 ORM = ConfigDict(from_attributes=True)
 
 
@@ -325,17 +334,17 @@ class MemorySearchOut(BaseModel):
 class McpToolParam(BaseModel):
     """도구 파라미터 요약(스펙 151) — args 스키마에서 파생한 표시용. 길이 캡=원격 유래 방어."""
 
-    name: str = Field(max_length=80)
-    type: str = Field(default="any", max_length=40)
+    name: str = Field(max_length=PARAM_NAME_CAP)
+    type: str = Field(default="any", max_length=PARAM_TYPE_CAP)
     required: bool = False
 
 
 class McpToolInfo(BaseModel):
-    """도구 메타(스펙 151) — 탐색 시점 스냅샷. 캡은 _tool_info 파생값과 정합(설명500·파라미터30)."""
+    """도구 메타(스펙 151·375) — 탐색 시점 스냅샷. 캡은 mcp_tool_meta 단일 출처(저장 정규화와 공유)."""
 
-    name: str = Field(max_length=120)
-    description: str = Field(default="", max_length=500)
-    params: list[McpToolParam] = Field(default_factory=list, max_length=30)
+    name: str = Field(max_length=TOOL_NAME_CAP)
+    description: str = Field(default="", max_length=TOOL_DESC_CAP)
+    params: list[McpToolParam] = Field(default_factory=list, max_length=TOOL_PARAMS_CAP)
 
 
 class McpServerIn(BaseModel):
@@ -361,11 +370,11 @@ class McpServerIn(BaseModel):
     @classmethod
     def _check_tools_meta(cls, v: dict[str, Any] | None) -> dict[str, Any] | None:
         """직접 저장 경로 방어(codex 151 High) — discover 경유 캡이 직접 POST/PUT엔 안 걸리므로
-        입력 경계에서 구조·크기를 강제(서버당 100개·McpToolInfo 캡). 위반=422, 정규화해 반환."""
+        입력 경계에서 구조·크기를 강제(서버당 TOOLS_META_CAP개·McpToolInfo 캡). 위반=422, 정규화해 반환."""
         if v is None:
             return v
-        if not isinstance(v, dict) or len(v) > 100:
-            raise ValueError("tools_meta는 도구 100개 이하의 객체여야 합니다.")
+        if not isinstance(v, dict) or len(v) > TOOLS_META_CAP:
+            raise ValueError(f"tools_meta는 도구 {TOOLS_META_CAP}개 이하의 객체여야 합니다.")
         out: dict[str, Any] = {}
         for k, item in v.items():
             if not isinstance(k, str) or not isinstance(item, dict):
