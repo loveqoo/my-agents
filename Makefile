@@ -3,7 +3,7 @@
 
 PY_SRC = packages/api/src packages/agent/src
 
-.PHONY: lint format format-check complexity maintainability naming typecheck suite metrics metrics-fast sweep-debris sweep-debris-apply test test-unit test-all e2e perf-build
+.PHONY: lint format format-check complexity maintainability naming typecheck suite metrics metrics-fast sweep-debris sweep-debris-apply clean-test-agents clean-test-agents-apply test test-unit test-all e2e perf-build
 
 lint:
 	uvx ruff check $(PY_SRC)
@@ -66,3 +66,9 @@ sweep-debris:
 
 sweep-debris-apply:
 	uv run python tests/sweep_debris.py --apply
+
+clean-test-agents:   # 도그푸딩 DB의 테스트-누수 에이전트 dry-run(시드 데모는 KEEP)
+	uv run --package api python tests/clean_test_agents.py
+
+clean-test-agents-apply:  # 실제 삭제(정식 API 삭제 관문 경유)
+	uv run --package api python tests/clean_test_agents.py --apply
