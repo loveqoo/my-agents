@@ -27,7 +27,14 @@
   순환. "물리 위치"가 아니라 "누가 쓰나"로 가른다.
 - **config per-file-ignore도 파일과 함께 옮겨야 한다.** schemas.py의 N815(camelCase 필드) ignore를
   패키지로 안 옮기면 45개 오탐이 뜬다 — 분할은 코드뿐 아니라 그 파일을 가리키던 설정도 갱신 대상.
+- **함수 사이 모듈 레벨 상수는 함수단위 블록 추출이 못 따라간다(rag.py 분할서 실증).** 슬라이스가
+  함수 경계로만 자르면, 함수 *사이*에 낀 `_LOCKABLE_STATUSES = (...)` 같은 상수는 물리적으로
+  직후에 오는 route 블록에 딸려가 엉뚱한 도메인 모듈로 오배치된다(그 상수를 쓰는 shared 헬퍼가
+  F821). 봉합: ruff F821을 신호로 삼아 **"누가 쓰나"로 shared 귀속을 수동 판정**(keep-shared-util-in-
+  origin의 상수판). 헬퍼 목록에만 없는 공유 상수(`MAX_UPLOAD_BYTES`)는 소비 모듈의
+  `from .shared import`에 상수를 명시 추가. → 분할 후 **ruff 전 F821 목록을 상수 오배치 체크리스트로** 본다.
 
 [verbatim-slice-no-transcription-error, package-init-reexport-preserves-importers,
 count-preserved-measure, sqlalchemy-registry-import-all, attribute-access-consumer-needs-reexport,
-lazy-import-breaks-reexport-cycle, keep-shared-util-in-origin, move-updates-config-too]
+lazy-import-breaks-reexport-cycle, keep-shared-util-in-origin, move-updates-config-too,
+between-func-constant-misplaced-by-block-slice]
