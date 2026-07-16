@@ -2,7 +2,6 @@
 
 원본 schemas.py에서 verbatim 이관."""
 
-
 from pydantic import BaseModel, Field, field_validator
 
 from .base import _require_non_blank

@@ -282,9 +282,7 @@ class OrchestrationAgentBase(ABC):
 
         async def synthesize(state: _State) -> dict:
             # 위임 결과(untrusted)는 system이 아닌 **데이터 채널**로 격리해 주입(순수함수 조립).
-            msgs = build_synthesis_messages(
-                prompt, state.get("delegated") or "", state["messages"]
-            )
+            msgs = build_synthesis_messages(prompt, state.get("delegated") or "", state["messages"])
             resp = await model.ainvoke(msgs)
             return {"messages": [resp]}
 

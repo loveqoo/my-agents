@@ -120,10 +120,10 @@ def _count_tool_rounds(msgs: list) -> int:
     결과·사용자 입력·이 노드의 최종 답)를 만나면 경계로 보고 멈춘다(노드 간 carry에도 안전 — 앞 노드
     출력은 tool_calls 없는 AI라 경계가 됨). 상태 스키마 변경 없이 순수 계산."""
     rounds = 0
-    for m in reversed(msgs):
-        if isinstance(m, ToolMessage):
+    for msg in reversed(msgs):
+        if isinstance(msg, ToolMessage):
             continue
-        if getattr(m, "tool_calls", None):
+        if getattr(msg, "tool_calls", None):
             rounds += 1
             continue
         break
@@ -143,9 +143,9 @@ def _fenced_tool_node(node_tools: list) -> Callable[..., Awaitable[dict]]:
         # 실패, learning 277 produce_node 회귀와 동일). 그래프 엔진이 항상 주입하므로 기본값 불요.
         out = await base.ainvoke(state, config)
         messages = out.get("messages", []) if isinstance(out, dict) else out
-        for m in messages:
-            if isinstance(m, ToolMessage):
-                m.content = fence_wrap(_text_of(m), secrets.token_hex(8))
+        for msg in messages:
+            if isinstance(msg, ToolMessage):
+                msg.content = fence_wrap(_text_of(msg), secrets.token_hex(8))
         return out
 
     return _run

@@ -656,6 +656,47 @@ async def _resolve_nodes_for_ctx(
     return await _resolve_node_models(db, nodes, model_cfg, pins)
 
 
+async def _resolve_prompt_provenance(
+    db: AsyncSession, cfg: dict, applied_overrides: dict | None, remote: bool
+) -> tuple[str | None, str | None]:
+    """프롬프트 출처(스펙 364) — 이 턴에 실제 쓰인 프롬프트의 (이름, id). 턴 분석/재현 근거.
+
+    systemPrompt 오버라이드로 임시 프롬프트가 쓰였으면 라이브러리 참조가 아니므로 이름/id 없음(정직).
+    cfg["prompt"]는 이름이거나 인라인 본문 — 실제 Prompt 행이 매칭될 때만 이름/id를 남기고(짧은
+    라이브러리 키), 인라인이면 (None, None)(본문은 promptSnapshot이 보존). 원격(code/external)은
+    프롬프트가 원격 측에 있어 로컬 라이브러리 참조가 무의미 → 미기록."""
+    _sp = (applied_overrides or {}).get("systemPrompt")
+    _override_prompt = isinstance(_sp, str) and bool(_sp.strip())
+    _ref = "" if (remote or _override_prompt) else (cfg.get("prompt") or "")
+    if not _ref:
+        return None, None
+    from .models import Prompt as _Prompt
+
+    _prow = (await db.execute(select(_Prompt.id).where(_Prompt.name == _ref))).scalar_one_or_none()
+    if _prow is None:
+        return None, None
+    return _ref, str(_prow)
+
+
+async def _resolve_exec_pins(
+    db: AsyncSession, agent_pk: uuid.UUID, exec_version: str | None, remote: bool
+) -> dict:
+    """실행 버전의 pins(스펙 370) — 못박은 블록 버전으로 해석(모델·MCP·노드 모델). 원격/레거시
+    (pins 없음)는 빈 dict → 전부 head 폴백(무회귀)."""
+    if remote or not exec_version:
+        return {}
+    from .models import AgentVersion as _AgentVer
+
+    _vrow = (
+        await db.execute(
+            select(_AgentVer.pins).where(
+                _AgentVer.agent_pk == agent_pk, _AgentVer.version == exec_version
+            )
+        )
+    ).scalar_one_or_none()
+    return dict(_vrow or {})
+
+
 async def _load_context(
     agent_id: uuid.UUID,
     session_str_id: str | None,
@@ -712,39 +753,10 @@ async def _load_context(
         # 실행 버전(스펙 242) — pinned=지정 버전(미리보기), exec=실제 실행 버전(지정 없으면 활성).
         # trace.agentVersion 기록·HIL 게이트(pinned는 승인 재개가 서빙 config로 돌아 drift) 근거.
         exec_version = pinned_version or agent.active_version
-        # 프롬프트 출처(스펙 364) — 이 턴에 실제 쓰인 프롬프트를 이력에 남겨 턴 분석/재현을 가능케 한다.
-        # systemPrompt 오버라이드로 임시 프롬프트가 쓰였으면 라이브러리 참조가 아니므로 이름/id 없음(정직).
-        # cfg["prompt"]는 이름이거나 인라인 본문 — 실제 Prompt 행이 매칭될 때만 이름/id를 남기고(짧은
-        # 라이브러리 키), 인라인이면 null(본문은 promptSnapshot이 보존).
-        prompt_name: str | None = None
-        prompt_id: str | None = None
-        _sp = (applied_overrides or {}).get("systemPrompt")
-        _override_prompt = isinstance(_sp, str) and bool(_sp.strip())
-        # 원격(code/external)은 프롬프트가 원격 측에 있어 로컬 라이브러리 참조가 무의미 → 출처 미기록.
-        _ref = "" if (remote or _override_prompt) else (cfg.get("prompt") or "")
-        if _ref:
-            from .models import Prompt as _Prompt
-
-            _prow = (
-                await db.execute(select(_Prompt.id).where(_Prompt.name == _ref))
-            ).scalar_one_or_none()
-            if _prow is not None:
-                prompt_name = _ref
-                prompt_id = str(_prow)
-        # 실행 버전의 pins(스펙 370) — 못박은 블록 버전으로 해석(모델·MCP·노드 모델). 원격/레거시
-        # (pins 없음)는 빈 dict → 전부 head 폴백(무회귀).
-        pins: dict = {}
-        if not remote and exec_version:
-            from .models import AgentVersion as _AgentVer
-
-            _vrow = (
-                await db.execute(
-                    select(_AgentVer.pins).where(
-                        _AgentVer.agent_pk == agent.id, _AgentVer.version == exec_version
-                    )
-                )
-            ).scalar_one_or_none()
-            pins = dict(_vrow or {})
+        prompt_name, prompt_id = await _resolve_prompt_provenance(
+            db, cfg, applied_overrides, remote
+        )
+        pins = await _resolve_exec_pins(db, agent.id, exec_version, remote)
         # 코드·외부 에이전트는 비로컬(원격/A2A) 실행이라 로컬 모델이 필요 없다(건너뜀 = None).
         nodes = cfg.get("nodes")  # 노드형 파이프라인 노드 명세(스펙 259) — 아래서 노드별 모델 해석
         model_cfg = await _resolve_model(db, cfg, overrides, pins) if not remote else None

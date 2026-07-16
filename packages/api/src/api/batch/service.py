@@ -75,7 +75,9 @@ async def _try_become_leader() -> bool:
     if _lock_conn is not None:
         return True
     conn = await engine.connect()
-    got = (await conn.execute(text("select pg_try_advisory_lock(:k)"), {"k": _LOCK_KEY})).scalar_one()
+    got = (
+        await conn.execute(text("select pg_try_advisory_lock(:k)"), {"k": _LOCK_KEY})
+    ).scalar_one()
     if not got:
         await conn.close()
         return False
@@ -104,7 +106,9 @@ async def _leader_loop() -> None:
                 _state.update(leader=True, jobs=_snapshot_jobs())
                 log.info("배치 스케줄러 리더 — 등록 작업 %d개", len(_scheduler.get_jobs()))
                 return
-            log.info("배치 스케줄러: 다른 프로세스가 리더 — %d초 후 재시도(승계 대기)", _RETRY_SECONDS)
+            log.info(
+                "배치 스케줄러: 다른 프로세스가 리더 — %d초 후 재시도(승계 대기)", _RETRY_SECONDS
+            )
         except Exception as exc:  # DB 미준비 등 — 재시도(부팅을 죽이지 않는다)
             log.warning("배치 스케줄러 리더 시도 실패(재시도): %s", exc)
         await asyncio.sleep(_RETRY_SECONDS)

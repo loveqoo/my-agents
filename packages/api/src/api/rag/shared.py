@@ -44,8 +44,6 @@ _SCHEMA_MAX_CHARS = 20_000  # 스키마 직렬화 캡 — 거대 스키마의 �
 _SCHEMA_BANNED_KEYS = ("pattern", "patternProperties")  # 정규식 키워드 금지(v1)
 
 
-
-
 def _has_banned_key(node: object) -> str | None:
     """스키마 트리에서 금지 키워드 탐색 — 병적 정규식(`^(a+)+$` 류)이 행 전수 검증에서 CPU를
     폭주시키는 ReDoS 표면을 등록 시점에 차단(codex 149 High). v1 경계: 정규식 제약 미지원."""
@@ -138,9 +136,7 @@ async def _embedding_model(session: AsyncSession, model_id: uuid.UUID) -> ModelC
     ).scalar_one_or_none()
 
 
-async def _validate_embedding_model(
-    session: AsyncSession, model_id: uuid.UUID
-) -> ModelConfig:
+async def _validate_embedding_model(session: AsyncSession, model_id: uuid.UUID) -> ModelConfig:
     """임베딩 모델 해석+검증(스펙 375·캠페인 374 T1-2) — 컬렉션 생성·재인덱싱 모델 선택 공유 단일 출처.
 
     이전엔 create_collection과 _resolve_reindex_model이 kind 강제·probe·차원 검사를 각각 복제해
@@ -154,9 +150,7 @@ async def _validate_embedding_model(
     if m is None:
         raise HTTPException(status_code=400, detail="임베딩 모델을 찾을 수 없습니다.")
     if m.kind != "embedding":
-        raise HTTPException(
-            status_code=400, detail="임베딩(kind=embedding) 모델만 쓸 수 있습니다."
-        )
+        raise HTTPException(status_code=400, detail="임베딩(kind=embedding) 모델만 쓸 수 있습니다.")
     if m.provider is not None:  # 같은 차원(RAG_EMBED_DIMS)만 — probe 실측
         probe = await _probe(
             m.provider.base_url, crypto.decrypt(m.provider.api_key), m.model_id, "embedding"

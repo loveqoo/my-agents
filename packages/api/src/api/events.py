@@ -35,9 +35,9 @@ _MAX_SUBS = 20
 
 def publish(event: dict) -> None:
     """이벤트 발행(비블로킹) — 배경 잡이 부른다. 구독자 없으면 무동작(알림은 best-effort)."""
-    for q in list(_SUBS):
+    for sub in list(_SUBS):
         try:
-            q.put_nowait(event)
+            sub.put_nowait(event)
         except asyncio.QueueFull:
             # 느린 구독자 — 이 이벤트만 드롭(상태의 진실은 문서 status라 유실 무해).
             logger.debug("이벤트 구독자 큐 가득 — 드롭: %s", event.get("type"))

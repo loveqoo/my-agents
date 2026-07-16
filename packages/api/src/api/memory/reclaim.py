@@ -90,9 +90,7 @@ async def reclaim_unreachable(*, dry_run: bool, grace_days: int) -> dict:
     for _ in range(_MAX_BATCHES):
         async with SessionLocal() as session:
             got = len(
-                (
-                    await session.execute(_DELETE_STMT, {"cutoff": cutoff, "batch": _BATCH})
-                ).all()
+                (await session.execute(_DELETE_STMT, {"cutoff": cutoff, "batch": _BATCH})).all()
             )
             await session.commit()
         deleted += got

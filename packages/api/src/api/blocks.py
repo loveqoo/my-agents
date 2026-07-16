@@ -183,9 +183,7 @@ async def prompt_apply(
                 )
             ).scalar_one()
             scratch, target_ver = scratch_target(loaded)
-            base = next(
-                (v for v in loaded.versions if v.version == loaded.active_version), None
-            )
+            base = next((v for v in loaded.versions if v.version == loaded.active_version), None)
             cfg = dict((base.config if base is not None else loaded.config) or {})
             pins = await freeze_pins(session, cfg)
             if scratch is not None:

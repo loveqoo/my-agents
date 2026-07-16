@@ -258,6 +258,103 @@ async def _candidates(
     return out
 
 
+async def _consolidation_preview(candidates: list, mem_cfg: dict) -> list[dict]:
+    """dry-run 미리보기(불변식 4 — 변형 전무). 실행 시 무엇이 스킵되는지도 정직히 표기."""
+    preview = []
+    for uid, mems in candidates:
+        if len(mems) > _MAX_CONSOLIDATE_INPUT:  # 상한 초과 → 실행 시 스킵(잘림 손실 방지)
+            preview.append(
+                {
+                    "user_id": uid,
+                    "before": len(mems),
+                    "after": 0,
+                    "skip": "too_many",
+                    "sample": [],
+                }
+            )
+            continue
+        new_facts = await asyncio.to_thread(_consolidate, [m["text"] for m in mems], mem_cfg)
+        skip = None if _is_valid_consolidation(new_facts, len(mems)) else "no_shrink"
+        preview.append(
+            {
+                "user_id": uid,
+                "before": len(mems),
+                "after": len(new_facts),
+                "skip": skip,
+                "sample": new_facts[:10],
+            }
+        )
+    return preview
+
+
+async def _consolidate_one_user(
+    uid: str, mems: list[dict], mem_cfg: dict, run_id: uuid.UUID | None
+) -> dict | str:
+    """유저 1명 통합 실행(consolidate_user_memories 본체 — 불변식 2·3·5는 여기서 강제).
+
+    반환: "skip"(상한 초과/무효 통합 — 원본 보존) | "add_failed"(적재 실패 — 삭제 건너뜀,
+    status=degraded 근거) | 결과 dict(성공)."""
+    if len(mems) > _MAX_CONSOLIDATE_INPUT:  # 상한 초과 → 스킵(원본 보존, 청크 통합은 debt §7)
+        log.warning(
+            "memory-consolidation: user=%s 기억 %d개 > 상한 %d → 스킵(프롬프트 잘림 손실 방지)",
+            uid,
+            len(mems),
+            _MAX_CONSOLIDATE_INPUT,
+        )
+        return "skip"
+    new_facts = await asyncio.to_thread(_consolidate, [m["text"] for m in mems], mem_cfg)
+    if not _is_valid_consolidation(new_facts, len(mems)):  # 불변식 2 — 빈/미축소면 절대 삭제 안 함
+        log.warning(
+            "memory-consolidation: 통합 결과 무효(빈/미축소 %d→%d) → user=%s 스킵(원본 보존)",
+            len(mems),
+            len(new_facts),
+            uid,
+        )
+        return "skip"
+    # ① 원본을 스냅샷에 박제 + commit (롤백 앵커). 삭제는 이 다음에만 한다.
+    async with SessionLocal() as session:
+        for mem in mems:
+            session.add(
+                MemorySnapshot(batch_run_id=run_id, user_id=uid, mem_id=mem["id"], text=mem["text"])
+            )
+        await session.commit()
+    # ② 통합본 적재 — 이미 정제된 한 줄 사실이라 infer=False(재추출로 모양 안 바뀌게).
+    # add는 임베더 장애 등을 except로 삼켜 []를 돌린다(mem0_backend). infer=False+실사실이라
+    # 성공은 항상 ≥1행 → **빈 반환=실패**. 하나라도 실패면 파괴적 삭제를 건너뛴다(스펙 357 P1):
+    # 통합본이 라이브에 없는데 원본을 지우면 유실이므로, 삭제 스킵(원본 잔존=중복이지 손실 아님)
+    # + 정직한 실패 보고. learning 061 — 삭제라는 비가역 앞에선 fail-closed가 옳다.
+    for fact in new_facts:
+        stored = await asyncio.to_thread(
+            memory.add, {"user_id": uid}, [{"role": "user", "content": fact}], mem_cfg, False
+        )
+        if not stored:
+            log.error(
+                "memory-consolidation: user=%s 통합본 적재 실패(add 빈 반환 — 임베더 장애 의심) "
+                "→ 원본 삭제 건너뜀(스냅샷 보존, 유실 방지)",
+                uid,
+            )
+            return "add_failed"
+    # ③ 불변식 3 — 박제한 그 mem_id만 삭제(스캔 이후 추가분은 안 건드림).
+    deleted = 0
+    for mem in mems:
+        if await asyncio.to_thread(memory.delete_memory, mem["id"], mem_cfg):
+            deleted += 1
+    if deleted != len(mems):  # 일부 원본 잔존 — 통합본과 중복(손실 아님, 가시화만). 스냅샷이 앵커.
+        log.warning(
+            "memory-consolidation: user=%s 삭제 %d/%d 미달 — 원본 일부 잔존(통합본과 중복 가능, 손실 아님)",
+            uid,
+            deleted,
+            len(mems),
+        )
+    return {
+        "user_id": uid,
+        "before": len(mems),
+        "after": len(new_facts),
+        "snapshot": len(mems),
+        "deleted": deleted,
+    }
+
+
 async def consolidate_user_memories(*, dry_run: bool, run_id: uuid.UUID | None = None) -> dict:
     """유저 장기기억(user_id 축) 통합·재적재 — 임계치 초과 유저의 기억을 LLM으로 통합하고,
     원본을 MemorySnapshot에 백업한 뒤 교체. 스펙 039. 안전 불변식(스펙 §2.안전):
@@ -285,30 +382,7 @@ async def consolidate_user_memories(*, dry_run: bool, run_id: uuid.UUID | None =
     candidates = await _candidates(mem_cfg, user_ids, threshold)
 
     if dry_run:  # 불변식 4 — 변형 전무, 통합 미리보기만(실행 시 무엇이 스킵되는지도 정직히 표기)
-        preview = []
-        for uid, mems in candidates:
-            if len(mems) > _MAX_CONSOLIDATE_INPUT:  # 상한 초과 → 실행 시 스킵(잘림 손실 방지)
-                preview.append(
-                    {
-                        "user_id": uid,
-                        "before": len(mems),
-                        "after": 0,
-                        "skip": "too_many",
-                        "sample": [],
-                    }
-                )
-                continue
-            new_facts = await asyncio.to_thread(_consolidate, [m["text"] for m in mems], mem_cfg)
-            skip = None if _is_valid_consolidation(new_facts, len(mems)) else "no_shrink"
-            preview.append(
-                {
-                    "user_id": uid,
-                    "before": len(mems),
-                    "after": len(new_facts),
-                    "skip": skip,
-                    "sample": new_facts[:10],
-                }
-            )
+        preview = await _consolidation_preview(candidates, mem_cfg)
         log.info(
             "memory-consolidation DRY-RUN: 후보 %d명 (유저 %d명 스캔)", len(preview), len(user_ids)
         )
@@ -320,83 +394,19 @@ async def consolidate_user_memories(*, dry_run: bool, run_id: uuid.UUID | None =
         }
 
     consolidated = []
-    failed_users: list[str] = []  # add가 조용히 실패해 삭제를 건너뛴 유저(silent green 제거, 스펙 357)
+    failed_users: list[
+        str
+    ] = []  # add가 조용히 실패해 삭제를 건너뛴 유저(silent green 제거, 스펙 357)
     total_before = total_after = 0
     for uid, mems in candidates:
-        if len(mems) > _MAX_CONSOLIDATE_INPUT:  # 상한 초과 → 스킵(원본 보존, 청크 통합은 debt §7)
-            log.warning(
-                "memory-consolidation: user=%s 기억 %d개 > 상한 %d → 스킵(프롬프트 잘림 손실 방지)",
-                uid,
-                len(mems),
-                _MAX_CONSOLIDATE_INPUT,
-            )
+        outcome = await _consolidate_one_user(uid, mems, mem_cfg, run_id)
+        if isinstance(outcome, str):  # "skip"(원본 보존) | "add_failed"(삭제 건너뜀)
+            if outcome == "add_failed":
+                failed_users.append(uid)
             continue
-        new_facts = await asyncio.to_thread(_consolidate, [m["text"] for m in mems], mem_cfg)
-        if not _is_valid_consolidation(
-            new_facts, len(mems)
-        ):  # 불변식 2 — 빈/미축소면 절대 삭제 안 함
-            log.warning(
-                "memory-consolidation: 통합 결과 무효(빈/미축소 %d→%d) → user=%s 스킵(원본 보존)",
-                len(mems),
-                len(new_facts),
-                uid,
-            )
-            continue
-        # ① 원본을 스냅샷에 박제 + commit (롤백 앵커). 삭제는 이 다음에만 한다.
-        async with SessionLocal() as session:
-            for mem in mems:
-                session.add(
-                    MemorySnapshot(
-                        batch_run_id=run_id, user_id=uid, mem_id=mem["id"], text=mem["text"]
-                    )
-                )
-            await session.commit()
-        # ② 통합본 적재 — 이미 정제된 한 줄 사실이라 infer=False(재추출로 모양 안 바뀌게).
-        # add는 임베더 장애 등을 except로 삼켜 []를 돌린다(mem0_backend). infer=False+실사실이라
-        # 성공은 항상 ≥1행 → **빈 반환=실패**. 하나라도 실패면 파괴적 삭제를 건너뛴다(스펙 357 P1):
-        # 통합본이 라이브에 없는데 원본을 지우면 유실이므로, 삭제 스킵(원본 잔존=중복이지 손실 아님)
-        # + 정직한 실패 보고. learning 061 — 삭제라는 비가역 앞에선 fail-closed가 옳다.
-        add_failed = False
-        for fact in new_facts:
-            stored = await asyncio.to_thread(
-                memory.add, {"user_id": uid}, [{"role": "user", "content": fact}], mem_cfg, False
-            )
-            if not stored:
-                add_failed = True
-                break
-        if add_failed:
-            log.error(
-                "memory-consolidation: user=%s 통합본 적재 실패(add 빈 반환 — 임베더 장애 의심) "
-                "→ 원본 삭제 건너뜀(스냅샷 보존, 유실 방지)",
-                uid,
-            )
-            failed_users.append(uid)
-            continue
-        # ③ 불변식 3 — 박제한 그 mem_id만 삭제(스캔 이후 추가분은 안 건드림).
-        deleted = 0
-        for mem in mems:
-            if await asyncio.to_thread(memory.delete_memory, mem["id"], mem_cfg):
-                deleted += 1
-        if deleted != len(
-            mems
-        ):  # 일부 원본 잔존 — 통합본과 중복(손실 아님, 가시화만). 스냅샷이 앵커.
-            log.warning(
-                "memory-consolidation: user=%s 삭제 %d/%d 미달 — 원본 일부 잔존(통합본과 중복 가능, 손실 아님)",
-                uid,
-                deleted,
-                len(mems),
-            )
-        consolidated.append(
-            {
-                "user_id": uid,
-                "before": len(mems),
-                "after": len(new_facts),
-                "snapshot": len(mems),
-                "deleted": deleted,
-            }
-        )
-        total_before += len(mems)
-        total_after += len(new_facts)
+        consolidated.append(outcome)
+        total_before += outcome["before"]
+        total_after += outcome["after"]
 
     if failed_users:
         log.error(
@@ -791,13 +801,17 @@ async def cleanup_history(*, dry_run: bool, run_id: uuid.UUID | None = None) -> 
         ds_ids = (await session.execute(select(EvalRun.dataset_id).distinct())).scalars().all()
         for ds in ds_ids:
             recent = (
-                await session.execute(
-                    select(EvalRun.id)
-                    .where(EvalRun.dataset_id == ds)
-                    .order_by(EvalRun.started_at.desc())
-                    .limit(_KEEP_RUNS_PER_DATASET)
+                (
+                    await session.execute(
+                        select(EvalRun.id)
+                        .where(EvalRun.dataset_id == ds)
+                        .order_by(EvalRun.started_at.desc())
+                        .limit(_KEEP_RUNS_PER_DATASET)
+                    )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             keep_ids.update(recent)
         run_stmt = select(EvalRun.id).where(EvalRun.started_at < cutoff)
         if keep_ids:
@@ -805,13 +819,19 @@ async def cleanup_history(*, dry_run: bool, run_id: uuid.UUID | None = None) -> 
         old_runs = (await session.execute(run_stmt)).scalars().all()
 
         old_batch = (
-            await session.execute(select(BatchRun.id).where(BatchRun.started_at < cutoff))
-        ).scalars().all()
+            (await session.execute(select(BatchRun.id).where(BatchRun.started_at < cutoff)))
+            .scalars()
+            .all()
+        )
         old_snaps = (
-            await session.execute(
-                select(MemorySnapshot.id).where(MemorySnapshot.created_at < cutoff)
+            (
+                await session.execute(
+                    select(MemorySnapshot.id).where(MemorySnapshot.created_at < cutoff)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
         counts = {
             "eval_runs": len(old_runs),
@@ -839,7 +859,10 @@ async def cleanup_history(*, dry_run: bool, run_id: uuid.UUID | None = None) -> 
 
     log.info(
         "실행 이력 정리: eval_runs %d · batch_runs %d · memory_snapshots %d (보존 %d일)",
-        counts["eval_runs"], counts["batch_runs"], counts["memory_snapshots"], days,
+        counts["eval_runs"],
+        counts["batch_runs"],
+        counts["memory_snapshots"],
+        days,
     )
     return {
         "status": "ok",

@@ -39,6 +39,11 @@ ACTION_WHITELIST = {
     "delete",           # 〃 — 기억 삭제
     "update_memory",    # 메모리 파사드 — update 위임
     "delete_memory",    # 〃 — delete 위임
+    # 스펙 386 등재 4건 — 전부 실부수효과+성공 bool 확인:
+    "record_block_version",   # 블록 이력 append+version 증가(스펙 369) — "버전이 올랐는가" 반환
+    "_acquire_reindex_lock",  # 컬렉션 status→reindexing UPDATE(배타 잠금 획득) — 획득 여부 반환
+    "_try_become_leader",     # pg advisory lock 획득+커넥션 보유(스펙 348) — 리더 여부 반환
+    "reload_schedules",       # 스케줄러 잡 재구성(cron 즉시 반영, 스펙 348) — 리더로 반영했는가 반환
 }
 
 

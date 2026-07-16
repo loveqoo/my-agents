@@ -202,7 +202,7 @@ def rag_meta_contains(spec: str) -> tuple[str, Callable[[dict], bool]]:
             )
         pairs.append((k, v))
 
-    def _eq(meta: dict, k: str, v: str) -> bool:
+    def _value_matches(meta: dict, k: str, v: str) -> bool:
         # 키가 실제로 있고, 값이 스칼라 id(bool·컨테이너·None 제외)여야 문자열 비교. 그 외 불일치(fail-closed).
         if k not in meta:
             return False
@@ -212,11 +212,11 @@ def rag_meta_contains(spec: str) -> tuple[str, Callable[[dict], bool]]:
         return str(val) == v
 
     def _meta_matches(o: dict) -> bool:
-        for h in _rag_obs(o).get("hits", []):
-            meta = h.get("meta")
+        for hit in _rag_obs(o).get("hits", []):
+            meta = hit.get("meta")
             if not isinstance(meta, dict):  # 문서형 hit(meta=None) 등 → 불일치
                 continue
-            if all(_eq(meta, k, v) for k, v in pairs):
+            if all(_value_matches(meta, k, v) for k, v in pairs):
                 return True
         return False
 

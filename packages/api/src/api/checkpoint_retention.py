@@ -33,7 +33,7 @@ log = logging.getLogger("api.checkpoint_retention")
 DEFAULT_TTL_HOURS = 24
 
 
-async def _pinned_by_approval(thread_id: str) -> bool:
+async def _is_pinned_by_approval(thread_id: str) -> bool:
     """미해결 승인이 이 스레드를 재개 키로 잡고 있나(DB — 워커·프로세스 무관)."""
     async with SessionLocal() as s:
         row = (
@@ -47,7 +47,7 @@ async def _pinned_by_approval(thread_id: str) -> bool:
     return row is not None
 
 
-def _pinned_by_artifact(thread_id: str) -> bool:
+def _is_pinned_by_artifact(thread_id: str) -> bool:
     """산출물 폼/질문이 이 스레드에서 사용자 입력을 기다리나(스펙 188 — 프로세스 메모리).
 
     지연 import: `chat_approval`이 이 모듈을 부르는 쪽이라 모듈 최상단에서 끌면 순환이 된다.
@@ -59,9 +59,9 @@ def _pinned_by_artifact(thread_id: str) -> bool:
 
 async def keep_reason(thread_id: str) -> str | None:
     """보존 사유('approval'·'artifact') 또는 None(폐기 가능). 관문과 스윕의 **공통 술어**."""
-    if await _pinned_by_approval(thread_id):
+    if await _is_pinned_by_approval(thread_id):
         return "approval"
-    if _pinned_by_artifact(thread_id):
+    if _is_pinned_by_artifact(thread_id):
         return "artifact"
     return None
 
@@ -147,10 +147,18 @@ async def sweep(*, dry_run: bool, ttl_hours: int) -> dict:
             )
         ).scalar_one()
         if unknown_age:
-            log.warning("나이를 모르는 체크포인트 스레드 %d개 — 스윕 대상 아님(수동 확인 필요)", unknown_age)
+            log.warning(
+                "나이를 모르는 체크포인트 스레드 %d개 — 스윕 대상 아님(수동 확인 필요)", unknown_age
+            )
         if not stale:
-            return {"status": "dry_run" if dry_run else "ok", "ttl_hours": ttl_hours,
-                    "candidates": 0, "deleted": 0, "expired": 0, "unknown_age": unknown_age}
+            return {
+                "status": "dry_run" if dry_run else "ok",
+                "ttl_hours": ttl_hours,
+                "candidates": 0,
+                "deleted": 0,
+                "expired": 0,
+                "unknown_age": unknown_age,
+            }
 
         # 방치된 승인 대기 — 만료 대상(체크포인트를 지우면 재개 불가가 되므로 상태를 함께 바꾼다).
         pending = (
@@ -176,9 +184,7 @@ async def sweep(*, dry_run: bool, ttl_hours: int) -> dict:
 
         if expiring:
             await s.execute(
-                update(Approval)
-                .where(Approval.approval_id.in_(expiring))
-                .values(status="expired")
+                update(Approval).where(Approval.approval_id.in_(expiring)).values(status="expired")
             )
             await s.commit()
 

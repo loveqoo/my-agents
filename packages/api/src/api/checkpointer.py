@@ -67,7 +67,11 @@ async def init_checkpointer() -> AsyncPostgresSaver | None:
         pool: AsyncConnectionPool | None = None
         try:
             pool = AsyncConnectionPool(
-                conninfo=dsn, min_size=_POOL_MIN, max_size=_POOL_MAX, open=False, kwargs=_CONN_KWARGS
+                conninfo=dsn,
+                min_size=_POOL_MIN,
+                max_size=_POOL_MAX,
+                open=False,
+                kwargs=_CONN_KWARGS,
             )
             await pool.open()
             saver = AsyncPostgresSaver(pool)

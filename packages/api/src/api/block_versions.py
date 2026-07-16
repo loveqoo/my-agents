@@ -66,7 +66,9 @@ def _provider_payload(o: Provider) -> dict:
     }
 
 
-BLOCK_KINDS: dict[str, tuple[type, Any]] = {
+# type[Any]: 5종 블록 모델(Prompt/MemoryType/McpServer/ModelConfig/Provider)의 공통 프로토콜이
+# 없어 폴리모픽 접근(.id·.version)은 동적 — bare type는 mypy가 attr-defined로 거부한다.
+BLOCK_KINDS: dict[str, tuple[type[Any], Any]] = {
     "prompt": (Prompt, _prompt_payload),
     "memory-type": (MemoryType, _memory_type_payload),
     "mcp-server": (McpServer, _mcp_payload),
@@ -98,9 +100,7 @@ async def record_block_version(session: AsyncSession, kind: str, row: Any) -> bo
     last = await _latest(session, kind, row.id)
     if last is None:
         row.version = row.version or 1
-        session.add(
-            BlockVersion(kind=kind, block_pk=row.id, version=row.version, payload=payload)
-        )
+        session.add(BlockVersion(kind=kind, block_pk=row.id, version=row.version, payload=payload))
         return True
     if last.payload == payload:
         return False  # 저작 내용 동일 — 운영 변경/무변경 저장은 버전 무증가(스펙 369 C4)
@@ -112,9 +112,7 @@ async def record_block_version(session: AsyncSession, kind: str, row: Any) -> bo
 async def delete_block_history(session: AsyncSession, kind: str, block_pk: uuid.UUID) -> None:
     """블록 삭제와 같은 트랜잭션에서 이력 정리(폴리모픽이라 FK cascade 불가)."""
     await session.execute(
-        sa_delete(BlockVersion).where(
-            BlockVersion.kind == kind, BlockVersion.block_pk == block_pk
-        )
+        sa_delete(BlockVersion).where(BlockVersion.kind == kind, BlockVersion.block_pk == block_pk)
     )
 
 
@@ -281,9 +279,7 @@ async def ensure_agent_pins(session: AsyncSession) -> int:
     from .models import AgentVersion
 
     rows = (
-        (await session.execute(select(AgentVersion).where(AgentVersion.pins == {})))
-        .scalars()
-        .all()
+        (await session.execute(select(AgentVersion).where(AgentVersion.pins == {}))).scalars().all()
     )
     for vrow in rows:
         vrow.pins = await freeze_pins(session, dict(vrow.config or {}))

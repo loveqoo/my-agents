@@ -281,9 +281,7 @@ async def _resolve_run_target(
     return agent, None, agent.name
 
 
-async def _admission_check(
-    session: AsyncSession, dataset_id: uuid.UUID
-) -> tuple[int, str | None]:
+async def _admission_check(session: AsyncSession, dataset_id: uuid.UUID) -> tuple[int, str | None]:
     """실행 승인 공통 판정(스펙 377·캠페인 374 T1-3) — 빈 문제집·중복 실행 게이트 단일 출처.
 
     반환=(케이스 수, 거부 사유|None). 사유는 수동(`_assert_run_admission`)이 HTTP 400/409로,

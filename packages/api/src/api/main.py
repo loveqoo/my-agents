@@ -97,7 +97,9 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
             await stack.enter_async_context(_mcp.session_manager.run())
         yield
     observability.shutdown()  # OTEL 미전송 span flush(스펙 328) — 설정 없으면 무동작
-    await batch_service.stop_inproc()  # 스케줄러 정지 + advisory lock 해제(다른 프로세스가 즉시 승계)
+    await (
+        batch_service.stop_inproc()
+    )  # 스케줄러 정지 + advisory lock 해제(다른 프로세스가 즉시 승계)
     await checkpointer.close_checkpointer()
 
 

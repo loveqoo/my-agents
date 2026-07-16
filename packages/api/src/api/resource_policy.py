@@ -55,12 +55,20 @@ TABLES: dict[str, Policy] = {
     "node_templates": Policy("bounded", note="관리자 저작 + 부팅 시 코드 노드 upsert(멱등)"),
     "allowed_hosts": Policy("bounded", note="SSRF allowlist — 관리자 등록(사람 페이스)"),
     "roles": Policy("bounded", note="RBAC 역할(사람 페이스)"),
-    "memory_types": Policy("bounded", note="읽기 전용 카탈로그(마이그레이션 시드, 생성 라우트 없음)"),
+    "memory_types": Policy(
+        "bounded", note="읽기 전용 카탈로그(마이그레이션 시드, 생성 라우트 없음)"
+    ),
     "app_settings": Policy("bounded", note="키-값 설정(유한 키 집합)"),
     "batch_config": Policy("bounded", note="싱글톤 1행"),
-    "user": Policy("bounded", by="batch:user-cleanup", note="관리자 계정(사람 페이스). 테스트 유저는 배치가 정리"),
+    "user": Policy(
+        "bounded",
+        by="batch:user-cleanup",
+        note="관리자 계정(사람 페이스). 테스트 유저는 배치가 정리",
+    ),
     # --- 회수 경로 있음 ---------------------------------------------------------
-    "agent_versions": Policy("reclaimed", by="cascade:agents", note="편집은 draft 재사용, 활성화당 1행(사람 페이스)"),
+    "agent_versions": Policy(
+        "reclaimed", by="cascade:agents", note="편집은 draft 재사용, 활성화당 1행(사람 페이스)"
+    ),
     "block_versions": Policy(
         "reclaimed",
         by="chokepoint:block_versions.delete_block_history",
@@ -69,13 +77,25 @@ TABLES: dict[str, Policy] = {
         "편집당 1행 append(관리자 페이스 — 평범한 턴은 0행)",
     ),
     "message_feedback": Policy("reclaimed", by="cascade:messages"),
-    "eval_case_results": Policy("reclaimed", by="cascade:eval_runs", note="부모(eval_runs)가 history-cleanup으로 회수되면 CASCADE로 함께 사라진다(고아 0)"),
+    "eval_case_results": Policy(
+        "reclaimed",
+        by="cascade:eval_runs",
+        note="부모(eval_runs)가 history-cleanup으로 회수되면 CASCADE로 함께 사라진다(고아 0)",
+    ),
     "eval_cases": Policy("reclaimed", by="cascade:eval_datasets", note="관리자 저작 문제집의 일부"),
-    "collection_reindex_events": Policy("reclaimed", by="cascade:collections", note="재인덱싱당 1행(관리자 페이스)"),
-    "document_blobs": Policy("reclaimed", by="cascade:documents", note="원본 바이트 보존은 재청킹 근거(의도된 설계, 상한 25MB)"),
+    "collection_reindex_events": Policy(
+        "reclaimed", by="cascade:collections", note="재인덱싱당 1행(관리자 페이스)"
+    ),
+    "document_blobs": Policy(
+        "reclaimed",
+        by="cascade:documents",
+        note="원본 바이트 보존은 재청킹 근거(의도된 설계, 상한 25MB)",
+    ),
     "rag_chunks": Policy("reclaimed", by="cascade:documents"),
     # --- 사용자 자산(임의 삭제 금지 — 보존정책은 관리자 설정) --------------------
-    "sessions": Policy("user_data", by="batch:session-cleanup", note="보존정책=BatchConfig(기본 OFF)"),
+    "sessions": Policy(
+        "user_data", by="batch:session-cleanup", note="보존정책=BatchConfig(기본 OFF)"
+    ),
     "messages": Policy("user_data", by="cascade:sessions", note="세션 보존정책에 종속(턴당 2행)"),
     "collections": Policy("user_data", by="route:RAG 컬렉션 삭제"),
     "documents": Policy("user_data", by="cascade:collections", note="사용자가 올린 원본"),
@@ -140,11 +160,7 @@ EXTERNAL: dict[str, Policy] = {
 
 def leaking() -> dict[str, Policy]:
     """회수 경로가 없는 테이블 — **이 수가 0이 되는 것이 자원 감사 캠페인의 완료 조건**(스펙 347)."""
-    return {
-        name: p
-        for name, p in {**TABLES, **EXTERNAL}.items()
-        if p.kind == "leaking"
-    }
+    return {name: p for name, p in {**TABLES, **EXTERNAL}.items() if p.kind == "leaking"}
 
 
 # 성장 예산(스펙 347 축 B) — 대표 오퍼레이션의 **잔여 행 증가** 상한. 초과하면 게이트 실패.

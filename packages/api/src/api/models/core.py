@@ -1,6 +1,5 @@
 """models.core — 도메인 테이블(스펙 379 분할·verbatim 이관)."""
 
-
 from sqlalchemy import (
     String,
 )

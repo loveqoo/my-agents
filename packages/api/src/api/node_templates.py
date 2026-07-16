@@ -61,8 +61,8 @@ def iter_node_refs(nodes: object) -> list[tuple[str, int]]:
     out: list[tuple[str, int]] = []
     if not isinstance(nodes, list):
         return out
-    for n in nodes:
-        ref = n.get("ref") if isinstance(n, dict) else None
+    for node in nodes:
+        ref = node.get("ref") if isinstance(node, dict) else None
         if (
             isinstance(ref, dict)
             and isinstance(ref.get("name"), str)
@@ -88,10 +88,10 @@ async def resolve_node_refs(db: AsyncSession, nodes: list) -> list:
     )
     by_key = {(t.name, t.version): t for t in rows}
     out: list = []
-    for n in nodes:
-        ref = n.get("ref") if isinstance(n, dict) else None
+    for node in nodes:
+        ref = node.get("ref") if isinstance(node, dict) else None
         if not isinstance(ref, dict):
-            out.append(n)
+            out.append(node)
             continue
         tpl = by_key.get((ref.get("name"), ref.get("version")))
         if tpl is None:
@@ -117,9 +117,9 @@ async def node_ref_usage(db: AsyncSession) -> dict[tuple[str, int], list[Agent]]
     usage: dict[tuple[str, int], dict[object, Agent]] = {}
     agents = (await db.execute(select(Agent))).scalars().all()
     by_pk = {a.id: a for a in agents}
-    for a in agents:
-        for key in iter_node_refs((a.config or {}).get("nodes")):
-            usage.setdefault(key, {})[a.id] = a
+    for agent in agents:
+        for key in iter_node_refs((agent.config or {}).get("nodes")):
+            usage.setdefault(key, {})[agent.id] = agent
     versions = (await db.execute(select(AgentVersion.agent_pk, AgentVersion.config))).all()
     for agent_pk, cfg in versions:
         a = by_pk.get(agent_pk)
@@ -203,18 +203,18 @@ async def sync_code_nodes() -> None:
         stale = [r for r in stale if (r.name, r.version) not in live_keys]
         if stale:
             usage = await node_ref_usage(db)
-            for r in stale:
-                used = usage.get((r.name, r.version), [])
+            for row in stale:
+                used = usage.get((row.name, row.version), [])
                 if used:
                     log.warning(
                         "코드 노드 %s@%s 가 레지스트리에서 사라졌으나 참조 에이전트 %d개가 있어 보존 — 실행은 설정 오류로 실패합니다",
-                        r.name,
-                        r.version,
+                        row.name,
+                        row.version,
                         len(used),
                     )
                 else:
-                    log.info("코드 노드 %s@%s 정리(코드 제거 반영, 참조 0)", r.name, r.version)
-                    await db.delete(r)
+                    log.info("코드 노드 %s@%s 정리(코드 제거 반영, 참조 0)", row.name, row.version)
+                    await db.delete(row)
         await db.commit()
 
 
@@ -309,16 +309,16 @@ async def list_node_templates(
     )
     usage = await node_ref_usage(session)
     groups: dict[str, NodeTemplateGroupOut] = {}
-    for t in rows:  # 이름별 첫 행 = 최신 버전(정렬 보장)
-        g = groups.get(t.name)
+    for tpl in rows:  # 이름별 첫 행 = 최신 버전(정렬 보장)
+        g = groups.get(tpl.name)
         if g is None:
             # 개수만 노출(이름 없음) — 가시성 누출 없이 전 버전 합산 distinct 에이전트 수.
-            used = {a.id for (n, _v), agents in usage.items() if n == t.name for a in agents}
-            groups[t.name] = NodeTemplateGroupOut(
-                name=t.name,
-                kind=t.kind,
-                description=t.description,
-                latestVersion=t.version,
+            used = {a.id for (n, _v), agents in usage.items() if n == tpl.name for a in agents}
+            groups[tpl.name] = NodeTemplateGroupOut(
+                name=tpl.name,
+                kind=tpl.kind,
+                description=tpl.description,
+                latestVersion=tpl.version,
                 versionCount=1,
                 usedByCount=len(used),
             )
@@ -348,17 +348,17 @@ async def get_node_template(
         raise HTTPException(status_code=404, detail="node template not found")
     usage = await node_ref_usage(session)
     versions: list[NodeTemplateVersionOut] = []
-    for t in rows:
+    for tpl in rows:
         # usedBy 이름은 요청 주체가 볼 수 있는 에이전트만(codex 316 P1) — 나머지는 개수로 정직 표기.
-        names, hidden = visible_used_by(usage.get((t.name, t.version), []), principal)
+        names, hidden = visible_used_by(usage.get((tpl.name, tpl.version), []), principal)
         versions.append(
             NodeTemplateVersionOut(
-                id=str(t.id),
-                version=t.version,
-                kind=t.kind,
-                description=t.description,
-                config=t.config or {},
-                created_at=t.created_at.isoformat() if t.created_at else None,
+                id=str(tpl.id),
+                version=tpl.version,
+                kind=tpl.kind,
+                description=tpl.description,
+                config=tpl.config or {},
+                created_at=tpl.created_at.isoformat() if tpl.created_at else None,
                 usedBy=names,
                 usedByHidden=hidden,
             )

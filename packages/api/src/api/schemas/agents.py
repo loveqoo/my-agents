@@ -259,7 +259,9 @@ class AgentUpdate(BaseModel):
 
 class VersionOut(BaseModel):
     version: str
-    everOpened: bool = False  # 오픈 이력(스펙 370) — True=영구 불변 보호, False=스크래치(편집이 대체)
+    everOpened: bool = (
+        False  # 오픈 이력(스펙 370) — True=영구 불변 보호, False=스크래치(편집이 대체)
+    )
     pins: dict[str, int] = Field(default_factory=dict)  # 블록 버전 못박기 {kind:name → ver}
     note: str = ""
     config: dict[str, Any] = Field(default_factory=dict)
