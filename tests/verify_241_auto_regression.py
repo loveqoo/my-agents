@@ -50,11 +50,13 @@ async def _wait_all_done(c: httpx.AsyncClient, ds_id: str, timeout_s: int = 90) 
     return rs
 
 
-async def _activate_draft(c: httpx.AsyncClient, agent_id: str) -> str | None:
+async def _activate_scratch(c: httpx.AsyncClient, agent_id: str) -> str | None:
+    # 스펙 370 이후 스키마: 버전 상태는 draft/active가 아니라 everOpened 포인터. 미오픈 스크래치를
+    # 열어 활성 버전으로 만든다(구 `status=="draft"` 조회는 370에서 소멸 — verify_240과 같은 드리프트).
     g = (await c.get(f"/agents/{agent_id}")).json()
-    draft = next((v["version"] for v in g.get("versions", []) if v.get("status") == "draft"), None)
-    if draft:
-        await c.post(f"/agents/{agent_id}/activate", json={"version": draft})
+    scratch = next((v["version"] for v in g.get("versions", []) if not v.get("everOpened")), None)
+    if scratch:
+        await c.post(f"/agents/{agent_id}/activate", json={"version": scratch})
     g2 = (await c.get(f"/agents/{agent_id}")).json()
     return g2.get("activeVersion") or g2.get("active_version")
 
@@ -71,7 +73,7 @@ async def run() -> bool:
                 "config": {"model": "mock-llm", "prompt": "회귀 실습"},
             })).json()
             agents.append(a["id"])
-            v1 = await _activate_draft(c, a["id"])  # v1 활성화(자동 회귀는 문제집 없어 0)
+            v1 = await _activate_scratch(c, a["id"])  # v1 활성화(자동 회귀는 문제집 없어 0)
 
             ds = (await c.post("/eval/datasets", json={"name": f"ds241-{uuid.uuid4().hex[:6]}", "kind": "agent"})).json()
             ds_id = ds["id"]
@@ -84,7 +86,7 @@ async def run() -> bool:
 
             # R2 편집→v2 활성화 → 자동 회귀 런
             await c.put(f"/agents/{a['id']}", json={"config": {"model": "mock-llm", "prompt": "회귀 실습 v2"}})
-            v2 = await _activate_draft(c, a["id"])
+            v2 = await _activate_scratch(c, a["id"])
             await asyncio.sleep(1.0)  # fire-and-forget 태스크 시작 여유
             rs = await _wait_all_done(c, ds_id)
             auto = [r for r in rs if (r.get("env") or {}).get("trigger") == "activate"]
@@ -100,7 +102,7 @@ async def run() -> bool:
             })).json()
             agents.append(b["id"])
             before = len(await _runs(c, ds_id))
-            await _activate_draft(c, b["id"])
+            await _activate_scratch(c, b["id"])
             await asyncio.sleep(1.5)
             after = len(await _runs(c, ds_id))
             ck(after == before, f"R3 무관 에이전트 활성화 → 이 문제집 런 불변 ({before}→{after})")

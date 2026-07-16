@@ -219,21 +219,9 @@ async def trigger_auto_regression(agent_pk: uuid.UUID, actor: User | str) -> int
                 ).scalar_one()
                 if dup:
                     continue
-                n_cases = (
-                    await session.execute(
-                        select(func.count(EvalCase.id)).where(EvalCase.dataset_id == ds.id)
-                    )
-                ).scalar_one()
-                if n_cases == 0:
-                    continue
-                running = (
-                    await session.execute(
-                        select(func.count(EvalRun.id)).where(
-                            EvalRun.dataset_id == ds.id, EvalRun.status == "running"
-                        )
-                    )
-                ).scalar_one()
-                if running:
+                # 승인 판정은 수동 경로와 공유(스펙 377) — 빈 문제집·running 중복은 조용히 스킵.
+                n_cases, reason = await _admission_check(session, ds.id)
+                if reason:
                     continue
                 if not is_privileged(actor):
                     try:
@@ -293,23 +281,22 @@ async def _resolve_run_target(
     return agent, None, agent.name
 
 
-async def _assert_run_admission(session: AsyncSession, dataset_id: uuid.UUID) -> int:
-    """실행 승인 게이트 3종(작업 진행 중 409 · 빈 문제집 400 · 중복 실행 409) — 케이스 수 반환."""
-    if dataset_id in _active_jobs:
-        # 출제/수확 진행 중 실행 금지(codex 142/143 계보) — 판정은 _active_jobs 락 단일 출처.
-        # "생성 중" description 접두 보조판정은 스펙 329에서 제거(합법 생산자 소멸 — 사용자가 설명에
-        # 그 문구를 넣기만 해도 실행이 409로 막히던 오탐 표면).
-        raise HTTPException(
-            status_code=409, detail="문제 생성이 진행 중입니다 — 완료 후 실행하세요"
-        )
+async def _admission_check(
+    session: AsyncSession, dataset_id: uuid.UUID
+) -> tuple[int, str | None]:
+    """실행 승인 공통 판정(스펙 377·캠페인 374 T1-3) — 빈 문제집·중복 실행 게이트 단일 출처.
+
+    반환=(케이스 수, 거부 사유|None). 사유는 수동(`_assert_run_admission`)이 HTTP 400/409로,
+    자동(`trigger_auto_regression`)이 조용한 스킵으로 **각자 반응**한다 — 판정 규칙은 여기 하나
+    (드리프트 0). 경로 고유 게이트는 제외: `_active_jobs` 락은 수동만, 버전 dedupe는 자동만."""
     n_cases = (
         await session.execute(
             select(func.count(EvalCase.id)).where(EvalCase.dataset_id == dataset_id)
         )
     ).scalar_one()
     if n_cases == 0:
-        raise HTTPException(status_code=400, detail="케이스가 없는 문제집은 실행할 수 없습니다")
-    # 중복 실행 게이트(codex 137 #2) — 같은 문제집에 running이 있으면 409(더블클릭·다중 탭이
+        return n_cases, "empty"
+    # 중복 실행 게이트(codex 137 #2) — 같은 문제집에 running이 있으면 거부(더블클릭·다중 탭이
     # 실모델 호출을 N배로 만드는 사고 차단. admin 전용이어도 비용 사고는 사고).
     running = (
         await session.execute(
@@ -319,6 +306,23 @@ async def _assert_run_admission(session: AsyncSession, dataset_id: uuid.UUID) ->
         )
     ).scalar_one()
     if running:
+        return n_cases, "running"
+    return n_cases, None
+
+
+async def _assert_run_admission(session: AsyncSession, dataset_id: uuid.UUID) -> int:
+    """실행 승인 게이트 3종(작업 진행 중 409 · 빈 문제집 400 · 중복 실행 409) — 케이스 수 반환."""
+    if dataset_id in _active_jobs:
+        # 출제/수확 진행 중 실행 금지(codex 142/143 계보) — 판정은 _active_jobs 락 단일 출처.
+        # "생성 중" description 접두 보조판정은 스펙 329에서 제거(합법 생산자 소멸 — 사용자가 설명에
+        # 그 문구를 넣기만 해도 실행이 409로 막히던 오탐 표면).
+        raise HTTPException(
+            status_code=409, detail="문제 생성이 진행 중입니다 — 완료 후 실행하세요"
+        )
+    n_cases, reason = await _admission_check(session, dataset_id)
+    if reason == "empty":
+        raise HTTPException(status_code=400, detail="케이스가 없는 문제집은 실행할 수 없습니다")
+    if reason == "running":
         raise HTTPException(
             status_code=409, detail="이 문제집은 이미 실행 중입니다 — 완료 후 다시 시도하세요"
         )
