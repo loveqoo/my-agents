@@ -11,13 +11,16 @@
 카테고리(파일 내용으로 자동 분류):
   unit  — 순수 무의존(서버·DB 없이 즉시). 가장 빠른 그물.
   db    — DB 필요(SessionLocal 등).
-  http  — 서버 필요(127.0.0.1:8000). dev 서버 전제.
+  asgi  — ASGITransport 인프로세스(스펙 385). 서버 불필요 — 스크립트마다 virgin DB
+          (_throwaway_db.py)로 격리 실행, 공유 라이브 DB 무접촉.
+  http  — 라이브 서버 필요(127.0.0.1:8000). dev 서버 전제(상태 오염 취약 — Phase 2 격리 대상).
   (browser는 별도 러너 — playwright/vite 전제라 이 러너 밖.)
 
 실행:
   uv run python tests/run_suite.py unit          # 순수층만
   uv run python tests/run_suite.py unit db        # 순수+DB
-  uv run python tests/run_suite.py all            # unit+db+http (서버 전제)
+  uv run python tests/run_suite.py asgi           # 인프로세스층(virgin DB, 서버 불필요)
+  uv run python tests/run_suite.py all            # unit+db+asgi+http (http는 서버 전제)
   uv run python tests/run_suite.py unit --list    # 분류만 보고 실행 안 함
 """
 
@@ -64,12 +67,11 @@ KNOWN_DRIFT: dict[str, str] = {
     "verify_114_owner_display.py": "환경: owner_id=None 레거시 에이전트 전제(현 seed 없음 → next() StopIteration)",
     "verify_143_suggest.py": "환경: '옵시디언 매니저' 시드 에이전트 전제(현 seed에 없음)",
     "verify_161_persona_sync.py": "노후: promptStale이 후속 스펙서 adopt(채택)로 일반화·대체(응답 키 없음)",
-    "verify_233_capability_matrix.py": "환경: http 상태 오염 취약(단독 통과 VERIFY233_OK — orchestrate_ranked×agent PASS. 옛 '위임 갭' 사유는 오경보였다, 스펙383 실측)",
     "verify_235_ephemeral.py": "노후: 스펙346 durability=exit로 턴종료 체크포인트 정리 → 비-ephemeral 대조도 Δ=0(pre-346 기대, ephemeral 본 로직 E4/E5는 통과)",
     "verify_240_eval_version.py": "노후: eval 버전 추적 스키마 드리프트(agent_version None, baseline 동일·캠페인 무관)",
     "verify_242_version_exec.py": "노후: 버전 실행 eval 스키마/데이터 드리프트(baseline 동일)",
     "verify_244_version_ops.py": "노후: 버전 ops eval 집계 드리프트(runs/score None, baseline 동일)",
-    "verify_318_node_agent_call.py": "환경/상태: 노드 에이전트 위임 brokerCalls(실 principal·세션 상태 전제, http 상태 의존)",
+    "verify_318_node_agent_call.py": "노후/전제: virgin DB에서도 실패(스펙385 실측). brokerCalls 단언이 시드 외 전제(실 principal 등)를 요구",
     "verify_369_block_versioning.py": "환경: http 상태 오염 취약(단독 통과, test-all 순서서 실패)",
     "verify_068_live.py": "인프라: D6 member resume가 'connection is closed'로 500(baseline 동일·사전존재, ctx dict→DTO는 봉합). 별도 조사(asyncpg 커넥션 수명)",
     # --- http 층 triage(2026-07-16 스펙 384). 전부 테스트 쪽(앱 결함 아님) — 공유 라이브 DB 격리
@@ -83,11 +85,11 @@ KNOWN_DRIFT: dict[str, str] = {
     "verify_102_orchestration_strategy.py": "환경: H8/H10 delete→interrupt 라이브 미발동(verify_233 인프로세스 통과, baseline 동일)",
     "verify_054_mcp_auth_at_rest.py": "전제: MCP 생성 201 실패 후 body['id'] KeyError(공유 DB 상태)",
     "verify_054_mcp_real_runtime.py": "환경: stdio transport 실 MCP 런타임 전제(T6, 서버 부재 시 실패)",
-    "verify_084_memory_search.py": "노후/환경: 기억 검색 hit 구조 단언이 mem0 백엔드/데이터에 의존",
-    "verify_034_session_pagination.py": "노후+전제: awaiting/error 버킷 제거(스펙324) 반영했으나 counts 버킷수·live 델타(37 vs 25) 단언이 배지 스코핑+공유 DB에 취약(격리 필요)",
-    "verify_055_session_agent_filter.py": "전제: 공유 DB 세션 오염으로 필터 결과 초과(A live 6건 초과 포함)",
-    "verify_098_session_search.py": "전제: 공유 DB 잔여 세션이 검색 결과 오염(sess_v098_MARKERID_1 혼입)",
-    "verify_048_sample_ingest.py": "전제: 컬렉션 생성 201 실패 후 col['id'] KeyError(공유 DB 상태)",
+    "verify_084_memory_search.py": "노후: virgin DB에서도 hit 구조 단언 실패(스펙385 실측). {type,text,score,scope} shape가 현 응답과 어긋남",
+    "verify_034_session_pagination.py": "노후: virgin DB에서도 실패(스펙385 실측 — 오염 아님). counts 버킷·델타 단언이 현 배지 스코핑과 어긋남(기대치 재작성 필요)",
+    "verify_055_session_agent_filter.py": "노후: virgin DB에서도 실패(스펙385 실측 — 오염 아님). live 필터 기대치가 현 동작과 어긋남",
+    "verify_098_session_search.py": "노후: virgin DB에서도 실패(스펙385 실측 — 오염 아님). plainagent+error 조합 기대치가 현 검색 동작과 어긋남",
+    "verify_048_sample_ingest.py": "노후: virgin DB에서도 KeyError 'id'(스펙385 실측 — 오염 아님). 컬렉션 생성 플로우 기대치가 현 API와 어긋남",
     "verify_057_connect_classification.py": "하네스: asyncio Task가 다른 이벤트루프에 attach(테스트 이벤트루프 버그, 앱 무관)",
     "verify_063_live.py": "전제: 테스트 _cleanup이 route 우회 agent 직접 insert → created_by NOT NULL 위반(스펙343, 앱 라우트는 정상)",
     "verify_093_delete_reference_guard.py": "전제: 테스트 _cleanup이 route 우회 raw 모델 삭제 → 잔여 컬렉션 FK 위반(앱 delete_model 가드는 409로 정상)",
@@ -99,12 +101,21 @@ EXCLUDE = {
     "verify_index_recompress.py",  # 인자(before.json) 필요 — 재압축 전용
 }
 
-_HTTP = re.compile(r"127\.0\.0\.1:8000|localhost:8000|urlopen|requests\.|httpx|BASE\s*=\s*['\"]http")
-_DB = re.compile(r"SessionLocal|get_session|asyncpg|create_engine|import sqlalchemy|from sqlalchemy")
+_HTTP = re.compile(
+    r"127\.0\.0\.1:8000|localhost:8000|urlopen|requests\.|httpx|BASE\s*=\s*['\"]http"
+)
+_DB = re.compile(
+    r"SessionLocal|get_session|asyncpg|create_engine|import sqlalchemy|from sqlalchemy"
+)
+_LIVE = re.compile(r"127\.0\.0\.1:8000|localhost:8000")
 
 
 def categorize(f: pathlib.Path) -> str:
     t = f.read_text(errors="ignore")
+    # asgi 층(스펙 385): ASGITransport 인프로세스 — 라이브 서버(:8000)를 안 치므로 DATABASE_URL만
+    # 격리하면 상태 안전. run_one이 _throwaway_db.py(virgin DB)로 감싸 실행한다.
+    if "ASGITransport" in t and not _LIVE.search(t):
+        return "asgi"
     if _HTTP.search(t):
         return "http"
     if _DB.search(t):
@@ -113,7 +124,7 @@ def categorize(f: pathlib.Path) -> str:
 
 
 def collect() -> dict[str, list[pathlib.Path]]:
-    cats: dict[str, list[pathlib.Path]] = {"unit": [], "db": [], "http": []}
+    cats: dict[str, list[pathlib.Path]] = {"unit": [], "db": [], "asgi": [], "http": []}
     for f in sorted(TESTS.glob("verify_*.py")):
         if f.name in EXCLUDE:
             continue
@@ -121,23 +132,29 @@ def collect() -> dict[str, list[pathlib.Path]]:
     return cats
 
 
-def run_one(f: pathlib.Path) -> tuple[str, str, str]:
+def run_one(f: pathlib.Path, isolate: bool = False) -> tuple[str, str, str]:
     """(name, verdict, detail). verdict ∈ pass|fail|error.
 
-    virgin-DB 전용 테스트(자체 헤더가 `_throwaway_db.py` 사용을 명시)는 격리 러너로 감싼다 —
-    스펙 370 실측: verify_343_downgrade를 라이브 DB에 직접 돌리면 downgrade 왕복이 369/370의
-    런타임 저작 데이터(블록 이력·pins)를 지운다(손실 왕복). 마커=파일 본문의 `_throwaway_db.py`."""
+    virgin-DB 격리(_throwaway_db.py 래핑) 두 경로:
+    - isolate=True(asgi 층, 스펙 385): 층 전체를 virgin DB로 — 공유 라이브 DB 무접촉.
+    - 파일 마커: virgin-DB 전용 테스트(자체 헤더가 `_throwaway_db.py` 사용을 명시) —
+      스펙 370 실측: verify_343_downgrade를 라이브 DB에 직접 돌리면 downgrade 왕복이 369/370의
+      런타임 저작 데이터(블록 이력·pins)를 지운다(손실 왕복)."""
     cmd = ["uv", "run", "python", str(f)]
-    if "_throwaway_db.py" in f.read_text(errors="ignore"):
+    timeout = 120
+    if isolate or "_throwaway_db.py" in f.read_text(errors="ignore"):
         cmd = ["uv", "run", "python", str(TESTS / "_throwaway_db.py"), str(f)]
+        timeout = 180  # virgin DB 부트스트랩(CREATE DATABASE+alembic+seed) 비용 포함
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired:
-        return f.name, "error", "timeout(120s)"
+        return f.name, "error", f"timeout({timeout}s)"
     out = r.stdout + r.stderr
     if r.returncode == 0:
         return f.name, "pass", ""
-    if re.search(r"Traceback|ImportError|ModuleNotFoundError|AttributeError|FileNotFoundError", out):
+    if re.search(
+        r"Traceback|ImportError|ModuleNotFoundError|AttributeError|FileNotFoundError", out
+    ):
         exc = [ln for ln in out.splitlines() if re.match(r"\w*(Error|Exception)", ln)]
         return f.name, "error", (exc[-1][:70] if exc else f"rc={r.returncode}")
     return f.name, "fail", f"rc={r.returncode}"
@@ -152,7 +169,7 @@ def main() -> None:
     # verify_037은 앞 실행이 남긴 컬렉션에 400, 346은 상태 오염 StopIteration). 각자 단독+정리 또는
     # 격리 DB가 필요해 일괄 러너에 안 맞는다. 씨앗 그물은 상태 격리가 되는 unit+db로 긋는다.
     if "all" in args:
-        wanted = ["unit", "db", "http"]
+        wanted = ["unit", "db", "asgi", "http"]
     elif not args:
         wanted = ["unit", "db"]
     else:
@@ -177,10 +194,12 @@ def main() -> None:
         print(f"\n=== [{c}] {len(files)}개 실행 ===")
         # unit만 병렬 안전(공유 상태 없이 파일만 읽음). db/http는 **같은 DB·서버를 공유**해 병렬로
         # 돌리면 서로 시드·테이블을 밟아 **거짓 실패**를 만든다(스펙 353 실측: verify_038이 단독 exit 0인데
-        # 6-병렬 판에선 error). 그래서 db/http는 직렬.
+        # 6-병렬 판에선 error). 그래서 db/http는 직렬. asgi도 직렬 — DB는 각자 virgin이지만
+        # CREATE DATABASE TEMPLATE template0이 동시 실행 시 "source database is being accessed" 충돌.
         workers = 6 if c == "unit" else 1
+        isolate = c == "asgi"  # 스펙 385: asgi 층은 스크립트마다 virgin DB(_throwaway_db.py)
         with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
-            results = list(ex.map(run_one, files))
+            results = list(ex.map(lambda f, _iso=isolate: run_one(f, isolate=_iso), files))
         for name, verdict, detail in sorted(results):
             totals[verdict] += 1
             drift = name in KNOWN_DRIFT
