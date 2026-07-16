@@ -72,9 +72,9 @@ async def main():
     check(pq["type"] == "string" and pq["required"] is True, "V1b query: string·필수")
     check("integer" in pt["type"] and pt["required"] is False, f"V1c anyOf 타입 합성: {pt['type']}")
     long_desc = BL._tool_info(_FakeTool("x", "d" * 900, {}, []))
-    check(len(long_desc["description"]) == BL._TOOL_DESC_CAP, "V1d 설명 캡")
+    check(len(long_desc["description"]) == BL.TOOL_DESC_CAP, "V1d 설명 캡")
     many = BL._tool_info(_FakeTool("x", "", {f"p{i}": {"type": "string"} for i in range(50)}, []))
-    check(len(many["params"]) == BL._TOOL_PARAMS_CAP, "V1e 파라미터 수 캡")
+    check(len(many["params"]) == BL.TOOL_PARAMS_CAP, "V1e 파라미터 수 캡")
 
     class _Broken:
         name = "broken"
@@ -86,7 +86,7 @@ async def main():
 
     check(BL._tool_info(_Broken())["params"] == [], "V1f 스키마 실패 fail-safe(params=[])")
     meta = BL._tools_meta_from_details([{"name": f"t{i}", "description": "", "params": []} for i in range(150)])
-    check(len(meta) == BL._TOOLS_META_CAP, "V1g 서버당 메타 상한")
+    check(len(meta) == BL.TOOLS_META_CAP, "V1g 서버당 메타 상한")
 
     # ---- V2 discover 라이브 ----
     r = await BL.discover_mcp_tools(McpDiscoverIn(url=MOCK_MCP_URL, transport="http"))
