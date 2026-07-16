@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .chat_context import ChatContext
 from .db import SessionLocal
 from .models import Message, Session
 from .ownership import next_owner
@@ -18,17 +19,17 @@ from .ownership import next_owner
 log = logging.getLogger("api.chat")
 
 
-async def _resolve_session_for_persist(db: AsyncSession, ctx: dict) -> Session | None:
+async def _resolve_session_for_persist(db: AsyncSession, ctx: ChatContext) -> Session | None:
     """영속할 세션 행을 확보. 이미 영속된 세션이면 그대로 get. session_pk가 None이면(0턴 미영속
     보류 상태) **첫 실 턴**이므로 session_pending으로 행을 지금 만든다(스펙 049, #10).
 
     session_id 단위 get-or-create로 동시 첫 턴 경합도 안전 — flush가 unique 제약에 걸리면
     rollback 후 re-select로 상대가 만든 행을 집는다(플레이그라운드는 순차라 경합은 이론적).
     """
-    pk = ctx.get("session_pk")
+    pk = ctx.session_pk
     if pk is not None:
         return await db.get(Session, pk)
-    pending = ctx.get("session_pending")
+    pending = ctx.session_pending
     if not pending:
         return None
     # 에이전트 스코프로 조회 — 전역 unique session_id가 *다른* 에이전트 행과 잡히지 않게(누출 방지).
@@ -58,7 +59,7 @@ async def _resolve_session_for_persist(db: AsyncSession, ctx: dict) -> Session |
 
 
 async def _persist(
-    ctx: dict,
+    ctx: ChatContext,
     user_text: str,
     reply: str,
     trace: dict,
@@ -75,32 +76,32 @@ async def _persist(
     반환: 저장한 **assistant Message.id(str)** — 플레이그라운드 피드백 부착용(스펙 209 Phase 1.5).
     store_messages가 False거나 세션 미해결이면 None(피드백 대상 없음).
 
-    비영속(스펙 235): ctx["ephemeral"]이면 세션 해결·행 생성·카운터·commit을 **전부 스킵**하고 즉시
+    비영속(스펙 235): ctx.ephemeral이면 세션 해결·행 생성·카운터·commit을 **전부 스킵**하고 즉시
     None(DB 무접촉 — 고트래픽 1회성 추론). store_messages(persistHistory)는 메시지만 스킵하지만 세션은
     남기는 하위 모드라 구분된다.
     """
-    if ctx.get("ephemeral"):
+    if ctx.ephemeral:
         return None
     async with SessionLocal() as db:
         sess = await _resolve_session_for_persist(db, ctx)
         if sess is None:
-            log.error("persist skipped: session unresolved (pk=%s)", ctx.get("session_pk"))
+            log.error("persist skipped: session unresolved (pk=%s)", ctx.session_pk)
             return None
         session_pk = sess.id
         assistant_mid: str | None = None
         if store_messages:
             # 프롬프트 출처(스펙 364) — assistant 행에 id/name 스탬프(분석 축)·body 스냅샷은 trace에
             # (원본 편집 후에도 그 턴 재현 가능). turn_id는 두 행 공통(턴 그룹핑 키).
-            prompt_id = ctx.get("prompt_id")
-            prompt_name = ctx.get("prompt_name")
+            prompt_id = ctx.prompt_id
+            prompt_name = ctx.prompt_name
             a_trace = trace
-            if a_trace is not None and (prompt_id or prompt_name or ctx.get("prompt")):
+            if a_trace is not None and (prompt_id or prompt_name or ctx.prompt):
                 a_trace = {
                     **a_trace,
                     "promptSnapshot": {
                         "id": prompt_id,
                         "name": prompt_name,
-                        "body": ctx.get("prompt", ""),
+                        "body": ctx.prompt,
                     },
                 }
             db.add(Message(session_pk=session_pk, role="user", content=user_text, turn_id=turn_id))

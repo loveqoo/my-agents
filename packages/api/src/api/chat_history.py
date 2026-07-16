@@ -9,6 +9,7 @@ import uuid
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from sqlalchemy import select
 
+from .chat_context import ChatContext
 from .db import SessionLocal
 from .models import Message, Session
 
@@ -121,13 +122,13 @@ def _node_history_depths(nodes: list) -> list[int] | None:
     return depths
 
 
-def _history_load_limit(ctx: dict) -> int | None:
+def _history_load_limit(ctx: ChatContext) -> int | None:
     """서버 재구성 시 읽을 이전 대화 상한(스펙 289 P1) — 에이전트·노드가 요구할 수 있는 최대 depth.
     None(전체)·음수(전체) depth가 하나라도 있으면 전량(None)."""
-    agent_d = ctx.get("history_depth")
+    agent_d = ctx.history_depth
     if agent_d is None or (isinstance(agent_d, int) and agent_d < 0):
         return None
-    node_depths = _node_history_depths(ctx.get("nodes_resolved") or [])
+    node_depths = _node_history_depths(ctx.nodes_resolved or [])
     if node_depths is None:
         return None
     return max([int(agent_d), *node_depths])

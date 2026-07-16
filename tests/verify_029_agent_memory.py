@@ -11,6 +11,7 @@
 라이브 라운드트립(에이전트가 실제로 도구 호출→타세션 회상)은 사용자 브랜치 통합 테스트에서 확인.
 실행: .venv/bin/python tests/verify_029_agent_memory.py
 """
+
 import os
 import re
 import sys
@@ -38,12 +39,12 @@ class FakeMem:
         self.added: list[tuple] = []  # (messages, kwargs) — infer 포함
 
     def search(self, query, filters, top_k):
-        (axis, val), = filters.items()
+        ((axis, val),) = filters.items()
         rows = [r for r in self.store if r.get(axis) == val]
         return {"results": rows[:top_k]}
 
     def get_all(self, filters):
-        (axis, val), = filters.items()
+        ((axis, val),) = filters.items()
         return {"results": [r for r in self.store if r.get(axis) == val]}
 
     def add(self, messages, **kwargs):
@@ -62,6 +63,7 @@ class FakeMem:
 
 def with_mem(mem):
     from api.memory.mem0_backend import Mem0Backend
+
     backend = Mem0Backend.__new__(Mem0Backend)
     backend._mem = mem
     M.resolve_backend = lambda mem_cfg: backend  # type: ignore[assignment]
@@ -76,8 +78,12 @@ def test_add_infer() -> None:
 
     M.add({"agent_id": "agtX"}, msgs, {"x": 1}, infer=False)
     check(m.added[-1][1].get("infer") is False, "infer=False 전달")
-    check(m.added[-1][1].get("agent_id") == "agtX" and "user_id" not in m.added[-1][1]
-          and "run_id" not in m.added[-1][1], "agent_id-only 태깅(user/run 미포함)")
+    check(
+        m.added[-1][1].get("agent_id") == "agtX"
+        and "user_id" not in m.added[-1][1]
+        and "run_id" not in m.added[-1][1],
+        "agent_id-only 태깅(user/run 미포함)",
+    )
 
     M.add({"user_id": "alice", "run_id": "s1"}, msgs, {"x": 1})
     check(m.added[-1][1].get("infer") is True, "기본 infer=True(자동 턴 add)")
@@ -109,16 +115,19 @@ def test_leak_isolation() -> None:
 def test_no_self_write_tool() -> None:
     print("[no-tool] 채팅 자가기록 도구 부재(스펙 051)")
     # runtime에 도구 빌더가 없어야 한다 — 있으면 누군가 되살린 것(누출 재유발).
-    check(not hasattr(R, "build_agent_memory_tool"),
-          "runtime.build_agent_memory_tool 부재")
+    check(not hasattr(R, "build_agent_memory_tool"), "runtime.build_agent_memory_tool 부재")
     # chat.py 어디에서도 그 도구를 빌드/주입하지 않는다(주석의 '제거됨' 표기는 무해).
-    src = open(os.path.join(ROOT, "packages", "api", "src", "api", "chat.py"), encoding="utf-8").read()
+    src = open(
+        os.path.join(ROOT, "packages", "api", "src", "api", "chat.py"), encoding="utf-8"
+    ).read()
     # 주석 줄(#로 시작)을 제거한 실코드에 호출이 없어야 한다.
     code = "\n".join(ln for ln in src.splitlines() if not ln.lstrip().startswith("#"))
     check("build_agent_memory_tool" not in code, "chat.py 실코드가 도구를 주입하지 않음")
     check("save_agent_knowledge" not in code, "chat.py 실코드에 save_agent_knowledge 부재")
     # runtime.py 실코드에도 그 도구 정의가 없어야 한다(주석 NOTE는 허용).
-    rsrc = open(os.path.join(ROOT, "packages", "api", "src", "api", "runtime.py"), encoding="utf-8").read()
+    rsrc = open(
+        os.path.join(ROOT, "packages", "api", "src", "api", "runtime.py"), encoding="utf-8"
+    ).read()
     rcode = "\n".join(ln for ln in rsrc.splitlines() if not ln.lstrip().startswith("#"))
     check("def build_agent_memory_tool" not in rcode, "runtime.py 실코드에 도구 정의 부재")
 
@@ -155,36 +164,54 @@ def test_crud_helpers() -> None:
 # ---------------------------------------------------------------- chat.py 스코프 분리(정적)
 def test_chat_scope_split() -> None:
     print("[chat] recall/add 스코프 분리(소스 정적 점검)")
-    src = open(os.path.join(ROOT, "packages", "api", "src", "api", "chat.py"), encoding="utf-8").read()
+    src = open(
+        os.path.join(ROOT, "packages", "api", "src", "api", "chat.py"), encoding="utf-8"
+    ).read()
     # recall_scope는 add_scope에 agent_id를 더한다.
-    check(re.search(r"recall_scope\s*=\s*\{\*\*add_scope,\s*\"agent_id\"", src) is not None,
-          "recall_scope = {**add_scope, agent_id:…}")
-    check('"agent_id": ctx["ext_agent_id"]' in src, "회상 agent_id=ext_agent_id")
+    check(
+        re.search(r"recall_scope\s*=\s*\{\*\*add_scope,\s*\"agent_id\"", src) is not None,
+        "recall_scope = {**add_scope, agent_id:…}",
+    )
+    check('"agent_id": ctx.ext_agent_id' in src, "회상 agent_id=ext_agent_id")
     # 자동 턴 add는 add_scope(agent_id 없음)로 호출 — search는 recall_scope.
     check("memory.search, recall_scope" in src, "search는 recall_scope 사용")
     # add 호출은 add_scope 인자로 (자동 턴 저장)
-    check(re.search(r"memory\.add,\s*\n\s*add_scope", src) is not None,
-          "자동 add는 add_scope(agent_id 미포함) 사용")
+    check(
+        re.search(r"memory\.add,\s*\n\s*add_scope", src) is not None,
+        "자동 add는 add_scope(agent_id 미포함) 사용",
+    )
     # add_scope 정의에 agent_id가 들어가지 않음
-    check(re.search(r"add_scope\s*=\s*\{\"user_id\":[^}]*\}", src) is not None
-          and "agent_id" not in re.search(r"add_scope\s*=\s*\{[^}]*\}", src).group(0),
-          "add_scope에 agent_id 없음(누출 차단)")
+    check(
+        re.search(r"add_scope\s*=\s*\{\"user_id\":[^}]*\}", src) is not None
+        and "agent_id" not in re.search(r"add_scope\s*=\s*\{[^}]*\}", src).group(0),
+        "add_scope에 agent_id 없음(누출 차단)",
+    )
 
 
 # ------------------------------------------------- 소유권 가드(정적, 비판리뷰 HIGH)
 def test_owner_guard() -> None:
     print("[guard] admin update/delete가 _assert_owns로 소유권 강제(소스 정적 점검)")
-    src = open(os.path.join(ROOT, "packages", "api", "src", "api", "agents.py"), encoding="utf-8").read()
+    src = open(
+        os.path.join(ROOT, "packages", "api", "src", "api", "agents.py"), encoding="utf-8"
+    ).read()
     # mem_id를 받는 두 변조 엔드포인트는 mem0 호출 전에 _assert_owns를 통과해야 한다.
     # (공유 pgvector라 path agent_id 없이는 타 에이전트/유저 행을 변조 가능 — 라이브로 404 확인됨)
-    check(src.count("await _assert_owns(agent, mem_id, mem_cfg)") >= 2,
-          "update/delete 모두 _assert_owns 호출")
-    upd = src[src.index("async def update_agent_memory"):src.index("async def delete_agent_memory")]
-    check("_assert_owns" in upd and upd.index("_assert_owns") < upd.index("memory.update_memory"),
-          "update: 소유권 확인이 mem0.update보다 먼저")
-    dele = src[src.index("async def delete_agent_memory"):]
-    check("_assert_owns" in dele and dele.index("_assert_owns") < dele.index("memory.delete_memory"),
-          "delete: 소유권 확인이 mem0.delete보다 먼저")
+    check(
+        src.count("await _assert_owns(agent, mem_id, mem_cfg)") >= 2,
+        "update/delete 모두 _assert_owns 호출",
+    )
+    upd = src[
+        src.index("async def update_agent_memory") : src.index("async def delete_agent_memory")
+    ]
+    check(
+        "_assert_owns" in upd and upd.index("_assert_owns") < upd.index("memory.update_memory"),
+        "update: 소유권 확인이 mem0.update보다 먼저",
+    )
+    dele = src[src.index("async def delete_agent_memory") :]
+    check(
+        "_assert_owns" in dele and dele.index("_assert_owns") < dele.index("memory.delete_memory"),
+        "delete: 소유권 확인이 mem0.delete보다 먼저",
+    )
 
 
 if __name__ == "__main__":

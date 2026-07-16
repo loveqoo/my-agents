@@ -8,6 +8,8 @@ import logging
 import secrets
 import uuid
 from collections.abc import Sequence
+from dataclasses import dataclass, field
+from typing import Any
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -33,6 +35,65 @@ log = logging.getLogger("api.chat")
 
 # 원격 소스 판정 단일 술어는 agent.runtime로 내렸다(스펙 089) — resolve·classify·직렬화가 공유.
 _is_remote = is_remote_source
+
+
+@dataclass
+class ChatContext:
+    """실행 컨텍스트(스펙 382) — 구 ctx dict를 대체하는 타입 DTO.
+
+    `_load_context`가 에이전트 구성·버전·오버라이드·모델·메모리·MCP·RAG·세션을 해석해 한 번에
+    구성한다. **mutable**(frozen 아님): chat_approval이 resume 시 session_pk/session_pending을 수령 후
+    갱신하고, 그것이 dict 시절 계약이다. 필드 기본값은 안전한 빈값 — `_load_context`가 전 필드를
+    채우므로 런타임 값은 dict 시절과 1:1(동작 불변). 소비처는 `ctx.model_cfg`처럼 속성 접근하며 mypy가
+    키·타입을 정적 검사(구 `dict[str, Any]`엔 없던 안전망).
+    """
+
+    # 에이전트 정체·소스
+    agent_pk: uuid.UUID  # agent.id (내부 PK) — 항상 설정되는 유일한 required 필드(UUID 기본값 부재)
+    prompt: str = ""
+    ext_agent_id: str = ""  # agent.agent_id (외부 노출 id)
+    agent_name: str = ""
+    source: str = ""
+    impl: str | None = None  # in-process 커스텀 구현 키(스펙 085)
+    artifact_spec: Any = None  # 노코드 산출물형 필드 명세(스펙 190)
+    endpoint: str | None = None
+    token: str | None = None
+    card: dict | None = None  # A2A 카드 스냅샷(외부 에이전트)
+    # 노드형 파이프라인(스펙 259/287/316)
+    nodes: list | None = None
+    nodes_resolved: list | None = None  # 노드별 모델 해석 결과
+    overrides_nodes_status: str | None = None  # 노드 오버라이드 적용 상태(트레이스용)
+    overrides: dict | None = None  # in-process 커스텀이 화이트리스트 밖 키도 읽게 전달(스펙 085)
+    # 능력·도구 정책
+    memories: list = field(default_factory=list)
+    capabilities: list = field(default_factory=list)
+    tool_policy: dict = field(
+        default_factory=dict
+    )  # 도구 승인 오버라이드(스펙 177 P2, config-only)
+    # 모델·온도·이력
+    temperature: float | None = None
+    history_depth: int = 20
+    persist_history: bool = True
+    ephemeral: bool = False  # 비영속 1회성 모드(스펙 235)
+    model_cfg: dict | None = None  # 원격은 None(로컬 모델 불요)
+    mem_cfg: dict | None = None
+    # 버전 못박기(스펙 242/370)
+    pinned_version: str | None = None
+    exec_version: str | None = None
+    pins: dict = field(default_factory=dict)
+    # 프롬프트 출처(스펙 364) — 라이브러리 매칭 시만 이름/id, 인라인/오버라이드/원격은 None
+    prompt_name: str | None = None
+    prompt_id: str | None = None
+    # MCP·RAG 해석
+    mcp_servers: list = field(default_factory=list)
+    tool_names: list = field(default_factory=list)
+    rag_collections: list = field(default_factory=list)
+    rag_unresolved: list = field(default_factory=list)
+    rag_min_scores: dict = field(default_factory=dict)  # {컬렉션명: 최소 유사도}(스펙 191)
+    # 세션(스펙 049/068) — resume 시 chat_approval이 수령 후 갱신
+    session_pk: int | None = None
+    session_id: str = ""
+    session_pending: dict | None = None
 
 
 async def _pinned_model_cfg(db: AsyncSession, pins: dict | None, name: str) -> dict | None:
@@ -582,13 +643,17 @@ async def _resolve_session(
 
 
 async def _resolve_nodes_for_ctx(
-    db: AsyncSession, ctx: dict, remote: bool, pins: dict | None = None
+    db: AsyncSession,
+    nodes: object,
+    model_cfg: dict | None,
+    remote: bool,
+    pins: dict | None = None,
 ) -> list[dict] | None:
     """노드형(스펙 259)이면 노드별 모델을 **플랫폼이 미리 해석**해 심는다(085 U2: build_graph는 DB
     미접촉). 로컬(ui) 경로에서만 의미 — 비노드형/원격은 None."""
-    if remote or not isinstance(ctx.get("nodes"), list):
+    if remote or not isinstance(nodes, list):
         return None
-    return await _resolve_node_models(db, ctx["nodes"], ctx["model_cfg"], pins)
+    return await _resolve_node_models(db, nodes, model_cfg, pins)
 
 
 async def _load_context(
@@ -597,7 +662,7 @@ async def _load_context(
     overrides: dict | None = None,
     own: str | None = None,
     version: str | None = None,
-) -> dict:
+) -> ChatContext:
     """에이전트 구성 + MCP 활성 툴 + 세션(생성/지속)을 한 번에 준비.
 
     overrides(스펙 025): Playground Proxy의 세션 한정 설정 덮어쓰기. **web 에이전트에만** 적용하고
@@ -644,51 +709,15 @@ async def _load_context(
         # 저장 시 파생(agents.py)과 같은 규칙이라 폼 저장분엔 무변화(멱등).
         if not remote:
             await derive_pipeline_pool(cfg)
-        ctx = {
-            "prompt": prompt,
-            "ext_agent_id": agent.agent_id,
-            "agent_name": agent.name,
-            "agent_pk": agent.id,
-            "source": agent.source,
-            "impl": cfg.get("impl"),  # in-process 커스텀 구현 키(스펙 085) — 신뢰 레지스트리 조회용
-            "artifact_spec": cfg.get(
-                "artifactSpec"
-            ),  # 노코드 산출물형 필드 명세(스펙 190) — impl_config로 주입
-            "nodes": cfg.get(
-                "nodes"
-            ),  # 노드형 파이프라인 노드 명세(스펙 259) — 아래서 노드별 모델 해석 후 impl_config로 주입
-            "overrides_nodes_status": nodes_status,  # 노드 오버라이드 적용 상태(스펙 287) — 트레이스 표면화용
-            # 원본 오버라이드 — in-process 커스텀 에이전트가 화이트리스트 밖 키도 읽을 수 있게 전달
-            # (스펙 085 AgentBuildContext.overrides). 원격은 None(로컬 설정 주입 무의미, bypass 보존).
-            "overrides": applied_overrides,
-            "endpoint": agent.endpoint,
-            "token": agent.token,
-            "card": cfg.get("card"),  # A2A 카드 스냅샷(외부 에이전트, capabilities.streaming 등)
-            "memories": cfg.get("memories", []),
-            "capabilities": _filter_capabilities(cfg),
-            # 도구 승인 오버라이드(스펙 177 P2) — cap_id→{approval:{required?,approver?}}. 그래프-tools·
-            # 브로커 두 경로 리졸버에 급전. **요청 오버라이드 허용키(위 allowed)엔 불포함** — 요청으로
-            # 승인을 완화(우회)하지 못하게 config-only(완화 권한은 저장 시 admin 게이트로 강제).
-            "toolPolicy": cfg.get("toolPolicy") or {},
-            # 에이전트가 명시한 temperature만 전달(없으면 None) → 모델 등록 params가 적용되게.
-            "temperature": cfg.get("temperature"),
-            "history_depth": cfg.get("historyDepth", 20),
-            "persist_history": cfg.get("persistHistory", True),
-            # 비영속(1회성) 모드(스펙 235) — true면 DB 적재 전면 스킵: 세션 행·카운터·메시지·commit·
-            # 메모리 read/write 전부 무동작. persistHistory(메시지만 스킵)의 상위집합. 세션이 없으니
-            # 이력·회상·소유권도 없음(순수 stateless).
-            "ephemeral": bool(cfg.get("ephemeral", False)),
-            # 실행 버전(스펙 242) — pinned=지정 버전(미리보기), exec=실제 실행 버전(지정 없으면 활성).
-            # trace.agentVersion 기록·HIL 게이트(pinned는 승인 재개가 서빙 config로 돌아 drift) 근거.
-            "pinned_version": pinned_version,
-            "exec_version": pinned_version or agent.active_version,
-        }
-        # 프롬프트(프롬프트) 출처(스펙 364) — 이 턴에 실제 쓰인 프롬프트를 이력에 남겨 턴 분석/재현을
-        # 가능케 한다. systemPrompt 오버라이드로 임시 프롬프트가 쓰였으면 라이브러리 참조가 아니므로
-        # 이름/id 없음(정직). cfg["prompt"]는 이름이거나 인라인 본문 — 실제 Prompt 행이 매칭될 때만
-        # 이름/id를 남기고(짧은 라이브러리 키), 인라인이면 null(본문은 아래 promptSnapshot이 보존).
-        ctx["prompt_name"] = None
-        ctx["prompt_id"] = None
+        # 실행 버전(스펙 242) — pinned=지정 버전(미리보기), exec=실제 실행 버전(지정 없으면 활성).
+        # trace.agentVersion 기록·HIL 게이트(pinned는 승인 재개가 서빙 config로 돌아 drift) 근거.
+        exec_version = pinned_version or agent.active_version
+        # 프롬프트 출처(스펙 364) — 이 턴에 실제 쓰인 프롬프트를 이력에 남겨 턴 분석/재현을 가능케 한다.
+        # systemPrompt 오버라이드로 임시 프롬프트가 쓰였으면 라이브러리 참조가 아니므로 이름/id 없음(정직).
+        # cfg["prompt"]는 이름이거나 인라인 본문 — 실제 Prompt 행이 매칭될 때만 이름/id를 남기고(짧은
+        # 라이브러리 키), 인라인이면 null(본문은 promptSnapshot이 보존).
+        prompt_name: str | None = None
+        prompt_id: str | None = None
         _sp = (applied_overrides or {}).get("systemPrompt")
         _override_prompt = isinstance(_sp, str) and bool(_sp.strip())
         # 원격(code/external)은 프롬프트가 원격 측에 있어 로컬 라이브러리 참조가 무의미 → 출처 미기록.
@@ -700,31 +729,72 @@ async def _load_context(
                 await db.execute(select(_Prompt.id).where(_Prompt.name == _ref))
             ).scalar_one_or_none()
             if _prow is not None:
-                ctx["prompt_name"] = _ref
-                ctx["prompt_id"] = str(_prow)
+                prompt_name = _ref
+                prompt_id = str(_prow)
         # 실행 버전의 pins(스펙 370) — 못박은 블록 버전으로 해석(모델·MCP·노드 모델). 원격/레거시
         # (pins 없음)는 빈 dict → 전부 head 폴백(무회귀).
         pins: dict = {}
-        if not remote and ctx["exec_version"]:
+        if not remote and exec_version:
             from .models import AgentVersion as _AgentVer
 
             _vrow = (
                 await db.execute(
                     select(_AgentVer.pins).where(
-                        _AgentVer.agent_pk == agent.id, _AgentVer.version == ctx["exec_version"]
+                        _AgentVer.agent_pk == agent.id, _AgentVer.version == exec_version
                     )
                 )
             ).scalar_one_or_none()
             pins = dict(_vrow or {})
-        ctx["pins"] = pins
         # 코드·외부 에이전트는 비로컬(원격/A2A) 실행이라 로컬 모델이 필요 없다(건너뜀 = None).
-        ctx["model_cfg"] = await _resolve_model(db, cfg, overrides, pins) if not remote else None
-        ctx["nodes_resolved"] = await _resolve_nodes_for_ctx(db, ctx, remote, pins)
-        ctx["mem_cfg"] = await _resolve_mem_cfg(db, ctx["model_cfg"])
-        ctx["mcp_servers"], ctx["tool_names"] = await _resolve_mcp_servers(db, cfg, pins)
-        ctx["rag_collections"], ctx["rag_unresolved"] = await _resolve_rag(db, cfg, remote)
-        # 컬렉션별 최소 유사도 맵(스펙 191 v2) — {컬렉션명: 임계값}. 미만 문서를 검색 코어에서 드롭.
-        # downstream(build_rag_tool·RagProvider)이 범위(0<x≤1)·컬렉션 한정 재검증하므로 raw 통과({}=무필터).
-        ctx["rag_min_scores"] = cfg.get("ragMinScores") or {}
-        ctx.update(await _resolve_session(db, agent, session_str_id, own))
-        return ctx
+        nodes = cfg.get("nodes")  # 노드형 파이프라인 노드 명세(스펙 259) — 아래서 노드별 모델 해석
+        model_cfg = await _resolve_model(db, cfg, overrides, pins) if not remote else None
+        nodes_resolved = await _resolve_nodes_for_ctx(db, nodes, model_cfg, remote, pins)
+        mem_cfg = await _resolve_mem_cfg(db, model_cfg)
+        mcp_servers, tool_names = await _resolve_mcp_servers(db, cfg, pins)
+        rag_collections, rag_unresolved = await _resolve_rag(db, cfg, remote)
+        session = await _resolve_session(db, agent, session_str_id, own)
+        return ChatContext(
+            prompt=prompt,
+            ext_agent_id=agent.agent_id,
+            agent_name=agent.name,
+            agent_pk=agent.id,
+            source=agent.source,
+            impl=cfg.get("impl"),
+            artifact_spec=cfg.get("artifactSpec"),
+            nodes=nodes,
+            overrides_nodes_status=nodes_status,
+            # 원본 오버라이드 — in-process 커스텀이 화이트리스트 밖 키도 읽게 전달(스펙 085
+            # AgentBuildContext.overrides). 원격은 None(로컬 설정 주입 무의미, bypass 보존).
+            overrides=applied_overrides,
+            endpoint=agent.endpoint,
+            token=agent.token,
+            card=cfg.get("card"),
+            memories=cfg.get("memories", []),
+            capabilities=_filter_capabilities(cfg),
+            # 도구 승인 오버라이드(스펙 177 P2) — 요청 오버라이드 허용키엔 불포함(요청으로 승인 완화
+            # 우회 금지, config-only). 완화 권한은 저장 시 admin 게이트로 강제.
+            tool_policy=cfg.get("toolPolicy") or {},
+            # 에이전트가 명시한 temperature만 전달(없으면 None) → 모델 등록 params가 적용되게.
+            temperature=cfg.get("temperature"),
+            history_depth=cfg.get("historyDepth", 20),
+            persist_history=cfg.get("persistHistory", True),
+            # 비영속(1회성) 모드(스펙 235) — true면 DB 적재 전면 스킵(persistHistory의 상위집합).
+            ephemeral=bool(cfg.get("ephemeral", False)),
+            pinned_version=pinned_version,
+            exec_version=exec_version,
+            prompt_name=prompt_name,
+            prompt_id=prompt_id,
+            pins=pins,
+            model_cfg=model_cfg,
+            nodes_resolved=nodes_resolved,
+            mem_cfg=mem_cfg,
+            mcp_servers=mcp_servers,
+            tool_names=tool_names,
+            rag_collections=rag_collections,
+            rag_unresolved=rag_unresolved,
+            # 컬렉션별 최소 유사도 맵(스펙 191 v2). downstream이 범위·컬렉션 재검증하므로 raw 통과({}=무필터).
+            rag_min_scores=cfg.get("ragMinScores") or {},
+            session_pk=session["session_pk"],
+            session_id=session["session_id"],
+            session_pending=session["session_pending"],
+        )

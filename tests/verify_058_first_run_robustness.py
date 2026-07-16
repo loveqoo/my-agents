@@ -44,11 +44,15 @@ class _APIConnectionError(Exception):
 async def main() -> None:
     # ── G1. DSN 마스킹 ──────────────────────────────────────────────────────
     masked = db._mask_dsn("postgresql+asyncpg://agent:s3cret@localhost:5432/agents")
-    check("s3cret" not in masked and "agent:***@localhost" in masked,
-          f"G1 _mask_dsn 비밀번호만 가림 (실제={masked})")
+    check(
+        "s3cret" not in masked and "agent:***@localhost" in masked,
+        f"G1 _mask_dsn 비밀번호만 가림 (실제={masked})",
+    )
     check(db._mask_dsn("sqlite:///x.db") == "sqlite:///x.db", "G1 자격증명 없는 DSN은 불변")
-    check(db._mask_dsn("postgresql://agent@host/db") == "postgresql://agent@host/db",
-          "G1 비번 없는 DSN(유저만)은 불변")
+    check(
+        db._mask_dsn("postgresql://agent@host/db") == "postgresql://agent@host/db",
+        "G1 비번 없는 DSN(유저만)은 불변",
+    )
 
     # ── G1. 프리플라이트 연결예외 → 명확 RuntimeError ──────────────────────────
     class _BoomEngine:
@@ -66,8 +70,10 @@ async def main() -> None:
         check(raised is not None, "G1 _preflight 연결실패 → RuntimeError")
         check(raised is not None and "DB 연결 실패" in raised, "G1 메시지에 'DB 연결 실패'")
         # 마스킹된 DATABASE_URL이 메시지에 — 단, 실 비밀번호는 안 샌다.
-        check(raised is not None and "postgres 기동 여부" in raised,
-              "G1 메시지에 조치 안내(postgres 기동 여부)")
+        check(
+            raised is not None and "postgres 기동 여부" in raised,
+            "G1 메시지에 조치 안내(postgres 기동 여부)",
+        )
     finally:
         db.engine = saved_engine
 
@@ -78,10 +84,14 @@ async def main() -> None:
     upgrade_at = src.index("command.upgrade")
     check(pf < upgrade_at, "G1 프리플라이트가 upgrade *앞*(연결 실패와 마이그레이션 실패 구분)")
     # 스펙 330: 폴백(대체 스키마 생성+head 스탬프)이 소스에서 소멸 — 실패는 조용히 가리지 않는다.
-    check("Base.metadata.create_all" not in src and "command.stamp" not in src,
-          "G1 create_all/stamp 폴백 부재(스펙 330 — 조용한 우회 소멸)")
-    check("raise RuntimeError" in src and "마이그레이션 실패" in src,
-          "G1 upgrade 실패 → 명확한 RuntimeError로 부팅 중단(fail-fast)")
+    check(
+        "Base.metadata.create_all" not in src and "command.stamp" not in src,
+        "G1 create_all/stamp 폴백 부재(스펙 330 — 조용한 우회 소멸)",
+    )
+    check(
+        "raise RuntimeError" in src and "마이그레이션 실패" in src,
+        "G1 upgrade 실패 → 명확한 RuntimeError로 부팅 중단(fail-fast)",
+    )
     check("alembic current" in src, "G1 실패 메시지에 진단 명령 안내")
 
     # ── G2. bootstrap_admin 입력검증(DB 미접촉) ────────────────────────────────
@@ -95,10 +105,11 @@ async def main() -> None:
     # ── G2. escalation 가드 — 소스 단언(learning 050) ──────────────────────────
     bsrc = inspect.getsource(ba.bootstrap_admin)
     check("if existing is not None" in bsrc, "G2 기존 계정 존재 분기 있음")
-    check("return 3" in bsrc and "승격하지 않습니다" in bsrc,
-          "G2 기존 일반계정 → 승격거부(코드 3) — escalation 차단(050)")
-    check("is_superuser" in bsrc and "return 0" in bsrc,
-          "G2 기존 superuser → 무동작(코드 0)")
+    check(
+        "return 3" in bsrc and "승격하지 않습니다" in bsrc,
+        "G2 기존 일반계정 → 승격거부(코드 3) — escalation 차단(050)",
+    )
+    check("is_superuser" in bsrc and "return 0" in bsrc, "G2 기존 superuser → 무동작(코드 0)")
     # 신규 생성은 is_superuser=True로 create — 그러나 *존재하지 않을 때만*.
     create_at = bsrc.index("manager.create(")
     guard_at = bsrc.index("if existing is not None")
@@ -107,18 +118,21 @@ async def main() -> None:
     # ── G2. seed_admin 강화경고 — 유저0에서만 ──────────────────────────────────
     ssrc = inspect.getsource(users.seed_admin)
     check("user_count == 0" in ssrc, "G2 seed_admin이 유저수 0을 판정")
-    check("python -m api.bootstrap_admin" in ssrc,
-          "G2 유저0 경고에 정확한 복구 커맨드(python -m api.bootstrap_admin)")
+    check(
+        "python -m api.bootstrap_admin" in ssrc,
+        "G2 유저0 경고에 정확한 복구 커맨드(python -m api.bootstrap_admin)",
+    )
     # 유저>0 분기는 조용한 한 줄(노이즈 억제) — 복구 커맨드 없이.
     check("관리자 시드 생략(fail-closed)" in ssrc, "G2 유저>0은 조용한 한 줄 경고")
 
     # ── G4. _model_error_hint ──────────────────────────────────────────────────
     cfg = {"base_url": "http://localhost:8045/v1", "model_id": "x"}
     hint = chat._model_error_hint(_APIConnectionError("All connection attempts failed"), cfg)
-    check(hint is not None and "Mock LLM" in hint,
-          "G4 연결실패+model_cfg → 'Mock LLM' 전환 힌트")
-    check(hint is not None and "http://localhost:8045/v1" in hint,
-          "G4 힌트에 base_url 포함(어디로 못 닿는지)")
+    check(hint is not None and "Mock LLM" in hint, "G4 연결실패+model_cfg → 'Mock LLM' 전환 힌트")
+    check(
+        hint is not None and "http://localhost:8045/v1" in hint,
+        "G4 힌트에 base_url 포함(어디로 못 닿는지)",
+    )
     # 다양한 연결 지문.
     for exc, why in [
         (Exception("Connection refused"), "connection refused"),
@@ -127,18 +141,25 @@ async def main() -> None:
     ]:
         check(chat._model_error_hint(exc, cfg) is not None, f"G4 연결지문 감지: {why}")
     # 비연결 오류는 힌트 없음(잘못된 안내 방지).
-    check(chat._model_error_hint(Exception("model 'qwen' not found (404)"), cfg) is None,
-          "G4 404(model_id 불일치)는 연결오류 아님 → 힌트 없음")
-    check(chat._model_error_hint(Exception("401 Unauthorized invalid api key"), cfg) is None,
-          "G4 401(인증)은 연결오류 아님 → 힌트 없음")
+    check(
+        chat._model_error_hint(Exception("model 'qwen' not found (404)"), cfg) is None,
+        "G4 404(model_id 불일치)는 연결오류 아님 → 힌트 없음",
+    )
+    check(
+        chat._model_error_hint(Exception("401 Unauthorized invalid api key"), cfg) is None,
+        "G4 401(인증)은 연결오류 아님 → 힌트 없음",
+    )
     # model_cfg 없으면(=비로컬/외부 경로) 힌트 없음.
-    check(chat._model_error_hint(_APIConnectionError("Connection error"), None) is None,
-          "G4 model_cfg 없으면 힌트 없음")
+    check(
+        chat._model_error_hint(_APIConnectionError("Connection error"), None) is None,
+        "G4 model_cfg 없으면 힌트 없음",
+    )
 
     # ── G4. chat except 블록이 힌트를 사용 ─────────────────────────────────────
     csrc = inspect.getsource(chat.chat)
-    check("_model_error_hint(exc, ctx.get(\"model_cfg\"))" in csrc,
-          "G4 스트림 except가 _model_error_hint 호출")
+    check(
+        "_model_error_hint(exc, ctx.model_cfg)" in csrc, "G4 스트림 except가 _model_error_hint 호출"
+    )
     check("hint else str(exc)" in csrc, "G4 힌트 없으면 원문 에러 유지(무회귀)")
 
     print()

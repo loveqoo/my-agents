@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
 from . import authz, checkpoint_retention, checkpointer, memory, observability, runtime
 from .broker import BrokerContext, PolicyScopedBroker, build_providers
-from .chat_context import _load_context
+from .chat_context import ChatContext, _load_context
 from .chat_history import _HistoryWindowProxy, _load_session_conversation, _to_base_messages
 from .chat_persist import _persist, _resolve_session_for_persist
 from .chat_trace import _broker_calls_trace
@@ -41,7 +41,9 @@ log = logging.getLogger("api.chat")
 _PENDING_ARTIFACT: dict[str, dict] = {}
 
 
-async def _create_approval(ctx: dict, thread_id: str, payload: dict, user_id: str | None) -> str:
+async def _create_approval(
+    ctx: ChatContext, thread_id: str, payload: dict, user_id: str | None
+) -> str:
     """위험 도구가 그래프를 멈춘 순간 런타임 Approval(pending) 생성. checkpoint=thread_id가 재개 키.
 
     DB 접근은 API 계층(여기)에서만 — 도구는 순수(interrupt payload만 만든다). 이 row가
@@ -57,8 +59,8 @@ async def _create_approval(ctx: dict, thread_id: str, payload: dict, user_id: st
         # 안 만들고) 최종 답변을 원 세션에 영속한다(approval-resume 연속성 보존).
         sess = await _resolve_session_for_persist(db, ctx)
         if sess is not None:
-            ctx["session_pk"] = sess.id
-            ctx["session_pending"] = None
+            ctx.session_pk = sess.id
+            ctx.session_pending = None
             # 스펙 068 D6: 승인 게이트에 도달한 턴은 실 상호작용이므로 *생성 시점*에 소유자를 박는다.
             # 이게 없으면 세션이 NULL-owned로 남아, D1(소유자 스코프 resume) 도입 후 그 턴을 시작한
             # member가 *자기 세션을* 이어가지 못한다(무회귀 깨짐). next_owner라 기존 소유자 보존·안전.
@@ -66,10 +68,10 @@ async def _create_approval(ctx: dict, thread_id: str, payload: dict, user_id: st
         db.add(
             Approval(
                 approval_id=apid,
-                session_id=ctx["session_id"],
+                session_id=ctx.session_id,
                 user_id=user_id,
-                agent_pk=ctx["agent_pk"],
-                agent_name=ctx["agent_name"],
+                agent_pk=ctx.agent_pk,
+                agent_name=ctx.agent_name,
                 permission=payload.get("permission", ""),
                 approver=payload.get(
                     "approver"
@@ -80,7 +82,7 @@ async def _create_approval(ctx: dict, thread_id: str, payload: dict, user_id: st
                 checkpoint=thread_id,
                 # 위상 정체 스냅샷(스펙 171) — 재개 시 impl이 바뀌었으면 stale checkpoint에
                 # 다른 그래프를 resume하지 않도록 대조 기준. "" = 기본(DefaultUiAgent).
-                impl=ctx.get("impl") or "",
+                impl=ctx.impl or "",
                 status="pending",
             )
         )
@@ -159,7 +161,7 @@ def _impl_drifted(snap_impl: str | None, cur_impl: str | None) -> bool:
 
 async def _load_resume_target(
     approval: Approval,
-) -> "tuple[dict, CustomAgent, AsyncPostgresSaver, str] | None":
+) -> "tuple[ChatContext, CustomAgent, AsyncPostgresSaver, str] | None":
     """재개 가능성 가드 — 통과 시 (ctx, impl, ckpt, thread_id), 불가면 None(graceful 무시).
 
     가드: checkpoint(thread_id)·agent_pk 없으면 재개 불가. code/external 소스는 로컬 그래프가
@@ -190,14 +192,14 @@ async def _load_resume_target(
         # 선언한 구현이 미해결(스펙 089) — 재개 불가, graceful 무시(approval은 이미 결재됨, 세션 무파손).
         log.warning("resume 불가: 설정 실패 impl '%s' (approval %s)", e, approval.approval_id)
         return None
-    if impl is None or ctx["model_cfg"] is None:
+    if impl is None or ctx.model_cfg is None:
         log.warning("resume 불가: 비로컬/모델없음 소스 (approval %s)", approval.approval_id)
         return None
-    if _impl_drifted(approval.impl, ctx.get("impl")):
+    if _impl_drifted(approval.impl, ctx.impl):
         log.warning(
             "resume 불가: impl drift — 생성 '%s' vs 현재 '%s' (checkpoint 위상 불일치, approval %s)",
             approval.impl or "(기본)",
-            ctx.get("impl") or "(기본)",
+            ctx.impl or "(기본)",
             approval.approval_id,
         )
         return None
@@ -214,20 +216,20 @@ async def _load_resume_target(
     return ctx, impl, ckpt, thread_id
 
 
-def _resume_uses_memory(ctx: dict, impl: CustomAgent) -> bool:
+def _resume_uses_memory(ctx: ChatContext, impl: CustomAgent) -> bool:
     """재개 턴 회상 게이트 — 비영속(235 대칭)·consumes 선언(233)·메모리 on·mem_cfg 존재 모두 충족."""
     consumes = impl.describe().consumes
     reads_memory = consumes is None or "memories" in consumes
     return (
-        not ctx.get("ephemeral")
+        not ctx.ephemeral
         and reads_memory
-        and memory.memory_enabled(ctx["memories"])
-        and ctx["mem_cfg"] is not None
+        and memory.memory_enabled(ctx.memories)
+        and ctx.mem_cfg is not None
     )
 
 
 async def _resume_memory_inputs(
-    ctx: dict, impl: CustomAgent, approval: Approval
+    ctx: ChatContext, impl: CustomAgent, approval: Approval
 ) -> "tuple[bool, list[dict], _MemoryRecallProxy | None, list[dict]]":
     """재개 경로 회상 입력 — 반환 (used_memory, mem_hits, mem_proxy, resume_recalls).
 
@@ -242,26 +244,26 @@ async def _resume_memory_inputs(
 
     recall_scope = {
         "user_id": str(approval.user_id) if approval.user_id else None,
-        "run_id": ctx["session_id"],
-        "agent_id": ctx["ext_agent_id"],
+        "run_id": ctx.session_id,
+        "agent_id": ctx.ext_agent_id,
     }
     used_memory = _resume_uses_memory(ctx, impl)
     mem_hits = (
-        await asyncio.to_thread(memory.search, recall_scope, approval.summary or "", ctx["mem_cfg"])
-        if used_memory and ctx.get("nodes_resolved") is None
+        await asyncio.to_thread(memory.search, recall_scope, approval.summary or "", ctx.mem_cfg)
+        if used_memory and ctx.nodes_resolved is None
         else []
     )
     resume_recalls: list[dict] = []
     mem_proxy = (
-        _MemoryRecallProxy(recall_scope, ctx["mem_cfg"], approval.summary or "", resume_recalls)
-        if (used_memory and ctx.get("nodes_resolved") is not None)
+        _MemoryRecallProxy(recall_scope, ctx.mem_cfg, approval.summary or "", resume_recalls)
+        if (used_memory and ctx.nodes_resolved is not None)
         else None
     )
     return used_memory, mem_hits, mem_proxy, resume_recalls
 
 
 async def _rebuild_resume_graph(
-    ctx: dict,
+    ctx: ChatContext,
     impl: CustomAgent,
     ckpt: "AsyncPostgresSaver",
     approval: Approval,
@@ -280,7 +282,7 @@ async def _rebuild_resume_graph(
 
     calls_sink: list[dict] = []
     tools = await runtime.build_mcp_tools(
-        ctx["mcp_servers"], calls_sink, ctx.get("toolPolicy"), ctx.get("tool_names")
+        ctx.mcp_servers, calls_sink, ctx.tool_policy, ctx.tool_names
     )
     # 채팅 자가기록 도구 제거됨(스펙 051) — agent_id 메모리는 어드민 저작 전용. 회상(recall_scope)은 유지.
     # 노드형 컬렉션별 도구 포함(스펙 268 P1 — 세 입구 정합, learning 149).
@@ -289,33 +291,33 @@ async def _rebuild_resume_graph(
     # (learning 149 미러 — 재개 후 다음 노드도 이전 대화를 봄, 무회귀). 노드형에만. 세션 없으면 빈 대화.
     resume_history_windows: list[dict] = []
     resume_hist_proxy = None
-    if ctx.get("nodes_resolved") is not None:
+    if ctx.nodes_resolved is not None:
         resume_prior = await _load_session_conversation(approval.session_id, approval.agent_pk)
         # drop_last=False(codex 270 High): 세션 DB는 이전 대화만(현재 턴 미영속·체크포인트가 보유)이라
         # 마지막을 안 버린다 — 메인 경로처럼 버리면 직전 assistant 메시지를 잃는다.
         resume_hist_proxy = _HistoryWindowProxy(
             _to_base_messages(resume_prior),
-            ctx["history_depth"],
+            ctx.history_depth,
             resume_history_windows,
             drop_last=False,
         )
-    prompt_prompt = ctx["prompt"]
+    prompt_prompt = ctx.prompt
     if mem_hits:
         # 브로커 memory 능력과 공유하는 포맷(스펙 104 drift 0) — 회상 텍스트 표현이 한 곳.
         recalled = memory.format_memory_hits(mem_hits)
         prompt_prompt = f"{prompt_prompt}\n\n# 관련 기억(회상됨)\n{recalled}"
-    run_params = {} if ctx["temperature"] is None else {"temperature": ctx["temperature"]}
+    run_params = {} if ctx.temperature is None else {"temperature": ctx.temperature}
     resume_broker = await _build_resume_broker(
         approval.user_id,
-        ctx["capabilities"],
-        ctx.get("toolPolicy"),
+        ctx.capabilities,
+        ctx.tool_policy,
         # 루트 agent_id로 체인 시작(chat 신규 경로와 대칭, 스펙 256 v2) — 재개 후 재위임의 순환·깊이
         # 게이트가 원 턴과 동일하게 성립(codex 256 [P2]). 없으면 루트 재방문이 허용돼 불변식이 깨진다.
-        delegation_chain=((ctx.get("ext_agent_id"),) if ctx.get("ext_agent_id") else ()),
+        delegation_chain=((ctx.ext_agent_id,) if ctx.ext_agent_id else ()),
         delegation_budget={"n": 0},  # 재개 턴도 자체 예산(너비 폭주 상한, codex [P2])
     )
     # 노드 에이전트-호출 도구(스펙 318) — 재개 후 다음 노드도 위임 가능(입구 정합). pipeline만.
-    if ctx.get("impl") == "pipeline":
+    if ctx.impl == "pipeline":
         tools.extend(
             runtime.build_agent_tools(resume_broker, await resume_broker.agent_capabilities())
         )
@@ -326,20 +328,18 @@ async def _rebuild_resume_graph(
     _promptless = _graph_fingerprint(ctx) is not None
     build_ctx = AgentBuildContext(
         prompt="" if _promptless else prompt_prompt,
-        model_cfg=ctx["model_cfg"],
+        model_cfg=ctx.model_cfg,
         tools=tools,
         checkpointer=ckpt,
         params=run_params,
         memories=mem_hits,
-        overrides=ctx.get("overrides"),
+        overrides=ctx.overrides,
         broker=resume_broker,
         memory_recall=mem_proxy,  # 노드형 회상 프록시(스펙 268 P2) — 재개 후 다음 노드 첫 진입용
         history_window=resume_hist_proxy,  # 단기 기억 창 프록시(스펙 270) — 재개 후 다음 노드 대화 슬라이스
         # 재개도 원 턴과 동일 impl_config 재주입(노드형 노드 도구 HIL 재개·산출물형 폼 재개, 259/190).
         impl_config=(
-            {"nodes": ctx["nodes_resolved"]}
-            if ctx.get("nodes_resolved") is not None
-            else ctx.get("artifact_spec")
+            {"nodes": ctx.nodes_resolved} if ctx.nodes_resolved is not None else ctx.artifact_spec
         ),
     )
     try:
@@ -394,7 +394,7 @@ async def resume_approval(approval: Approval, decision: str) -> None:
     # 관측(스펙 118→328) — 재개 경로도 OTEL이 설정됐을 때만 콜백 부착(미설정=무동작).
     # 비영속(스펙 235) 대칭 가드(codex): 정상 ephemeral은 approval을 못 만들어 미도달이나, "과거 approval +
     # 설정을 ephemeral로 변경" 엣지에서 이 경로가 호출될 수 있어 관측도 대칭으로 스킵(_persist는 이미 차단).
-    if not ctx.get("ephemeral"):
+    if not ctx.ephemeral:
         config = observability.with_trace(config, name="chat-resume", user_id=approval.user_id)
 
     t0 = time.perf_counter()
@@ -416,7 +416,7 @@ async def resume_approval(approval: Approval, decision: str) -> None:
     total_ms = int((time.perf_counter() - t0) * 1000)
     tokens = runtime.estimate_tokens(len(user_text), len(reply))
     trace = runtime.assemble_trace(
-        agent_id=ctx["ext_agent_id"],
+        agent_id=ctx.ext_agent_id,
         memories=mem_hits,
         mcp_calls=calls_sink,
         used_memory=used_memory,
@@ -435,5 +435,5 @@ async def resume_approval(approval: Approval, decision: str) -> None:
         # 재개 후 단기 기억 창도 표면화(스펙 270 — 메인 경로 미러, 재개 축 전수 재구성 규율).
         trace["historyWindows"] = resume_history_windows
     await _persist(
-        ctx, user_text, reply, trace, tokens, ctx["persist_history"], user_id=None, turn_id=thread_id
+        ctx, user_text, reply, trace, tokens, ctx.persist_history, user_id=None, turn_id=thread_id
     )

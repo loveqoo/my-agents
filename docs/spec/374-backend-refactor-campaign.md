@@ -66,10 +66,11 @@ god-function 테스트 사각**이다. 즉 버그 수정이 아니라 진짜 구
 ## 진행 현황 (2026-07-16)
 
 - **Tier 1 완주**: 375(MCP 캡)·376(RAG 임베딩 검증)·377(eval admission) — DRY 단일화 3건.
-- **Tier 2 진행**: 378(schemas→9모듈 패키지)·379(models→11모듈 패키지)·380(runtime→rag_runtime 추출)·
-  381(rag.py→`rag/` 패키지 4도메인+shared) 완료. **남음**: ② chat_context typed builder(ctx dict→DTO 계약 변경).
-- 전부 동작 불변(SUITE_OK·e2e 39/39·수치 보존) per-spec 커밋. 미푸시. 구남님 결정: **남은 둘은 집중해서
-  별도로**(마라톤 세션 끝 급조 회피). ① rag.py 분할 완료 → 다음 = chat_context.
+- **Tier 2 완주**: 378(schemas→9모듈 패키지)·379(models→11모듈 패키지)·380(runtime→rag_runtime 추출)·
+  381(rag.py→`rag/` 패키지 4도메인+shared)·382(chat_context ctx dict→ChatContext DTO) 완료.
+- 전부 동작 불변(SUITE_OK·e2e 39/39·mypy 베이스라인외0·수치 보존) per-spec 커밋. 미푸시. Tier 1·2
+  캠페인 완주. **남음=Tier 3**(god-function 수술 — chat.py ChatTurnService·eval_runs app service·
+  jobs.py plan/execute·pipeline build_graph, 파괴/핫경로라 출하 전 codex 적대 리뷰 필수) — 별도 착수.
 
 ## OUT / 열린 결정 (구남님 승인 필요)
 

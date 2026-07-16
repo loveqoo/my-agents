@@ -83,8 +83,14 @@ def unit_checks() -> None:
     default_nodes = set(g_default.get_graph().nodes)
     plan_nodes = set(g_plan.get_graph().nodes)
     # plan-execute는 plan·execute 노드를 실제로 가진다 — create_agent(단일 model 노드)와 구조가 다름.
-    check({"plan", "execute"} <= plan_nodes, f"U2 plan-execute 다노드 구조(plan·execute) (got {plan_nodes})")
-    check("plan" not in default_nodes, "U2 default 그래프엔 plan 노드 없음(구조 상이 = 누수 측정 토대)")
+    check(
+        {"plan", "execute"} <= plan_nodes,
+        f"U2 plan-execute 다노드 구조(plan·execute) (got {plan_nodes})",
+    )
+    check(
+        "plan" not in default_nodes,
+        "U2 default 그래프엔 plan 노드 없음(구조 상이 = 누수 측정 토대)",
+    )
     # ctx.prompt 주입이 단일 출처 — plan-execute가 ctx.prompt를 읽어 execute 노드 system에 합친다
     # (클로저 캡처). 빌드가 ctx 없이 자기 DB를 읽지 않음을 구조로 보장(빌드는 ctx만 받음).
     check(g_plan is not None, "U2 plan-execute가 주입 ctx만으로 그래프 빌드(자기설정 직접 안 읽음)")
@@ -92,39 +98,62 @@ def unit_checks() -> None:
     # U3 resolve_agent_runtime 디스패치 — ui→default, ui+impl→custom, 원격→None.
     # (스펙 089가 085를 교정: 선언한 미지키는 더는 default로 *폴백 만회*하지 않고 AgentConfigError를
     #  던진다 — 그 핀은 verify_089가 소유. 여기선 무회귀 항목만 둔다.)
-    r_ui = chat_mod.resolve_agent_runtime({"source": "ui", "impl": None})
-    r_custom = chat_mod.resolve_agent_runtime({"source": "ui", "impl": "plan_execute"})
-    r_code = chat_mod.resolve_agent_runtime({"source": "code", "impl": None})
-    r_ext = chat_mod.resolve_agent_runtime({"source": "external", "impl": None})
+    r_ui = chat_mod.resolve_agent_runtime(
+        chat_mod.ChatContext(agent_pk=uuid.uuid4(), source="ui", impl=None)
+    )
+    r_custom = chat_mod.resolve_agent_runtime(
+        chat_mod.ChatContext(agent_pk=uuid.uuid4(), source="ui", impl="plan_execute")
+    )
+    r_code = chat_mod.resolve_agent_runtime(
+        chat_mod.ChatContext(agent_pk=uuid.uuid4(), source="code", impl=None)
+    )
+    r_ext = chat_mod.resolve_agent_runtime(
+        chat_mod.ChatContext(agent_pk=uuid.uuid4(), source="external", impl=None)
+    )
     check(isinstance(r_ui, DefaultUiAgent), "U3 ui+impl없음 → DefaultUiAgent")
     check(isinstance(r_custom, PlanExecuteAgent), "U3 ui+impl=plan_execute → PlanExecuteAgent")
     check(r_code is None, "U3 source=code → None(원격 fallback)")
     check(r_ext is None, "U3 source=external → None(원격 fallback)")
     try:
-        chat_mod.resolve_agent_runtime({"source": "ui", "impl": "does_not_exist"})
+        chat_mod.resolve_agent_runtime(
+            chat_mod.ChatContext(agent_pk=uuid.uuid4(), source="ui", impl="does_not_exist")
+        )
         check(False, "U3 ui+미지키 → AgentConfigError(스펙 089: default 폴백 만회 안 함)")
     except AgentConfigError:
         check(True, "U3 ui+미지키 → AgentConfigError(스펙 089: default 폴백 만회 안 함)")
 
     # U4 추적 타임라인 파생 — graph_nodes 있으면 실 노드열, 없으면 합성 폴백(무회귀).
     tr_real = api_rt.assemble_trace(
-        agent_id="a", memories=[], mcp_calls=[], used_memory=False,
-        total_ms=100, tokens={"in": 1, "out": 1}, graph_nodes=["plan", "execute"],
+        agent_id="a",
+        memories=[],
+        mcp_calls=[],
+        used_memory=False,
+        total_ms=100,
+        tokens={"in": 1, "out": 1},
+        graph_nodes=["plan", "execute"],
     )
     node_seq = [n["node"] for n in tr_real["graph"]]
-    check(node_seq == ["__start__", "plan", "execute", "__end__"],
-          f"U4 graph_nodes→실 노드 타임라인(하드코딩 아님) (got {node_seq})")
+    check(
+        node_seq == ["__start__", "plan", "execute", "__end__"],
+        f"U4 graph_nodes→실 노드 타임라인(하드코딩 아님) (got {node_seq})",
+    )
     check("call_model" not in node_seq, "U4 실 노드열은 합성 call_model을 쓰지 않음")
     tr_fallback = api_rt.assemble_trace(
-        agent_id="a", memories=[], mcp_calls=[], used_memory=False,
-        total_ms=100, tokens={"in": 1, "out": 1},  # graph_nodes 미전달
+        agent_id="a",
+        memories=[],
+        mcp_calls=[],
+        used_memory=False,
+        total_ms=100,
+        tokens={"in": 1, "out": 1},  # graph_nodes 미전달
     )
     fb_seq = [n["node"] for n in tr_fallback["graph"]]
     check("call_model" in fb_seq, f"U4 graph_nodes 없음→기존 합성 폴백(무회귀) (got {fb_seq})")
     # 중복·순서 보존(같은 노드 반복 발화 = 실 재진입).
     tr_dup = api_rt._timeline_from_nodes(["plan", "execute", "execute"], 90)
-    check([n["node"] for n in tr_dup] == ["__start__", "plan", "execute", "execute", "__end__"],
-          "U4 노드 중복·순서 보존(재진입 정직 표기)")
+    check(
+        [n["node"] for n in tr_dup] == ["__start__", "plan", "execute", "execute", "__end__"],
+        "U4 노드 중복·순서 보존(재진입 정직 표기)",
+    )
 
     # U5 신뢰 로딩 — dict 조회만, eval/import 경로 없음. 미등록 키·점경로 문자열 → None.
     check("plan_execute" in list_agent_impls(), "U5 plan_execute가 신뢰 레지스트리에 등록됨")
@@ -133,7 +162,10 @@ def unit_checks() -> None:
     check(get_agent_impl("os.system") is None, "U5 점경로 문자열 → None(import/eval 안 함)")
     check(get_agent_impl("__import__") is None, "U5 dunder 문자열 → None")
     # 레지스트리는 전역 신뢰집합 — list_agent_impls()가 등록 키와 정확히 일치(드리프트 0).
-    check(list_agent_impls() == sorted(agent_rt._REGISTRY), "U5 list_agent_impls()=등록 키 집합(드리프트 0)")
+    check(
+        list_agent_impls() == sorted(agent_rt._REGISTRY),
+        "U5 list_agent_impls()=등록 키 집합(드리프트 0)",
+    )
 
 
 # ================================================================ [H] 통합(in-process ASGI + 실 그래프)
@@ -153,7 +185,8 @@ async def http_checks() -> None:
         """chat SSE를 끝까지 읽어 (모은 텍스트, trace dict)를 반환."""
         acc, trace = [], None
         async with client.stream(
-            "POST", f"/agents/{agent_db_id}/chat",
+            "POST",
+            f"/agents/{agent_db_id}/chat",
             json={"messages": [{"role": "user", "content": text}]},
         ) as resp:
             assert resp.status_code == 200, f"chat status {resp.status_code}"
@@ -179,70 +212,109 @@ async def http_checks() -> None:
         transport=transport, base_url="http://t", headers=auth, timeout=120
     ) as c:
         # H0 두 에이전트 생성 — ui(기본)와 ui+impl=plan_execute. 자체 정리(끝에 DELETE).
-        r_ui = await c.post("/agents", json={
-            "name": f"v085-ui-{uuid.uuid4().hex[:6]}",
-            "config": {"model": "mock-llm", "prompt": "", "historyDepth": 10},
-        })
+        r_ui = await c.post(
+            "/agents",
+            json={
+                "name": f"v085-ui-{uuid.uuid4().hex[:6]}",
+                "config": {"model": "mock-llm", "prompt": "", "historyDepth": 10},
+            },
+        )
         check(r_ui.status_code == 201, f"H0 ui 에이전트 생성 201 (got {r_ui.status_code})")
         ui_id = r_ui.json()["id"]
         created_ids.append(ui_id)
 
-        r_pe = await c.post("/agents", json={
-            "name": f"v085-plex-{uuid.uuid4().hex[:6]}",
-            "config": {"model": "mock-llm", "prompt": "", "historyDepth": 10,
-                       "impl": "plan_execute"},
-        })
-        check(r_pe.status_code == 201, f"H0 plan_execute 에이전트 생성 201 (got {r_pe.status_code})")
+        r_pe = await c.post(
+            "/agents",
+            json={
+                "name": f"v085-plex-{uuid.uuid4().hex[:6]}",
+                "config": {
+                    "model": "mock-llm",
+                    "prompt": "",
+                    "historyDepth": 10,
+                    "impl": "plan_execute",
+                },
+            },
+        )
+        check(
+            r_pe.status_code == 201, f"H0 plan_execute 에이전트 생성 201 (got {r_pe.status_code})"
+        )
         pe_out = r_pe.json()
         pe_id = pe_out["id"]
         created_ids.append(pe_id)
         # H1 impl 라운드트립 — 생성 응답이 impl을 보존(편집 silent drop 방지).
-        check(pe_out.get("impl") == "plan_execute", f"H1 AgentOut.impl 라운드트립 (got {pe_out.get('impl')})")
+        check(
+            pe_out.get("impl") == "plan_execute",
+            f"H1 AgentOut.impl 라운드트립 (got {pe_out.get('impl')})",
+        )
         check(r_ui.json().get("impl") is None, "H1 기본 ui 에이전트 impl=None")
 
         # create는 config=cfg를 에이전트에 직접 박으므로(서빙 config 확정) activate 없이 chat 가능.
         # H2 ui 에이전트 chat → 토큰 + 실 노드 타임라인(default 그래프).
         ui_text, ui_trace = await _chat_trace(c, ui_id, "안녕하세요, 한 문장으로 답하세요.")
         check(bool(ui_text), "H2 ui 에이전트가 토큰을 스트림")
-        check(ui_trace is not None and isinstance(ui_trace.get("graph"), list),
-              "H2 ui trace에 graph 타임라인 존재")
+        check(
+            ui_trace is not None and isinstance(ui_trace.get("graph"), list),
+            "H2 ui trace에 graph 타임라인 존재",
+        )
         ui_nodes = [n["node"] for n in (ui_trace or {}).get("graph", [])]
         # create_agent 그래프의 실 노드(모델 노드)가 잡힌다 — 합성 'call_model' 자리표시가 아니라 실명.
-        check(any(not n.startswith("__") for n in ui_nodes),
-              f"H2 ui 실 노드 타임라인 비어있지 않음 (got {ui_nodes})")
+        check(
+            any(not n.startswith("__") for n in ui_nodes),
+            f"H2 ui 실 노드 타임라인 비어있지 않음 (got {ui_nodes})",
+        )
 
         # H3 plan_execute chat → 토큰 + 실 노드 타임라인이 [plan, execute](하드코딩 아님).
         pe_text, pe_trace = await _chat_trace(c, pe_id, "안녕하세요, 한 문장으로 답하세요.")
         check(bool(pe_text), "H3 plan_execute 에이전트가 토큰을 스트림")
         pe_nodes = [n["node"] for n in (pe_trace or {}).get("graph", [])]
-        check("plan" in pe_nodes and "execute" in pe_nodes,
-              f"H3 plan_execute 실 노드 타임라인=[plan, execute] (하드코딩 아님) (got {pe_nodes})")
-        check("call_model" not in pe_nodes,
-              "H3 plan_execute 타임라인은 합성 call_model을 쓰지 않음(실 노드 파생)")
+        check(
+            "plan" in pe_nodes and "execute" in pe_nodes,
+            f"H3 plan_execute 실 노드 타임라인=[plan, execute] (하드코딩 아님) (got {pe_nodes})",
+        )
+        check(
+            "call_model" not in pe_nodes,
+            "H3 plan_execute 타임라인은 합성 call_model을 쓰지 않음(실 노드 파생)",
+        )
 
         # H4 원격 fallback — code/external 디스패치는 None(in-process 그래프 안 탐). 디스패치 단위 재확인
         # (실 _a2a_stream은 mock 원격 서버 필요 — 여기선 게이트 판정만, 통합 경로 무회귀 보장).
-        check(chat_mod.resolve_agent_runtime({"source": "code", "impl": None}) is None,
-              "H4 code 소스 → 디스패치 None(원격 fallback 경로 보존)")
+        check(
+            chat_mod.resolve_agent_runtime(
+                chat_mod.ChatContext(agent_pk=uuid.uuid4(), source="code", impl=None)
+            )
+            is None,
+            "H4 code 소스 → 디스패치 None(원격 fallback 경로 보존)",
+        )
 
         # H5 편집→활성화 impl 보존(codex 적대 리뷰 F1 회귀 가드). SPA 편집 폼은 아직 impl을
         # 안 보내므로, impl 없는 config로 PUT(초안 갱신)한 뒤 활성화해도 impl이 살아남아야 한다.
         # F1 수정 전이면: PUT이 draft.config['impl']=None → activate가 serving config를 None으로
         # → 다음 chat이 DefaultUiAgent로 silent 되돌아감([plan,execute] 사라짐).
-        r_edit = await c.put(f"/agents/{pe_id}", json={
-            "name": None,
-            "config": {"model": "mock-llm", "prompt": "", "historyDepth": 10},  # impl 의도적 누락
-        })
+        r_edit = await c.put(
+            f"/agents/{pe_id}",
+            json={
+                "name": None,
+                "config": {
+                    "model": "mock-llm",
+                    "prompt": "",
+                    "historyDepth": 10,
+                },  # impl 의도적 누락
+            },
+        )
         check(r_edit.status_code == 200, f"H5 impl 없는 편집 PUT 200 (got {r_edit.status_code})")
         r_act = await c.post(f"/agents/{pe_id}/activate", json={"version": "v1"})
         check(r_act.status_code == 200, f"H5 v1 활성화 200 (got {r_act.status_code})")
-        check(r_act.json().get("impl") == "plan_execute",
-              f"H5 편집→활성화 후 impl 보존 (got {r_act.json().get('impl')})")
+        check(
+            r_act.json().get("impl") == "plan_execute",
+            f"H5 편집→활성화 후 impl 보존 (got {r_act.json().get('impl')})",
+        )
         # 활성화된 serving config로 실제 chat → 타임라인이 여전히 [plan, execute](fallback 아님).
         pe_text2, pe_trace2 = await _chat_trace(c, pe_id, "한 문장으로 답하세요.")
         pe_nodes2 = [n["node"] for n in (pe_trace2 or {}).get("graph", [])]
-        check("plan" in pe_nodes2 and "execute" in pe_nodes2,
-              f"H5 편집→활성화 후 실 노드 타임라인 보존=[plan, execute] (got {pe_nodes2})")
+        check(
+            "plan" in pe_nodes2 and "execute" in pe_nodes2,
+            f"H5 편집→활성화 후 실 노드 타임라인 보존=[plan, execute] (got {pe_nodes2})",
+        )
 
         # 정리 — 생성 에이전트 삭제(자체 격리).
         for aid in created_ids:

@@ -13,7 +13,7 @@ from collections.abc import AsyncIterator
 from agent.runtime import AgentBuildContext, AgentConfigError
 
 from . import a2a_client, observability, runtime
-from .chat_context import _load_context
+from .chat_context import ChatContext, _load_context
 from .chat_history import _window
 from .chat_persist import _mid_frame, _persist
 
@@ -67,26 +67,26 @@ def _model_error_hint(exc: Exception, model_cfg: dict | None) -> str | None:
     )
 
 
-async def _a2a_stream(ctx: dict, user_text: str, user_id: str | None) -> AsyncIterator[str]:
+async def _a2a_stream(ctx: ChatContext, user_text: str, user_id: str | None) -> AsyncIterator[str]:
     """원격(A2A) 에이전트: 등록된 카드 url로 JSON-RPC message/stream 호출 → 응답을 우리 SSE로 재전송.
 
     code(우리가 배포한 SDK)·external(제3자) 모두 이 경로를 탄다(스펙 057: A2A 단일화). 전송은
     a2a_client 계층이 담당(JSON-RPC message/stream|send).
     """
-    yield f"data: {json.dumps({'session': ctx['session_id']}, ensure_ascii=False)}\n\n"
-    endpoint = ctx.get("endpoint")
+    yield f"data: {json.dumps({'session': ctx.session_id}, ensure_ascii=False)}\n\n"
+    endpoint = ctx.endpoint
     if not endpoint:
         yield f"data: {json.dumps({'error': '외부 에이전트에 A2A 엔드포인트(url)가 없습니다'}, ensure_ascii=False)}\n\n"
         yield "event: done\ndata: [DONE]\n\n"
         return
 
-    streaming = a2a_client.card_streaming(ctx.get("card"))
+    streaming = a2a_client.card_streaming(ctx.card)
     acc: list[str] = []
     errored = False
     t0 = time.perf_counter()
     # 세션 id를 A2A contextId로 — 호출당 단일 메시지지만 서버가 맥락을 잇게 한다(스펙 057, 멀티턴 보존).
     async for frame in a2a_client.a2a_stream(
-        endpoint, ctx.get("token"), user_text, streaming=streaming, context_id=ctx.get("session_id")
+        endpoint, ctx.token, user_text, streaming=streaming, context_id=ctx.session_id
     ):
         if "error" in frame:
             errored = True
@@ -106,7 +106,7 @@ async def _a2a_stream(ctx: dict, user_text: str, user_id: str | None) -> AsyncIt
     trace = {
         "latencyMs": total_ms,
         "tokens": tokens,
-        "promptRef": ctx["ext_agent_id"],
+        "promptRef": ctx.ext_agent_id,
         "memories": [],
         "mcp": [],
         "graph": [
@@ -120,14 +120,14 @@ async def _a2a_stream(ctx: dict, user_text: str, user_id: str | None) -> AsyncIt
     if not errored and full.strip():  # 공백-only 응답은 영속하지 않음(적대리뷰 L1)
         # 원격(A2A)은 로컬 그래프 thread_id가 없어 턴 id를 여기서 생성(로컬 포맷 미러, 스펙 364) —
         # 원격 턴도 이력에서 turn_id로 묶이게(프롬프트 출처는 원격 측이라 미기록=null, chat_context 가드).
-        turn_id = f"{ctx['ext_agent_id']}:{ctx['session_id']}:{uuid.uuid4().hex[:8]}"
+        turn_id = f"{ctx.ext_agent_id}:{ctx.session_id}:{uuid.uuid4().hex[:8]}"
         mid = await _persist(
             ctx,
             user_text,
             full,
             trace,
             tokens,
-            ctx["persist_history"],
+            ctx.persist_history,
             user_id=user_id,
             turn_id=turn_id,
         )
@@ -157,11 +157,11 @@ async def stream_local_reply(agent_id: uuid.UUID, user_text: str) -> AsyncIterat
         # 구체 impl 키는 서버 로그에만(089-F1: 임의 저장값이라 응답에 미반영 — 비밀누출 0).
         log.warning("A2A 노출 거부: 미해결 impl %r (agent %s)", str(e), agent_id)
         raise ValueError("에이전트 설정 실패: 런타임 구현 미해결(A2A 노출 불가)") from e
-    if impl is None or ctx["model_cfg"] is None:
+    if impl is None or ctx.model_cfg is None:
         raise ValueError("로컬(ui) 에이전트가 아니거나 채팅 모델이 없습니다(A2A 노출 불가)")
     calls_sink: list[dict] = []
     tools = await runtime.build_mcp_tools(
-        ctx["mcp_servers"], calls_sink, ctx.get("toolPolicy"), ctx.get("tool_names")
+        ctx.mcp_servers, calls_sink, ctx.tool_policy, ctx.tool_names
     )
     # 노드형 컬렉션별 도구 포함(스펙 268 P1 — 세 입구 정합, learning 149). 메모리 프록시는 미주입:
     # A2A 서빙은 v1부터 메모리 자체가 범위 밖(스펙 061 — 순수 컴퓨트), 기존과 동일.
@@ -171,7 +171,7 @@ async def stream_local_reply(agent_id: uuid.UUID, user_text: str) -> AsyncIterat
     # 참조하면 조용히 미바인딩되므로(스펙 265 환각 위험), 감지 시 경고로 표면화(조용한 실패 금지).
     if any(
         isinstance(t, str) and t.startswith("agent__")
-        for n in (ctx.get("nodes_resolved") or [])
+        for n in (ctx.nodes_resolved or [])
         if isinstance(n, dict)
         for t in (n.get("tools") or [])
     ):
@@ -179,20 +179,18 @@ async def stream_local_reply(agent_id: uuid.UUID, user_text: str) -> AsyncIterat
             "A2A 서빙 노드가 에이전트-호출 도구(agent__…)를 참조하나 서빙 경로는 위임 미지원(principal 부재) — 그 도구는 미바인딩됩니다 (agent %s)",
             agent_id,
         )
-    run_params = {} if ctx["temperature"] is None else {"temperature": ctx["temperature"]}
+    run_params = {} if ctx.temperature is None else {"temperature": ctx.temperature}
     build_ctx = AgentBuildContext(
-        prompt=ctx["prompt"],
-        model_cfg=ctx["model_cfg"],
+        prompt=ctx.prompt,
+        model_cfg=ctx.model_cfg,
         tools=tools,
         checkpointer=None,
         params=run_params,
-        overrides=ctx.get("overrides"),
+        overrides=ctx.overrides,
         # impl_config — 노코드 impl 설정 통로(codex P2 후속: A2A 서빙이 이 세 번째 입구를 빠뜨려 노드형/
         # 산출물형 에이전트가 A2A 노출 시 기본 단일 노드로 퇴화하던 버그). 메인 채팅·승인 재개와 동일 주입.
         impl_config=(
-            {"nodes": ctx["nodes_resolved"]}
-            if ctx.get("nodes_resolved") is not None
-            else ctx.get("artifact_spec")
+            {"nodes": ctx.nodes_resolved} if ctx.nodes_resolved is not None else ctx.artifact_spec
         ),
         # 단기 기억 창(스펙 270): A2A 서빙은 무상태 단일 메시지(스펙 061 — 이전 대화 없음)라 history_window
         # 미주입(None). 메모리 프록시 미주입(위)과 같은 결 — 대화 축이 없으니 "재개 축 누락" 버그 아님.
@@ -205,7 +203,7 @@ async def stream_local_reply(agent_id: uuid.UUID, user_text: str) -> AsyncIterat
         log.warning("A2A 서빙 그래프 조립 실패: %r (agent %s)", str(e), agent_id)
         raise ValueError("에이전트 설정 실패: 노드 구현 미해결(A2A 노출 불가)") from e
     # 노출 호출은 호출당 단일 메시지(맥락은 A2A contextId가 호출측 책임 — v1 서빙은 무상태).
-    messages = _window([{"role": "user", "content": user_text}], ctx["history_depth"])
+    messages = _window([{"role": "user", "content": user_text}], ctx.history_depth)
     # 관측(스펙 118) — checkpointer=None이라 thread_id 불요, 콜백만 병합(미설정=무동작).
     _cfg = observability.with_trace(None, name="a2a-serve-local")
     async for msg_chunk, _meta in graph.astream(

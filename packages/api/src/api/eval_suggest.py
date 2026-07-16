@@ -13,7 +13,7 @@ import uuid
 
 import httpx
 
-from .chat import _load_context
+from .chat import ChatContext, _load_context
 from .eval_golden import _gen_question, _parse_question, _sample_chunks
 
 log = logging.getLogger("api.eval")
@@ -75,15 +75,15 @@ async def _gen_prompt_questions(prompt: str, n: int, llm_cfg: dict) -> list[str]
     return out[:n]
 
 
-async def _resolve_collections(ctx: dict) -> list[dict]:
+async def _resolve_collections(ctx: ChatContext) -> list[dict]:
     """출제 재료 컬렉션 목록({"id","name"})을 반환 — 직접형+조율형 union.
 
     RAG 재료는 배선 방식이 둘(verify_143 실측 — 조율형은 rag_collections가 비고 capabilities에
     "rag:{이름}"으로 있다): 직접형 목록 + 조율형 capabilities에서 이름 해석해 합친다."""
-    collections = list(ctx["rag_collections"] or [])
+    collections = list(ctx.rag_collections or [])
     cap_names = [
         c.split(":", 1)[1]
-        for c in (ctx.get("capabilities") or [])
+        for c in (ctx.capabilities or [])
         if isinstance(c, str) and c.startswith("rag:")
     ]
     if not cap_names:
@@ -172,7 +172,7 @@ async def suggest_agent_cases(agent_pk: uuid.UUID, count: int, llm_cfg: dict) ->
     안분: RAG 능력이 있으면 절반은 RAG형(컬렉션 골든 + trace_has), 나머지는 프롬프트형.
     RAG형이 재료 부족으로 모자라면 프롬프트형으로 채운다(요청량 우선)."""
     ctx = await _load_context(agent_pk, None)  # 프롬프트·해석된 RAG 컬렉션(id 포함)
-    prompt = ctx["prompt"] or "범용 도우미"
+    prompt = ctx.prompt or "범용 도우미"
     collections = await _resolve_collections(ctx)
 
     cases: list[dict] = []

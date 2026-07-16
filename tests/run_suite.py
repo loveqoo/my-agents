@@ -42,9 +42,8 @@ KNOWN_DRIFT: dict[str, str] = {
     "verify_029_agent_memory.py": "노후: 파일 경로 하드코딩(FileNotFound)",
     "verify_115_attribution_fence.py": "노후: 상대경로 'src' 하드코딩(FileNotFound)",
     # --- db층 드리프트(스펙 353 실측). 전부 **캠페인 346~352와 무관한 기존 노후**로 확증:
-    #     _create_approval user_id는 스펙 291(캠페인 이전)에 추가·테스트 미갱신, 나머지는 캠페인
-    #     모듈을 import조차 안 함. eval 스위트가 무더기로 노후(스키마·라우트 표면 변경).
-    "verify_049_session_retention_policy.py": "노후: _create_approval에 user_id 추가(스펙291)·테스트 옛 호출",
+    #     나머지는 캠페인 모듈을 import조차 안 함. eval 스위트가 무더기로 노후(스키마·라우트 표면 변경).
+    #     (verify_049는 스펙 382에서 해제 — _create_approval user_id 미갱신+ctx dict→DTO 동반 봉합.)
     "verify_083_expose_gate.py": "노후: expose 게이트 기대치 드리프트(캠페인 무관)",
     "verify_122_orchestrator_override_capabilities.py": "노후: 오케스트레이터 오버라이드 표면 변경",
     "verify_127_paged_memory.py": "노후: InMemoryBackend.add() 시그니처 변경 미반영",

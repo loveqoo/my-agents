@@ -24,7 +24,7 @@ from agent.runtime import AgentBuildContext, AgentConfigError, CustomAgent
 from . import memory, observability, runtime
 from .broker import build_broker
 from .broker.core import PolicyScopedBroker
-from .chat import _load_context, _window, resolve_agent_runtime
+from .chat import ChatContext, _load_context, _window, resolve_agent_runtime
 from .models import User
 
 log = logging.getLogger("api.eval")
@@ -54,16 +54,16 @@ def _canonical_tokens(
     return tokens
 
 
-async def _recall_memory(ctx: dict, user_text: str) -> tuple[bool, list, str]:
+async def _recall_memory(ctx: ChatContext, user_text: str) -> tuple[bool, list, str]:
     """메모리 회상(읽기 전용 — 무오염) → (used_memory, mem_hits, prompt_prompt). add는 절대 안 함."""
-    used_memory = memory.memory_enabled(ctx["memories"]) and ctx["mem_cfg"] is not None
-    recall_scope = {"user_id": None, "run_id": None, "agent_id": ctx["ext_agent_id"]}
+    used_memory = memory.memory_enabled(ctx.memories) and ctx.mem_cfg is not None
+    recall_scope = {"user_id": None, "run_id": None, "agent_id": ctx.ext_agent_id}
     mem_hits = (
-        await asyncio.to_thread(memory.search, recall_scope, user_text, ctx["mem_cfg"])
+        await asyncio.to_thread(memory.search, recall_scope, user_text, ctx.mem_cfg)
         if used_memory
         else []
     )
-    prompt_prompt = ctx["prompt"]
+    prompt_prompt = ctx.prompt
     if mem_hits:
         prompt_prompt = (
             f"{prompt_prompt}\n\n# 관련 기억(회상됨)\n{memory.format_memory_hits(mem_hits)}"
@@ -72,7 +72,7 @@ async def _recall_memory(ctx: dict, user_text: str) -> tuple[bool, list, str]:
 
 
 async def _build_eval_graph(
-    ctx: dict,
+    ctx: ChatContext,
     impl: CustomAgent,
     prompt_prompt: str,
     mem_hits: list,
@@ -83,29 +83,29 @@ async def _build_eval_graph(
 ) -> tuple[Any, PolicyScopedBroker]:
     """평가용 그래프를 도구·브로커 주입으로 빌드 → (graph, broker)."""
     tools = await runtime.build_mcp_tools(
-        ctx["mcp_servers"], calls_sink, ctx.get("toolPolicy"), ctx.get("tool_names")
+        ctx.mcp_servers, calls_sink, ctx.tool_policy, ctx.tool_names
     )
-    if ctx["rag_collections"]:
-        tools.append(runtime.build_rag_tool(ctx["rag_collections"], calls_sink))
+    if ctx.rag_collections:
+        tools.append(runtime.build_rag_tool(ctx.rag_collections, calls_sink))
     # 브로커 주입(조율형 위임 채점) — 실행 주체(principal)의 RBAC로 스코프(chat 경로와 동일 술어).
     # 스펙 256 v2(깊이 N): 호출 체인에 자기 자신을 덧붙여 하위 브로커에 관통 — 체인 내 재방문만
     # 차단(순환 0), 새 에이전트로는 계속 하강 가능.
-    chain = tuple(delegation_chain) + ((ctx["ext_agent_id"],) if ctx.get("ext_agent_id") else ())
+    chain = tuple(delegation_chain) + ((ctx.ext_agent_id,) if ctx.ext_agent_id else ())
     broker = build_broker(
         principal,
-        ctx["capabilities"],
-        ctx.get("toolPolicy"),
+        ctx.capabilities,
+        ctx.tool_policy,
         delegation_chain=chain,
         delegation_budget=delegation_budget,
     )
     # 노드 에이전트-호출 도구(스펙 318) — 평가도 실제 파이프라인(위임 포함)을 태운다(317 입구 정합).
     # pipeline만·broker가 이미 스코프(권한 상승 0).
-    if ctx.get("impl") == "pipeline":
+    if ctx.impl == "pipeline":
         tools.extend(runtime.build_agent_tools(broker, await broker.agent_capabilities()))
-    run_params = {} if ctx["temperature"] is None else {"temperature": ctx["temperature"]}
+    run_params = {} if ctx.temperature is None else {"temperature": ctx.temperature}
     build_ctx = AgentBuildContext(
         prompt=prompt_prompt,
-        model_cfg=ctx["model_cfg"],
+        model_cfg=ctx.model_cfg,
         tools=tools,
         checkpointer=None,  # HIL cap은 fail-closed(interrupt→예외→error 관측)
         params=run_params,
@@ -115,9 +115,7 @@ async def _build_eval_graph(
         # 산출물형 평가가 **기본 단일 노드로 조용히 퇴화**해 실제 서빙과 다른 것을 채점했고, 미등록
         # 코드 노드도 설정 오류 대신 폴백 실행됐다. 채팅·A2A 서빙·승인 재개와 동일 주입(네 번째 입구).
         impl_config=(
-            {"nodes": ctx["nodes_resolved"]}
-            if ctx.get("nodes_resolved") is not None
-            else ctx.get("artifact_spec")
+            {"nodes": ctx.nodes_resolved} if ctx.nodes_resolved is not None else ctx.artifact_spec
         ),
     )
     return impl.build_graph(build_ctx), broker
@@ -184,7 +182,7 @@ async def eval_run_agent(
         impl = resolve_agent_runtime(ctx)
     except AgentConfigError as exc:
         return {"output": "", "trace_nodes": [], "error": True, "detail": f"런타임 미해결: {exc}"}
-    if impl is None or ctx["model_cfg"] is None:
+    if impl is None or ctx.model_cfg is None:
         return {
             "output": "",
             "trace_nodes": [],
@@ -215,8 +213,8 @@ async def eval_run_agent(
             "error": True,
             "detail": f"그래프 조립 실패: {exc}",
         }
-    messages = _window([{"role": "user", "content": user_text}], ctx["history_depth"])
-    cfg = observability.with_trace(None, name=f"eval:{ctx['ext_agent_id']}")
+    messages = _window([{"role": "user", "content": user_text}], ctx.history_depth)
+    cfg = observability.with_trace(None, name=f"eval:{ctx.ext_agent_id}")
 
     output, observed_nodes, error, detail = await _stream_observed(graph, messages, cfg)
 

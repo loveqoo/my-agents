@@ -16,6 +16,7 @@ import json
 import os
 import sys
 import threading
+import uuid
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -70,14 +71,18 @@ def _make_handler(stream_status: int, send_ok: bool):
                 self.send_header("Content-Length", "0")
                 self.end_headers()
                 return
-            out = json.dumps({
-                "jsonrpc": "2.0", "id": body.get("id"),
-                "result": {
-                    "role": "agent",
-                    "parts": [{"kind": "text", "text": REPLY}],
-                    "messageId": "m1", "kind": "message",
-                },
-            }).encode("utf-8")
+            out = json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "id": body.get("id"),
+                    "result": {
+                        "role": "agent",
+                        "parts": [{"kind": "text", "text": REPLY}],
+                        "messageId": "m1",
+                        "kind": "message",
+                    },
+                }
+            ).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(out)))
@@ -143,16 +148,22 @@ HINT = "재동기화"
 
 async def _drain_a2a(frames_to_yield):
     """chat._a2a_stream을 a2a_client.a2a_stream 몽키패치로 구동 — 에러 SSE 문자열을 수집."""
+
     async def fake_stream(endpoint, token, user_text, *, streaming=True, context_id=None):
         for f in frames_to_yield:
             yield f
 
     orig = a2a_client.a2a_stream
     a2a_client.a2a_stream = fake_stream
-    ctx = {
-        "session_id": "s1", "endpoint": "http://127.0.0.1:1/a2a", "card": {},
-        "token": None, "ext_agent_id": "e1", "persist_history": False,
-    }
+    ctx = chat.ChatContext(
+        agent_pk=uuid.uuid4(),
+        session_id="s1",
+        endpoint="http://127.0.0.1:1/a2a",
+        card={},
+        token=None,
+        ext_agent_id="e1",
+        persist_history=False,
+    )
     out = []
     try:
         async for chunk in chat._a2a_stream(ctx, "hi", None):
