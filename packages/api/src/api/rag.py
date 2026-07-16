@@ -154,6 +154,35 @@ async def _embedding_model(session: AsyncSession, model_id: uuid.UUID) -> ModelC
     ).scalar_one_or_none()
 
 
+async def _validate_embedding_model(
+    session: AsyncSession, model_id: uuid.UUID
+) -> ModelConfig:
+    """임베딩 모델 해석+검증(스펙 375·캠페인 374 T1-2) — 컬렉션 생성·재인덱싱 모델 선택 공유 단일 출처.
+
+    이전엔 create_collection과 _resolve_reindex_model이 kind 강제·probe·차원 검사를 각각 복제해
+    한쪽 규칙이 바뀌면 드리프트(codex 리뷰 P1). 규칙: 존재(400)·kind=embedding(400)·provider가
+    있으면 probe 실측 차원이 저장소 고정 차원과 일치(불일치 409). provider 부재(레거시)는 probe
+    생략 — _dim_mismatch가 '미상 통과' 규칙을 이미 가짐. 반환=검증된 모델.
+
+    주의: 검색 시점 완전성 가드(search_collection의 em.kind 검사, 072 P2)는 실패 모드·메시지가 달라
+    여기 합치지 않는다."""
+    m = await _embedding_model(session, model_id)
+    if m is None:
+        raise HTTPException(status_code=400, detail="임베딩 모델을 찾을 수 없습니다.")
+    if m.kind != "embedding":
+        raise HTTPException(
+            status_code=400, detail="임베딩(kind=embedding) 모델만 쓸 수 있습니다."
+        )
+    if m.provider is not None:  # 같은 차원(RAG_EMBED_DIMS)만 — probe 실측
+        probe = await _probe(
+            m.provider.base_url, crypto.decrypt(m.provider.api_key), m.model_id, "embedding"
+        )
+        msg = _dim_mismatch(probe.dims, RAG_EMBED_DIMS)
+        if msg:
+            raise HTTPException(status_code=409, detail=msg)
+    return m
+
+
 # ----------------------------- 컬렉션 CRUD -----------------------------
 @router.get("", response_model=list[CollectionOut])
 async def list_collections(
@@ -187,21 +216,8 @@ async def create_collection(
     if err:
         raise HTTPException(status_code=400, detail=err)
     _check_entity_schema(body.entity_schema, body.kind)  # 스키마 자체 유효성(스펙 149)
-    m = await _embedding_model(session, body.embedding_model_id)
-    if m is None:
-        raise HTTPException(status_code=400, detail="임베딩 모델을 찾을 수 없습니다.")
-    if m.kind != "embedding":
-        raise HTTPException(
-            status_code=400, detail="임베딩(kind=embedding) 모델만 컬렉션에 쓸 수 있습니다."
-        )
-    # 가드1 — 생성 시점 차원 점검(probe 실측 vs 저장소 고정 차원).
-    if m.provider is not None:
-        probe = await _probe(
-            m.provider.base_url, crypto.decrypt(m.provider.api_key), m.model_id, "embedding"
-        )
-        msg = _dim_mismatch(probe.dims, RAG_EMBED_DIMS)
-        if msg:
-            raise HTTPException(status_code=409, detail=msg)
+    # 임베딩 모델 검증(가드1: 존재·kind·차원) — 재인덱싱과 공유 단일 출처(스펙 375).
+    await _validate_embedding_model(session, body.embedding_model_id)
     c = Collection(
         name=body.name,
         kind=body.kind,  # 종류 축(스펙 149) — 생성 후 불변
@@ -508,18 +524,7 @@ async def _resolve_reindex_model(
     미지정이면 현 모델 유지. 차원은 probe 실측으로 저장소(1024)와 일치해야(가드1 재사용)."""
     if body.embedding_model_id is None:
         return c.embedding_model, c.embedding_model_id, False
-    m = await _embedding_model(session, body.embedding_model_id)
-    if m is None:
-        raise HTTPException(status_code=400, detail="임베딩 모델을 찾을 수 없습니다.")
-    if m.kind != "embedding":
-        raise HTTPException(status_code=400, detail="임베딩(kind=embedding) 모델만 쓸 수 있습니다.")
-    if m.provider is not None:  # 같은 차원(1024)만 — probe 실측
-        probe = await _probe(
-            m.provider.base_url, crypto.decrypt(m.provider.api_key), m.model_id, "embedding"
-        )
-        msg = _dim_mismatch(probe.dims, RAG_EMBED_DIMS)
-        if msg:
-            raise HTTPException(status_code=409, detail=msg)
+    m = await _validate_embedding_model(session, body.embedding_model_id)  # 생성과 공유(스펙 375)
     return m, m.id, body.embedding_model_id != c.embedding_model_id
 
 
