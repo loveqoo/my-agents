@@ -61,6 +61,13 @@ TABLES: dict[str, Policy] = {
     "user": Policy("bounded", by="batch:user-cleanup", note="관리자 계정(사람 페이스). 테스트 유저는 배치가 정리"),
     # --- 회수 경로 있음 ---------------------------------------------------------
     "agent_versions": Policy("reclaimed", by="cascade:agents", note="편집은 draft 재사용, 활성화당 1행(사람 페이스)"),
+    "block_versions": Policy(
+        "reclaimed",
+        by="chokepoint:block_versions.delete_block_history",
+        note="폴리모픽 append-only 이력(스펙 369, 5종 블록). kind별 부모 테이블이 달라 FK 불가 — "
+        "블록 삭제 시 delete_block_history가 같은 tx에서 이력 정리(blocks.py·providers.py 호출). "
+        "편집당 1행 append(관리자 페이스 — 평범한 턴은 0행)",
+    ),
     "message_feedback": Policy("reclaimed", by="cascade:messages"),
     "eval_case_results": Policy("reclaimed", by="cascade:eval_runs", note="부모(eval_runs)가 history-cleanup으로 회수되면 CASCADE로 함께 사라진다(고아 0)"),
     "eval_cases": Policy("reclaimed", by="cascade:eval_datasets", note="관리자 저작 문제집의 일부"),

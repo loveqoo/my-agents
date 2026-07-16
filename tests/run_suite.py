@@ -58,6 +58,20 @@ KNOWN_DRIFT: dict[str, str] = {
     "verify_329_residual_removal.py": "노후: 플랜 데모 잔여 제거 기대치 드리프트(캠페인 무관)",
     "verify_345_seed_actor.py": "환경: 처녀 DB 전제(빈 DB 필요) — 상시 그물엔 부적합, 초기화 검증 전용",
     "verify_059_integration.py": "환경: '모든 컬렉션=mock-embed' 불변식이 다른 테스트 잔여 컬렉션에 취약(깨끗한 부팅 전제)",
+    # --- http 층 드리프트(2026-07-16 test-all hygiene 실측). 전부 캠페인 374(리팩터)와 무관 —
+    #     baseline(2fbd224) 동일 실패 또는 데이터/환경 전제. 리팩터가 낸 회귀(rag 재수출·151·347)는
+    #     별도로 고쳐 그물에 복귀. 아래는 사전존재 드리프트라 사유 달아 격리(고치면 여기서 지운다).
+    "verify_114_owner_display.py": "환경: owner_id=None 레거시 에이전트 전제(현 seed 없음 → next() StopIteration)",
+    "verify_143_suggest.py": "환경: '옵시디언 매니저' 시드 에이전트 전제(현 seed에 없음)",
+    "verify_161_persona_sync.py": "노후: promptStale이 후속 스펙서 adopt(채택)로 일반화·대체(응답 키 없음)",
+    "verify_233_capability_matrix.py": "제품결함 후보: orchestrate_ranked 에이전트 위임 broker_invoke:agent 노드 부재(1/42, 사전존재·별도 조사)",
+    "verify_235_ephemeral.py": "노후: 스펙346 durability=exit로 턴종료 체크포인트 정리 → 비-ephemeral 대조도 Δ=0(pre-346 기대, ephemeral 본 로직 E4/E5는 통과)",
+    "verify_240_eval_version.py": "노후: eval 버전 추적 스키마 드리프트(agent_version None, baseline 동일·캠페인 무관)",
+    "verify_242_version_exec.py": "노후: 버전 실행 eval 스키마/데이터 드리프트(baseline 동일)",
+    "verify_244_version_ops.py": "노후: 버전 ops eval 집계 드리프트(runs/score None, baseline 동일)",
+    "verify_318_node_agent_call.py": "환경/상태: 노드 에이전트 위임 brokerCalls(실 principal·세션 상태 전제, http 상태 의존)",
+    "verify_369_block_versioning.py": "환경: http 상태 오염 취약(단독 통과, test-all 순서서 실패)",
+    "verify_068_live.py": "인프라: D6 member resume가 'connection is closed'로 500(baseline 동일·사전존재, ctx dict→DTO는 봉합). 별도 조사(asyncpg 커넥션 수명)",
 }
 
 # 러너 자신·인자 필요·특수 스크립트는 스위트에서 제외(그물 대상 아님).

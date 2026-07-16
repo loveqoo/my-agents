@@ -27,7 +27,7 @@ from sqlalchemy import delete, func, select  # noqa: E402
 
 load_dotenv(os.path.join(ROOT, ".env"))
 
-from api.chat import _create_approval  # noqa: E402
+from api.chat import ChatContext, _create_approval  # noqa: E402
 from api.db import SessionLocal  # noqa: E402
 from api.models import Agent, Message, Session, User  # noqa: E402
 
@@ -200,12 +200,14 @@ async def main() -> None:
                 agent_pk = (await s.execute(
                     select(Agent.id).where(Agent.agent_id == AGENT_ID))).scalar_one()
             apr_sid = f"{SPREFIX}approval"
-            apr_ctx = {
-                "session_pk": None,
-                "session_pending": {"session_id": apr_sid, "agent_pk": agent_pk,
-                                    "agent_name": "probe068", "channel": "playground"},
-                "session_id": apr_sid, "agent_pk": agent_pk, "agent_name": "probe068",
-            }
+            apr_ctx = ChatContext(
+                agent_pk=agent_pk,
+                agent_name="probe068",
+                session_id=apr_sid,
+                session_pk=None,
+                session_pending={"session_id": apr_sid, "agent_pk": agent_pk,
+                                 "agent_name": "probe068", "channel": "playground"},
+            )
             await _create_approval(apr_ctx, "thr-068t", {"permission": "data.read",
                                    "action": "test", "args": {}, "summary": "s"}, member_id)
             async with SessionLocal() as s:

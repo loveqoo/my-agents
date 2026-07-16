@@ -52,7 +52,9 @@ async def run():
             made.append(clone["id"])
 
             check(clone["id"] != src["id"], "H2 새 id(원본과 다름)")
-            check(clone["name"] == f"{src['name']} (복사본)", f"H2 이름='{src['name']} (복사본)' (got {clone['name']})")
+            # 식별 이름은 규칙 준수(스펙 217: 영소문자·숫자·대시만) → 접미 '-copy'. '(복사본)'은 설명에.
+            check(clone["name"] == f"{src['name']}-copy", f"H2 이름='{src['name']}-copy' (got {clone['name']})")
+            check("(복사본)" in (clone.get("description") or ""), f"H2b 설명에 '(복사본)' (got {clone.get('description')!r})")
             check(clone.get("source") == "ui", f"H3 복제본 source=ui (got {clone.get('source')})")
             # 행위 설정 복사 확인.
             check(clone.get("capabilities") == ["rag:x", "mcp:y/z"], f"H4 능력 복사 (got {clone.get('capabilities')})")
