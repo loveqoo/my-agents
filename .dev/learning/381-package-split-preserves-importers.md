@@ -27,6 +27,18 @@
   순환. "물리 위치"가 아니라 "누가 쓰나"로 가른다.
 - **config per-file-ignore도 파일과 함께 옮겨야 한다.** schemas.py의 N815(camelCase 필드) ignore를
   패키지로 안 옮기면 45개 오탐이 뜬다 — 분할은 코드뿐 아니라 그 파일을 가리키던 설정도 갱신 대상.
+- **평면 모듈 분할은 "외부 계약"만 재수출하면 샌다 — 전 심볼을 승격하라(rag.py 사후 봉합).** rag.py→
+  `rag/` 패키지에서 __init__이 외부 3심볼(router·sweep·resolve)만 재수출했더니, 테스트가
+  `from api.rag import _acquire_reindex_lock`(underscore 헬퍼)·`RAG.ingest_document`(route 핸들러
+  속성 접근)로 닿던 게 전부 깨졌다. 평면 모듈 시절엔 **모든** module-level 이름(헬퍼·route 핸들러·
+  `from . import rag_ingest` 같은 모듈 임포트)이 `api.rag.X`였다. 봉합=서브모듈의 non-dunder 이름을
+  루프로 `globals()`에 승격해 평면 표면을 통째 복원(star-import는 underscore를 건너뛰어 부족). 교훈:
+  **재수출 경계는 "내가 공개라 여기는 것"이 아니라 "평면 시절 닿던 전부"**(테스트가 route 핸들러·
+  내부 헬퍼를 직접 부른다).
+- **이 부류 회귀는 씨앗 그물(make test)이 못 잡고 test-all(http)만 잡는다.** 분할 검증을 SUITE+e2e로만
+  하면 초록인데, `api.rag` 내부 심볼을 import하는 http 테스트(312·331~335)는 씨앗 그물 밖이라 조용히
+  깨진 채 남는다. **모듈 표면을 바꾸는 분할은 `make test-all`까지** 돌려야 임포터 계약을 실측한다
+  (mypy는 packages만 봐 tests의 `from api.rag import X`를 검사 안 함 — learning 382와 같은 사각).
 - **함수 사이 모듈 레벨 상수는 함수단위 블록 추출이 못 따라간다(rag.py 분할서 실증).** 슬라이스가
   함수 경계로만 자르면, 함수 *사이*에 낀 `_LOCKABLE_STATUSES = (...)` 같은 상수는 물리적으로
   직후에 오는 route 블록에 딸려가 엉뚱한 도메인 모듈로 오배치된다(그 상수를 쓰는 shared 헬퍼가
