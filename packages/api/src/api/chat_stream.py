@@ -12,7 +12,7 @@ from collections.abc import AsyncIterator
 
 from agent.runtime import AgentBuildContext, AgentConfigError
 
-from . import a2a_client, observability, runtime
+from . import a2a_client, memory, observability, runtime
 from .chat_context import ChatContext, _load_context
 from .chat_history import _window
 from .chat_persist import _mid_frame, _persist
@@ -136,13 +136,51 @@ async def _a2a_stream(ctx: ChatContext, user_text: str, user_id: str | None) -> 
     yield "event: done\ndata: [DONE]\n\n"
 
 
-async def stream_local_reply(agent_id: uuid.UUID, user_text: str) -> AsyncIterator[str]:
+async def _serve_memory_prompt(ctx: ChatContext, user_id: str | None, user_text: str) -> str:
+    """A2A 서빙 회상(스펙 387) — 켜져 있으면 프롬프트에 "# 관련 기억" 부착(메인 chat 경로 미러).
+
+    user 축만(서빙은 무상태라 세션 축 없음). 실패는 memory.search가 흡수([] — 회상 없이 진행)."""
+    if not (user_id and memory.memory_enabled(ctx.memories) and ctx.mem_cfg):
+        return ctx.prompt
+    import asyncio as _asyncio
+
+    mem_hits = await _asyncio.to_thread(memory.search, {"user_id": user_id}, user_text, ctx.mem_cfg)
+    if not mem_hits:
+        return ctx.prompt
+    recalled = memory.format_memory_hits(mem_hits)
+    return f"{ctx.prompt}\n\n# 관련 기억(회상됨)\n{recalled}"
+
+
+async def _serve_memory_add(
+    ctx: ChatContext, user_id: str | None, user_text: str, reply: str
+) -> None:
+    """A2A 서빙 자동 기억 저장(스펙 387) — 메인 chat의 _bg_memory_add와 같은 입력(유저+어시스턴트 턴).
+
+    스트림 종료 후 인라인(마지막 청크는 이미 전달됨). 클라이언트가 중간 이탈하면 GeneratorExit로
+    저장이 생략될 수 있다(정직한 v1 경계 — 메인 경로의 detached task 보장은 후속)."""
+    if not (user_id and memory.memory_enabled(ctx.memories) and ctx.mem_cfg and reply):
+        return
+    import asyncio as _asyncio
+
+    await _asyncio.to_thread(
+        memory.add,
+        {"user_id": user_id},
+        [{"role": "user", "content": user_text}, {"role": "assistant", "content": reply}],
+        ctx.mem_cfg,
+    )
+
+
+async def stream_local_reply(
+    agent_id: uuid.UUID, user_text: str, user_id: str | None = None
+) -> AsyncIterator[str]:
     """로컬(ui) 에이전트를 **A2A 서빙용**으로 실행 — 텍스트 청크만 yield(스펙 061).
 
     a2a_server가 노출된 로컬 에이전트의 JSON-RPC 호출을 받아 실 LangGraph 런타임을 돌릴 때 쓴다.
     기존 chat() 경로는 건드리지 않는다(핵심 채팅 무회귀) — _load_context·build_agent·astream만 재사용.
-    v1 단순화(스펙 061 §6, 범위 밖): persist·HIL 승인 게이트·자동 memory-add·세션 영속 미적용
-    (노출 런타임=순수 컴퓨트; 영속은 호출측 _a2a_stream이 자기 external 세션에 한다). 위험 도구는
+    v1 단순화(스펙 061 §6): persist·HIL 승인 게이트·세션 영속 미적용(영속은 호출측 _a2a_stream이
+    자기 external 세션에 한다). **기억은 스펙 387로 개방**: user_id(A2A metadata.userId, 머신 위임)가
+    있고 에이전트에 장기 기억(mem0)이 설정돼 있으면 user 축 회상+자동 저장이 동작한다(세션 축은
+    없음 — 서빙은 무상태라 run_id 부재, 호출자 유저 단위로만 잇는다). 위험 도구는
     checkpointer=None이라 fail-closed(승인 게이트가 노출 경로엔 없음 — interrupt가 예외로 떨어짐).
     code/external 소스·모델 미해석이면 ValueError(로컬 그래프 아님 → 라우터가 4xx).
     """
@@ -179,9 +217,10 @@ async def stream_local_reply(agent_id: uuid.UUID, user_text: str) -> AsyncIterat
             "A2A 서빙 노드가 에이전트-호출 도구(agent__…)를 참조하나 서빙 경로는 위임 미지원(principal 부재) — 그 도구는 미바인딩됩니다 (agent %s)",
             agent_id,
         )
+    serve_prompt = await _serve_memory_prompt(ctx, user_id, user_text)  # 회상(스펙 387)
     run_params = {} if ctx.temperature is None else {"temperature": ctx.temperature}
     build_ctx = AgentBuildContext(
-        prompt=ctx.prompt,
+        prompt=serve_prompt,
         model_cfg=ctx.model_cfg,
         tools=tools,
         checkpointer=None,
@@ -206,6 +245,7 @@ async def stream_local_reply(agent_id: uuid.UUID, user_text: str) -> AsyncIterat
     messages = _window([{"role": "user", "content": user_text}], ctx.history_depth)
     # 관측(스펙 118) — checkpointer=None이라 thread_id 불요, 콜백만 병합(미설정=무동작).
     _cfg = observability.with_trace(None, name="a2a-serve-local")
+    acc: list[str] = []  # 자동 기억 저장용 어시스턴트 응답 누적(스펙 387)
     async for msg_chunk, _meta in graph.astream(
         {"messages": messages}, config=_cfg, stream_mode="messages"
     ):
@@ -215,4 +255,6 @@ async def stream_local_reply(agent_id: uuid.UUID, user_text: str) -> AsyncIterat
         # content-block 리스트 → str 정규화(본문 sink와 동일, 092 codex P1).
         text = runtime._content_text(getattr(msg_chunk, "content", ""))
         if text:
+            acc.append(text)
             yield text
+    await _serve_memory_add(ctx, user_id, user_text, "".join(acc))  # 자동 저장(스펙 387)

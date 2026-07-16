@@ -95,8 +95,10 @@ class ChatFormSubmission(BaseModel):
 class ChatRequest(BaseModel):
     messages: list[ChatMessage]
     sessionId: str | None = None  # 이어서 대화할 세션(없으면 새로 생성)
-    # mem0 user_id 축은 더는 클라이언트가 보내지 않는다(스펙 032). chat 핸들러가 인증 주체
-    # (current_principal)에서 도출한다: 쿠키 유저면 str(user.id)(UUID), 머신 토큰이면 None(세션 단기).
+    # mem0 user 축 정체성(스펙 032→387): 쿠키 유저는 인증 주체에서 도출(임의 지정 금지 — 422).
+    # **머신 토큰 호출만** userId 지정 가능(owner 전권의 위임 — 외부 시스템이 자기 유저를 대신).
+    # 판정은 auth.resolve_memory_user_id 단일 관문. 미지정 시 기존 동작(쿠키=자기 id, 머신=세션 축만).
+    userId: str | None = Field(default=None, max_length=80)  # 세션 컬럼 String(80) 정렬
     # Playground "Proxy" 세션 한정 오버라이드(스펙 025). **web 에이전트에만** 적용, 화이트리스트
     # 키만 의미(model/temperature/systemPrompt/mcps/memories/historyDepth). 저장된 에이전트는 불변.
     # 코드 에이전트는 원격 실행이라 무시(bypass).

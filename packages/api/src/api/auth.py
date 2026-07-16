@@ -82,3 +82,30 @@ def _make_current_principal() -> Callable[..., Awaitable[User | str]]:
 
 
 current_principal = _make_current_principal()
+
+
+def resolve_memory_user_id(principal: "User | str", requested: str | None) -> str | None:
+    """mem0 user 축 정체성 결정(스펙 387) — 모든 입구(chat body·A2A metadata)가 이 단일 관문을 지난다.
+
+    - requested 없음: 쿠키 유저=자기 id, 머신 토큰=None(세션 축만 — 기존 동작 보존).
+    - requested 있음: **머신 토큰만 수용**(owner 전권의 위임 호출 — 외부 시스템이 자기 유저를 대신).
+      쿠키 유저가 보내면 422 — 자기 정체성 위조 금지(스펙 032의 보안 목적 보존). 조용한 무시가 아니라
+      명시 거부(스펙 383 결 — 안 읽는 소스로 온 정체성이 조용히 다른 값으로 떨어지면 안 된다).
+    - 위생: strip 후 빈값=미지정. NUL(0x00)은 pg text 불가라 422. 200자 캡(payload 위생).
+    """
+    if requested is not None:
+        requested = requested.strip()
+    if not requested:
+        return None if isinstance(principal, str) else str(principal.id)
+    if not isinstance(principal, str):
+        raise HTTPException(
+            status_code=422,
+            detail="userId는 머신 토큰 호출에서만 지정할 수 있습니다 — 로그인 사용자는 본인 정체성으로 기억합니다.",
+        )
+    # 캡 80 = 세션/승인 영속 컬럼 String(80)과 정렬(codex 387 P2 — 관문 수용치가 저장 경계를 넘으면
+    # commit에서 늦게 터진다. 수용치는 가장 좁은 하류 경계에 맞춘다).
+    if "\x00" in requested or len(requested) > 80:
+        raise HTTPException(
+            status_code=422, detail="userId 형식 오류 — 80자 이하의 일반 문자열이어야 합니다."
+        )
+    return requested

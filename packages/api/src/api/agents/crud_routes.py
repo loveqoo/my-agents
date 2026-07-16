@@ -10,6 +10,7 @@ from sqlalchemy.orm import selectinload
 
 from ..auth import current_principal
 from ..block_versions import freeze_pins
+from ..blocks import assert_memory_names_exist
 from ..chat import derive_pipeline_pool
 from ..db import get_or_404, get_session
 from ..models import Agent, AgentVersion, User
@@ -245,6 +246,8 @@ async def create_agent(
     # 노드 참조 존재 검증(스펙 316, codex P1) — impl 무관(비노드형 저장도 실행 시 422 시한폭탄 금지).
     # 참조 이름 advisory lock으로 삭제 가드와 직렬화(TOCTOU — 검증 후 커밋 전 삭제 봉인).
     await assert_node_refs_exist(session, cfg.get("nodes"))
+    # 기억 이름 존재 검증(스펙 387) — 노드 참조와 같은 규칙(dangling name의 조용한 무동작 차단).
+    await assert_memory_names_exist(session, cfg)
     await derive_pipeline_pool(
         cfg
     )  # 노드형 풀=노드 합집합 서버 파생(스펙 289 P2 — 폼 밖 입구도 안전)
@@ -365,6 +368,8 @@ async def update_agent(
     _preserve_impl(body, agent, draft, cfg)
     # 노드 참조 존재 검증(스펙 316, codex P1) — impl 무관 + 이름 잠금(삭제 가드와 직렬화).
     await assert_node_refs_exist(session, cfg.get("nodes"))
+    # 기억 이름 존재 검증(스펙 387) — 노드 참조와 같은 규칙(dangling name의 조용한 무동작 차단).
+    await assert_memory_names_exist(session, cfg)
     # 노드형 풀=노드 합집합 서버 파생(스펙 289 P2) — impl 보존 **뒤**에 호출(미명시 impl이 pipeline로
     # 확정된 뒤라야 파생 게이트가 맞는다).
     await derive_pipeline_pool(cfg)

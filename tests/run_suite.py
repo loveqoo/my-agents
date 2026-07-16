@@ -73,6 +73,7 @@ KNOWN_DRIFT: dict[str, str] = {
     "verify_244_version_ops.py": "노후: 버전 ops eval 집계 드리프트(runs/score None, baseline 동일)",
     "verify_318_node_agent_call.py": "노후/전제: virgin DB에서도 실패(스펙385 실측). brokerCalls 단언이 시드 외 전제(실 principal 등)를 요구",
     "verify_369_block_versioning.py": "환경: http 상태 오염 취약(단독 통과, test-all 순서서 실패)",
+    "verify_158_recall_diag.py": "환경: mock 임베더 전제(기본 threshold서 회상 0=옛 증상 재현 단언)가 실모델 기본값(스펙 389 복원)에선 진짜 유사도로 3건 회상돼 깨짐 — mock cfg 고정으로 재작성 후보",
     "verify_068_live.py": "인프라: D6 member resume가 'connection is closed'로 500(baseline 동일·사전존재, ctx dict→DTO는 봉합). 별도 조사(asyncpg 커넥션 수명)",
     # --- http 층 triage(2026-07-16 스펙 384). 전부 테스트 쪽(앱 결함 아님) — 공유 라이브 DB 격리
     #     하네스(백로그 대형)가 근본 해결. baseline(2fbd224) 동일 실패=사전존재. 개별 전제 추격은

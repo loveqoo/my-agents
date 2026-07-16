@@ -27,7 +27,7 @@ from agent.runtime import is_first_party, is_remote_source
 
 from . import a2a_client, broker, chat, net_guard
 from .a2a_wire import a2a_error, a2a_result, a2a_status_event, a2a_user_text
-from .auth import current_principal
+from .auth import current_principal, resolve_memory_user_id
 from .db import SessionLocal
 from .models import Agent, McpServer, User
 
@@ -304,6 +304,19 @@ async def exposed_agent_a2a(
     method = body.get("method")
     params = body.get("params") or {}
     user_text = a2a_user_text(params)
+    # 유저 정체성(스펙 387) — A2A 표준 message.metadata.userId 수용. 판정은 chat과 같은 단일 관문
+    # (머신 토큰만 지정 가능, 쿠키 유저 지정=거부). JSON-RPC 맥락이라 HTTPException을 -32602로 접는다.
+    _msg = params.get("message")
+    _meta = _msg.get("metadata") if isinstance(_msg, dict) else None
+    _req_uid = (
+        _meta.get("userId") if isinstance(_meta, dict) else None
+    )  # 비-dict metadata=무시(500 금지)
+    try:
+        mem_user_id = resolve_memory_user_id(
+            _principal, _req_uid if isinstance(_req_uid, str) else None
+        )
+    except HTTPException as e:
+        return a2a_error(rpc_id, -32602, str(e.detail))
 
     # 노출 집합{ui,code} 안에서 원격(code=SDK 배포)만 릴레이·로컬(ui)은 직접 — remote 축 재사용(스펙 183).
     if is_remote_source(agent.source):
@@ -315,7 +328,7 @@ async def exposed_agent_a2a(
             )
         chunk_source = _relay_chunks(agent, user_text)
     else:
-        chunk_source = chat.stream_local_reply(agent.id, user_text)
+        chunk_source = chat.stream_local_reply(agent.id, user_text, user_id=mem_user_id)
 
     if method == "message/send":
         try:

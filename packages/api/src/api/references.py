@@ -27,7 +27,7 @@ from .models import Agent
 # config에서 name을 담는 필드(닫힌 집합). 삭제 자원별 field 매핑은 호출측이 고정.
 # prompt는 스칼라(config["prompt"] == name), 나머지는 name 배열(codex 148 High — 프롬프트
 # rename/삭제도 참조를 깨므로 같은 가드 아래 둔다).
-_FIELDS = ("mcps", "vectorTables", "prompt")
+_FIELDS = ("mcps", "vectorTables", "prompt", "memories")
 
 # 배열 필드 외에 조율형 capabilities(`{kind}:{name}` 또는 `{kind}:{name}/{tool}`)로도 참조된다
 # (codex 148 Medium — mcps가 비고 capabilities만 있는 조율형이 가드를 우회하던 구멍).
@@ -53,6 +53,14 @@ def _config_has(config: object, field: str, name: str) -> bool:
     prompt=스칼라 비교, mcps/vectorTables는 배열 + capabilities(`kind:name[/tool]`)도 본다(스펙 148)."""
     if field == "prompt":
         return isinstance(config, dict) and config.get("prompt") == name
+    if field == "memories" and isinstance(config, dict):
+        # 기억은 에이전트 레벨 + 노드 레벨(스펙 268) 양쪽에서 참조된다 — 둘 다 본다(스펙 387).
+        if name in config_names(config, "memories"):
+            return True
+        return any(
+            isinstance(n, dict) and name in config_names(n, "memories")
+            for n in (config.get("nodes") or [])
+        )
     if name in config_names(config, field):
         return True
     kind = _CAP_KIND.get(field)

@@ -31,7 +31,7 @@ from .mcp_tool_meta import (
 from .models import Agent, BlockVersion, Collection, McpServer, MemoryType, Prompt, User
 from .naming import assert_valid_name
 from .ownership import assert_may_manage, may_manage, may_use_agent, owner_of
-from .references import _config_has, agents_referencing, referenced_message
+from .references import _config_has, agents_referencing, config_names, referenced_message
 from .schemas import (
     BlockVersionOut,
     McpDiscoverIn,
@@ -264,9 +264,37 @@ async def update_memory_type(
 @router.delete("/memory-types/{id}", status_code=204)
 async def delete_memory_type(id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> None:
     obj = await get_or_404(session, MemoryType, id)
+    # 참조 가드(스펙 387) — 참조 에이전트가 있으면 409. 없던 가드라 삭제 시 참조 에이전트의 기억이
+    # 조용히 꺼졌다(dangling name은 런타임이 무시 — "설정했는데 무동작"). prompt 삭제 가드와 동형.
+    refs = await agents_referencing(session, "memories", obj.name)
+    if refs:
+        raise HTTPException(status_code=409, detail=referenced_message(refs, "기억"))
     await delete_block_history(session, "memory-type", obj.id)  # 스펙 369
     await session.delete(obj)
     await session.commit()
+
+
+async def assert_memory_names_exist(session: AsyncSession, cfg: dict) -> None:
+    """에이전트 저장 시 memories 이름 존재 검증(스펙 387) — assert_node_refs_exist(316)와 같은 규칙.
+
+    에이전트 레벨 + 노드 레벨(스펙 268) memories의 각 이름이 등록된 기억 블록에 있어야 저장된다.
+    없는 이름이 config에 남으면 런타임이 조용히 무시해 기억이 소리 없이 꺼진다("설정했는데 무동작"
+    — 죽은 '단기(세션)' 옵션과 같은 부류). 저장 시점 422로 이른 실패."""
+    names = set(config_names(cfg, "memories"))
+    for node in cfg.get("nodes") or []:
+        if isinstance(node, dict):
+            names |= set(config_names(node, "memories"))
+    if not names:
+        return
+    rows = set(
+        (await session.execute(select(MemoryType.name).where(MemoryType.name.in_(names)))).scalars()
+    )
+    missing = sorted(names - rows)
+    if missing:
+        raise HTTPException(
+            status_code=422,
+            detail=f"존재하지 않는 기억: {', '.join(missing[:5])} — 등록된 기억 블록만 선택할 수 있습니다.",
+        )
 
 
 # 벡터 테이블 CRUD는 RAG 컬렉션(스펙 036)으로 대체 — rag.py(`/collections`)가 담당.

@@ -55,7 +55,7 @@ from . import (  # noqa: F401
     runtime,
     trace_capture,
 )
-from .auth import current_principal
+from .auth import current_principal, resolve_memory_user_id
 from .broker import PolicyScopedBroker, build_broker  # noqa: F401
 from .chat_approval import (  # noqa: F401
     _PENDING_ARTIFACT,
@@ -1123,8 +1123,9 @@ async def chat(
     user_text = body.messages[-1].content if body.messages else ""
 
     # mem0 user_id 축 = 인증 주체에서 도출(스펙 032). 쿠키 유저면 안정 UUID(str(user.id)),
-    # 머신 토큰("machine" 센티넬)이면 None → 세션 단기 폴백(기존 "빈 userId" 동작과 동일, 무회귀).
-    user_id = None if isinstance(principal, str) else str(principal.id)
+    # mem0 user 축 정체성(스펙 387) — 단일 관문: 머신 토큰만 body.userId 수용(위임 호출),
+    # 쿠키 유저가 보내면 422(032 보안 보존). 미지정 시 기존 동작(쿠키=자기 id, 머신=세션 축만).
+    user_id = resolve_memory_user_id(principal, body.userId)
 
     # 코드(SDK)·외부(A2A) 에이전트 모두 비로컬 — 등록된 카드 url로 A2A 런타임 호출(스펙 057: A2A 단일화).
     # code=우리가 SDK로 배포한 A2A(provenance 메타 보유), external=제3자 A2A. 전송은 _a2a_stream 하나.
