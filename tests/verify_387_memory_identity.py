@@ -240,14 +240,43 @@ async def main() -> int:
                 f"status={r.status_code} {r.text[:120]}",
             )
 
-            # ---- I5(②b): 참조 중 memory-type 삭제 → 409 (픽스처가 '장기 기억 (mem0)' 참조 중)
+            # ---- I5(②b→봉인): 기억 블록은 시스템 정의 — 삭제 403(생성 불가와 대칭, 참조 무관).
             mts = (await c.get("/memory-types")).json()
             mt = next(x for x in mts if x["name"] == "장기 기억 (mem0)")
             r = await c.delete(f"/memory-types/{mt['id']}")
             check(
-                "I5 참조 중 기억 블록 삭제 → 409",
-                r.status_code == 409,
+                "I5 기억 블록 삭제 → 403(시스템 정의 봉인)",
+                r.status_code == 403,
                 f"status={r.status_code} {r.text[:120]}",
+            )
+            # ---- I6(봉인): 생성 403 · 개명 403 · 설명 수정은 200(문구 정정 경로 보존).
+            r = await c.post(
+                "/memory-types", json={"key": "x387", "name": "x387", "scope": "s", "body": "b"}
+            )
+            check("I6a 기억 블록 생성 → 403", r.status_code == 403, f"status={r.status_code}")
+            r = await c.put(
+                f"/memory-types/{mt['id']}",
+                json={
+                    "key": mt["key"],
+                    "name": "개명시도",
+                    "scope": mt["scope"],
+                    "body": mt["body"],
+                },
+            )
+            check("I6b 기억 블록 개명 → 403", r.status_code == 403, f"status={r.status_code}")
+            r = await c.put(
+                f"/memory-types/{mt['id']}",
+                json={
+                    "key": mt["key"],
+                    "name": mt["name"],
+                    "scope": mt["scope"],
+                    "body": mt["body"],
+                },
+            )
+            check(
+                "I6c 설명 수정(무개명) → 200",
+                r.status_code == 200,
+                f"status={r.status_code} {r.text[:100]}",
             )
         finally:
             app.dependency_overrides.pop(current_principal, None)

@@ -234,13 +234,13 @@ async def list_memory_types(session: AsyncSession = Depends(get_session)) -> Any
 async def create_memory_type(
     body: MemoryTypeIn, session: AsyncSession = Depends(get_session)
 ) -> Any:
-    obj = MemoryType(**body.model_dump())
-    session.add(obj)
-    await _commit_or_409(session, "같은 key의 메모리 타입이 이미 있습니다.")
-    await session.refresh(obj)
-    await record_block_version(session, "memory-type", obj)  # v1 이력(스펙 369)
-    await session.commit()
-    return obj
+    # 시스템 정의 봉인(스펙 387 후속, 구남님 결정) — 실동작 기억 기능은 '장기 기억 (mem0)' 하나뿐이라
+    # 새 블록은 "골라도 무동작"인 죽은 옵션이 된다(단기(세션) 재발 방지). UI는 이미 읽기 전용(스펙 016)
+    # 이었고, 이 백엔드 라우트가 남은 구멍이었다. 새 기억 메커니즘이 생기면 그 스펙이 이 봉인을 푼다.
+    raise HTTPException(
+        status_code=403,
+        detail="기억 블록은 시스템 정의라 생성할 수 없습니다 — 실동작 기억 기능은 '장기 기억 (mem0)' 하나입니다.",
+    )
 
 
 @router.get("/memory-types/{id}", response_model=MemoryTypeOut)
@@ -253,6 +253,13 @@ async def update_memory_type(
     id: uuid.UUID, body: MemoryTypeIn, session: AsyncSession = Depends(get_session)
 ) -> Any:
     obj = await get_or_404(session, MemoryType, id)
+    # 이름/키 봉인(스펙 387 후속) — 런타임(memory_enabled)·에이전트 config가 **이름 문자열**로 판정하므로
+    # 개명하면 참조가 조용히 끊겨 기억이 꺼진다. 설명(scope·body) 수정만 허용(문구 정정 경로 보존).
+    if body.name != obj.name or body.key != obj.key:
+        raise HTTPException(
+            status_code=403,
+            detail="기억 블록의 이름·키는 시스템 정의라 바꿀 수 없습니다 — 설명(scope·body)만 수정할 수 있습니다.",
+        )
     for key, value in body.model_dump().items():
         setattr(obj, key, value)
     await record_block_version(session, "memory-type", obj)  # 스펙 369 관문
@@ -263,15 +270,10 @@ async def update_memory_type(
 
 @router.delete("/memory-types/{id}", status_code=204)
 async def delete_memory_type(id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> None:
-    obj = await get_or_404(session, MemoryType, id)
-    # 참조 가드(스펙 387) — 참조 에이전트가 있으면 409. 없던 가드라 삭제 시 참조 에이전트의 기억이
-    # 조용히 꺼졌다(dangling name은 런타임이 무시 — "설정했는데 무동작"). prompt 삭제 가드와 동형.
-    refs = await agents_referencing(session, "memories", obj.name)
-    if refs:
-        raise HTTPException(status_code=409, detail=referenced_message(refs, "기억"))
-    await delete_block_history(session, "memory-type", obj.id)  # 스펙 369
-    await session.delete(obj)
-    await session.commit()
+    # 시스템 정의 봉인(스펙 387 후속) — 생성이 막혀 있어 지우면 복구 불능(대칭). 참조 가드(387)는
+    # 이 봉인이 대체한다(참조 여부와 무관하게 삭제 불가).
+    await get_or_404(session, MemoryType, id)
+    raise HTTPException(status_code=403, detail="기억 블록은 시스템 정의라 삭제할 수 없습니다.")
 
 
 async def assert_memory_names_exist(session: AsyncSession, cfg: dict) -> None:

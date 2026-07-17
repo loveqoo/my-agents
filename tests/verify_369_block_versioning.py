@@ -49,9 +49,7 @@ def main() -> None:
 
     try:
         # ── C1: prompt — 생성 v1 → 편집 v2 → 재편집 v3, v1/v2 payload 불변 ──────────
-        p = cli.post(
-            "/prompts", json={"name": f"v369-p-{tag}", "tone": "t1", "body": "b1"}
-        ).json()
+        p = cli.post("/prompts", json={"name": f"v369-p-{tag}", "tone": "t1", "body": "b1"}).json()
         created.append(("/prompts", p["id"]))
         check(p.get("version") == 1, f"C1 prompt 생성 = v1 (got {p.get('version')})")
         h1 = hist(cli, "prompt", p["id"])
@@ -67,79 +65,145 @@ def main() -> None:
         ).json()
         check(p3.get("version") == 3, f"C1 prompt 재편집 → v3 (got {p3.get('version')})")
         h3 = hist(cli, "prompt", p["id"])
-        check([h["version"] for h in h3] == [3, 2, 1], f"C1 이력 3행 최신순 (got {[h['version'] for h in h3]})")
+        check(
+            [h["version"] for h in h3] == [3, 2, 1],
+            f"C1 이력 3행 최신순 (got {[h['version'] for h in h3]})",
+        )
         v1_payload_after = json.dumps(
             cli.get(f"/block-versions/prompt/{p['id']}/1").json()["payload"], sort_keys=True
         )
-        check(v1_payload_before == v1_payload_after, "C1 v1 payload 불변(편집 2회 후에도 바이트 동일)")
-        check(h3[0]["payload"]["body"] == "b2" and h3[0]["payload"]["tone"] == "t2", "C1 v3 payload=최신 내용")
+        check(
+            v1_payload_before == v1_payload_after, "C1 v1 payload 불변(편집 2회 후에도 바이트 동일)"
+        )
+        check(
+            h3[0]["payload"]["body"] == "b2" and h3[0]["payload"]["tone"] == "t2",
+            "C1 v3 payload=최신 내용",
+        )
 
         # 무변경 저장 = 버전 무증가
         p_same = cli.put(
             f"/prompts/{p['id']}", json={"name": f"v369-p-{tag}", "tone": "t2", "body": "b2"}
         ).json()
-        check(p_same.get("version") == 3, f"C1 무변경 저장 → 버전 무증가 (got {p_same.get('version')})")
+        check(
+            p_same.get("version") == 3,
+            f"C1 무변경 저장 → 버전 무증가 (got {p_same.get('version')})",
+        )
 
         # ── C1 나머지 4종: 편집 1회 → v2 ─────────────────────────────────────────
-        mt = cli.post(
+        # memory-type은 스펙 387 후속으로 시스템 정의 봉인(생성 403) — 버전 관문 자체는 설명(body)
+        # 수정 경로에 여전히 걸린다(record_block_version 유지). 여기선 봉인 계약만 확인.
+        r_mt = cli.post(
             "/memory-types",
             json={"key": f"v369_mt_{tag}", "name": "타입", "scope": "agent", "body": "m1"},
-        ).json()
-        created.append(("/memory-types", mt["id"]))
-        mt2 = cli.put(
-            f"/memory-types/{mt['id']}",
-            json={"key": f"v369_mt_{tag}", "name": "타입", "scope": "agent", "body": "m2"},
-        ).json()
-        check(mt2.get("version") == 2, f"C1 memory-type 편집 → v2 (got {mt2.get('version')})")
+        )
+        check(r_mt.status_code == 403, f"C1 memory-type 생성 → 403 봉인 (got {r_mt.status_code})")
 
         mc = cli.post(
             "/mcp-servers",
-            json={"name": f"v369-mcp-{tag}", "source": "local", "transport": "stdio", "tools": ["a"], "enabled_tools": ["a"]},
+            json={
+                "name": f"v369-mcp-{tag}",
+                "source": "local",
+                "transport": "stdio",
+                "tools": ["a"],
+                "enabled_tools": ["a"],
+            },
         ).json()
         created.append(("/mcp-servers", mc["id"]))
         mc_body = {k: mc[k] for k in ("name", "source", "transport", "tools")}
         mc2 = cli.put(
-            f"/mcp-servers/{mc['id']}", json={**mc_body, "tools": ["a", "b"], "enabled_tools": ["a", "b"]}
+            f"/mcp-servers/{mc['id']}",
+            json={**mc_body, "tools": ["a", "b"], "enabled_tools": ["a", "b"]},
         ).json()
         check(mc2.get("version") == 2, f"C1 mcp-server 편집 → v2 (got {mc2.get('version')})")
 
         prov = cli.post(
             "/providers",
-            json={"name": f"v369-prov-{tag}", "protocol": "openai-compatible", "base_url": "http://x/v1", "api_key": "k1"},
+            json={
+                "name": f"v369-prov-{tag}",
+                "protocol": "openai-compatible",
+                "base_url": "http://x/v1",
+                "api_key": "k1",
+            },
         ).json()
         created.append(("/providers", prov["id"]))
         pv2 = cli.put(
             f"/providers/{prov['id']}",
-            json={"name": f"v369-prov-{tag}", "protocol": "openai-compatible", "base_url": "http://y/v1", "api_key": None},
+            json={
+                "name": f"v369-prov-{tag}",
+                "protocol": "openai-compatible",
+                "base_url": "http://y/v1",
+                "api_key": None,
+            },
         ).json()
-        check(pv2.get("version") == 2, f"C1 provider 편집(base_url) → v2 (got {pv2.get('version')})")
+        check(
+            pv2.get("version") == 2, f"C1 provider 편집(base_url) → v2 (got {pv2.get('version')})"
+        )
 
         mo = cli.post(
             "/models",
-            json={"name": f"v369-m-{tag}", "provider_id": prov["id"], "model_id": "m1", "kind": "chat", "is_default": False, "params": {}},
+            json={
+                "name": f"v369-m-{tag}",
+                "provider_id": prov["id"],
+                "model_id": "m1",
+                "kind": "chat",
+                "is_default": False,
+                "params": {},
+            },
         ).json()
         created.append(("/models", mo["id"]))
         mo2 = cli.put(
             f"/models/{mo['id']}",
-            json={"name": f"v369-m-{tag}", "provider_id": prov["id"], "model_id": "m2", "kind": "chat", "is_default": False, "params": {}},
+            json={
+                "name": f"v369-m-{tag}",
+                "provider_id": prov["id"],
+                "model_id": "m2",
+                "kind": "chat",
+                "is_default": False,
+                "params": {},
+            },
         ).json()
         check(mo2.get("version") == 2, f"C1 model 편집(model_id) → v2 (got {mo2.get('version')})")
 
         # ── C4: 운영-only 변경 = 버전 무증가 ─────────────────────────────────────
         pv3 = cli.put(
             f"/providers/{prov['id']}",
-            json={"name": f"v369-prov-{tag}", "protocol": "openai-compatible", "base_url": "http://y/v1", "api_key": "rotated-key"},
+            json={
+                "name": f"v369-prov-{tag}",
+                "protocol": "openai-compatible",
+                "base_url": "http://y/v1",
+                "api_key": "rotated-key",
+            },
         ).json()
-        check(pv3.get("version") == 2, f"C4 provider 키 로테이션만 → 버전 무증가 (got {pv3.get('version')})")
+        check(
+            pv3.get("version") == 2,
+            f"C4 provider 키 로테이션만 → 버전 무증가 (got {pv3.get('version')})",
+        )
         mo3 = cli.put(
             f"/models/{mo['id']}",
-            json={"name": f"v369-m-{tag}", "provider_id": prov["id"], "model_id": "m2", "kind": "chat", "is_default": True, "params": {}},
+            json={
+                "name": f"v369-m-{tag}",
+                "provider_id": prov["id"],
+                "model_id": "m2",
+                "kind": "chat",
+                "is_default": True,
+                "params": {},
+            },
         ).json()
-        check(mo3.get("version") == 2, f"C4 model is_default만 → 버전 무증가 (got {mo3.get('version')})")
+        check(
+            mo3.get("version") == 2,
+            f"C4 model is_default만 → 버전 무증가 (got {mo3.get('version')})",
+        )
         # is_default 원복(시드 기본 모델 보존)
         cli.put(
             f"/models/{mo['id']}",
-            json={"name": f"v369-m-{tag}", "provider_id": prov["id"], "model_id": "m2", "kind": "chat", "is_default": False, "params": {}},
+            json={
+                "name": f"v369-m-{tag}",
+                "provider_id": prov["id"],
+                "model_id": "m2",
+                "kind": "chat",
+                "is_default": False,
+                "params": {},
+            },
         )
         seed_default = cli.get("/models").json()
         mock = next((m for m in seed_default if m["name"] == "mock-llm"), None)
@@ -149,6 +213,7 @@ def main() -> None:
         # ── C3: 동시 PUT 8발 레이스 ─────────────────────────────────────────────
         async def race() -> list[int]:
             async with httpx.AsyncClient(base_url=BASE, timeout=60.0, cookies=cli.cookies) as ac:
+
                 async def one(i: int) -> int:
                     r = await ac.put(
                         f"/prompts/{p['id']}",
@@ -170,30 +235,41 @@ def main() -> None:
         # ── C2: 이관 불변식(이력 없는 블록 0) — DB 실측 ──────────────────────────
         eng = create_engine(DB)
         kinds = {
-            "prompt": "prompts", "memory-type": "memory_types",
-            "mcp-server": "mcp_servers", "model": "models", "provider": "providers",
+            "prompt": "prompts",
+            "memory-type": "memory_types",
+            "mcp-server": "mcp_servers",
+            "model": "models",
+            "provider": "providers",
         }
         with eng.connect() as c:
             missing_total = 0
             orphans_total = 0
             for kind, table in kinds.items():
                 # 양방향(스펙 371 교정): 이력 없는 블록 0 **그리고** head 없는 고아 이력 0.
-                missing_total += c.execute(
-                    text(
-                        f"select count(*) from {table} h where not exists "
-                        "(select 1 from block_versions bv where bv.kind=:k and bv.block_pk=h.id)"
-                    ),
-                    {"k": kind},
-                ).scalar() or 0
-                orphans_total += c.execute(
-                    text(
-                        "select count(distinct bv.block_pk) from block_versions bv "
-                        f"where bv.kind=:k and not exists (select 1 from {table} h where h.id=bv.block_pk)"
-                    ),
-                    {"k": kind},
-                ).scalar() or 0
+                missing_total += (
+                    c.execute(
+                        text(
+                            f"select count(*) from {table} h where not exists "
+                            "(select 1 from block_versions bv where bv.kind=:k and bv.block_pk=h.id)"
+                        ),
+                        {"k": kind},
+                    ).scalar()
+                    or 0
+                )
+                orphans_total += (
+                    c.execute(
+                        text(
+                            "select count(distinct bv.block_pk) from block_versions bv "
+                            f"where bv.kind=:k and not exists (select 1 from {table} h where h.id=bv.block_pk)"
+                        ),
+                        {"k": kind},
+                    ).scalar()
+                    or 0
+                )
             check(missing_total == 0, f"C2 이력 없는 블록 0 (missing={missing_total})")
-            check(orphans_total == 0, f"C2b 고아 이력 0 (orphans={orphans_total}) — 부트 청소 후 기준")
+            check(
+                orphans_total == 0, f"C2b 고아 이력 0 (orphans={orphans_total}) — 부트 청소 후 기준"
+            )
     finally:
         # 정리 — 생성 역순(모델→프로바이더 FK)
         for path, oid in reversed(created):

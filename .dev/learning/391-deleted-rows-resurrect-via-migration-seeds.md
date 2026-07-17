@@ -24,5 +24,10 @@ virgin-DB 단언(C1) 고정.
 - **덤 관찰**: 리비전 파일 54개 중 ID 파싱 상 중복 의심 4건([[hand-authored-migration-ids-collide-silently]]
   재점검 후보 — 이번엔 head 단일·DB 일치 확인만 하고 미추적).
 
+- **추가 표본(같은 날 2회차)**: 행만이 아니라 **문구도 부활한다** — 장기 블록의 설명을 라이브
+  PUT으로 고쳤지만(387), 같은 마이그레이션 시드가 옛 문구를 INSERT해 초기화 후 화석이 되살아났다.
+  라이브 데이터 수정(행 삭제든 문구 갱신이든)은 전부 같은 질문을 통과해야 한다: "fresh DB에서도
+  이 상태인가?" — 아니면 마이그레이션 체인 끝에 실어라(40079d14052f·7218f9ea87d7).
+
 [deletion-must-cover-creation-paths, migration-data-seed-fix-via-new-revision,
 fresh-db-regression-needs-virgin-verifier, grep-alembic-for-dead-data]
