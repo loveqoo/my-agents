@@ -1,0 +1,15 @@
+#!/bin/sh
+# 커밋 게이트(2026-07-17) — "검증 전 커밋" 반복 실수를 장치로 차단(자가감사 갭의 훅 승격).
+# staged .py만 검사(빠름): ① 구문(ast) ② ruff check. 실패 시 커밋 거부.
+set -e
+files=$(git diff --cached --name-only --diff-filter=ACM | grep '\.py$' || true)
+[ -z "$files" ] && exit 0
+echo "$files" | while read -r f; do
+  [ -f "$f" ] || continue
+  uv run python -c "import ast,sys; ast.parse(open('$f').read())" || {
+    echo "pre-commit 거부: 구문 오류 — $f"; exit 1; }
+done
+# ruff는 staged 파일 일괄(스크립트·테스트 포함 — 소스 게이트와 동일 규칙)
+echo "$files" | tr '\n' '\0' | xargs -0 uvx ruff check || {
+  echo "pre-commit 거부: ruff 실패 — 고치고 다시 커밋하세요."; exit 1; }
+exit 0
