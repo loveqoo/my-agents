@@ -14,7 +14,7 @@ from agent.runtime import AgentBuildContext, AgentConfigError
 
 from . import a2a_client, memory, observability, runtime
 from .chat_context import ChatContext, _load_context
-from .chat_history import _window
+from .chat_history import _history_load_limit, _load_session_conversation, _window
 from .chat_persist import _mid_frame, _persist
 
 log = logging.getLogger("api.chat")
@@ -137,14 +137,17 @@ async def _a2a_stream(ctx: ChatContext, user_text: str, user_id: str | None) -> 
 
 
 async def _serve_memory_prompt(ctx: ChatContext, user_id: str | None, user_text: str) -> str:
-    """A2A 서빙 회상(스펙 387) — 켜져 있으면 프롬프트에 "# 관련 기억" 부착(메인 chat 경로 미러).
+    """A2A 서빙 회상(스펙 387→388 P1) — 켜져 있으면 프롬프트에 "# 관련 기억" 부착(메인 chat 미러).
 
-    user 축만(서빙은 무상태라 세션 축 없음). 실패는 memory.search가 흡수([] — 회상 없이 진행)."""
-    if not (user_id and memory.memory_enabled(ctx.memories) and ctx.mem_cfg):
+    스코프 = user 축(387, userId 위임) + run 축(388 P1 — 세션이 생겨 contextId 대화 단위) +
+    agent 축(스펙 029 미러). 실패는 memory.search가 흡수([] — 회상 없이 진행)."""
+    # 비영속(스펙 235) 전면 off — 메인 chat used_memory 게이트 미러.
+    if ctx.ephemeral or not (memory.memory_enabled(ctx.memories) and ctx.mem_cfg):
         return ctx.prompt
     import asyncio as _asyncio
 
-    mem_hits = await _asyncio.to_thread(memory.search, {"user_id": user_id}, user_text, ctx.mem_cfg)
+    recall_scope = {"user_id": user_id, "run_id": ctx.session_id, "agent_id": ctx.ext_agent_id}
+    mem_hits = await _asyncio.to_thread(memory.search, recall_scope, user_text, ctx.mem_cfg)
     if not mem_hits:
         return ctx.prompt
     recalled = memory.format_memory_hits(mem_hits)
@@ -154,40 +157,50 @@ async def _serve_memory_prompt(ctx: ChatContext, user_id: str | None, user_text:
 async def _serve_memory_add(
     ctx: ChatContext, user_id: str | None, user_text: str, reply: str
 ) -> None:
-    """A2A 서빙 자동 기억 저장(스펙 387) — 메인 chat의 _bg_memory_add와 같은 입력(유저+어시스턴트 턴).
+    """A2A 서빙 자동 기억 저장(스펙 387→388 P1) — 메인 chat의 _bg_memory_add와 같은 입력·스코프
+    (user+run 축, agent 축 미태깅 — 스펙 029/020 누출 차단 동일).
 
     스트림 종료 후 인라인(마지막 청크는 이미 전달됨). 클라이언트가 중간 이탈하면 GeneratorExit로
-    저장이 생략될 수 있다(정직한 v1 경계 — 메인 경로의 detached task 보장은 후속)."""
-    if not (user_id and memory.memory_enabled(ctx.memories) and ctx.mem_cfg and reply):
+    저장이 생략될 수 있다(정직한 경계 — 메인 경로의 detached task 보장은 후속)."""
+    # 비영속(스펙 235) 전면 off — 메인 chat used_memory 게이트 미러.
+    if ctx.ephemeral or not (memory.memory_enabled(ctx.memories) and ctx.mem_cfg and reply):
         return
     import asyncio as _asyncio
 
     await _asyncio.to_thread(
         memory.add,
-        {"user_id": user_id},
+        {"user_id": user_id, "run_id": ctx.session_id},
         [{"role": "user", "content": user_text}, {"role": "assistant", "content": reply}],
         ctx.mem_cfg,
     )
 
 
 async def stream_local_reply(
-    agent_id: uuid.UUID, user_text: str, user_id: str | None = None
-) -> AsyncIterator[str]:
-    """로컬(ui) 에이전트를 **A2A 서빙용**으로 실행 — 텍스트 청크만 yield(스펙 061).
+    agent_id: uuid.UUID,
+    user_text: str,
+    user_id: str | None = None,
+    context_id: str | None = None,
+) -> tuple[str, AsyncIterator[str]]:
+    """로컬(ui) 에이전트를 **A2A 서빙용**으로 실행 — 반환 (context_id, 텍스트 청크 스트림).
 
     a2a_server가 노출된 로컬 에이전트의 JSON-RPC 호출을 받아 실 LangGraph 런타임을 돌릴 때 쓴다.
-    기존 chat() 경로는 건드리지 않는다(핵심 채팅 무회귀) — _load_context·build_agent·astream만 재사용.
-    v1 단순화(스펙 061 §6): persist·HIL 승인 게이트·세션 영속 미적용(영속은 호출측 _a2a_stream이
-    자기 external 세션에 한다). **기억은 스펙 387로 개방**: user_id(A2A metadata.userId, 머신 위임)가
-    있고 에이전트에 장기 기억(mem0)이 설정돼 있으면 user 축 회상+자동 저장이 동작한다(세션 축은
-    없음 — 서빙은 무상태라 run_id 부재, 호출자 유저 단위로만 잇는다). 위험 도구는
-    checkpointer=None이라 fail-closed(승인 게이트가 노출 경로엔 없음 — interrupt가 예외로 떨어짐).
+    기존 chat() 경로는 건드리지 않는다(핵심 채팅 무회귀) — _load_context·대화 재구성(chat_history)·
+    영속(_persist)을 재사용한다.
+
+    스펙 388 P1 — **contextId 세션 연속성**: contextId(=우리 session_id, 서버 발급·클라 에코)를
+    세션으로 해석해 멀티턴을 잇는다. 소유권은 068 그대로 — own=user_id 바인딩(요청 userId가 있으면
+    그 유저 소유 세션만 재개, 불일치=새 세션 발급으로 접음·오라클 0). 대화는 세션·메시지로 영속
+    (channel="a2a", 관리자 세션 화면 가시 — 승인됨). 기억(387)은 user+run 축.
+    위험 도구는 checkpointer=None이라 fail-closed(승인 브리지는 P2).
     code/external 소스·모델 미해석이면 ValueError(로컬 그래프 아님 → 라우터가 4xx).
     """
     # 파사드(chat.py)가 이 모듈을 임포트하므로 역방향은 지연 import(순환 회피 — 지도 §의존 방향).
     from .chat import _rag_tools_for, resolve_agent_runtime
 
-    ctx = await _load_context(agent_id, None)
+    ctx = await _load_context(agent_id, context_id, own=user_id)
+    # 세션 출처 표기(스펙 388 P1) — lazy-create 시 channel="a2a"로(세션 화면에서 구분).
+    if ctx.session_pending:
+        ctx.session_pending["channel"] = "a2a"
     try:
         impl = resolve_agent_runtime(ctx)
     except AgentConfigError as e:
@@ -241,20 +254,45 @@ async def stream_local_reply(
         # 구체 키는 로그만, 응답은 일반 문구(089-F1 — 임의 저장값 비반영).
         log.warning("A2A 서빙 그래프 조립 실패: %r (agent %s)", str(e), agent_id)
         raise ValueError("에이전트 설정 실패: 노드 구현 미해결(A2A 노출 불가)") from e
-    # 노출 호출은 호출당 단일 메시지(맥락은 A2A contextId가 호출측 책임 — v1 서빙은 무상태).
-    messages = _window([{"role": "user", "content": user_text}], ctx.history_depth)
+    # 멀티턴(스펙 388 P1) — 재개 세션이면 영속 대화를 재구성해 창(historyDepth)으로 주입
+    # (메인 채팅의 서버 재구성 289 P1과 동일 부품·읽기량 상수).
+    conversation: list[dict] = []
+    if ctx.session_pk is not None and not ctx.ephemeral:
+        conversation = await _load_session_conversation(
+            ctx.session_id, ctx.agent_pk, limit=_history_load_limit(ctx)
+        )
+    messages = _window([*conversation, {"role": "user", "content": user_text}], ctx.history_depth)
     # 관측(스펙 118) — checkpointer=None이라 thread_id 불요, 콜백만 병합(미설정=무동작).
     _cfg = observability.with_trace(None, name="a2a-serve-local")
-    acc: list[str] = []  # 자동 기억 저장용 어시스턴트 응답 누적(스펙 387)
-    async for msg_chunk, _meta in graph.astream(
-        {"messages": messages}, config=_cfg, stream_mode="messages"
-    ):
-        # A2A 서빙도 도구 원본 응답은 외부 소비자에게 노출 않음(스펙 092, 본문 sink와 동일 술어).
-        if runtime.is_tool_message(msg_chunk):
-            continue
-        # content-block 리스트 → str 정규화(본문 sink와 동일, 092 codex P1).
-        text = runtime._content_text(getattr(msg_chunk, "content", ""))
-        if text:
-            acc.append(text)
-            yield text
-    await _serve_memory_add(ctx, user_id, user_text, "".join(acc))  # 자동 저장(스펙 387)
+    prompt_chars = sum(len(m.get("content") or "") for m in messages)
+
+    async def _chunks() -> AsyncIterator[str]:
+        acc: list[str] = []  # 영속·자동 기억 저장용 어시스턴트 응답 누적
+        async for msg_chunk, _meta in graph.astream(
+            {"messages": messages}, config=_cfg, stream_mode="messages"
+        ):
+            # A2A 서빙도 도구 원본 응답은 외부 소비자에게 노출 않음(스펙 092, 본문 sink와 동일 술어).
+            if runtime.is_tool_message(msg_chunk):
+                continue
+            # content-block 리스트 → str 정규화(본문 sink와 동일, 092 codex P1).
+            text = runtime._content_text(getattr(msg_chunk, "content", ""))
+            if text:
+                acc.append(text)
+                yield text
+        reply = "".join(acc)
+        # 영속(스펙 388 P1) — 세션·메시지로 저장(0턴 lazy-create·소유자 스탬프는 _persist가 처리).
+        # 트레이스는 최소 정직 표기(서빙은 캡처 없음)·토큰은 추정 폴백(estimated 명시).
+        if not ctx.ephemeral:
+            tokens = {**runtime.estimate_tokens(prompt_chars, len(reply)), "estimated": True}
+            await _persist(
+                ctx,
+                user_text,
+                reply,
+                {"channel": "a2a"},
+                tokens,
+                store_messages=ctx.persist_history,
+                user_id=user_id,
+            )
+        await _serve_memory_add(ctx, user_id, user_text, reply)  # 자동 저장(스펙 387)
+
+    return ctx.session_id, _chunks()

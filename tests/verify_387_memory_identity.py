@@ -186,7 +186,8 @@ async def main() -> int:
             )
             check(
                 "I3b 서빙 자동 저장이 지정 userId 스코프로 호출됨",
-                any(s == {"user_id": uid_b} for s in add_calls),
+                # 스펙 388 P1: 스코프에 run 축(세션)이 추가됨 — user 축 값만 고정 단언(정확일치 금지).
+                any(s.get("user_id") == uid_b for s in add_calls),
                 f"add_calls={add_calls[:3]}",
             )
 

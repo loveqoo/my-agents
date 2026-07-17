@@ -50,16 +50,23 @@ async def _fake_load(agent_id):
     return FAKE_AGENT
 
 
-async def _fake_stream(agent_id, user_text):
-    # 입력 의존(결정적) — user_text를 머리에 붙여 mock 고정문구가 아님을 보인다.
-    yield f"[{user_text}] "
-    for c in RUNTIME_REPLY_CHUNKS:
-        yield c
+async def _fake_stream(agent_id, user_text, user_id=None, context_id=None):
+    # 스펙 388 계약: (context_id, 청크 스트림) 튜플 반환 — 실함수 시그니처와 동기(codex 388 소비자 누락).
+    async def _gen():
+        # 입력 의존(결정적) — user_text를 머리에 붙여 mock 고정문구가 아님을 보인다.
+        yield f"[{user_text}] "
+        for c in RUNTIME_REPLY_CHUNKS:
+            yield c
+
+    return context_id or "sess-fake061", _gen()
 
 
-async def _fake_stream_raises(agent_id, user_text):
-    raise RuntimeError("secret-internal-detail-XYZ")
-    yield  # pragma: no cover — async generator로 만들기 위함
+async def _fake_stream_raises(agent_id, user_text, user_id=None, context_id=None):
+    async def _gen():
+        raise RuntimeError("secret-internal-detail-XYZ")
+        yield  # pragma: no cover — async generator로 만들기 위함
+
+    return context_id or "sess-fake061", _gen()
 
 
 async def _fake_skills(agent):

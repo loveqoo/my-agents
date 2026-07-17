@@ -318,7 +318,17 @@ async def exposed_agent_a2a(
     except HTTPException as e:
         return a2a_error(rpc_id, -32602, str(e.detail))
 
+    # contextId(스펙 388 P1) — A2A 표준 Message.contextId. 서버(우리)가 발급한 session_id를 클라가
+    # 에코해 멀티턴을 잇는다(우리 클라이언트의 송신 규약 057과 대칭). 비-str은 무시(타입 가드).
+    _req_ctx = (
+        (params.get("message") or {}).get("contextId")
+        if isinstance(params.get("message"), dict)
+        else None
+    )
+    req_context_id = _req_ctx if isinstance(_req_ctx, str) and _req_ctx.strip() else None
+
     # 노출 집합{ui,code} 안에서 원격(code=SDK 배포)만 릴레이·로컬(ui)은 직접 — remote 축 재사용(스펙 183).
+    reply_context_id: str | None = None
     if is_remote_source(agent.source):
         if request.headers.get(RELAY_HEADER):
             # 루프 가드(스펙 154): 중계 표식이 달린 요청을 다시 중계하면 자기/상호 참조 사이클 —
@@ -326,9 +336,16 @@ async def exposed_agent_a2a(
             return a2a_error(
                 rpc_id, -32000, "중계 루프 감지 — 다홉 중계는 지원하지 않습니다(1홉 한정)"
             )
+        # relay는 원격이 자기 세션을 소유(스펙 388 아웃 — contextId 브리지 미적용, 정직한 경계).
         chunk_source = _relay_chunks(agent, user_text)
     else:
-        chunk_source = chat.stream_local_reply(agent.id, user_text, user_id=mem_user_id)
+        try:
+            reply_context_id, chunk_source = await chat.stream_local_reply(
+                agent.id, user_text, user_id=mem_user_id, context_id=req_context_id
+            )
+        except ValueError as exc:
+            # 준비 단계 실패(소스/모델/impl 미해결) — 실행 전이라 JSON-RPC 에러로 정직 반환.
+            return a2a_error(rpc_id, -32000, str(exc))
 
     if method == "message/send":
         try:
@@ -344,6 +361,7 @@ async def exposed_agent_a2a(
                 "role": "agent",
                 "parts": [{"kind": "text", "text": reply}],
                 "messageId": uuid.uuid4().hex,
+                **({"contextId": reply_context_id} if reply_context_id else {}),
                 "kind": "message",
             },
         )
@@ -354,13 +372,22 @@ async def exposed_agent_a2a(
         async def event_stream() -> AsyncIterator[str]:
             try:
                 async for text in chunk_source:
-                    yield a2a_status_event(rpc_id, task_id, text, final=False, state="working")
+                    yield a2a_status_event(
+                        rpc_id,
+                        task_id,
+                        text,
+                        final=False,
+                        state="working",
+                        context_id=reply_context_id,
+                    )
             except Exception as exc:
                 err = a2a_error(rpc_id, -32000, f"로컬 에이전트 실행 실패({type(exc).__name__})")
                 yield f"data: {json.dumps(err, ensure_ascii=False)}\n\n"
                 yield "data: [DONE]\n\n"
                 return
-            yield a2a_status_event(rpc_id, task_id, "", final=True, state="completed")
+            yield a2a_status_event(
+                rpc_id, task_id, "", final=True, state="completed", context_id=reply_context_id
+            )
             yield "data: [DONE]\n\n"
 
         return StreamingResponse(event_stream(), media_type="text/event-stream")

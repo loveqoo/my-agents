@@ -32,11 +32,17 @@ def a2a_error(rpc_id: Any, code: int, message: str) -> dict:
     return {"jsonrpc": "2.0", "id": rpc_id, "error": {"code": code, "message": message}}
 
 
-def a2a_status_event(rpc_id: Any, task_id: str, text: str, *, final: bool, state: str) -> str:
-    """status-update SSE 프레임(message/stream) — 텍스트 청크를 agent 메시지로 감싼다."""
+def a2a_status_event(
+    rpc_id: Any, task_id: str, text: str, *, final: bool, state: str, context_id: str | None = None
+) -> str:
+    """status-update SSE 프레임(message/stream) — 텍스트 청크를 agent 메시지로 감싼다.
+
+    context_id(스펙 388 P1): 서버가 발급/재개한 대화 맥락 — A2A 표준 contextId 필드로 실어
+    호출측이 후속 메시지에 에코해 멀티턴을 잇는다(가산 필드 — 구 소비자 무영향)."""
     result = {
         "kind": "status-update",
         "taskId": task_id,
+        **({"contextId": context_id} if context_id else {}),
         "status": {
             "state": state,
             "message": {

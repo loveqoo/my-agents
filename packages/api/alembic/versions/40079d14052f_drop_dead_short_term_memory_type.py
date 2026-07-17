@@ -31,10 +31,12 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     # c1d2e3f4a5b6의 새 카탈로그 상태로 복원(다운그레이드 대칭).
+    # created_by/updated_by: 감사 컬럼 NOT NULL(스펙 343) — 누락 시 downgrade가 NotNullViolation
+    # (verify_343 왕복 실측). 시드와 동일하게 'system' 스탬프.
     op.execute(
-        "INSERT INTO memory_types (id, key, name, scope, body) "
+        "INSERT INTO memory_types (id, key, name, scope, body, created_by, updated_by) "
         "SELECT gen_random_uuid(), '단기(세션)', '단기(세션)', 'In-context · mem0 아님', "
         "'현재 세션의 인-컨텍스트 윈도우(historyDepth) — 최근 N턴만 모델에 전달하는 컨텍스트 절단입니다. "
-        "mem0 저장소가 아니며 세션이 끝나면 사라집니다.' "
+        "mem0 저장소가 아니며 세션이 끝나면 사라집니다.', 'system', 'system' "
         "WHERE NOT EXISTS (SELECT 1 FROM memory_types WHERE name = '단기(세션)')"
     )
