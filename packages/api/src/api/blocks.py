@@ -232,7 +232,7 @@ async def list_memory_types(session: AsyncSession = Depends(get_session)) -> Any
 
 @router.post("/memory-types", response_model=MemoryTypeOut, status_code=201)
 async def create_memory_type(
-    body: MemoryTypeIn, session: AsyncSession = Depends(get_session)
+    body: MemoryTypeIn,  # noqa: ARG001 — API 형태 보존(요청 스키마 검증은 유지, 본문은 미사용)
 ) -> Any:
     # 시스템 정의 봉인(스펙 387 후속, 구남님 결정) — 실동작 기억 기능은 '장기 기억 (mem0)' 하나뿐이라
     # 새 블록은 "골라도 무동작"인 죽은 옵션이 된다(단기(세션) 재발 방지). UI는 이미 읽기 전용(스펙 016)
