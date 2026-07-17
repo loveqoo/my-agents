@@ -128,9 +128,9 @@ def main() -> int:
     asyncio.run(_reset_db())
 
     print("③ api 재기동(부팅=alembic+seed)")
-    # noqa 사유: 서버가 스크립트보다 오래 살므로 로그 fd를 컨텍스트로 닫으면 안 된다(자식이 상속).
+    # 로그 fd는 자식(서버)이 상속해 스크립트보다 오래 산다 — 컨텍스트로 닫으면 안 됨(noqa 사유).
     log = open("/tmp/api-server.log", "w")  # noqa: SIM115, PTH123
-    subprocess.Popen
+    subprocess.Popen(
         [
             "uv", "run", "--project", "packages/api", "uvicorn", "api.main:app",
             "--host", "127.0.0.1", "--port", "8000", "--reload",
