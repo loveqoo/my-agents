@@ -12,7 +12,7 @@ from collections.abc import AsyncIterator
 
 from agent.runtime import AgentBuildContext, AgentConfigError
 
-from . import a2a_client, memory, observability, runtime
+from . import a2a_client, checkpointer, memory, observability, runtime
 from .chat_context import ChatContext, _load_context
 from .chat_history import _history_load_limit, _load_session_conversation, _window
 from .chat_persist import _mid_frame, _persist
@@ -175,13 +175,131 @@ async def _serve_memory_add(
     )
 
 
+async def _serve_interrupt_state(
+    ctx: ChatContext,
+    thread_id: str,
+    interrupts: list[dict],
+    user_id: str | None,
+    has_ckpt: bool,
+    state: dict,
+) -> None:
+    """서빙 interrupt → 승인 대기 변환(스펙 388 P2) — state 컨테이너를 채운다.
+
+    도구는 interrupt 이전이라 미실행(부수효과 0, 041 §3.3). 인터럽트 턴은 영속·기억 저장 안 함
+    (메인 chat _approval_frames 미러 — 재개가 전체 턴을 영속). 비영속은 승인 불가 안내(235)."""
+    if not has_ckpt:
+        state["error"] = (
+            "비영속(1회성) 에이전트는 승인이 필요한 도구를 사용할 수 없습니다 — "
+            "승인·재개에는 기록(DB)이 필요합니다."
+        )
+        return
+    from .chat_approval import _create_approval
+
+    first = interrupts[0]
+    apid = await _create_approval(ctx, thread_id, first, user_id)
+    state["approval"] = {
+        "id": apid,
+        "action": first.get("action", "(작업)"),
+        "approver": first.get("approver"),
+    }
+
+
+async def _serve_persist_turn(
+    ctx: ChatContext, user_text: str, reply: str, prompt_chars: int, user_id: str | None
+) -> None:
+    """서빙 정상 완주 턴의 영속(스펙 388 P1) — 세션·메시지 저장(0턴 lazy-create·소유자 스탬프는
+    _persist가 처리). 트레이스는 최소 정직 표기(서빙은 캡처 없음)·토큰은 추정 폴백(estimated 명시)."""
+    if ctx.ephemeral:
+        return
+    tokens = {**runtime.estimate_tokens(prompt_chars, len(reply)), "estimated": True}
+    await _persist(
+        ctx,
+        user_text,
+        reply,
+        {"channel": "a2a"},
+        tokens,
+        store_messages=ctx.persist_history,
+        user_id=user_id,
+    )
+
+
+async def _serve_build_tools(ctx: ChatContext, agent_id: uuid.UUID) -> tuple[list, list[dict]]:
+    """서빙 도구 조립(061) — MCP+노드형 RAG(스펙 268 P1, 세 입구 정합). 반환 (tools, calls_sink).
+
+    노드 에이전트-호출(스펙 318)은 서빙 정직한 경계(OUT): broker를 안 만든다(위임 실행 주체
+    principal 부재). 노드가 agent 도구를 참조하면 조용히 미바인딩되므로 감지 시 경고 표면화."""
+    from .chat import _rag_tools_for
+
+    calls_sink: list[dict] = []
+    tools = await runtime.build_mcp_tools(
+        ctx.mcp_servers, calls_sink, ctx.tool_policy, ctx.tool_names
+    )
+    tools.extend(_rag_tools_for(ctx, calls_sink))
+    if any(
+        isinstance(t, str) and t.startswith("agent__")
+        for n in (ctx.nodes_resolved or [])
+        if isinstance(n, dict)
+        for t in (n.get("tools") or [])
+    ):
+        log.warning(
+            "A2A 서빙 노드가 에이전트-호출 도구(agent__…)를 참조하나 서빙 경로는 위임 미지원(principal 부재) — 그 도구는 미바인딩됩니다 (agent %s)",
+            agent_id,
+        )
+    return tools, calls_sink
+
+
+async def _serve_chunks(
+    graph,  # noqa: ANN001 — CompiledStateGraph(런타임 타입, agent 패키지)
+    messages: list[dict],
+    cfg: dict,
+    ctx: ChatContext,
+    thread_id: str,
+    user_id: str | None,
+    user_text: str,
+    prompt_chars: int,
+    *,
+    has_ckpt: bool,
+    state: dict,
+) -> AsyncIterator[str]:
+    """서빙 턴 스트림(스펙 388) — 텍스트 청크 yield, 소진 후 state 채움·영속·기억 저장."""
+    acc: list[str] = []  # 영속·자동 기억 저장용 어시스턴트 응답 누적
+    interrupts: list[dict] = []
+    run_kwargs: dict = {"durability": "exit"} if has_ckpt else {}  # 스펙 346
+    async for mode, chunk in graph.astream(
+        {"messages": messages}, config=cfg, stream_mode=["messages", "updates"], **run_kwargs
+    ):
+        if mode == "updates":
+            # interrupt 수집(스펙 388 P2) — 한 업데이트에 다중 interrupt 가능(메인 chat 미러).
+            if isinstance(chunk, dict) and "__interrupt__" in chunk:
+                interrupts.extend(i.value for i in chunk["__interrupt__"])
+            continue
+        msg_chunk, _meta = chunk
+        # A2A 서빙도 도구 원본 응답은 외부 소비자에게 노출 않음(스펙 092, 본문 sink와 동일 술어).
+        if runtime.is_tool_message(msg_chunk):
+            continue
+        # content-block 리스트 → str 정규화(본문 sink와 동일, 092 codex P1).
+        text = runtime._content_text(getattr(msg_chunk, "content", ""))
+        if text:
+            acc.append(text)
+            yield text
+    if interrupts:
+        await _serve_interrupt_state(ctx, thread_id, interrupts, user_id, has_ckpt, state)
+        return
+    reply = "".join(acc)
+    await _serve_persist_turn(ctx, user_text, reply, prompt_chars, user_id)  # 영속(P1)
+    await _serve_memory_add(ctx, user_id, user_text, reply)  # 자동 저장(스펙 387)
+
+
 async def stream_local_reply(
     agent_id: uuid.UUID,
     user_text: str,
     user_id: str | None = None,
     context_id: str | None = None,
-) -> tuple[str, AsyncIterator[str]]:
-    """로컬(ui) 에이전트를 **A2A 서빙용**으로 실행 — 반환 (context_id, 텍스트 청크 스트림).
+) -> tuple[str, AsyncIterator[str], dict]:
+    """로컬(ui) 에이전트를 **A2A 서빙용**으로 실행 — 반환 (context_id, 청크 스트림, state).
+
+    state(스펙 388 P2): 스트림 소진 **후** 채워지는 결과 컨테이너 — {"approval": {id, action,
+    approver}}(승인 대기로 전환) 또는 {"error": 안내문}(비영속 등 승인 불가). 빈 dict=정상 완료.
 
     a2a_server가 노출된 로컬 에이전트의 JSON-RPC 호출을 받아 실 LangGraph 런타임을 돌릴 때 쓴다.
     기존 chat() 경로는 건드리지 않는다(핵심 채팅 무회귀) — _load_context·대화 재구성(chat_history)·
@@ -191,11 +309,13 @@ async def stream_local_reply(
     세션으로 해석해 멀티턴을 잇는다. 소유권은 068 그대로 — own=user_id 바인딩(요청 userId가 있으면
     그 유저 소유 세션만 재개, 불일치=새 세션 발급으로 접음·오라클 0). 대화는 세션·메시지로 영속
     (channel="a2a", 관리자 세션 화면 가시 — 승인됨). 기억(387)은 user+run 축.
-    위험 도구는 checkpointer=None이라 fail-closed(승인 브리지는 P2).
+    스펙 388 P2 — **승인 브리지**: 체크포인터 부착(비영속 제외), interrupt를 예외로 죽이지 않고
+    Approval(pending)로 변환해 state["approval"]로 알린다(응답은 input-required — a2a_server).
+    인터럽트 턴은 영속 안 함(메인 chat _approval_frames 미러 — 재개가 전체 턴을 영속).
     code/external 소스·모델 미해석이면 ValueError(로컬 그래프 아님 → 라우터가 4xx).
     """
     # 파사드(chat.py)가 이 모듈을 임포트하므로 역방향은 지연 import(순환 회피 — 지도 §의존 방향).
-    from .chat import _rag_tools_for, resolve_agent_runtime
+    from .chat import resolve_agent_runtime
 
     ctx = await _load_context(agent_id, context_id, own=user_id)
     # 세션 출처 표기(스펙 388 P1) — lazy-create 시 channel="a2a"로(세션 화면에서 구분).
@@ -210,33 +330,20 @@ async def stream_local_reply(
         raise ValueError("에이전트 설정 실패: 런타임 구현 미해결(A2A 노출 불가)") from e
     if impl is None or ctx.model_cfg is None:
         raise ValueError("로컬(ui) 에이전트가 아니거나 채팅 모델이 없습니다(A2A 노출 불가)")
-    calls_sink: list[dict] = []
-    tools = await runtime.build_mcp_tools(
-        ctx.mcp_servers, calls_sink, ctx.tool_policy, ctx.tool_names
-    )
-    # 노드형 컬렉션별 도구 포함(스펙 268 P1 — 세 입구 정합, learning 149). 메모리 프록시는 미주입:
-    # A2A 서빙은 v1부터 메모리 자체가 범위 밖(스펙 061 — 순수 컴퓨트), 기존과 동일.
-    tools.extend(_rag_tools_for(ctx, calls_sink))
-    # 노드 에이전트-호출(스펙 318) — A2A 서빙은 정직한 경계(OUT): broker를 안 만든다(위임 실행 주체
-    # principal 부재 — 외부 JSON-RPC 호출엔 유저 주체가 없어 하위 RBAC 스코프 불가). 노드가 agent 도구를
-    # 참조하면 조용히 미바인딩되므로(스펙 265 환각 위험), 감지 시 경고로 표면화(조용한 실패 금지).
-    if any(
-        isinstance(t, str) and t.startswith("agent__")
-        for n in (ctx.nodes_resolved or [])
-        if isinstance(n, dict)
-        for t in (n.get("tools") or [])
-    ):
-        log.warning(
-            "A2A 서빙 노드가 에이전트-호출 도구(agent__…)를 참조하나 서빙 경로는 위임 미지원(principal 부재) — 그 도구는 미바인딩됩니다 (agent %s)",
-            agent_id,
-        )
+    tools, _calls_sink = await _serve_build_tools(
+        ctx, agent_id
+    )  # 싱크는 서빙 미노출(트레이스 없음)
     serve_prompt = await _serve_memory_prompt(ctx, user_id, user_text)  # 회상(스펙 387)
     run_params = {} if ctx.temperature is None else {"temperature": ctx.temperature}
+    # HIL 체크포인터(스펙 388 P2, 041 미러) — 비영속은 미부착(235: 승인·재개에는 기록 필요,
+    # interrupt는 발생해도 아래서 안내문으로 접는다). thread_id는 턴별(메인 chat 규약).
+    ckpt = None if ctx.ephemeral else checkpointer.get_checkpointer()
+    thread_id = "a2a-" + uuid.uuid4().hex
     build_ctx = AgentBuildContext(
         prompt=serve_prompt,
         model_cfg=ctx.model_cfg,
         tools=tools,
-        checkpointer=None,
+        checkpointer=ckpt,
         params=run_params,
         overrides=ctx.overrides,
         # impl_config — 노코드 impl 설정 통로(codex P2 후속: A2A 서빙이 이 세 번째 입구를 빠뜨려 노드형/
@@ -262,37 +369,22 @@ async def stream_local_reply(
             ctx.session_id, ctx.agent_pk, limit=_history_load_limit(ctx)
         )
     messages = _window([*conversation, {"role": "user", "content": user_text}], ctx.history_depth)
-    # 관측(스펙 118) — checkpointer=None이라 thread_id 불요, 콜백만 병합(미설정=무동작).
-    _cfg = observability.with_trace(None, name="a2a-serve-local")
+    # 관측(스펙 118) + 체크포인터 thread 바인딩(스펙 388 P2).
+    _cfg = dict(observability.with_trace(None, name="a2a-serve-local") or {})
+    if ckpt is not None:
+        _cfg["configurable"] = {**(_cfg.get("configurable") or {}), "thread_id": thread_id}
     prompt_chars = sum(len(m.get("content") or "") for m in messages)
-
-    async def _chunks() -> AsyncIterator[str]:
-        acc: list[str] = []  # 영속·자동 기억 저장용 어시스턴트 응답 누적
-        async for msg_chunk, _meta in graph.astream(
-            {"messages": messages}, config=_cfg, stream_mode="messages"
-        ):
-            # A2A 서빙도 도구 원본 응답은 외부 소비자에게 노출 않음(스펙 092, 본문 sink와 동일 술어).
-            if runtime.is_tool_message(msg_chunk):
-                continue
-            # content-block 리스트 → str 정규화(본문 sink와 동일, 092 codex P1).
-            text = runtime._content_text(getattr(msg_chunk, "content", ""))
-            if text:
-                acc.append(text)
-                yield text
-        reply = "".join(acc)
-        # 영속(스펙 388 P1) — 세션·메시지로 저장(0턴 lazy-create·소유자 스탬프는 _persist가 처리).
-        # 트레이스는 최소 정직 표기(서빙은 캡처 없음)·토큰은 추정 폴백(estimated 명시).
-        if not ctx.ephemeral:
-            tokens = {**runtime.estimate_tokens(prompt_chars, len(reply)), "estimated": True}
-            await _persist(
-                ctx,
-                user_text,
-                reply,
-                {"channel": "a2a"},
-                tokens,
-                store_messages=ctx.persist_history,
-                user_id=user_id,
-            )
-        await _serve_memory_add(ctx, user_id, user_text, reply)  # 자동 저장(스펙 387)
-
-    return ctx.session_id, _chunks()
+    state: dict = {}
+    gen = _serve_chunks(
+        graph,
+        messages,
+        _cfg,
+        ctx,
+        thread_id,
+        user_id,
+        user_text,
+        prompt_chars,
+        has_ckpt=ckpt is not None,
+        state=state,
+    )
+    return ctx.session_id, gen, state

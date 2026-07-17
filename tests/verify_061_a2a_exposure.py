@@ -38,8 +38,11 @@ def check(cond: bool, msg: str) -> None:
 
 
 FAKE_AGENT = types.SimpleNamespace(
-    id="agt-fake-pk", name="테스트 로컬 에이전트", source="ui",
-    exposed={"a2a": True}, active_version="v3",
+    id="agt-fake-pk",
+    name="테스트 로컬 에이전트",
+    source="ui",
+    exposed={"a2a": True},
+    active_version="v3",
 )
 FAKE_REQUEST = types.SimpleNamespace(base_url="http://127.0.0.1:8000/")
 RUNTIME_REPLY_CHUNKS = ["안녕하세요, ", "로컬 ", "에이전트 ", "응답입니다."]
@@ -58,7 +61,7 @@ async def _fake_stream(agent_id, user_text, user_id=None, context_id=None):
         for c in RUNTIME_REPLY_CHUNKS:
             yield c
 
-    return context_id or "sess-fake061", _gen()
+    return context_id or "sess-fake061", _gen(), {}
 
 
 async def _fake_stream_raises(agent_id, user_text, user_id=None, context_id=None):
@@ -66,7 +69,7 @@ async def _fake_stream_raises(agent_id, user_text, user_id=None, context_id=None
         raise RuntimeError("secret-internal-detail-XYZ")
         yield  # pragma: no cover — async generator로 만들기 위함
 
-    return context_id or "sess-fake061", _gen()
+    return context_id or "sess-fake061", _gen(), {}
 
 
 async def _fake_skills(agent):
@@ -110,10 +113,17 @@ async def main():
     except ValueError as exc:
         check(False, f"D1 카드 validate_card 실패: {exc}")
     url = card.get("url", "")
-    check(url.startswith("http://") or url.startswith("https://"), f"D1 카드 url 절대 http(s): {url}")
+    check(
+        url.startswith("http://") or url.startswith("https://"), f"D1 카드 url 절대 http(s): {url}"
+    )
     check(url.endswith("/a2a"), f"D1 카드 url이 /a2a로 끝남: {url}")
-    check(url == "http://127.0.0.1:8000/agents/agt-x/a2a", f"D1 url=self_base+/agents/id/a2a: {url}")
-    check("x-my-agents" not in card and "myAgents" not in card, "D1 x-my-agents 없음(connect→external)")
+    check(
+        url == "http://127.0.0.1:8000/agents/agt-x/a2a", f"D1 url=self_base+/agents/id/a2a: {url}"
+    )
+    check(
+        "x-my-agents" not in card and "myAgents" not in card,
+        "D1 x-my-agents 없음(connect→external)",
+    )
     check(agent_card.extract_my_agents(card) is None, "D1 extract_my_agents=None(제3자 분류)")
 
     # ---- H1(적대리뷰): Host 헤더 오염 방어 ----
@@ -125,7 +135,10 @@ async def main():
         await a2a_server.exposed_agent_card("agt-x", pub_req)
         check(False, "H1 공인 Host+env없음 → 거부돼야 하는데 카드를 서빙함(오염 위험!)")
     except HTTPException as exc:
-        check(exc.status_code == 503, f"H1 공인 Host+env없음 → 503 fail-closed (got {exc.status_code})")
+        check(
+            exc.status_code == 503,
+            f"H1 공인 Host+env없음 → 503 fail-closed (got {exc.status_code})",
+        )
     # (b) A2A_SELF_BASE_URL 설정 시 그걸 신뢰, 오염된 Host 무시.
     os.environ["A2A_SELF_BASE_URL"] = "https://trusted.example"
     try:
@@ -139,11 +152,18 @@ async def main():
 
     # ---- D3: message/send ----
     body_send = {
-        "jsonrpc": "2.0", "id": "req-1", "method": "message/send",
+        "jsonrpc": "2.0",
+        "id": "req-1",
+        "method": "message/send",
         "params": {"message": {"parts": [{"kind": "text", "text": "날씨 알려줘"}]}},
     }
-    resp = await a2a_server.exposed_agent_a2a("agt-x", body_send, FAKE_REQUEST, _principal="machine")
-    check(resp.get("jsonrpc") == "2.0" and resp.get("id") == "req-1", "D3 send JSONRPCResponse 봉투(id 에코)")
+    resp = await a2a_server.exposed_agent_a2a(
+        "agt-x", body_send, FAKE_REQUEST, _principal="machine"
+    )
+    check(
+        resp.get("jsonrpc") == "2.0" and resp.get("id") == "req-1",
+        "D3 send JSONRPCResponse 봉투(id 에코)",
+    )
     text = a2a_client.extract_text(resp.get("result"))
     check(RUNTIME_REPLY in text, f"D3 a2a_client.extract_text가 런타임 텍스트 복원: {text!r}")
     check("날씨 알려줘" in text, "D3 응답이 입력 의존(mock 고정문구 아님)")
@@ -151,8 +171,12 @@ async def main():
     # ---- D4: message/stream ----
     stream_resp = await a2a_server.exposed_agent_a2a(
         "agt-x",
-        {"jsonrpc": "2.0", "id": "req-2", "method": "message/stream",
-         "params": {"message": {"parts": [{"kind": "text", "text": "스트림"}]}}},
+        {
+            "jsonrpc": "2.0",
+            "id": "req-2",
+            "method": "message/stream",
+            "params": {"message": {"parts": [{"kind": "text", "text": "스트림"}]}},
+        },
         FAKE_REQUEST,
         _principal="machine",
     )
@@ -169,10 +193,11 @@ async def main():
     check(finals[-1]["result"]["status"]["state"] == "completed", "D4 final state=completed")
     check(raw.rstrip().endswith("[DONE]"), "D4 [DONE]로 종료")
     # a2a_client 파서 경로로 텍스트 복원(클라가 실제로 읽는 방식)
-    recovered = "".join(
-        a2a_client.extract_text(f.get("result")) for f in frames
+    recovered = "".join(a2a_client.extract_text(f.get("result")) for f in frames)
+    check(
+        "스트림" in recovered and RUNTIME_REPLY in recovered,
+        f"D4 클라 파서 텍스트 복원: {recovered!r}",
     )
-    check("스트림" in recovered and RUNTIME_REPLY in recovered, f"D4 클라 파서 텍스트 복원: {recovered!r}")
 
     # ---- -32601: 미지원 메서드 ----
     bad = await a2a_server.exposed_agent_a2a(
@@ -187,8 +212,12 @@ async def main():
     chat.stream_local_reply = _fake_stream_raises
     err_resp = await a2a_server.exposed_agent_a2a(
         "agt-x",
-        {"jsonrpc": "2.0", "id": "req-4", "method": "message/send",
-         "params": {"message": {"parts": [{"kind": "text", "text": "x"}]}}},
+        {
+            "jsonrpc": "2.0",
+            "id": "req-4",
+            "method": "message/send",
+            "params": {"message": {"parts": [{"kind": "text", "text": "x"}]}},
+        },
         FAKE_REQUEST,
         _principal="machine",
     )

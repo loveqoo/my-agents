@@ -12,6 +12,9 @@ import uuid
 from typing import TYPE_CHECKING
 
 from langgraph.types import Command
+from sqlalchemy import func as sa_func
+from sqlalchemy import select
+from sqlalchemy import update as sa_update
 
 from agent.runtime import AgentBuildContext, AgentConfigError, CustomAgent
 
@@ -371,24 +374,27 @@ def _extract_turn_texts(result: object) -> tuple[str, str]:
     return user_text, reply
 
 
-async def resume_approval(approval: Approval, decision: str) -> None:
+async def resume_approval(approval: Approval, decision: str) -> str | None:
     """admin 결정(approve/reject)으로 멈춘 그래프를 재개하고 최종 메시지를 원 세션에 영속.
 
     approvals.resolve_approval이 status 설정 후 호출(상시). 체크포인트(Postgres 공유)에서 그래프를
     재구축해 `Command(resume=...)`로 이어 달린다 — 멀티워커 안전. approve면 도구 실행 후 ReAct가
     마무리 답변을, reject면 도구 미실행으로 마무리한다. 라이브 스트리밍은 빚(§7) — 여기선
     서버사이드로 끝까지 돌려 결과만 세션에 남긴다.
+
+    반환(스펙 388 P2, 가산): 재개 턴의 최종 답변 텍스트 — A2A 승인 브리지가 외부 호출자에게
+    돌려준다. 재개 불가/실패 경로는 None(기존 graceful 유지, REST 소비자는 반환 무시).
     """
     target = await _load_resume_target(approval)
     if target is None:
-        return
+        return None
     ctx, impl, ckpt, thread_id = target
     used_memory, mem_hits, mem_proxy, resume_recalls = await _resume_memory_inputs(
         ctx, impl, approval
     )
     rebuilt = await _rebuild_resume_graph(ctx, impl, ckpt, approval, mem_hits, mem_proxy)
     if rebuilt is None:
-        return  # 그래프 조립 설정 실패(스펙 317) — 재개 불가 graceful(로그는 rebuild가 남김)
+        return None  # 그래프 조립 설정 실패(스펙 317) — 재개 불가 graceful(로그는 rebuild가 남김)
     graph, calls_sink, resume_broker, resume_history_windows = rebuilt
     config = {"configurable": {"thread_id": thread_id}}
     # 관측(스펙 118→328) — 재개 경로도 OTEL이 설정됐을 때만 콜백 부착(미설정=무동작).
@@ -405,7 +411,7 @@ async def resume_approval(approval: Approval, decision: str) -> None:
         )
     except Exception as exc:
         log.error("resume 실패 (approval %s): %s", approval.approval_id, exc)
-        return
+        return None
 
     # 체크포인트 폐기 관문(스펙 346) — 승인이 해소돼 그래프가 끝났으면 이 스레드는 죽은 것이다.
     # 재개 중 **또 멈췄으면**(두 번째 위험 도구) 그 상태가 유일한 재개 근거라 남긴다.
@@ -437,3 +443,57 @@ async def resume_approval(approval: Approval, decision: str) -> None:
     await _persist(
         ctx, user_text, reply, trace, tokens, ctx.persist_history, user_id=None, turn_id=thread_id
     )
+    return reply
+
+
+async def resolve_and_resume(
+    approval_id: str,
+    decision: str,
+    *,
+    principal: object,
+    resolved_by: str,
+    require_agent_pk: "uuid.UUID | None" = None,
+    require_user_id: str | None = None,
+) -> tuple[str, str | None, str | None]:
+    """승인 원자 결정+재개 관문(스펙 388 P2) — A2A 브리지용. REST(approvals.resolve_approval)와
+    같은 시맨틱: pending→결정 **원자 UPDATE**(WHERE status='pending' — 동시 resolve TOCTOU 차단,
+    이중 실행 금지)·결정 후 resume_approval.
+
+    반환 (status, reply, session_id): "resumed"=재개 완료(reply=최종 답변·session_id=contextId
+    에코용) · "already"=이미 처리(409 의미) · "not_found"=승인 없음/스코프 불일치(**접기** —
+    열거 오라클 0: 타 에이전트·타 userId의 approval_id는 부재와 동일 응답) · "forbidden"=
+    결재 권한 없음(REST와 동일 — 자기 행이라 존재는 아는 상태, 403 의미).
+
+    **결재 인가는 REST와 단일 출처**(codex 388 P2 P1 봉합): approvals._may_resolve를 공유 —
+    admin/머신=전체, 비-admin은 approver="self" 스탬프 또는 casbin self_approve만. 이게 없으면
+    비-admin 쿠키 유저가 A2A로 자기 승인을 스스로 approve해 위험 도구를 실행할 수 있었다.
+    require_agent_pk/require_user_id: A2A 입구 스코프 — 이 에이전트의(+이 유저의) 승인만 결정 가능.
+    """
+    async with SessionLocal() as db:
+        p = (
+            await db.execute(select(Approval).where(Approval.approval_id == approval_id))
+        ).scalar_one_or_none()
+        if p is None:
+            return "not_found", None, None
+        if require_agent_pk is not None and p.agent_pk != require_agent_pk:
+            return "not_found", None, None
+        if require_user_id is not None and p.user_id != require_user_id:
+            return "not_found", None, None
+        from .approvals import (
+            _may_resolve,
+        )  # 지연 import(approvals→chat_approval 역방향이라 순환 회피)
+
+        if not _may_resolve(p, principal):
+            return "forbidden", None, None
+        new_status = "approved" if decision == "approve" else "rejected"
+        res = await db.execute(
+            sa_update(Approval)
+            .where(Approval.approval_id == approval_id, Approval.status == "pending")
+            .values(status=new_status, resolved_at=sa_func.now(), resolved_by=resolved_by)
+        )
+        if res.rowcount == 0:
+            return "already", None, None
+        await db.commit()
+        await db.refresh(p)
+    reply = await resume_approval(p, decision)
+    return "resumed", reply, p.session_id

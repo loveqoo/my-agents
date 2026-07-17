@@ -63,6 +63,20 @@ contextId(A2A 와이어 표준) ↔ sessionId(우리 REST/DB) ↔ thread_id(Lang
 - P2-C3: 소유권 — 타 userId가 남의 approval 결정 불가.
 - codex 적대 리뷰(외부 프로토콜 입구 + 인가 경계라 필수).
 
+## P2 결과(2026-07-17)
+
+- verify_388 **22/22**: input-required Task(+approvalId·contextId)·타 userId 결정 접기(-32001)·
+  **비-admin self-approve 차단(-32003)**·approve 재개 답변+contextId 에코·상태 approved·이중 결정
+  -32002·reject 미실행 종결.
+- **codex 적대 리뷰 P1 발견→봉합**: A2A 재개가 REST의 결재 인가(_may_resolve)를 우회 — 비-admin
+  쿠키 유저가 자기 승인을 스스로 approve해 위험 도구 실행 가능했다. resolve_and_resume에
+  principal 전달 + _may_resolve 공유(단일 출처)로 봉합, "forbidden"→-32003. 나머지 축(원자 UPDATE
+  경쟁·타 스코프 접기·쿠키 userId -32602) 무결 판정.
+- 구현: 서빙 체크포인터 부착(비영속 제외)+interrupt→Approval 변환(인터럽트 턴 미영속 — 메인
+  chat 미러)·재개=resolve_and_resume 관문(원자 UPDATE, REST와 시맨틱 동일)→resume_approval(반환값
+  가산 확장)→최종 답변 A2A message. 복잡도 게이트 유지(헬퍼 추출: _serve_chunks·_serve_build_tools·
+  _serve_interrupt_state·_serve_persist_turn·_a2a_resume·_send_result·_message_meta).
+
 ## P1 결과(2026-07-17)
 
 - verify_388 **10/10**: contextId 발급(sess-)·재개 에코·세션 영속(channel=a2a·소유자 스탬프·

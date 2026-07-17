@@ -287,6 +287,96 @@ def _relay_chunks(agent: Agent, user_text: str) -> AsyncIterator[str]:
 
 
 # response_model=None: 반환이 dict|StreamingResponse 유니언이라 FastAPI 응답모델 생성 불가(계약 불변).
+def _message_meta(params: dict) -> tuple[dict, str | None]:
+    """message의 (metadata dict, contextId) 안전 추출 — 비정형 JSON 타입 가드(387 codex P1 결)."""
+    msg = params.get("message")
+    meta = msg.get("metadata") if isinstance(msg, dict) else None
+    meta = meta if isinstance(meta, dict) else {}
+    ctx = msg.get("contextId") if isinstance(msg, dict) else None
+    ctx = ctx if isinstance(ctx, str) and ctx.strip() else None
+    return meta, ctx
+
+
+async def _a2a_resume(
+    rpc_id: object,
+    agent: Agent,
+    principal: object,
+    apid: str,
+    decision: str,
+    mem_user_id: str | None,
+) -> dict:
+    """A2A 승인 재개(스펙 388 P2) — resolve_and_resume 관문 경유, 최종 답변을 A2A message로."""
+    from .chat_approval import resolve_and_resume
+
+    status, reply, sess_id = await resolve_and_resume(
+        apid,
+        decision,
+        principal=principal,  # 결재 인가는 REST와 단일 출처(_may_resolve — codex 388 봉합)
+        resolved_by="machine" if isinstance(principal, str) else str(getattr(principal, "id", "?")),
+        require_agent_pk=agent.id,
+        require_user_id=mem_user_id,
+    )
+    if status == "not_found":
+        return a2a_error(rpc_id, -32001, "승인을 찾을 수 없습니다")
+    if status == "forbidden":
+        return a2a_error(rpc_id, -32003, "이 승인을 결정할 권한이 없습니다")
+    if status == "already":
+        return a2a_error(rpc_id, -32002, "이미 처리되었거나 처리 중인 승인입니다")
+    resumed_text = reply or (
+        "거부되어 실행하지 않았습니다." if decision == "reject" else "(재개 결과 없음)"
+    )
+    return a2a_result(
+        rpc_id,
+        {
+            "role": "agent",
+            "parts": [{"kind": "text", "text": resumed_text}],
+            "messageId": uuid.uuid4().hex,
+            **({"contextId": sess_id} if sess_id else {}),
+            "kind": "message",
+        },
+    )
+
+
+def _send_result(rpc_id: object, reply: str, context_id: str | None, state: dict) -> dict:
+    """message/send 응답 조립(스펙 388) — 정상 message | 승인 대기 Task(input-required) | 에러."""
+    if state.get("error"):
+        return a2a_error(rpc_id, -32000, str(state["error"]))
+    if state.get("approval"):
+        # 승인 대기(P2) — A2A 표준 Task로 표현. 외부는 metadata {approvalId, decision}으로 재개.
+        ap = state["approval"]
+        wait_msg = (
+            f"⏸ 승인 대기: {ap['action']} — metadata에 approvalId와 decision(approve|reject)을 "
+            "실은 메시지로 결정을 보내세요."
+        )
+        return a2a_result(
+            rpc_id,
+            {
+                "id": uuid.uuid4().hex,
+                "kind": "task",
+                **({"contextId": context_id} if context_id else {}),
+                "status": {
+                    "state": "input-required",
+                    "message": {
+                        "role": "agent",
+                        "parts": [{"kind": "text", "text": wait_msg}],
+                        "kind": "message",
+                    },
+                },
+                "metadata": {"approvalId": ap["id"], "approver": ap.get("approver")},
+            },
+        )
+    return a2a_result(
+        rpc_id,
+        {
+            "role": "agent",
+            "parts": [{"kind": "text", "text": reply}],
+            "messageId": uuid.uuid4().hex,
+            **({"contextId": context_id} if context_id else {}),
+            "kind": "message",
+        },
+    )
+
+
 @router.post("/{agent_id}/a2a", response_model=None)
 async def exposed_agent_a2a(
     agent_id: uuid.UUID,
@@ -304,13 +394,10 @@ async def exposed_agent_a2a(
     method = body.get("method")
     params = body.get("params") or {}
     user_text = a2a_user_text(params)
-    # 유저 정체성(스펙 387) — A2A 표준 message.metadata.userId 수용. 판정은 chat과 같은 단일 관문
-    # (머신 토큰만 지정 가능, 쿠키 유저 지정=거부). JSON-RPC 맥락이라 HTTPException을 -32602로 접는다.
-    _msg = params.get("message")
-    _meta = _msg.get("metadata") if isinstance(_msg, dict) else None
-    _req_uid = (
-        _meta.get("userId") if isinstance(_meta, dict) else None
-    )  # 비-dict metadata=무시(500 금지)
+    # 메시지 메타(스펙 387/388) — metadata·contextId 안전 추출(타입 가드는 _message_meta 단일 지점).
+    _meta, req_context_id = _message_meta(params)
+    _req_uid = _meta.get("userId")
+    # 유저 정체성(스펙 387) — 단일 관문(머신만 지정 가능·쿠키 422). JSON-RPC라 -32602로 접는다.
     try:
         mem_user_id = resolve_memory_user_id(
             _principal, _req_uid if isinstance(_req_uid, str) else None
@@ -318,17 +405,18 @@ async def exposed_agent_a2a(
     except HTTPException as e:
         return a2a_error(rpc_id, -32602, str(e.detail))
 
-    # contextId(스펙 388 P1) — A2A 표준 Message.contextId. 서버(우리)가 발급한 session_id를 클라가
-    # 에코해 멀티턴을 잇는다(우리 클라이언트의 송신 규약 057과 대칭). 비-str은 무시(타입 가드).
-    _req_ctx = (
-        (params.get("message") or {}).get("contextId")
-        if isinstance(params.get("message"), dict)
-        else None
-    )
-    req_context_id = _req_ctx if isinstance(_req_ctx, str) and _req_ctx.strip() else None
+    # 승인 재개 입구(스펙 388 P2, A2A 순수) — metadata에 approvalId+decision이 오면 대화 대신
+    # 승인 결정+재개(_a2a_resume). 스코프: 이 에이전트 + userId 지정 시 그 유저(오라클 0).
+    _req_apid = _meta.get("approvalId")
+    _req_decision = _meta.get("decision")
+    if isinstance(_req_apid, str) and _req_decision in ("approve", "reject"):
+        if is_remote_source(agent.source):
+            return a2a_error(rpc_id, -32602, "승인 재개는 로컬(ui) 에이전트 전용입니다")
+        return await _a2a_resume(rpc_id, agent, _principal, _req_apid, _req_decision, mem_user_id)
 
     # 노출 집합{ui,code} 안에서 원격(code=SDK 배포)만 릴레이·로컬(ui)은 직접 — remote 축 재사용(스펙 183).
     reply_context_id: str | None = None
+    serve_state: dict = {}
     if is_remote_source(agent.source):
         if request.headers.get(RELAY_HEADER):
             # 루프 가드(스펙 154): 중계 표식이 달린 요청을 다시 중계하면 자기/상호 참조 사이클 —
@@ -340,7 +428,7 @@ async def exposed_agent_a2a(
         chunk_source = _relay_chunks(agent, user_text)
     else:
         try:
-            reply_context_id, chunk_source = await chat.stream_local_reply(
+            reply_context_id, chunk_source, serve_state = await chat.stream_local_reply(
                 agent.id, user_text, user_id=mem_user_id, context_id=req_context_id
             )
         except ValueError as exc:
@@ -355,16 +443,7 @@ async def exposed_agent_a2a(
             reply = "".join(acc)
         except Exception as exc:
             return a2a_error(rpc_id, -32000, f"로컬 에이전트 실행 실패({type(exc).__name__})")
-        return a2a_result(
-            rpc_id,
-            {
-                "role": "agent",
-                "parts": [{"kind": "text", "text": reply}],
-                "messageId": uuid.uuid4().hex,
-                **({"contextId": reply_context_id} if reply_context_id else {}),
-                "kind": "message",
-            },
-        )
+        return _send_result(rpc_id, reply, reply_context_id, serve_state)
 
     if method == "message/stream":
         task_id = uuid.uuid4().hex
@@ -385,9 +464,29 @@ async def exposed_agent_a2a(
                 yield f"data: {json.dumps(err, ensure_ascii=False)}\n\n"
                 yield "data: [DONE]\n\n"
                 return
-            yield a2a_status_event(
-                rpc_id, task_id, "", final=True, state="completed", context_id=reply_context_id
-            )
+            if serve_state.get("approval"):
+                ap = serve_state["approval"]
+                yield a2a_status_event(
+                    rpc_id,
+                    task_id,
+                    f"⏸ 승인 대기: {ap['action']} (approvalId={ap['id']})",
+                    final=True,
+                    state="input-required",
+                    context_id=reply_context_id,
+                )
+            elif serve_state.get("error"):
+                yield a2a_status_event(
+                    rpc_id,
+                    task_id,
+                    str(serve_state["error"]),
+                    final=True,
+                    state="failed",
+                    context_id=reply_context_id,
+                )
+            else:
+                yield a2a_status_event(
+                    rpc_id, task_id, "", final=True, state="completed", context_id=reply_context_id
+                )
             yield "data: [DONE]\n\n"
 
         return StreamingResponse(event_stream(), media_type="text/event-stream")
