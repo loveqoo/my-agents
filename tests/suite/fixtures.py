@@ -43,7 +43,9 @@ PROMPT = (
 
 
 def _hash(cfg: dict) -> str:
-    return hashlib.sha256(json.dumps(cfg, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:12]
+    return hashlib.sha256(json.dumps(cfg, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[
+        :12
+    ]
 
 
 def doc_tool(collection: str) -> str:
@@ -69,7 +71,9 @@ def pick_from(ms: list[dict]) -> tuple[dict, dict]:
             return hit[0]
         pool.sort(key=lambda m: not m["is_default"])  # 기본값 우선
         if not pool:
-            raise RuntimeError(f"실모델(kind={kind}, provider_kind != mock)이 없습니다 — 모델을 등록하세요.")
+            raise RuntimeError(
+                f"실모델(kind={kind}, provider_kind != mock)이 없습니다 — 모델을 등록하세요."
+            )
         return pool[0]
 
     return _pick("chat", "SUITE_CHAT_MODEL"), _pick("embedding", "SUITE_EMBED_MODEL")
@@ -87,15 +91,21 @@ async def ensure_collection(c: httpx.AsyncClient, embed_model: dict, _retry: boo
     이 검색이 실 임베딩 추론 1회를 겸한다(codex #9 — 임베딩 딥 핑)."""
     cols = (await c.get("/collections")).json()
     col = next((x for x in cols if x["name"] == KB_NAME), None)
-    if col is not None and str(col.get("embedding_model_id") or "") not in ("", str(embed_model["id"])):
+    if col is not None and str(col.get("embedding_model_id") or "") not in (
+        "",
+        str(embed_model["id"]),
+    ):
         await c.delete(f"/collections/{col['id']}")
         col = None
     if col is None:
-        r = await c.post("/collections", json={
-            "name": KB_NAME,
-            "description": "스펙 288 조합 스위트 검색 픽스처 (자동 생성 — 삭제해도 부트스트랩이 복원)",
-            "embedding_model_id": str(embed_model["id"]),
-        })
+        r = await c.post(
+            "/collections",
+            json={
+                "name": KB_NAME,
+                "description": "스펙 288 조합 스위트 검색 픽스처 (자동 생성 — 삭제해도 부트스트랩이 복원)",
+                "embedding_model_id": str(embed_model["id"]),
+            },
+        )
         r.raise_for_status()
         col = r.json()
     if not col.get("chunk_count"):
@@ -132,17 +142,29 @@ async def ensure_memory_seed() -> str:
         if PREF_TOKEN not in (m.get("text") or "") and m.get("id"):
             memory.delete_memory(m["id"], mem_cfg)
     if any(PREF_TOKEN in (m.get("text") or "") for m in existing):
-        return "reused"
+        # reused 자가검사(스펙 389 위생, 회고 389): 텍스트 존재 ≠ 벡터 유효 — 임베더가 바뀌었으면
+        # (mock↔실모델 교체 등) 저장 벡터가 현 임베더 공간과 어긋나 회상 불능인데 "reused"로
+        # 조용히 통과해 기억 시나리오 전멸을 만들었다. 회상 실증 실패 시 지우고 재시드.
+        probe = memory.search(scope, "커피 취향", mem_cfg)
+        if any(PREF_TOKEN in (h.get("text") or "") for h in probe or []):
+            return "reused"
+        for m in existing:
+            if m.get("id"):
+                memory.delete_memory(m["id"], mem_cfg)
     # infer=False — 이미 정제된 한 줄 사실(스펙 029 저작 경로와 동일). 실패는 조용히 무시되므로
     # 심은 뒤 재조회로 실제 저장을 확인한다(빈 초록 방지).
     memory.add(scope, [{"role": "user", "content": PREF_MEMORY}], mem_cfg, infer=False)
     after = memory.list_memories(scope, mem_cfg)
     if not any(PREF_TOKEN in (m.get("text") or "") for m in after):
-        raise RuntimeError("기억 픽스처 저장 실패 — mem0 백엔드가 준비되지 않았습니다(프리플라이트 확인).")
+        raise RuntimeError(
+            "기억 픽스처 저장 실패 — mem0 백엔드가 준비되지 않았습니다(프리플라이트 확인)."
+        )
     return "seeded"
 
 
-async def _ensure_agent(c: httpx.AsyncClient, name: str, cfg: dict, counts: dict, *, serve: bool = False) -> dict:
+async def _ensure_agent(
+    c: httpx.AsyncClient, name: str, cfg: dict, counts: dict, *, serve: bool = False
+) -> dict:
     """이름으로 찾고 config 해시가 같으면 재사용, 다르면 삭제 후 재생성.
 
     serve=True면 v1을 활성화해 서빙 상태로 만든다 — 로컬 위임(브로커) 후보는 활성 버전 보유가
@@ -192,67 +214,121 @@ async def ensure_all(c: httpx.AsyncClient) -> dict[str, Any]:
     agents: dict[str, dict] = {}
 
     # serve=True: 조율형 위임 대상은 활성 버전 보유(서빙 중)가 조건(스펙 256).
-    agents["direct"] = await _ensure_agent(c, "suite-direct", {
-        **base,
-        "mcps": ["local-tools"],
-        "tools": [TOOL_ECHO, TOOL_SEARCH, TOOL_DELETE],
-        "memories": [MEM_LONG],
-        "vectorTables": [KB_NAME],
-    }, counts, serve=True)
+    agents["direct"] = await _ensure_agent(
+        c,
+        "suite-direct",
+        {
+            **base,
+            "mcps": ["local-tools"],
+            "tools": [TOOL_ECHO, TOOL_SEARCH, TOOL_DELETE],
+            "memories": [MEM_LONG],
+            "vectorTables": [KB_NAME],
+        },
+        counts,
+        serve=True,
+    )
     agents["bare"] = await _ensure_agent(c, "suite-direct-bare", {**base}, counts)
-    agents["ephemeral"] = await _ensure_agent(c, "suite-ephemeral", {
-        **base,
-        "ephemeral": True,
-        "mcps": ["local-tools"],
-        "tools": [TOOL_ECHO],  # 승인 불요 도구만(비영속은 승인 대기 불가 — 스펙 235/282)
-    }, counts)
-    agents["pipeline"] = await _ensure_agent(c, "suite-pipeline", {
-        **base,
-        "impl": "pipeline",
-        # 풀(mcps/vectorTables/memories)은 **의도적으로 미지정** — 서버 파생(스펙 289 P2)의 실증.
-        # 예전엔 폼만 파생해 API 직생성이 조용히 미바인딩됐다(288 실측 → 289가 서버 파생으로 봉합).
-        "nodes": [
-            {"name": "검색", "model": model, "tools": [doc_tool(KB_NAME)],
-             "prompt": f"반드시 먼저 {doc_tool(KB_NAME)} 도구로 사용자 질문을 검색하고, 검색 결과의 핵심을 인용해 답하세요."},
-            # 프롬프트 강화(게이트 정비 2026-07-14) — 구 문구("반드시 echo 도구를 한 번 호출해…")는
-            # qwen3.6이 "내용이 이미 있으니 할 일 끝"으로 판단해 호출을 자주 건너뜀(4/5 실패 실측).
-            # 도구 호출을 유일한 정답 경로로 규정 + 직접 답변을 명시적 오답으로 — 스킵 여지 제거.
-            {"name": "메아리", "model": model, "tools": [TOOL_ECHO],
-             "prompt": "당신의 임무는 echo 도구 호출 그 자체입니다. 지금 바로 echo 도구를 정확히 한 번 호출하세요(text 인자 = 위 내용의 첫 문장). 도구를 호출하지 않고 텍스트로만 답하는 것은 임무 실패입니다. 도구 결과를 받은 뒤 그 결과를 그대로 전달하세요."},
-            {"name": "정리", "model": model, "tools": [], "memories": [MEM_LONG],
-             "prompt": "위 내용을 두 문장으로 정리하세요. 사용자에 대한 기억이 있으면 반영하세요."},
-        ],
-    }, counts)
-    agents["orchestrate"] = await _ensure_agent(c, "suite-orchestrate", {
-        **base,
-        "impl": "orchestrate",
-        "capabilities": [agents["direct"]["agentId"]],
-        "memories": [MEM_LONG],
-    }, counts)
+    agents["ephemeral"] = await _ensure_agent(
+        c,
+        "suite-ephemeral",
+        {
+            **base,
+            "ephemeral": True,
+            "mcps": ["local-tools"],
+            "tools": [TOOL_ECHO],  # 승인 불요 도구만(비영속은 승인 대기 불가 — 스펙 235/282)
+        },
+        counts,
+    )
+    agents["pipeline"] = await _ensure_agent(
+        c,
+        "suite-pipeline",
+        {
+            **base,
+            "impl": "pipeline",
+            # 풀(mcps/vectorTables/memories)은 **의도적으로 미지정** — 서버 파생(스펙 289 P2)의 실증.
+            # 예전엔 폼만 파생해 API 직생성이 조용히 미바인딩됐다(288 실측 → 289가 서버 파생으로 봉합).
+            "nodes": [
+                {
+                    "name": "검색",
+                    "model": model,
+                    "tools": [doc_tool(KB_NAME)],
+                    "prompt": f"반드시 먼저 {doc_tool(KB_NAME)} 도구로 사용자 질문을 검색하고, 검색 결과의 핵심을 인용해 답하세요.",
+                },
+                # 프롬프트 강화(게이트 정비 2026-07-14) — 구 문구("반드시 echo 도구를 한 번 호출해…")는
+                # qwen3.6이 "내용이 이미 있으니 할 일 끝"으로 판단해 호출을 자주 건너뜀(4/5 실패 실측).
+                # 도구 호출을 유일한 정답 경로로 규정 + 직접 답변을 명시적 오답으로 — 스킵 여지 제거.
+                {
+                    "name": "메아리",
+                    "model": model,
+                    "tools": [TOOL_ECHO],
+                    "prompt": "당신의 임무는 echo 도구 호출 그 자체입니다. 지금 바로 echo 도구를 정확히 한 번 호출하세요(text 인자 = 위 내용의 첫 문장). 도구를 호출하지 않고 텍스트로만 답하는 것은 임무 실패입니다. 도구 결과를 받은 뒤 그 결과를 그대로 전달하세요.",
+                },
+                {
+                    "name": "정리",
+                    "model": model,
+                    "tools": [],
+                    "memories": [MEM_LONG],
+                    "prompt": "위 내용을 두 문장으로 정리하세요. 사용자에 대한 기억이 있으면 반영하세요.",
+                },
+            ],
+        },
+        counts,
+    )
+    agents["orchestrate"] = await _ensure_agent(
+        c,
+        "suite-orchestrate",
+        {
+            **base,
+            "impl": "orchestrate",
+            "capabilities": [agents["direct"]["agentId"]],
+            "memories": [MEM_LONG],
+        },
+        counts,
+    )
     # ranked 전략(스펙 102) — lexical 겹침 0 후보를 select서 탈락시키는 유일한 전략(289 P3 사유 시나리오용).
-    agents["orch_ranked"] = await _ensure_agent(c, "suite-orchestrate-ranked", {
-        **base,
-        "impl": "orchestrate_ranked",
-        "capabilities": [agents["direct"]["agentId"]],
-    }, counts)
+    agents["orch_ranked"] = await _ensure_agent(
+        c,
+        "suite-orchestrate-ranked",
+        {
+            **base,
+            "impl": "orchestrate_ranked",
+            "capabilities": [agents["direct"]["agentId"]],
+        },
+        counts,
+    )
     # 미서빙 위임 대상(스펙 289 P3) — bare는 초안-only(serve 안 함)라 브로커 후보에서 제외된다.
-    agents["orch_dead"] = await _ensure_agent(c, "suite-orchestrate-dead", {
-        **base,
-        "impl": "orchestrate",
-        "capabilities": [agents["bare"]["agentId"]],
-    }, counts)
-    agents["route"] = await _ensure_agent(c, "suite-route", {
-        **base,
-        "impl": "route",
-        "memories": [MEM_LONG],
-    }, counts)
-    agents["plan"] = await _ensure_agent(c, "suite-plan-execute", {
-        **base,
-        "impl": "plan_execute",
-        "mcps": ["local-tools"],
-        "tools": [TOOL_ECHO, TOOL_SEARCH],
-        "vectorTables": [KB_NAME],
-    }, counts)
+    agents["orch_dead"] = await _ensure_agent(
+        c,
+        "suite-orchestrate-dead",
+        {
+            **base,
+            "impl": "orchestrate",
+            "capabilities": [agents["bare"]["agentId"]],
+        },
+        counts,
+    )
+    agents["route"] = await _ensure_agent(
+        c,
+        "suite-route",
+        {
+            **base,
+            "impl": "route",
+            "memories": [MEM_LONG],
+        },
+        counts,
+    )
+    agents["plan"] = await _ensure_agent(
+        c,
+        "suite-plan-execute",
+        {
+            **base,
+            "impl": "plan_execute",
+            "mcps": ["local-tools"],
+            "tools": [TOOL_ECHO, TOOL_SEARCH],
+            "vectorTables": [KB_NAME],
+        },
+        counts,
+    )
 
     return {
         "agents": agents,

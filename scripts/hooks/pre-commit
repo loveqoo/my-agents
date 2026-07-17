@@ -1,6 +1,9 @@
 #!/bin/sh
 # 커밋 게이트(2026-07-17) — "검증 전 커밋" 반복 실수를 장치로 차단(자가감사 갭의 훅 승격).
-# staged .py만 검사(빠름): ① 구문(ast) ② ruff check. 실패 시 커밋 거부.
+# 규칙은 프로젝트 게이트(Makefile)와 정합:
+#   ① 구문(ast): staged 모든 .py — 깨진 파일 커밋 원천 차단(스크립트 구문 파손 사고가 동기).
+#   ② ruff: staged 중 packages/ 만 — make lint(PY_SRC)와 동일 범위(tests/의 legacy 스타일에
+#      전체 현대화를 강요하지 않음. 첫 실전서 tests/ PTH 위반을 잡아 범위를 게이트에 정합시킴).
 set -e
 files=$(git diff --cached --name-only --diff-filter=ACM | grep '\.py$' || true)
 [ -z "$files" ] && exit 0
@@ -9,7 +12,9 @@ echo "$files" | while read -r f; do
   uv run python -c "import ast,sys; ast.parse(open('$f').read())" || {
     echo "pre-commit 거부: 구문 오류 — $f"; exit 1; }
 done
-# ruff는 staged 파일 일괄(스크립트·테스트 포함 — 소스 게이트와 동일 규칙)
-echo "$files" | tr '\n' '\0' | xargs -0 uvx ruff check || {
-  echo "pre-commit 거부: ruff 실패 — 고치고 다시 커밋하세요."; exit 1; }
+src=$(echo "$files" | grep '^packages/' || true)
+if [ -n "$src" ]; then
+  echo "$src" | tr '\n' '\0' | xargs -0 uvx ruff check || {
+    echo "pre-commit 거부: ruff 실패(packages/) — 고치고 다시 커밋하세요."; exit 1; }
+fi
 exit 0

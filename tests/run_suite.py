@@ -59,8 +59,6 @@ KNOWN_DRIFT: dict[str, str] = {
     "verify_178_member_eval_ownership.py": "노후: eval 라우트 Query 시그니처(expected str got Query)",
     "verify_193_eval_ux.py": "노후: eval UX 라우트 Query 시그니처(expected str got Query)",
     "verify_329_residual_removal.py": "노후: 플랜 데모 잔여 제거 기대치 드리프트(캠페인 무관)",
-    "verify_345_seed_actor.py": "환경: 처녀 DB 전제(빈 DB 필요) — 상시 그물엔 부적합, 초기화 검증 전용",
-    "verify_059_integration.py": "환경: '모든 컬렉션=mock-embed' 불변식이 다른 테스트 잔여 컬렉션에 취약(깨끗한 부팅 전제)",
     # --- http 층 드리프트(2026-07-16 test-all hygiene 실측). 전부 캠페인 374(리팩터)와 무관 —
     #     baseline(2fbd224) 동일 실패 또는 데이터/환경 전제. 리팩터가 낸 회귀(rag 재수출·151·347)는
     #     별도로 고쳐 그물에 복귀. 아래는 사전존재 드리프트라 사유 달아 격리(고치면 여기서 지운다).
@@ -73,8 +71,7 @@ KNOWN_DRIFT: dict[str, str] = {
     "verify_244_version_ops.py": "노후: 버전 ops eval 집계 드리프트(runs/score None, baseline 동일)",
     "verify_318_node_agent_call.py": "노후/전제: virgin DB에서도 실패(스펙385 실측). brokerCalls 단언이 시드 외 전제(실 principal 등)를 요구",
     "verify_369_block_versioning.py": "환경: http 상태 오염 취약(단독 통과, test-all 순서서 실패)",
-    "verify_158_recall_diag.py": "환경: mock 임베더 전제(기본 threshold서 회상 0=옛 증상 재현 단언)가 실모델 기본값(스펙 389 복원)에선 진짜 유사도로 3건 회상돼 깨짐 — mock cfg 고정으로 재작성 후보",
-    "verify_068_live.py": "인프라: D6 member resume가 'connection is closed'로 500(baseline 동일·사전존재, ctx dict→DTO는 봉합). 별도 조사(asyncpg 커넥션 수명)",
+    "verify_068_live.py": "인프라: D6 member resume 실패 지속(초기화 후에도 재현 — 해제 시도 실측 실패, 2026-07-17). asyncpg 커넥션 수명 별도 조사 유지",
     # --- http 층 triage(2026-07-16 스펙 384). 전부 테스트 쪽(앱 결함 아님) — 공유 라이브 DB 격리
     #     하네스(백로그 대형)가 근본 해결. baseline(2fbd224) 동일 실패=사전존재. 개별 전제 추격은
     #     두더지잡기라 정직한 사유로 격리(부채 가시화). 순수 드리프트 verify_047은 고쳐 그물 복귀.

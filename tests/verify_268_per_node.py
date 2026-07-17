@@ -169,7 +169,7 @@ async def main():
                 "prompt": "P1",
                 "model_cfg": MODEL_CFG,
                 "tools": [],
-                "memories": ["단기(세션)"],
+                "memories": ["장기 기억 (mem0)"],
             },
             {"name": "n2", "prompt": "P2", "model_cfg": MODEL_CFG, "tools": []},  # 기억 미선택
             {
@@ -177,7 +177,7 @@ async def main():
                 "prompt": "P3",
                 "model_cfg": MODEL_CFG,
                 "tools": [],
-                "memories": ["단기(세션)"],
+                "memories": ["장기 기억 (mem0)"],
                 "memoryQuery": "input",
             },
         ]
@@ -268,10 +268,12 @@ async def main():
     from api.schemas import AgentConfig
 
     n = AgentConfig(
-        nodes=[{"prompt": "p", "memories": ["단기(세션)", 3], "memoryQuery": "input", "evil": 1}]
+        nodes=[
+            {"prompt": "p", "memories": ["장기 기억 (mem0)", 3], "memoryQuery": "input", "evil": 1}
+        ]
     ).nodes
     check(
-        n[0].get("memories") == ["단기(세션)"]
+        n[0].get("memories") == ["장기 기억 (mem0)"]
         and n[0].get("memoryQuery") == "input"
         and "evil" not in n[0],
         f"스키마: memories/memoryQuery 보존·잡 원소·임의 키 드롭 (got {n[0]})",

@@ -61,6 +61,51 @@ class _Super:
     email = "clean-test-agents@local"
 
 
+# 블록 누수 패턴(스펙 389 위생) — verify가 만드는 모델/프로바이더/컬렉션 잔재(크래시 시 잔존).
+# agents와 동일 규율: KEEP은 실자산(시드+실모델), 패턴은 테스트 접두만.
+BLOCK_LEAK_PATTERNS = [r"^_verify", r"^v\d{3}[-_]", r"^ui\d{3}-"]  # suite-kb는 상주 픽스처(KEEP)
+BLOCK_KEEP = {
+    "mock-llm",
+    "mock-embed",
+    "qwen3.6-35b",
+    "e5-large-mlx",
+    "Mock LLM",
+    "MLX",
+    "docs-kb",
+    "product-titles",
+    "team-notes",
+}
+
+
+def is_block_leak(name: str | None) -> bool:
+    n = name or ""
+    if n in BLOCK_KEEP:
+        return False
+    return any(re.match(p, n) for p in BLOCK_LEAK_PATTERNS)
+
+
+async def sweep_blocks(c: "httpx.AsyncClient", apply: bool) -> None:
+    """모델→프로바이더→컬렉션 순 스윕(모델이 provider를 참조하므로 순서 중요). 정식 라우트 경유
+    (참조 가드가 있는 자원은 409로 스스로 보호 — 라우트가 안전핀)."""
+    for path, label in (
+        ("/models", "model"),
+        ("/providers", "provider"),
+        ("/collections", "collection"),
+    ):
+        rows = (await c.get(path)).json()
+        rows = rows if isinstance(rows, list) else rows.get("items", [])
+        for row in rows:
+            if not is_block_leak(row.get("name")):
+                continue
+            if not apply:
+                print(f"  would-DEL {label}  {row['name']}")
+                continue
+            r = await c.delete(f"{path}/{row['id']}")
+            print(
+                f"  {'DEL ' if r.status_code in (200, 204) else f'FAIL({r.status_code})'} {label}  {row['name']}"
+            )
+
+
 async def main(apply: bool) -> int:
     app.dependency_overrides[current_principal] = lambda: _Super()
     async with SessionLocal() as s:
@@ -73,6 +118,12 @@ async def main(apply: bool) -> int:
     for _, n in sorted(targets, key=lambda t: t[1]):
         print(f"  {'DEL ' if apply else 'would-DEL'}  {n}")
     if not apply:
+        auth = {"Authorization": f"Bearer {_token()}"}
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://t", headers=auth, timeout=60
+        ) as c2:
+            print("블록(모델/프로바이더/컬렉션) 누수 스윕(dry):")
+            await sweep_blocks(c2, apply)
         print("\n(dry-run — 지우지 않음. 실제 삭제는 --apply)")
         return 0
     if not targets:
@@ -81,7 +132,9 @@ async def main(apply: bool) -> int:
     auth = {"Authorization": f"Bearer {_token()}"}
     ok, fail = 0, []
     transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://t", headers=auth, timeout=60) as c:
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://t", headers=auth, timeout=60
+    ) as c:
         for aid, name in targets:
             r = await c.delete(f"/agents/{aid}")
             if r.status_code in (200, 204):
@@ -92,6 +145,11 @@ async def main(apply: bool) -> int:
     if fail:
         print("실패:", fail[:10])
         return 1
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://t", headers=auth, timeout=60
+    ) as c2:
+        print("블록(모델/프로바이더/컬렉션) 누수 스윕:")
+        await sweep_blocks(c2, apply)
     return 0
 
 

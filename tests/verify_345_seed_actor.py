@@ -11,6 +11,10 @@
      created_by가 있어야 한다 — 다음 데이터 마이그레이션이 같은 함정에 빠지지 않게.
 
 실행: uv run python tests/_throwaway_db.py tests/verify_345_seed_actor.py   (virgin DB)
+
+
+실행(스펙 389 위생): 본 검증은 **virgin DB 전제**라 run_suite가 `_throwaway_db.py`로 감싸 실행한다
+(마커 규약, 스펙 370) — 라이브 DB 상태와 무관하게 항상 결정적.
 """
 
 import asyncio
@@ -28,11 +32,33 @@ _fails: list[str] = []
 passed = 0
 
 OWNED = [
-    "agents", "agent_versions", "allowed_hosts", "app_settings", "approvals", "batch_config",
-    "batch_runs", "collection_reindex_events", "collections", "document_blobs", "documents",
-    "eval_case_results", "eval_cases", "eval_datasets", "eval_runs", "mcp_servers",
-    "memory_snapshots", "memory_types", "message_feedback", "messages", "models",
-    "node_templates", "prompts", "providers", "rag_chunks", "roles", "sessions",
+    "agents",
+    "agent_versions",
+    "allowed_hosts",
+    "app_settings",
+    "approvals",
+    "batch_config",
+    "batch_runs",
+    "collection_reindex_events",
+    "collections",
+    "document_blobs",
+    "documents",
+    "eval_case_results",
+    "eval_cases",
+    "eval_datasets",
+    "eval_runs",
+    "mcp_servers",
+    "memory_snapshots",
+    "memory_types",
+    "message_feedback",
+    "messages",
+    "models",
+    "node_templates",
+    "prompts",
+    "providers",
+    "rag_chunks",
+    "roles",
+    "sessions",
 ]
 
 
