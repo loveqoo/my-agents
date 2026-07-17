@@ -5,7 +5,7 @@
    - 장기 기억 = mem0 회상 블록(269 이후 단일 옵션). 노드는 회상 키워드(memoryQuery)까지, 에이전트는
      비영속 게이트(ephemeral)까지 — 성격차는 prop으로 흡수하되 라벨·옵션은 공유.
    밀도(variant): 밀도만 다르고 의미는 동일(안 B — facet별 공용 컨트롤). */
-import { Select, Segmented } from 'antd'
+import { Checkbox, Select, Segmented } from 'antd'
 
 const HELP = { fontSize: 12, color: 'var(--color-text-tertiary)' } as const
 const LABEL = { fontSize: 13, color: 'var(--color-text)', fontWeight: 500 } as const
@@ -70,19 +70,34 @@ export function LongTermMemoryField({
   // 비영속 미선택-잠금(에이전트, codex 238 #1): 새 선택만 막고(옵션별 disabled) 기선택은 해제 가능 —
   // "선택했는데 무동작" 함정과 "해제 불가" 모순을 동시에 피한다. 노드는 ephemeral 없음(무영향).
   const effOptions = ephemeral ? options.map((o) => ({ ...o, disabled: !value.includes(o.value) })) : options
+  // 단일 블록이면 체크박스(스펙 387 후속, 구남님 제안) — 실동작 기억 블록이 "장기 기억 (mem0)"
+  // 하나뿐이라 다중 선택은 과함. 블록이 늘면(어드민 CRUD) 기존 다중 Select로 자동 복귀.
+  const single = options.length === 1 ? options[0] : null
+  const singleChecked = single !== null && value.includes(single.value)
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       <span style={LABEL}>장기 기억</span>
-      <Select
-        mode="multiple"
-        allowClear
-        value={value}
-        onChange={onChange}
-        options={effOptions}
-        disabled={noOpts}
-        placeholder={noOpts ? '등록된 기억 없음' : ephemeral ? '비영속(1회성)은 기억을 쓰지 않습니다' : 'mem0 장기 기억에서 회상'}
-        style={{ width: '100%' }}
-      />
+      {single ? (
+        <Checkbox
+          checked={singleChecked}
+          // 비영속 미선택-잠금 미러: 새로 켜기는 막고, 켜져 있던 건 끌 수 있다.
+          disabled={ephemeral && !singleChecked}
+          onChange={(e) => onChange(e.target.checked ? [single.value] : [])}
+        >
+          {single.label} 사용
+        </Checkbox>
+      ) : (
+        <Select
+          mode="multiple"
+          allowClear
+          value={value}
+          onChange={onChange}
+          options={effOptions}
+          disabled={noOpts}
+          placeholder={noOpts ? '등록된 기억 없음' : ephemeral ? '비영속(1회성)은 기억을 쓰지 않습니다' : 'mem0 장기 기억에서 회상'}
+          style={{ width: '100%' }}
+        />
+      )}
       {ephemeral ? (
         <span style={HELP}>비영속(1회성) 에이전트는 기억을 회상·저장하지 않습니다.</span>
       ) : queryMode !== undefined && value.length > 0 ? (
