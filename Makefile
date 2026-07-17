@@ -3,7 +3,7 @@
 
 PY_SRC = packages/api/src packages/agent/src
 
-.PHONY: lint format format-check complexity maintainability naming typecheck suite metrics metrics-fast sweep-debris sweep-debris-apply clean-test-agents clean-test-agents-apply test test-unit test-all e2e perf-build
+.PHONY: lint format format-check complexity maintainability naming typecheck suite metrics metrics-fast sweep-debris sweep-debris-apply clean-test-agents clean-test-agents-apply reset-dev reset-dev-yes test test-unit test-all e2e perf-build
 
 lint:
 	uvx ruff check $(PY_SRC)
@@ -66,6 +66,12 @@ sweep-debris:
 
 sweep-debris-apply:
 	uv run python tests/sweep_debris.py --apply
+
+reset-dev:           # dev 초기화 계획만 출력(무해) — 절차·함정은 scripts/reset_dev.py 헤더
+	uv run python scripts/reset_dev.py
+
+reset-dev-yes:       # 실제 초기화(파괴적): 정지→DB drop→재기동→실모델 복원→검증 일괄
+	uv run python scripts/reset_dev.py --yes
 
 clean-test-agents:   # 도그푸딩 DB의 테스트-누수 에이전트 dry-run(시드 데모는 KEEP)
 	uv run --package api python tests/clean_test_agents.py
