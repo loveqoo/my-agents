@@ -83,6 +83,16 @@ async def main() -> int:
         transport=transport, base_url="http://t", headers=auth, timeout=180
     ) as c:
         try:
+            # ---- C1: 죽은 '단기(세션)' 옵션이 없다 — fresh DB(virgin 실행)에서도. 스펙 387이 라이브
+            # 행을 지웠지만 마이그레이션 c1d2e3f4a5b6이 데이터 시드로 부활시켰던 회귀(2026-07-17,
+            # DB 초기화 후 재등장)를 새 리비전 40079d14052f가 체인 끝 DELETE로 봉합 — 그 회귀 고정.
+            mts0 = (await c.get("/memory-types")).json()
+            check(
+                "C1 죽은 '단기(세션)' 옵션 부재(fresh DB 포함)",
+                all(x["name"] != "단기(세션)" for x in mts0),
+                f"현재 옵션={[x['name'] for x in mts0]}",
+            )
+
             # ---- 픽스처: mem0 켠 로컬 에이전트 + A2A 노출(자체 생성, v387- 접두 = 리퍼 패턴)
             r = await c.post(
                 "/agents",
