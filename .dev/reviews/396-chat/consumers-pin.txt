@@ -1,0 +1,20 @@
+packages/api/src/api/eval_suggest.py:16:from .chat import ChatContext, _load_context
+packages/api/src/api/approvals.py:15:from .chat import resume_approval
+packages/api/src/api/eval_runner.py:27:from .chat import ChatContext, _load_context, _window, resolve_agent_runtime
+tests/verify_057_connect_classification.py:146:    src = inspect.getsource(chat.chat)
+tests/verify_057_connect_classification.py:239:    a2a_src = inspect.getsource(chat._a2a_stream)
+tests/verify_147_visibility.py:138:        from api.chat import chat, ChatRequest
+tests/verify_049_session_retention_policy.py:33:from api.chat import _create_approval, _load_context, _persist  # noqa: E402
+tests/verify_268_per_node.py:62:    from api.chat import ChatContext, _MemoryRecallProxy, _rag_tools_for
+tests/verify_134_override_trace.py:19:from api.chat import _overrides_trace  # noqa: E402
+tests/verify_059_mock_default.py:149:    hsrc = inspect.getsource(chat._model_error_hint)
+tests/verify_318_node_agent_call.py:125:    from api.chat import derive_pipeline_pool
+tests/verify_287_node_overrides.py:35:    from api.chat import _merge_node_overrides, _overrides_trace
+tests/verify_058_first_run_robustness.py:159:    csrc = inspect.getsource(chat.chat)
+tests/verify_314_async_memory.py:33:from api.chat import chat  # noqa: E402
+tests/verify_316_node_library.py:46:    from api.chat import _NODE_OVERRIDE_FIELDS
+tests/verify_171_impl_drift_guard.py:16:from api.chat import _impl_drifted
+tests/verify_068_live.py:31:from api.chat import ChatContext, _create_approval  # noqa: E402
+tests/verify_131_inspector_detail.py:26:from api.chat import _broker_calls_trace  # noqa: E402
+tests/verify_131_inspector_detail.py:155:    from api.chat import _build_sent_messages
+tests/verify_270_history_window.py:39:    from api.chat import _HistoryWindowProxy, _to_base_messages
