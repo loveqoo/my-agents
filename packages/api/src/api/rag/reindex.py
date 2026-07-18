@@ -21,10 +21,10 @@ from ..schemas import (
     ReindexIn,
 )
 from ..serializers import collection_to_out
-from .shared import (
+from .embedding_models import _load_collection
+from .reindex_core import (
     _acquire_reindex_lock,
     _do_reindex,
-    _load_collection,
     _record_reindex_event,
     _reject_blobless_docs,
     _reject_if_reindexing,
@@ -32,8 +32,8 @@ from .shared import (
     _resolve_rechunk,
     _resolve_reindex_model,
     _set_collection_status,
-    router,
 )
+from .router import router
 
 
 @router.post("/{cid}/reindex", response_model=CollectionOut)

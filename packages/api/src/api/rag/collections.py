@@ -27,13 +27,10 @@ from ..schemas import (
     CollectionUpdate,
 )
 from ..serializers import collection_to_out
-from .shared import (
-    _check_entity_schema,
-    _load_collection,
-    _reject_if_reindexing,
-    _validate_embedding_model,
-    router,
-)
+from .embedding_models import _load_collection, _validate_embedding_model
+from .reindex_core import _reject_if_reindexing
+from .router import router
+from .schema_guards import _check_entity_schema
 
 
 @router.get("", response_model=list[CollectionOut])

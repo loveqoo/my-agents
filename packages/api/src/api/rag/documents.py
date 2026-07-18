@@ -28,18 +28,17 @@ from ..schemas import (
     DocumentPageOut,
 )
 from ..sqlutil import like_escape
-from .shared import (
-    MAX_UPLOAD_BYTES,
-    _content_length_guard,
+from .embedding_models import _load_collection
+from .ingest_core import (
     _doc_editable,
     _embed_chunks,
     _execute_ingest,
-    _load_collection,
     _load_editable_doc,
     _parse_entity_rows,
-    _reject_if_reindexing,
-    router,
 )
+from .limits import MAX_UPLOAD_BYTES, _content_length_guard
+from .reindex_core import _reject_if_reindexing
+from .router import router
 
 
 @router.get("/{cid}/documents", response_model=DocumentPageOut)

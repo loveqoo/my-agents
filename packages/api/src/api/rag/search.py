@@ -15,11 +15,9 @@ from ..schemas import (
     CollectionSearchOut,
     SearchHit,
 )
-from .shared import (
-    _load_collection,
-    resolve_search_collection,
-    router,
-)
+from .embedding_models import _load_collection
+from .router import router
+from .search_resolution import resolve_search_collection
 
 
 @router.post("/{cid}/search", response_model=CollectionSearchOut)
