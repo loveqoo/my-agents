@@ -117,7 +117,8 @@ async def t6_transport_gate():
 
 
 def t7_source_grep():
-    path = os.path.join(ROOT, "packages", "api", "src", "api", "runtime.py")
+    # 스펙 397: build_mcp_tools 정의는 runtime_mcp.py로 분할(파사드 runtime.py는 재수출만)
+    path = os.path.join(ROOT, "packages", "api", "src", "api", "runtime_mcp.py")
     src = open(path, encoding="utf-8").read()
     check("_CANNED" not in src, "T7: runtime.py에 _CANNED 0회(합성 폐기, 조건 ③)")
     check("def build_tools(" not in src, "T7: 동기 build_tools( 정의 0회(실연결로 대체)")
@@ -138,7 +139,9 @@ def t8_redirect_ssrf_guard():
         "T8: mcp_http_client_factory 클라이언트 follow_redirects=False(리다이렉트 미추종)",
     )
     rt = open(
-        os.path.join(ROOT, "packages", "api", "src", "api", "runtime.py"), encoding="utf-8"
+        # 스펙 397: 가드 팩토리 배선은 runtime_mcp.py(mcp_connection)로 분할
+        os.path.join(ROOT, "packages", "api", "src", "api", "runtime_mcp.py"),
+        encoding="utf-8",
     ).read()
     bl = open(
         # 스펙 393: _live_discover가 blocks_mcp_discovery.py로 분할(파사드 blocks.py는 재수출만)

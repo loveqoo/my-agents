@@ -205,7 +205,9 @@ def _hits_detail(results: list[dict], cap: int = 240) -> list[dict]:
     """히트별 표시 구조(스펙 191) — 인스펙터가 컬렉션·파일명·유사도·본문 프리뷰를 카드로 그릴 수 있게.
     본문 프리뷰는 **캡(cap자) + 비밀 마스킹**한다(브로커 resultPreview와 동일 규율, 087/092/125 —
     trace에 원문·비밀 누출 0)."""
-    from .runtime import _sanitize_preview
+    from .runtime_trace_safety import (
+        _sanitize_preview,  # 스펙 397: 정의 모듈로 하강(파사드 역참조 제거)
+    )
 
     out: list[dict] = []
     for hit in results:
@@ -268,7 +270,13 @@ def build_rag_tool(
     컬렉션을 골라 참조한다 — 기본값은 기존 단일 도구 이름(무회귀). calls_sink 기록도 이 이름을 실어
     인스펙터가 어느 컬렉션 검색인지 구분한다.
     """
-    from .runtime import _ERR_CAP, _RESULT_CAP, _redact_args, _sanitize_preview, _sink_from
+    from .runtime_trace_safety import (  # 스펙 397: 정의 모듈로 하강(파사드 역참조 제거)
+        _ERR_CAP,
+        _RESULT_CAP,
+        _redact_args,
+        _sanitize_preview,
+        _sink_from,
+    )
 
     names = ", ".join(c["name"] for c in collections)
     # 컬렉션별 임계값 맵 정규화(스펙 191 v2) — 배선된 컬렉션으로 한정, 값 0<x≤1만 유효.
