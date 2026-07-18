@@ -44,6 +44,7 @@ ACTION_WHITELIST = {
     "_acquire_reindex_lock",  # 컬렉션 status→reindexing UPDATE(배타 잠금 획득) — 획득 여부 반환
     "_try_become_leader",  # pg advisory lock 획득+커넥션 보유(스펙 348) — 리더 여부 반환
     "reload_schedules",  # 스케줄러 잡 재구성(cron 즉시 반영, 스펙 348) — 리더로 반영했는가 반환
+    "_start_auto_run",  # 자동 회귀 단건 시작(스펙 399) — EvalRun commit+spawn(실부수효과), 시작 여부 반환
 }
 
 

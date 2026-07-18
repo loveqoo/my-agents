@@ -73,7 +73,9 @@ async def activate_version(
     # 실패해도 오픈은 정상). 평가 게이트(367-E)가 추후 이 관문에 선다.
     from ..eval_routes import trigger_auto_regression
 
-    spawn(trigger_auto_regression(agent.id, principal))
+    # 오픈 이벤트의 버전을 명시 관통(스펙 399 버전 핀 완성형 — codex 적대: 태스크 실행 전 재오픈이
+    # 끼면 태스크가 나중 active를 캡처하는 race, 이벤트 버전을 인자로 고정).
+    spawn(trigger_auto_regression(agent.id, principal, opened_version=body.version))
     return await _reload_out(session, agent.id)
 
 
