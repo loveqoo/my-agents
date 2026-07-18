@@ -436,9 +436,13 @@ async def hil_graph_level() -> None:
     interrupted, _ = await _stream(
         graph, {"messages": [{"role": "user", "content": "delete_record"}]}, cfg
     )
+    # 스펙 177 P2 스키마: permission은 구조화(mcp.<server>.<tool>)·인가 판정은 approver 필드
+    # (_may_resolve와 동일 진실원). 구 "data.delete" 정적 문자열 단언은 화석(스펙 391 실측 정정).
     check(
-        interrupted is not None and interrupted.get("permission") == "data.delete",
-        "H6 위임 delete_record → interrupt(permission=data.delete)",
+        interrupted is not None
+        and interrupted.get("approver") == "admin"
+        and interrupted.get("action") == f"{MCP}.delete_record",
+        "H6 위임 delete_record → interrupt(approver=admin·action 정확)",
     )
     check(len(b.invocations) == 0, "H6 pause 시 invocations 0(승인 전 전송 부수효과 0 = 멱등)")
     _, text = await _stream(graph, Command(resume={"decision": "approve"}), cfg)

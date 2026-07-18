@@ -79,8 +79,6 @@ KNOWN_DRIFT: dict[str, str] = {
     "verify_037_rag_retrieval.py": "노후: virgin 서버에서도 StopIteration(스펙390 실측). 컬렉션 생성 플로우 노후+default 없는 next()",
     "verify_072_rag_search.py": "노후: virgin 서버서 이름규칙(148) 400은 수선(col-v072-), 잔여=ready 상태 단언 드리프트(검색 3건은 동작 — 스펙390 실측)",
     "verify_103_broker_rag.py": "노후: virgin 서버에서도 실패(스펙390 실측 — 오염 아님)",
-    "verify_101_broker_mcp.py": "드리프트: H6 delete→interrupt 미발동이 virgin 서버에서도 재현(스펙390 실측 — 환경 아님). 인프로세스 233은 통과 → 라이브-HTTP 경로 특이, 별도 조사 후보",
-    "verify_102_orchestration_strategy.py": "드리프트: H8/H10이 virgin 서버에서도 재현(스펙390 실측) — 101과 동근 후보",
     "verify_054_mcp_auth_at_rest.py": "노후: virgin 서버에서도 KeyError(스펙390 실측 — 오염 아님)",
     "verify_054_mcp_real_runtime.py": "환경: stdio transport 실 MCP 런타임 전제(T6, 서버 부재 시 실패)",
     "verify_084_memory_search.py": "노후: virgin DB에서도 hit 구조 단언 실패(스펙385 실측). {type,text,score,scope} shape가 현 응답과 어긋남",

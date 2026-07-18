@@ -311,8 +311,10 @@ async def integration() -> None:
         g_hil, {"messages": [{"role": "user", "content": "delete_record"}]}, cfg
     )
     check(
-        interrupted is not None and interrupted.get("permission") == "data.delete",
-        "H8 Ranked 위임 delete_record → interrupt(permission=data.delete)",
+        interrupted is not None
+        and interrupted.get("approver") == "admin"
+        and interrupted.get("action", "").endswith(".delete_record"),
+        "H8 Ranked 위임 delete_record → interrupt(approver=admin, 스펙 177 스키마)",
     )
     check(
         len(b_hil.invocations) == 0,
@@ -341,7 +343,9 @@ async def integration() -> None:
     cfg_m = {"configurable": {"thread_id": "v102-h10"}}
     interrupted_m, _ = await _stream(g_mix, {"messages": [{"role": "user", "content": " "}]}, cfg_m)
     check(
-        interrupted_m is not None and interrupted_m.get("permission") == "data.delete",
+        interrupted_m is not None
+        and interrupted_m.get("approver") == "admin"
+        and interrupted_m.get("action", "").endswith(".delete_record"),
         "H10 혼합 위임서 승인요구 delete_record가 interrupt(순서 무관)",
     )
     check(
