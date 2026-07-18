@@ -49,7 +49,7 @@ KNOWN_DRIFT: dict[str, str] = {
     #     나머지는 캠페인 모듈을 import조차 안 함. eval 스위트가 무더기로 노후(스키마·라우트 표면 변경).
     #     (verify_049는 스펙 382에서 해제 — _create_approval user_id 미갱신+ctx dict→DTO 동반 봉합.)
     "verify_083_expose_gate.py": "노후: expose 게이트 기대치 드리프트(캠페인 무관)",
-    "verify_122_orchestrator_override_capabilities.py": "노후: 오케스트레이터 오버라이드 표면 변경",
+    "verify_122_orchestrator_override_capabilities.py": "노후: B1이 모델 없는 에이전트+오버라이드서 400(스펙 290 거절 조건이 None==None 매칭 — HEAD 재현, 스펙 394 실측). 소스 단언은 394서 값 단언으로 갱신",
     "verify_127_paged_memory.py": "노후: InMemoryBackend.add() 시그니처 변경 미반영",
     "verify_137_eval_crud.py": "노후: eval 라우트 Query 시그니처 변경(expected str got Query)",
     "verify_137_eval_runner.py": "노후: eval 러너 스키마 드리프트",

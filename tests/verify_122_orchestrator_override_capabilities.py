@@ -109,11 +109,13 @@ def unit_broker_caller_scoped() -> None:
         len(params) >= 2 and params[0] in ("principal", "user", "caller"),
         f"build_broker 첫 인자=principal(호출자 스코프, got {params[:2]})",
     )
-    # chat.py가 capabilities를 오버라이드 허용목록에 담았는지(스펙 122 핵심 변경) 소스 확인.
-    src = inspect.getsource(chat._load_context)
+    # 오버라이드 허용목록에 capabilities 포함(스펙 122 핵심 변경) — 스펙 394 분할로 allowlist가
+    # chat_context_loader._OVERRIDE_ALLOWED 상수가 됨(소스 문자열 검사보다 강한 값 단언).
+    from api.chat_context_loader import _OVERRIDE_ALLOWED
+
     check(
-        '"capabilities"' in src and "allowed = {" in src,
-        "chat._load_context 허용목록에 capabilities 포함(스펙 122)",
+        "capabilities" in _OVERRIDE_ALLOWED,
+        "오버라이드 허용목록(_OVERRIDE_ALLOWED)에 capabilities 포함(스펙 122)",
     )
 
 
