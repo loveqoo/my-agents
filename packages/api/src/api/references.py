@@ -117,3 +117,22 @@ def referenced_message(refs: list[dict[str, str]], resource: str, action: str = 
         f"이 {resource}을(를) {len(refs)}개 에이전트가 사용 중이라 {action}할 수 없습니다: "
         f"{names}. 먼저 각 에이전트에서 해제한 뒤 {action}하세요."
     )
+
+
+async def agents_referencing_mcp_tools(
+    session: AsyncSession, server_name: str, removed_tools: list[str]
+) -> list[dict[str, str]]:
+    """제거될 MCP 도구(`mcp:{서버}/{도구}` capability)를 *활성* config가 참조하는 에이전트 목록.
+
+    재탐색 도구-제거 가드(스펙 393에서 blocks 밖으로 상향 — 삭제/rename 가드와 같은 참조 가족).
+    capability 문자열 규칙은 여기 한 곳에만 둔다(codex 393: blocks 내부 스캔은 규칙 산개)."""
+    wanted = {f"mcp:{server_name}/{t}" for t in removed_tools}
+    agents = list((await session.execute(select(Agent))).scalars().all())
+    refs: list[dict[str, str]] = []
+    for agent in agents:
+        caps = (agent.config or {}).get("capabilities") if isinstance(agent.config, dict) else None
+        # 문자열만 집합화(codex 393 P2) — 오염/레거시 config에 dict 등 unhashable이 섞이면 구 코드
+        # (any-in)는 무시했는데 set(caps)는 TypeError로 재탐색 전체를 500으로 죽인다. 의미 보존 필터.
+        if isinstance(caps, list) and wanted & {c for c in caps if isinstance(c, str)}:
+            refs.append({"agent": agent.name, "where": "active"})
+    return refs

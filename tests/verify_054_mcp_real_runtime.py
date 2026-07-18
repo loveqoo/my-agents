@@ -141,7 +141,9 @@ def t8_redirect_ssrf_guard():
         os.path.join(ROOT, "packages", "api", "src", "api", "runtime.py"), encoding="utf-8"
     ).read()
     bl = open(
-        os.path.join(ROOT, "packages", "api", "src", "api", "blocks.py"), encoding="utf-8"
+        # 스펙 393: _live_discover가 blocks_mcp_discovery.py로 분할(파사드 blocks.py는 재수출만)
+        os.path.join(ROOT, "packages", "api", "src", "api", "blocks_mcp_discovery.py"),
+        encoding="utf-8",
     ).read()
     check("mcp_http_client_factory" in rt, "T8: runtime.build_mcp_tools가 가드 팩토리 배선")
     check("mcp_http_client_factory" in bl, "T8: blocks.discover가 가드 팩토리 배선")
