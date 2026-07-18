@@ -1,9 +1,9 @@
 """평가 실행 러너 — 오염 제로 에이전트 턴 + 관측 union (스펙 137 단계 ②).
 
 `chat()` 재사용은 불가(persistHistory=False여도 세션 lazy-create·turns 갱신·자동 memory.add가
-발생 — 137 조사 확정). 이 러너는 `stream_local_reply`(A2A 서빙용 순수 컴퓨트) 골격에
+발생 — 137 조사 확정). 이 러너는 `prepare_serve_turn`(A2A 서빙용 순수 컴퓨트) 골격에
 `event_stream`의 **관측 수집부**(updates 노드·calls_sink·broker invocations)를 이식하고
-**build_broker를 주입**(조율형 위임 채점 지원 — stream_local_reply엔 없어 위임이 안 돌았음)한다.
+**build_broker를 주입**(조율형 위임 채점 지원 — 서빙 경로엔 없어 위임이 안 돌았음)한다.
 `_persist`·`memory.add`는 절대 호출하지 않는다(오염 제로). 메모리 **회상(search)은 수행** —
 읽기 전용이라 무오염이며, 직접형의 memory 사용 채점(`memory:used` 토큰)의 근거가 된다.
 checkpointer=None — HIL 게이트 cap은 interrupt가 예외로 떨어져 error 관측(평가 중 승인 대기 없음).

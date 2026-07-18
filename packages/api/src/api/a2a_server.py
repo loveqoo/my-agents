@@ -2,7 +2,7 @@
 
 `exposed.a2a=True`인 로컬 에이전트를 well-known Agent Card + JSON-RPC(message/send·stream)로 노출해,
 우리 자신의 에이전트를 A2A로 등록·테스트(dogfood)할 수 있게 한다. canned mock(mock_remote)이 아니라
-**실 로컬 LangGraph 런타임**(chat.stream_local_reply)을 그대로 돌린다.
+**실 로컬 LangGraph 런타임**(chat.prepare_serve_turn — LocalServeTurn)을 그대로 돌린다.
 
 라우터는 **전역 인증 없이** 마운트한다(main.py — mock_remote와 동일 패턴). 이유: 등록 시 우리 서버가
 자기 카드를 fetch하는데(agent_card.fetch_card는 인증 헤더 미전송), 카드가 전역 인증 뒤면 self-fetch가
@@ -28,6 +28,7 @@ from agent.runtime import is_first_party, is_remote_source
 from . import a2a_client, broker, chat, net_guard
 from .a2a_wire import a2a_error, a2a_result, a2a_status_event, a2a_user_text
 from .auth import current_principal, resolve_memory_user_id
+from .chat_a2a_serve import ServeApprovalRequired, ServeCompleted, ServeFailed, ServeOutcome
 from .db import SessionLocal
 from .models import Agent, McpServer, User
 
@@ -337,15 +338,15 @@ async def _a2a_resume(
     )
 
 
-def _send_result(rpc_id: object, reply: str, context_id: str | None, state: dict) -> dict:
-    """message/send 응답 조립(스펙 388) — 정상 message | 승인 대기 Task(input-required) | 에러."""
-    if state.get("error"):
-        return a2a_error(rpc_id, -32000, str(state["error"]))
-    if state.get("approval"):
+def _send_result(rpc_id: object, reply: str, context_id: str | None, outcome: ServeOutcome) -> dict:
+    """message/send 응답 조립(스펙 388) — 정상 message | 승인 대기 Task(input-required) | 에러.
+    스펙 392 P3: 소진-후-dict 대신 타입화된 ServeOutcome을 받는다."""
+    if isinstance(outcome, ServeFailed):
+        return a2a_error(rpc_id, -32000, outcome.message)
+    if isinstance(outcome, ServeApprovalRequired):
         # 승인 대기(P2) — A2A 표준 Task로 표현. 외부는 metadata {approvalId, decision}으로 재개.
-        ap = state["approval"]
         wait_msg = (
-            f"⏸ 승인 대기: {ap['action']} — metadata에 approvalId와 decision(approve|reject)을 "
+            f"⏸ 승인 대기: {outcome.action} — metadata에 approvalId와 decision(approve|reject)을 "
             "실은 메시지로 결정을 보내세요."
         )
         return a2a_result(
@@ -362,7 +363,7 @@ def _send_result(rpc_id: object, reply: str, context_id: str | None, state: dict
                         "kind": "message",
                     },
                 },
-                "metadata": {"approvalId": ap["id"], "approver": ap.get("approver")},
+                "metadata": {"approvalId": outcome.id, "approver": outcome.approver},
             },
         )
     return a2a_result(
@@ -415,8 +416,10 @@ async def exposed_agent_a2a(
         return await _a2a_resume(rpc_id, agent, _principal, _req_apid, _req_decision, mem_user_id)
 
     # 노출 집합{ui,code} 안에서 원격(code=SDK 배포)만 릴레이·로컬(ui)은 직접 — remote 축 재사용(스펙 183).
+    # 스펙 392 P3: 로컬은 LocalServeTurn(Command)이 스트림·최종 결과를 함께 소유(스트림 소진 후
+    # turn.outcome). 릴레이는 턴 객체 없음 — 소진 완료 자체가 완주(outcome=ServeCompleted).
     reply_context_id: str | None = None
-    serve_state: dict = {}
+    turn: chat.LocalServeTurn | None = None
     if is_remote_source(agent.source):
         if request.headers.get(RELAY_HEADER):
             # 루프 가드(스펙 154): 중계 표식이 달린 요청을 다시 중계하면 자기/상호 참조 사이클 —
@@ -428,12 +431,14 @@ async def exposed_agent_a2a(
         chunk_source = _relay_chunks(agent, user_text)
     else:
         try:
-            reply_context_id, chunk_source, serve_state = await chat.stream_local_reply(
+            turn = await chat.prepare_serve_turn(
                 agent.id, user_text, user_id=mem_user_id, context_id=req_context_id
             )
         except ValueError as exc:
             # 준비 단계 실패(소스/모델/impl 미해결) — 실행 전이라 JSON-RPC 에러로 정직 반환.
             return a2a_error(rpc_id, -32000, str(exc))
+        reply_context_id = turn.context_id
+        chunk_source = turn.chunks()
 
     if method == "message/send":
         try:
@@ -443,7 +448,8 @@ async def exposed_agent_a2a(
             reply = "".join(acc)
         except Exception as exc:
             return a2a_error(rpc_id, -32000, f"로컬 에이전트 실행 실패({type(exc).__name__})")
-        return _send_result(rpc_id, reply, reply_context_id, serve_state)
+        outcome = turn.outcome if turn is not None else ServeCompleted(reply)
+        return _send_result(rpc_id, reply, reply_context_id, outcome)
 
     if method == "message/stream":
         task_id = uuid.uuid4().hex
@@ -464,21 +470,21 @@ async def exposed_agent_a2a(
                 yield f"data: {json.dumps(err, ensure_ascii=False)}\n\n"
                 yield "data: [DONE]\n\n"
                 return
-            if serve_state.get("approval"):
-                ap = serve_state["approval"]
+            outcome = turn.outcome if turn is not None else ServeCompleted("")
+            if isinstance(outcome, ServeApprovalRequired):
                 yield a2a_status_event(
                     rpc_id,
                     task_id,
-                    f"⏸ 승인 대기: {ap['action']} (approvalId={ap['id']})",
+                    f"⏸ 승인 대기: {outcome.action} (approvalId={outcome.id})",
                     final=True,
                     state="input-required",
                     context_id=reply_context_id,
                 )
-            elif serve_state.get("error"):
+            elif isinstance(outcome, ServeFailed):
                 yield a2a_status_event(
                     rpc_id,
                     task_id,
-                    str(serve_state["error"]),
+                    outcome.message,
                     final=True,
                     state="failed",
                     context_id=reply_context_id,

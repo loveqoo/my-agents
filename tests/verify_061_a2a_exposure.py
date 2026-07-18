@@ -1,7 +1,7 @@
 """스펙 061 검증 — 로컬(ui) 에이전트 A2A 노출의 카드·JSON-RPC 계약(단위, 라이브 런타임 미필요).
 
 노출 라우트의 *형태·게이트·프레이밍*을 단언한다. 게이트(_load_exposed_ui_agent)와 로컬 런타임
-(chat.stream_local_reply)은 monkeypatch로 대체해, DB·실 LLM 없이 카드 스키마·JSON-RPC send/stream
+(chat.prepare_serve_turn)은 monkeypatch로 대체해, DB·실 LLM 없이 카드 스키마·JSON-RPC send/stream
 프레임·미지원 메서드·에러 비에코를 결정적으로 검증한다. **실왕복(D5)·인증(D6)·실 DB 게이트(D2)는
 라이브 E2E**(verification 단계, 이 호스트 부팅)로 — 3-rung 분담(메모리 verification-ladder).
 
@@ -54,23 +54,40 @@ async def _fake_load(agent_id):
     return FAKE_AGENT
 
 
-async def _fake_stream(agent_id, user_text, user_id=None, context_id=None):
-    # 스펙 388 계약: (context_id, 청크 스트림) 튜플 반환 — 실함수 시그니처와 동기(codex 388 소비자 누락).
-    async def _gen():
+class _FakeTurn:
+    """스펙 392 계약: prepare_serve_turn → LocalServeTurn(context_id·chunks()·outcome) 미러.
+
+    outcome은 실물과 동일하게 **소진 전 접근 시 RuntimeError**(codex 392 P2: 일반 속성 None으로
+    두면 premature-read 회귀가 completed처럼 통과하는 거짓 초록) — fail-loud 계약까지 미러."""
+
+    def __init__(self, context_id, user_text, raises=False):
+        self.context_id = context_id or "sess-fake061"
+        self._user_text = user_text
+        self._raises = raises
+        self._outcome = None
+
+    @property
+    def outcome(self):
+        if self._outcome is None:
+            raise RuntimeError("chunks() 소진 전 outcome 접근 — 실물 LocalServeTurn 계약 미러")
+        return self._outcome
+
+    async def chunks(self):
+        if self._raises:
+            raise RuntimeError("secret-internal-detail-XYZ")
         # 입력 의존(결정적) — user_text를 머리에 붙여 mock 고정문구가 아님을 보인다.
-        yield f"[{user_text}] "
+        yield f"[{self._user_text}] "
         for c in RUNTIME_REPLY_CHUNKS:
             yield c
+        self._outcome = chat.ServeCompleted(RUNTIME_REPLY)
 
-    return context_id or "sess-fake061", _gen(), {}
+
+async def _fake_stream(agent_id, user_text, user_id=None, context_id=None):
+    return _FakeTurn(context_id, user_text)
 
 
 async def _fake_stream_raises(agent_id, user_text, user_id=None, context_id=None):
-    async def _gen():
-        raise RuntimeError("secret-internal-detail-XYZ")
-        yield  # pragma: no cover — async generator로 만들기 위함
-
-    return context_id or "sess-fake061", _gen(), {}
+    return _FakeTurn(context_id, user_text, raises=True)
 
 
 async def _fake_skills(agent):
@@ -90,7 +107,7 @@ async def _fake_skills(agent):
 # 지점). 스펙 061 이후 `_load_exposed_ui_agent`→`_load_exposed_agent` 개명·`_agent_a2a_skills` 신설(157).
 a2a_server._load_exposed_agent = _fake_load
 a2a_server._agent_a2a_skills = _fake_skills
-chat.stream_local_reply = _fake_stream
+chat.prepare_serve_turn = _fake_stream
 
 
 def _collect_sse(text: str) -> list[dict]:
@@ -208,7 +225,7 @@ async def main():
     check(bad.get("error", {}).get("code") == -32601, f"미지원 메서드 → -32601: {bad.get('error')}")
 
     # ---- 비에코: 런타임 예외 → -32000, 내부값 미누출 ----
-    chat.stream_local_reply = _fake_stream_raises
+    chat.prepare_serve_turn = _fake_stream_raises
     err_resp = await a2a_server.exposed_agent_a2a(
         "agt-x",
         {
@@ -224,7 +241,7 @@ async def main():
     check(err_resp.get("error", {}).get("code") == -32000, "비에코 send 예외 → -32000")
     check("RuntimeError" in emsg, f"비에코 메시지에 예외 타입만: {emsg!r}")
     check("secret-internal-detail-XYZ" not in emsg, "비에코 내부 예외 값 미누출")
-    chat.stream_local_reply = _fake_stream  # 복원
+    chat.prepare_serve_turn = _fake_stream  # 복원
 
 
 asyncio.run(main())

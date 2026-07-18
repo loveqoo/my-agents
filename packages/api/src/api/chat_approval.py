@@ -22,11 +22,15 @@ if TYPE_CHECKING:
     from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
     from langgraph.graph.state import CompiledStateGraph
 
-    from .chat import _MemoryRecallProxy
-
 from . import authz, checkpoint_retention, checkpointer, memory, observability, runtime
 from .broker import BrokerContext, PolicyScopedBroker, build_providers
 from .chat_context import ChatContext, _load_context
+from .chat_graph_build import (
+    _graph_fingerprint,
+    _MemoryRecallProxy,
+    _rag_tools_for,
+    resolve_agent_runtime,
+)
 from .chat_history import _HistoryWindowProxy, _load_session_conversation, _to_base_messages
 from .chat_persist import _persist, _resolve_session_for_persist
 from .chat_trace import _broker_calls_trace
@@ -177,7 +181,6 @@ async def _load_resume_target(
     (DefaultUiAgent·orchestrate·orchestrate_ranked)이라 이 스왑은 실제 도달 가능(deep-reasoner 적대
     검토). 방아쇠는 admin의 impl 교체(agents:manage)에 갇혀 권한상승은 아니다. impl 스냅샷이 None인
     행(171 마이그레이션 이전)은 대조 불가라 스킵하고 supports_hil 가드로만 넘긴다(하위호환)."""
-    from .chat import resolve_agent_runtime  # 파사드 역방향 — 지연 import(순환 회피)
 
     thread_id = approval.checkpoint
     if not thread_id or not approval.agent_pk:
@@ -243,7 +246,6 @@ async def _resume_memory_inputs(
     재개 주체=admin이라 user/run 축 회상은 의미가 약하나, 프롬프트 톤 유지를 위해 agent 축 회상만이라도
     접목(없어도 무해). 자동 메모리 add는 user_id 부재로 생략(빚). 노드형은 선조회 생략(메인 경로 대칭,
     스펙 268 P2) — 프록시가 노드별 조회(기본 키워드=approval.summary, 원 턴과 동일 재료)."""
-    from .chat import _MemoryRecallProxy  # 파사드 역방향 — 지연 import(순환 회피)
 
     recall_scope = {
         "user_id": str(approval.user_id) if approval.user_id else None,
@@ -281,7 +283,6 @@ async def _rebuild_resume_graph(
     *승인된* cap이 영영 미실행된다(approved-but-not-executed = 거부 방향 오류). allowlist=에이전트
     config(결정적). RBAC 축은 **원 요청자**(approval.user_id)로 재확인 — 요청 시 이미 통과했고 유저
     축은 재개 사이 불변. superuser 우회도 원 요청과 동일 보존."""
-    from .chat import _rag_tools_for  # 파사드 역방향 — 지연 import(순환 회피)
 
     calls_sink: list[dict] = []
     tools = await runtime.build_mcp_tools(
@@ -326,7 +327,6 @@ async def _rebuild_resume_graph(
         )
     # 스펙 371 D3 정합: 원 턴이 promptless 그래프(캐시 적격)였다면 재개 그래프도 promptless로 —
     # 체크포인트 상태에 이미 선두 SystemMessage가 있어, 여기서 prompt를 구우면 system이 이중이 된다.
-    from .chat import _graph_fingerprint
 
     _promptless = _graph_fingerprint(ctx) is not None
     build_ctx = AgentBuildContext(
