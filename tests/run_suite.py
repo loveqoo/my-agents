@@ -13,7 +13,8 @@
   db    — DB 필요(SessionLocal 등).
   asgi  — ASGITransport 인프로세스(스펙 385). 서버 불필요 — 스크립트마다 virgin DB
           (_throwaway_db.py)로 격리 실행, 공유 라이브 DB 무접촉.
-  http  — 라이브 서버 필요(127.0.0.1:8000). dev 서버 전제(상태 오염 취약 — Phase 2 격리 대상).
+  http  — 서버 필요 층(스펙 390). 스크립트마다 virgin DB+**전용 uvicorn**(_throwaway_server.py)로
+          격리 실행 — 라이브 dev 서버·DB 무접촉, VERIFY_BASE로 임시 포트 주입.
   (browser는 별도 러너 — playwright/vite 전제라 이 러너 밖.)
 
 실행:
@@ -70,18 +71,17 @@ KNOWN_DRIFT: dict[str, str] = {
     "verify_242_version_exec.py": "노후: 버전 실행 eval 스키마/데이터 드리프트(baseline 동일)",
     "verify_244_version_ops.py": "노후: 버전 ops eval 집계 드리프트(runs/score None, baseline 동일)",
     "verify_318_node_agent_call.py": "노후/전제: virgin DB에서도 실패(스펙385 실측). brokerCalls 단언이 시드 외 전제(실 principal 등)를 요구",
-    "verify_369_block_versioning.py": "환경: http 상태 오염 취약(단독 통과, test-all 순서서 실패)",
     "verify_068_live.py": "인프라: D6 member resume 실패 지속(초기화 후에도 재현 — 해제 시도 실측 실패, 2026-07-17). asyncpg 커넥션 수명 별도 조사 유지",
     # --- http 층 triage(2026-07-16 스펙 384). 전부 테스트 쪽(앱 결함 아님) — 공유 라이브 DB 격리
     #     하네스(백로그 대형)가 근본 해결. baseline(2fbd224) 동일 실패=사전존재. 개별 전제 추격은
     #     두더지잡기라 정직한 사유로 격리(부채 가시화). 순수 드리프트 verify_047은 고쳐 그물 복귀.
-    "verify_036_rag_ingest.py": "전제: RAG 테스트가 기대 컬렉션 못 찾음(공유 DB 상태), 격리 필요",
-    "verify_037_rag_retrieval.py": "전제: RAG 회수 컬렉션 미발견 → default 없는 next()가 StopIteration(테스트 취약)",
-    "verify_072_rag_search.py": "전제: RAG 검색 기대 컬렉션 미발견 → next() StopIteration(테스트 취약, 앱 무죄)",
-    "verify_103_broker_rag.py": "전제: 브로커-RAG 컬렉션 상태 전제(공유 DB), baseline 동일 실패",
-    "verify_101_broker_mcp.py": "환경: delete→interrupt가 라이브 서버서 H6 미발동(인프로세스 verify_233은 통과=코드 정상, 데이터/환경 차이)",
-    "verify_102_orchestration_strategy.py": "환경: H8/H10 delete→interrupt 라이브 미발동(verify_233 인프로세스 통과, baseline 동일)",
-    "verify_054_mcp_auth_at_rest.py": "전제: MCP 생성 201 실패 후 body['id'] KeyError(공유 DB 상태)",
+    "verify_036_rag_ingest.py": "노후: virgin 서버에서도 실패(스펙390 실측 — 오염 아님). 기대 컬렉션 플로우가 현 API와 어긋남",
+    "verify_037_rag_retrieval.py": "노후: virgin 서버에서도 StopIteration(스펙390 실측). 컬렉션 생성 플로우 노후+default 없는 next()",
+    "verify_072_rag_search.py": "노후: virgin 서버서 이름규칙(148) 400은 수선(col-v072-), 잔여=ready 상태 단언 드리프트(검색 3건은 동작 — 스펙390 실측)",
+    "verify_103_broker_rag.py": "노후: virgin 서버에서도 실패(스펙390 실측 — 오염 아님)",
+    "verify_101_broker_mcp.py": "드리프트: H6 delete→interrupt 미발동이 virgin 서버에서도 재현(스펙390 실측 — 환경 아님). 인프로세스 233은 통과 → 라이브-HTTP 경로 특이, 별도 조사 후보",
+    "verify_102_orchestration_strategy.py": "드리프트: H8/H10이 virgin 서버에서도 재현(스펙390 실측) — 101과 동근 후보",
+    "verify_054_mcp_auth_at_rest.py": "노후: virgin 서버에서도 KeyError(스펙390 실측 — 오염 아님)",
     "verify_054_mcp_real_runtime.py": "환경: stdio transport 실 MCP 런타임 전제(T6, 서버 부재 시 실패)",
     "verify_084_memory_search.py": "노후: virgin DB에서도 hit 구조 단언 실패(스펙385 실측). {type,text,score,scope} shape가 현 응답과 어긋남",
     "verify_034_session_pagination.py": "노후: virgin DB에서도 실패(스펙385 실측 — 오염 아님). counts 버킷·델타 단언이 현 배지 스코핑과 어긋남(기대치 재작성 필요)",
@@ -89,8 +89,8 @@ KNOWN_DRIFT: dict[str, str] = {
     "verify_098_session_search.py": "노후: virgin DB에서도 실패(스펙385 실측 — 오염 아님). plainagent+error 조합 기대치가 현 검색 동작과 어긋남",
     "verify_048_sample_ingest.py": "노후: virgin DB에서도 KeyError 'id'(스펙385 실측 — 오염 아님). 컬렉션 생성 플로우 기대치가 현 API와 어긋남",
     "verify_057_connect_classification.py": "하네스: asyncio Task가 다른 이벤트루프에 attach(테스트 이벤트루프 버그, 앱 무관)",
-    "verify_063_live.py": "전제: 테스트 _cleanup이 route 우회 agent 직접 insert → created_by NOT NULL 위반(스펙343, 앱 라우트는 정상)",
-    "verify_093_delete_reference_guard.py": "전제: 테스트 _cleanup이 route 우회 raw 모델 삭제 → 잔여 컬렉션 FK 위반(앱 delete_model 가드는 409로 정상)",
+    "verify_063_live.py": "노후: virgin 서버에서도 실패(스펙390) — _cleanup route 우회 insert의 created_by NOT NULL(스펙343), 앱 무죄",
+    "verify_093_delete_reference_guard.py": "노후(다층): virgin 서버 실측서 status 인자·이름규칙 400은 수선, 잔여=MissingGreenlet(async ORM 사용 노후) — 개별 재활 후보(스펙390)",
 }
 
 # 러너 자신·인자 필요·특수 스크립트는 스위트에서 제외(그물 대상 아님).
@@ -130,17 +130,24 @@ def collect() -> dict[str, list[pathlib.Path]]:
     return cats
 
 
-def run_one(f: pathlib.Path, isolate: bool = False) -> tuple[str, str, str]:
+def run_one(
+    f: pathlib.Path, isolate: bool = False, isolate_server: bool = False
+) -> tuple[str, str, str]:
     """(name, verdict, detail). verdict ∈ pass|fail|error.
 
-    virgin-DB 격리(_throwaway_db.py 래핑) 두 경로:
-    - isolate=True(asgi 층, 스펙 385): 층 전체를 virgin DB로 — 공유 라이브 DB 무접촉.
+    격리 래핑 세 경로:
+    - isolate_server=True(http 층, 스펙 390): virgin DB + **전용 uvicorn**(_throwaway_server.py) —
+      라이브 dev 서버·DB 무접촉. 테스트는 VERIFY_BASE로 임시 포트를 주입받는다.
+    - isolate=True(asgi 층, 스펙 385): 층 전체를 virgin DB로(_throwaway_db.py).
     - 파일 마커: virgin-DB 전용 테스트(자체 헤더가 `_throwaway_db.py` 사용을 명시) —
       스펙 370 실측: verify_343_downgrade를 라이브 DB에 직접 돌리면 downgrade 왕복이 369/370의
       런타임 저작 데이터(블록 이력·pins)를 지운다(손실 왕복)."""
     cmd = ["uv", "run", "python", str(f)]
     timeout = 120
-    if isolate or "_throwaway_db.py" in f.read_text(errors="ignore"):
+    if isolate_server:
+        cmd = ["uv", "run", "python", str(TESTS / "_throwaway_server.py"), str(f)]
+        timeout = 300  # 서버 부팅(alembic+seed 포함) + 테스트
+    elif isolate or "_throwaway_db.py" in f.read_text(errors="ignore"):
         cmd = ["uv", "run", "python", str(TESTS / "_throwaway_db.py"), str(f)]
         timeout = 180  # virgin DB 부트스트랩(CREATE DATABASE+alembic+seed) 비용 포함
     try:
@@ -196,8 +203,14 @@ def main() -> None:
         # CREATE DATABASE TEMPLATE template0이 동시 실행 시 "source database is being accessed" 충돌.
         workers = 6 if c == "unit" else 1
         isolate = c == "asgi"  # 스펙 385: asgi 층은 스크립트마다 virgin DB(_throwaway_db.py)
+        iso_srv = c == "http"  # 스펙 390: http 층은 스크립트마다 virgin DB+전용 서버
         with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
-            results = list(ex.map(lambda f, _iso=isolate: run_one(f, isolate=_iso), files))
+            results = list(
+                ex.map(
+                    lambda f, _i=isolate, _s=iso_srv: run_one(f, isolate=_i, isolate_server=_s),
+                    files,
+                )
+            )
         for name, verdict, detail in sorted(results):
             totals[verdict] += 1
             drift = name in KNOWN_DRIFT

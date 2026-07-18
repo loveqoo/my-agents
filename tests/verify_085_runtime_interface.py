@@ -47,8 +47,10 @@ def check(cond: bool, msg: str) -> None:
 
 
 # 두 구현이 실제 ChatOpenAI를 만들지 않고 그래프 구조만 검사할 수 있게 mock model_cfg 사용.
+VBASE = os.environ.get("VERIFY_BASE", "http://127.0.0.1:8000")  # 스펙 390: 격리 서버 주입
+
 _MODEL_CFG = {
-    "base_url": "http://127.0.0.1:8000/_remote/v1",
+    "base_url": VBASE + "/_remote/v1",
     "model_id": "mock-chat",
     "api_key": "sk-noauth",
     "params": {},

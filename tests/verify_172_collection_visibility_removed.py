@@ -10,6 +10,7 @@
   H7 alice(소유자) 자기 문서목록 → **200**(무회귀).
 실행: cd packages/api && uv run python ../../tests/verify_172_collection_visibility_removed.py
 """
+
 import asyncio
 import uuid
 
@@ -44,6 +45,7 @@ def _as(principal):
 
 async def main() -> None:
     from api import authz
+
     await authz.init_authz()
 
     alice, bob = Stub(), Stub()
@@ -55,14 +57,19 @@ async def main() -> None:
         s.add(prov)
         await s.flush()
         prov_id = prov.id
-        em = ModelConfig(name=f"emb-{uuid.uuid4().hex[:8]}", provider_id=prov.id,
-                         model_id="emb", kind="embedding")
+        em = ModelConfig(
+            name=f"emb-{uuid.uuid4().hex[:8]}",
+            provider_id=prov.id,
+            model_id="emb",
+            kind="embedding",
+        )
         s.add(em)
         await s.flush()
         model_id = em.id
         # published 컬럼은 스펙 172에서 제거됨 — 생성 인자에 넣지 않는다(넣으면 TypeError).
-        col = Collection(name=f"col-{uuid.uuid4().hex[:8]}", embedding_model_id=em.id,
-                         dims=8, owner_id=aid)
+        col = Collection(
+            name=f"col-{uuid.uuid4().hex[:8]}", embedding_model_id=em.id, dims=8, owner_id=aid
+        )
         s.add(col)
         await s.flush()
         cid = col.id
@@ -74,20 +81,29 @@ async def main() -> None:
             # H1 bob(비소유자) 문서목록 → 200(사용 개방).
             _as(bob)
             r = await c.get(f"/collections/{cid}/documents")
-            check(r.status_code == 200, f"H1 bob 비소유자 문서목록 200(사용 개방) (got {r.status_code})")
+            check(
+                r.status_code == 200,
+                f"H1 bob 비소유자 문서목록 200(사용 개방) (got {r.status_code})",
+            )
 
             # H2 bob search → 게이트 통과(비-404·비-403). 임베딩 스텁이라 200/502 어느 쪽이든 게이트는 뚫림.
             r = await c.post(f"/collections/{cid}/search", json={"query": "hi", "top_k": 3})
-            check(r.status_code not in (403, 404),
-                  f"H2 bob search 사용 게이트 통과(비-404/403) (got {r.status_code})")
+            check(
+                r.status_code not in (403, 404),
+                f"H2 bob search 사용 게이트 통과(비-404/403) (got {r.status_code})",
+            )
 
             # H3 bob update(PUT) → 404-fold(관리 소유자만).
             r = await c.put(f"/collections/{cid}", json={"description": "hijack"})
-            check(r.status_code == 404, f"H3 bob update 404-fold(관리 소유자만) (got {r.status_code})")
+            check(
+                r.status_code == 404, f"H3 bob update 404-fold(관리 소유자만) (got {r.status_code})"
+            )
 
             # H4 bob delete → 404-fold(관리 소유자만).
             r = await c.delete(f"/collections/{cid}")
-            check(r.status_code == 404, f"H4 bob delete 404-fold(관리 소유자만) (got {r.status_code})")
+            check(
+                r.status_code == 404, f"H4 bob delete 404-fold(관리 소유자만) (got {r.status_code})"
+            )
 
             # H5 익명(오버라이드 제거 → 진짜 current_principal) → 401.
             app.dependency_overrides.pop(current_principal, None)
@@ -101,7 +117,9 @@ async def main() -> None:
 
             # H7 alice(소유자) 문서목록 → 200(무회귀).
             r = await c.get(f"/collections/{cid}/documents")
-            check(r.status_code == 200, f"H7 alice 소유자 문서목록 200(무회귀) (got {r.status_code})")
+            check(
+                r.status_code == 200, f"H7 alice 소유자 문서목록 200(무회귀) (got {r.status_code})"
+            )
     finally:
         app.dependency_overrides.pop(current_principal, None)
         for pk, model in ((cid, Collection), (model_id, ModelConfig), (prov_id, Provider)):

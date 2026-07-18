@@ -20,6 +20,7 @@
 전제: API(127.0.0.1:8000)+실 DB 생존. 던짐용 계정(probe…@example.com) 즉석 생성/삭제. 실 데이터 무오염.
 실행: .venv/bin/python tests/verify_rbac_audit.py
 """
+
 import asyncio
 import os
 import subprocess
@@ -33,7 +34,7 @@ from dotenv import load_dotenv  # noqa: E402
 
 load_dotenv(os.path.join(ROOT, ".env"))
 
-BASE = "http://127.0.0.1:8000"
+BASE = os.environ.get("VERIFY_BASE", "http://127.0.0.1:8000")  # 스펙 390: 격리 서버 주입
 MACHINE = (os.environ.get("API_AUTH_TOKEN") or "").strip()
 PY = os.path.join(ROOT, ".venv", "bin", "python")
 PROV = os.path.join(ROOT, "tests", "_provision_super.py")
@@ -43,8 +44,16 @@ SUPER_EMAIL = "probe-rbac-s@example.com"
 PW = "Probe-rbac-pw!"
 
 # 계층 A — 로그인한 누구나(읽기 GET만 골라 부수효과 0). _auth 게이트.
-TIER_A = ["/agents", "/blocks", "/providers", "/models", "/sessions",
-          "/collections", "/memory/users", "/approvals"]
+TIER_A = [
+    "/agents",
+    "/blocks",
+    "/providers",
+    "/models",
+    "/sessions",
+    "/collections",
+    "/memory/users",
+    "/approvals",
+]
 # 계층 B — admin 전용(require). 읽기 GET만.
 TIER_B = ["/admin/users", "/admin/roles", "/admin/batch/jobs", "/admin/allowed-hosts"]
 
@@ -65,8 +74,11 @@ def _provision(create: bool) -> None:
 
 
 async def _login(client: httpx.AsyncClient, email: str) -> bool:
-    r = await client.post("/auth/login", data={"username": email, "password": PW},
-                          headers={"Content-Type": "application/x-www-form-urlencoded"})
+    r = await client.post(
+        "/auth/login",
+        data={"username": email, "password": PW},
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
     return r.status_code in (200, 204)
 
 
@@ -106,7 +118,10 @@ async def main() -> None:
             for p, c in ma.items():
                 check(c == 200, f"member 계층A {p} → 200 (로그인=카탈로그 접근) — got {c}")
             for p, c in mb.items():
-                check(c == 403, f"member 계층B {p} → 403 (require enforce 거부, 정책 0=fail-closed) — got {c}")
+                check(
+                    c == 403,
+                    f"member 계층B {p} → 403 (require enforce 거부, 정책 0=fail-closed) — got {c}",
+                )
 
             # ---- 2. super: 계층 A → 200, 계층 B → 200 ----
             sa = await _codes(superc, TIER_A)
@@ -122,9 +137,14 @@ async def main() -> None:
             for p, c in ca.items():
                 check(c == 200, f"machine 계층A {p} → 200 (머신=전체 접근) — got {c}")
             for p, c in cb.items():
-                check(c == 401, f"machine 계층B {p} → 401 (require=current_active_user 세션 전용, 머신 토큰 불가) — got {c}")
+                check(
+                    c == 401,
+                    f"machine 계층B {p} → 401 (require=current_active_user 세션 전용, 머신 토큰 불가) — got {c}",
+                )
         finally:
-            await member.aclose(); await superc.aclose(); await machine.aclose()
+            await member.aclose()
+            await superc.aclose()
+            await machine.aclose()
     finally:
         _provision(create=False)
 
@@ -135,9 +155,11 @@ async def main() -> None:
             print("   -", f)
         sys.exit(1)
     n_a, n_b = len(TIER_A), len(TIER_B)
-    print(f"✅ RBAC 감사 라이브 통과 — anonymous {n_a + n_b}×401, member 계층A {n_a}×200·계층B {n_b}×403, "
-          f"super 전체 200, machine 계층A 200·계층B 401. "
-          f"'대다수 무방비'는 오측(라우터 dependencies=_auth 미관측).")
+    print(
+        f"✅ RBAC 감사 라이브 통과 — anonymous {n_a + n_b}×401, member 계층A {n_a}×200·계층B {n_b}×403, "
+        f"super 전체 200, machine 계층A 200·계층B 401. "
+        f"'대다수 무방비'는 오측(라우터 dependencies=_auth 미관측)."
+    )
 
 
 asyncio.run(main())

@@ -53,7 +53,9 @@ def _pct(xs: list[float], p: float) -> float:
     return s[k]
 
 
-async def measure_cell(cli: httpx.AsyncClient, aid: str, concurrency: int) -> dict[str, list[float]]:
+async def measure_cell(
+    cli: httpx.AsyncClient, aid: str, concurrency: int
+) -> dict[str, list[float]]:
     """한 셀(에이전트×동시성) 측정 — 단계별 표본 리스트 반환. 워밍업 1턴은 버린다."""
     await _chat_build_ms(cli, aid, "368 워밍업")
     samples: dict[str, list[float]] = {s: [] for s in STAGES}
@@ -107,7 +109,11 @@ async def main() -> None:
                     (v for v in j.get("versions", []) if v.get("status") == "draft"),
                     (j.get("versions") or [{}])[0],
                 )
-                (await cli.post(f"/agents/{j['id']}/activate", json={"version": ver.get("version")})).raise_for_status()
+                (
+                    await cli.post(
+                        f"/agents/{j['id']}/activate", json={"version": ver.get("version")}
+                    )
+                ).raise_for_status()
                 agents[n] = j["id"]
 
             rows: list[tuple[str, dict[str, list[float]]]] = []
@@ -126,8 +132,10 @@ async def main() -> None:
                 )
                 print(f"{label:<16}{cells}")
             n_ok = sum(len(s["total"]) for _, s in rows)
-            print(f"\n표본 합계 {n_ok}턴 · 평균 total p50 = "
-                  f"{statistics.median([_pct(s['total'], 50) for _, s in rows]):.1f}ms")
+            print(
+                f"\n표본 합계 {n_ok}턴 · 평균 total p50 = "
+                f"{statistics.median([_pct(s['total'], 50) for _, s in rows]):.1f}ms"
+            )
             if any(len(s["total"]) == 0 for _, s in rows):
                 print("경고: 표본 0인 셀 존재 — buildMs 미노출(서버 구코드?) 확인 필요")
                 sys.exit(1)

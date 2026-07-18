@@ -42,28 +42,44 @@ def unit_checks() -> None:
 
     # U1 레지스트리 — 빌트인 해석·미등록 None
     impl = get_node_impl("mask_pii")
-    check(impl is not None and isinstance(impl, CustomNode), "U1 빌트인 mask_pii 해석(Protocol 적합)")
+    check(
+        impl is not None and isinstance(impl, CustomNode), "U1 빌트인 mask_pii 해석(Protocol 적합)"
+    )
     check(get_node_impl("no-such-node") is None, "U1 미등록 키 → None")
     check(get_node_impl(None) is None and get_node_impl("") is None, "U1 빈 키 → None")
     mf = impl.describe()
-    check(mf.name == "mask-pii" and mf.version == 1 and mf.overridable == (), f"U1 manifest (got {mf})")
+    check(
+        mf.name == "mask-pii" and mf.version == 1 and mf.overridable == (),
+        f"U1 manifest (got {mf})",
+    )
 
     # U2 마스킹 순수 함수 — 이메일·전화(하이픈/점/공백/+82) 결정적
     masked = mask_pii_text("문의: gunam.jung@gmail.com / 010-1234-5678 / +82 10 9876 5432")
-    check("gunam.jung@gmail.com" not in masked and "g***@gmail.com" in masked, f"U2 이메일 마스킹 (got {masked})")
-    check("1234-5678" not in masked.replace("***-****-5678", "") and "***-****-5678" in masked, "U2 전화 마스킹(뒤 4자리)")
+    check(
+        "gunam.jung@gmail.com" not in masked and "g***@gmail.com" in masked,
+        f"U2 이메일 마스킹 (got {masked})",
+    )
+    check(
+        "1234-5678" not in masked.replace("***-****-5678", "") and "***-****-5678" in masked,
+        "U2 전화 마스킹(뒤 4자리)",
+    )
     check("9876 5432" not in masked and "***-****-5432" in masked, "U2 +82 국제표기 마스킹")
     check(mask_pii_text("민감정보 없음") == "민감정보 없음", "U2 비민감 텍스트 불변")
 
     # U3 normalize_nodes — impl 노드는 prompt 없이 통과(이름 기본값), 인라인 규칙 무회귀
     out = normalize_nodes([{"impl": "mask_pii"}, {"prompt": "p"}])
-    check(len(out) == 2 and out[0].get("impl") == "mask_pii" and out[0].get("name") == "노드1", f"U3 impl 노드 통과 (got {out[0]})")
+    check(
+        len(out) == 2 and out[0].get("impl") == "mask_pii" and out[0].get("name") == "노드1",
+        f"U3 impl 노드 통과 (got {out[0]})",
+    )
     check(normalize_nodes([{"impl": "  "}]) == [], "U3 공백 impl은 잡값(제거)")
 
     # U4 미등록 impl → 그래프 빌드 시 AgentConfigError(폴백 마스킹 0)
     ctx = AgentBuildContext(
-        prompt="", model_cfg={"base_url": "http://x", "api_key": "k", "model_id": "m", "params": {}},
-        tools=[], impl_config={"nodes": [{"impl": "ghost-impl", "name": "유령"}]},
+        prompt="",
+        model_cfg={"base_url": "http://x", "api_key": "k", "model_id": "m", "params": {}},
+        tools=[],
+        impl_config={"nodes": [{"impl": "ghost-impl", "name": "유령"}]},
     )
     try:
         LinearPipelineAgent().build_graph(ctx)
@@ -74,11 +90,19 @@ def unit_checks() -> None:
     # U5 오버라이드 표면 — 설정 노드=전체, mask_pii=빈 표면, 미등록=빈 표면(fail-closed)
     from api.chat_context import _NODE_OVERRIDE_FIELDS, _merge_node_overrides, _node_patch_fields
 
-    check(_node_patch_fields({"prompt": "p"}) == _NODE_OVERRIDE_FIELDS, "U5 설정 노드=화이트리스트 전체")
+    check(
+        _node_patch_fields({"prompt": "p"}) == _NODE_OVERRIDE_FIELDS,
+        "U5 설정 노드=화이트리스트 전체",
+    )
     check(_node_patch_fields({"impl": "mask_pii"}) == set(), "U5 mask_pii=빈 표면(전부 코드 소유)")
     check(_node_patch_fields({"impl": "ghost"}) == set(), "U5 미등록 impl=빈 표면(fail-closed)")
-    merged, status = _merge_node_overrides([{"impl": "mask_pii", "name": "마스킹"}], [{"prompt": "덮기"}])
-    check(status == "partial" and "prompt" not in merged[0], f"U5 코드 소유 필드 패치 → partial+미병합 (got {status})")
+    merged, status = _merge_node_overrides(
+        [{"impl": "mask_pii", "name": "마스킹"}], [{"prompt": "덮기"}]
+    )
+    check(
+        status == "partial" and "prompt" not in merged[0],
+        f"U5 코드 소유 필드 패치 → partial+미병합 (got {status})",
+    )
     merged2, status2 = _merge_node_overrides([{"prompt": "p", "model": "m"}], [{"prompt": "P2"}])
     check(status2 == "applied" and merged2[0]["prompt"] == "P2", "U5 설정 노드 applied 무회귀")
 
@@ -155,42 +179,62 @@ async def http_checks() -> None:
         async with SessionLocal() as s:
             r = (
                 await s.execute(
-                    select(NodeTemplate).where(NodeTemplate.name == "mask-pii", NodeTemplate.version == 1)
+                    select(NodeTemplate).where(
+                        NodeTemplate.name == "mask-pii", NodeTemplate.version == 1
+                    )
                 )
             ).scalar_one()
             r.config = {"impl": "tampered"}
             await s.commit()
         await sync_code_nodes()
         row = await _row("mask-pii", 1)
-        check((row.config or {}).get("impl") == "mask_pii", "H1 동일 버전 덮어쓰기(재동기화=코드 진실로 복원)")
+        check(
+            (row.config or {}).get("impl") == "mask_pii",
+            "H1 동일 버전 덮어쓰기(재동기화=코드 진실로 복원)",
+        )
         # kind 혼합 스킵 — 기존 설정 노드와 같은 이름의 코드 노드는 발행되지 않는다.
         cfg_name = f"v317-cfg-{uuid.uuid4().hex[:6]}"
         r1 = await c.post(
-            "/node-templates", json={"name": cfg_name, "config": {"prompt": "설정 노드", "model": "mock-llm"}}
+            "/node-templates",
+            json={"name": cfg_name, "config": {"prompt": "설정 노드", "model": "mock-llm"}},
         )
         check(r1.status_code == 201, "H1 설정 노드 발행(혼합 실험 준비)")
 
         class _Clash:
             def describe(self):
                 return NodeManifest(name=cfg_name, version=1, description="충돌 실험")
+
             def build_step(self, node_cfg, ctx):
                 async def _step(state):
                     return {"messages": []}
+
                 return _step
 
         register_node("v317-clash", _Clash)
         try:
             await sync_code_nodes()
             clash = await _row(cfg_name, 1)
-            check(clash is not None and clash.kind == "config", "H1 kind 혼합 스킵(설정 노드 보존·코드 미발행)")
+            check(
+                clash is not None and clash.kind == "config",
+                "H1 kind 혼합 스킵(설정 노드 보존·코드 미발행)",
+            )
         finally:
             _NODES.pop("v317-clash", None)
 
         # ── H2 API 가드 — 코드 노드 이름 발행 409·삭제 409 ──
-        r = await c.post("/node-templates", json={"name": "mask-pii", "config": {"prompt": "x", "model": "mock-llm"}})
-        check(r.status_code == 409 and "코드" in r.json().get("detail", ""), f"H2 코드 이름 발행 409 (got {r.status_code})")
+        r = await c.post(
+            "/node-templates",
+            json={"name": "mask-pii", "config": {"prompt": "x", "model": "mock-llm"}},
+        )
+        check(
+            r.status_code == 409 and "코드" in r.json().get("detail", ""),
+            f"H2 코드 이름 발행 409 (got {r.status_code})",
+        )
         r = await c.delete("/node-templates/mask-pii/1")
-        check(r.status_code == 409 and "코드" in r.json().get("detail", ""), f"H2 코드 노드 삭제 409 (got {r.status_code})")
+        check(
+            r.status_code == 409 and "코드" in r.json().get("detail", ""),
+            f"H2 코드 노드 삭제 409 (got {r.status_code})",
+        )
 
         # ── H3 실행 왕복 — mask-pii 참조 에이전트: 입력의 이메일·전화가 답에서 마스킹 ──
         agent_name = f"v317-pipe-{uuid.uuid4().hex[:6]}"
@@ -206,44 +250,78 @@ async def http_checks() -> None:
                 },
             },
         )
-        check(r.status_code == 201, f"H3 코드 노드 참조 에이전트 생성 201 (got {r.status_code}: {r.text[:200]})")
+        check(
+            r.status_code == 201,
+            f"H3 코드 노드 참조 에이전트 생성 201 (got {r.status_code}: {r.text[:200]})",
+        )
         aid = r.json()["id"]
         created_agents.append(aid)
         out = (await c.get(f"/agents/{aid}")).json()  # resolvedNodes는 조회 파생(생성 응답엔 없음)
         rn = (out.get("resolvedNodes") or [{}])[0]
-        check(rn.get("impl") == "mask_pii" and rn.get("overridable") == [], f"H3 resolvedNodes에 impl+표면 (got {rn})")
+        check(
+            rn.get("impl") == "mask_pii" and rn.get("overridable") == [],
+            f"H3 resolvedNodes에 impl+표면 (got {rn})",
+        )
         status, text, tr, _err = await _chat(
-            c, aid, "제 이메일은 gunam.jung@gmail.com 이고 전화는 010-1234-5678 입니다. 기억해 주세요."
+            c,
+            aid,
+            "제 이메일은 gunam.jung@gmail.com 이고 전화는 010-1234-5678 입니다. 기억해 주세요.",
         )
         check(status == 200 and bool(text), f"H3 채팅 200+답변 (status={status})")
-        check("gunam.jung@gmail.com" not in text and "g***@gmail.com" in text, f"H3 이메일 마스킹 실측 (got {text[:80]})")
+        check(
+            "gunam.jung@gmail.com" not in text and "g***@gmail.com" in text,
+            f"H3 이메일 마스킹 실측 (got {text[:80]})",
+        )
         check("010-1234-5678" not in text and "***-****-5678" in text, "H3 전화 마스킹 실측")
         graph_nodes = [g.get("node") or g.get("name") for g in (tr or {}).get("graph", [])]
-        check(any("mask-pii" in str(n) for n in graph_nodes), f"H3 trace.graph에 코드 노드명 (got {graph_nodes})")
+        check(
+            any("mask-pii" in str(n) for n in graph_nodes),
+            f"H3 trace.graph에 코드 노드명 (got {graph_nodes})",
+        )
 
         # ── H4 오버라이드 — 코드 소유 필드 패치 → partial 표면화 ──
-        status, _t, tr4, _e = await _chat(c, aid, "테스트", overrides={"nodes": [{"prompt": "덮어쓰기 시도"}]})
+        status, _t, tr4, _e = await _chat(
+            c, aid, "테스트", overrides={"nodes": [{"prompt": "덮어쓰기 시도"}]}
+        )
         got4 = (tr4 or {}).get("overrides", {}).get("nodes", {})
-        check(status == 200 and got4.get("status") == "partial", f"H4 코드 소유 필드 → partial (got {got4})")
+        check(
+            status == 200 and got4.get("status") == "partial",
+            f"H4 코드 소유 필드 → partial (got {got4})",
+        )
 
         # ── H5 고아 행(레지스트리에 없는 impl) — 실행이 설정 오류로 정직 거부 ──
         ghost = f"v317-ghost-{uuid.uuid4().hex[:6]}"
         async with SessionLocal() as s:
-            s.add(NodeTemplate(name=ghost, version=1, kind="code", config={"impl": "ghost-impl"}, description=None))
+            s.add(
+                NodeTemplate(
+                    name=ghost,
+                    version=1,
+                    kind="code",
+                    config={"impl": "ghost-impl"},
+                    description=None,
+                )
+            )
             await s.commit()
         r = await c.post(
             "/agents",
             json={
                 "name": f"v317-ghost-a-{uuid.uuid4().hex[:6]}",
-                "config": {"model": "mock-llm", "prompt": "", "impl": "pipeline",
-                           "nodes": [{"ref": {"name": ghost, "version": 1}}]},
+                "config": {
+                    "model": "mock-llm",
+                    "prompt": "",
+                    "impl": "pipeline",
+                    "nodes": [{"ref": {"name": ghost, "version": 1}}],
+                },
             },
         )
         check(r.status_code == 201, "H5 고아 행 참조 저장(행은 존재 — 코드만 부재)")
         gid = r.json()["id"]
         created_agents.append(gid)
         status, _t, _tr, err = await _chat(c, gid, "안녕")
-        check(status == 200 and err is not None and "설정 오류" in err, f"H5 채팅=설정 오류 프레임(마스킹 0) (got {err})")
+        check(
+            status == 200 and err is not None and "설정 오류" in err,
+            f"H5 채팅=설정 오류 프레임(마스킹 0) (got {err})",
+        )
 
         # ── H6 eval 입구(codex P1) — 평가도 실제 파이프라인(코드 노드)을 태운다(기본 노드 퇴화 금지) ──
         from api.eval_runner import eval_run_agent

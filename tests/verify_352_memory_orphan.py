@@ -47,7 +47,9 @@ def check(cond: object, msg: str) -> None:
 
 OLD = (datetime.now(UTC) - timedelta(days=30)).isoformat()
 FRESH = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
-_dim: int | None = None  # mem0 벡터 차원 — 하드코딩하지 않고 **DB에서 읽는다**(모델 바뀌면 같이 바뀜)
+_dim: int | None = (
+    None  # mem0 벡터 차원 — 하드코딩하지 않고 **DB에서 읽는다**(모델 바뀌면 같이 바뀜)
+)
 
 
 async def _plant(tag: str, payload: dict) -> None:
@@ -79,7 +81,9 @@ async def _alive() -> tuple[str, str, str]:
     """살아있는 유저·세션·에이전트를 DB에서 하나씩 집는다(합성 아님 — 실제 소유자여야 의미가 있다)."""
     async with SessionLocal() as s:
         uid = (await s.execute(text('select id::text from "user" limit 1'))).scalar_one()
-        sid = (await s.execute(text("select session_id from sessions limit 1"))).scalar_one_or_none()
+        sid = (
+            await s.execute(text("select session_id from sessions limit 1"))
+        ).scalar_one_or_none()
         aid = (await s.execute(text("select agent_id from agents limit 1"))).scalar_one()
     return uid, sid or "", aid
 
@@ -107,13 +111,22 @@ async def main() -> None:
     live_user, live_session, live_agent = await _alive()
     dead = str(uuid.uuid4())  # user 테이블에 없는 uuid
     if not live_session:
-        print("  (참고) sessions 행이 없어 run_id 축 보존 케이스는 합성 세션으로 대체할 수 없다 — 스킵")
+        print(
+            "  (참고) sessions 행이 없어 run_id 축 보존 케이스는 합성 세션으로 대체할 수 없다 — 스킵"
+        )
 
     # --- 심는다
     await _plant("ghost-user", {"user_id": dead, "created_at": OLD})  # 유령: 죽은 유저
-    await _plant("ghost-all", {"user_id": dead, "run_id": "sess-없음", "agent_id": "agt-없음", "created_at": OLD})
-    await _plant("live-user", {"user_id": live_user, "created_at": OLD})  # 살아있는 유저(같은 나이!)
-    await _plant("live-agent", {"user_id": dead, "agent_id": live_agent, "created_at": OLD})  # 축 하나 생존
+    await _plant(
+        "ghost-all",
+        {"user_id": dead, "run_id": "sess-없음", "agent_id": "agt-없음", "created_at": OLD},
+    )
+    await _plant(
+        "live-user", {"user_id": live_user, "created_at": OLD}
+    )  # 살아있는 유저(같은 나이!)
+    await _plant(
+        "live-agent", {"user_id": dead, "agent_id": live_agent, "created_at": OLD}
+    )  # 축 하나 생존
     if live_session:
         await _plant("live-session", {"user_id": dead, "run_id": live_session, "created_at": OLD})
     await _plant("fresh", {"user_id": dead, "created_at": FRESH})  # 유예 기간 내
@@ -137,7 +150,10 @@ async def main() -> None:
         await _left("live-user") == 1,
         "M1b **살아있는 유저의 기억은 0건 삭제** — 같은 나이(30일)여도 지우지 않는다",
     )
-    check(await _left("live-agent") == 1, "M2a user_id가 죽어도 agent_id가 살아 있으면 보존(회상 가능)")
+    check(
+        await _left("live-agent") == 1,
+        "M2a user_id가 죽어도 agent_id가 살아 있으면 보존(회상 가능)",
+    )
     if live_session:
         check(
             await _left("live-session") == 1, "M2b user_id가 죽어도 run_id(세션)가 살아 있으면 보존"

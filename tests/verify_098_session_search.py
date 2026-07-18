@@ -17,6 +17,7 @@ rung② RBAC own-scope 통합(비-admin principal 오버라이드):
 
 실행: .venv/bin/python tests/verify_098_session_search.py  (DB 필요)
 """
+
 import asyncio
 import os
 import sys
@@ -69,9 +70,24 @@ OWN_UID = str(MEMBER.id)
 # 이스케이프 시드: E_UND(리터럴 `_`) vs E_UNX(임의문자) — q="ESC-a_b"는 `_` 이스케이프 시 E_UND만.
 #                  E_PCT(리터럴 `%`) vs E_PXX(임의런)  — q="ESC-p%q"는 `%` 이스케이프 시 E_PCT만.
 _SEED = [
-    dict(session_id=f"{PREFIX}MARKERID_1", user_id="v098_plainuser_a", agent_name="v098_plainagent_a", status="active"),
-    dict(session_id=f"{PREFIX}s2", user_id="v098_MARKERUSER_b", agent_name="v098_plainagent_b", status="error"),
-    dict(session_id=f"{PREFIX}s3", user_id="v098_plainuser_c", agent_name="v098_MARKERAGENT_c", status="active"),
+    dict(
+        session_id=f"{PREFIX}MARKERID_1",
+        user_id="v098_plainuser_a",
+        agent_name="v098_plainagent_a",
+        status="active",
+    ),
+    dict(
+        session_id=f"{PREFIX}s2",
+        user_id="v098_MARKERUSER_b",
+        agent_name="v098_plainagent_b",
+        status="error",
+    ),
+    dict(
+        session_id=f"{PREFIX}s3",
+        user_id="v098_plainuser_c",
+        agent_name="v098_MARKERAGENT_c",
+        status="active",
+    ),
     dict(session_id=f"{PREFIX}eund", user_id="v098_e_a", agent_name="ESC-a_b", status="active"),
     dict(session_id=f"{PREFIX}eunx", user_id="v098_e_b", agent_name="ESC-axb", status="active"),
     dict(session_id=f"{PREFIX}epct", user_id="v098_e_c", agent_name="ESC-p%q", status="active"),
@@ -79,8 +95,15 @@ _SEED = [
 ]
 # rung② 시드: 같은 agent_name(v098_SECRETAGENT)을 own/foreign이 공유 → 검색이 스코프를 못 넘음 증명.
 _SEED_RBAC = [
-    dict(session_id=f"{PREFIX}own", user_id=OWN_UID, agent_name="v098_SECRETAGENT", status="active"),
-    dict(session_id=f"{PREFIX}foreign", user_id="v098_other_user", agent_name="v098_SECRETAGENT", status="active"),
+    dict(
+        session_id=f"{PREFIX}own", user_id=OWN_UID, agent_name="v098_SECRETAGENT", status="active"
+    ),
+    dict(
+        session_id=f"{PREFIX}foreign",
+        user_id="v098_other_user",
+        agent_name="v098_SECRETAGENT",
+        status="active",
+    ),
 ]
 
 
@@ -139,8 +162,10 @@ async def main() -> None:
 
             print("[1b] OR 다중매칭(공통 agent_name 부분어)")
             multi, _, _ = await _ids(c, {"q": "v098_plainagent"})
-            check(_mine(multi) == {f"{PREFIX}MARKERID_1", f"{PREFIX}s2"},
-                  f"plainagent → S1·S2(got {_mine(multi)})")
+            check(
+                _mine(multi) == {f"{PREFIX}MARKERID_1", f"{PREFIX}s2"},
+                f"plainagent → S1·S2(got {_mine(multi)})",
+            )
 
             print("[2] 대소문자 무시(ilike)")
             lower, _, _ = await _ids(c, {"q": "markerid"})
@@ -163,11 +188,15 @@ async def main() -> None:
 
             print("[6] 와일드카드 이스케이프(`_`·`%` 리터럴)")
             und, _, _ = await _ids(c, {"q": "ESC-a_b"})
-            check(_mine(und) == {f"{PREFIX}eund"},
-                  f"`_`는 리터럴 → ESC-a_b만(ESC-axb 제외, got {_mine(und)})")
+            check(
+                _mine(und) == {f"{PREFIX}eund"},
+                f"`_`는 리터럴 → ESC-a_b만(ESC-axb 제외, got {_mine(und)})",
+            )
             pct, _, _ = await _ids(c, {"q": "ESC-p%q"})
-            check(_mine(pct) == {f"{PREFIX}epct"},
-                  f"`%`는 리터럴 → ESC-p%q만(ESC-pXXq 제외, got {_mine(pct)})")
+            check(
+                _mine(pct) == {f"{PREFIX}epct"},
+                f"`%`는 리터럴 → ESC-p%q만(ESC-pXXq 제외, got {_mine(pct)})",
+            )
 
         # ===== rung② RBAC own-scope 통합(비-admin) =====
         authz.get_enforcer = lambda: FakeEnforcer(set())  # 정책 전무 → MEMBER=비-admin
@@ -177,14 +206,17 @@ async def main() -> None:
                 print("[7] 비-admin 검색이 own-scope를 못 넘음(타인 세션 0)")
                 secret, _, _ = await _ids(c, {"q": "SECRETAGENT"})
                 mine = _mine(secret)
-                check(f"{PREFIX}foreign" not in mine,
-                      f"타인 세션(foreign) 검색 누출 0(got {mine})")
-                check(mine <= {f"{PREFIX}own"},
-                      f"비-admin 검색 결과는 본인 세션에 한정(got {mine})")
+                check(f"{PREFIX}foreign" not in mine, f"타인 세션(foreign) 검색 누출 0(got {mine})")
+                check(
+                    mine <= {f"{PREFIX}own"}, f"비-admin 검색 결과는 본인 세션에 한정(got {mine})"
+                )
 
                 print("[8] 비-admin이 본인 세션 검색 정상(자가-잠금 핀)")
                 own, _, _ = await _ids(c, {"q": "SECRETAGENT"})
-                check(f"{PREFIX}own" in _mine(own), "본인 세션은 검색으로 조회됨(정당 접근 차단 안 함)")
+                check(
+                    f"{PREFIX}own" in _mine(own),
+                    "본인 세션은 검색으로 조회됨(정당 접근 차단 안 함)",
+                )
                 ownid, _, _ = await _ids(c, {"q": "v098_own"})
                 check(_mine(ownid) == {f"{PREFIX}own"}, "본인 session_id 검색도 정상")
         finally:

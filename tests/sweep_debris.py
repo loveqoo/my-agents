@@ -75,7 +75,9 @@ async def main() -> None:
         async def _count(model: type, col) -> int:
             if not debris_pks:
                 return 0
-            return (await s.scalar(select(func.count()).select_from(model).where(col.in_(debris_pks)))) or 0
+            return (
+                await s.scalar(select(func.count()).select_from(model).where(col.in_(debris_pks)))
+            ) or 0
 
         n_sessions = await _count(Session, Session.agent_pk)
         n_versions = await _count(AgentVersion, AgentVersion.agent_pk)

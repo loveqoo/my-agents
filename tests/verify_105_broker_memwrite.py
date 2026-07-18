@@ -17,6 +17,7 @@
 
 실행: .venv/bin/python tests/verify_105_broker_memwrite.py
 """
+
 import asyncio
 import os
 import sys
@@ -82,12 +83,14 @@ class FakeMemAdd:
         }
 
     def search(self, query, filters, top_k):
-        (axis, val), = filters.items()
+        ((axis, val),) = filters.items()
         rows = []
         for kw, msgs in self.adds:
             if kw.get(axis) == val:
                 for m in msgs:
-                    rows.append({"id": f"m{len(rows)}", "memory": m["content"], "score": 1.0, axis: val})
+                    rows.append(
+                        {"id": f"m{len(rows)}", "memory": m["content"], "score": 1.0, axis: val}
+                    )
         return {"results": rows[:top_k]}
 
     def get_all(self, filters):
@@ -96,6 +99,7 @@ class FakeMemAdd:
 
 def with_mem(mem) -> None:
     from api.memory.mem0_backend import Mem0Backend
+
     backend = Mem0Backend.__new__(Mem0Backend)
     backend._mem = mem
     M.resolve_backend = lambda mem_cfg: backend  # type: ignore[assignment]
@@ -104,6 +108,7 @@ def with_mem(mem) -> None:
 def _async(val):
     async def _f(*a, **k):
         return val
+
     return _f
 
 
@@ -122,6 +127,7 @@ def _fake_factory():
 def _raise_factory():
     def make():
         raise AssertionError("거부/무해 경로가 DB를 만졌다(존재 누출 위험)")
+
     return make
 
 
@@ -129,26 +135,50 @@ def _raise_factory():
 def unit_checks() -> None:
     print("[U] 단위 — 네임스페이스·_permitted·approval 항상 non-None·describe·candidates·시임 계약")
     check(_kind_of("memwrite:user") == "memwrite", "U1 memwrite: 접두사 → kind memwrite")
-    check(_kind_of("memory:user") == "memory" and _kind_of("rag:x") == "rag" and _kind_of("agt_x") == "agent",
-          "U1 memory/rag/agent 판정 무회귀(memwrite와 충돌 없음)")
+    check(
+        _kind_of("memory:user") == "memory"
+        and _kind_of("rag:x") == "rag"
+        and _kind_of("agt_x") == "agent",
+        "U1 memory/rag/agent 판정 무회귀(memwrite와 충돌 없음)",
+    )
     check(_parse_memwrite("memwrite:user") == "user", "U1 memwrite:user → user")
     check(_parse_memwrite("memwrite:") == "", "U1 memwrite: → 빈 리소스")
-    check(_parse_memwrite("memory:user") == "memory:user", "U1 다른 kind는 원본 방어(memory: 접두사 안 벗김)")
+    check(
+        _parse_memwrite("memory:user") == "memory:user",
+        "U1 다른 kind는 원본 방어(memory: 접두사 안 벗김)",
+    )
 
-    bt = PolicyScopedBroker({MEMWRITE}, lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=_raise_factory(), user_id="bob")))
+    bt = PolicyScopedBroker(
+        {MEMWRITE},
+        lambda k, name=None: True,
+        providers=build_providers(BrokerContext(session_factory=_raise_factory(), user_id="bob")),
+    )
     check(bt._permitted(MEMWRITE) is True, "U2 정확 memwrite cap 허용 → permitted")
     check(bt._permitted("memwrite:other") is False, "U2 allow 밖 → deny(비노출)")
-    brd = PolicyScopedBroker({MEMWRITE}, lambda k, name=None: False, providers=build_providers(BrokerContext(session_factory=_raise_factory(), user_id="bob")))
+    brd = PolicyScopedBroker(
+        {MEMWRITE},
+        lambda k, name=None: False,
+        providers=build_providers(BrokerContext(session_factory=_raise_factory(), user_id="bob")),
+    )
     check(brd._permitted(MEMWRITE) is False, "U2 RBAC 거부 → deny(교집합)")
 
     mw = MemoryWriteProvider(_raise_factory(), "bob")
     # U3 approval_for — 쓰기=부수효과 → **항상 non-None**(읽기와 정반대) + 저장될 사실 노출.
     ap = mw.approval_for(None, MEMWRITE, {"text": "밥은 재즈를 친다"})
     check(ap is not None, "U3 approval_for → 항상 non-None(쓰기=부수효과, 읽기와 정반대)")
-    check(ap["permission"] == MEMWRITE_PERMISSION == "memory.write", "U3 permission=memory.write(066 self-approve)")
-    check("재즈" in ap["args"]["text"] and "재즈" in ap["summary"], "U3 저장될 사실을 마스킹 없이 노출(승인 가시성)")
+    check(
+        ap["permission"] == MEMWRITE_PERMISSION == "memory.write",
+        "U3 permission=memory.write(066 self-approve)",
+    )
+    check(
+        "재즈" in ap["args"]["text"] and "재즈" in ap["summary"],
+        "U3 저장될 사실을 마스킹 없이 노출(승인 가시성)",
+    )
     ap_long = mw.approval_for(None, MEMWRITE, {"text": "가" * 500})
-    check(len(ap_long["summary"]) < 400 and "…" in ap_long["summary"], "U3 summary 미리보기 상한(거대 사실)")
+    check(
+        len(ap_long["summary"]) < 400 and "…" in ap_long["summary"],
+        "U3 summary 미리보기 상한(거대 사실)",
+    )
 
     # U4 describe — text 필수, user_id 필드 없음(주체 고정).
     desc = mw.describe(_MemBacking("user"))
@@ -157,10 +187,19 @@ def unit_checks() -> None:
     check("text" in props and desc.input_schema.get("required") == ["text"], "U4 text 필수")
     check("user_id" not in props, "U4 스키마에 user_id 없음(대상=주체 도출)")
 
-    b = PolicyScopedBroker([], lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=_raise_factory(), user_id="bob")))
-    check("memwrite" in b._by_kind and isinstance(b._by_kind["memwrite"], MemoryWriteProvider),
-          "U5 _by_kind에 memwrite → MemoryWriteProvider")
-    check({"agent", "mcp", "rag", "memory", "memwrite"} <= set(b._by_kind), "U5 5 provider 보유(읽기+쓰기 분리)")
+    b = PolicyScopedBroker(
+        [],
+        lambda k, name=None: True,
+        providers=build_providers(BrokerContext(session_factory=_raise_factory(), user_id="bob")),
+    )
+    check(
+        "memwrite" in b._by_kind and isinstance(b._by_kind["memwrite"], MemoryWriteProvider),
+        "U5 _by_kind에 memwrite → MemoryWriteProvider",
+    )
+    check(
+        {"agent", "mcp", "rag", "memory", "memwrite"} <= set(b._by_kind),
+        "U5 5 provider 보유(읽기+쓰기 분리)",
+    )
     check(mw.node_label(_MemBacking("user")) == "broker_invoke:memwrite:user", "U5 node_label 형식")
 
 
@@ -169,11 +208,19 @@ async def unit_async_checks() -> None:
     MC.default_mem_cfg = _async({"llm": {}, "embedder": {}})  # type: ignore[assignment]
 
     mw_bob = MemoryWriteProvider(_raise_factory(), "bob")
-    check([c.id for c in await mw_bob.candidates({MEMWRITE})] == [MEMWRITE], "U6 allow∋memwrite:user+user_id → cap")
+    check(
+        [c.id for c in await mw_bob.candidates({MEMWRITE})] == [MEMWRITE],
+        "U6 allow∋memwrite:user+user_id → cap",
+    )
     check(await mw_bob.candidates(set()) == [], "U6 allow 밖 → []")
-    check(await mw_bob.candidates({"memwrite:other", "memwrite:"}) == [], "U6 미지원/빈 리소스 → []")
+    check(
+        await mw_bob.candidates({"memwrite:other", "memwrite:"}) == [], "U6 미지원/빈 리소스 → []"
+    )
     mw_machine = MemoryWriteProvider(_raise_factory(), None)
-    check(await mw_machine.candidates({MEMWRITE}) == [], "U6 머신(user_id None) → [](자기 스코프 없음)")
+    check(
+        await mw_machine.candidates({MEMWRITE}) == [],
+        "U6 머신(user_id None) → [](자기 스코프 없음)",
+    )
     check(await mw_machine.load(MEMWRITE) is None, "U6 머신 load → None(존재 비노출)")
     check(await mw_bob.load("memwrite:other") is None, "U6 미지원 리소스 load → None")
 
@@ -183,14 +230,21 @@ async def unit_async_checks() -> None:
     mw = MemoryWriteProvider(_fake_factory, "bob")
     res = await mw.invoke(_MemBacking("user"), {"text": "밥은 재즈를 친다"})
     check(res.error is None and "저장했습니다" in res.text, "U7 invoke → 저장 확인 텍스트")
-    check(len(fake.adds) == 1 and fake.adds[0][0] == {"user_id": "bob"},
-          f"U7 memory.add가 자기 user_id 스코프에만(got {fake.adds[0][0] if fake.adds else None})")
-    check(fake.adds[0][1][0]["content"] == "밥은 재즈를 친다", "U7 저장 원문=입력 그대로(infer=False)")
+    check(
+        len(fake.adds) == 1 and fake.adds[0][0] == {"user_id": "bob"},
+        f"U7 memory.add가 자기 user_id 스코프에만(got {fake.adds[0][0] if fake.adds else None})",
+    )
+    check(
+        fake.adds[0][1][0]["content"] == "밥은 재즈를 친다", "U7 저장 원문=입력 그대로(infer=False)"
+    )
 
     # args의 user_id/agent_id 밀반입 → 무시(스코프는 주체 도출값만).
     fake.adds.clear()
     await mw.invoke(_MemBacking("user"), {"text": "x", "user_id": "alice", "agent_id": "agtX"})
-    check(fake.adds[0][0] == {"user_id": "bob"}, "U7 args user_id=alice·agent_id 밀반입 → bob 스코프만(무시)")
+    check(
+        fake.adds[0][0] == {"user_id": "bob"},
+        "U7 args user_id=alice·agent_id 밀반입 → bob 스코프만(무시)",
+    )
 
     # 빈 text → 무저장(부수효과 0).
     fake.adds.clear()
@@ -199,31 +253,46 @@ async def unit_async_checks() -> None:
 
     # 거대 text(적대 리뷰 105 P2) → 저장·승인 모두 상한, 그리고 **둘이 일치**(승인한 것==저장되는 것).
     from api.broker import MEMWRITE_MAX_CHARS
+
     fake.adds.clear()
     huge = "가" * 50_000
     await mw.invoke(_MemBacking("user"), {"text": huge})
     stored = fake.adds[0][1][0]["content"]
     approved = mw.approval_for(None, MEMWRITE, {"text": huge})["args"]["text"]
-    check(len(stored) == MEMWRITE_MAX_CHARS, f"U7 거대 text → 저장 상한({MEMWRITE_MAX_CHARS}) (got {len(stored)})")
+    check(
+        len(stored) == MEMWRITE_MAX_CHARS,
+        f"U7 거대 text → 저장 상한({MEMWRITE_MAX_CHARS}) (got {len(stored)})",
+    )
     check(stored == approved, "U7 승인 args.text == 저장 text(동일 상한 = 승인한 것==저장되는 것)")
 
     # 백엔드 미가용 → graceful 무저장.
     M.resolve_backend = lambda mem_cfg: None  # type: ignore[assignment]
     r_off = await mw.invoke(_MemBacking("user"), {"text": "y"})
-    check(r_off.error is not None and "구성" in r_off.error, "U7 백엔드 미가용 → graceful 오류(무저장)")
+    check(
+        r_off.error is not None and "구성" in r_off.error,
+        "U7 백엔드 미가용 → graceful 오류(무저장)",
+    )
 
     # 배선: build_broker + resume broker가 memwrite provider에 user_id 주입.
     bob = P()
     wired = build_broker(bob, {MEMWRITE})
-    check(wired._by_kind["memwrite"]._user_id == str(bob.id), "U8 build_broker → memwrite provider user_id 주입")
+    check(
+        wired._by_kind["memwrite"]._user_id == str(bob.id),
+        "U8 build_broker → memwrite provider user_id 주입",
+    )
     from api import chat as CHAT
+
     rb = await CHAT._build_resume_broker("bob-uid", {MEMWRITE})
-    check(rb._by_kind["memwrite"]._user_id == "bob-uid", "U8 _build_resume_broker → memwrite user_id 복원(재개)")
+    check(
+        rb._by_kind["memwrite"]._user_id == "bob-uid",
+        "U8 _build_resume_broker → memwrite user_id 복원(재개)",
+    )
 
 
 # ================================================================ [G] 그래프 게이트(승인 왕복)
 def _write_graph(broker):
     """broker.invoke("memwrite:user")를 부르는 최소 1노드 그래프(LLM 불요). interrupt가 여기서 발화."""
+
     class St(TypedDict, total=False):
         fact: str
         result: str
@@ -255,37 +324,57 @@ async def graph_gate_checks() -> None:
     # approve 결.
     fake = FakeMemAdd()
     with_mem(fake)
-    b = PolicyScopedBroker({MEMWRITE}, lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=_fake_factory, user_id="bob")))
+    b = PolicyScopedBroker(
+        {MEMWRITE},
+        lambda k, name=None: True,
+        providers=build_providers(BrokerContext(session_factory=_fake_factory, user_id="bob")),
+    )
     g = _write_graph(b)
     cfg = {"configurable": {"thread_id": "v105-approve"}}
     itr = await _stream(g, {"fact": "밥은 재즈를 친다"}, cfg)
-    check(itr is not None and itr.get("permission") == "memory.write",
-          "G1 memwrite 위임 → interrupt(permission=memory.write)")
-    check(len(fake.adds) == 0 and len(b.invocations) == 0, "G1 pause 시 무저장(승인 전 부수효과 0=멱등)")
+    check(
+        itr is not None and itr.get("permission") == "memory.write",
+        "G1 memwrite 위임 → interrupt(permission=memory.write)",
+    )
+    check(
+        len(fake.adds) == 0 and len(b.invocations) == 0,
+        "G1 pause 시 무저장(승인 전 부수효과 0=멱등)",
+    )
     await _stream(g, Command(resume={"decision": "approve"}), cfg)
-    check(len(fake.adds) == 1 and fake.adds[0][0] == {"user_id": "bob"},
-          f"G1 approve 재개 → 정확히 1회 저장(bob scope) (adds={len(fake.adds)})")
-    check(len(b.invocations) == 1 and b.invocations[0]["node"] == "broker_invoke:memwrite:user",
-          "G1 approve → invocations 1(memwrite 노드)")
+    check(
+        len(fake.adds) == 1 and fake.adds[0][0] == {"user_id": "bob"},
+        f"G1 approve 재개 → 정확히 1회 저장(bob scope) (adds={len(fake.adds)})",
+    )
+    check(
+        len(b.invocations) == 1 and b.invocations[0]["node"] == "broker_invoke:memwrite:user",
+        "G1 approve → invocations 1(memwrite 노드)",
+    )
 
     # reject 결.
     fake2 = FakeMemAdd()
     with_mem(fake2)
-    b2 = PolicyScopedBroker({MEMWRITE}, lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=_fake_factory, user_id="bob")))
+    b2 = PolicyScopedBroker(
+        {MEMWRITE},
+        lambda k, name=None: True,
+        providers=build_providers(BrokerContext(session_factory=_fake_factory, user_id="bob")),
+    )
     g2 = _write_graph(b2)
     cfg2 = {"configurable": {"thread_id": "v105-reject"}}
     itr2 = await _stream(g2, {"fact": "저장되면 안 되는 사실"}, cfg2)
     check(itr2 is not None, "G2 reject 결: memwrite 위임 → interrupt")
     check(len(fake2.adds) == 0, "G2 pause 시 무저장")
     await _stream(g2, Command(resume={"decision": "reject"}), cfg2)
-    check(len(fake2.adds) == 0 and len(b2.invocations) == 0,
-          "G2 reject 재개 → 무저장(부수효과 0, 거부 안전)")
+    check(
+        len(fake2.adds) == 0 and len(b2.invocations) == 0,
+        "G2 reject 재개 → 무저장(부수효과 0, 거부 안전)",
+    )
 
 
 # ================================================================ [H] 통합(실 DB·mem0 — guarded)
 async def integration_checks() -> None:
     print("[H] 통합(실 DB·mem0) — self-approve 정책 시드 + 실 쓰기→읽기 왕복·교차유저 무저장")
     import importlib
+
     importlib.reload(M)
     importlib.reload(MC)
     from api import authz
@@ -295,10 +384,14 @@ async def integration_checks() -> None:
     await authz.init_authz()
     e = authz.get_enforcer()
     # self-approve 정책: member는 memory.write 자기 승인 가능, data.delete는 여전히 불가(민감도 구분).
-    check(e.has_policy("member", "memory.write", "self_approve"),
-          "H1 member memory.write self_approve 정책 시드됨(소유자 본인 승인 기본)")
-    check(not e.has_policy("member", "data.delete", "self_approve"),
-          "H1 data.delete는 self_approve 아님(민감 perm=admin 전용, 민감도 구분 무회귀)")
+    check(
+        e.has_policy("member", "memory.write", "self_approve"),
+        "H1 member memory.write self_approve 정책 시드됨(소유자 본인 승인 기본)",
+    )
+    check(
+        not e.has_policy("member", "data.delete", "self_approve"),
+        "H1 data.delete는 self_approve 아님(민감 perm=admin 전용, 민감도 구분 무회귀)",
+    )
 
     async with SessionLocal() as db:
         mem_cfg = await MC.default_mem_cfg(db)
@@ -325,7 +418,10 @@ async def integration_checks() -> None:
         # 쓰기→읽기 왕복: MemoryProvider(104)로 bob 스코프 회상 → 그 사실 있음.
         mr_bob = MemoryProvider(SessionLocal, bob_uid)
         rb = await mr_bob.invoke(_MemBacking("user"), {"text": fact})
-        check("재즈" in rb.text, f"H2 쓰기→읽기 왕복: bob이 자기 저장 사실 회상 (got {rb.text[:40]!r})")
+        check(
+            "재즈" in rb.text,
+            f"H2 쓰기→읽기 왕복: bob이 자기 저장 사실 회상 (got {rb.text[:40]!r})",
+        )
 
         # 교차유저: alice 스코프 회상 → bob이 쓴 사실 없음.
         mr_alice = MemoryProvider(SessionLocal, alice_uid)

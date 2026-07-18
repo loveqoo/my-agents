@@ -132,12 +132,28 @@ def main() -> int:
     log = open("/tmp/api-server.log", "w")  # noqa: SIM115, PTH123
     subprocess.Popen(
         [
-            "uv", "run", "--project", "packages/api", "uvicorn", "api.main:app",
-            "--host", "127.0.0.1", "--port", "8000", "--reload",
-            "--reload-dir", "packages/api/src", "--reload-dir", "packages/agent/src",
-            "--timeout-graceful-shutdown", "5",
+            "uv",
+            "run",
+            "--project",
+            "packages/api",
+            "uvicorn",
+            "api.main:app",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "8000",
+            "--reload",
+            "--reload-dir",
+            "packages/api/src",
+            "--reload-dir",
+            "packages/agent/src",
+            "--timeout-graceful-shutdown",
+            "5",
         ],
-        cwd=REPO, stdout=log, stderr=log, start_new_session=True,
+        cwd=REPO,
+        stdout=log,
+        stderr=log,
+        start_new_session=True,
     )
     if not _wait_health():
         print("  ✗ api 기동 실패 — /tmp/api-server.log 확인")
@@ -146,7 +162,10 @@ def main() -> int:
 
     print("④ 실모델(MLX) 복원 + 검증")
     r = sh(["uv", "run", "python", "-c", _RESTORE_SNIPPET], cwd=REPO / "packages" / "api")
-    print("\n".join(ln for ln in r.stdout.splitlines() if ln.strip().startswith(("✓", "✗", "  "))) or r.stdout[-500:])
+    print(
+        "\n".join(ln for ln in r.stdout.splitlines() if ln.strip().startswith(("✓", "✗", "  ")))
+        or r.stdout[-500:]
+    )
     if r.returncode != 0:
         print("  ✗ 실모델 복원 실패:", r.stderr[-300:])
         return 1

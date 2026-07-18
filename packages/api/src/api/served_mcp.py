@@ -213,8 +213,14 @@ for _n, _ts in _DEFS.items():
 SERVED_MCPS: dict[str, FastMCP] = {name: _build(name, tools) for name, tools in _DEFS.items()}
 
 
-def served_url(name: str, base: str = "http://127.0.0.1:8000") -> str:
-    """서빙 URL(끝 슬래시 필수 — mount+path 조합이 trailing-slash 기대, mock_mcp 동형)."""
+def served_url(name: str, base: str | None = None) -> str:
+    """서빙 URL(끝 슬래시 필수 — mount+path 조합이 trailing-slash 기대, mock_mcp 동형).
+
+    base 미지정 시 SELF_BASE_URL env(스펙 390 격리 하네스 — 임시 포트 서버가 자기참조 시드를
+    자기 포트로 만들게) → 기본 8000(기존 동작 불변)."""
+    import os
+
+    base = base or os.environ.get("SELF_BASE_URL", "http://127.0.0.1:8000")
     return f"{base.rstrip('/')}{SERVED_MCP_PREFIX}/{name}/"
 
 

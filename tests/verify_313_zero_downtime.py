@@ -35,12 +35,14 @@ _fails: list[str] = []
 _AUTH = {"Authorization": f"Bearer {_token()}"}
 COL = "verify313-zdt"
 
-DOC = ("\n\n".join(
-    f"문단 {i}: 무중단 재인덱싱은 옛 벡터로 검색을 계속 서비스하며 새 벡터를 만들고 한 순간에 "
-    f"원자 스왑한다. 임베딩 모델을 바꿔가며 검색 품질을 튜닝해도 에이전트와 평가는 멈추지 않는다. "
-    f"이것은 {i}번째 문단이며 의미 있는 분량을 채운다." * 2
-    for i in range(6)
-)).encode("utf-8")
+DOC = (
+    "\n\n".join(
+        f"문단 {i}: 무중단 재인덱싱은 옛 벡터로 검색을 계속 서비스하며 새 벡터를 만들고 한 순간에 "
+        f"원자 스왑한다. 임베딩 모델을 바꿔가며 검색 품질을 튜닝해도 에이전트와 평가는 멈추지 않는다. "
+        f"이것은 {i}번째 문단이며 의미 있는 분량을 채운다." * 2
+        for i in range(6)
+    )
+).encode("utf-8")
 
 
 def check(cond: bool, msg: str) -> None:
@@ -52,8 +54,10 @@ def check(cond: bool, msg: str) -> None:
 async def _models() -> tuple[str, str]:
     async with SessionLocal() as s:
         ms = (
-            await s.execute(select(ModelConfig).where(ModelConfig.kind == "embedding"))
-        ).scalars().all()
+            (await s.execute(select(ModelConfig).where(ModelConfig.kind == "embedding")))
+            .scalars()
+            .all()
+        )
         mock = next((m for m in ms if m.name == "mock-embed"), None)
         real = next((m for m in ms if m.name != "mock-embed"), None)
         return (str(mock.id) if mock else ""), (str(real.id) if real else "")
@@ -88,8 +92,13 @@ async def main() -> None:
 
         r = await c.post(
             "/collections",
-            json={"name": COL, "kind": "document", "embedding_model_id": mock_id,
-                  "chunk_size": 1000, "chunk_overlap": 200},
+            json={
+                "name": COL,
+                "kind": "document",
+                "embedding_model_id": mock_id,
+                "chunk_size": 1000,
+                "chunk_overlap": 200,
+            },
         )
         check(r.status_code == 201, f"문서 컬렉션 생성({r.status_code})")
         cid = r.json()["id"]
@@ -107,14 +116,20 @@ async def main() -> None:
         # ── ① 단위: status='reindexing' 강제 후 검색이 막히지 않음(옛 청크 무중단) ──
         async with SessionLocal() as s:
             await s.execute(
-                sa_update(Collection).where(Collection.id == uuid.UUID(cid)).values(status="reindexing")
+                sa_update(Collection)
+                .where(Collection.id == uuid.UUID(cid))
+                .values(status="reindexing")
             )
             await s.commit()
         r = await c.post(f"/collections/{cid}/search", json={"query": q, "top_k": 3})
-        check(r.status_code == 200 and _hits(r) >= 1,
-              f"① reindexing 상태 검색 무중단 → 200·hit={_hits(r)}(잠금 무시)")
+        check(
+            r.status_code == 200 and _hits(r) >= 1,
+            f"① reindexing 상태 검색 무중단 → 200·hit={_hits(r)}(잠금 무시)",
+        )
         # ④ 쓰기는 여전히 직렬화: 재인덱싱 중 인제스트 409
-        r = await c.post(f"/collections/{cid}/documents", files={"file": ("x.txt", b"hi", "text/plain")})
+        r = await c.post(
+            f"/collections/{cid}/documents", files={"file": ("x.txt", b"hi", "text/plain")}
+        )
         check(r.status_code == 409, f"④ reindexing 중 인제스트 → 409({r.status_code}, 검색만 예외)")
         # 잠금 해제(다음 단계 실재인덱싱 준비)
         async with SessionLocal() as s:
@@ -128,7 +143,7 @@ async def main() -> None:
             reindex = asyncio.create_task(
                 c.post(f"/collections/{cid}/reindex", json={"embedding_model_id": real_id})
             )
-            during: list[int] = []       # 재인덱싱 진행 중 검색 hit 수(200이면 ≥0, 아니면 -1)
+            during: list[int] = []  # 재인덱싱 진행 중 검색 hit 수(200이면 ≥0, 아니면 -1)
             during_status: set[int] = set()
             # `not reindex.done()`인 동안의 검색은 정의상 재인덱싱 중 — 그 사이 전부 200·hit≥1이어야 무중단.
             while not reindex.done():
@@ -142,9 +157,14 @@ async def main() -> None:
             overlapped = len(during)
             all_ok = overlapped >= 1 and all(h >= 1 for h in during)
             check(overlapped >= 1, f"② 재인덱싱 중 검색 {overlapped}회 발생(동시성 겹침 확인)")
-            check(all_ok, f"② 재인덱싱 중 검색 전부 무중단(200·hit≥1) — status={sorted(during_status)} hits={during}")
-            check(during_status == {200} or during_status <= {200},
-                  f"② 재인덱싱 중 409·5xx 0건(status={sorted(during_status)})")
+            check(
+                all_ok,
+                f"② 재인덱싱 중 검색 전부 무중단(200·hit≥1) — status={sorted(during_status)} hits={during}",
+            )
+            check(
+                during_status == {200} or during_status <= {200},
+                f"② 재인덱싱 중 409·5xx 0건(status={sorted(during_status)})",
+            )
 
             # ③ 스왑 후: 모델·status·새 모델 검색
             col = await _col_row(COL)
@@ -163,7 +183,9 @@ async def main() -> None:
         for f in _fails:
             print("  - " + f)
         sys.exit(1)
-    print("\nVERIFY313_OK — 무중단 재인덱싱: 검색이 재인덱싱에 블로킹·409·부분결과 없이 옛→새 무중단 전환")
+    print(
+        "\nVERIFY313_OK — 무중단 재인덱싱: 검색이 재인덱싱에 블로킹·409·부분결과 없이 옛→새 무중단 전환"
+    )
 
 
 if __name__ == "__main__":

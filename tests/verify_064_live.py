@@ -64,7 +64,10 @@ async def main() -> None:
         # L1 — force refresh로 env 부트스트랩 시드 로드.
         await net_guard.refresh_allowed_hosts(force=True)
         snap = net_guard._allowed_hosts()
-        check("127.0.0.1" in snap, f"L1 force refresh → 시드 127.0.0.1 스냅샷 로드 (snap={sorted(snap)})")
+        check(
+            "127.0.0.1" in snap,
+            f"L1 force refresh → 시드 127.0.0.1 스냅샷 로드 (snap={sorted(snap)})",
+        )
         check(_passes("http://127.0.0.1:8000/x"), "L1 guard 통과(시드 host)")
 
         # L2 — 시드 밖 사설은 차단.
@@ -73,21 +76,27 @@ async def main() -> None:
         # L3 — DB 추가 → force refresh → 무재시작 통과 전환.
         await _insert_test_host()
         await net_guard.refresh_allowed_hosts(force=True)
-        check(_passes(f"http://{TEST_HOST}/x"),
-              f"L3 DB 추가 후 refresh → {TEST_HOST} 무재시작 통과(재기동 없음)")
+        check(
+            _passes(f"http://{TEST_HOST}/x"),
+            f"L3 DB 추가 후 refresh → {TEST_HOST} 무재시작 통과(재기동 없음)",
+        )
 
         # L4 — staleness: 추가 직후 TTL 내 non-force refresh는 DB 재조회 안 함(디바운스).
         #   여기서 DB에서 host를 제거하고 non-force refresh를 불러도 스냅샷이 그대로면,
         #   닫는 변경(제거)이 TTL 동안 늦게 반영되는 창(≤TTL)을 확인한 것.
         await _purge_test_host()
         await net_guard.refresh_allowed_hosts(force=False)  # 만료 전 → no-op
-        check(_passes(f"http://{TEST_HOST}/x"),
-              f"L4 제거 후 TTL 내 non-force refresh는 디바운스(아직 {TEST_HOST} 허용=staleness 창 ≤TTL)")
+        check(
+            _passes(f"http://{TEST_HOST}/x"),
+            f"L4 제거 후 TTL 내 non-force refresh는 디바운스(아직 {TEST_HOST} 허용=staleness 창 ≤TTL)",
+        )
 
         # L5 — force refresh(=만료/invalidate 후 재조회 등가) → 닫는 변경 반영, 다시 차단.
         await net_guard.refresh_allowed_hosts(force=True)
-        check(not _passes(f"http://{TEST_HOST}/x"),
-              f"L5 force refresh → 제거 반영, {TEST_HOST} 다시 차단(닫는 변경 ≤TTL 내 수렴)")
+        check(
+            not _passes(f"http://{TEST_HOST}/x"),
+            f"L5 force refresh → 제거 반영, {TEST_HOST} 다시 차단(닫는 변경 ≤TTL 내 수렴)",
+        )
     finally:
         await _purge_test_host()  # 반드시 정리
         net_guard._set_allowed_hosts_for_test([])  # 스냅샷 누수 방지

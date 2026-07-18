@@ -15,6 +15,7 @@
 
 import asyncio
 import json
+import os
 import pathlib
 import sys
 import urllib.request
@@ -26,7 +27,7 @@ from sqlalchemy import text  # noqa: E402
 
 from api.db import SessionLocal, engine  # noqa: E402
 
-BASE = "http://127.0.0.1:8000"
+BASE = os.environ.get("VERIFY_BASE", "http://127.0.0.1:8000")  # 스펙 390: 격리 서버 주입
 _fails: list[str] = []
 passed = 0
 

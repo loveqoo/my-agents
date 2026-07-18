@@ -17,7 +17,7 @@ import uuid
 import httpx
 from sqlalchemy import create_engine, text
 
-BASE = os.environ.get("API_BASE", "http://127.0.0.1:8000")
+BASE = os.environ.get("VERIFY_BASE", "http://127.0.0.1:8000")  # 스펙 390: 격리 서버 주입
 EMAIL = os.environ.get("ADMIN_EMAIL", "admin@example.com")
 PASSWORD = os.environ.get("ADMIN_PASSWORD", "adminpass123")
 DB = os.environ.get(
@@ -85,7 +85,9 @@ def main() -> None:  # noqa: PLR0915
         cli.post(f"/agents/{aid}/activate", json={"version": "v1"}).raise_for_status()
 
         def chat(msg: str) -> dict | None:
-            resp = cli.post(f"/agents/{aid}/chat", json={"messages": [{"role": "user", "content": msg}]})
+            resp = cli.post(
+                f"/agents/{aid}/chat", json={"messages": [{"role": "user", "content": msg}]}
+            )
             resp.raise_for_status()
             return sse_trace(resp.text)
 
@@ -93,9 +95,14 @@ def main() -> None:  # noqa: PLR0915
         check("PIN-BODY-1" in system_prompt_of(t), "C1 오픈 v1 채팅 시스템 프롬프트 = pin body(v1)")
 
         # ── C1 freeze: 밑 블록 편집 후에도 동작 불변 ─────────────────────────────
-        cli.put(f"/prompts/{p['id']}", json={"name": pname, "tone": "t", "body": "PIN-BODY-2"}).raise_for_status()
+        cli.put(
+            f"/prompts/{p['id']}", json={"name": pname, "tone": "t", "body": "PIN-BODY-2"}
+        ).raise_for_status()
         t = chat("프롬프트 편집 후")
-        check("PIN-BODY-1" in system_prompt_of(t), "C1 프롬프트 head v2로 편집해도 채팅 = PIN-BODY-1(freeze)")
+        check(
+            "PIN-BODY-1" in system_prompt_of(t),
+            "C1 프롬프트 head v2로 편집해도 채팅 = PIN-BODY-1(freeze)",
+        )
 
         # mcp freeze — 전용 임시 서버(스펙 320 패턴): local-tools URL에 enabled=[failing_op]
         # ('실패' 트리거·HIL 없음)로 배선 → pin 확보 → head에서 failing_op 제거 → pin 에이전트는
@@ -106,18 +113,32 @@ def main() -> None:  # noqa: PLR0915
         srv = cli.post(
             "/mcp-servers",
             json={
-                "name": srv_name, "source": "local", "transport": "http", "url": lt.get("url"),
-                "tools": ["failing_op", "echo"], "enabled_tools": ["failing_op", "echo"],
+                "name": srv_name,
+                "source": "local",
+                "transport": "http",
+                "url": lt.get("url"),
+                "tools": ["failing_op", "echo"],
+                "enabled_tools": ["failing_op", "echo"],
             },
         ).json()
         cfg_lt = {
-            "model": "mock-llm", "prompt": pname, "memories": [], "vectorTables": [],
-            "mcps": [srv_name], "historyDepth": 10,
+            "model": "mock-llm",
+            "prompt": pname,
+            "memories": [],
+            "vectorTables": [],
+            "mcps": [srv_name],
+            "historyDepth": 10,
         }
         a2 = cli.post("/agents", json={"name": f"a370lt-{tag}", "config": cfg_lt}).json()
         cli.post(f"/agents/{a2['id']}/activate", json={"version": "v1"}).raise_for_status()
-        srv_edit = {"name": srv_name, "source": "local", "transport": "http", "url": lt.get("url"),
-                    "tools": ["failing_op", "echo"], "enabled_tools": ["echo"]}
+        srv_edit = {
+            "name": srv_name,
+            "source": "local",
+            "transport": "http",
+            "url": lt.get("url"),
+            "tools": ["failing_op", "echo"],
+            "enabled_tools": ["echo"],
+        }
         cli.put(f"/mcp-servers/{srv['id']}", json=srv_edit).raise_for_status()
         try:
             resp = cli.post(
@@ -168,7 +189,9 @@ def main() -> None:  # noqa: PLR0915
         ).raise_for_status()
         vers = cli.get(f"/agents/{aid}").json()["versions"]
         vmap = {v["version"]: v for v in vers}
-        check("v3" in vmap and not vmap["v3"]["everOpened"], "C2 롤백 후 편집 → v2 보호·v3 스크래치")
+        check(
+            "v3" in vmap and not vmap["v3"]["everOpened"], "C2 롤백 후 편집 → v2 보호·v3 스크래치"
+        )
         v2_after = json.dumps(vmap["v2"], sort_keys=True)
         check(v2_before == v2_after, "C2 오픈이력 v2 바이트 불변")
         # 스크래치 대체: 재편집 → 여전히 v3 하나(행 수 불변)

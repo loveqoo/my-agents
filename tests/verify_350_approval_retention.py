@@ -18,6 +18,7 @@
 
 import asyncio
 import json
+import os
 import pathlib
 import sys
 import urllib.error
@@ -33,7 +34,7 @@ from sqlalchemy import text  # noqa: E402
 from api.batch.jobs import cleanup_approvals  # noqa: E402
 from api.db import SessionLocal  # noqa: E402
 
-BASE = "http://127.0.0.1:8000"
+BASE = os.environ.get("VERIFY_BASE", "http://127.0.0.1:8000")  # 스펙 390: 격리 서버 주입
 MARK = f"v350-{uuid.uuid4().hex[:6]}"
 _fails: list[str] = []
 passed = 0
@@ -130,7 +131,9 @@ async def main() -> None:
     old_done = await _count(f"approval_id like '{MARK}-approved%'")
     pend = await _count(f"approval_id like '{MARK}-pending%'")
     recent = await _count(f"approval_id like '{MARK}-rejected%'")
-    check(old_done == 0, f"A1a 오래된 처리 승인 삭제 (남음: {old_done}, deleted={res.get('deleted')})")
+    check(
+        old_done == 0, f"A1a 오래된 처리 승인 삭제 (남음: {old_done}, deleted={res.get('deleted')})"
+    )
     check(recent == 1, f"A1b 보존기간 내 처리 승인은 **안 지운다** (남음: {recent}/1)")
     check(pend == 2, f"A2 **pending은 0건 삭제**(재개 근거 보존) (남음: {pend}/2)")
 

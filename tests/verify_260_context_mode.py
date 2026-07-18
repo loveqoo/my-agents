@@ -8,10 +8,16 @@
 가짜 모델(_model_from_node 몽키패치)로 각 노드가 실제 받은 메시지를 기록해 단언(구조 아닌 동작 검증).
 실행: uv run --project packages/api python tests/verify_260_context_mode.py
 """
+
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "packages", "agent", "src"))
+sys.path.insert(
+    0,
+    os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "packages", "agent", "src"
+    ),
+)
 
 import asyncio  # noqa: E402
 
@@ -25,11 +31,14 @@ from agent.flows.pipeline import LinearPipelineAgent, _text_of, normalize_nodes 
 _fails = []
 passed = 0
 
+
 def check(cond, msg):
     global passed
     print(("  ok  " if cond else " FAIL ") + msg)
-    if cond: passed += 1
-    else: _fails.append(msg)
+    if cond:
+        passed += 1
+    else:
+        _fails.append(msg)
 
 
 MODEL_CFG = {"base_url": "http://x", "api_key": "k", "model_id": "m", "params": {}}
@@ -62,22 +71,27 @@ def _install_fake(sink, scripted=None):
 
 
 def _ctx(nodes, tools=()):
-    return AgentBuildContext(prompt="", model_cfg=MODEL_CFG, tools=list(tools),
-                             impl_config={"nodes": nodes})
+    return AgentBuildContext(
+        prompt="", model_cfg=MODEL_CFG, tools=list(tools), impl_config={"nodes": nodes}
+    )
 
 
 async def main():
     impl = LinearPipelineAgent()
 
     # U1 normalize context
-    norm = normalize_nodes([
-        {"prompt": "a", "context": "clean"},
-        {"prompt": "b", "context": "carry"},
-        {"prompt": "c", "context": "누가봐도잡값"},
-        {"prompt": "d"},
-    ])
-    check([n["context"] for n in norm] == ["clean", "carry", "carry", "carry"],
-          f"U1 context 보존·잡값→carry·기본 carry (got {[n['context'] for n in norm]})")
+    norm = normalize_nodes(
+        [
+            {"prompt": "a", "context": "clean"},
+            {"prompt": "b", "context": "carry"},
+            {"prompt": "c", "context": "누가봐도잡값"},
+            {"prompt": "d"},
+        ]
+    )
+    check(
+        [n["context"] for n in norm] == ["clean", "carry", "carry", "carry"],
+        f"U1 context 보존·잡값→carry·기본 carry (got {[n['context'] for n in norm]})",
+    )
 
     orig = P._model_from_node
     try:
@@ -92,8 +106,14 @@ async def main():
         out = await g.ainvoke({"messages": [HumanMessage(content="USER_IN")]})
         # n2(carry)가 받은 텍스트 집합
         n2_texts = " | ".join(t for (p, msgs) in sink if p == "P2" for (_, t) in msgs)
-        check("USER_IN" in n2_texts and "OUT[P1]" in n2_texts, "U2 carry: 뒤 노드가 사용자 입력+앞 결과 모두 봄")
-        check(len(out["messages"]) == 3, f"U2 carry: 최종 누적(USER+OUT1+OUT2=3, got {len(out['messages'])})")
+        check(
+            "USER_IN" in n2_texts and "OUT[P1]" in n2_texts,
+            "U2 carry: 뒤 노드가 사용자 입력+앞 결과 모두 봄",
+        )
+        check(
+            len(out["messages"]) == 3,
+            f"U2 carry: 최종 누적(USER+OUT1+OUT2=3, got {len(out['messages'])})",
+        )
 
         # U3 clean 격리
         sink = []
@@ -109,23 +129,35 @@ async def main():
         check("USER_IN" not in n2_texts, "U3 clean: 사용자 입력(쌓인 대화)은 안 봄(격리)")
         # 최종 messages 리셋: 이전(USER_IN, OUT[P1]) 제거 → [Human(OUT[P1]), OUT[P2]] 2개, USER_IN 없음
         contents = [_text_of(m) for m in out["messages"]]
-        check(len(out["messages"]) == 2 and "USER_IN" not in " | ".join(contents),
-              f"U3 clean: 이전 대화 제거·최종 리셋 (got {contents})")
+        check(
+            len(out["messages"]) == 2 and "USER_IN" not in " | ".join(contents),
+            f"U3 clean: 이전 대화 제거·최종 리셋 (got {contents})",
+        )
 
         # U4 clean + 도구 재진입
         sink = []
-        tool = StructuredTool.from_function(func=lambda x="": "TOOL_RESULT", name="probe", description="probe")
+        tool = StructuredTool.from_function(
+            func=lambda x="": "TOOL_RESULT", name="probe", description="probe"
+        )
         tc = AIMessage(content="", tool_calls=[{"name": "probe", "args": {}, "id": "call_1"}])
         final = AIMessage(content="OUT[P2]")
         _install_fake(sink, scripted={"P2": [tc, final]})
         nodes = [
             {"name": "n1", "prompt": "P1", "model_cfg": MODEL_CFG, "tools": [], "context": "carry"},
-            {"name": "n2", "prompt": "P2", "model_cfg": MODEL_CFG, "tools": ["probe"], "context": "clean"},
+            {
+                "name": "n2",
+                "prompt": "P2",
+                "model_cfg": MODEL_CFG,
+                "tools": ["probe"],
+                "context": "clean",
+            },
         ]
         g = impl.build_graph(_ctx(nodes, tools=[tool]))
         out = await g.ainvoke({"messages": [HumanMessage(content="USER_IN")]})
         p2_calls = [msgs for (p, msgs) in sink if p == "P2"]
-        check(len(p2_calls) == 2, f"U4 clean+도구: 노드가 2회 호출됨(도구 루프, got {len(p2_calls)})")
+        check(
+            len(p2_calls) == 2, f"U4 clean+도구: 노드가 2회 호출됨(도구 루프, got {len(p2_calls)})"
+        )
         # 1회차(첫 진입): 격리 입력 = OUT[P1]만, USER_IN 없음
         first = " | ".join(t for (_, t) in p2_calls[0])
         check("OUT[P1]" in first and "USER_IN" not in first, "U4 첫 진입: 격리 입력(앞 결과만)")

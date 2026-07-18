@@ -4,6 +4,7 @@
 미발견으로 판정했다. 수정 후: 빈 model_id면 /models 목록 개수로 판정. 로컬 stub 서버로 실제 _probe 호출.
 실행: cd packages/api && uv run python ../../tests/verify_164_provider_probe.py
 """
+
 import asyncio
 import json
 import threading
@@ -36,6 +37,7 @@ def _make_handler(payload):
 
         def log_message(self, *a):  # 조용히
             pass
+
     return H
 
 
@@ -46,28 +48,36 @@ def _serve(payload):
 
 
 async def main() -> None:
-    srv2, url2 = _serve(_MODELS)   # 모델 2개
-    srv0, url0 = _serve(_EMPTY)    # 모델 0개
+    srv2, url2 = _serve(_MODELS)  # 모델 2개
+    srv0, url0 = _serve(_EMPTY)  # 모델 0개
     try:
         # 1) 빈 model_id + 모델 2개 → "모델 2개 발견"·available(before=미발견 버그).
         r = await _probe(url2, None, "", "chat")
-        check(r.modelAvailable is True and "2개" in r.detail,
-              f"H1 빈 model_id·모델2개 → 발견 (got available={r.modelAvailable}, detail={r.detail!r})")
+        check(
+            r.modelAvailable is True and "2개" in r.detail,
+            f"H1 빈 model_id·모델2개 → 발견 (got available={r.modelAvailable}, detail={r.detail!r})",
+        )
 
         # 2) 빈 model_id + 빈 목록 → "목록 비어있음"·not available.
         r = await _probe(url0, None, "", "chat")
-        check(r.modelAvailable is False and "비어있음" in r.detail,
-              f"H2 빈 model_id·모델0개 → 비어있음 (got available={r.modelAvailable}, detail={r.detail!r})")
+        check(
+            r.modelAvailable is False and "비어있음" in r.detail,
+            f"H2 빈 model_id·모델0개 → 비어있음 (got available={r.modelAvailable}, detail={r.detail!r})",
+        )
 
         # 3) 회귀 — model_id 지정·존재 → 사용 가능.
         r = await _probe(url2, None, "gpt-x", "chat")
-        check(r.modelAvailable is True and "사용 가능" in r.detail,
-              f"H3 model_id 존재 → 사용 가능 (got {r.detail!r})")
+        check(
+            r.modelAvailable is True and "사용 가능" in r.detail,
+            f"H3 model_id 존재 → 사용 가능 (got {r.detail!r})",
+        )
 
         # 4) 회귀 — model_id 지정·부재 → 미발견(정확 일치 유지).
         r = await _probe(url2, None, "no-such", "chat")
-        check(r.modelAvailable is False and "미발견" in r.detail,
-              f"H4 model_id 부재 → 미발견 (got {r.detail!r})")
+        check(
+            r.modelAvailable is False and "미발견" in r.detail,
+            f"H4 model_id 부재 → 미발견 (got {r.detail!r})",
+        )
     finally:
         srv2.shutdown()
         srv0.shutdown()

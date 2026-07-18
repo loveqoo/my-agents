@@ -90,7 +90,10 @@ def unit_checks() -> None:
     pub = SimpleNamespace(id=1, name="pub-agent", source="ui", owner_id=None)
     priv = SimpleNamespace(id=2, name="secret-agent", source="ui", owner_id="owner-x")
     names, hidden = visible_used_by([pub, priv], member)  # type: ignore[arg-type]
-    check(names == ["pub-agent"] and hidden == 1, f"U6 member: private 이름 숨김+개수 (got {names}, {hidden})")
+    check(
+        names == ["pub-agent"] and hidden == 1,
+        f"U6 member: private 이름 숨김+개수 (got {names}, {hidden})",
+    )
     names2, hidden2 = visible_used_by([pub, priv], "machine")  # type: ignore[arg-type]
     check("secret-agent" in names2 and hidden2 == 0, "U6 특권: 전체 이름")
 
@@ -156,10 +159,16 @@ async def http_checks() -> None:
                 },
             },
         )
-        check(r.status_code == 201 and r.json()["version"] == 1, f"H1 v1 발행 201 (got {r.status_code})")
+        check(
+            r.status_code == 201 and r.json()["version"] == 1,
+            f"H1 v1 발행 201 (got {r.status_code})",
+        )
         r = await c.post(
             "/node-templates",
-            json={"name": TPL, "config": {"name": "요약", "prompt": V2_PROMPT, "model": "mock-llm"}},
+            json={
+                "name": TPL,
+                "config": {"name": "요약", "prompt": V2_PROMPT, "model": "mock-llm"},
+            },
         )
         check(r.status_code == 201 and r.json()["version"] == 2, "H1 같은 이름 재발행 → v2 자동")
         groups = (await c.get("/node-templates")).json()
@@ -196,7 +205,9 @@ async def http_checks() -> None:
                 },
             },
         )
-        check(r.status_code == 201, f"H2 참조 에이전트 생성 201 (got {r.status_code}: {r.text[:200]})")
+        check(
+            r.status_code == 201, f"H2 참조 에이전트 생성 201 (got {r.status_code}: {r.text[:200]})"
+        )
         aid = r.json()["id"]
         created_agents.append(aid)
         out = (await c.get(f"/agents/{aid}")).json()
@@ -210,14 +221,22 @@ async def http_checks() -> None:
             "H2 저장본 nodes는 ref 유지(해석은 파생 필드만)",
         )
         # 풀 서버 파생(스펙 289)이 참조 노드의 도구를 봤는가 — mcps에 local-tools.
-        check("local-tools" in (out.get("mcps") or []), f"H2 풀 파생이 참조 도구 반영 (mcps={out.get('mcps')})")
+        check(
+            "local-tools" in (out.get("mcps") or []),
+            f"H2 풀 파생이 참조 도구 반영 (mcps={out.get('mcps')})",
+        )
 
         # ── H3 실행 왕복: 템플릿 노드 이름이 trace에·템플릿 도구 호출 실측 ──
         status, text, tr = await _chat(c, aid, "echo 테스트를 해줘")
         check(status == 200 and bool(text), f"H3 채팅 200+답변 (status={status})")
         graph_nodes = [g0.get("node") or g0.get("name") for g0 in (tr or {}).get("graph", [])]
-        check(any("요약" in str(n) for n in graph_nodes), f"H3 trace.graph에 템플릿 노드명 (got {graph_nodes})")
-        echo_calls = [x for x in (tr or {}).get("mcp", []) if str(x.get("tool", "")).endswith("echo")]
+        check(
+            any("요약" in str(n) for n in graph_nodes),
+            f"H3 trace.graph에 템플릿 노드명 (got {graph_nodes})",
+        )
+        echo_calls = [
+            x for x in (tr or {}).get("mcp", []) if str(x.get("tool", "")).endswith("echo")
+        ]
         check(len(echo_calls) > 0, f"H3 템플릿 도구(echo) 호출 실측 (got {len(echo_calls)})")
         detail = (await c.get(f"/node-templates/{TPL}")).json()
         v1_used = next(v for v in detail["versions"] if v["version"] == 1)["usedBy"]
@@ -225,7 +244,10 @@ async def http_checks() -> None:
 
         # ── H4 삭제 가드: 참조 v1=409(이름 표면화)·미참조 v2=204 ──
         r = await c.delete(f"/node-templates/{TPL}/1")
-        check(r.status_code == 409 and agent_name in r.json().get("detail", ""), f"H4 참조 버전 삭제 409+이름 (got {r.status_code})")
+        check(
+            r.status_code == 409 and agent_name in r.json().get("detail", ""),
+            f"H4 참조 버전 삭제 409+이름 (got {r.status_code})",
+        )
         r = await c.delete(f"/node-templates/{TPL}/2")
         check(r.status_code == 204, f"H4 미참조 버전 삭제 204 (got {r.status_code})")
 
@@ -242,7 +264,10 @@ async def http_checks() -> None:
                 },
             },
         )
-        check(r.status_code == 422 and "미해결" in r.json().get("detail", ""), f"H5 없는 버전 저장 422 (got {r.status_code})")
+        check(
+            r.status_code == 422 and "미해결" in r.json().get("detail", ""),
+            f"H5 없는 버전 저장 422 (got {r.status_code})",
+        )
         if r.status_code == 201:
             created_agents.append(r.json()["id"])
         # H5b impl 비대칭 봉합(codex P1): impl 미선언(비노드형)이라도 ref 존재 검증은 저장 시 강제.
@@ -267,12 +292,18 @@ async def http_checks() -> None:
         status, _, _ = await _chat(c, aid, "안녕")
         check(status == 422, f"H5 참조 소실 후 채팅 422(마스킹 0) (got {status})")
         out = (await c.get(f"/agents/{aid}")).json()
-        check(out.get("resolvedNodes") is None and isinstance(out.get("nodes"), list), "H5 조회는 비잠금(resolvedNodes=None·nodes 유지)")
+        check(
+            out.get("resolvedNodes") is None and isinstance(out.get("nodes"), list),
+            "H5 조회는 비잠금(resolvedNodes=None·nodes 유지)",
+        )
 
         # ── H6 오버라이드: 해석→병합(ref 노드 위 세션 패치) ──
         r = await c.post(
             "/node-templates",
-            json={"name": TPL, "config": {"name": "요약", "prompt": V1_PROMPT, "model": "mock-llm"}},
+            json={
+                "name": TPL,
+                "config": {"name": "요약", "prompt": V1_PROMPT, "model": "mock-llm"},
+            },
         )
         check(r.status_code == 201, "H6 템플릿 재발행(v1 재생)")
         new_ver = r.json()["version"]
@@ -291,10 +322,19 @@ async def http_checks() -> None:
             },
         )
         check(r.status_code == 200, f"H6 참조 갱신 저장 200 (got {r.status_code}: {r.text[:200]})")
-        ov = {"nodes": [{"prompt": "오버라이드: 무조건 '패치됨'이라고 답해라", "model": "mock-llm", "tools": []}]}
+        ov = {
+            "nodes": [
+                {
+                    "prompt": "오버라이드: 무조건 '패치됨'이라고 답해라",
+                    "model": "mock-llm",
+                    "tools": [],
+                }
+            ]
+        }
         status, _, tr = await _chat(c, aid, "아무거나", overrides=ov)
         check(
-            status == 200 and (tr or {}).get("overrides", {}).get("nodes", {}).get("status") == "applied",
+            status == 200
+            and (tr or {}).get("overrides", {}).get("nodes", {}).get("status") == "applied",
             f"H6 ref 노드 오버라이드 applied(해석→병합·길이 일치) (got {(tr or {}).get('overrides')})",
         )
 
@@ -305,7 +345,10 @@ async def http_checks() -> None:
             first[0]["prompt"] = "오염 시도"
             first[0]["tools"] = ["evil"]
             second = await resolve_node_refs(s, saved_nodes)
-            check(second[0]["prompt"] == V1_PROMPT and "evil" not in (second[0].get("tools") or []), "H7 사본 격리(재해석 불변)")
+            check(
+                second[0]["prompt"] == V1_PROMPT and "evil" not in (second[0].get("tools") or []),
+                "H7 사본 격리(재해석 불변)",
+            )
             row = (
                 await s.execute(select(NodeTemplate).where(NodeTemplate.name == TPL))
             ).scalar_one()

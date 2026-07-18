@@ -50,6 +50,7 @@ from api.auth import _token, current_principal  # noqa: E402
 from api.main import app  # noqa: E402
 from api.memory import LONG_TERM_MEMORY  # noqa: E402
 
+
 # ------------------------------------------------------------------ principal override
 # verify_110과 동일 — 채팅 능력 오케스트레이션은 유저 세션 RBAC를 통과해야 한다(머신 토큰=deny).
 # is_superuser 우회로 capability:* 허용. Session.user_id는 String이라 스텁 UUID 무해.
@@ -94,9 +95,9 @@ def _parse(txt: str):
         data = None
         for line in block.splitlines():
             if line.startswith("event:"):
-                ev = line[len("event:"):].strip()
+                ev = line[len("event:") :].strip()
             elif line.startswith("data:"):
-                data = line[len("data:"):].strip()
+                data = line[len("data:") :].strip()
         if not data or data == "[DONE]":
             continue
         try:
@@ -111,7 +112,9 @@ def _signals(txt: str) -> dict:
     """최종 trace/frame에서 발동 신호를 추출한다."""
     traces, frames = _parse(txt)
     broker_nodes: list[str] = []
-    broker_calls: list[dict] = []  # brokerCalls: cap별 {cap_id, error?, hits?, resultPreview?} — 성공/실패 구분
+    broker_calls: list[
+        dict
+    ] = []  # brokerCalls: cap별 {cap_id, error?, hits?, resultPreview?} — 성공/실패 구분
     memories: list = []
     mcp_calls: list = []
     for t in traces:
@@ -264,31 +267,60 @@ def assert_fire(impl: str, kind: str, sig: dict, res: dict) -> tuple[str, str]:
     """발동칸 검증 → (marker, detail). PASS/FAIL."""
     surface = wiring_surface(impl, kind)
     if impl in BROKER_IMPLS:
-        if kind in ("agent", "rag", "memory"):  # 읽기 cap → broker_invoke 노드 + brokerCall 성공(무error)
+        if kind in (
+            "agent",
+            "rag",
+            "memory",
+        ):  # 읽기 cap → broker_invoke 노드 + brokerCall 성공(무error)
             if not any(n.startswith(f"broker_invoke:{kind}") for n in sig["broker"]):
-                return FAIL, f"broker_invoke:{kind} 노드 부재 (broker={sig['broker']}, err={sig['errors']})"
+                return (
+                    FAIL,
+                    f"broker_invoke:{kind} 노드 부재 (broker={sig['broker']}, err={sig['errors']})",
+                )
             node = next(n for n in sig["broker"] if n.startswith(f"broker_invoke:{kind}"))
             # codex 지적2: 노드 존재≠성공. brokerCall이 error가 아니어야(+ rag는 hits 필드 관측).
             cap_prefix = {"rag": "rag:", "memory": "memory:", "agent": "agt_"}[kind]
-            bc = next((x for x in sig["brokerCalls"] if str(x.get("cap_id", "")).startswith(cap_prefix)), None)
+            bc = next(
+                (x for x in sig["brokerCalls"] if str(x.get("cap_id", "")).startswith(cap_prefix)),
+                None,
+            )
             if bc is None:
-                return FAIL, f"위임 노드 {node} 있으나 brokerCall 레코드 부재(성공 확인 불가) calls={sig['brokerCalls']}"
+                return (
+                    FAIL,
+                    f"위임 노드 {node} 있으나 brokerCall 레코드 부재(성공 확인 불가) calls={sig['brokerCalls']}",
+                )
             if bc.get("error"):
                 return FAIL, f"위임 발동했으나 실패(error) {node} bc={bc}"
             if kind == "rag" and "hits" not in bc:
                 return FAIL, f"rag 위임 성공 신호(hits) 부재 bc={bc}"
-            success = f"hits={bc.get('hits')}" if kind == "rag" else ("resultPreview" if bc.get("resultPreview") else "무error")
+            success = (
+                f"hits={bc.get('hits')}"
+                if kind == "rag"
+                else ("resultPreview" if bc.get("resultPreview") else "무error")
+            )
             return PASS, f"위임 성공 {node} ({success})"
         # mcp / memwrite / memedit → 부수효과 HIL 승인대기
-        action = {"mcp": f"{res['mcp_server']}.{res['mcp_tool']}", "memwrite": "memory.write", "memedit": "memory.edit"}[kind]
+        action = {
+            "mcp": f"{res['mcp_server']}.{res['mcp_tool']}",
+            "memwrite": "memory.write",
+            "memedit": "memory.edit",
+        }[kind]
         if sig["approval"] and any(action in t for t in sig["approval_texts"]):
             return PASS, f"승인대기(action~={action})"
         if sig["approval"]:
-            return FAIL, f"승인대기 발생했으나 action 불일치({action}) texts={sig['approval_texts']}"
-        return FAIL, f"승인대기 부재(부수효과 cap 미발동) broker={sig['broker']} err={sig['errors']}"
+            return (
+                FAIL,
+                f"승인대기 발생했으나 action 불일치({action}) texts={sig['approval_texts']}",
+            )
+        return (
+            FAIL,
+            f"승인대기 부재(부수효과 cap 미발동) broker={sig['broker']} err={sig['errors']}",
+        )
     # 직접 ReAct / 회상
     if surface == "mcps":  # delete_record HIL
-        if sig["approval"] and any(f"{res['mcp_server']}.{res['mcp_tool']}" in t for t in sig["approval_texts"]):
+        if sig["approval"] and any(
+            f"{res['mcp_server']}.{res['mcp_tool']}" in t for t in sig["approval_texts"]
+        ):
             return PASS, "직접 MCP 승인대기(delete_record)"
         return FAIL, f"직접 MCP 미발동 approval={sig['approval']} texts={sig['approval_texts']}"
     if surface == "vectorTables":  # RAG calls_sink
@@ -314,7 +346,10 @@ def assert_ignore(impl: str, kind: str, sig: dict, consumes: dict) -> tuple[str,
             f"mems={sig['memories']} approval={sig['approval']}"
         )
     if not contract_ok:
-        return FAIL, f"consumes 계약 위반: consumes({impl})={cons} 가 표면 '{surface}' 를 제외하지 않음"
+        return (
+            FAIL,
+            f"consumes 계약 위반: consumes({impl})={cons} 가 표면 '{surface}' 를 제외하지 않음",
+        )
     return IGNORE_OK, f"무시(신호 0) + consumes({impl})={cons} ∌ {surface}"
 
 
@@ -324,20 +359,33 @@ async def run() -> int:
 
     t = httpx.ASGITransport(app=app)
     headers = {"Authorization": f"Bearer {_token()}"}
-    async with httpx.AsyncClient(transport=t, base_url="http://t", headers=headers, timeout=120) as c:
+    async with httpx.AsyncClient(
+        transport=t, base_url="http://t", headers=headers, timeout=120
+    ) as c:
         # --- 시드 자원 확인(하드코딩 금지 — DB에서 조회) ---
         cols = (await c.get("/collections")).json()
-        col = next((x["name"] for x in cols if x["name"] == "docs-kb"), cols[0]["name"] if cols else None)
+        col = next(
+            (x["name"] for x in cols if x["name"] == "docs-kb"), cols[0]["name"] if cols else None
+        )
         servers = (await c.get("/mcp-servers")).json()
         mcp_srv = next(
-            (s for s in servers if s["name"] == "local-tools" and "delete_record" in (s.get("enabled_tools") or [])),
+            (
+                s
+                for s in servers
+                if s["name"] == "local-tools" and "delete_record" in (s.get("enabled_tools") or [])
+            ),
             None,
         )
         agents = (await c.get("/agents")).json()
         agents = agents if isinstance(agents, list) else agents.get("items", agents)
         remote = next(
-            (a for a in agents if a.get("source") in ("code", "external")
-             and a.get("endpoint") and "127.0.0.1" in a.get("endpoint", "")),
+            (
+                a
+                for a in agents
+                if a.get("source") in ("code", "external")
+                and a.get("endpoint")
+                and "127.0.0.1" in a.get("endpoint", "")
+            ),
             None,
         )
         impls_meta = (await c.get("/agent-impls")).json()
@@ -356,24 +404,36 @@ async def run() -> int:
             "agent_id": remote["agentId"],
             "agent_name": remote["name"],
         }
-        print(f"[setup] collection={col} mcp={mcp_srv['name']}/delete_record "
-              f"remote_agent={remote['name']}({remote['agentId']}) backend={os.environ['MEMORY_BACKEND']}")
+        print(
+            f"[setup] collection={col} mcp={mcp_srv['name']}/delete_record "
+            f"remote_agent={remote['name']}({remote['agentId']}) backend={os.environ['MEMORY_BACKEND']}"
+        )
         print(f"[setup] consumes={json.dumps(consumes, ensure_ascii=False)}")
 
         # --- 직접-memory 백엔드 가용성 프로브(SKIP 판정) ---
         direct_mem_ok = False
         probe_id = None
         try:
-            probe_id = await _mk(c, "default", "memprobe", {
-                "model": "mock-llm", "prompt": "probe", "historyDepth": 6, "memories": [LONG_TERM_MEMORY],
-            })
+            probe_id = await _mk(
+                c,
+                "default",
+                "memprobe",
+                {
+                    "model": "mock-llm",
+                    "prompt": "probe",
+                    "historyDepth": 6,
+                    "memories": [LONG_TERM_MEMORY],
+                },
+            )
             sig = _signals(await _chat_direct_memory(c, probe_id))
             direct_mem_ok = sig["memories"] > 0
         finally:
             if probe_id:
                 await c.delete(f"/agents/{probe_id}")
-        print(f"[setup] 직접-memory 회상 가용={direct_mem_ok} "
-              f"(불가 시 default/plan_execute/route + memory 발동칸 SKIP)")
+        print(
+            f"[setup] 직접-memory 회상 가용={direct_mem_ok} "
+            f"(불가 시 default/plan_execute/route + memory 발동칸 SKIP)"
+        )
 
         # --- 48칸 순회 ---
         for impl in IMPLS:
@@ -382,7 +442,14 @@ async def run() -> int:
                 surface = wiring_surface(impl, kind)
                 # 인프라 게이트: 직접-memory 발동칸은 백엔드 필요.
                 if fire and surface == "memories" and not direct_mem_ok:
-                    checks.append((impl, kind, SKIP, "memory 백엔드/기본모델 미가용(mem_cfg None) — 직접 회상 불가"))
+                    checks.append(
+                        (
+                            impl,
+                            kind,
+                            SKIP,
+                            "memory 백엔드/기본모델 미가용(mem_cfg None) — 직접 회상 불가",
+                        )
+                    )
                     continue
                 cfg = cell_config(impl, kind, res)
                 prompt = cell_prompt(impl, kind, res)

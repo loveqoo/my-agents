@@ -31,7 +31,13 @@ def _fn(arg: str):
 
 
 def _obs(*metas) -> dict:
-    return {"rag": {"hits": [{"score": 0.9, "filename": "movies.jsonl", "text": "..", "meta": m} for m in metas]}}
+    return {
+        "rag": {
+            "hits": [
+                {"score": 0.9, "filename": "movies.jsonl", "text": "..", "meta": m} for m in metas
+            ]
+        }
+    }
 
 
 # 두 엔티티 hit(인터스텔라 101 / 라라랜드 110)
@@ -46,19 +52,28 @@ def part_a() -> None:
     check(_fn("movie_id=101")(OBS), "부분일치: 존재 엔티티 → 통과")
     check(not _fn("movie_id=999")(OBS), "존재하지 않는 id → 실패")
     check(_fn("director_id=9,genre_id=6")(OBS), "조합 AND: 라라랜드(9,6) → 통과")
-    check(not _fn("director_id=9,genre_id=1")(OBS), "조합 AND: 한 hit이 둘 다 만족해야(9는 110·1은 101 분산) → 실패")
+    check(
+        not _fn("director_id=9,genre_id=1")(OBS),
+        "조합 AND: 한 hit이 둘 다 만족해야(9는 110·1은 101 분산) → 실패",
+    )
     check(_fn("movie_id=101")(OBS), "숫자 meta(101)와 문자 arg('101') 관대 비교 → 통과")
     check(_fn("movie_id=101")(OBS), "미지정 키(director/genre) 무시 → 통과")
     check(not _fn("foo=1")(OBS), "meta에 없는 키 → 불일치")
     # fail-closed: rag 관측 부재(agent 런)
-    check(not _fn("movie_id=101")({"trace_nodes": ["rag:x"], "output": ".."}), "rag 관측 부재(agent 런) → False(fail-closed)")
+    check(
+        not _fn("movie_id=101")({"trace_nodes": ["rag:x"], "output": ".."}),
+        "rag 관측 부재(agent 런) → False(fail-closed)",
+    )
     check(not _fn("movie_id=101")({"rag": {"hits": []}}), "빈 hits → False")
     # meta=None 문서형 hit
     check(not _fn("movie_id=101")(_obs(None)), "meta=None(문서형 hit) → 불일치")
     # codex 회귀: str(None)=="None" 누출 봉인 — 부재 키/None을 "None" arg가 통과시키면 안 됨
     check(not _fn("foo=None")(OBS), "codex: 부재 키 vs arg 'None' → 불일치(str(None) 누출 봉인)")
     check(not _fn("foo=None")(_obs(None)), "codex: meta=None hit vs 'None' → 불일치")
-    check(not _fn("label_cate_id=None")(_obs({"label_cate_id": None, "movie_id": 5})), "codex: null id(label_cate_id) vs 'None' → 불일치")
+    check(
+        not _fn("label_cate_id=None")(_obs({"label_cate_id": None, "movie_id": 5})),
+        "codex: null id(label_cate_id) vs 'None' → 불일치",
+    )
     # codex 회귀: 비스칼라 repr 매칭 봉인(bool·dict·list는 엔티티 id 아님)
     check(not _fn("flag=True")(_obs({"flag": True})), "codex: bool meta repr 매칭 → 불일치")
     check(not _fn("cfg={'a': 1}")(_obs({"cfg": {"a": 1}})), "codex: dict meta repr 매칭 → 불일치")
@@ -89,7 +104,9 @@ async def part_b() -> int:
             await s.execute(
                 select(Collection)
                 .where(Collection.name == "movies-demo")
-                .options(selectinload(Collection.embedding_model).selectinload(ModelConfig.provider))
+                .options(
+                    selectinload(Collection.embedding_model).selectinload(ModelConfig.provider)
+                )
             )
         ).scalar_one_or_none()
         if c is None:
@@ -106,13 +123,18 @@ async def part_b() -> int:
         }
 
     # 첫 영화 data로 질의(mock=결정적) — 반환된 상위 엔티티를 실측해 그 movie_id로 판정.
-    with open(os.path.join(ROOT, "packages", "api", "data", "entity_samples", "movies.jsonl"), "rb") as f:
+    with open(
+        os.path.join(ROOT, "packages", "api", "data", "entity_samples", "movies.jsonl"), "rb"
+    ) as f:
         first = json.loads(f.read().splitlines()[0])
     obs = await eval_run_rag(col, first["data"])
     hits = obs.get("rag", {}).get("hits", [])
     check(bool(hits), f"eval_run_rag 검색 결과 {len(hits)}건")
     top_meta = hits[0].get("meta") if hits else None
-    check(isinstance(top_meta, dict) and top_meta.get("movie_id") is not None, f"러너 obs가 hit meta 실림: {top_meta}")
+    check(
+        isinstance(top_meta, dict) and top_meta.get("movie_id") is not None,
+        f"러너 obs가 hit meta 실림: {top_meta}",
+    )
     if isinstance(top_meta, dict):
         mid = top_meta["movie_id"]
         check(_fn(f"movie_id={mid}")(obs), f"정답 엔티티(movie_id={mid}) → 통과")

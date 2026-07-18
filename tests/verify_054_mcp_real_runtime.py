@@ -69,7 +69,9 @@ async def t1_t2_real_roundtrip():
     ws = by.get("web_search")
     res = await _invoke(ws, {"query": "양자컴퓨팅"})
     check(isinstance(res, str), "T2: 결과가 str로 정규화됨(_content_text)")
-    check("검색결과" in res and "양자컴퓨팅" in res, "T1: web_search가 서버 실계산값 반환(쿼리 반영)")
+    check(
+        "검색결과" in res and "양자컴퓨팅" in res, "T1: web_search가 서버 실계산값 반환(쿼리 반영)"
+    )
     check("(모의)" not in res, "T2: 결과에 합성 흔적 '(모의)' 없음")
     check(
         len(sink) == 1 and sink[0]["status"] == "ok" and sink[0]["tool"] == "web_search",
@@ -131,10 +133,16 @@ def t8_redirect_ssrf_guard():
     from api import net_guard
 
     client = net_guard.mcp_http_client_factory()
-    check(client.follow_redirects is False,
-          "T8: mcp_http_client_factory 클라이언트 follow_redirects=False(리다이렉트 미추종)")
-    rt = open(os.path.join(ROOT, "packages", "api", "src", "api", "runtime.py"), encoding="utf-8").read()
-    bl = open(os.path.join(ROOT, "packages", "api", "src", "api", "blocks.py"), encoding="utf-8").read()
+    check(
+        client.follow_redirects is False,
+        "T8: mcp_http_client_factory 클라이언트 follow_redirects=False(리다이렉트 미추종)",
+    )
+    rt = open(
+        os.path.join(ROOT, "packages", "api", "src", "api", "runtime.py"), encoding="utf-8"
+    ).read()
+    bl = open(
+        os.path.join(ROOT, "packages", "api", "src", "api", "blocks.py"), encoding="utf-8"
+    ).read()
     check("mcp_http_client_factory" in rt, "T8: runtime.build_mcp_tools가 가드 팩토리 배선")
     check("mcp_http_client_factory" in bl, "T8: blocks.discover가 가드 팩토리 배선")
 

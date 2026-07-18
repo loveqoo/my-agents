@@ -46,7 +46,9 @@ class _SuitePrincipal:
 
 app.dependency_overrides[current_principal] = lambda: _SuitePrincipal()
 
-CHAT_TIMEOUT = httpx.Timeout(300.0, connect=10.0)  # 로컬 실모델(수십 B)은 노드형 다턴이 느릴 수 있다
+CHAT_TIMEOUT = httpx.Timeout(
+    300.0, connect=10.0
+)  # 로컬 실모델(수십 B)은 노드형 다턴이 느릴 수 있다
 
 
 class PreflightError(RuntimeError):
@@ -54,6 +56,7 @@ class PreflightError(RuntimeError):
 
 
 # ── 단언 어휘 — (res, trace, *args) -> (ok, detail). 전부 기록 기반. ──────────────────────────
+
 
 def _mcp(trace: dict) -> list[dict]:
     return trace.get("mcp") or []
@@ -142,7 +145,10 @@ ASSERTS = {
         f"summaries={[(g.get('node'), (g.get('summary') or '')[:60]) for g in (t.get('graph') or []) if g.get('summary')]}",
     ),
     "text_contains": lambda res, t, tok: (tok in res["text"], f"text={res['text'][:160]!r}"),
-    "text_not_contains": lambda res, t, tok: (tok not in res["text"], f"text={res['text'][:160]!r}"),
+    "text_not_contains": lambda res, t, tok: (
+        tok not in res["text"],
+        f"text={res['text'][:160]!r}",
+    ),
     "text_nonempty": lambda res, t: (
         bool(res["text"].strip()) and not res["error"],
         f"text={res['text'][:80]!r}, error={res['error']!r}",
@@ -151,6 +157,7 @@ ASSERTS = {
 
 
 # ── 프리플라이트 (완료 기준 2 — 미충족이면 무엇이 없는지 말하고 exit 2) ─────────────────────
+
 
 async def preflight(c: httpx.AsyncClient) -> tuple[dict, dict]:
     r = await c.get("/agents")
@@ -177,8 +184,12 @@ async def preflight(c: httpx.AsyncClient) -> tuple[dict, dict]:
 
 # ── 데이터 시나리오 실행 ─────────────────────────────────────────────────────────────────
 
+
 async def run_turns(
-    c: httpx.AsyncClient, agent_id: str, turns: list[str], overrides: dict | None,
+    c: httpx.AsyncClient,
+    agent_id: str,
+    turns: list[str],
+    overrides: dict | None,
     history: str = "client",
 ) -> dict:
     """턴들을 같은 세션으로 잇고 마지막 턴의 파싱 결과를 돌려준다(시나리오 독립 — 세션은 여기서 시작).
@@ -193,7 +204,9 @@ async def run_turns(
     res: dict = {}
     for turn in turns:
         convo.append({"role": "user", "content": turn})
-        body: dict = {"messages": ([{"role": "user", "content": turn}] if history == "server" else convo)}
+        body: dict = {
+            "messages": ([{"role": "user", "content": turn}] if history == "server" else convo)
+        }
         if sid:
             body["sessionId"] = sid
         if overrides is not None:
@@ -224,16 +237,21 @@ def check_expects(res: dict, expects: list[tuple]) -> list[str]:
 
 async def run_data_scenario(c: httpx.AsyncClient, fx: dict, sc: dict) -> list[str]:
     agent = fx["agents"][sc["agent"]]
-    res = await run_turns(c, agent["id"], sc["turns"], sc.get("overrides"), history=sc.get("history", "client"))
+    res = await run_turns(
+        c, agent["id"], sc["turns"], sc.get("overrides"), history=sc.get("history", "client")
+    )
     return check_expects(res, sc["expect"])
 
 
 # ── 커스텀 시나리오 (데이터 선언로 안 담기는 왕복들) ─────────────────────────────────────
 
+
 async def custom_approval_roundtrip(c: httpx.AsyncClient, fx: dict) -> list[str]:
     """승인 도구 발동 → Approval 생성 → approve → 재개 턴이 도구를 실제 실행(기록)."""
     agent = fx["agents"]["direct"]
-    res = await run_turns(c, agent["id"], ["반드시 delete_record 도구로 레코드 rec-288 을 삭제해줘."], None)
+    res = await run_turns(
+        c, agent["id"], ["반드시 delete_record 도구로 레코드 rec-288 을 삭제해줘."], None
+    )
     apid = res.get("approval")
     if isinstance(apid, dict):
         apid = apid.get("id")
@@ -260,7 +278,14 @@ async def custom_ephemeral_db_invariant(c: httpx.AsyncClient, fx: dict) -> list[
 
     from api.db import SessionLocal
 
-    tables = ["sessions", "messages", "checkpoints", "checkpoint_writes", "checkpoint_blobs", "approvals"]
+    tables = [
+        "sessions",
+        "messages",
+        "checkpoints",
+        "checkpoint_writes",
+        "checkpoint_blobs",
+        "approvals",
+    ]
 
     async def counts() -> dict[str, int]:
         async with SessionLocal() as db:
@@ -282,8 +307,10 @@ async def custom_ephemeral_approval_refused(c: httpx.AsyncClient, fx: dict) -> l
     """비영속 + 승인 필요 도구(오버라이드로 배선) → 승인 대기 대신 명시 거부(스펙 237 게이트)."""
     ov = {"tools": [fixtures.TOOL_DELETE, fixtures.TOOL_ECHO], "mcps": ["local-tools"]}
     res = await run_turns(
-        c, fx["agents"]["ephemeral"]["id"],
-        ["반드시 delete_record 도구로 레코드 rec-1 을 삭제해줘."], ov,
+        c,
+        fx["agents"]["ephemeral"]["id"],
+        ["반드시 delete_record 도구로 레코드 rec-1 을 삭제해줘."],
+        ov,
     )
     fails = []
     if res.get("approval"):
@@ -348,6 +375,7 @@ async def custom_session_resume_from_db(c: httpx.AsyncClient, fx: dict) -> list[
     if len([m for m in convo if m["role"] == "user"]) < 1 or len(convo) < 2:
         return [f"세션 영속 메시지 부족 — {[(m['role'], m['content'][:20]) for m in convo]}"]
     from suite.scenarios import RECALL_PROMPT
+
     convo.append({"role": "user", "content": RECALL_PROMPT})
     r = await c.post(f"/agents/{agent['id']}/chat", json={"sessionId": sid, "messages": convo})
     if r.status_code != 200:
@@ -377,7 +405,12 @@ async def custom_history_no_cross_user(c: httpx.AsyncClient, fx: dict) -> list[s
     try:
         r = await c.post(
             f"/agents/{agent['id']}/chat",
-            json={"sessionId": sid, "messages": [{"role": "user", "content": "방금 내가 알려준 비밀 코드를 숫자만으로 답해."}]},  # 유출 검사라 원문 유지
+            json={
+                "sessionId": sid,
+                "messages": [
+                    {"role": "user", "content": "방금 내가 알려준 비밀 코드를 숫자만으로 답해."}
+                ],
+            },  # 유출 검사라 원문 유지
         )
         if r.status_code != 200:
             return []  # 접근 자체가 접힘(404 등) — 유출 없음, 더 강한 차단
@@ -388,7 +421,9 @@ async def custom_history_no_cross_user(c: httpx.AsyncClient, fx: dict) -> list[s
     if res2["session"] == sid:
         fails.append("타 유저에게 같은 세션이 재개됨(소유권 위반)")
     if (res2.get("trace") or {}).get("historyRestore"):
-        fails.append(f"타 유저 요청에 historyRestore 발생: {(res2['trace'] or {}).get('historyRestore')}")
+        fails.append(
+            f"타 유저 요청에 historyRestore 발생: {(res2['trace'] or {}).get('historyRestore')}"
+        )
     if SECRET in res2["text"]:
         fails.append(f"비밀 유출 — text={res2['text'][:120]!r}")
     return fails
@@ -416,15 +451,18 @@ async def custom_preflight_unit(c: httpx.AsyncClient, fx: dict) -> list[str]:
         return []
 
 
-
 # ── 엣지 티어 커스텀(스펙 290) — 실패의 품질 단언 ─────────────────────────────────────
+
 
 async def edge_bad_model_400(c: httpx.AsyncClient, fx: dict) -> list[str]:
     """무효 모델 오버라이드=400 명시 거절(스펙 290 수리 회귀 핀) — 실측상 기본 모델로 조용히
     폴백하던 것을 refuse-loud로(learning 092)."""
     r = await c.post(
         f"/agents/{fx['agents']['bare']['id']}/chat",
-        json={"messages": [{"role": "user", "content": "안녕"}], "overrides": {"model": "no-such-model-290"}},
+        json={
+            "messages": [{"role": "user", "content": "안녕"}],
+            "overrides": {"model": "no-such-model-290"},
+        },
     )
     if r.status_code != 400:
         return [f"400 기대, got {r.status_code}: {r.text[:120]}"]
@@ -459,10 +497,13 @@ async def edge_long_session_limit(c: httpx.AsyncClient, fx: dict) -> list[str]:
             db.add(_Msg(session_pk=pk, role="user", content=f"채움 질문 {i}"))
             db.add(_Msg(session_pk=pk, role="assistant", content=f"채움 응답 {i}"))
         await db.commit()
-    r = await c.post(f"/agents/{agent['id']}/chat", json={"sessionId": sid, "messages": [{"role": "user", "content": "1 더하기 1은? 숫자만."}]})
+    r = await c.post(
+        f"/agents/{agent['id']}/chat",
+        json={"sessionId": sid, "messages": [{"role": "user", "content": "1 더하기 1은? 숫자만."}]},
+    )
     if r.status_code != 200:
         return [f"HTTP {r.status_code}"]
-    hr = ((parse_sse(r.text).get("trace") or {}).get("historyRestore") or {})
+    hr = (parse_sse(r.text).get("trace") or {}).get("historyRestore") or {}
     if hr.get("restored") != 20:
         return [f"restored=20(필요 depth) 기대 — LIMIT 미작동? got {hr}"]
     return []
@@ -472,13 +513,17 @@ async def edge_toolpolicy_noescalate(c: httpx.AsyncClient, fx: dict) -> list[str
     """오버라이드로 승인 완화 시도 → allowlist 밖이라 무시, 승인 게이트 유지(권한 비상승)."""
     agent = fx["agents"]["direct"]
     ov = {"toolPolicy": {"mcp:local-tools/delete_record": {"approval": {"required": False}}}}
-    res = await run_turns(c, agent["id"], ["반드시 delete_record 도구로 레코드 rec-290 을 삭제해줘."], ov)
+    res = await run_turns(
+        c, agent["id"], ["반드시 delete_record 도구로 레코드 rec-290 을 삭제해줘."], ov
+    )
     apid = res.get("approval")
     if isinstance(apid, dict):
         apid = apid.get("id")
     if not apid:
         return [f"승인 게이트가 사라짐(완화 오버라이드가 실효?) — text={res['text'][:100]!r}"]
-    await c.post(f"/approvals/{apid}/resolve", json={"decision": "reject"})  # 뒷정리(거부=부수효과 0)
+    await c.post(
+        f"/approvals/{apid}/resolve", json={"decision": "reject"}
+    )  # 뒷정리(거부=부수효과 0)
     return []
 
 
@@ -514,12 +559,24 @@ async def edge_concurrent_session(c: httpx.AsyncClient, fx: dict) -> list[str]:
     async def _count() -> int:
         async with SessionLocal() as db:
             pk = (await db.execute(_select(_Sess.id).where(_Sess.session_id == sid))).scalar_one()
-            return int((await db.execute(_select(_func.count()).select_from(_Msg).where(_Msg.session_pk == pk))).scalar_one())
+            return int(
+                (
+                    await db.execute(
+                        _select(_func.count()).select_from(_Msg).where(_Msg.session_pk == pk)
+                    )
+                ).scalar_one()
+            )
 
     before = await _count()
     r1, r2 = await asyncio.gather(
-        c.post(f"/agents/{agent['id']}/chat", json={"sessionId": sid, "messages": [{"role": "user", "content": "동시 질문 하나."}]}),
-        c.post(f"/agents/{agent['id']}/chat", json={"sessionId": sid, "messages": [{"role": "user", "content": "동시 질문 둘."}]}),
+        c.post(
+            f"/agents/{agent['id']}/chat",
+            json={"sessionId": sid, "messages": [{"role": "user", "content": "동시 질문 하나."}]},
+        ),
+        c.post(
+            f"/agents/{agent['id']}/chat",
+            json={"sessionId": sid, "messages": [{"role": "user", "content": "동시 질문 둘."}]},
+        ),
     )
     fails = []
     for i, r in enumerate((r1, r2), 1):
@@ -534,7 +591,9 @@ async def edge_concurrent_session(c: httpx.AsyncClient, fx: dict) -> list[str]:
 async def edge_approval_double_resolve(c: httpx.AsyncClient, fx: dict) -> list[str]:
     """승인 이중 결재 — 첫 200·둘째 409(원자 조건부 UPDATE 실증, 스펙 041 TOCTOU 불변식)."""
     agent = fx["agents"]["direct"]
-    res = await run_turns(c, agent["id"], ["반드시 delete_record 도구로 레코드 rec-291 을 삭제해줘."], None)
+    res = await run_turns(
+        c, agent["id"], ["반드시 delete_record 도구로 레코드 rec-291 을 삭제해줘."], None
+    )
     apid = res.get("approval")
     if isinstance(apid, dict):
         apid = apid.get("id")
@@ -610,6 +669,7 @@ CUSTOM_SCENARIOS: list[tuple[str, object]] = [
     ("edge-session-fuzz", edge_session_fuzz),
 ]
 
+
 # 티어(스펙 290): 데이터 시나리오는 dict.tier, 커스텀은 키 접두("edge-")로 판정 — 단일 규칙.
 def _tier_of(key: str, sc: dict | None = None) -> str:
     if sc is not None and sc.get("tier"):
@@ -618,6 +678,7 @@ def _tier_of(key: str, sc: dict | None = None) -> str:
 
 
 # ── 러너 ──────────────────────────────────────────────────────────────────────────────
+
 
 async def run_one(name: str, fn, retries: int = 2) -> tuple[str, str, list[str], float]:
     """시나리오 1개 실행(+재시도) → (key, status ok|flaky|FAIL, fails, sec).
@@ -645,9 +706,18 @@ async def main() -> int:
     ap.add_argument("--only", default=None, help="키 부분일치 필터(쉼표로 여러 개)")
     ap.add_argument("--list", action="store_true", help="시나리오 목록만 출력")
     ap.add_argument("--bootstrap-only", action="store_true", help="픽스처 부트스트랩까지만")
-    ap.add_argument("--strict", action="store_true", help="flaky(재시도 통과)도 실패로 취급(exit 1)")
-    ap.add_argument("--retries", type=int, default=2, help="실패 시 재시도 횟수(실모델 도구 호출 비결정성 흡수, 기본 2)")
-    ap.add_argument("--tier", default="all", choices=["all", "core", "edge"], help="시나리오 티어(스펙 290)")
+    ap.add_argument(
+        "--strict", action="store_true", help="flaky(재시도 통과)도 실패로 취급(exit 1)"
+    )
+    ap.add_argument(
+        "--retries",
+        type=int,
+        default=2,
+        help="실패 시 재시도 횟수(실모델 도구 호출 비결정성 흡수, 기본 2)",
+    )
+    ap.add_argument(
+        "--tier", default="all", choices=["all", "core", "edge"], help="시나리오 티어(스펙 290)"
+    )
     args = ap.parse_args()
 
     all_keys = [s["key"] for s in SCENARIOS] + [k for k, _ in CUSTOM_SCENARIOS]
@@ -667,7 +737,9 @@ async def main() -> int:
     transport = httpx.ASGITransport(app=app)
     headers = {"Authorization": f"Bearer {_token()}"}
     t_start = time.monotonic()
-    async with httpx.AsyncClient(transport=transport, base_url="http://t", headers=headers, timeout=CHAT_TIMEOUT) as c:
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://t", headers=headers, timeout=CHAT_TIMEOUT
+    ) as c:
         try:
             chat_m, embed_m = await preflight(c)
         except PreflightError as e:
@@ -680,8 +752,10 @@ async def main() -> int:
         except RuntimeError as e:
             print(f"PREFLIGHT FAIL — 픽스처 실증 실패: {e}")
             return 2
-        print(f"[fixtures] counts={fx['counts']} collection={fx['collection']['name']}"
-              f"(chunks={fx['collection'].get('chunk_count')}) memory={fx['memory']}")
+        print(
+            f"[fixtures] counts={fx['counts']} collection={fx['collection']['name']}"
+            f"(chunks={fx['collection'].get('chunk_count')}) memory={fx['memory']}"
+        )
         # 딥 핑(codex 288 #9) — /models HTTP 생존만으론 추론 가능을 보장 못한다: 실제 chat 1회.
         # (임베딩 추론은 ensure_collection의 검색 실증이 이미 수행 — FACT_TOKEN 히트까지 확인.)
         ping = await run_turns(c, fx["agents"]["bare"]["id"], ["핑 — 아무 한 단어로만 답해."], None)
@@ -692,15 +766,22 @@ async def main() -> int:
             return 0
 
         rows: list[tuple[str, str, list[str], float]] = []
+
         def _want(key: str, sc: dict | None = None) -> bool:
             if args.tier != "all" and _tier_of(key, sc) != args.tier:
                 return False
-            return not args.only or any(tok.strip() in key for tok in args.only.split(",") if tok.strip())
+            return not args.only or any(
+                tok.strip() in key for tok in args.only.split(",") if tok.strip()
+            )
 
         for sc in SCENARIOS:
             if not _want(sc["key"], sc):
                 continue
-            rows.append(await run_one(sc["key"], lambda sc=sc: run_data_scenario(c, fx, sc), retries=args.retries))
+            rows.append(
+                await run_one(
+                    sc["key"], lambda sc=sc: run_data_scenario(c, fx, sc), retries=args.retries
+                )
+            )
             _print_row(rows[-1])
         for key, fn in CUSTOM_SCENARIOS:
             if not _want(key):
@@ -713,8 +794,10 @@ async def main() -> int:
     failed = [r for r in rows if r[1] == "FAIL"]
     flaky = [r for r in rows if r[1] == "flaky"]
     total_s = time.monotonic() - t_start
-    print(f"\n==== 스위트 결과: {len(rows)}개 중 통과 {len(rows) - len(failed)}"
-          f" (flaky {len(flaky)}) · 실패 {len(failed)} · {total_s:.0f}s ====")
+    print(
+        f"\n==== 스위트 결과: {len(rows)}개 중 통과 {len(rows) - len(failed)}"
+        f" (flaky {len(flaky)}) · 실패 {len(failed)} · {total_s:.0f}s ===="
+    )
     if total_s > 600:
         print(f"참고: 목표 실행시간(600s) 초과 — {total_s:.0f}s (스펙 288 완료 기준 6, 보고만)")
     # flaky 1차 실패도 노출(codex 288 #4) — 재시도 통과가 간헐 결함을 조용히 삼키지 않게.

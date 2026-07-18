@@ -42,12 +42,14 @@ _AUTH = {"Authorization": f"Bearer {_token()}"}
 COL = "verify312-doc"
 
 # 여러 청크가 나오도록 충분히 긴 문서(문단 반복). size=1000이면 ~3청크, size=300이면 더 많이.
-DOC = ("\n\n".join(
-    f"문단 {i}: 재인덱싱은 저장된 청크 텍스트를 새 임베딩 모델로 다시 임베딩하거나, 원본에서 "
-    f"청크 크기와 겹침을 바꿔 다시 자른다. 검색 품질을 끌어올리려면 임베딩 모델뿐 아니라 청크 "
-    f"크기도 함께 테스트해야 한다. 이것은 {i}번째 문단이며 의미 있는 분량을 채운다." * 2
-    for i in range(6)
-)).encode("utf-8")
+DOC = (
+    "\n\n".join(
+        f"문단 {i}: 재인덱싱은 저장된 청크 텍스트를 새 임베딩 모델로 다시 임베딩하거나, 원본에서 "
+        f"청크 크기와 겹침을 바꿔 다시 자른다. 검색 품질을 끌어올리려면 임베딩 모델뿐 아니라 청크 "
+        f"크기도 함께 테스트해야 한다. 이것은 {i}번째 문단이며 의미 있는 분량을 채운다." * 2
+        for i in range(6)
+    )
+).encode("utf-8")
 
 
 def check(cond: bool, msg: str) -> None:
@@ -59,8 +61,10 @@ def check(cond: bool, msg: str) -> None:
 async def _models() -> tuple[str, str]:
     async with SessionLocal() as s:
         ms = (
-            await s.execute(select(ModelConfig).where(ModelConfig.kind == "embedding"))
-        ).scalars().all()
+            (await s.execute(select(ModelConfig).where(ModelConfig.kind == "embedding")))
+            .scalars()
+            .all()
+        )
         mock = next((m for m in ms if m.name == "mock-embed"), None)
         real = next((m for m in ms if m.name != "mock-embed"), None)
         return (str(mock.id) if mock else ""), (str(real.id) if real else "")
@@ -91,8 +95,13 @@ async def main() -> None:
         # ── 컬렉션 생성(mock-embed, 문서형) + 원본 저장되는 인제스트 ──
         r = await c.post(
             "/collections",
-            json={"name": COL, "kind": "document", "embedding_model_id": mock_id,
-                  "chunk_size": 1000, "chunk_overlap": 200},
+            json={
+                "name": COL,
+                "kind": "document",
+                "embedding_model_id": mock_id,
+                "chunk_size": 1000,
+                "chunk_overlap": 200,
+            },
         )
         check(r.status_code == 201, f"문서 컬렉션 생성({r.status_code})")
         cid = r.json()["id"]
@@ -114,11 +123,17 @@ async def main() -> None:
 
         # ⑦ 원본 blob 저장 확인
         async with SessionLocal() as s:
-            docs = (await s.execute(
-                select(DocumentBlob.document_id)
-                .join(Document, DocumentBlob.document_id == Document.id)
-                .where(Document.collection_id == cid)
-            )).scalars().all()
+            docs = (
+                (
+                    await s.execute(
+                        select(DocumentBlob.document_id)
+                        .join(Document, DocumentBlob.document_id == Document.id)
+                        .where(Document.collection_id == cid)
+                    )
+                )
+                .scalars()
+                .all()
+            )
         check(len(docs) >= 1, f"원본 blob 저장됨({len(docs)}건)")
 
         # 평가 런 전체 건수(⑤ 보존 대조 기준)
@@ -130,12 +145,16 @@ async def main() -> None:
         check(r.status_code == 400, f"no-op(같은 모델) → 400 거절({r.status_code})")
 
         # ── ② 재청킹: chunk_size 1000→300 → 청크 수 증가 ──
-        r = await c.post(f"/collections/{cid}/reindex", json={"chunk_size": 300, "chunk_overlap": 50})
+        r = await c.post(
+            f"/collections/{cid}/reindex", json={"chunk_size": 300, "chunk_overlap": 50}
+        )
         check(r.status_code == 200, f"재청킹(size 300) 실행({r.status_code})")
         col = await _col_row(COL)
         check(col is not None and col.chunk_size == 300, "컬렉션 chunk_size=300 반영")
-        check(col is not None and col.chunk_count > base_chunks,
-              f"재청킹으로 청크 수 증가({base_chunks}→{col.chunk_count if col else '?'})")
+        check(
+            col is not None and col.chunk_count > base_chunks,
+            f"재청킹으로 청크 수 증가({base_chunks}→{col.chunk_count if col else '?'})",
+        )
         check(col is not None and col.status == "ready", "재청킹 후 status=ready(잠금 해제)")
         rechunk_count = col.chunk_count if col else 0
 
@@ -148,16 +167,24 @@ async def main() -> None:
                 res = resp.json().get("results", []) if resp.status_code == 200 else []
                 return res[0].get("score") if res else None
 
-            mock_top = _top(await c.post(f"/collections/{cid}/search", json={"query": q, "top_k": 3}))
+            mock_top = _top(
+                await c.post(f"/collections/{cid}/search", json={"query": q, "top_k": 3})
+            )
 
             r = await c.post(f"/collections/{cid}/reindex", json={"embedding_model_id": real_id})
             check(r.status_code == 200, f"모델 교체(mock→e5) 실행({r.status_code})")
             col = await _col_row(COL)
-            check(col is not None and str(col.embedding_model_id) == real_id,
-                  "embedding_model_id가 e5로 스왑")
-            check(col is not None and col.chunk_count == rechunk_count,
-                  f"모델 교체는 청크 수 불변({rechunk_count})")
-            real_top = _top(await c.post(f"/collections/{cid}/search", json={"query": q, "top_k": 3}))
+            check(
+                col is not None and str(col.embedding_model_id) == real_id,
+                "embedding_model_id가 e5로 스왑",
+            )
+            check(
+                col is not None and col.chunk_count == rechunk_count,
+                f"모델 교체는 청크 수 불변({rechunk_count})",
+            )
+            real_top = _top(
+                await c.post(f"/collections/{cid}/search", json={"query": q, "top_k": 3})
+            )
             check(real_top is not None, f"e5 검색 동작(top={real_top})")
             print(f"  ..  검색 점수 mock={mock_top} → e5={real_top}(같은 질의)")
         else:
@@ -165,19 +192,24 @@ async def main() -> None:
 
         # ── ③ 쓰기 배타 잠금: reindexing 강제 후 쓰기 차단(검색은 무중단 — 스펙 313) ──
         async with SessionLocal() as s:
-            await s.execute(sa_update(Collection).where(Collection.id == cid).values(status="reindexing"))
+            await s.execute(
+                sa_update(Collection).where(Collection.id == cid).values(status="reindexing")
+            )
             await s.commit()
         # 스펙 313: 검색은 잠금을 보지 않음 — 재인덱싱 중에도 200(옛 청크 무중단 서비스). 자세한 무중단
         # 증명은 tests/verify_313_zero_downtime.py(실동시성). 여기선 잠금 상태 검색이 막히지 않음만 확인.
         r = await c.post(f"/collections/{cid}/search", json={"query": "x", "top_k": 3})
         check(r.status_code == 200, f"잠금 중에도 검색 무중단 → 200({r.status_code})")
-        r = await c.post(f"/collections/{cid}/documents", files={"file": ("x.txt", b"hi", "text/plain")})
+        r = await c.post(
+            f"/collections/{cid}/documents", files={"file": ("x.txt", b"hi", "text/plain")}
+        )
         check(r.status_code == 409, f"잠금 중 인제스트 → 409({r.status_code})")
         r = await c.post(f"/collections/{cid}/reindex", json={"chunk_size": 500})
         check(r.status_code == 409, f"잠금 중 재인덱싱 → 409({r.status_code})")
 
         # CAS 이중 획득 방지: reindexing 상태에선 획득 실패
         from api.rag import _acquire_reindex_lock, _persist_chunks
+
         async with SessionLocal() as s:
             got = await _acquire_reindex_lock(s, uuid.UUID(cid))
         check(not got, "reindexing 상태에서 CAS 재획득 실패(이중 재인덱싱 방지)")
@@ -185,8 +217,11 @@ async def main() -> None:
         # F1 회귀(codex): 인제스트가 시작 가드를 지난 뒤라도 _persist_chunks가 재인덱싱 잠금을 존중 —
         # 청크를 넣지 않고 취소(IngestError)하고 status='reindexing'을 안 덮는다(데이터 손실·잠금해제 봉인).
         from api.rag_ingest import IngestError as _IngestError
+
         async with SessionLocal() as s:
-            col_obj = (await s.execute(select(Collection).where(Collection.id == uuid.UUID(cid)))).scalar_one()
+            col_obj = (
+                await s.execute(select(Collection).where(Collection.id == uuid.UUID(cid)))
+            ).scalar_one()
             d = Document(collection_id=col_obj.id, filename="race.txt", status="parsing")
             s.add(d)
             await s.commit()
@@ -198,21 +233,28 @@ async def main() -> None:
                 raised = True
             await s.rollback()
             check(raised, "F1: 재인덱싱 중 _persist_chunks가 취소(IngestError — 청크·잠금 존중)")
-            st = (await s.execute(select(Collection.status).where(Collection.id == uuid.UUID(cid)))).scalar_one()
+            st = (
+                await s.execute(select(Collection.status).where(Collection.id == uuid.UUID(cid)))
+            ).scalar_one()
             check(st == "reindexing", "F1: _persist_chunks가 잠금을 안 덮음(status 유지)")
-            nchunk = (await s.execute(
-                select(func.count()).select_from(Chunk).where(Chunk.document_id == doc_pk)
-            )).scalar_one()
+            nchunk = (
+                await s.execute(
+                    select(func.count()).select_from(Chunk).where(Chunk.document_id == doc_pk)
+                )
+            ).scalar_one()
             check(nchunk == 0, "F1: 취소된 인제스트의 청크 0(유실 방지)")
             await s.execute(sa_delete(Document).where(Document.id == doc_pk))
             await s.commit()
 
         # ── ⑥ stale 잠금 복구 ──
         from api.db import _recover_stale_reindex
+
         async with SessionLocal() as s:
             await _recover_stale_reindex(s)
         col = await _col_row(COL)
-        check(col is not None and col.status == "ready", "stale 재인덱싱 잠금 복구(reindexing→ready)")
+        check(
+            col is not None and col.status == "ready", "stale 재인덱싱 잠금 복구(reindexing→ready)"
+        )
 
         # ── ⑤ 평가 이력 보존 ──
         async with SessionLocal() as s:
@@ -240,9 +282,11 @@ async def main() -> None:
         )
         if events:
             latest = events[0]
-            print(f"  ..  최신 이력: {latest.get('from_model_name')}→{latest.get('to_model_name')} "
-                  f"chunk {latest.get('from_chunk_size')}→{latest.get('to_chunk_size')} "
-                  f"status={latest.get('status')} count={latest.get('chunk_count')}")
+            print(
+                f"  ..  최신 이력: {latest.get('from_model_name')}→{latest.get('to_model_name')} "
+                f"chunk {latest.get('from_chunk_size')}→{latest.get('to_chunk_size')} "
+                f"status={latest.get('status')} count={latest.get('chunk_count')}"
+            )
 
         # 정리
         await c.delete(f"/collections/{cid}")

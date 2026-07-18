@@ -61,9 +61,7 @@ async def _create(email: str, password: str, superuser: bool = True) -> None:
             print("PROVISION_EXISTS", email)
             return
         await manager.create(
-            UserCreate(
-                email=email, password=password, is_superuser=superuser, is_verified=True
-            ),
+            UserCreate(email=email, password=password, is_superuser=superuser, is_verified=True),
             safe=False,
         )
     print("PROVISION_OK", email, "member" if not superuser else "super")

@@ -32,6 +32,7 @@ from sqlalchemy import select  # noqa: E402
 from api.db import SessionLocal as async_session  # noqa: E402
 from api.models import Agent, McpServer  # noqa: E402
 
+VBASE = os.environ.get("VERIFY_BASE", "http://127.0.0.1:8000")  # 스펙 390: 격리 서버 주입
 _fails = []
 passed = 0
 
@@ -85,7 +86,7 @@ async def main():
                 name="v327-stale-custom",
                 source="custom",
                 transport="http",
-                url="http://127.0.0.1:8000/_served/mcp/v327-stale-custom/",
+                url=VBASE + "/_served/mcp/v327-stale-custom/",
                 tools=["ghost"],
                 enabled_tools=["ghost"],
                 status="connected",
@@ -105,7 +106,7 @@ async def main():
                 name="v327-stale-wired",
                 source="custom",
                 transport="http",
-                url="http://127.0.0.1:8000/_served/mcp/v327-stale-wired/",
+                url=VBASE + "/_served/mcp/v327-stale-wired/",
                 tools=["ghost"],
                 enabled_tools=["ghost"],
                 status="connected",
@@ -140,7 +141,14 @@ async def main():
         not ({"artifact_slotfill", "artifact_targeting"} & keys),
         f"S4a 데모 impl 미등록 (keys={sorted(keys)})",
     )
-    keep = {"plan_execute", "route", "orchestrate", "orchestrate_ranked", "artifact_form", "pipeline"}
+    keep = {
+        "plan_execute",
+        "route",
+        "orchestrate",
+        "orchestrate_ranked",
+        "artifact_form",
+        "pipeline",
+    }
     check(keep <= keys, f"S4b 유지 impl 전부 등록 (missing={sorted(keep - keys)})")
 
     print()

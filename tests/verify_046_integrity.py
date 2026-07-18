@@ -28,7 +28,18 @@ from api.models import Agent, AgentVersion, Approval, McpServer  # noqa: E402
 from api import seed  # noqa: E402
 
 # 스펙 054에서 가짜 mcp:// 6행을 제거하고 실 mock MCP로 대체 → 현재 시드 MCP는 2개.
-REMOVED_MCPS = {"filesystem", "github", "prometheus", "kubernetes", "tavily", "gcal", "gmail", "notion", "acme-weather", "partner-crm"}
+REMOVED_MCPS = {
+    "filesystem",
+    "github",
+    "prometheus",
+    "kubernetes",
+    "tavily",
+    "gcal",
+    "gmail",
+    "notion",
+    "acme-weather",
+    "partner-crm",
+}
 KEEP_MCPS = {"local-tools", "calc-tools"}
 REMOVED_AGENT_IDS = {"agt_rvw_2b91c4", "agt_ops_5c0833"}
 
@@ -49,13 +60,20 @@ async def main() -> None:
         versions = (await sess.execute(select(AgentVersion))).scalars().all()
 
         # I2
-        check(not (REMOVED_MCPS & mcp_names), f"I2 제거 MCP 부재 (잔존: {REMOVED_MCPS & mcp_names})")
+        check(
+            not (REMOVED_MCPS & mcp_names), f"I2 제거 MCP 부재 (잔존: {REMOVED_MCPS & mcp_names})"
+        )
         check(KEEP_MCPS <= mcp_names, f"I2 유지 MCP 2개 존재 (현재: {sorted(mcp_names)})")
 
         # I3
-        check(not (REMOVED_AGENT_IDS & agent_ids), f"I3 제거 에이전트 부재 (잔존: {REMOVED_AGENT_IDS & agent_ids})")
-        check("agt_rsch_7f3a91" in agent_ids and "agt_sec_9d4417" in agent_ids,
-              "I3 유지 에이전트(Research·Secretary) 존재")
+        check(
+            not (REMOVED_AGENT_IDS & agent_ids),
+            f"I3 제거 에이전트 부재 (잔존: {REMOVED_AGENT_IDS & agent_ids})",
+        )
+        check(
+            "agt_rsch_7f3a91" in agent_ids and "agt_sec_9d4417" in agent_ids,
+            "I3 유지 에이전트(Research·Secretary) 존재",
+        )
 
         # I4 — dangling: config + version.config 전수
         dangling = []
@@ -72,17 +90,31 @@ async def main() -> None:
         check(not dangling, f"I4 dangling 0 (발견: {dangling[:5]})")
 
         # I5 — pending 승인 중 제거 권한 참조 0 (resolved 이력은 050 유예)
-        pending_bad = (await sess.execute(
-            select(Approval).where(Approval.permission.in_({"files.read", "repo.read", "repo.merge", "k8s.read", "k8s.write"}),
-                                   Approval.status == "pending")
-        )).scalars().all()
-        check(not pending_bad, f"I5 제거권한 pending 승인 0 (발견: {[a.approval_id for a in pending_bad]})")
+        pending_bad = (
+            (
+                await sess.execute(
+                    select(Approval).where(
+                        Approval.permission.in_(
+                            {"files.read", "repo.read", "repo.merge", "k8s.read", "k8s.write"}
+                        ),
+                        Approval.status == "pending",
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        check(
+            not pending_bad,
+            f"I5 제거권한 pending 승인 0 (발견: {[a.approval_id for a in pending_bad]})",
+        )
 
         # I6 — seed 멱등(재호출 무동작): 테이블 비어있지 않으므로 _empty=False
         await seed.seed_if_empty(sess)
         mcp_after = {m.name for m in (await sess.execute(select(McpServer))).scalars()}
-        check(not (REMOVED_MCPS & mcp_after),
-              "I6 seed_if_empty 재호출이 제거분을 되살리지 않음(멱등)")
+        check(
+            not (REMOVED_MCPS & mcp_after), "I6 seed_if_empty 재호출이 제거분을 되살리지 않음(멱등)"
+        )
 
     print()
     if _fails:

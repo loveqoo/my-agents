@@ -15,6 +15,7 @@
 
 실행: cd packages/api && uv run python ../../tests/verify_314_async_memory.py
 """
+
 import asyncio
 import json
 import os
@@ -102,7 +103,9 @@ async def main() -> None:
             for a in (await c.get("/agents")).json():
                 if a["name"] == NAME:
                     await c.delete(f"/agents/{a['id']}")
-            r = await c.post("/agents", json={"name": NAME, "config": {"memories": [LONG_TERM_MEMORY]}})
+            r = await c.post(
+                "/agents", json={"name": NAME, "config": {"memories": [LONG_TERM_MEMORY]}}
+            )
             check(r.status_code in (200, 201), f"장기메모리 에이전트 생성({r.status_code})")
             if r.status_code not in (200, 201):
                 print(r.text[:300])
@@ -110,7 +113,9 @@ async def main() -> None:
             aid = r.json()["id"]
 
         # ── chat() 직접 호출 → body_iterator를 순회하며 yield 지점 타임스탬프 ──
-        body = ChatRequest(messages=[ChatMessage(role="user", content="안녕하세요, 무중단 저장 테스트입니다.")])
+        body = ChatRequest(
+            messages=[ChatMessage(role="user", content="안녕하세요, 무중단 저장 테스트입니다.")]
+        )
         resp = await chat(uuid.UUID(aid), body, principal="machine")
         marks: dict = {"last_text": None, "trace": None, "done": None, "memory": None}
         box: dict = {"trace": None, "memory": None, "mid": None}
@@ -119,32 +124,54 @@ async def main() -> None:
             _parse_frame(chunk if isinstance(chunk, str) else chunk.decode(), marks, box, t0)
 
         trace_obj, memory_obj, mid = box["trace"], box["memory"], box["mid"]
-        check(bool(trace_obj and trace_obj.get("memoryPending") is True),
-              f"① trace에 memoryPending=true(pending={trace_obj.get('memoryPending') if trace_obj else None})")
-        gap_done = (marks["done"] - marks["last_text"]) if (marks["done"] and marks["last_text"] is not None) else 9e9
+        check(
+            bool(trace_obj and trace_obj.get("memoryPending") is True),
+            f"① trace에 memoryPending=true(pending={trace_obj.get('memoryPending') if trace_obj else None})",
+        )
+        gap_done = (
+            (marks["done"] - marks["last_text"])
+            if (marks["done"] and marks["last_text"] is not None)
+            else 9e9
+        )
         check(gap_done < 500, f"② last_text→done={gap_done:.0f}ms(<500 — 저장 지연과 무관)")
         gap_mem = (marks["memory"] - marks["done"]) if (marks["memory"] and marks["done"]) else None
-        check(gap_mem is not None and gap_mem > SLEEP_S * 1000 * 0.8,
-              (f"③ done→memory={gap_mem:.0f}ms(≈{int(SLEEP_S*1000)} — 저장이 done 뒤)"
-               if gap_mem is not None else "③ memory 프레임 미도착"))
+        check(
+            gap_mem is not None and gap_mem > SLEEP_S * 1000 * 0.8,
+            (
+                f"③ done→memory={gap_mem:.0f}ms(≈{int(SLEEP_S * 1000)} — 저장이 done 뒤)"
+                if gap_mem is not None
+                else "③ memory 프레임 미도착"
+            ),
+        )
         saved = (memory_obj or {}).get("memorySaved", {})
-        check(saved.get("status") == "ok" and len(saved.get("items", [])) >= 1,
-              f"④ memory 이벤트 memorySaved(status={saved.get('status')}, items={len(saved.get('items', []))})")
-        check(bool(memory_obj) and memory_obj.get("mid") == mid,
-              f"④ memory 이벤트가 올바른 mid 지목({(memory_obj or {}).get('mid')} == {mid})")
+        check(
+            saved.get("status") == "ok" and len(saved.get("items", [])) >= 1,
+            f"④ memory 이벤트 memorySaved(status={saved.get('status')}, items={len(saved.get('items', []))})",
+        )
+        check(
+            bool(memory_obj) and memory_obj.get("mid") == mid,
+            f"④ memory 이벤트가 올바른 mid 지목({(memory_obj or {}).get('mid')} == {mid})",
+        )
 
         if mid:
             async with SessionLocal() as db:
                 m = await db.get(Message, uuid.UUID(mid))
                 tr = m.trace if m else {}
-            check(isinstance(tr, dict) and tr.get("memorySaved", {}).get("status") == "ok",
-                  "⑤ 영속 trace에 memorySaved 병합(새로고침 시 노출)")
-            check(isinstance(tr, dict) and "memoryPending" not in tr,
-                  "⑤ 영속 trace엔 memoryPending 미포함(라이브 전용 — 완료 못 해도 스피너 안 굳음)")
+            check(
+                isinstance(tr, dict) and tr.get("memorySaved", {}).get("status") == "ok",
+                "⑤ 영속 trace에 memorySaved 병합(새로고침 시 노출)",
+            )
+            check(
+                isinstance(tr, dict) and "memoryPending" not in tr,
+                "⑤ 영속 trace엔 memoryPending 미포함(라이브 전용 — 완료 못 해도 스피너 안 굳음)",
+            )
 
         def g(k):
             return f"{marks[k]:.0f}" if marks[k] is not None else "—"
-        print(f"\n  ..  타임라인 last_text={g('last_text')} trace={g('trace')} done={g('done')} memory={g('memory')}ms")
+
+        print(
+            f"\n  ..  타임라인 last_text={g('last_text')} trace={g('trace')} done={g('done')} memory={g('memory')}ms"
+        )
 
         # ── ⑥ P0 회귀(codex): done 직후 클라이언트가 끊어도(제너레이터 취소) 저장·영속이 완료된다 ──
         # 태스크를 done을 yield하기 **전에** 띄우므로, done 직후 aclose(=클라이언트 이탈)해도 태스크는
@@ -176,7 +203,9 @@ async def main() -> None:
         memory_mod.add = _orig_add
         memory_mod.search = _orig_search
         if aid:
-            async with httpx.AsyncClient(transport=transport, base_url="http://t", headers=_AUTH) as c:
+            async with httpx.AsyncClient(
+                transport=transport, base_url="http://t", headers=_AUTH
+            ) as c:
                 await c.delete(f"/agents/{aid}")
 
     if _fails:

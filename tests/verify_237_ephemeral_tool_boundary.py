@@ -52,8 +52,12 @@ def ck(c: bool, m: str) -> None:
 async def _counts() -> dict[str, int]:
     async with SessionLocal() as db:
         out = {
-            "session": int((await db.execute(select(func.count()).select_from(SessionRow))).scalar_one()),
-            "message": int((await db.execute(select(func.count()).select_from(Message))).scalar_one()),
+            "session": int(
+                (await db.execute(select(func.count()).select_from(SessionRow))).scalar_one()
+            ),
+            "message": int(
+                (await db.execute(select(func.count()).select_from(Message))).scalar_one()
+            ),
         }
         for t in _TABLES:
             out[t] = int((await db.execute(text(f"SELECT count(*) FROM {t}"))).scalar_one())
@@ -67,45 +71,80 @@ def _delta(a: dict, b: dict) -> dict:
 async def run() -> bool:
     # 실 체크포인터 초기화(verify_235 교훈) — 게이트가 회귀하면 checkpoints Δ>0으로 잡히게.
     from api import checkpointer as _ckpt
+
     if await _ckpt.init_checkpointer() is None:
         print("VERIFY237_FAIL(체크포인터 초기화 실패)")
         return False
 
     t = httpx.ASGITransport(app=app)
     headers = {"Authorization": f"Bearer {_token()}"}
-    async with httpx.AsyncClient(transport=t, base_url="http://t", headers=headers, timeout=90) as c:
+    async with httpx.AsyncClient(
+        transport=t, base_url="http://t", headers=headers, timeout=90
+    ) as c:
         made: list[str] = []
         try:
             # T1 — 생성 게이트
-            r = await c.post("/agents", json={
-                "name": f"e237a-{uuid.uuid4().hex[:6]}",
-                "config": {"model": "mock-llm", "prompt": "x", "ephemeral": True,
-                           "impl": "orchestrate", "capabilities": ["memwrite:user"]},
-            })
+            r = await c.post(
+                "/agents",
+                json={
+                    "name": f"e237a-{uuid.uuid4().hex[:6]}",
+                    "config": {
+                        "model": "mock-llm",
+                        "prompt": "x",
+                        "ephemeral": True,
+                        "impl": "orchestrate",
+                        "capabilities": ["memwrite:user"],
+                    },
+                },
+            )
             if r.status_code < 300:
                 made.append(r.json()["id"])
-            ck(r.status_code == 422 and "기억 저장" in r.text, f"T1 생성: ephemeral+memwrite → 422 (got {r.status_code})")
+            ck(
+                r.status_code == 422 and "기억 저장" in r.text,
+                f"T1 생성: ephemeral+memwrite → 422 (got {r.status_code})",
+            )
 
             # T2 — 수정 게이트
-            base = (await c.post("/agents", json={
-                "name": f"e237b-{uuid.uuid4().hex[:6]}",
-                "config": {"model": "mock-llm", "prompt": "x"},
-            })).json()
+            base = (
+                await c.post(
+                    "/agents",
+                    json={
+                        "name": f"e237b-{uuid.uuid4().hex[:6]}",
+                        "config": {"model": "mock-llm", "prompt": "x"},
+                    },
+                )
+            ).json()
             made.append(base["id"])
-            r = await c.put(f"/agents/{base['id']}", json={
-                "config": {"model": "mock-llm", "prompt": "x", "ephemeral": True,
-                           "impl": "orchestrate", "capabilities": ["memedit:user"]},
-            })
+            r = await c.put(
+                f"/agents/{base['id']}",
+                json={
+                    "config": {
+                        "model": "mock-llm",
+                        "prompt": "x",
+                        "ephemeral": True,
+                        "impl": "orchestrate",
+                        "capabilities": ["memedit:user"],
+                    },
+                },
+            )
             ck(r.status_code == 422, f"T2 수정: ephemeral+memedit → 422 (got {r.status_code})")
 
             # T3 — 읽기 표면은 허용
             cols = (await c.get("/collections")).json()
             col = next((x["name"] for x in cols if x["name"] == "docs-kb"), None)
-            r = await c.post("/agents", json={
-                "name": f"e237c-{uuid.uuid4().hex[:6]}",
-                "config": {"model": "mock-llm", "prompt": "읽기 실습", "ephemeral": True,
-                           "mcps": ["local-tools"], **({"vectorTables": [col]} if col else {})},
-            })
+            r = await c.post(
+                "/agents",
+                json={
+                    "name": f"e237c-{uuid.uuid4().hex[:6]}",
+                    "config": {
+                        "model": "mock-llm",
+                        "prompt": "읽기 실습",
+                        "ephemeral": True,
+                        "mcps": ["local-tools"],
+                        **({"vectorTables": [col]} if col else {}),
+                    },
+                },
+            )
             ck(r.status_code < 300, f"T3 저장: ephemeral+MCP+RAG 허용 (got {r.status_code})")
             reader = r.json()
             made.append(reader["id"])
@@ -113,8 +152,10 @@ async def run() -> bool:
             # T4 — RAG 조회 실발동 + 전 테이블 Δ0
             if col:
                 b0 = await _counts()
-                resp = await c.post(f"/agents/{reader['id']}/chat",
-                                    json={"messages": [{"role": "user", "content": "핵심 내용 검색해줘"}]})
+                resp = await c.post(
+                    f"/agents/{reader['id']}/chat",
+                    json={"messages": [{"role": "user", "content": "핵심 내용 검색해줘"}]},
+                )
                 d = _delta(b0, await _counts())
                 rag_called = '"server": "rag"' in resp.text or "search_documents" in resp.text
                 ck(rag_called, "T4a ephemeral RAG 조회 실발동(rag/search_documents 신호)")
@@ -124,33 +165,54 @@ async def run() -> bool:
 
             # T5 — 승인형 도구: 명시 에러 + Δ0 (235 계약 위반 실경로 봉합 회귀 가드)
             b0 = await _counts()
-            resp = await c.post(f"/agents/{reader['id']}/chat",
-                                json={"messages": [{"role": "user", "content": "레코드 rec-001 삭제해줘"}]})
+            resp = await c.post(
+                f"/agents/{reader['id']}/chat",
+                json={"messages": [{"role": "user", "content": "레코드 rec-001 삭제해줘"}]},
+            )
             d = _delta(b0, await _counts())
-            ck("승인이 필요한 도구를 사용할 수 없습니다" in resp.text,
-               "T5a 승인형 도구 → 명시 에러 문구(조용한 실패 아님)")
-            ck("apr-" not in resp.text and d["approvals"] == 0 and d["session"] == 0,
-               f"T5b Approval·세션 행 미생성 (Δ={d})")
+            ck(
+                "승인이 필요한 도구를 사용할 수 없습니다" in resp.text,
+                "T5a 승인형 도구 → 명시 에러 문구(조용한 실패 아님)",
+            )
+            ck(
+                "apr-" not in resp.text and d["approvals"] == 0 and d["session"] == 0,
+                f"T5b Approval·세션 행 미생성 (Δ={d})",
+            )
 
             # T6 — 런타임 방어: DB 직접 변조(입구 게이트 우회한 과거 저장분 시뮬레이션)
-            legacy = (await c.post("/agents", json={
-                "name": f"e237d-{uuid.uuid4().hex[:6]}",
-                "config": {"model": "mock-llm", "prompt": "x", "impl": "orchestrate",
-                           "capabilities": ["memwrite:user", "memory:user"]},
-            })).json()
+            legacy = (
+                await c.post(
+                    "/agents",
+                    json={
+                        "name": f"e237d-{uuid.uuid4().hex[:6]}",
+                        "config": {
+                            "model": "mock-llm",
+                            "prompt": "x",
+                            "impl": "orchestrate",
+                            "capabilities": ["memwrite:user", "memory:user"],
+                        },
+                    },
+                )
+            ).json()
             made.append(legacy["id"])
             async with SessionLocal() as db:
-                ag = (await db.execute(select(Agent).where(Agent.id == uuid.UUID(legacy["id"])))).scalar_one()
+                ag = (
+                    await db.execute(select(Agent).where(Agent.id == uuid.UUID(legacy["id"])))
+                ).scalar_one()
                 cfg = dict(ag.config or {})
                 cfg["ephemeral"] = True  # API 게이트 우회 — 과거 행 시뮬레이션
                 ag.config = cfg
                 await db.commit()
             b0 = await _counts()
-            resp = await c.post(f"/agents/{legacy['id']}/chat",
-                                json={"messages": [{"role": "user", "content": "등산을 좋아한다고 기억해줘"}]})
+            resp = await c.post(
+                f"/agents/{legacy['id']}/chat",
+                json={"messages": [{"role": "user", "content": "등산을 좋아한다고 기억해줘"}]},
+            )
             d = _delta(b0, await _counts())
-            ck(all(v == 0 for v in d.values()) and "apr-" not in resp.text,
-               f"T6 레거시 ephemeral+memwrite 턴에도 전 테이블 Δ0·승인 없음 (Δ={d})")
+            ck(
+                all(v == 0 for v in d.values()) and "apr-" not in resp.text,
+                f"T6 레거시 ephemeral+memwrite 턴에도 전 테이블 Δ0·승인 없음 (Δ={d})",
+            )
         finally:
             for aid in made:
                 await c.delete(f"/agents/{aid}")

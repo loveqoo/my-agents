@@ -56,7 +56,7 @@ from api.broker import (  # noqa: E402
 from api.db import SessionLocal  # noqa: E402
 from api.models import Agent, McpServer, User  # noqa: E402
 
-BASE = "http://127.0.0.1:8000"
+BASE = os.environ.get("VERIFY_BASE", "http://127.0.0.1:8000")  # 스펙 390: 격리 서버 주입
 PY = os.path.join(ROOT, ".venv", "bin", "python")
 PROV = os.path.join(ROOT, "tests", "_provision_super.py")
 SUPER_EMAIL = "probe101s@example.com"
@@ -77,7 +77,7 @@ def check(cond: bool, msg: str) -> None:
 
 
 _MODEL_CFG = {
-    "base_url": "http://127.0.0.1:8000/_remote/v1",
+    "base_url": BASE + "/_remote/v1",
     "model_id": "mock-chat",
     "api_key": "sk-noauth",
     "params": {},
@@ -93,6 +93,7 @@ def _ctx(**kw) -> AgentBuildContext:
 def _raise_factory():
     def make():
         raise AssertionError("거부 경로가 DB를 만졌다(존재 누출 위험)")
+
     return make
 
 
@@ -109,7 +110,9 @@ async def _stream(graph, payload, cfg):
     """astream(messages+updates) → (interrupt_payload|None, streamed_text). verify_041과 동일 패턴."""
     interrupted = None
     text = []
-    async for mode, chunk in graph.astream(payload, config=cfg, stream_mode=["messages", "updates"]):
+    async for mode, chunk in graph.astream(
+        payload, config=cfg, stream_mode=["messages", "updates"]
+    ):
         if mode == "messages":
             msg, _meta = chunk
             t = runtime._content_text(getattr(msg, "content", ""))
@@ -122,7 +125,9 @@ async def _stream(graph, payload, cfg):
 
 # ================================================================ [U] 단위(순수)
 def unit_checks() -> None:
-    print("[U] 단위(순수) — 네임스페이스·_mcp_allow·_permitted mcp·approval_for·_adapt_args·라우팅·드리프트0")
+    print(
+        "[U] 단위(순수) — 네임스페이스·_mcp_allow·_permitted mcp·approval_for·_adapt_args·라우팅·드리프트0"
+    )
 
     # U1 네임스페이스 파싱 — id만으로 kind/서버/툴 분해(별도 조회 없이).
     check(_kind_of("agt_x") == "agent", "U1 bare id → kind agent(하위호환)")
@@ -135,77 +140,146 @@ def unit_checks() -> None:
     mp = McpProvider(_raise_factory())
     check(mp._mcp_allow({ECHO_CAP}) == {MCP: {"echo"}}, "U2 툴 단위 → {server:{tool}}")
     check(mp._mcp_allow({f"mcp:{MCP}"}) == {MCP: None}, "U2 서버 전체 → {server:None}")
-    check(mp._mcp_allow({f"mcp:{MCP}", ECHO_CAP}) == {MCP: None},
-          "U2 서버 전체 + 개별 툴 → None(전체가 덮음, 순서 무관)")
-    check(mp._mcp_allow({ECHO_CAP, f"mcp:{MCP}"}) == {MCP: None},
-          "U2 개별 툴 + 서버 전체(역순) → None(순서 독립)")
+    check(
+        mp._mcp_allow({f"mcp:{MCP}", ECHO_CAP}) == {MCP: None},
+        "U2 서버 전체 + 개별 툴 → None(전체가 덮음, 순서 무관)",
+    )
+    check(
+        mp._mcp_allow({ECHO_CAP, f"mcp:{MCP}"}) == {MCP: None},
+        "U2 개별 툴 + 서버 전체(역순) → None(순서 독립)",
+    )
     check(mp._mcp_allow({"agt_x", ECHO_CAP}) == {MCP: {"echo"}}, "U2 agent 항목은 무시")
     check(mp._mcp_allow({"agt_x"}) == {}, "U2 mcp 항목 없음 → {}(모집단 공집합)")
 
     # U3 _permitted mcp 의미론 — 정확 툴 OR 서버 전체가 덮음. RBAC 교집합.
-    bt = PolicyScopedBroker({ECHO_CAP}, lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=_raise_factory())))
+    bt = PolicyScopedBroker(
+        {ECHO_CAP},
+        lambda k, name=None: True,
+        providers=build_providers(BrokerContext(session_factory=_raise_factory())),
+    )
     check(bt._permitted(ECHO_CAP) is True, "U3 정확 툴 허용 → permitted")
     check(bt._permitted(WEBSEARCH_CAP) is False, "U3 같은 서버 다른 툴 → deny(툴 단위)")
     check(bt._permitted("mcp:other/echo") is False, "U3 다른 서버 같은 툴명 → deny(비노출)")
-    bw = PolicyScopedBroker({f"mcp:{MCP}"}, lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=_raise_factory())))
-    check(bw._permitted(ECHO_CAP) is True and bw._permitted(DELETE_CAP) is True,
-          "U3 서버 전체 허용 → 그 서버 임의 툴 permitted")
-    check(bw._permitted("mcp:other/x") is False, "U3 서버 전체는 다른 서버로 누출 안 됨(deny-by-default)")
-    brd = PolicyScopedBroker({ECHO_CAP}, lambda k, name=None: False, providers=build_providers(BrokerContext(session_factory=_raise_factory())))
+    bw = PolicyScopedBroker(
+        {f"mcp:{MCP}"},
+        lambda k, name=None: True,
+        providers=build_providers(BrokerContext(session_factory=_raise_factory())),
+    )
+    check(
+        bw._permitted(ECHO_CAP) is True and bw._permitted(DELETE_CAP) is True,
+        "U3 서버 전체 허용 → 그 서버 임의 툴 permitted",
+    )
+    check(
+        bw._permitted("mcp:other/x") is False,
+        "U3 서버 전체는 다른 서버로 누출 안 됨(deny-by-default)",
+    )
+    brd = PolicyScopedBroker(
+        {ECHO_CAP},
+        lambda k, name=None: False,
+        providers=build_providers(BrokerContext(session_factory=_raise_factory())),
+    )
     check(brd._permitted(ECHO_CAP) is False, "U3 RBAC 거부 → deny(교집합)")
 
     # U4 approval_for — MCP 승인 정책은 _APPROVAL_ACTIONS 재사용(드리프트0), agent는 항상 None.
     payload = mp.approval_for(None, DELETE_CAP, {"text": "x", "record_id": "r1"})
-    check(isinstance(payload, dict) and payload.get("permission") == "data.delete",
-          "U4 mcp delete_record → payload permission=data.delete")
-    check(payload and payload.get("action") == f"{MCP}.delete_record" and "승인" in payload.get("summary", ""),
-          "U4 payload action=server.tool + 승인 요약")
-    check(mp.approval_for(None, ECHO_CAP, {"text": "x"}) is None, "U4 비게이트 툴(echo) → None(즉시 실행)")
+    check(
+        isinstance(payload, dict) and payload.get("permission") == "data.delete",
+        "U4 mcp delete_record → payload permission=data.delete",
+    )
+    check(
+        payload
+        and payload.get("action") == f"{MCP}.delete_record"
+        and "승인" in payload.get("summary", ""),
+        "U4 payload action=server.tool + 승인 요약",
+    )
+    check(
+        mp.approval_for(None, ECHO_CAP, {"text": "x"}) is None,
+        "U4 비게이트 툴(echo) → None(즉시 실행)",
+    )
     check(mp.approval_for(None, WEBSEARCH_CAP, {}) is None, "U4 비게이트 툴(web_search) → None")
     ap = AgentProvider(_raise_factory())
     # 스펙 117 — agent 위임 승인은 대상 opt-in(config.requires_approval). 플래그 없는(또는 row=None) 기본은
     # None(무회귀). opt-in True→payload는 verify_117에서 검증.
-    check(ap.approval_for(None, "agt_x", {"text": "x"}) is None, "U4 agent provider 기본(opt-in 없음) → None")
+    check(
+        ap.approval_for(None, "agt_x", {"text": "x"}) is None,
+        "U4 agent provider 기본(opt-in 없음) → None",
+    )
 
     # U5 _adapt_args — generic {text} 위임 인자를 툴 실제 파라미터로 적응(flow 코드 변경 없이).
     from api.broker import _adapt_args
+
     single = _FakeTool("delete_record", {"record_id": {"type": "string"}})
-    check(_adapt_args(single, {"text": "q"}) == {"record_id": "q"}, "U5 단일 파라미터 툴 → text→그 파라미터")
+    check(
+        _adapt_args(single, {"text": "q"}) == {"record_id": "q"},
+        "U5 단일 파라미터 툴 → text→그 파라미터",
+    )
     passthru = _FakeTool("echo", {"text": {"type": "string"}})
     check(_adapt_args(passthru, {"text": "hi"}) == {"text": "hi"}, "U5 스키마 키 적합 → 통과")
     multi = _FakeTool("srch", {"query": {"type": "string"}, "k": {"type": "integer"}})
-    check(_adapt_args(multi, {"text": "q"}) == {"query": "q"}, "U5 다중 파라미터 → 알려진 이름(query)로 매핑")
+    check(
+        _adapt_args(multi, {"text": "q"}) == {"query": "q"},
+        "U5 다중 파라미터 → 알려진 이름(query)로 매핑",
+    )
 
     # U6 provider 라우팅 — 브로커가 kind provider를 보유하고 kind→provider 매핑(rag는 스펙 103서 추가).
-    b = PolicyScopedBroker([], lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=_raise_factory())))
+    b = PolicyScopedBroker(
+        [],
+        lambda k, name=None: True,
+        providers=build_providers(BrokerContext(session_factory=_raise_factory())),
+    )
     check({"agent", "mcp"} <= set(b._by_kind), "U6 브로커가 agent·mcp provider 보유")
-    check(isinstance(b._by_kind["mcp"], McpProvider) and isinstance(b._by_kind["agent"], AgentProvider),
-          "U6 kind→provider 매핑 정확(라우팅 토대)")
+    check(
+        isinstance(b._by_kind["mcp"], McpProvider)
+        and isinstance(b._by_kind["agent"], AgentProvider),
+        "U6 kind→provider 매핑 정확(라우팅 토대)",
+    )
 
     # U7 드리프트0 — MOCK_MCP_TOOLS·_APPROVAL_ACTIONS·mcp_connection 공유 헬퍼.
-    check({"echo", "web_search", "delete_record"} <= set(mock_mcp.MOCK_MCP_TOOLS),
-          "U7 MOCK_MCP_TOOLS에 echo·web_search·delete_record 존재")
-    check(runtime._APPROVAL_ACTIONS == {(MCP, "delete_record"): "data.delete"},
-          "U7 _APPROVAL_ACTIONS = local-tools.delete_record 1개(그래프-tools와 공유)")
-    check(callable(runtime.mcp_connection) and callable(runtime.build_mcp_tools),
-          "U7 mcp_connection·build_mcp_tools 공존(전송 헬퍼 공유원)")
-    check(runtime.mcp_connection({"name": "x", "url": "http://h/", "transport": "stdio"}) is None,
-          "U7 mcp_connection: 미지원 transport(stdio) → None(그 서버 스킵)")
+    check(
+        {"echo", "web_search", "delete_record"} <= set(mock_mcp.MOCK_MCP_TOOLS),
+        "U7 MOCK_MCP_TOOLS에 echo·web_search·delete_record 존재",
+    )
+    check(
+        runtime._APPROVAL_ACTIONS == {(MCP, "delete_record"): "data.delete"},
+        "U7 _APPROVAL_ACTIONS = local-tools.delete_record 1개(그래프-tools와 공유)",
+    )
+    check(
+        callable(runtime.mcp_connection) and callable(runtime.build_mcp_tools),
+        "U7 mcp_connection·build_mcp_tools 공존(전송 헬퍼 공유원)",
+    )
+    check(
+        runtime.mcp_connection({"name": "x", "url": "http://h/", "transport": "stdio"}) is None,
+        "U7 mcp_connection: 미지원 transport(stdio) → None(그 서버 스킵)",
+    )
 
 
 async def unit_async_checks() -> None:
     print("[U] 단위(async) — deny-by-default가 DB/네트워크 미접촉(mcp 축)")
     # 빈 allowlist → discover [](provider.candidates 미호출 = DB/네트워크 미접촉).
-    b_empty = PolicyScopedBroker([], lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=_raise_factory())))
+    b_empty = PolicyScopedBroker(
+        [],
+        lambda k, name=None: True,
+        providers=build_providers(BrokerContext(session_factory=_raise_factory())),
+    )
     check(await b_empty.discover("delete_record") == [], "U8 빈 allowlist → [](DB 미접촉)")
     # mcp allowlist는 있으나 RBAC 거부 → provider 미호출(존재 누출 0).
-    b_rbac = PolicyScopedBroker({ECHO_CAP}, lambda k, name=None: False, providers=build_providers(BrokerContext(session_factory=_raise_factory())))
+    b_rbac = PolicyScopedBroker(
+        {ECHO_CAP},
+        lambda k, name=None: False,
+        providers=build_providers(BrokerContext(session_factory=_raise_factory())),
+    )
     check(await b_rbac.discover("echo") == [], "U8 RBAC 거부 → [](provider 미호출·DB 미접촉)")
     # mcp 미허가 invoke → not-found(존재 비노출), DB 미접촉.
-    b = PolicyScopedBroker({ECHO_CAP}, lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=_raise_factory())))
+    b = PolicyScopedBroker(
+        {ECHO_CAP},
+        lambda k, name=None: True,
+        providers=build_providers(BrokerContext(session_factory=_raise_factory())),
+    )
     res = await b.invoke("mcp:local-tools/nonexistent", {"text": "x"})
-    check(res.error is not None and res.text == "" and res.trust == "untrusted",
-          "U8 미허가 mcp invoke → not-found(존재 비노출·DB 미접촉)")
+    check(
+        res.error is not None and res.text == "" and res.trust == "untrusted",
+        "U8 미허가 mcp invoke → not-found(존재 비노출·DB 미접촉)",
+    )
 
 
 # ================================================================ [H] 통합(실 mock MCP + 실 DB)
@@ -213,7 +287,10 @@ async def precondition() -> None:
     async with SessionLocal() as s:
         row = (await s.execute(select(McpServer).where(McpServer.name == MCP))).scalar_one_or_none()
     ok = row is not None and "delete_record" in (row.enabled_tools or [])
-    check(ok, f"PRE: local-tools McpServer 시드 + delete_record enabled (got {row and row.enabled_tools})")
+    check(
+        ok,
+        f"PRE: local-tools McpServer 시드 + delete_record enabled (got {row and row.enabled_tools})",
+    )
     if not ok:
         print("\n❌ 전제 실패 — local-tools 시드 없음/서버 미기동. 종료.")
         sys.exit(1)
@@ -223,28 +300,44 @@ async def integration_broker() -> None:
     print("[H] 통합 — 실 mock MCP discover/describe/invoke·deny-by-default(툴/서버전체/교차)")
 
     # H1 툴 단위 discover/describe/invoke echo 왕복.
-    b = PolicyScopedBroker({ECHO_CAP}, lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=SessionLocal)))
+    b = PolicyScopedBroker(
+        {ECHO_CAP},
+        lambda k, name=None: True,
+        providers=build_providers(BrokerContext(session_factory=SessionLocal)),
+    )
     caps = await b.discover("echo")
     ids = {c.id for c in caps}
     check(ids == {ECHO_CAP}, f"H1 discover echo → {{{ECHO_CAP}}} (got {ids})")
-    check(caps and caps[0].kind == "mcp" and caps[0].name == "echo" and caps[0].hook,
-          "H1 Capability kind=mcp·name=echo·hook(실 툴 description 첫 줄)")
+    check(
+        caps and caps[0].kind == "mcp" and caps[0].name == "echo" and caps[0].hook,
+        "H1 Capability kind=mcp·name=echo·hook(실 툴 description 첫 줄)",
+    )
     d = await b.describe(ECHO_CAP)
-    check(isinstance(d, Capability) and isinstance(d.input_schema, dict) and d.input_schema.get("properties"),
-          "H1 describe → input_schema(실 툴 스키마, A2A 고정 {text}와 달리 툴별)")
+    check(
+        isinstance(d, Capability)
+        and isinstance(d.input_schema, dict)
+        and d.input_schema.get("properties"),
+        "H1 describe → input_schema(실 툴 스키마, A2A 고정 {text}와 달리 툴별)",
+    )
     r = await b.invoke(ECHO_CAP, {"text": "브로커테스트"})
-    check(r.trust == "untrusted" and r.error is None and r.text,
-          "H1 invoke echo → untrusted 데이터·텍스트 반환(에러 없음)")
-    check(len(b.invocations) == 1 and b.invocations[0]["node"] == f"broker_invoke:mcp:{MCP}/echo",
-          f"H1 관측 노드 broker_invoke:mcp:{MCP}/echo (invisible 아님)")
+    check(
+        r.trust == "untrusted" and r.error is None and r.text,
+        "H1 invoke echo → untrusted 데이터·텍스트 반환(에러 없음)",
+    )
+    check(
+        len(b.invocations) == 1 and b.invocations[0]["node"] == f"broker_invoke:mcp:{MCP}/echo",
+        f"H1 관측 노드 broker_invoke:mcp:{MCP}/echo (invisible 아님)",
+    )
 
     # H2 deny-by-default(툴 단위) — echo만 허가된 브로커는 web_search를 발견·기술·호출 못 함.
     # 스펙 124: discover는 어휘로 하드 필터하지 않고 랭킹만 하므로, echo(허가됨)는 어떤 쿼리든 반환된다.
     # 핵심 불변식은 "미허가 web_search가 결과에 없다"(echo 노출 여부와 무관) — 그것을 직접 단언한다.
     # (옛 테스트 `== []`는 버그 필터가 비매칭 쿼리서 echo까지 떨구던 것에 의존했음.)
     _ws_ids = {c.id for c in await b.discover("web_search")}
-    check(WEBSEARCH_CAP not in _ws_ids,
-          f"H2 툴 단위: 미허가 web_search 미발견(같은 서버라도, got {sorted(_ws_ids)})")
+    check(
+        WEBSEARCH_CAP not in _ws_ids,
+        f"H2 툴 단위: 미허가 web_search 미발견(같은 서버라도, got {sorted(_ws_ids)})",
+    )
     raised = False
     try:
         await b.describe(WEBSEARCH_CAP)
@@ -252,34 +345,59 @@ async def integration_broker() -> None:
         raised = True
     check(raised, "H2 미허가 툴 describe → CapabilityNotFoundError(존재 비노출)")
     rdeny = await b.invoke(WEBSEARCH_CAP, {"query": "x"})
-    check(rdeny.error is not None and rdeny.text == "", "H2 미허가 툴 invoke → not-found(호출 경계 재검증)")
+    check(
+        rdeny.error is not None and rdeny.text == "",
+        "H2 미허가 툴 invoke → not-found(호출 경계 재검증)",
+    )
 
     # H3 서버 전체(mcp:server) → 그 서버 enabled 툴 전부 발견.
-    bw = PolicyScopedBroker({f"mcp:{MCP}"}, lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=SessionLocal)))
+    bw = PolicyScopedBroker(
+        {f"mcp:{MCP}"},
+        lambda k, name=None: True,
+        providers=build_providers(BrokerContext(session_factory=SessionLocal)),
+    )
     wids = {c.id for c in await bw.discover("")}
-    check({ECHO_CAP, WEBSEARCH_CAP, DELETE_CAP} <= wids,
-          f"H3 서버 전체 → enabled 툴 전부 발견 (got {wids})")
+    check(
+        {ECHO_CAP, WEBSEARCH_CAP, DELETE_CAP} <= wids,
+        f"H3 서버 전체 → enabled 툴 전부 발견 (got {wids})",
+    )
     rw = await bw.invoke(ECHO_CAP, {"text": "전체허용"})
     check(rw.error is None and rw.text, "H3 서버 전체 허가로 개별 툴 invoke 성공")
 
     # H4 교차 서버 비노출 — 다른 서버명만 허가하면 local-tools는 존재해도 미노출(deny-by-default).
-    bx = PolicyScopedBroker({"mcp:some-other-server"}, lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=SessionLocal)))
-    check(await bx.discover("echo") == [], "H4 다른 서버만 허가 → local-tools 미노출(서버 전체 누출 없음)")
+    bx = PolicyScopedBroker(
+        {"mcp:some-other-server"},
+        lambda k, name=None: True,
+        providers=build_providers(BrokerContext(session_factory=SessionLocal)),
+    )
+    check(
+        await bx.discover("echo") == [],
+        "H4 다른 서버만 허가 → local-tools 미노출(서버 전체 누출 없음)",
+    )
 
 
 async def integration_flow_http(client: httpx.AsyncClient) -> None:
     print("[H] 통합 — orchestrate 플로우 MCP 서브스텝(HTTP, super 쿠키) → broker_invoke:mcp 노드")
-    r = await client.post("/agents", json={
-        "name": f"v101-flow-{uuid.uuid4().hex[:6]}",
-        "config": {"model": "mock-llm", "prompt": "", "historyDepth": 10,
-                   "impl": "orchestrate", "capabilities": [ECHO_CAP]},
-    })
+    r = await client.post(
+        "/agents",
+        json={
+            "name": f"v101-flow-{uuid.uuid4().hex[:6]}",
+            "config": {
+                "model": "mock-llm",
+                "prompt": "",
+                "historyDepth": 10,
+                "impl": "orchestrate",
+                "capabilities": [ECHO_CAP],
+            },
+        },
+    )
     check(r.status_code == 201, f"H5 orchestrate 에이전트 생성 201 (got {r.status_code})")
     oid = r.json()["id"]
     try:
         trace, event = None, None
-        async with client.stream("POST", f"/agents/{oid}/chat",
-                                 json={"messages": [{"role": "user", "content": "echo"}]}) as resp:
+        async with client.stream(
+            "POST", f"/agents/{oid}/chat", json={"messages": [{"role": "user", "content": "echo"}]}
+        ) as resp:
             check(resp.status_code == 200, f"H5 chat 200 (got {resp.status_code})")
             async for line in resp.aiter_lines():
                 if line.startswith("event:"):
@@ -295,8 +413,10 @@ async def integration_flow_http(client: httpx.AsyncClient) -> None:
                     if event == "trace":
                         trace = obj
         nodes = [n["node"] for n in (trace or {}).get("graph", [])]
-        check(f"broker_invoke:mcp:{MCP}/echo" in nodes,
-              f"H5 트레이스에 broker_invoke:mcp:{MCP}/echo 노드(서브스텝 관측) (got {nodes})")
+        check(
+            f"broker_invoke:mcp:{MCP}/echo" in nodes,
+            f"H5 트레이스에 broker_invoke:mcp:{MCP}/echo 노드(서브스텝 관측) (got {nodes})",
+        )
     finally:
         await client.delete(f"/agents/{oid}")
 
@@ -306,23 +426,40 @@ async def hil_graph_level() -> None:
     oa = OrchestrateAgent()
 
     # approve — interrupt 이전 부수효과 0, 재개 후 정확히 1회 전송.
-    b = PolicyScopedBroker({DELETE_CAP}, lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=SessionLocal)))
+    b = PolicyScopedBroker(
+        {DELETE_CAP},
+        lambda k, name=None: True,
+        providers=build_providers(BrokerContext(session_factory=SessionLocal)),
+    )
     graph = oa.build_graph(_ctx(broker=b, checkpointer=MemorySaver()))
     cfg = {"configurable": {"thread_id": "v101-h6a"}}
-    interrupted, _ = await _stream(graph, {"messages": [{"role": "user", "content": "delete_record"}]}, cfg)
-    check(interrupted is not None and interrupted.get("permission") == "data.delete",
-          "H6 위임 delete_record → interrupt(permission=data.delete)")
+    interrupted, _ = await _stream(
+        graph, {"messages": [{"role": "user", "content": "delete_record"}]}, cfg
+    )
+    check(
+        interrupted is not None and interrupted.get("permission") == "data.delete",
+        "H6 위임 delete_record → interrupt(permission=data.delete)",
+    )
     check(len(b.invocations) == 0, "H6 pause 시 invocations 0(승인 전 전송 부수효과 0 = 멱등)")
     _, text = await _stream(graph, Command(resume={"decision": "approve"}), cfg)
-    check(len(b.invocations) == 1 and b.invocations[0]["node"] == f"broker_invoke:mcp:{MCP}/delete_record",
-          "H6 approve 재개 → 정확히 1회 전송(invocations 1, mcp 노드)")
+    check(
+        len(b.invocations) == 1
+        and b.invocations[0]["node"] == f"broker_invoke:mcp:{MCP}/delete_record",
+        "H6 approve 재개 → 정확히 1회 전송(invocations 1, mcp 노드)",
+    )
     check(bool(text), "H6 approve 후 synthesize 발화(그래프 완주)")
 
     # reject — 재개해도 전송 0.
-    b2 = PolicyScopedBroker({DELETE_CAP}, lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=SessionLocal)))
+    b2 = PolicyScopedBroker(
+        {DELETE_CAP},
+        lambda k, name=None: True,
+        providers=build_providers(BrokerContext(session_factory=SessionLocal)),
+    )
     graph2 = oa.build_graph(_ctx(broker=b2, checkpointer=MemorySaver()))
     cfg2 = {"configurable": {"thread_id": "v101-h6b"}}
-    interrupted2, _ = await _stream(graph2, {"messages": [{"role": "user", "content": "delete_record"}]}, cfg2)
+    interrupted2, _ = await _stream(
+        graph2, {"messages": [{"role": "user", "content": "delete_record"}]}, cfg2
+    )
     check(interrupted2 is not None, "H6 reject 결: delete_record → interrupt")
     check(len(b2.invocations) == 0, "H6 reject pause 시 invocations 0")
     await _stream(graph2, Command(resume={"decision": "reject"}), cfg2)
@@ -330,20 +467,35 @@ async def hil_graph_level() -> None:
 
 
 async def hil_http_roundtrip(client: httpx.AsyncClient) -> None:
-    print("[H] 통합 — 서브스텝 HIL 풀 HTTP(chat→approval 프레임→resolve, resume 브로커 재주입 글루)")
-    r = await client.post("/agents", json={
-        "name": f"v101-hil-{uuid.uuid4().hex[:6]}",
-        "config": {"model": "mock-llm", "prompt": "", "historyDepth": 10,
-                   "impl": "orchestrate", "capabilities": [DELETE_CAP]},
-    })
+    print(
+        "[H] 통합 — 서브스텝 HIL 풀 HTTP(chat→approval 프레임→resolve, resume 브로커 재주입 글루)"
+    )
+    r = await client.post(
+        "/agents",
+        json={
+            "name": f"v101-hil-{uuid.uuid4().hex[:6]}",
+            "config": {
+                "model": "mock-llm",
+                "prompt": "",
+                "historyDepth": 10,
+                "impl": "orchestrate",
+                "capabilities": [DELETE_CAP],
+            },
+        },
+    )
     check(r.status_code == 201, f"H7 HIL 에이전트 생성 201 (got {r.status_code})")
     oid = r.json()["id"]
 
     async def _turn_get_approval(session_id: str) -> str | None:
         apid = None
-        async with client.stream("POST", f"/agents/{oid}/chat", json={
-            "messages": [{"role": "user", "content": "delete_record"}], "sessionId": session_id,
-        }) as resp:
+        async with client.stream(
+            "POST",
+            f"/agents/{oid}/chat",
+            json={
+                "messages": [{"role": "user", "content": "delete_record"}],
+                "sessionId": session_id,
+            },
+        ) as resp:
             if resp.status_code != 200:
                 return None
             async for line in resp.aiter_lines():
@@ -363,20 +515,30 @@ async def hil_http_roundtrip(client: httpx.AsyncClient) -> None:
     try:
         # approve 왕복 — chat이 브로커 interrupt를 Approval로 만들고, resolve가 resume 브로커 재주입으로 실행.
         apid_a = await _turn_get_approval("v101-hil-approve")
-        check(apid_a is not None, "H7 chat 위임 delete_record → approval 프레임 발급(브로커 interrupt 글루)")
+        check(
+            apid_a is not None,
+            "H7 chat 위임 delete_record → approval 프레임 발급(브로커 interrupt 글루)",
+        )
         if apid_a:
             rr = await client.post(f"/approvals/{apid_a}/resolve", json={"decision": "approve"})
-            check(rr.status_code == 200, f"H7 resolve approve 200 (resume 브로커 재주입·실행) (got {rr.status_code})")
-            check(rr.status_code == 200 and rr.json().get("status") == "approved",
-                  "H7 approve 후 status=approved(재개 무오류 완주)")
+            check(
+                rr.status_code == 200,
+                f"H7 resolve approve 200 (resume 브로커 재주입·실행) (got {rr.status_code})",
+            )
+            check(
+                rr.status_code == 200 and rr.json().get("status") == "approved",
+                "H7 approve 후 status=approved(재개 무오류 완주)",
+            )
 
         # reject 왕복 — 별 세션, 재개해도 미실행.
         apid_r = await _turn_get_approval("v101-hil-reject")
         check(apid_r is not None, "H7 reject 결: approval 프레임 발급")
         if apid_r:
             rj = await client.post(f"/approvals/{apid_r}/resolve", json={"decision": "reject"})
-            check(rj.status_code == 200 and rj.json().get("status") == "rejected",
-                  "H7 reject 후 status=rejected(부수효과 0 마무리)")
+            check(
+                rj.status_code == 200 and rj.json().get("status") == "rejected",
+                "H7 reject 후 status=rejected(부수효과 0 마무리)",
+            )
     finally:
         await client.delete(f"/agents/{oid}")
 
@@ -409,9 +571,15 @@ async def main() -> None:
             ).scalar_one_or_none()
         check(super_id is not None, "SETUP: super 계정 provision")
         async with httpx.AsyncClient(base_url=BASE, timeout=120) as client:
-            login = await client.post("/auth/login", data={"username": SUPER_EMAIL, "password": PW},
-                                      headers={"Content-Type": "application/x-www-form-urlencoded"})
-            check(login.status_code in (200, 204), f"SETUP: super 로그인(쿠키) (got {login.status_code})")
+            login = await client.post(
+                "/auth/login",
+                data={"username": SUPER_EMAIL, "password": PW},
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+            check(
+                login.status_code in (200, 204),
+                f"SETUP: super 로그인(쿠키) (got {login.status_code})",
+            )
             await integration_flow_http(client)
             await hil_http_roundtrip(client)
     finally:
@@ -424,7 +592,9 @@ async def main() -> None:
         for f in _fails:
             print("   -", f)
         sys.exit(1)
-    print("✅ 스펙 101 MCP provider + 서브스텝 HIL 전부 통과 (단위 정책 + 실 MCP 통합 + HIL 왕복 2결)")
+    print(
+        "✅ 스펙 101 MCP provider + 서브스텝 HIL 전부 통과 (단위 정책 + 실 MCP 통합 + HIL 왕복 2결)"
+    )
 
 
 asyncio.run(main())

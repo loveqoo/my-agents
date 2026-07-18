@@ -6,12 +6,18 @@
   V4 채팅 게이트: 멤버가 타인 private 채팅 → 404(존재 비노출 fold).
 실행: uv run --project packages/api python tests/verify_147_visibility.py
 """
+
 import asyncio
 import os
 import sys
 import uuid as _uuid
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "packages", "api", "src"))
+sys.path.insert(
+    0,
+    os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "packages", "api", "src"
+    ),
+)
 
 from fastapi import HTTPException  # noqa: E402
 from sqlalchemy import select  # noqa: E402
@@ -24,24 +30,31 @@ from api.ownership import may_use_agent  # noqa: E402
 _fails = []
 passed = 0
 
+
 def check(cond, msg):
     global passed
     print(("  ok  " if cond else " FAIL ") + msg)
-    if cond: passed += 1
-    else: _fails.append(msg)
+    if cond:
+        passed += 1
+    else:
+        _fails.append(msg)
+
 
 class _P:
     def __init__(self, uid, superuser=False):
         self.id = uid
         self.is_superuser = superuser
 
+
 class _Row:
     def __init__(self, owner, source="ui"):
         self.owner_id = owner
         self.source = source
 
+
 async def main():
     from api.authz import init_authz
+
     await init_authz()  # 게이트가 enforcer 접촉(멤버 주체 판정)
     owner_id = str(_uuid.uuid4())
     other_id = str(_uuid.uuid4())
@@ -55,14 +68,24 @@ async def main():
     check(may_use_agent(_Row(owner_id), other) is False, "V1c private → 타인 거부")
     check(may_use_agent(_Row(owner_id), admin) is True, "V1d private → admin 허용")
     check(may_use_agent(_Row(owner_id, source="external"), other) is True, "V1e external → 항상")
-    check(may_use_agent(_Row(None), "machine") is True and may_use_agent(_Row(owner_id), "machine") is True,
-          "V1f machine 특권")
+    check(
+        may_use_agent(_Row(None), "machine") is True
+        and may_use_agent(_Row(owner_id), "machine") is True,
+        "V1f machine 특권",
+    )
 
     # 실데이터: private 에이전트 하나 임시 생성(owner 스탬프)
     tag = f"v147-{_uuid.uuid4().hex[:6]}"
     async with async_session() as s:
-        priv = Agent(name=f"{tag}-priv", agent_id=f"{tag}-priv", owner_id=owner_id, config={"model": "", "prompt": "p"})
-        s.add(priv); await s.commit(); priv_id = priv.id
+        priv = Agent(
+            name=f"{tag}-priv",
+            agent_id=f"{tag}-priv",
+            owner_id=owner_id,
+            config={"model": "", "prompt": "p"},
+        )
+        s.add(priv)
+        await s.commit()
+        priv_id = priv.id
     try:
         # V2 expose 게이트
         async with async_session() as s:
@@ -113,18 +136,25 @@ async def main():
 
         # V4 채팅 게이트(라우트 직접 호출 — 404-fold)
         from api.chat import chat, ChatRequest
+
         try:
-            await chat(priv_id, ChatRequest(messages=[{"role": "user", "content": "hi"}]), principal=other)
+            await chat(
+                priv_id, ChatRequest(messages=[{"role": "user", "content": "hi"}]), principal=other
+            )
             check(False, "V4 타인 private 채팅 → 404여야")
         except HTTPException as e:
             check(e.status_code == 404, f"V4 타인 private 채팅 404-fold (got {e.status_code})")
     finally:
         async with async_session() as s:
             row = await s.get(Agent, priv_id)
-            if row: await s.delete(row); await s.commit()
+            if row:
+                await s.delete(row)
+                await s.commit()
 
     print(f"\n{passed} passed, {len(_fails)} failed")
-    if _fails: sys.exit(1)
+    if _fails:
+        sys.exit(1)
+
 
 if __name__ == "__main__":
     asyncio.run(main())

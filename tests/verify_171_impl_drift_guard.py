@@ -10,11 +10,14 @@
 
 실행: cd packages/api && uv run python ../../tests/verify_171_impl_drift_guard.py
 """
+
 import sys
 
 from api.chat import _impl_drifted
 
 _fails = []
+
+
 def check(c, m):
     print(("  ok  " if c else " FAIL ") + m)
     if not c:
@@ -31,7 +34,12 @@ CASES = [
     ("orchestrate", "", True, "orchestrate → 기본 교체 → drift"),
     ("orchestrate", None, True, "orchestrate → cur None(기본) → drift"),
     ("orchestrate", "orchestrate", False, "동일 impl → drift 아님(정상 재개)"),
-    ("orchestrate", "orchestrate_ranked", True, "HIL→다른 HIL 교체 → drift(현 가드가 새로 잡는 케이스)"),
+    (
+        "orchestrate",
+        "orchestrate_ranked",
+        True,
+        "HIL→다른 HIL 교체 → drift(현 가드가 새로 잡는 케이스)",
+    ),
     ("plan_execute", "route", True, "커스텀→다른 커스텀 → drift"),
 ]
 

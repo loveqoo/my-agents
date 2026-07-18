@@ -37,11 +37,33 @@ passed = 0
 
 # 스펙 343 §1의 닫힌 집합 — 우리 소유 27.
 OWNED = [
-    "agents", "agent_versions", "allowed_hosts", "app_settings", "approvals", "batch_config",
-    "batch_runs", "collection_reindex_events", "collections", "document_blobs", "documents",
-    "eval_case_results", "eval_cases", "eval_datasets", "eval_runs", "mcp_servers",
-    "memory_snapshots", "memory_types", "message_feedback", "messages", "models",
-    "node_templates", "prompts", "providers", "rag_chunks", "roles", "sessions",
+    "agents",
+    "agent_versions",
+    "allowed_hosts",
+    "app_settings",
+    "approvals",
+    "batch_config",
+    "batch_runs",
+    "collection_reindex_events",
+    "collections",
+    "document_blobs",
+    "documents",
+    "eval_case_results",
+    "eval_cases",
+    "eval_datasets",
+    "eval_runs",
+    "mcp_servers",
+    "memory_snapshots",
+    "memory_types",
+    "message_feedback",
+    "messages",
+    "models",
+    "node_templates",
+    "prompts",
+    "providers",
+    "rag_chunks",
+    "roles",
+    "sessions",
 ]
 AUDIT_COLS = {"created_at", "updated_at", "created_by", "updated_by"}
 
@@ -91,11 +113,15 @@ async def main() -> None:
     class _U:
         email = "gildong@example.com"
 
-    check(audit.actor_of(_U()) == "gildong", f"V6 이메일 @ 앞만 저장 (got {audit.actor_of(_U())!r})")
+    check(
+        audit.actor_of(_U()) == "gildong", f"V6 이메일 @ 앞만 저장 (got {audit.actor_of(_U())!r})"
+    )
     check(audit.actor_of("machine") == "system", "V6b 머신 토큰 → system")
 
     # V5 — actor 미설정 = system
-    check(audit.current_actor() == "system", f"V5 기본 actor=system (got {audit.current_actor()!r})")
+    check(
+        audit.current_actor() == "system", f"V5 기본 actor=system (got {audit.current_actor()!r})"
+    )
 
     # 이하 요청 흉내: actor 세팅
     audit.set_actor("tester")
@@ -106,34 +132,56 @@ async def main() -> None:
         p = Prompt(name=name1, body="x")
         s.add(p)
         await s.commit()
-        row = (await s.execute(text(
-            "select created_at, updated_at, created_by, updated_by from prompts where name=:n"
-        ), {"n": name1})).one()
+        row = (
+            await s.execute(
+                text(
+                    "select created_at, updated_at, created_by, updated_by from prompts where name=:n"
+                ),
+                {"n": name1},
+            )
+        ).one()
         c_at, u_at, c_by, u_by = row
-        check(all(v is not None for v in row) and c_by == "tester" and u_by == "tester",
-              f"V1 ORM insert = 4컬럼 채움·actor 반영 (by={c_by}/{u_by})")
+        check(
+            all(v is not None for v in row) and c_by == "tester" and u_by == "tester",
+            f"V1 ORM insert = 4컬럼 채움·actor 반영 (by={c_by}/{u_by})",
+        )
         check(abs((u_at - c_at).total_seconds()) < 1.0, "V1b 최초 삽입 created ≈ updated")
 
         # V2 — Core insert() (비-ORM 경로, 대량)
         names = [f"audit-core-{uuid.uuid4().hex[:8]}" for _ in range(3)]
         await s.execute(insert(Prompt), [{"name": n, "body": "y"} for n in names])
         await s.commit()
-        rows = (await s.execute(text(
-            "select created_by, updated_by, created_at, updated_at from prompts where name = any(:ns)"
-        ), {"ns": names})).all()
-        check(len(rows) == 3 and all(r[0] == "tester" and r[1] == "tester" and r[2] and r[3] for r in rows),
-              f"V2 Core insert() 대량도 4컬럼 채움 ({len(rows)}행, by={rows[0][0] if rows else '-'})")
+        rows = (
+            await s.execute(
+                text(
+                    "select created_by, updated_by, created_at, updated_at from prompts where name = any(:ns)"
+                ),
+                {"ns": names},
+            )
+        ).all()
+        check(
+            len(rows) == 3
+            and all(r[0] == "tester" and r[1] == "tester" and r[2] and r[3] for r in rows),
+            f"V2 Core insert() 대량도 4컬럼 채움 ({len(rows)}행, by={rows[0][0] if rows else '-'})",
+        )
 
         # V3 — Core update(): updated_* 갱신, created_* 보존
         audit.set_actor("editor")
         await asyncio.sleep(0.01)
         await s.execute(update(Prompt).where(Prompt.name == name1).values(body="z"))
         await s.commit()
-        r3 = (await s.execute(text(
-            "select created_at, updated_at, created_by, updated_by from prompts where name=:n"
-        ), {"n": name1})).one()
-        check(r3[2] == "tester" and r3[3] == "editor" and r3[1] > r3[0],
-              f"V3 Core update() = updated_by 갱신·created_by 보존 (created_by={r3[2]}, updated_by={r3[3]})")
+        r3 = (
+            await s.execute(
+                text(
+                    "select created_at, updated_at, created_by, updated_by from prompts where name=:n"
+                ),
+                {"n": name1},
+            )
+        ).one()
+        check(
+            r3[2] == "tester" and r3[3] == "editor" and r3[1] > r3[0],
+            f"V3 Core update() = updated_by 갱신·created_by 보존 (created_by={r3[2]}, updated_by={r3[3]})",
+        )
 
         # V4 — ORM 위변조 시도: created_* 덮어쓰기 → 되돌려짐
         obj = (await s.execute(select(Prompt).where(Prompt.name == name1))).scalar_one()
@@ -142,29 +190,46 @@ async def main() -> None:
         obj.created_at = obj.created_at.replace(year=2000)
         obj.body = "tampered"
         await s.commit()
-        r4 = (await s.execute(text(
-            "select created_at, created_by from prompts where name=:n"
-        ), {"n": name1})).one()
-        check(r4[1] == orig_by and r4[0] == orig_at,
-              f"V4 created_* 위변조 시도 무시(before_flush 되돌림) (got by={r4[1]})")
+        r4 = (
+            await s.execute(
+                text("select created_at, created_by from prompts where name=:n"), {"n": name1}
+            )
+        ).one()
+        check(
+            r4[1] == orig_by and r4[0] == orig_at,
+            f"V4 created_* 위변조 시도 무시(before_flush 되돌림) (got by={r4[1]})",
+        )
 
         # V7 — 커버리지 측정(DB 질의): 우리 소유 27테이블 전부 4컬럼
         missing = []
         for t in OWNED:
-            cols = {r[0] for r in (await s.execute(text(
-                "select column_name from information_schema.columns "
-                "where table_schema='public' and table_name=:t"
-            ), {"t": t})).all()}
+            cols = {
+                r[0]
+                for r in (
+                    await s.execute(
+                        text(
+                            "select column_name from information_schema.columns "
+                            "where table_schema='public' and table_name=:t"
+                        ),
+                        {"t": t},
+                    )
+                ).all()
+            }
             if not AUDIT_COLS <= cols:
                 missing.append((t, sorted(AUDIT_COLS - cols)))
         check(not missing, f"V7 우리 소유 {len(OWNED)}테이블 전부 4컬럼 (미비: {missing})")
 
         # NOT NULL도 함께(감사 누락이 조용히 통과 못 함)
-        nullable = (await s.execute(text(
-            "select table_name, column_name from information_schema.columns "
-            "where table_schema='public' and column_name = any(:c) and is_nullable='YES' "
-            "and table_name = any(:t)"
-        ), {"c": sorted(AUDIT_COLS), "t": OWNED})).all()
+        nullable = (
+            await s.execute(
+                text(
+                    "select table_name, column_name from information_schema.columns "
+                    "where table_schema='public' and column_name = any(:c) and is_nullable='YES' "
+                    "and table_name = any(:t)"
+                ),
+                {"c": sorted(AUDIT_COLS), "t": OWNED},
+            )
+        ).all()
         check(not nullable, f"V7b 감사 컬럼 전부 NOT NULL (nullable: {nullable[:3]})")
 
     # V12 — 배경 잡 관문(codex 343 P2): spawn된 잡은 요청 actor를 승계하지 않고 'system'.
@@ -182,19 +247,20 @@ async def main() -> None:
 
     await spawn(_bg())
     async with SessionLocal() as s3:
-        bg_by = (await s3.execute(text(
-            "select created_by from prompts where name=:n"
-        ), {"n": bg_name})).scalar_one()
-    check(bg_by == "system",
-          f"V12 배경 잡(spawn)은 요청 actor 미승계 → system (got {bg_by!r}, 요청자='requester')")
+        bg_by = (
+            await s3.execute(text("select created_by from prompts where name=:n"), {"n": bg_name})
+        ).scalar_one()
+    check(
+        bg_by == "system",
+        f"V12 배경 잡(spawn)은 요청 actor 미승계 → system (got {bg_by!r}, 요청자='requester')",
+    )
     check(audit.current_actor() == "requester", "V12b 배경 잡이 요청 컨텍스트를 오염시키지 않음")
 
     # V8 — ORM 레지스트리 스캔(새 테이블 누락 감지)
     plain = sorted(
         m.class_.__name__ for m in Base.registry.mappers if not issubclass(m.class_, AuditMixin)
     )
-    check(plain == ["AccessToken", "User"],
-          f"V8 AuditMixin 미상속 = 외부 소유 2개뿐 (got {plain})")
+    check(plain == ["AccessToken", "User"], f"V8 AuditMixin 미상속 = 외부 소유 2개뿐 (got {plain})")
 
     # V9 — raw text() INSERT/UPDATE 부재(앱 계층 설계의 유일한 구멍을 상주 핀으로).
     # DELETE는 제외 — 행이 사라지므로 감사 컬럼을 우회할 수 없다(현 유일 사례: casbin_rule 정리,
@@ -220,7 +286,10 @@ async def main() -> None:
             blk = m.group(1)
             if "updated_at" in blk and "updated_by" not in blk:
                 bad_upserts.append(f.name)
-    check(not bad_upserts, f"V11 upsert set_에 updated_at만 있고 updated_by 누락 0건 (hits: {bad_upserts})")
+    check(
+        not bad_upserts,
+        f"V11 upsert set_에 updated_at만 있고 updated_by 누락 0건 (hits: {bad_upserts})",
+    )
 
     print()
     if _fails:

@@ -84,14 +84,19 @@ class _Handler(BaseHTTPRequestHandler):
         if self.path == f"{PREFIX}/a2a":
             length = int(self.headers.get("Content-Length") or 0)
             body = json.loads(self.rfile.read(length) or b"{}")
-            self._send(200, {
-                "jsonrpc": "2.0", "id": body.get("id"),
-                "result": {
-                    "role": "agent",
-                    "parts": [{"kind": "text", "text": MOCK_REPLY}],
-                    "messageId": "m1", "kind": "message",
+            self._send(
+                200,
+                {
+                    "jsonrpc": "2.0",
+                    "id": body.get("id"),
+                    "result": {
+                        "role": "agent",
+                        "parts": [{"kind": "text", "text": MOCK_REPLY}],
+                        "messageId": "m1",
+                        "kind": "message",
+                    },
                 },
-            })
+            )
         else:
             self._send(404)
 
@@ -150,34 +155,46 @@ async def main():
 
         # L1 — connect가 cardUrl을 저장(신규 필드 회귀)
         row = await _get(pk)
-        ck(row.config.get("cardUrl") == base,
-           f"L1 connect가 config['cardUrl'] 저장 (got={row.config.get('cardUrl')!r})")
-        ck(row.endpoint == want_endpoint,
-           f"L2 초기 endpoint prefix 보존 (got={row.endpoint})")
+        ck(
+            row.config.get("cardUrl") == base,
+            f"L1 connect가 config['cardUrl'] 저장 (got={row.config.get('cardUrl')!r})",
+        )
+        ck(row.endpoint == want_endpoint, f"L2 초기 endpoint prefix 보존 (got={row.endpoint})")
 
         # L3 — endpoint를 옛 버그값으로 손상 → resync로 자가치유
         await _corrupt_endpoint(pk, bad_endpoint)
         mid = await _get(pk)
         ck(mid.endpoint == bad_endpoint, "L3a 손상 적용 확인(prefix 탈락)")
         healed = await _resync(pk)
-        ck(healed.endpoint == want_endpoint,
-           f"L3b resync 재fetch·재resolve로 endpoint 교정 (want={want_endpoint}, got={healed.endpoint})")
-        ck(getattr(healed, "status", None) == "online",
-           f"L3c resync가 probe로 status 갱신 online (got={getattr(healed, 'status', None)})")
+        ck(
+            healed.endpoint == want_endpoint,
+            f"L3b resync 재fetch·재resolve로 endpoint 교정 (want={want_endpoint}, got={healed.endpoint})",
+        )
+        ck(
+            getattr(healed, "status", None) == "online",
+            f"L3c resync가 probe로 status 갱신 online (got={getattr(healed, 'status', None)})",
+        )
 
         # L4 — 교정된 endpoint로 실제 호출 → mock 텍스트 도달(호출 경로 글루)
         texts = []
-        async for f in a2a_client.a2a_stream(healed.endpoint, None, "hi", streaming=False, context_id="s1"):
+        async for f in a2a_client.a2a_stream(
+            healed.endpoint, None, "hi", streaming=False, context_id="s1"
+        ):
             if "text" in f:
                 texts.append(f["text"])
-        ck(MOCK_REPLY in "".join(texts), f"L4 교정 endpoint로 호출 → mock 응답 도달 (got={texts!r})")
+        ck(
+            MOCK_REPLY in "".join(texts),
+            f"L4 교정 endpoint로 호출 → mock 응답 도달 (got={texts!r})",
+        )
 
         # L5 — 레거시(cardUrl 없는 행): resync는 endpoint 불변, last_sync만
         await _corrupt_endpoint(pk, bad_endpoint)
         await _strip_card_url(pk)
         legacy = await _resync(pk)
-        ck(legacy.endpoint == bad_endpoint,
-           f"L5 레거시(cardUrl 없음) resync는 endpoint 불변 — 재해석 출처 없음 (got={legacy.endpoint})")
+        ck(
+            legacy.endpoint == bad_endpoint,
+            f"L5 레거시(cardUrl 없음) resync는 endpoint 불변 — 재해석 출처 없음 (got={legacy.endpoint})",
+        )
         ck(legacy.lastSync == "방금", f"L5 last_sync는 갱신 (got={legacy.lastSync!r})")
     finally:
         if pk is not None:

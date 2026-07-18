@@ -10,12 +10,18 @@
   V5 로컬 실 e5 add+search 왕복(접두어 설정) 동작(무회귀).
 실행: uv run --project packages/api --env-file .env python tests/verify_160_embed_prefix.py
 """
+
 import asyncio
 import os
 import sys
 import uuid as _uuid
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "packages", "api", "src"))
+sys.path.insert(
+    0,
+    os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "packages", "api", "src"
+    ),
+)
 
 from api import memory  # noqa: E402
 from api.memory import mem0_backend  # noqa: E402
@@ -84,14 +90,20 @@ async def main():
     em3 = _wrap_with("query: ", "passage: ")
     em3.embed_batch(["a", "b"], "add")
     em3.embed_batch(["c"], "search")
-    check(em3.seen[0] == ("batch", ["passage: a", "passage: b"], "add"), "V3a batch add → passage 접두어")
+    check(
+        em3.seen[0] == ("batch", ["passage: a", "passage: b"], "add"),
+        "V3a batch add → passage 접두어",
+    )
     check(em3.seen[1] == ("batch", ["query: c"], "search"), "V3b batch search → query 접두어")
 
     # ---- V4 arctic 모사(passage 빈값·query만) ----
     em4 = _wrap_with("query: ", "")
     em4.embed("문서저장", "add")
     em4.embed("검색어", "search")
-    check(em4.seen[0] == ("embed", "문서저장", "add"), "V4a arctic: 저장 텍스트 무변경(passage raw, 기존 11건 정합)")
+    check(
+        em4.seen[0] == ("embed", "문서저장", "add"),
+        "V4a arctic: 저장 텍스트 무변경(passage raw, 기존 11건 정합)",
+    )
     check(em4.seen[1] == ("embed", "query: 검색어", "search"), "V4b arctic: 검색만 query 접두어")
 
     # ---- V5 로컬 실 e5 왕복(접두어 설정) ----
@@ -100,6 +112,7 @@ async def main():
     try:
         from api.mem_config import default_mem_cfg
         from api.db import SessionLocal
+
         async with SessionLocal() as db:
             mem_cfg = await default_mem_cfg(db)
         backend = memory.resolve_backend(mem_cfg)  # __init__이 래핑 적용
@@ -108,16 +121,24 @@ async def main():
         else:
             scope = {"user_id": f"v160-{_uuid.uuid4().hex[:8]}"}
             try:
-                backend.add(scope, [{"role": "user", "content": "강아지를 키우고 있어요"}], infer=False)
+                backend.add(
+                    scope, [{"role": "user", "content": "강아지를 키우고 있어요"}], infer=False
+                )
                 await asyncio.sleep(1)
                 hits = backend.search(scope, "반려견과 함께 삽니다", 3, threshold=0.0)
-                check(len(hits) >= 1 and "강아지" in hits[0]["text"],
-                      f"V5 접두어 설정 실 e5 add+search 왕복·의미매칭 동작 (top={hits[0]['text'] if hits else None})")
+                check(
+                    len(hits) >= 1 and "강아지" in hits[0]["text"],
+                    f"V5 접두어 설정 실 e5 add+search 왕복·의미매칭 동작 (top={hits[0]['text'] if hits else None})",
+                )
             finally:
                 import psycopg
+
                 dsn = os.environ["DATABASE_URL"].replace("+asyncpg", "")
                 with psycopg.connect(dsn, autocommit=True) as c, c.cursor() as cur:
-                    cur.execute("DELETE FROM mem0_memories WHERE payload->>'user_id' = %s", (scope["user_id"],))
+                    cur.execute(
+                        "DELETE FROM mem0_memories WHERE payload->>'user_id' = %s",
+                        (scope["user_id"],),
+                    )
     finally:
         mem0_backend._QUERY_PREFIX, mem0_backend._PASSAGE_PREFIX = oq, op
 

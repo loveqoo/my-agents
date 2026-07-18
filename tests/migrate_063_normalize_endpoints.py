@@ -26,7 +26,12 @@ import sys
 
 import asyncpg
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "packages", "api", "src"))
+sys.path.insert(
+    0,
+    os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "packages", "api", "src"
+    ),
+)
 from api.net_guard import normalize_http_url  # noqa: E402
 
 DSN = os.environ.get("MIGRATE_DSN", "postgresql://agent:agent@localhost:5432/agents")
@@ -60,7 +65,9 @@ async def main(apply: bool) -> int:
         if new != ep:  # 절대화로 실제 값이 바뀌는 경우만
             to_update.append((r["agent_id"], r["name"], ep, new))
 
-    print(f"후보(스킴 누락 code/external): {len(to_update)}건, 정규화 불가(보고만): {len(skipped)}건\n")
+    print(
+        f"후보(스킴 누락 code/external): {len(to_update)}건, 정규화 불가(보고만): {len(skipped)}건\n"
+    )
     for aid, name, old, new in to_update:
         print(f"  [{aid}] {name!r}\n      {old!r}\n   -> {new!r}")
     if skipped:
@@ -83,7 +90,9 @@ async def main(apply: bool) -> int:
                 # old→new 계산값으로 최신 값을 되돌리는 lost-update를 막는다.
                 res = await conn.execute(
                     "UPDATE agents SET endpoint = $1 WHERE agent_id = $2 AND endpoint = $3",
-                    new, aid, old,
+                    new,
+                    aid,
+                    old,
                 )
                 # asyncpg execute는 "UPDATE <n>" 태그 반환 — 0이면 그 사이 값이 바뀐 것.
                 if res.endswith(" 0"):

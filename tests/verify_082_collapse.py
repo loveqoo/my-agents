@@ -39,14 +39,49 @@ def ck(c, m):
 
 def test_unit():
     cases = [
-        ("kakaopay prefix(무회귀)", "/a2a", "http://h:8000/proxy/ccab/.well-known/agent-card.json", "http://h:8000/proxy/ccab/a2a"),
-        ("prefix=/a2a + 루트상대(collapse)", "/a2a", "http://h:8000/a2a/.well-known/agent-card.json", "http://h:8000/a2a"),
-        ("bare a2a + prefix /a2a(collapse)", "a2a", "http://h:8000/a2a/.well-known/agent-card.json", "http://h:8000/a2a"),
+        (
+            "kakaopay prefix(무회귀)",
+            "/a2a",
+            "http://h:8000/proxy/ccab/.well-known/agent-card.json",
+            "http://h:8000/proxy/ccab/a2a",
+        ),
+        (
+            "prefix=/a2a + 루트상대(collapse)",
+            "/a2a",
+            "http://h:8000/a2a/.well-known/agent-card.json",
+            "http://h:8000/a2a",
+        ),
+        (
+            "bare a2a + prefix /a2a(collapse)",
+            "a2a",
+            "http://h:8000/a2a/.well-known/agent-card.json",
+            "http://h:8000/a2a",
+        ),
         ("base=/a2a 직접 서빙(collapse)", "/a2a", "http://h:8000/a2a", "http://h:8000/a2a"),
-        ("절대 url(무회귀)", "http://h:8000/a2a", "http://h:8000/a2a/.well-known/agent-card.json", "http://h:8000/a2a"),
-        ("표준 root + 루트상대(무회귀)", "/a2a", "http://h:8000/.well-known/agent-card.json", "http://h:8000/a2a"),
-        ("다중 꼬리 /v1/a2a collapse", "/v1/a2a", "http://h:8000/svc/v1/a2a/.well-known/agent-card.json", "http://h:8000/svc/v1/a2a"),
-        ("부분겹침 a2a/rpc(미collapse)", "a2a/rpc", "http://h:8000/a2a/.well-known/agent-card.json", "http://h:8000/a2a/a2a/rpc"),
+        (
+            "절대 url(무회귀)",
+            "http://h:8000/a2a",
+            "http://h:8000/a2a/.well-known/agent-card.json",
+            "http://h:8000/a2a",
+        ),
+        (
+            "표준 root + 루트상대(무회귀)",
+            "/a2a",
+            "http://h:8000/.well-known/agent-card.json",
+            "http://h:8000/a2a",
+        ),
+        (
+            "다중 꼬리 /v1/a2a collapse",
+            "/v1/a2a",
+            "http://h:8000/svc/v1/a2a/.well-known/agent-card.json",
+            "http://h:8000/svc/v1/a2a",
+        ),
+        (
+            "부분겹침 a2a/rpc(미collapse)",
+            "a2a/rpc",
+            "http://h:8000/a2a/.well-known/agent-card.json",
+            "http://h:8000/a2a/a2a/rpc",
+        ),
     ]
     for desc, raw, cand, want in cases:
         got = _resolve_card_endpoint(raw, cand)
@@ -93,12 +128,19 @@ class _Handler(BaseHTTPRequestHandler):
         if self.path == PREFIX:
             length = int(self.headers.get("Content-Length") or 0)
             body = json.loads(self.rfile.read(length) or b"{}")
-            self._send(200, {
-                "jsonrpc": "2.0", "id": body.get("id"),
-                "result": {"role": "agent",
-                           "parts": [{"kind": "text", "text": MOCK_REPLY}],
-                           "messageId": "m1", "kind": "message"},
-            })
+            self._send(
+                200,
+                {
+                    "jsonrpc": "2.0",
+                    "id": body.get("id"),
+                    "result": {
+                        "role": "agent",
+                        "parts": [{"kind": "text", "text": MOCK_REPLY}],
+                        "messageId": "m1",
+                        "kind": "message",
+                    },
+                },
+            )
         else:
             self._send(404)
 
@@ -120,20 +162,31 @@ async def test_live():
     srv = HTTPServer(("127.0.0.1", 0), _Handler)
     port = srv.server_address[1]
     threading.Thread(target=srv.serve_forever, daemon=True).start()
-    base = f"http://127.0.0.1:{port}{PREFIX}"            # 사용자가 /a2a까지 입력
-    want = f"http://127.0.0.1:{port}{PREFIX}"            # 교정: 중복 없이 /a2a
-    doubled = f"http://127.0.0.1:{port}{PREFIX}/a2a"     # 버그값
+    base = f"http://127.0.0.1:{port}{PREFIX}"  # 사용자가 /a2a까지 입력
+    want = f"http://127.0.0.1:{port}{PREFIX}"  # 교정: 중복 없이 /a2a
+    doubled = f"http://127.0.0.1:{port}{PREFIX}/a2a"  # 버그값
     pk = None
     try:
         out = await _connect(base)
         pk = out.id
         ck(out.endpoint == want, f"L1 저장 endpoint 중복 없음 (want={want}, got={out.endpoint})")
         ck(out.endpoint != doubled, "L2 옛 버그값(/a2a/a2a) 아님")
-        ck(getattr(out, "status", None) == "online", f"L3 probe live (got={getattr(out,'status',None)})")
+        ck(
+            getattr(out, "status", None) == "online",
+            f"L3 probe live (got={getattr(out, 'status', None)})",
+        )
         async with httpx.AsyncClient(timeout=5) as client:
-            r = await client.post(out.endpoint, json={
-                "jsonrpc": "2.0", "id": "1", "method": "message/send",
-                "params": {"message": {"role": "user", "parts": [{"kind": "text", "text": "hi"}]}}})
+            r = await client.post(
+                out.endpoint,
+                json={
+                    "jsonrpc": "2.0",
+                    "id": "1",
+                    "method": "message/send",
+                    "params": {
+                        "message": {"role": "user", "parts": [{"kind": "text", "text": "hi"}]}
+                    },
+                },
+            )
             txt = ""
             if r.status_code == 200:
                 parts = (r.json().get("result") or {}).get("parts") or []

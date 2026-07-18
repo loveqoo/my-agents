@@ -65,11 +65,10 @@ def _upload(name: str, data: bytes, ctype: str) -> UploadFile:
     return UploadFile(io.BytesIO(data), filename=name, headers=Headers({"content-type": ctype}))
 
 
-
-
 async def _wait_ingest_ready(doc_id) -> int:
     """배경 인제스트(스펙 334) 완료 대기 → chunk_count. 실패/타임아웃은 -1."""
     import asyncio as _a
+
     for _ in range(100):
         async with SessionLocal() as _s:
             row = (
@@ -93,8 +92,12 @@ async def _expect_http(coro, status: int, label: str):
         check(exc.status_code == status, f"{label} (got {exc.status_code})")
 
 
-PARA1 = "첫 문단입니다. 프로젝트의 전체 개요와 목적, 대상 사용자와 핵심 가치 제안을 상세히 설명합니다."
-PARA2 = "둘째 문단입니다. 시스템 아키텍처와 주요 구성 요소, 모듈 간 의존 관계와 데이터 흐름을 다룹니다."
+PARA1 = (
+    "첫 문단입니다. 프로젝트의 전체 개요와 목적, 대상 사용자와 핵심 가치 제안을 상세히 설명합니다."
+)
+PARA2 = (
+    "둘째 문단입니다. 시스템 아키텍처와 주요 구성 요소, 모듈 간 의존 관계와 데이터 흐름을 다룹니다."
+)
 PARA3 = "셋째 문단입니다. 스테이징과 프로덕션 배포 절차, 사전 점검 항목과 승인 단계를 정리합니다."
 PARA3_NEW = "셋째 문단은 수정되었습니다. 무지개 배포 절차와 롤백 지침, 카나리 트래픽 전환 비율을 정리합니다."
 ORIG = f"{PARA1}\n\n{PARA2}\n\n{PARA3}"
@@ -125,7 +128,9 @@ async def main():
         await s.commit()
         cid = col.id
 
-        doc_out = await RAG.ingest_document(cid, _upload("guide.md", ORIG.encode(), "text/markdown"), s, sup)
+        doc_out = await RAG.ingest_document(
+            cid, _upload("guide.md", ORIG.encode(), "text/markdown"), s, sup
+        )
         doc_id = doc_out.id  # expire_all 전에 박제(만료 후 속성 접근=동기 lazy-load 크래시)
         n_chunks = await _wait_ingest_ready(doc_id)  # 스펙 334: 인제스트=배경 — ready 대기
         s.expire_all()  # 배경 잡이 다른 세션서 갱신한 상태 반영(identity map stale 회피)
@@ -136,7 +141,9 @@ async def main():
         check(content.editable is True and content.text == ORIG, "G1 원문 왕복(editable=true)")
 
         # ── G4 부분 재임베딩 — embed_texts 캡처로 "변경분만 임베딩"을 실증 ──
-        col_before = (await s.execute(select(Collection.chunk_count).where(Collection.id == cid))).scalar_one()
+        col_before = (
+            await s.execute(select(Collection.chunk_count).where(Collection.id == cid))
+        ).scalar_one()
         old_texts = set(
             (await s.execute(select(Chunk.text).where(Chunk.document_id == doc_id))).scalars().all()
         )
@@ -152,8 +159,14 @@ async def main():
             r = await RAG.update_document_content(cid, doc_id, DocumentEditIn(text=EDITED), s, sup)
         finally:
             RAG.rag_ingest.embed_texts = orig_embed
-        check(r.chunks == r.reused + r.reembedded, f"G4a 통계 정합 chunks={r.chunks}=reused {r.reused}+reembedded {r.reembedded}")
-        check(r.reused >= 2 and r.reembedded >= 1, f"G4b 부분성: 재사용 {r.reused}·재임베딩 {r.reembedded}")
+        check(
+            r.chunks == r.reused + r.reembedded,
+            f"G4a 통계 정합 chunks={r.chunks}=reused {r.reused}+reembedded {r.reembedded}",
+        )
+        check(
+            r.reused >= 2 and r.reembedded >= 1,
+            f"G4b 부분성: 재사용 {r.reused}·재임베딩 {r.reembedded}",
+        )
         embedded_texts = [t for batch in sent for t in batch]
         check(
             len(sent) == 1 and all(t not in old_texts for t in embedded_texts),
@@ -169,7 +182,9 @@ async def main():
             and blob.data == EDITED.encode(),
             "G4d doc 집계·blob 원본 교체",
         )
-        col_after = (await s.execute(select(Collection.chunk_count).where(Collection.id == cid))).scalar_one()
+        col_after = (
+            await s.execute(select(Collection.chunk_count).where(Collection.id == cid))
+        ).scalar_one()
         check(
             col_after == col_before - n_chunks + r.chunks,
             f"G4e 컬렉션 chunk_count 증분 정합 ({col_before}→{col_after})",
@@ -210,32 +225,48 @@ async def main():
             f"G4f2 임베딩 호출은 유일화 1건 (got {[len(b) for b in sent2]})",
         )
         actual_chunks = (
-            await s.execute(
-                select(func.count(Chunk.id)).where(Chunk.collection_id == cid)
-            )
+            await s.execute(select(func.count(Chunk.id)).where(Chunk.collection_id == cid))
         ).scalar_one()
         col_cnt = (
             await s.execute(select(Collection.chunk_count).where(Collection.id == cid))
         ).scalar_one()
-        check(col_cnt == actual_chunks == 2, f"G4g 집계==실측 청크 수 (집계 {col_cnt}·실측 {actual_chunks})")
+        check(
+            col_cnt == actual_chunks == 2,
+            f"G4g 집계==실측 청크 수 (집계 {col_cnt}·실측 {actual_chunks})",
+        )
 
         # ── G2 PDF — editable=false + PUT 400 ──
-        pdf_doc = Document(collection_id=cid, filename=f"{tag}.pdf", content_type="application/pdf", byte_size=4, status="ready")
+        pdf_doc = Document(
+            collection_id=cid,
+            filename=f"{tag}.pdf",
+            content_type="application/pdf",
+            byte_size=4,
+            status="ready",
+        )
         s.add(pdf_doc)
         await s.flush()
         s.add(DocumentBlob(document_id=pdf_doc.id, data=b"%PDF"))
         await s.commit()
         c2 = await RAG.get_document_content(cid, pdf_doc.id, s, sup)
-        check(c2.editable is False and c2.reason is not None and "PDF" in c2.reason, "G2a PDF editable=false+사유")
+        check(
+            c2.editable is False and c2.reason is not None and "PDF" in c2.reason,
+            "G2a PDF editable=false+사유",
+        )
         await _expect_http(
-            RAG.update_document_content(cid, pdf_doc.id, DocumentEditIn(text="x"), s, sup), 400, "G2b PDF PUT → 400"
+            RAG.update_document_content(cid, pdf_doc.id, DocumentEditIn(text="x"), s, sup),
+            400,
+            "G2b PDF PUT → 400",
         )
 
         # ── G3 엔티티 컬렉션 + 비JSONL 본문 → 400 (스펙 332로 엔티티 편집이 열려, 이제 이 400은
         # "엔티티 제외"가 아니라 행 파싱 fail-closed에서 나온다 — 계약은 verify_332가 상세 단언) ──
         ecol = Collection(
-            name=f"{tag}-ent", kind="entity", embedding_model_id=emb.id, dims=RAG_EMBED_DIMS,
-            status="empty", owner_id=str(sup.id),
+            name=f"{tag}-ent",
+            kind="entity",
+            embedding_model_id=emb.id,
+            dims=RAG_EMBED_DIMS,
+            status="empty",
+            owner_id=str(sup.id),
         )
         s.add(ecol)
         await s.flush()
@@ -245,7 +276,9 @@ async def main():
         s.add(DocumentBlob(document_id=edoc.id, data=b"{}"))
         await s.commit()
         await _expect_http(
-            RAG.update_document_content(ecol.id, edoc.id, DocumentEditIn(text="x"), s, sup), 400, "G3 엔티티 PUT → 400"
+            RAG.update_document_content(ecol.id, edoc.id, DocumentEditIn(text="x"), s, sup),
+            400,
+            "G3 엔티티 PUT → 400",
         )
 
         # ── G5 재인덱싱 중 → 409 ──
@@ -253,7 +286,9 @@ async def main():
         col2.status = "reindexing"
         await s.commit()
         await _expect_http(
-            RAG.update_document_content(cid, doc_id, DocumentEditIn(text="y"), s, sup), 409, "G5 재인덱싱 중 PUT → 409"
+            RAG.update_document_content(cid, doc_id, DocumentEditIn(text="y"), s, sup),
+            409,
+            "G5 재인덱싱 중 PUT → 409",
         )
         col2 = await s.get(Collection, cid)
         col2.status = "ready"
@@ -261,14 +296,20 @@ async def main():
 
         # ── G6 공백 본문 → 400(빈 문서) ──
         await _expect_http(
-            RAG.update_document_content(cid, doc_id, DocumentEditIn(text="   \n  "), s, sup), 400, "G6 공백 본문 → 400"
+            RAG.update_document_content(cid, doc_id, DocumentEditIn(text="   \n  "), s, sup),
+            400,
+            "G6 공백 본문 → 400",
         )
 
         # ── G8 비소유(member) → 404-fold ──
         mem = _Member()
-        await _expect_http(RAG.get_document_content(cid, doc_id, s, mem), 404, "G8a 비소유 GET → 404")
         await _expect_http(
-            RAG.update_document_content(cid, doc_id, DocumentEditIn(text="z"), s, mem), 404, "G8b 비소유 PUT → 404"
+            RAG.get_document_content(cid, doc_id, s, mem), 404, "G8a 비소유 GET → 404"
+        )
+        await _expect_http(
+            RAG.update_document_content(cid, doc_id, DocumentEditIn(text="z"), s, mem),
+            404,
+            "G8b 비소유 PUT → 404",
         )
 
     print()

@@ -32,9 +32,11 @@ class _FakeProvider:
         self.invoked: list[dict] = []
 
     async def candidates(self, allow: set[str]) -> list[Capability]:
-        return [Capability(id=FAKE_CAP, kind="rag", name="Fake294", hook="fake_hook")] if (
-            FAKE_CAP in allow
-        ) else []
+        return (
+            [Capability(id=FAKE_CAP, kind="rag", name="Fake294", hook="fake_hook")]
+            if (FAKE_CAP in allow)
+            else []
+        )
 
     async def load(self, cap_id: str) -> object | None:
         return {"id": cap_id} if cap_id == FAKE_CAP else None
@@ -93,11 +95,16 @@ async def main() -> None:
 
     # 구조 단언: core.py 소스에 구체 provider 생성 0건(조립은 composition 단일 출처)
     core_src = (
-        pathlib.Path(__file__).resolve().parents[1]
-        / "packages/api/src/api/broker/core.py"
+        pathlib.Path(__file__).resolve().parents[1] / "packages/api/src/api/broker/core.py"
     ).read_text()
-    concretes = ["AgentProvider(", "McpProvider(", "RagProvider(", "MemoryProvider(",
-                 "MemoryWriteProvider(", "MemEditProvider("]
+    concretes = [
+        "AgentProvider(",
+        "McpProvider(",
+        "RagProvider(",
+        "MemoryProvider(",
+        "MemoryWriteProvider(",
+        "MemEditProvider(",
+    ]
     found = [c for c in concretes if c in core_src]
     _ok(not found, f"core.py에 구체 provider 생성 0건(발견: {found or '없음'})")
 

@@ -46,9 +46,7 @@ def check(name: str, ok: bool, detail: str) -> None:
     results.append((name, PASS if ok else FAIL, detail))
 
 
-async def _trigger_and_read(
-    c: httpx.AsyncClient, *, query: bool | None, body: bool | None
-) -> bool:
+async def _trigger_and_read(c: httpx.AsyncClient, *, query: bool | None, body: bool | None) -> bool:
     """POST 후 방금 만든 BatchRun의 dry_run 영속값을 돌려준다(해석 결과)."""
     url = f"/admin/batch/{SAFE_JOB}/run"
     if query is not None:

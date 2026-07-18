@@ -26,6 +26,7 @@
   (U는 인프라 불요. H는 in-process 앱이 실 DB·_remote mock provider를 침 → dev 서버 필요;
    DB 불가 시 H는 SKIP 표기하고 U만으로도 핵심 불변식 보증.)
 """
+
 import asyncio
 import os
 import sys
@@ -77,18 +78,21 @@ class FakeMem:
     def __init__(self, store: list[dict] | None = None):
         self.store = list(store or [])
 
-    def search(self, query, filters, top_k, **_kw):  # mem0 search는 threshold 등 extra kwargs 허용(스펙 158)
-        (axis, val), = filters.items()
+    def search(
+        self, query, filters, top_k, **_kw
+    ):  # mem0 search는 threshold 등 extra kwargs 허용(스펙 158)
+        ((axis, val),) = filters.items()
         rows = [r for r in self.store if r.get(axis) == val]
         return {"results": rows[:top_k]}
 
     def get_all(self, filters):
-        (axis, val), = filters.items()
+        ((axis, val),) = filters.items()
         return {"results": [r for r in self.store if r.get(axis) == val]}
 
 
 def with_mem(mem):
     from api.memory.mem0_backend import Mem0Backend
+
     backend = Mem0Backend.__new__(Mem0Backend)
     backend._mem = mem
     M.resolve_backend = lambda mem_cfg: backend  # type: ignore[assignment]
@@ -101,6 +105,7 @@ def no_mem():
 def _async(val):
     async def _f(*a, **k):
         return val
+
     return _f
 
 
@@ -170,8 +175,10 @@ def u2_rbac() -> None:
     check(raised(lambda: call(member, other), 403), "member → 타 user_id 403(프라이버시 경계)")
     # 비-어드민 → 본인 user_id: 통과(self-lock pin — 자기 것은 막지 않음).
     out_self = asyncio.run(call(member, str(member.id)))
-    check(out_self.enabled is False and out_self.results == [],
-          "member → 본인 user_id 통과(self-lock, mem_cfg None→enabled=False)")
+    check(
+        out_self.enabled is False and out_self.results == [],
+        "member → 본인 user_id 통과(self-lock, mem_cfg None→enabled=False)",
+    )
     # 어드민 3종 → 임의 user_id: 통과.
     for name, pr in [("머신", machine), ("superuser", superuser), ("casbin-admin", admin)]:
         out = asyncio.run(call(pr, other))
@@ -193,8 +200,10 @@ def u3_scope_isolation() -> None:
     check(any("한국어" in t for t in texts), "agent_id 검색: 에이전트 기억 회상")
     check(not any("비건" in t or "매운" in t for t in texts), "agent_id 검색: user_id 기억 누출 0")
     check(all(h["scope"] == "agent_id" for h in hits), "agent_id hit scope 표기")
-    check(all({"type", "text", "score", "scope"} <= set(h) for h in hits),
-          "hit 구조 {type,text,score,scope}")
+    check(
+        all({"type", "text", "score", "scope"} <= set(h) for h in hits),
+        "hit 구조 {type,text,score,scope}",
+    )
 
     # user_id 검색 → 그 유저 기억만(타 유저·agent 누출 없음).
     ha = M.search({"user_id": "alice"}, "q", {"x": 1}, limit=10)
@@ -213,37 +222,56 @@ def u4_graceful() -> None:
     # 유저: _user_mem_cfg None(미구성).
     MR._user_mem_cfg = _async(None)  # type: ignore[assignment]
     MR.get_enforcer = lambda: FakeEnforcer(set())
-    out_u = asyncio.run(MR.search_user_memory("machine_uid", body, principal="machine", session=None))
-    check(out_u.enabled is False and out_u.results == [] and out_u.query == "질의" and out_u.limit == 4,
-          "유저 검색: 미가용 → enabled=False·[]·query/limit 에코")
+    out_u = asyncio.run(
+        MR.search_user_memory("machine_uid", body, principal="machine", session=None)
+    )
+    check(
+        out_u.enabled is False
+        and out_u.results == []
+        and out_u.query == "질의"
+        and out_u.limit == 4,
+        "유저 검색: 미가용 → enabled=False·[]·query/limit 에코",
+    )
 
     # 에이전트: resolve_agent_mem_cfg None(에이전트는 존재).
     agent_obj = type("A", (), {"agent_id": "agtX"})()
     AMR.resolve_agent_mem_cfg = _async(None)  # type: ignore[assignment]
     out_a = asyncio.run(AG.search_agent_memory(uuid.uuid4(), body, session=FakeSession(agent_obj)))
-    check(out_a.enabled is False and out_a.results == [],
-          "에이전트 검색: 미가용 → enabled=False·[]")
+    check(
+        out_a.enabled is False and out_a.results == [], "에이전트 검색: 미가용 → enabled=False·[]"
+    )
 
     # P2a 핀(적대 리뷰 084): mem_cfg는 *있지만* 백엔드 구성 실패(resolve_backend None) →
     # enabled=False여야 한다. "회상 0건"으로 위장하면 안 됨. mem_cfg 비None + no_mem()로 재현.
     AMR.resolve_agent_mem_cfg = _async({"llm": {}, "embedder": {}})  # type: ignore[assignment]
-    out_broken = asyncio.run(AG.search_agent_memory(uuid.uuid4(), body, session=FakeSession(agent_obj)))
-    check(out_broken.enabled is False and out_broken.results == [],
-          "P2a: mem_cfg 있음+백엔드 구성실패 → enabled=False(깨진 백엔드 위장 차단)")
+    out_broken = asyncio.run(
+        AG.search_agent_memory(uuid.uuid4(), body, session=FakeSession(agent_obj))
+    )
+    check(
+        out_broken.enabled is False and out_broken.results == [],
+        "P2a: mem_cfg 있음+백엔드 구성실패 → enabled=False(깨진 백엔드 위장 차단)",
+    )
 
 
 def u5_agent_404() -> None:
     print("[U5] 없는 agent_id → 404(검색 전 차단)")
     body = MemorySearchIn(query="질의", limit=4)
     # FakeSession(None) → session.get은 None → _agent_mem_cfg가 404.
-    check(raised(lambda: AG.search_agent_memory(uuid.uuid4(), body, session=FakeSession(None)), 404),
-          "없는 에이전트 검색 → 404")
+    check(
+        raised(lambda: AG.search_agent_memory(uuid.uuid4(), body, session=FakeSession(None)), 404),
+        "없는 에이전트 검색 → 404",
+    )
 
 
 def u6_handler_recall() -> None:
     print("[U6] 핸들러 회상(백엔드 존재 → enabled=True + 회상)")
     store = [
-        {"id": "ag1", "memory": "보고서는 한 줄 요약으로 시작한다", "score": 0.95, "agent_id": "agtX"},
+        {
+            "id": "ag1",
+            "memory": "보고서는 한 줄 요약으로 시작한다",
+            "score": 0.95,
+            "agent_id": "agtX",
+        },
         {"id": "other", "memory": "남의 에이전트 기억", "score": 0.9, "agent_id": "agtY"},
         {"id": "ux", "memory": "유저 사실", "score": 0.8, "user_id": "alice"},
     ]
@@ -257,7 +285,9 @@ def u6_handler_recall() -> None:
     txts = [h.text for h in out_a.results]
     check(out_a.enabled is True, "에이전트 핸들러: enabled=True")
     check(any("한 줄 요약" in t for t in txts), "에이전트 핸들러: 자기 기억 회상")
-    check(not any("남의" in t or "유저 사실" in t for t in txts), "에이전트 핸들러: 타 스코프 누출 0")
+    check(
+        not any("남의" in t or "유저 사실" in t for t in txts), "에이전트 핸들러: 타 스코프 누출 0"
+    )
     check(all(h.scope == "agent_id" for h in out_a.results), "에이전트 핸들러: scope=agent_id")
 
     # 유저 핸들러: alice만 회상.
@@ -277,23 +307,32 @@ def u7_recall_probe() -> None:
     # P2a: 백엔드 미가용 → None(빈 []가 아님 — '미구성'과 '회상 0건'을 구분).
     no_mem()
     check(M.recall_probe({"user_id": "x"}, "q", None, 4) is None, "미가용 → None(≠ [])")
-    check(M.recall_probe({"user_id": "x"}, "q", {"llm": {}, "embedder": {}}, 4) is None,
-          "mem_cfg 있어도 백엔드 None → None(구성 실패 위장 차단)")
+    check(
+        M.recall_probe({"user_id": "x"}, "q", {"llm": {}, "embedder": {}}, 4) is None,
+        "mem_cfg 있어도 백엔드 None → None(구성 실패 위장 차단)",
+    )
 
     # 가용·회상 0건 → [](None 아님). 빈 store FakeMem.
     with_mem(FakeMem([]))
-    check(M.recall_probe({"user_id": "x"}, "q", {"llm": {}, "embedder": {}}, 4) == [],
-          "가용·회상 0건 → [](≠ None)")
+    check(
+        M.recall_probe({"user_id": "x"}, "q", {"llm": {}, "embedder": {}}, 4) == [],
+        "가용·회상 0건 → [](≠ None)",
+    )
 
     # P2b: 백엔드가 limit를 무시하고 과다 반환해도 facade가 방어적으로 limit까지 슬라이스.
     class OverflowBackend:
         def search(self, scope, query, limit):
-            return [{"type": "semantic", "text": f"m{i}", "score": 1.0, "scope": "user_id"}
-                    for i in range(50)]
+            return [
+                {"type": "semantic", "text": f"m{i}", "score": 1.0, "scope": "user_id"}
+                for i in range(50)
+            ]
 
     M.resolve_backend = lambda mem_cfg: OverflowBackend()  # type: ignore[assignment]
     out = M.recall_probe({"user_id": "x"}, "q", {"llm": {}, "embedder": {}}, 4)
-    check(out is not None and len(out) == 4, f"P2b: 과다 반환 → limit(4)까지 슬라이스 (got {len(out) if out else 'None'})")
+    check(
+        out is not None and len(out) == 4,
+        f"P2b: 과다 반환 → limit(4)까지 슬라이스 (got {len(out) if out else 'None'})",
+    )
 
 
 # ================================================================ [H] 통합(in-process ASGI)
@@ -306,7 +345,9 @@ async def http_checks() -> None:
 
     auth = {"Authorization": f"Bearer {_token()}"}
     transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://t", headers=auth, timeout=60) as c:
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://t", headers=auth, timeout=60
+    ) as c:
         # H1 라우트 등록(소스 라우터에서 직접 — app.routes는 커스텀 _IncludedRouter로 감싸져 평탄화 곤란).
         ap = {getattr(r, "path", "") for r in _ag.router.routes}
         mp = {getattr(r, "path", "") for r in _mr.router.routes}
@@ -327,7 +368,9 @@ async def http_checks() -> None:
             check(r.status_code == 422, f"H2 limit {lim} → 422 (got {r.status_code})")
         # 경계 통과(=4000, limit 10) → 422 아님.
         rb = await c.post(f"/memory/user/{uid}/search", json={"query": "가" * 4000, "limit": 10})
-        check(rb.status_code != 422, f"H2 경계(query=4000·limit=10) → 422 아님 (got {rb.status_code})")
+        check(
+            rb.status_code != 422, f"H2 경계(query=4000·limit=10) → 422 아님 (got {rb.status_code})"
+        )
 
         # H3 auth: 토큰 없으면 401.
         async with httpx.AsyncClient(transport=transport, base_url="http://t", timeout=60) as nc:

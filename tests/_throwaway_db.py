@@ -30,8 +30,10 @@ _DEFAULT = "postgresql+asyncpg://agent:agent@127.0.0.1:5432/agents"
 
 def _pg_dsn(url: str, dbname: str) -> str:
     """SQLAlchemy asyncpg URL → 순수 asyncpg dsn(드라이버 psycopg-less)으로, database만 교체."""
-    return make_url(url).set(drivername="postgresql", database=dbname).render_as_string(
-        hide_password=False
+    return (
+        make_url(url)
+        .set(drivername="postgresql", database=dbname)
+        .render_as_string(hide_password=False)
     )
 
 

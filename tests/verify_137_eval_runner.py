@@ -17,7 +17,12 @@ import subprocess
 import sys
 import uuid as _uuid
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "packages", "api", "src"))
+sys.path.insert(
+    0,
+    os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "packages", "api", "src"
+    ),
+)
 
 from sqlalchemy import func, select  # noqa: E402
 
@@ -47,9 +52,23 @@ class _Super:
 
 def _mem0_count() -> int:
     r = subprocess.run(
-        ["docker", "exec", "my-agents-postgres-1", "psql", "-U", "agent", "-d", "agents", "-t", "-A",
-         "-c", "SELECT count(*) FROM mem0_memories;"],
-        capture_output=True, text=True, timeout=20,
+        [
+            "docker",
+            "exec",
+            "my-agents-postgres-1",
+            "psql",
+            "-U",
+            "agent",
+            "-d",
+            "agents",
+            "-t",
+            "-A",
+            "-c",
+            "SELECT count(*) FROM mem0_memories;",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=20,
     )
     return int(r.stdout.strip().splitlines()[-1])
 
@@ -61,10 +80,14 @@ def part_c1():
         [{"node": "broker_invoke:rag:Obsidian"}],
         used_memory=True,
     )
-    check("broker_invoke:rag:Obsidian" in toks and "rag:Obsidian" in toks,
-          "C1a 브로커 노드 원형+canonical 병기")
-    check("mcp:local-tools/echo" in toks and "rag:search_documents" in toks,
-          "C1b 직접형 calls_sink 정규화(mcp:/rag:)")
+    check(
+        "broker_invoke:rag:Obsidian" in toks and "rag:Obsidian" in toks,
+        "C1a 브로커 노드 원형+canonical 병기",
+    )
+    check(
+        "mcp:local-tools/echo" in toks and "rag:search_documents" in toks,
+        "C1b 직접형 calls_sink 정규화(mcp:/rag:)",
+    )
     check("memory:used" in toks and "analyze" in toks, "C1c memory:used + 그래프 노드 유지")
 
 
@@ -84,10 +107,14 @@ async def main():
 
     obs = await eval_run_agent(agent_pk, "A/B 테스트에서 중요한 것은?", _Super())
     check(not obs["error"], f"C2a error 없음 (detail={obs.get('detail')!r})")
-    check(any(t.startswith("rag:") for t in obs["trace_nodes"]),
-          f"C2b rag: 토큰 존재 (got {[t for t in obs['trace_nodes'] if 'rag' in t]})")
-    check("문해력" in obs["output"] or "반응 패턴" in obs["output"],
-          f"C2c 노트 내용 반영 (앞부분 {obs['output'][:60]!r})")
+    check(
+        any(t.startswith("rag:") for t in obs["trace_nodes"]),
+        f"C2b rag: 토큰 존재 (got {[t for t in obs['trace_nodes'] if 'rag' in t]})",
+    )
+    check(
+        "문해력" in obs["output"] or "반응 패턴" in obs["output"],
+        f"C2c 노트 내용 반영 (앞부분 {obs['output'][:60]!r})",
+    )
 
     async with async_session() as s:
         sess_after = (await s.execute(select(func.count(SessionModel.id)))).scalar_one()
@@ -104,33 +131,56 @@ async def main():
         async with async_session() as s:
             await ER.create_case(
                 ds.id,
-                ER.CaseIn(name="rag 필수 회귀", input="A/B 테스트에서 중요한 것은?",
-                          asserts=[{"type": "trace_has", "arg": "rag:"},
-                                   {"type": "no_error"}, {"type": "output_nonempty"}]),
-                session=s, user=sup,
+                ER.CaseIn(
+                    name="rag 필수 회귀",
+                    input="A/B 테스트에서 중요한 것은?",
+                    asserts=[
+                        {"type": "trace_has", "arg": "rag:"},
+                        {"type": "no_error"},
+                        {"type": "output_nonempty"},
+                    ],
+                ),
+                session=s,
+                user=sup,
             )
         async with async_session() as s:
-            run_row = EvalRun(dataset_id=ds.id, agent_pk=agent_pk, agent_name="옵시디언 매니저",
-                              status="running", total=1)
+            run_row = EvalRun(
+                dataset_id=ds.id,
+                agent_pk=agent_pk,
+                agent_name="옵시디언 매니저",
+                status="running",
+                total=1,
+            )
             s.add(run_row)
             await s.commit()
             run_id = run_row.id
         await ER._execute_run(run_id, ds.id, agent_pk, sup)
         async with async_session() as s:
             run = await s.get(EvalRun, run_id)
-            check(run.status == "ok" and run.score == 1.0 and run.passed == 1,
-                  f"C4a run ok·score 1.0 (got {run.status}, {run.score}, {run.passed}/{run.total})")
+            check(
+                run.status == "ok" and run.score == 1.0 and run.passed == 1,
+                f"C4a run ok·score 1.0 (got {run.status}, {run.score}, {run.passed}/{run.total})",
+            )
             results = (
-                await s.execute(select(EvalCaseResult).where(EvalCaseResult.run_id == run_id))
-            ).scalars().all()
-            check(len(results) == 1 and results[0].case_passed
-                  and any(d[0].startswith("trace_has:rag:") and d[1] for d in results[0].details),
-                  f"C4b 케이스 결과 영속+assert 상세 (got {results[0].details if results else '없음'})")
+                (await s.execute(select(EvalCaseResult).where(EvalCaseResult.run_id == run_id)))
+                .scalars()
+                .all()
+            )
+            check(
+                len(results) == 1
+                and results[0].case_passed
+                and any(d[0].startswith("trace_has:rag:") and d[1] for d in results[0].details),
+                f"C4b 케이스 결과 영속+assert 상세 (got {results[0].details if results else '없음'})",
+            )
         # C4d(e2e가 잡은 500 회귀 핀) — 성적표 단건 조회가 lazy 관계를 안 건드리고 정상 응답.
         async with async_session() as s:
             detail = await ER.get_run(run_id, session=s, user=sup)
-            check(detail.status == "ok" and len(detail.results) == 1 and detail.dataset_name is not None,
-                  f"C4d get_run 상세 정상(MissingGreenlet 회귀 핀) (got {detail.status}, results {len(detail.results)}, ds {detail.dataset_name!r})")
+            check(
+                detail.status == "ok"
+                and len(detail.results) == 1
+                and detail.dataset_name is not None,
+                f"C4d get_run 상세 정상(MissingGreenlet 회귀 핀) (got {detail.status}, results {len(detail.results)}, ds {detail.dataset_name!r})",
+            )
     finally:
         async with async_session() as s:
             try:
@@ -138,7 +188,11 @@ async def main():
             except Exception:
                 pass
         async with async_session() as s:
-            left = (await s.execute(select(EvalRun).where(EvalRun.dataset_id == ds.id))).scalars().all()
+            left = (
+                (await s.execute(select(EvalRun).where(EvalRun.dataset_id == ds.id)))
+                .scalars()
+                .all()
+            )
             check(left == [], "C4c 데이터셋 삭제 → run/results CASCADE")
 
     # C5(codex #1·#2 핀) — 좀비 sweep + 중복 실행 게이트
@@ -147,8 +201,12 @@ async def main():
         ds2 = await ER.create_dataset(ER.DatasetIn(name=f"{tag2}-좀비"), session=s, user=sup)
     try:
         async with async_session() as s:
-            await ER.create_case(ds2.id, ER.CaseIn(name="c", input="q", asserts=[{"type": "no_error"}]),
-                                 session=s, user=sup)
+            await ER.create_case(
+                ds2.id,
+                ER.CaseIn(name="c", input="q", asserts=[{"type": "no_error"}]),
+                session=s,
+                user=sup,
+            )
         async with async_session() as s:
             zombie = EvalRun(dataset_id=ds2.id, status="running", total=1)
             s.add(zombie)
@@ -156,6 +214,7 @@ async def main():
             zid = zombie.id
         # 중복 게이트: running 존재 → 409
         from fastapi import HTTPException as _HTTPExc
+
         async with async_session() as s:
             try:
                 await ER.start_run(ds2.id, ER.RunStartIn(agent_id=agent_pk), session=s, user=sup)
@@ -166,8 +225,10 @@ async def main():
         n = await ER.sweep_zombie_runs()
         async with async_session() as s:
             z = await s.get(EvalRun, zid)
-            check(n >= 1 and z.status == "error" and z.finished_at is not None,
-                  f"C5b 좀비 sweep → error 박제 (swept {n}, status {z.status})")
+            check(
+                n >= 1 and z.status == "error" and z.finished_at is not None,
+                f"C5b 좀비 sweep → error 박제 (swept {n}, status {z.status})",
+            )
     finally:
         async with async_session() as s:
             try:

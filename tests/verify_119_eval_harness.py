@@ -5,6 +5,7 @@
 
 실행: cd packages/api && uv run python ../../tests/verify_119_eval_harness.py
 """
+
 import asyncio
 import json
 import os
@@ -39,6 +40,8 @@ class _SuperPrincipal:
 app.dependency_overrides[current_principal] = lambda: _SuperPrincipal()
 
 _fails = []
+
+
 def check(c, m):
     print(("  ok  " if c else " FAIL ") + m)
     if not c:
@@ -54,8 +57,12 @@ async def unit():
     bad = {"output": "", "trace_nodes": [], "error": True}
 
     cases = [
-        EvalCase("c1", "x", [trace_has("broker_invoke:"), no_error(), output_nonempty()], {"obs": good}),
-        EvalCase("c2", "x", [no_error(), output_nonempty()], {"obs": bad}),  # 실패 예정(error·empty)
+        EvalCase(
+            "c1", "x", [trace_has("broker_invoke:"), no_error(), output_nonempty()], {"obs": good}
+        ),
+        EvalCase(
+            "c2", "x", [no_error(), output_nonempty()], {"obs": bad}
+        ),  # 실패 예정(error·empty)
     ]
     rep = await run_eval(cases, fake_run)
     check(rep.total == 2, "U1 total=2")
@@ -63,7 +70,9 @@ async def unit():
     check(abs(rep.score - 0.5) < 1e-9, f"U1 score=0.5 산술 (got {rep.score})")
 
     # 판별력: 같은 관측이라도 assertion을 틀리게 걸면 점수가 내려가야(항상-통과 아님).
-    wrong = [EvalCase("w", "x", [trace_lacks("broker_invoke:")], {"obs": good})]  # good엔 broker_invoke 있음→실패
+    wrong = [
+        EvalCase("w", "x", [trace_lacks("broker_invoke:")], {"obs": good})
+    ]  # good엔 broker_invoke 있음→실패
     repw = await run_eval(wrong, fake_run)
     check(repw.score == 0.0, f"U2 틀린 assertion→score 0(판별력) (got {repw.score})")
     right = [EvalCase("r", "x", [trace_has("broker_invoke:")], {"obs": good})]
@@ -74,11 +83,14 @@ async def unit():
         if case.name == "boom":
             raise RuntimeError("run fail")
         return good
+
     repb = await run_eval(
         [EvalCase("boom", "x", [no_error()], {}), EvalCase("ok", "x", [no_error()], {})], flaky
     )
-    check(repb.total == 2 and repb.passed == 1,
-          f"U3 예외 case 뒤에도 계속 평가(total 2·passed 1) (got {repb.total}/{repb.passed})")
+    check(
+        repb.total == 2 and repb.passed == 1,
+        f"U3 예외 case 뒤에도 계속 평가(total 2·passed 1) (got {repb.total}/{repb.passed})",
+    )
 
     # 빈 asserts = 자동 통과 금지(codex 119 P1) — 명시 실패.
     repe = await run_eval([EvalCase("noassert", "x", [], {"obs": good})], fake_run)
@@ -87,9 +99,11 @@ async def unit():
     # scorer 예외 = 그 assert 실패, 전체 평가는 계속(codex 119 P2).
     def _boom_scorer():
         return ("boom_scorer", lambda o: 1 / 0)  # ZeroDivisionError
-    reps = await run_eval([EvalCase("s", "x", [_boom_scorer(), no_error()], {"obs": good})], fake_run)
-    check(reps.total == 1 and reps.passed == 0,
-          "U5 scorer 예외 → 해당 assert 실패(전체 중단 아님)")
+
+    reps = await run_eval(
+        [EvalCase("s", "x", [_boom_scorer(), no_error()], {"obs": good})], fake_run
+    )
+    check(reps.total == 1 and reps.passed == 0, "U5 scorer 예외 → 해당 assert 실패(전체 중단 아님)")
 
     # 빈 데이터셋 경계.
     check((await run_eval([], fake_run)).score == 0.0, "U4 빈 데이터셋→score 0.0(신호 없음)")
@@ -102,13 +116,25 @@ async def passthrough():
     async def chat_run_fn(case):
         aid = case.meta["agent_id"]
         acc, trace, event = [], None, None
-        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t",
-                                     headers={"Authorization": f"Bearer {_token()}"}, timeout=120) as c:
-            async with c.stream("POST", f"/agents/{aid}/chat",
-                                json={"messages": [{"role": "user", "content": case.input}]}) as resp:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://t",
+            headers={"Authorization": f"Bearer {_token()}"},
+            timeout=120,
+        ) as c:
+            async with c.stream(
+                "POST",
+                f"/agents/{aid}/chat",
+                json={"messages": [{"role": "user", "content": case.input}]},
+            ) as resp:
                 # HTTP/비-SSE 실패를 error=False로 숨기면 negative case가 거짓 통과(codex 119 P1). 상태 확인.
                 if resp.status_code != 200:
-                    return {"output": "", "trace_nodes": [], "error": True, "http_status": resp.status_code}
+                    return {
+                        "output": "",
+                        "trace_nodes": [],
+                        "error": True,
+                        "http_status": resp.status_code,
+                    }
                 async for line in resp.aiter_lines():
                     if line.startswith("event:"):
                         event = line.split(":", 1)[1].strip()
@@ -129,37 +155,70 @@ async def passthrough():
 
     try:
         auth = {"Authorization": f"Bearer {_token()}"}
-        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t",
-                                     headers=auth, timeout=120) as c:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://t", headers=auth, timeout=120
+        ) as c:
             cols = (await c.get("/collections")).json()
             if not cols:
                 print("SKIP passthrough: RAG 컬렉션 없음(시드 필요)")
                 return
             cap = f"rag:{cols[0]['name']}"
             base = {"model": "mock-llm", "prompt": "", "historyDepth": 6, "impl": "orchestrate"}
-            a_cap = (await c.post("/agents", json={"name": f"ev-cap-{uuid.uuid4().hex[:6]}",
-                     "config": {**base, "capabilities": [cap]}})).json()
-            a_none = (await c.post("/agents", json={"name": f"ev-none-{uuid.uuid4().hex[:6]}",
-                      "config": {**base, "capabilities": []}})).json()
+            a_cap = (
+                await c.post(
+                    "/agents",
+                    json={
+                        "name": f"ev-cap-{uuid.uuid4().hex[:6]}",
+                        "config": {**base, "capabilities": [cap]},
+                    },
+                )
+            ).json()
+            a_none = (
+                await c.post(
+                    "/agents",
+                    json={
+                        "name": f"ev-none-{uuid.uuid4().hex[:6]}",
+                        "config": {**base, "capabilities": []},
+                    },
+                )
+            ).json()
             made += [a_cap["id"], a_none["id"]]
 
         cases = [
-            EvalCase("위임함", cols[0]["name"], [trace_has("broker_invoke:"), no_error(), output_nonempty()],
-                     {"agent_id": a_cap["id"]}),
-            EvalCase("무위임", cols[0]["name"], [trace_lacks("broker_invoke:"), no_error()],
-                     {"agent_id": a_none["id"]}),
+            EvalCase(
+                "위임함",
+                cols[0]["name"],
+                [trace_has("broker_invoke:"), no_error(), output_nonempty()],
+                {"agent_id": a_cap["id"]},
+            ),
+            EvalCase(
+                "무위임",
+                cols[0]["name"],
+                [trace_lacks("broker_invoke:"), no_error()],
+                {"agent_id": a_none["id"]},
+            ),
         ]
         rep = await run_eval(cases, chat_run_fn)
         print(f"  [passthrough] {rep.summary()}")
-        check(rep.score == 1.0, f"P1 실 채팅 평가 통과율 1.0(능력 있=위임·없=무위임 결정적) (got {rep.summary()})")
+        check(
+            rep.score == 1.0,
+            f"P1 실 채팅 평가 통과율 1.0(능력 있=위임·없=무위임 결정적) (got {rep.summary()})",
+        )
         # 판별: 능력 없는 에이전트에 "위임했어야" assertion을 걸면 실패로 잡힘.
-        mis = [EvalCase("오판", cols[0]["name"], [trace_has("broker_invoke:")], {"agent_id": a_none["id"]})]
+        mis = [
+            EvalCase(
+                "오판", cols[0]["name"], [trace_has("broker_invoke:")], {"agent_id": a_none["id"]}
+            )
+        ]
         repm = await run_eval(mis, chat_run_fn)
         check(repm.score == 0.0, f"P2 무능력 에이전트에 위임-기대→score 0(판별) (got {repm.score})")
     finally:
         for aid in made:
-            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t",
-                                         headers={"Authorization": f"Bearer {_token()}"}) as c:
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url="http://t",
+                headers={"Authorization": f"Bearer {_token()}"},
+            ) as c:
                 await c.delete(f"/agents/{aid}")
 
 

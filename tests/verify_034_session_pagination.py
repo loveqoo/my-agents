@@ -13,6 +13,7 @@
 
 실행: .venv/bin/python tests/verify_034_session_pagination.py
 """
+
 import asyncio
 import os
 import sys
@@ -97,7 +98,9 @@ async def main() -> None:
         async with httpx.AsyncClient(transport=transport, base_url="http://t", headers=_AUTH) as c:
             # --- 셰이프 ---
             print("[shape] 엔벌로프")
-            r1 = (await c.get("/sessions", params={"status": "live", "limit": 20, "offset": 0})).json()
+            r1 = (
+                await c.get("/sessions", params={"status": "live", "limit": 20, "offset": 0})
+            ).json()
             check(set(r1) == {"items", "total", "counts"}, "셰이프 {items,total,counts}")
             check(len(r1["items"]) == 20, f"1페이지 items == limit(20) (got {len(r1['items'])})")
             check(set(r1["counts"]) == {"all", "live", "awaiting", "error"}, "counts 버킷 4종")
@@ -106,8 +109,10 @@ async def main() -> None:
             print("[invariant] total(status=X) == counts[X]")
             for bucket in ("all", "live"):  # awaiting/error 버킷은 스펙 324서 죽은 분류로 제거
                 rb = (await c.get("/sessions", params={"status": bucket, "limit": 1})).json()
-                check(rb["total"] == rb["counts"][bucket],
-                      f"{bucket}: total({rb['total']}) == counts.{bucket}({rb['counts'][bucket]})")
+                check(
+                    rb["total"] == rb["counts"][bucket],
+                    f"{bucket}: total({rb['total']}) == counts.{bucket}({rb['counts'][bucket]})",
+                )
 
             r_all = (await c.get("/sessions", params={"status": "all", "limit": 1})).json()
             check(r_all["counts"] == r1["counts"], "counts는 필터 무관(동일)")
@@ -115,10 +120,14 @@ async def main() -> None:
 
             # --- 주입 델타: 우리 47건이 카운트에 정확히 반영 ---
             print("[delta] 주입 분포가 counts에 반영")
-            check(r1["counts"]["all"] - base_all == INJ_ALL,
-                  f"counts.all 델타 == {INJ_ALL} (got {r1['counts']['all'] - base_all})")
-            check(r1["counts"]["live"] - base_live == INJ_LIVE,
-                  f"counts.live 델타 == {INJ_LIVE} (got {r1['counts']['live'] - base_live})")
+            check(
+                r1["counts"]["all"] - base_all == INJ_ALL,
+                f"counts.all 델타 == {INJ_ALL} (got {r1['counts']['all'] - base_all})",
+            )
+            check(
+                r1["counts"]["live"] - base_live == INJ_LIVE,
+                f"counts.live 델타 == {INJ_LIVE} (got {r1['counts']['live'] - base_live})",
+            )
 
             # --- 페이지네이션 완전성·정렬: live 전체를 페이지로 순회 ---
             print("[paging] 전 페이지 순회 — 완전·비중복·정렬(desc)")
@@ -127,10 +136,16 @@ async def main() -> None:
             prev_started = None
             monotonic = True
             for off in range(0, total_live, 20):
-                pg = (await c.get("/sessions", params={"status": "live", "limit": 20, "offset": off})).json()
+                pg = (
+                    await c.get("/sessions", params={"status": "live", "limit": 20, "offset": off})
+                ).json()
                 for s in pg["items"]:
                     seen.append(s["id"])
-                    if prev_started is not None and s["started"] is not None and s["started"] > prev_started:
+                    if (
+                        prev_started is not None
+                        and s["started"] is not None
+                        and s["started"] > prev_started
+                    ):
                         monotonic = False
                     if s["started"] is not None:
                         prev_started = s["started"]
@@ -141,14 +156,29 @@ async def main() -> None:
             check(injected_live <= set(seen), "주입한 live 37건 모두 순회에 포함")
 
             # offset이 total 초과 → 빈 페이지(total 유지)
-            over = (await c.get("/sessions", params={"status": "live", "limit": 20, "offset": total_live + 100})).json()
-            check(over["items"] == [] and over["total"] == total_live, "offset>total → items=[]·total 유지")
+            over = (
+                await c.get(
+                    "/sessions", params={"status": "live", "limit": 20, "offset": total_live + 100}
+                )
+            ).json()
+            check(
+                over["items"] == [] and over["total"] == total_live,
+                "offset>total → items=[]·total 유지",
+            )
 
             # --- 클램프/검증 ---
             print("[validation] 클램프·폴백")
-            check((await c.get("/sessions", params={"limit": 101})).status_code == 422, "limit>100 → 422")
-            check((await c.get("/sessions", params={"limit": 0})).status_code == 422, "limit<1 → 422")
-            check((await c.get("/sessions", params={"offset": -1})).status_code == 422, "offset<0 → 422")
+            check(
+                (await c.get("/sessions", params={"limit": 101})).status_code == 422,
+                "limit>100 → 422",
+            )
+            check(
+                (await c.get("/sessions", params={"limit": 0})).status_code == 422, "limit<1 → 422"
+            )
+            check(
+                (await c.get("/sessions", params={"offset": -1})).status_code == 422,
+                "offset<0 → 422",
+            )
             r_unknown = (await c.get("/sessions", params={"status": "bogus", "limit": 1})).json()
             check(r_unknown["total"] == r_all["total"], "알 수 없는 status → all 폴백(필터 안 함)")
     finally:

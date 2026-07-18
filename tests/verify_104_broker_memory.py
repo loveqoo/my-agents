@@ -15,6 +15,7 @@ invoke는 `memory.recall_probe` 코어 + `memory.format_memory_hits` 공유 포�
 
 실행: .venv/bin/python tests/verify_104_broker_memory.py
 """
+
 import asyncio
 import os
 import sys
@@ -66,16 +67,17 @@ class FakeMem:
         self.store = list(store)
 
     def search(self, query, filters, top_k):
-        (axis, val), = filters.items()
+        ((axis, val),) = filters.items()
         return {"results": [r for r in self.store if r.get(axis) == val][:top_k]}
 
     def get_all(self, filters):
-        (axis, val), = filters.items()
+        ((axis, val),) = filters.items()
         return {"results": [r for r in self.store if r.get(axis) == val]}
 
 
 def with_mem(mem) -> None:
     from api.memory.mem0_backend import Mem0Backend
+
     backend = Mem0Backend.__new__(Mem0Backend)
     backend._mem = mem
     M.resolve_backend = lambda mem_cfg: backend  # type: ignore[assignment]
@@ -84,6 +86,7 @@ def with_mem(mem) -> None:
 def _async(val):
     async def _f(*a, **k):
         return val
+
     return _f
 
 
@@ -104,42 +107,69 @@ def _fake_factory():
 def _raise_factory():
     def make():
         raise AssertionError("거부/무해 경로가 DB를 만졌다(존재 누출 위험)")
+
     return make
 
 
 # ================================================================ [U] 단위(FakeMem)
 def unit_checks() -> None:
-    print("[U] 단위 — 네임스페이스·_permitted·approval·describe·_by_kind·시임 계약·candidates 게이트")
+    print(
+        "[U] 단위 — 네임스페이스·_permitted·approval·describe·_by_kind·시임 계약·candidates 게이트"
+    )
     # U1 네임스페이스 파싱(memory 접두사, 무회귀).
     check(_kind_of("memory:user") == "memory", "U1 memory: 접두사 → kind memory")
-    check(_kind_of("rag:x") == "rag" and _kind_of("mcp:s/t") == "mcp" and _kind_of("agt_x") == "agent",
-          "U1 rag/mcp/agent 판정 무회귀")
+    check(
+        _kind_of("rag:x") == "rag"
+        and _kind_of("mcp:s/t") == "mcp"
+        and _kind_of("agt_x") == "agent",
+        "U1 rag/mcp/agent 판정 무회귀",
+    )
     check(_parse_mem("memory:user") == "user", "U1 memory:user → user")
     check(_parse_mem("memory:") == "", "U1 memory: → 빈 리소스")
     check(_parse_mem("agt_x") == "agt_x", "U1 접두사 없음 → 원본 방어")
 
     # U2 _permitted memory — 1레벨 정확 매치(mcp 서버-전체 특례 없음).
-    bt = PolicyScopedBroker({MEM_USER}, lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=_raise_factory(), user_id="bob")))
+    bt = PolicyScopedBroker(
+        {MEM_USER},
+        lambda k, name=None: True,
+        providers=build_providers(BrokerContext(session_factory=_raise_factory(), user_id="bob")),
+    )
     check(bt._permitted(MEM_USER) is True, "U2 정확 memory cap 허용 → permitted")
     check(bt._permitted("memory:other") is False, "U2 allow 밖 memory → deny(비노출)")
-    brd = PolicyScopedBroker({MEM_USER}, lambda k, name=None: False, providers=build_providers(BrokerContext(session_factory=_raise_factory(), user_id="bob")))
+    brd = PolicyScopedBroker(
+        {MEM_USER},
+        lambda k, name=None: False,
+        providers=build_providers(BrokerContext(session_factory=_raise_factory(), user_id="bob")),
+    )
     check(brd._permitted(MEM_USER) is False, "U2 RBAC 거부 → deny(교집합)")
 
     mp = MemoryProvider(_raise_factory(), "bob")
     # U3 approval_for — 읽기전용 → 항상 None.
-    check(mp.approval_for(None, MEM_USER, {"text": "x"}) is None, "U3 memory approval_for → 항상 None(읽기전용)")
+    check(
+        mp.approval_for(None, MEM_USER, {"text": "x"}) is None,
+        "U3 memory approval_for → 항상 None(읽기전용)",
+    )
 
     # U4 describe input_schema — text 필수, limit 선택, **user_id 필드 없음**(주체 고정).
     desc = mp.describe(_MemBacking("user"))
     props = (desc.input_schema or {}).get("properties", {})
     check(desc.kind == "memory" and desc.id == MEM_USER, "U4 describe id/kind")
-    check("text" in props and desc.input_schema.get("required") == ["text"], "U4 text 필수 파라미터")
+    check(
+        "text" in props and desc.input_schema.get("required") == ["text"], "U4 text 필수 파라미터"
+    )
     check("limit" in props, "U4 limit 선택 파라미터 노출")
     check("user_id" not in props, "U4 스키마에 user_id 필드 없음(대상은 주체서 도출·args 불가)")
 
     # U5 _by_kind 4종.
-    b = PolicyScopedBroker([], lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=_raise_factory(), user_id="bob")))
-    check({"agent", "mcp", "rag", "memory"} <= set(b._by_kind), "U5 브로커가 memory 포함 provider 보유")
+    b = PolicyScopedBroker(
+        [],
+        lambda k, name=None: True,
+        providers=build_providers(BrokerContext(session_factory=_raise_factory(), user_id="bob")),
+    )
+    check(
+        {"agent", "mcp", "rag", "memory"} <= set(b._by_kind),
+        "U5 브로커가 memory 포함 provider 보유",
+    )
     check(isinstance(b._by_kind["memory"], MemoryProvider), "U5 memory → MemoryProvider")
 
     # U6 시임 6메서드 계약 + node_label.
@@ -150,19 +180,28 @@ def unit_checks() -> None:
 
 
 async def unit_async_checks() -> None:
-    print("[U] 단위(async) — candidates 게이트·머신 deny·교차유저 격리·args anti-leak·build_broker 배선")
+    print(
+        "[U] 단위(async) — candidates 게이트·머신 deny·교차유저 격리·args anti-leak·build_broker 배선"
+    )
     MC.default_mem_cfg = _async({"llm": {}, "embedder": {}})  # type: ignore[assignment]
 
     # candidates: allow에 memory:user 있고 user_id 있을 때만 승격.
     mp_bob = MemoryProvider(_raise_factory(), "bob")
-    check([c.id for c in await mp_bob.candidates({MEM_USER})] == [MEM_USER],
-          "U7 allow∋memory:user + user_id → cap 1개(DB 미접촉)")
+    check(
+        [c.id for c in await mp_bob.candidates({MEM_USER})] == [MEM_USER],
+        "U7 allow∋memory:user + user_id → cap 1개(DB 미접촉)",
+    )
     check(await mp_bob.candidates(set()) == [], "U7 allow 밖 → [](승격 안 함)")
-    check(await mp_bob.candidates({"memory:other", "memory:"}) == [],
-          "U7 미지원/빈 리소스 → [](user 리소스만 승격)")
+    check(
+        await mp_bob.candidates({"memory:other", "memory:"}) == [],
+        "U7 미지원/빈 리소스 → [](user 리소스만 승격)",
+    )
     # 머신(user_id None) → 자기 스코프 없음 → cap 없음·load None(DB 미접촉).
     mp_machine = MemoryProvider(_raise_factory(), None)
-    check(await mp_machine.candidates({MEM_USER}) == [], "U7 머신(user_id None) → [](자기 스코프 없음)")
+    check(
+        await mp_machine.candidates({MEM_USER}) == [],
+        "U7 머신(user_id None) → [](자기 스코프 없음)",
+    )
     check(await mp_machine.load(MEM_USER) is None, "U7 머신 load → None(존재 비노출)")
     # 미지원 리소스 load → None.
     check(await mp_bob.load("memory:other") is None, "U7 미지원 리소스 load → None(존재 비노출)")
@@ -173,33 +212,63 @@ async def unit_async_checks() -> None:
         {"id": "b1", "memory": "밥은 재즈 피아노를 친다", "score": 0.9, "user_id": "bob"},
     ]
     with_mem(FakeMem(store))
-    b_bob = PolicyScopedBroker({MEM_USER}, lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=_fake_factory, user_id="bob")))
-    b_alice = PolicyScopedBroker({MEM_USER}, lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=_fake_factory, user_id="alice")))
+    b_bob = PolicyScopedBroker(
+        {MEM_USER},
+        lambda k, name=None: True,
+        providers=build_providers(BrokerContext(session_factory=_fake_factory, user_id="bob")),
+    )
+    b_alice = PolicyScopedBroker(
+        {MEM_USER},
+        lambda k, name=None: True,
+        providers=build_providers(BrokerContext(session_factory=_fake_factory, user_id="alice")),
+    )
 
     r_bob = await b_bob.invoke(MEM_USER, {"text": "취미"})
-    check("재즈" in r_bob.text and "초콜릿" not in r_bob.text,
-          "U8 주체=bob invoke → 밥 기억만(앨리스 기억 노출 0)")
-    check(r_bob.error is None and r_bob.trust == "untrusted", "U8 결과 trust=untrusted(데이터 채널)")
+    check(
+        "재즈" in r_bob.text and "초콜릿" not in r_bob.text,
+        "U8 주체=bob invoke → 밥 기억만(앨리스 기억 노출 0)",
+    )
+    check(
+        r_bob.error is None and r_bob.trust == "untrusted", "U8 결과 trust=untrusted(데이터 채널)"
+    )
     r_alice = await b_alice.invoke(MEM_USER, {"text": "취미"})
-    check("초콜릿" in r_alice.text and "재즈" not in r_alice.text,
-          "U8 주체=alice invoke(동일 cap) → 앨리스 기억만(밥 기억 노출 0)")
+    check(
+        "초콜릿" in r_alice.text and "재즈" not in r_alice.text,
+        "U8 주체=alice invoke(동일 cap) → 앨리스 기억만(밥 기억 노출 0)",
+    )
 
     # ---- anti-leak: args의 user_id는 무시(스코프는 주체 도출값만) ----
     r_spoof = await b_bob.invoke(MEM_USER, {"text": "취미", "user_id": "alice"})
-    check("재즈" in r_spoof.text and "초콜릿" not in r_spoof.text,
-          "U8 args user_id=alice 밀반입 시도 → 여전히 bob 기억만(args 무시)")
+    check(
+        "재즈" in r_spoof.text and "초콜릿" not in r_spoof.text,
+        "U8 args user_id=alice 밀반입 시도 → 여전히 bob 기억만(args 무시)",
+    )
 
     # ---- 관측 프레임 + node_label ----
     frames = [i for i in b_bob.invocations if i["node"] == "broker_invoke:memory:user"]
     check(len(frames) >= 1, f"U8 broker.invocations에 memory 프레임 (got {len(frames)})")
 
     # discover(주체 있음) → memory cap 노출 / 머신·RBAC거부·allow밖 → [].
-    check(any(c.id == MEM_USER for c in await b_bob.discover("기억")), "U8 discover → memory cap 노출")
-    b_machine = PolicyScopedBroker({MEM_USER}, lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=_fake_factory, user_id=None)))
+    check(
+        any(c.id == MEM_USER for c in await b_bob.discover("기억")), "U8 discover → memory cap 노출"
+    )
+    b_machine = PolicyScopedBroker(
+        {MEM_USER},
+        lambda k, name=None: True,
+        providers=build_providers(BrokerContext(session_factory=_fake_factory, user_id=None)),
+    )
     check(await b_machine.discover("기억") == [], "U8 머신 → discover [](자기 스코프 없음)")
-    b_deny = PolicyScopedBroker({MEM_USER}, lambda k, name=None: False, providers=build_providers(BrokerContext(session_factory=_raise_factory(), user_id="bob")))
+    b_deny = PolicyScopedBroker(
+        {MEM_USER},
+        lambda k, name=None: False,
+        providers=build_providers(BrokerContext(session_factory=_raise_factory(), user_id="bob")),
+    )
     check(await b_deny.discover("기억") == [], "U8 RBAC 거부 → discover [](DB 미접촉)")
-    b_noallow = PolicyScopedBroker(set(), lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=_raise_factory(), user_id="bob")))
+    b_noallow = PolicyScopedBroker(
+        set(),
+        lambda k, name=None: True,
+        providers=build_providers(BrokerContext(session_factory=_raise_factory(), user_id="bob")),
+    )
     check(await b_noallow.discover("기억") == [], "U8 빈 allowlist → discover [](DB 미접촉)")
     r_nf = await b_noallow.invoke(MEM_USER, {"text": "x"})
     check(r_nf.error == "capability not found", "U8 allow 밖 invoke → not-found(존재 비노출)")
@@ -207,38 +276,55 @@ async def unit_async_checks() -> None:
     # ---- build_broker 배선: principal → user_id 도출이 MemoryProvider에 주입되나 ----
     bob = P()
     wired = build_broker(bob, {MEM_USER})
-    check(wired._by_kind["memory"]._user_id == str(bob.id),
-          "U9 build_broker(유저) → MemoryProvider._user_id == str(principal.id)")
+    check(
+        wired._by_kind["memory"]._user_id == str(bob.id),
+        "U9 build_broker(유저) → MemoryProvider._user_id == str(principal.id)",
+    )
     wired_m = build_broker("machine", {MEM_USER})
-    check(wired_m._by_kind["memory"]._user_id is None,
-          "U9 build_broker(머신) → MemoryProvider._user_id None(에스컬레이션·자기스코프 없음)")
+    check(
+        wired_m._by_kind["memory"]._user_id is None,
+        "U9 build_broker(머신) → MemoryProvider._user_id None(에스컬레이션·자기스코프 없음)",
+    )
 
     # ---- U9b limit 타입/범위 방어(적대 리뷰 104 P2) — 브로커는 args.limit 무검증 입구 ----
     with_mem(FakeMem(store))  # 재설치(위 build_broker가 안 건드림)
     r_boom = await b_bob.invoke(MEM_USER, {"text": "취미", "limit": "boom"})
-    check(r_boom.error is None and "재즈" in r_boom.text,
-          "U9b limit='boom'(비정수) → 크래시 없이 회상(정수 강제)")
+    check(
+        r_boom.error is None and "재즈" in r_boom.text,
+        "U9b limit='boom'(비정수) → 크래시 없이 회상(정수 강제)",
+    )
     r_neg = await b_bob.invoke(MEM_USER, {"text": "취미", "limit": -1})
     check(r_neg.error is None and "재즈" in r_neg.text, "U9b limit=-1 → 꼬리절단 아님(≥1 clamp)")
-    check(M.recall_probe({"user_id": "bob"}, "q", {"llm": {}, "embedder": {}}, 999) is not None,
-          "U9b limit=999 → clamp(상한 방어)")
-    check(M._clamp_limit("boom") == 4 and M._clamp_limit(-1) == 1 and M._clamp_limit(999) == 10,
-          "U9b _clamp_limit: 비정수→4·음수→1·거대→10")
+    check(
+        M.recall_probe({"user_id": "bob"}, "q", {"llm": {}, "embedder": {}}, 999) is not None,
+        "U9b limit=999 → clamp(상한 방어)",
+    )
+    check(
+        M._clamp_limit("boom") == 4 and M._clamp_limit(-1) == 1 and M._clamp_limit(999) == 10,
+        "U9b _clamp_limit: 비정수→4·음수→1·거대→10",
+    )
 
     # 백엔드 미가용(resolve_backend None) → graceful(에이전트 안 죽임).
     M.resolve_backend = lambda mem_cfg: None  # type: ignore[assignment]
     r_off = await b_bob.invoke(MEM_USER, {"text": "x"})
-    check(r_off.error is not None and "구성" in r_off.error and r_off.trust == "untrusted",
-          "U10 백엔드 미가용 → graceful 오류(untrusted, 084 recall_probe 정직성 계약)")
+    check(
+        r_off.error is not None and "구성" in r_off.error and r_off.trust == "untrusted",
+        "U10 백엔드 미가용 → graceful 오류(untrusted, 084 recall_probe 정직성 계약)",
+    )
 
     # ---- U11 재개 브로커 배선(적대 리뷰 104 P2) — 승인 재개 경로도 user_id 복원 ----
     from api import chat as CHAT
+
     rb = await CHAT._build_resume_broker("bob-uid", {MEM_USER})
-    check(rb._by_kind["memory"]._user_id == "bob-uid",
-          "U11 _build_resume_broker(user_id) → MemoryProvider._user_id 복원(재개 시 자기 기억 유지)")
+    check(
+        rb._by_kind["memory"]._user_id == "bob-uid",
+        "U11 _build_resume_broker(user_id) → MemoryProvider._user_id 복원(재개 시 자기 기억 유지)",
+    )
     rb_none = await CHAT._build_resume_broker(None, {MEM_USER})
-    check(rb_none._by_kind["memory"]._user_id is None,
-          "U11 _build_resume_broker(None) → user_id None(머신 발, 자기 스코프 없음)")
+    check(
+        rb_none._by_kind["memory"]._user_id is None,
+        "U11 _build_resume_broker(None) → user_id None(머신 발, 자기 스코프 없음)",
+    )
 
 
 # ================================================================ [H] 통합(실 mem0 + 실 DB)
@@ -246,6 +332,7 @@ async def integration_checks() -> None:
     print("[H] 통합(실 mem0 + 실 DB) — 두 유저 기억 시드 → 실 backend 필터가 user_id 스코프 지키나")
     # 모듈 패치 원복(단위서 M.resolve_backend/MC.default_mem_cfg 바꿈) 후 실물 사용.
     import importlib
+
     importlib.reload(M)
     importlib.reload(MC)
     from api.authz import init_authz
@@ -288,16 +375,26 @@ async def integration_checks() -> None:
 
         # H1 discover → memory cap.
         caps = await b.discover("기억")
-        check(any(c.id == MEM_USER for c in caps), f"H1 discover → memory cap (got {[c.id for c in caps]})")
+        check(
+            any(c.id == MEM_USER for c in caps),
+            f"H1 discover → memory cap (got {[c.id for c in caps]})",
+        )
         # H2 describe.
         d = await b.describe(MEM_USER)
-        check(d.kind == "memory" and "text" in (d.input_schema or {}).get("properties", {}),
-              "H2 describe → kind=memory·text 파라미터")
+        check(
+            d.kind == "memory" and "text" in (d.input_schema or {}).get("properties", {}),
+            "H2 describe → kind=memory·text 파라미터",
+        )
         # H3 invoke(bob) → 밥 기억만, 앨리스 절대 노출 0(실 backend 필터).
         res = await b.invoke(MEM_USER, {"text": bob_fact})
-        check(res.error is None and "재즈" in res.text, f"H3 invoke(bob) → 밥 기억 회상 (err={res.error})")
-        check("초콜릿" not in res.text and "알레르기" not in res.text,
-              "H3 invoke(bob) → 앨리스 기억 노출 0(실 backend user_id 스코프)")
+        check(
+            res.error is None and "재즈" in res.text,
+            f"H3 invoke(bob) → 밥 기억 회상 (err={res.error})",
+        )
+        check(
+            "초콜릿" not in res.text and "알레르기" not in res.text,
+            "H3 invoke(bob) → 앨리스 기억 노출 0(실 backend user_id 스코프)",
+        )
         check(res.trust == "untrusted", "H3 결과 trust=untrusted")
         frames = [i for i in b.invocations if i["node"] == "broker_invoke:memory:user"]
         check(len(frames) == 1, f"H3 broker.invocations에 memory 프레임 1개 (got {len(frames)})")
@@ -318,8 +415,10 @@ async def integration_checks() -> None:
             self.display_name = None
 
     b_member = build_broker(_Member(uuid.uuid4()), {MEM_USER})
-    check(await b_member.discover("기억") == [],
-          "H5 member(capability:memory RBAC 없음) → discover [](정책 격리)")
+    check(
+        await b_member.discover("기억") == [],
+        "H5 member(capability:memory RBAC 없음) → discover [](정책 격리)",
+    )
 
 
 async def main() -> None:
@@ -330,7 +429,9 @@ async def main() -> None:
         await integration_checks()
     except Exception as exc:  # noqa: BLE001
         print(f"  ..  [H] 통합 SKIP — DB/mem0 미가용({type(exc).__name__}: {exc})")
-        print("      U(단위)만으로 핵심 불변식(교차유저 격리·anti-leak) 보증; H는 dev DB·mem0 가동 시 재실행.")
+        print(
+            "      U(단위)만으로 핵심 불변식(교차유저 격리·anti-leak) 보증; H는 dev DB·mem0 가동 시 재실행."
+        )
 
 
 if __name__ == "__main__":

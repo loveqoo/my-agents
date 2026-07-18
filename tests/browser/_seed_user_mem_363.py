@@ -7,6 +7,7 @@
   seed  <email> <text>   → 적재(멱등 아님 — 중복 add 무해, verbatim)
   clear <email> <text>   → 그 텍스트와 일치하는 회상 기억 삭제(정리)
 """
+
 import asyncio
 import sys
 

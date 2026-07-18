@@ -44,7 +44,10 @@ def main():
     check(OB.is_configured() is False, "U1a 미설정 is_configured=False")
     check(OB.trace_callbacks() == [], "U1b 미설정 trace_callbacks=[]")
     cfg = {"configurable": {"thread_id": "t"}}
-    check(OB.with_trace(cfg, name="x") is cfg or OB.with_trace(cfg, name="x") == cfg, "U1c 미설정 with_trace=원본")
+    check(
+        OB.with_trace(cfg, name="x") is cfg or OB.with_trace(cfg, name="x") == cfg,
+        "U1c 미설정 with_trace=원본",
+    )
 
     # U2 — 병합(핸들러는 가짜 factory — endpoint env 없이도 경로 검증)
     os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"] = "http://127.0.0.1:4318"
@@ -59,7 +62,10 @@ def main():
     check(out["callbacks"] == [fake], "U2a 콜백 부착")
     md = out.get("metadata", {})
     check(md.get("session_id") == "sess1" and md.get("user_id") == "user1", "U2b metadata 중립 키")
-    check(md.get("trace_name") == "chat:agt_x" and out.get("run_name") == "chat:agt_x", "U2c trace_name/run_name")
+    check(
+        md.get("trace_name") == "chat:agt_x" and out.get("run_name") == "chat:agt_x",
+        "U2c trace_name/run_name",
+    )
     check(out["configurable"]["thread_id"] == "t", "U2d 기존 config 보존")
 
     # U3 — callbacks 3분기(None은 U2a로 커버)
@@ -86,12 +92,18 @@ def main():
 
     root, mid, llm, tool = uuid.uuid4(), uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
     h.on_chain_start(
-        {}, {}, run_id=root, parent_run_id=None,
+        {},
+        {},
+        run_id=root,
+        parent_run_id=None,
         metadata={"trace_name": "chat:agt_demo", "session_id": "sess-9", "user_id": "u-7"},
     )
     h.on_chain_start({}, {}, run_id=mid, parent_run_id=root)  # 중간 chain — span 없음
     h.on_chat_model_start(
-        {}, [], run_id=llm, parent_run_id=mid,
+        {},
+        [],
+        run_id=llm,
+        parent_run_id=mid,
         invocation_params={"model": "mock-llm"},
     )
     h.on_llm_end(
@@ -103,7 +115,10 @@ def main():
     h.on_chain_end({}, run_id=root)
 
     spans = {s.name: s for s in exporter.get_finished_spans()}
-    check(set(spans) == {"chat:agt_demo", "llm mock-llm", "tool echo"}, f"U4a span 3종(중간 chain 없음) (got {sorted(spans)})")
+    check(
+        set(spans) == {"chat:agt_demo", "llm mock-llm", "tool echo"},
+        f"U4a span 3종(중간 chain 없음) (got {sorted(spans)})",
+    )
     root_span = spans.get("chat:agt_demo")
     check(
         root_span is not None
@@ -161,7 +176,10 @@ def main():
     all_attr_values = " ".join(
         str(v) for s in spans.values() for v in (s.attributes or {}).values()
     )
-    check("비밀 인자 본문" not in all_attr_values and "결과 본문" not in all_attr_values, "U7 인자/결과 본문 미탑재")
+    check(
+        "비밀 인자 본문" not in all_attr_values and "결과 본문" not in all_attr_values,
+        "U7 인자/결과 본문 미탑재",
+    )
 
     os.environ.pop("OTEL_EXPORTER_OTLP_ENDPOINT", None)
     print()

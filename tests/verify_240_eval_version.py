@@ -48,48 +48,88 @@ async def _wait_run(c: httpx.AsyncClient, run_id: str, timeout_s: int = 60) -> d
 async def run() -> bool:
     t = httpx.ASGITransport(app=app)
     headers = {"Authorization": f"Bearer {_token()}"}
-    async with httpx.AsyncClient(transport=t, base_url="http://t", headers=headers, timeout=120) as c:
+    async with httpx.AsyncClient(
+        transport=t, base_url="http://t", headers=headers, timeout=120
+    ) as c:
         made_agents: list[str] = []
         ds_id = None
         try:
-            a = (await c.post("/agents", json={
-                "name": f"v240-{uuid.uuid4().hex[:6]}",
-                "config": {"model": "mock-llm", "prompt": "평가 귀속", "mcps": ["local-tools"]},
-            })).json()
+            a = (
+                await c.post(
+                    "/agents",
+                    json={
+                        "name": f"v240-{uuid.uuid4().hex[:6]}",
+                        "config": {
+                            "model": "mock-llm",
+                            "prompt": "평가 귀속",
+                            "mcps": ["local-tools"],
+                        },
+                    },
+                )
+            ).json()
             made_agents.append(a["id"])
             v0 = a.get("activeVersion") or a.get("active_version")
 
-            ds = (await c.post("/eval/datasets", json={"name": f"ds240-{uuid.uuid4().hex[:6]}", "kind": "agent"})).json()
+            ds = (
+                await c.post(
+                    "/eval/datasets",
+                    json={"name": f"ds240-{uuid.uuid4().hex[:6]}", "kind": "agent"},
+                )
+            ).json()
             ds_id = ds["id"]
-            await c.post(f"/eval/datasets/{ds_id}/cases", json={
-                "name": "인사", "input": "안녕", "asserts": [{"type": "no_error"}],
-            })
+            await c.post(
+                f"/eval/datasets/{ds_id}/cases",
+                json={
+                    "name": "인사",
+                    "input": "안녕",
+                    "asserts": [{"type": "no_error"}],
+                },
+            )
 
             r = (await c.post(f"/eval/datasets/{ds_id}/runs", json={"agent_id": a["id"]})).json()
             done = await _wait_run(c, r["id"])
             ck(done.get("status") == "ok", f"V0 평가 실행 완료 (status={done.get('status')})")
             # 새 에이전트는 초안만 있고 활성 버전이 없다(None) — 런의 None은 그 사실의 정직한 기록.
             # 활성 버전 추적 증명은 V2(활성화 후 v1 박제)가 담당.
-            ck(done.get("agent_version") == v0,
-               f"V1a 버전 박제=활성 버전과 일치 (run={done.get('agent_version')} agent={v0})")
+            ck(
+                done.get("agent_version") == v0,
+                f"V1a 버전 박제=활성 버전과 일치 (run={done.get('agent_version')} agent={v0})",
+            )
             env = done.get("env") or {}
-            ck((env.get("model") or {}).get("name") == "mock-llm", f"V1b env.model 기록 ({env.get('model')})")
-            ck("local-tools" in (env.get("mcps") or {}), f"V1c env.mcps 도구 목록 기록 ({list((env.get('mcps') or {}).keys())})")
+            ck(
+                (env.get("model") or {}).get("name") == "mock-llm",
+                f"V1b env.model 기록 ({env.get('model')})",
+            )
+            ck(
+                "local-tools" in (env.get("mcps") or {}),
+                f"V1c env.mcps 도구 목록 기록 ({list((env.get('mcps') or {}).keys())})",
+            )
 
             # V2 — 편집(초안 v2 생성)→활성화→재실행: 새 버전이 박제되나
-            await c.put(f"/agents/{a['id']}", json={
-                "config": {"model": "mock-llm", "prompt": "평가 귀속 v2", "mcps": ["local-tools"]},
-            })
+            await c.put(
+                f"/agents/{a['id']}",
+                json={
+                    "config": {
+                        "model": "mock-llm",
+                        "prompt": "평가 귀속 v2",
+                        "mcps": ["local-tools"],
+                    },
+                },
+            )
             g = (await c.get(f"/agents/{a['id']}")).json()
-            draft = next((v["version"] for v in g.get("versions", []) if v.get("status") == "draft"), None)
+            draft = next(
+                (v["version"] for v in g.get("versions", []) if v.get("status") == "draft"), None
+            )
             if draft:
                 await c.post(f"/agents/{a['id']}/activate", json={"version": draft})
             g2 = (await c.get(f"/agents/{a['id']}")).json()
             v1 = g2.get("activeVersion") or g2.get("active_version")
             r2 = (await c.post(f"/eval/datasets/{ds_id}/runs", json={"agent_id": a["id"]})).json()
             done2 = await _wait_run(c, r2["id"])
-            ck(bool(v1) and v1 != v0 and done2.get("agent_version") == v1,
-               f"V2 버전 전환 추적 ({v0} → {v1}, run={done2.get('agent_version')})")
+            ck(
+                bool(v1) and v1 != v0 and done2.get("agent_version") == v1,
+                f"V2 버전 전환 추적 ({v0} → {v1}, run={done2.get('agent_version')})",
+            )
 
             # V3 — 목록 API에도 노출
             runs = (await c.get(f"/eval/runs?dataset_id={ds_id}")).json()

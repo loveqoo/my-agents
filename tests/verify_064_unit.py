@@ -96,16 +96,20 @@ print("\n[C] 캐시 시맨틱 — 스냅샷 고정·디바운스·무효화·gua
 async def _cache_checks() -> None:
     # 시seam: 스냅샷 고정(만료=inf). guard_url이 사설대역이라도 스냅샷 host는 통과.
     _set_allowed_hosts_for_test(["127.0.0.1", "Agent.Internal"])
-    check(net_guard._allowed_hosts() == {"127.0.0.1", "agent.internal"},
-          "C1 시seam이 normalize 거쳐 lower 고정")
+    check(
+        net_guard._allowed_hosts() == {"127.0.0.1", "agent.internal"},
+        "C1 시seam이 normalize 거쳐 lower 고정",
+    )
     check(guard_url("http://127.0.0.1:8000/x") is None, "C2 스냅샷 host(127.0.0.1) 통과")
     # 매칭은 guard_url의 parsed.hostname.lower()와 동형 — 대문자 입력도 통과.
     check(guard_url("http://AGENT.INTERNAL/a2a") is None, "C2 대문자 host도 lower 매칭 통과")
 
     # 디바운스: 만료=inf라 refresh(force=False)는 DB를 안 치고 no-op(스냅샷 유지).
     await refresh_allowed_hosts(force=False)
-    check(net_guard._allowed_hosts() == {"127.0.0.1", "agent.internal"},
-          "C3 만료 전 refresh는 no-op(디바운스, DB 미조회)")
+    check(
+        net_guard._allowed_hosts() == {"127.0.0.1", "agent.internal"},
+        "C3 만료 전 refresh는 no-op(디바운스, DB 미조회)",
+    )
 
     # 스냅샷 밖 사설은 차단.
     try:
@@ -118,8 +122,11 @@ async def _cache_checks() -> None:
     # 만료 플래그만 단언). monotonic now>0 이므로 0<now → 만료 상태.
     invalidate_allowed_hosts_cache()
     import time as _t
-    check(net_guard._SNAPSHOT_EXPIRES <= _t.monotonic(),
-          "C5 invalidate가 만료를 현재시각 이하로(다음 refresh 재조회 유도)")
+
+    check(
+        net_guard._SNAPSHOT_EXPIRES <= _t.monotonic(),
+        "C5 invalidate가 만료를 현재시각 이하로(다음 refresh 재조회 유도)",
+    )
 
     # 빈 스냅샷 = fail-closed(콜드 기본). 127.0.0.1도 차단.
     _set_allowed_hosts_for_test([])

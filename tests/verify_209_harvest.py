@@ -9,6 +9,7 @@ verify_209_feedback 패턴 재사용. 수확 입구의 소유권·정확성을 �
 
 전제: API(127.0.0.1:8000)+실 DB 생존. 실행: .venv/bin/python tests/verify_209_harvest.py
 """
+
 import asyncio
 import os
 import subprocess
@@ -34,7 +35,7 @@ from api.models import (  # noqa: E402
     User,
 )
 
-BASE = "http://127.0.0.1:8000"
+BASE = os.environ.get("VERIFY_BASE", "http://127.0.0.1:8000")  # 스펙 390: 격리 서버 주입
 PY = os.path.join(ROOT, ".venv", "bin", "python")
 PROV = os.path.join(ROOT, "tests", "_provision_super.py")
 
@@ -81,8 +82,13 @@ async def _seed(owner_id: str) -> dict:
 
         async def _sess(agent, key, q, rating, reason):
             sid = f"{SPREFIX}{key}"
-            sess = Session(session_id=sid, agent_pk=agent.id, agent_name=agent.name,
-                           user_id=owner_id, status="active")
+            sess = Session(
+                session_id=sid,
+                agent_pk=agent.id,
+                agent_name=agent.name,
+                user_id=owner_id,
+                status="active",
+            )
             s.add(sess)
             await s.flush()
             um = Message(session_pk=sess.id, role="user", content=q)
@@ -90,8 +96,13 @@ async def _seed(owner_id: str) -> dict:
             s.add(um)
             s.add(am)
             await s.flush()
-            fb = MessageFeedback(message_pk=am.id, session_pk=sess.id, rating=rating,
-                                 reason=reason, owner_id=owner_id)
+            fb = MessageFeedback(
+                message_pk=am.id,
+                session_pk=sess.id,
+                rating=rating,
+                reason=reason,
+                owner_id=owner_id,
+            )
             s.add(fb)
             return {"sid": sid, "asst_mid": str(am.id), "q": q, "fb_rating": rating}
 
@@ -105,7 +116,9 @@ async def _seed(owner_id: str) -> dict:
 async def _cleanup() -> None:
     async with SessionLocal() as s:
         # 수확 문제집(source_agent_pk가 이 에이전트) 삭제 → 케이스 CASCADE
-        agent_pks = (await s.execute(select(Agent.id).where(Agent.agent_id.in_([A1, A2])))).scalars().all()
+        agent_pks = (
+            (await s.execute(select(Agent.id).where(Agent.agent_id.in_([A1, A2])))).scalars().all()
+        )
         if agent_pks:
             await s.execute(delete(EvalDataset).where(EvalDataset.source_agent_pk.in_(agent_pks)))
         await s.execute(delete(Session).where(Session.session_id.like(f"{SPREFIX}%")))
@@ -114,8 +127,11 @@ async def _cleanup() -> None:
 
 
 async def _login(client: httpx.AsyncClient, email: str) -> bool:
-    r = await client.post("/auth/login", data={"username": email, "password": PW},
-                          headers={"Content-Type": "application/x-www-form-urlencoded"})
+    r = await client.post(
+        "/auth/login",
+        data={"username": email, "password": PW},
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
     return r.status_code in (200, 204)
 
 
@@ -132,19 +148,26 @@ async def _poll_done(client: httpx.AsyncClient, dataset_id: str, tries: int = 40
 
 async def _dataset_count_for(agent_pk: str) -> int:
     async with SessionLocal() as s:
-        return (await s.execute(
-            select(func.count()).select_from(EvalDataset).where(EvalDataset.source_agent_pk == agent_pk)
-        )).scalar_one()
+        return (
+            await s.execute(
+                select(func.count())
+                .select_from(EvalDataset)
+                .where(EvalDataset.source_agent_pk == agent_pk)
+            )
+        ).scalar_one()
 
 
 async def _stamped_count(agent_pk: str) -> int:
     """이 에이전트 세션에서 harvested_case_pk가 채워진(수확된) 피드백 수."""
     async with SessionLocal() as s:
-        return (await s.execute(
-            select(func.count()).select_from(MessageFeedback)
-            .join(Session, Session.id == MessageFeedback.session_pk)
-            .where(Session.agent_pk == agent_pk, MessageFeedback.harvested_case_pk.isnot(None))
-        )).scalar_one()
+        return (
+            await s.execute(
+                select(func.count())
+                .select_from(MessageFeedback)
+                .join(Session, Session.id == MessageFeedback.session_pk)
+                .where(Session.agent_pk == agent_pk, MessageFeedback.harvested_case_pk.isnot(None))
+            )
+        ).scalar_one()
 
 
 async def main() -> None:
@@ -166,8 +189,10 @@ async def main() -> None:
             # ---- HC1 소유자 수확수 = 미수확 피드백 2건(agent1), 아직 문제집 없음 ----
             r = await owner.get("/eval/harvest-count", params={"agent_id": a1})
             j = r.json()
-            check(r.status_code == 200 and j["available"] == 2 and j["dataset_id"] is None,
-                  f"HC1: 소유자 수확수=2·문제집없음 — got {r.status_code}/{j}")
+            check(
+                r.status_code == 200 and j["available"] == 2 and j["dataset_id"] is None,
+                f"HC1: 소유자 수확수=2·문제집없음 — got {r.status_code}/{j}",
+            )
 
             # ---- O1 비소유 멤버 수확수 조회 → 404(은폐) ----
             r = await other.get("/eval/harvest-count", params={"agent_id": a1})
@@ -181,63 +206,113 @@ async def main() -> None:
             # ---- F4(codex) 미존재 에이전트 → 404(admin도 500 아님) ----
             RAND = "11111111-1111-1111-1111-111111111111"
             r = await superc.get("/eval/harvest-count", params={"agent_id": RAND})
-            check(r.status_code == 404, f"F4: admin 미존재 에이전트 수확수 → 404 — got {r.status_code}")
+            check(
+                r.status_code == 404,
+                f"F4: admin 미존재 에이전트 수확수 → 404 — got {r.status_code}",
+            )
             r = await superc.post("/eval/datasets/harvest", json={"agent_id": RAND})
-            check(r.status_code == 404, f"F4b: admin 미존재 에이전트 수확 → 404(500 아님) — got {r.status_code}")
+            check(
+                r.status_code == 404,
+                f"F4b: admin 미존재 에이전트 수확 → 404(500 아님) — got {r.status_code}",
+            )
 
             # ---- H1 소유자 수확 → 202 + 수확 문제집(source_agent_pk) ----
             r = await owner.post("/eval/datasets/harvest", json={"agent_id": a1})
-            check(r.status_code == 202 and r.json()["kind"] == "agent",
-                  f"H1: 소유자 수확 → 202 agent 문제집 — got {r.status_code}/{r.text[:80]}")
+            check(
+                r.status_code == 202 and r.json()["kind"] == "agent",
+                f"H1: 소유자 수확 → 202 agent 문제집 — got {r.status_code}/{r.text[:80]}",
+            )
             ds_id = r.json()["id"]
             done = await _poll_done(owner, ds_id)
 
             # ---- H2 케이스 2건 생성(agent1의 👍·👎), agent2(C)는 격리 ----
-            check(done.get("case_count") == 2, f"H2: 수확 케이스=2건(agent1만) — got {done.get('case_count')}")
+            check(
+                done.get("case_count") == 2,
+                f"H2: 수확 케이스=2건(agent1만) — got {done.get('case_count')}",
+            )
 
             async with SessionLocal() as s:
-                cases = (await s.execute(
-                    select(EvalCase).where(EvalCase.dataset_id == ds_id).order_by(EvalCase.order_idx)
-                )).scalars().all()
+                cases = (
+                    (
+                        await s.execute(
+                            select(EvalCase)
+                            .where(EvalCase.dataset_id == ds_id)
+                            .order_by(EvalCase.order_idx)
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
             inputs = {c.input for c in cases}
-            check(inputs == {"질문A는 무엇인가?", "질문B는 무엇인가?"},
-                  f"H2b: 케이스 질문=직전 user 메시지(A·B), C(agent2) 격리 — got {inputs}")
-            check(all(c.asserts and c.asserts[0]["type"] == "llm_judge" for c in cases),
-                  "H2c: 각 케이스 assert=llm_judge(폴백 기준)")
-            check(any("싫어요" in c.name for c in cases) and any("좋아요" in c.name for c in cases),
-                  f"H2d: name에 평점 반영(좋아요/싫어요) — got {[c.name for c in cases]}")
+            check(
+                inputs == {"질문A는 무엇인가?", "질문B는 무엇인가?"},
+                f"H2b: 케이스 질문=직전 user 메시지(A·B), C(agent2) 격리 — got {inputs}",
+            )
+            check(
+                all(c.asserts and c.asserts[0]["type"] == "llm_judge" for c in cases),
+                "H2c: 각 케이스 assert=llm_judge(폴백 기준)",
+            )
+            check(
+                any("싫어요" in c.name for c in cases) and any("좋아요" in c.name for c in cases),
+                f"H2d: name에 평점 반영(좋아요/싫어요) — got {[c.name for c in cases]}",
+            )
 
             # ---- F1(codex) 수확 문제집=세션 파생 콘텐츠 → 소유자/admin만 읽음(비소유 404) ----
             r = await other.get(f"/eval/datasets/{ds_id}")
-            check(r.status_code == 404, f"F1: 비소유 수확 문제집 GET → 404(스코프 상속) — got {r.status_code}")
+            check(
+                r.status_code == 404,
+                f"F1: 비소유 수확 문제집 GET → 404(스코프 상속) — got {r.status_code}",
+            )
             r = await other.get(f"/eval/datasets/{ds_id}/cases")
             check(r.status_code == 404, f"F1b: 비소유 수확 케이스 GET → 404 — got {r.status_code}")
-            lst = (await other.get("/eval/datasets", params={"q": "피드백 수확", "limit": 50})).json()
-            check(all(x["id"] != ds_id for x in lst["items"]), "F1c: 비소유 목록에 수확 문제집 미노출")
+            lst = (
+                await other.get("/eval/datasets", params={"q": "피드백 수확", "limit": 50})
+            ).json()
+            check(
+                all(x["id"] != ds_id for x in lst["items"]), "F1c: 비소유 목록에 수확 문제집 미노출"
+            )
             r = await owner.get(f"/eval/datasets/{ds_id}/cases")
-            check(r.status_code == 200, f"F1d: 소유자 수확 케이스 GET → 200(자가-잠금 아님) — got {r.status_code}")
+            check(
+                r.status_code == 200,
+                f"F1d: 소유자 수확 케이스 GET → 200(자가-잠금 아님) — got {r.status_code}",
+            )
 
             # ---- H3 harvested_case_pk 스탬프(agent1 피드백 2건 수확됨) ----
-            check(await _stamped_count(a1) == 2, f"H3: agent1 피드백 2건 harvested 스탬프 — got {await _stamped_count(a1)}")
+            check(
+                await _stamped_count(a1) == 2,
+                f"H3: agent1 피드백 2건 harvested 스탬프 — got {await _stamped_count(a1)}",
+            )
             check(await _stamped_count(a2) == 0, "H3b: agent2 피드백 미수확(격리 유지)")
 
             # ---- H4 재수확 → 미수확 0 → 0건 추가(중복 방지), 같은 문제집 재사용 ----
             r = await owner.get("/eval/harvest-count", params={"agent_id": a1})
             j = r.json()
-            check(j["available"] == 0 and j["dataset_id"] == ds_id,
-                  f"H4: 재수확수=0·기존 문제집 링크 — got {j}")
+            check(
+                j["available"] == 0 and j["dataset_id"] == ds_id,
+                f"H4: 재수확수=0·기존 문제집 링크 — got {j}",
+            )
             r = await owner.post("/eval/datasets/harvest", json={"agent_id": a1})
-            check(r.status_code == 202 and r.json()["id"] == ds_id, "H4b: 재수확=같은 문제집(idempotent)")
+            check(
+                r.status_code == 202 and r.json()["id"] == ds_id,
+                "H4b: 재수확=같은 문제집(idempotent)",
+            )
             done2 = await _poll_done(owner, ds_id)
-            check(done2.get("case_count") == 2, f"H4c: 재수확 후에도 2건(중복 미추가) — got {done2.get('case_count')}")
+            check(
+                done2.get("case_count") == 2,
+                f"H4c: 재수확 후에도 2건(중복 미추가) — got {done2.get('case_count')}",
+            )
             check(await _dataset_count_for(a1) == 1, "H4d: 수확 문제집 1개만(2번째 미생성)")
 
             # ---- O3 super(admin)는 임의 에이전트 수확수 조회 가능 ----
             r = await superc.get("/eval/harvest-count", params={"agent_id": a2})
-            check(r.status_code == 200 and r.json()["available"] == 1,
-                  f"O3: admin agent2 수확수=1 — got {r.status_code}/{r.json()}")
+            check(
+                r.status_code == 200 and r.json()["available"] == 1,
+                f"O3: admin agent2 수확수=1 — got {r.status_code}/{r.json()}",
+            )
         finally:
-            await owner.aclose(); await other.aclose(); await superc.aclose()
+            await owner.aclose()
+            await other.aclose()
+            await superc.aclose()
     finally:
         await _cleanup()
         _provision(create=False)
@@ -248,7 +323,9 @@ async def main() -> None:
         for f in _fails:
             print("   -", f)
         sys.exit(1)
-    print("✅ 스펙 209 Phase 2 수확 — 소유권 404·수확→케이스·harvested 스탬프·크로스에이전트 격리·idempotent 전부 통과")
+    print(
+        "✅ 스펙 209 Phase 2 수확 — 소유권 404·수확→케이스·harvested 스탬프·크로스에이전트 격리·idempotent 전부 통과"
+    )
 
 
 asyncio.run(main())

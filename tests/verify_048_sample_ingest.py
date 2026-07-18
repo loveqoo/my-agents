@@ -18,6 +18,7 @@
 
 실행: .venv/bin/python tests/verify_048_sample_ingest.py  (in-process 앱이 :8000 mock을 침 → dev 서버 필요)
 """
+
 import asyncio
 import os
 import re
@@ -85,7 +86,10 @@ def _gate_tests() -> None:
     chat = _FakeEmb("some-chat", True, "ID_CHAT", kind="chat")
     specs3 = seed._collection_seed_specs([chat, mock], [("docs_kb", "d", None)])
     check(specs3 and specs3[0][2] == "ID_MOCK", "A5 chat 모델 제외 → embedding(mock)에만 바인딩")
-    check(seed._collection_seed_specs([chat], [("x", "d", None)]) == [], "A5b chat만 있으면 [] (게이트 막힘)")
+    check(
+        seed._collection_seed_specs([chat], [("x", "d", None)]) == [],
+        "A5b chat만 있으면 [] (게이트 막힘)",
+    )
 
 
 async def _cleanup() -> None:
@@ -104,7 +108,9 @@ async def _collection_dict(name: str) -> dict:
             await s.execute(
                 select(Collection)
                 .where(Collection.name == name)
-                .options(selectinload(Collection.embedding_model).selectinload(ModelConfig.provider))
+                .options(
+                    selectinload(Collection.embedding_model).selectinload(ModelConfig.provider)
+                )
             )
         ).scalar_one()
         em = c.embedding_model
@@ -122,7 +128,10 @@ async def _first_chunk_text(cid) -> str:
     async with SessionLocal() as s:
         return (
             await s.execute(
-                select(Chunk.text).where(Chunk.collection_id == cid).order_by(Chunk.ordinal).limit(1)
+                select(Chunk.text)
+                .where(Chunk.collection_id == cid)
+                .order_by(Chunk.ordinal)
+                .limit(1)
             )
         ).scalar_one()
 
@@ -149,14 +158,23 @@ async def main() -> None:
     await _cleanup()
     transport = httpx.ASGITransport(app=app)
     try:
-        async with httpx.AsyncClient(transport=transport, base_url="http://t", headers=_AUTH, timeout=120) as c:
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://t", headers=_AUTH, timeout=120
+        ) as c:
             provs = (await c.get("/providers")).json()
             mock_p = next((p for p in provs if "_remote" in (p.get("base_url") or "")), None)
             check(mock_p is not None, "mock(_remote) provider 존재")
-            mk = await c.post("/models", json={
-                "name": f"{MP}embed", "provider_id": mock_p["id"], "model_id": "mock-embed",
-                "kind": "embedding", "is_default": False, "params": {},
-            })
+            mk = await c.post(
+                "/models",
+                json={
+                    "name": f"{MP}embed",
+                    "provider_id": mock_p["id"],
+                    "model_id": "mock-embed",
+                    "kind": "embedding",
+                    "is_default": False,
+                    "params": {},
+                },
+            )
             check(mk.status_code == 201, f"mock 임베딩 모델 생성 201 (got {mk.status_code})")
             embed_mid = mk.json()["id"]
 
@@ -165,26 +183,50 @@ async def main() -> None:
             # 그 메커니즘을 직접 단언: chat 모델 id·존재하지 않는 id로는 400.
             chat_models = [m for m in (await c.get("/models")).json() if m.get("kind") == "chat"]
             if chat_models:
-                bad = await c.post("/collections", json={
-                    "name": f"{CP}badchat", "embedding_model_id": chat_models[0]["id"],
-                    "chunk_size": 1000, "chunk_overlap": 200,
-                })
-                check(bad.status_code == 400, f"게이트: chat 모델로 컬렉션 생성 → 400 (got {bad.status_code})")
-            ghost = await c.post("/collections", json={
-                "name": f"{CP}ghost", "embedding_model_id": "00000000-0000-0000-0000-000000000000",
-                "chunk_size": 1000, "chunk_overlap": 200,
-            })
-            check(ghost.status_code in (400, 404, 422), f"게이트: 존재하지 않는 모델 id → 4xx (got {ghost.status_code})")
+                bad = await c.post(
+                    "/collections",
+                    json={
+                        "name": f"{CP}badchat",
+                        "embedding_model_id": chat_models[0]["id"],
+                        "chunk_size": 1000,
+                        "chunk_overlap": 200,
+                    },
+                )
+                check(
+                    bad.status_code == 400,
+                    f"게이트: chat 모델로 컬렉션 생성 → 400 (got {bad.status_code})",
+                )
+            ghost = await c.post(
+                "/collections",
+                json={
+                    "name": f"{CP}ghost",
+                    "embedding_model_id": "00000000-0000-0000-0000-000000000000",
+                    "chunk_size": 1000,
+                    "chunk_overlap": 200,
+                },
+            )
+            check(
+                ghost.status_code in (400, 404, 422),
+                f"게이트: 존재하지 않는 모델 id → 4xx (got {ghost.status_code})",
+            )
 
-            cc = await c.post("/collections", json={
-                "name": f"{CP}docs", "embedding_model_id": embed_mid,
-                "chunk_size": 1000, "chunk_overlap": 200,
-            })
+            cc = await c.post(
+                "/collections",
+                json={
+                    "name": f"{CP}docs",
+                    "embedding_model_id": embed_mid,
+                    "chunk_size": 1000,
+                    "chunk_overlap": 200,
+                },
+            )
             check(cc.status_code == 201, f"컬렉션 생성 201 (got {cc.status_code})")
             col = cc.json()
             col_id = col["id"]
             # B2: 차원 고정
-            check(col["dims"] == RAG_EMBED_DIMS, f"B2 컬렉션 dims={RAG_EMBED_DIMS} 고정 (got {col['dims']})")
+            check(
+                col["dims"] == RAG_EMBED_DIMS,
+                f"B2 컬렉션 dims={RAG_EMBED_DIMS} 고정 (got {col['dims']})",
+            )
 
             # B1: 각 샘플 업로드 → ready + chunks>0
             total_chunks = 0
@@ -194,14 +236,25 @@ async def main() -> None:
                     files={"file": (fn, data, "text/markdown")},
                 )
                 body = up.json()
-                ok = up.status_code == 201 and body.get("status") == "ready" and (body.get("chunk_count") or 0) > 0
+                ok = (
+                    up.status_code == 201
+                    and body.get("status") == "ready"
+                    and (body.get("chunk_count") or 0) > 0
+                )
                 total_chunks += body.get("chunk_count") or 0
-                check(ok, f"B1 {fn}: 201+ready+chunks>0 (got {up.status_code}/{body.get('status')}/{body.get('chunk_count')})")
+                check(
+                    ok,
+                    f"B1 {fn}: 201+ready+chunks>0 (got {up.status_code}/{body.get('status')}/{body.get('chunk_count')})",
+                )
 
         # B3: 저장된 첫 청크 텍스트 질의 → 1위 유사도 1.000(결정적)
         async with SessionLocal() as s:
-            cid = (await s.execute(select(Collection.id).where(Collection.name == f"{CP}docs"))).scalar_one()
-            db_chunks = await s.scalar(select(func.count()).select_from(Chunk).where(Chunk.collection_id == cid))
+            cid = (
+                await s.execute(select(Collection.id).where(Collection.name == f"{CP}docs"))
+            ).scalar_one()
+            db_chunks = await s.scalar(
+                select(func.count()).select_from(Chunk).where(Chunk.collection_id == cid)
+            )
         check(db_chunks == total_chunks, f"DB 청크수={db_chunks} == 업로드 합계={total_chunks}")
 
         chunk0 = await _first_chunk_text(cid)
@@ -211,14 +264,22 @@ async def main() -> None:
         out = await tool.ainvoke({"query": chunk0, "top_k": 3})
         sims = _sims(out)
         snippet = chunk0.strip().replace("\n", " ")[:24]
-        check(bool(sims) and abs(sims[0] - 1.000) < 1e-3, f"B3 1위 유사도 1.000(결정적) (got {sims[:1]})")
+        check(
+            bool(sims) and abs(sims[0] - 1.000) < 1e-3,
+            f"B3 1위 유사도 1.000(결정적) (got {sims[:1]})",
+        )
         check(snippet in out, "B3 1위에 질의 청크 본문 포함")
         check(sink and sink[-1].get("hits", 0) >= 1, "B3 calls_sink hits>=1")
 
         # B4: 컬렉션이 참조 중인 임베딩 모델 삭제 시도 → 깔끔한 409(IntegrityError 500 아님, 적대 리뷰 048 #1)
-        async with httpx.AsyncClient(transport=transport, base_url="http://t", headers=_AUTH, timeout=30) as c2:
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://t", headers=_AUTH, timeout=30
+        ) as c2:
             dele = await c2.delete(f"/models/{embed_mid}")
-            check(dele.status_code == 409, f"B4 참조 중 임베딩 모델 삭제 → 409(500 아님) (got {dele.status_code})")
+            check(
+                dele.status_code == 409,
+                f"B4 참조 중 임베딩 모델 삭제 → 409(500 아님) (got {dele.status_code})",
+            )
     finally:
         await _cleanup()
 

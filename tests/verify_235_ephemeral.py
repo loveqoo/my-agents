@@ -48,8 +48,12 @@ async def _counts() -> dict[str, int]:
     """세션·메시지 + 체크포인터/승인 테이블 전부의 행 수 스냅샷."""
     async with SessionLocal() as db:
         out: dict[str, int] = {}
-        out["session"] = int((await db.execute(select(func.count()).select_from(SessionRow))).scalar_one())
-        out["message"] = int((await db.execute(select(func.count()).select_from(Message))).scalar_one())
+        out["session"] = int(
+            (await db.execute(select(func.count()).select_from(SessionRow))).scalar_one()
+        )
+        out["message"] = int(
+            (await db.execute(select(func.count()).select_from(Message))).scalar_one()
+        )
         for t in _TABLES:
             out[t] = int((await db.execute(text(f"SELECT count(*) FROM {t}"))).scalar_one())
     return out
@@ -69,21 +73,31 @@ async def run() -> bool:
     # E6(ephemeral 0)이 vacuous해진다. 실제 AsyncPostgresSaver를 초기화해 대조군이 진짜로 checkpoint를
     # 쓰게 만들어야 E6이 인과 검증(내 봉합이 원인)이 된다. codex false-green 교훈 적용.
     from api import checkpointer as _ckpt
+
     saver = await _ckpt.init_checkpointer()
     if saver is None:
-        print("VERIFY235_FAIL(체크포인터 초기화 실패 — 이 테스트는 실 DB checkpointer가 있어야 E6/E7이 유의미)")
+        print(
+            "VERIFY235_FAIL(체크포인터 초기화 실패 — 이 테스트는 실 DB checkpointer가 있어야 E6/E7이 유의미)"
+        )
         return False
 
     t = httpx.ASGITransport(app=app)
     headers = {"Authorization": f"Bearer {_token()}"}
-    async with httpx.AsyncClient(transport=t, base_url="http://t", headers=headers, timeout=90) as c:
+    async with httpx.AsyncClient(
+        transport=t, base_url="http://t", headers=headers, timeout=90
+    ) as c:
         made: list[str] = []
         try:
             # (1) 비영속 에이전트 — config.ephemeral=true, 능력 0개(순수 추론).
-            eph = (await c.post("/agents", json={
-                "name": f"eph-{uuid.uuid4().hex[:6]}",
-                "config": {"model": "mock-llm", "prompt": "1회성 추론", "ephemeral": True},
-            })).json()
+            eph = (
+                await c.post(
+                    "/agents",
+                    json={
+                        "name": f"eph-{uuid.uuid4().hex[:6]}",
+                        "config": {"model": "mock-llm", "prompt": "1회성 추론", "ephemeral": True},
+                    },
+                )
+            ).json()
             made.append(eph["id"])
             ck(eph.get("config", {}).get("ephemeral") is True or True, "E0 ephemeral 에이전트 저장")
 
@@ -94,20 +108,31 @@ async def run() -> bool:
             ck(d["session"] == 0, f"E2 세션 행 0 증가 (Δ={d['session']})")
             ck(d["message"] == 0, f"E3 메시지 행 0 증가 (Δ={d['message']})")
             # codex 갭 봉합 실측 — 체크포인터·승인 테이블도 전부 0이어야 진짜 "쓰기 0".
-            ck(all(d[t] == 0 for t in _TABLES), f"E6 체크포인터·승인 테이블 전부 0 증가 ({ {t: d[t] for t in _TABLES} })")
+            ck(
+                all(d[t] == 0 for t in _TABLES),
+                f"E6 체크포인터·승인 테이블 전부 0 증가 ({ {t: d[t] for t in _TABLES} })",
+            )
 
             # (2) 대조군 — 비-ephemeral은 세션·메시지 + 체크포인터가 늘어야(테스트가 영속을 실제로 감지함을 증명).
-            norm = (await c.post("/agents", json={
-                "name": f"norm-{uuid.uuid4().hex[:6]}",
-                "config": {"model": "mock-llm", "prompt": "일반"},
-            })).json()
+            norm = (
+                await c.post(
+                    "/agents",
+                    json={
+                        "name": f"norm-{uuid.uuid4().hex[:6]}",
+                        "config": {"model": "mock-llm", "prompt": "일반"},
+                    },
+                )
+            ).json()
             made.append(norm["id"])
             n0 = await _counts()
             await _chat(c, norm["id"], "2 더하기 3은?")
             nd = _delta(n0, await _counts())
             ck(nd["session"] > 0, f"E4 대조: 비-ephemeral 세션 행 증가 (Δ={nd['session']})")
             ck(nd["message"] > 0, f"E5 대조: 비-ephemeral 메시지 행 증가 (Δ={nd['message']})")
-            ck(nd["checkpoints"] > 0, f"E7 대조: 비-ephemeral 체크포인터 기록됨 (Δ={nd['checkpoints']}) — E6이 진짜 갭을 잡음을 증명")
+            ck(
+                nd["checkpoints"] > 0,
+                f"E7 대조: 비-ephemeral 체크포인터 기록됨 (Δ={nd['checkpoints']}) — E6이 진짜 갭을 잡음을 증명",
+            )
         finally:
             for aid in made:
                 await c.delete(f"/agents/{aid}")

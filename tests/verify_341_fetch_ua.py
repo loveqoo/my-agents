@@ -19,7 +19,12 @@ import tempfile
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "packages", "api", "src"))
+sys.path.insert(
+    0,
+    os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "packages", "api", "src"
+    ),
+)
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _fails: list[str] = []
@@ -57,7 +62,9 @@ def main():
     from api import served_mcp as sm
 
     # V1 — 기본값 유지
-    check(sm._fetch_ua() == sm._FETCH_UA_DEFAULT, f"V1 env 없음 → 기본 UA 유지 ({sm._fetch_ua()!r})")
+    check(
+        sm._fetch_ua() == sm._FETCH_UA_DEFAULT, f"V1 env 없음 → 기본 UA 유지 ({sm._fetch_ua()!r})"
+    )
 
     # V2 — 오버라이드
     os.environ["WEB_FETCH_UA"] = "curl/8.7.1"
@@ -72,10 +79,14 @@ def main():
         res = sm._wiki_get(f"http://127.0.0.1:{port}/w/api.php", {"action": "query"})
     finally:
         srv.shutdown()
-    check(_seen_ua and _seen_ua[-1] == "curl/8.7.1",
-          f"V3 와이어에서 관측한 User-Agent = 오버라이드 값 (got {_seen_ua[-1:]!r})")
-    check("error" in res and "비허용 호스트" in res["error"],
-          f"V4 위키 밖 호스트 = 차단 유지(SSRF 가드 무회귀) (got {str(res)[:60]})")
+    check(
+        _seen_ua and _seen_ua[-1] == "curl/8.7.1",
+        f"V3 와이어에서 관측한 User-Agent = 오버라이드 값 (got {_seen_ua[-1:]!r})",
+    )
+    check(
+        "error" in res and "비허용 호스트" in res["error"],
+        f"V4 위키 밖 호스트 = 차단 유지(SSRF 가드 무회귀) (got {str(res)[:60]})",
+    )
 
     # V5 — .env 파일만으로 적용(셸 env 없이)
     with tempfile.TemporaryDirectory() as td:
@@ -87,21 +98,31 @@ def main():
             "from api.served_mcp import _fetch_ua; print('UA=' + _fetch_ua())"
         )
         env5 = {k: v for k, v in os.environ.items() if k != "WEB_FETCH_UA"}
-        r5 = subprocess.run([sys.executable, "-c", code], env=env5, capture_output=True, text=True, cwd=td)
+        r5 = subprocess.run(
+            [sys.executable, "-c", code], env=env5, capture_output=True, text=True, cwd=td
+        )
         out5 = (r5.stdout + r5.stderr).strip()
     check("UA=curl/9.9.9-dotenv" in out5, f"V5 .env 파일만으로 적용 (tail={out5[-70:]!r})")
 
     # V6 — 오버라이드(curl UA)로 위키 실검색 성공(처방 유효 — 위키가 curl UA를 막지 않음)
     import json
+
     d = json.loads(sm.wiki_search.func("파이썬", limit=1, lang="ko"))
     check("error" not in d, f"V6 curl UA로 위키 실검색 성공 (got {str(d)[:70]})")
 
     # V7 — 기본 클라이언트가 이미 HTTP/1.1(리포트의 http1/http2 강제 = 무동작)
     import httpx
-    r7 = httpx.get("https://ko.wikipedia.org/w/api.php",
-                   params={"action": "query", "format": "json", "meta": "siteinfo"},
-                   headers={"User-Agent": sm._FETCH_UA_DEFAULT}, timeout=15)
-    check(r7.http_version == "HTTP/1.1", f"V7 httpx 기본 = HTTP/1.1(http1 강제 무의미) (got {r7.http_version})")
+
+    r7 = httpx.get(
+        "https://ko.wikipedia.org/w/api.php",
+        params={"action": "query", "format": "json", "meta": "siteinfo"},
+        headers={"User-Agent": sm._FETCH_UA_DEFAULT},
+        timeout=15,
+    )
+    check(
+        r7.http_version == "HTTP/1.1",
+        f"V7 httpx 기본 = HTTP/1.1(http1 강제 무의미) (got {r7.http_version})",
+    )
 
     os.environ.pop("WEB_FETCH_UA", None)
     print()

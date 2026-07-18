@@ -87,16 +87,19 @@ class _Handler(BaseHTTPRequestHandler):
         if self.path == f"{PREFIX}/a2a":
             length = int(self.headers.get("Content-Length") or 0)
             body = json.loads(self.rfile.read(length) or b"{}")
-            self._send(200, {
-                "jsonrpc": "2.0",
-                "id": body.get("id"),
-                "result": {
-                    "role": "agent",
-                    "parts": [{"kind": "text", "text": MOCK_REPLY}],
-                    "messageId": "m1",
-                    "kind": "message",
+            self._send(
+                200,
+                {
+                    "jsonrpc": "2.0",
+                    "id": body.get("id"),
+                    "result": {
+                        "role": "agent",
+                        "parts": [{"kind": "text", "text": MOCK_REPLY}],
+                        "messageId": "m1",
+                        "kind": "message",
+                    },
                 },
-            })
+            )
         else:
             self._send(404)
 
@@ -129,19 +132,29 @@ async def main() -> None:
         out = await _connect(base)
         pk = out.id
 
-        ck(out.endpoint == want_endpoint,
-           f"L1 저장 endpoint가 prefix 보존 (want={want_endpoint}, got={out.endpoint})")
-        ck(out.endpoint != old_bug_endpoint,
-           "L2 옛 버그값(prefix 탈락 …/a2a)이 아님 — 회귀 대조")
-        ck(getattr(out, "status", None) == "online",
-           f"L3 probe 405를 live로 → status online (got={getattr(out, 'status', None)})")
+        ck(
+            out.endpoint == want_endpoint,
+            f"L1 저장 endpoint가 prefix 보존 (want={want_endpoint}, got={out.endpoint})",
+        )
+        ck(out.endpoint != old_bug_endpoint, "L2 옛 버그값(prefix 탈락 …/a2a)이 아님 — 회귀 대조")
+        ck(
+            getattr(out, "status", None) == "online",
+            f"L3 probe 405를 live로 → status online (got={getattr(out, 'status', None)})",
+        )
 
         # L4 — 저장 endpoint가 실제 도달(resolve된 경로가 서비스). 직접 JSON-RPC POST.
         async with httpx.AsyncClient(timeout=5) as client:
-            r = await client.post(out.endpoint, json={
-                "jsonrpc": "2.0", "id": "1", "method": "message/send",
-                "params": {"message": {"role": "user", "parts": [{"kind": "text", "text": "hi"}]}},
-            })
+            r = await client.post(
+                out.endpoint,
+                json={
+                    "jsonrpc": "2.0",
+                    "id": "1",
+                    "method": "message/send",
+                    "params": {
+                        "message": {"role": "user", "parts": [{"kind": "text", "text": "hi"}]}
+                    },
+                },
+            )
             txt = ""
             if r.status_code == 200:
                 parts = (r.json().get("result") or {}).get("parts") or []

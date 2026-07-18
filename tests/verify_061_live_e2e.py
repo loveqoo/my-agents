@@ -25,7 +25,7 @@ from dotenv import load_dotenv
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 load_dotenv(os.path.join(ROOT, ".env"))
 
-BASE = "http://127.0.0.1:8000"
+BASE = os.environ.get("VERIFY_BASE", "http://127.0.0.1:8000")  # 스펙 390: 격리 서버 주입
 TOK = os.environ["API_AUTH_TOKEN"]
 AUTH = {"Authorization": f"Bearer {TOK}"}
 
@@ -102,9 +102,14 @@ check("x-my-agents" not in card, "D1 카드에 x-my-agents 없음(connect→exte
 
 # ---- D6: 미인증 JSON-RPC → 401 ----
 status, raw = _req(
-    "POST", f"/agents/{aid}/a2a",
-    body={"jsonrpc": "2.0", "id": "1", "method": "message/send",
-          "params": {"message": {"parts": [{"kind": "text", "text": "hi"}]}}},
+    "POST",
+    f"/agents/{aid}/a2a",
+    body={
+        "jsonrpc": "2.0",
+        "id": "1",
+        "method": "message/send",
+        "params": {"message": {"parts": [{"kind": "text", "text": "hi"}]}},
+    },
 )  # Authorization 없음
 check(status == 401, f"D6 미인증 POST /a2a → 401 (got {status})")
 
@@ -114,12 +119,16 @@ status, raw = _req("POST", "/agents/connect", headers=AUTH, body={"url": card_ur
 check(status in (200, 201), f"D5 connect → 2xx (got {status}: {raw[:200]})")
 ext = json.loads(raw) if status in (200, 201) else {}
 ext_id = ext.get("id")
-check(ext.get("source") == "external", f"D5 connect 결과 source=external (got {ext.get('source')!r})")
+check(
+    ext.get("source") == "external", f"D5 connect 결과 source=external (got {ext.get('source')!r})"
+)
 
 # ---- D5: external 사본 chat → 원 로컬 런타임 왕복 ----
 if ext_id:
     status, raw = _req(
-        "POST", f"/agents/{ext_id}/chat", headers=AUTH,
+        "POST",
+        f"/agents/{ext_id}/chat",
+        headers=AUTH,
         body={"messages": [{"role": "user", "content": "한 문장으로 자기소개 해줘."}]},
     )
     text, errors = _sse_texts(raw)
@@ -143,7 +152,9 @@ check(status == 200, f"expose OFF → 200 (got {status})")
 status, _ = _req("GET", f"/agents/{aid}/.well-known/agent-card.json")
 check(status == 404, f"D2 노출 OFF 후 카드 GET → 404 (got {status})")
 status, _ = _req(
-    "POST", f"/agents/{aid}/a2a", headers=AUTH,
+    "POST",
+    f"/agents/{aid}/a2a",
+    headers=AUTH,
     body={"jsonrpc": "2.0", "id": "1", "method": "message/send", "params": {}},
 )
 check(status == 404, f"D2 노출 OFF 후 a2a(인증) → 404 (got {status})")

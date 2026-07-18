@@ -12,6 +12,7 @@ promptStale 가시화 + refresh(에이전트쪽)/apply(프롬프트쪽)로 통�
   H7 외부 에이전트 refresh → 400(로컬 프롬프트 없음). 미참조 에이전트 stale=false.
 실행: cd packages/api && uv run python ../../tests/verify_161_prompt_sync.py
 """
+
 import asyncio
 import uuid
 
@@ -44,6 +45,7 @@ def _as(principal):
 
 async def main() -> None:
     from api import authz
+
     await authz.init_authz()
 
     alice, bob, admin = Stub(), Stub(), Stub(is_superuser=True)
@@ -61,10 +63,16 @@ async def main() -> None:
 
             # alice가 그 프롬프트로 에이전트 생성.
             _as(alice)
-            r = await c.post("/agents", json={"name": f"ag-{uuid.uuid4().hex[:6]}",
-                                              "config": {"model": "mock-llm", "prompt": pname, "historyDepth": 6}})
+            r = await c.post(
+                "/agents",
+                json={
+                    "name": f"ag-{uuid.uuid4().hex[:6]}",
+                    "config": {"model": "mock-llm", "prompt": pname, "historyDepth": 6},
+                },
+            )
             check(r.status_code == 201, f"setup 에이전트 생성 201 (got {r.status_code})")
-            aid = r.json()["id"]; made_agents.append(aid)
+            aid = r.json()["id"]
+            made_agents.append(aid)
 
             # H1 생성 직후: stale=false, 스냅샷=원본.
             r = await c.get(f"/agents/{aid}")
@@ -79,7 +87,9 @@ async def main() -> None:
             _as(alice)
             j = (await c.get(f"/agents/{aid}")).json()
             check(j["promptStale"] is True, "H2 수정 후 promptStale=true(가시화)")
-            check(j["systemPrompt"] == "old body", "H2 스냅샷은 여전히 옛 본문(자동 전파 안 함=격리)")
+            check(
+                j["systemPrompt"] == "old body", "H2 스냅샷은 여전히 옛 본문(자동 전파 안 함=격리)"
+            )
 
             # H3 refresh(소유자) → 갱신.
             r = await c.post(f"/agents/{aid}/prompt/refresh")
@@ -88,7 +98,8 @@ async def main() -> None:
             check(r.json()["promptStale"] is False, "H3 refresh 후 stale=false")
 
             # H4 타 member refresh → 404-fold. (먼저 다시 stale로)
-            _as(admin); await c.put(f"/prompts/{pid}", json={"name": pname, "body": "newer body"})
+            _as(admin)
+            await c.put(f"/prompts/{pid}", json={"name": pname, "body": "newer body"})
             _as(bob)
             r = await c.post(f"/agents/{aid}/prompt/refresh")
             check(r.status_code == 404, f"H4 타 member refresh 404-fold (got {r.status_code})")
@@ -103,32 +114,54 @@ async def main() -> None:
             check(mine and mine["canManage"] is True, "H5 alice canManage=true")
             # 가시성(codex 161 High): bob은 alice private 에이전트를 usage에서 못 본다(식별자·stale 누출 금지).
             _as(bob)
-            ub = next((u for u in (await c.get(f"/prompts/{pid}/agents")).json() if u["id"] == aid), None)
+            ub = next(
+                (u for u in (await c.get(f"/prompts/{pid}/agents")).json() if u["id"] == aid), None
+            )
             check(ub is None, "H5 bob은 타인 private 에이전트를 usage에서 못 봄(누출 차단)")
             # 특권은 전부 봄.
             _as(admin)
-            ua = next((u for u in (await c.get(f"/prompts/{pid}/agents")).json() if u["id"] == aid), None)
+            ua = next(
+                (u for u in (await c.get(f"/prompts/{pid}/agents")).json() if u["id"] == aid), None
+            )
             check(ua is not None and ua["canManage"] is True, "H5 admin은 전부 봄·canManage=true")
 
             # H6 apply: bob(타인) → skipped, alice(소유자) → applied.
             _as(bob)
             rb = await c.post(f"/prompts/{pid}/apply", json={"agentIds": [aid]})
-            check(rb.status_code == 200 and rb.json()["applied"] == [] and aid in rb.json()["skipped"],
-                  f"H6 bob apply → skipped(무단 변경 금지) (got {rb.json()})")
+            check(
+                rb.status_code == 200
+                and rb.json()["applied"] == []
+                and aid in rb.json()["skipped"],
+                f"H6 bob apply → skipped(무단 변경 금지) (got {rb.json()})",
+            )
             _as(alice)  # 검증 GET은 소유자로(alice private 에이전트라 bob GET은 404)
             j = (await c.get(f"/agents/{aid}")).json()
             check(j["systemPrompt"] == "new body", "H6 bob apply 후 스냅샷 불변(여전히 new body)")
             ra = await c.post(f"/prompts/{pid}/apply", json={"agentIds": [aid]})
-            check(ra.status_code == 200 and ra.json()["applied"] == [aid],
-                  f"H6 alice apply → applied (got {ra.json()})")
+            check(
+                ra.status_code == 200 and ra.json()["applied"] == [aid],
+                f"H6 alice apply → applied (got {ra.json()})",
+            )
             j = (await c.get(f"/agents/{aid}")).json()
-            check(j["systemPrompt"] == "newer body" and j["promptStale"] is False,
-                  f"H6 alice apply 후 스냅샷=newer body·stale=false (got {j['systemPrompt']!r})")
+            check(
+                j["systemPrompt"] == "newer body" and j["promptStale"] is False,
+                f"H6 alice apply 후 스냅샷=newer body·stale=false (got {j['systemPrompt']!r})",
+            )
 
             # H7 미참조 에이전트 stale=false(다른 프롬프트 literal).
-            r = await c.post("/agents", json={"name": f"ag2-{uuid.uuid4().hex[:6]}",
-                                              "config": {"model": "mock-llm", "prompt": "literal-없는이름", "historyDepth": 6}})
-            aid2 = r.json()["id"]; made_agents.append(aid2)
+            r = await c.post(
+                "/agents",
+                json={
+                    "name": f"ag2-{uuid.uuid4().hex[:6]}",
+                    "config": {
+                        "model": "mock-llm",
+                        "prompt": "literal-없는이름",
+                        "historyDepth": 6,
+                    },
+                },
+            )
+            aid2 = r.json()["id"]
+            made_agents.append(aid2)
             j2 = (await c.get(f"/agents/{aid2}")).json()
             check(j2["promptStale"] is False, "H7 블록 아닌 literal 프롬프트 → stale=false")
     finally:
@@ -137,6 +170,7 @@ async def main() -> None:
         from api.db import SessionLocal
         from api.models import Agent, Prompt
         from sqlalchemy import select
+
         async with SessionLocal() as db:
             for aid in made_agents:
                 a = await db.get(Agent, uuid.UUID(aid))

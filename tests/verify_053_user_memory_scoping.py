@@ -12,6 +12,7 @@ casbin enforce는 FakeEnforcer로 주입 — get_enforcer를 패치해 라이브
 라이브 쿠키 라운드트립(member 로그인→403)은 브라우저샷/사용자 브랜치 통합에서 확인.
 실행: .venv/bin/python tests/verify_053_user_memory_scoping.py
 """
+
 import os
 import sys
 import uuid

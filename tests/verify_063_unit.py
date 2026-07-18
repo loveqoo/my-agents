@@ -44,8 +44,14 @@ def ck(c: bool, m: str) -> None:
 
 
 # U1 — normalize_http_url 시맨틱
-ck(normalize_http_url("example.com:9000/a2a") == "http://example.com:9000/a2a", "U1 스킴없음 host:port → http 전치")
-ck(normalize_http_url("//example.com/a2a") == "http://example.com/a2a", "U1 스킴-상대 // → http 전치")
+ck(
+    normalize_http_url("example.com:9000/a2a") == "http://example.com:9000/a2a",
+    "U1 스킴없음 host:port → http 전치",
+)
+ck(
+    normalize_http_url("//example.com/a2a") == "http://example.com/a2a",
+    "U1 스킴-상대 // → http 전치",
+)
 ck(normalize_http_url("https://x.com") == "https://x.com", "U1 이미 절대 → 유지(멱등)")
 for bad in ("ftp://x.com", "", "   "):
     try:
@@ -61,9 +67,9 @@ for vec in (
     "mailto:user@example.com/a2a",
     "gopher:user@evil.example:80/a2a",
     "javascript:foo@evil.example/a2a",
-    "evil.com@127.0.0.1/",          # userinfo로 실제 host를 127.0.0.1로 숨김
+    "evil.com@127.0.0.1/",  # userinfo로 실제 host를 127.0.0.1로 숨김
     "example.com:80@127.0.0.1:81/",  # 포트까지 섞은 userinfo 트릭
-    "user:pass@example.com",         # 평범한 userinfo도 거부(정상 A2A엔 없음)
+    "user:pass@example.com",  # 평범한 userinfo도 거부(정상 A2A엔 없음)
 ):
     try:
         normalize_http_url(vec)
@@ -109,9 +115,15 @@ ck("절대 URL" not in err, f"U3 scheme-less endpoint가 '절대 URL' 에러 아
 ck("차단" in err or "127" in err, f"U3 대신 조치 가능한 차단 메시지: {err[:60]!r}…")
 
 # U4 — _norm_endpoint(빌더)
-ck(_norm_endpoint("example.com:9000") == "http://example.com:9000", "U4 _norm_endpoint 스킴없음→http")
+ck(
+    _norm_endpoint("example.com:9000") == "http://example.com:9000",
+    "U4 _norm_endpoint 스킴없음→http",
+)
 ck(_norm_endpoint("https://x.com/a") == "https://x.com/a", "U4 _norm_endpoint 절대 유지")
-ck(_norm_endpoint("ftp://x.com") == "ftp://x.com", "U4 _norm_endpoint 비-http→raw 보존(등록 500 방지)")
+ck(
+    _norm_endpoint("ftp://x.com") == "ftp://x.com",
+    "U4 _norm_endpoint 비-http→raw 보존(등록 500 방지)",
+)
 ck(_norm_endpoint(None) is None, "U4 _norm_endpoint None→None")
 ck(_norm_endpoint("  ") is None, "U4 _norm_endpoint 공백→None")
 

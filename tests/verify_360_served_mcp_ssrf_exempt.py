@@ -11,6 +11,7 @@
 
 실행: .venv/bin/python tests/verify_360_served_mcp_ssrf_exempt.py
 """
+
 import os
 import sys
 
@@ -41,22 +42,39 @@ def main() -> None:
 
     # ── E1: is_own_served_url 진리표 ──────────────────────────────────────────
     check(is_own_served_url(wf, wf_url) is True, "E1 정품 served (web-fetch, served_url) → True")
-    check(is_own_served_url("calc-tools", served_url("calc-tools")) is True, "E1 calc-tools 정품 → True")
+    check(
+        is_own_served_url("calc-tools", served_url("calc-tools")) is True,
+        "E1 calc-tools 정품 → True",
+    )
     # 스푸핑: 미등록 이름에 served URL 박기 → name 미등록이라 False(사용자 우회 차단)
-    check(is_own_served_url("myserver", wf_url) is False, "E1 스푸핑(다른 이름 + served url) → False")
+    check(
+        is_own_served_url("myserver", wf_url) is False, "E1 스푸핑(다른 이름 + served url) → False"
+    )
     # 스푸핑: 정품 이름인데 url이 다름(임의 내부) → 정확 일치 아니라 False
-    check(is_own_served_url(wf, "http://127.0.0.1:8000/internal/admin") is False, "E1 정품 이름 + 다른 url → False")
-    check(is_own_served_url(wf, "http://evil.example/_served/mcp/web-fetch/") is False, "E1 정품 이름 + 외부호스트 url → False")
+    check(
+        is_own_served_url(wf, "http://127.0.0.1:8000/internal/admin") is False,
+        "E1 정품 이름 + 다른 url → False",
+    )
+    check(
+        is_own_served_url(wf, "http://evil.example/_served/mcp/web-fetch/") is False,
+        "E1 정품 이름 + 외부호스트 url → False",
+    )
     check(is_own_served_url(None, wf_url) is False, "E1 이름 없음 → False")
     # 트레일링 슬래시 정확성(served_url은 끝 슬래시 필수)
-    check(is_own_served_url(wf, wf_url.rstrip("/")) is False, "E1 트레일링 슬래시 없으면 불일치 → False")
+    check(
+        is_own_served_url(wf, wf_url.rstrip("/")) is False,
+        "E1 트레일링 슬래시 없으면 불일치 → False",
+    )
 
     # ── 가드 스냅샷을 비워 127.0.0.1을 '미허용'으로(리셋 후 상태 모사) ──────────
     net_guard._set_allowed_hosts_for_test([])  # allowlist 비움 → 루프백 전부 차단
 
     # E2: 미허용에도 served MCP는 연결 dict 반환(예외 작동)
     conn = mcp_connection(_http(wf, wf_url))
-    check(conn is not None and conn.get("url") == wf_url, "E2 127.0.0.1 미허용에도 served MCP 연결(502 봉합)")
+    check(
+        conn is not None and conn.get("url") == wf_url,
+        "E2 127.0.0.1 미허용에도 served MCP 연결(502 봉합)",
+    )
 
     # E3 무회귀: 비-served 127.0.0.1 URL은 여전히 차단(None)
     blocked = mcp_connection(_http("myserver", "http://127.0.0.1:8000/_served/mcp/web-fetch/"))

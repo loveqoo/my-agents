@@ -11,18 +11,19 @@
 
 전제: 서버 8000(새 코드), 시드 프롬프트 존재. 실행: .venv/bin/python tests/verify_364_turn_provenance.py
 """
+
 import os
 import sys
 
 import httpx
 from sqlalchemy import create_engine, text
 
-BASE = os.environ.get("API_BASE", "http://127.0.0.1:8000")
+BASE = os.environ.get("VERIFY_BASE", "http://127.0.0.1:8000")  # 스펙 390: 격리 서버 주입
 EMAIL = os.environ.get("ADMIN_EMAIL", "admin@example.com")
 PASSWORD = os.environ.get("ADMIN_PASSWORD", "adminpass123")
-DB = os.environ.get("DATABASE_URL", "postgresql+asyncpg://agent:agent@localhost:5432/agents").replace(
-    "+asyncpg", "+psycopg"
-)
+DB = os.environ.get(
+    "DATABASE_URL", "postgresql+asyncpg://agent:agent@localhost:5432/agents"
+).replace("+asyncpg", "+psycopg")
 
 _fails: list[str] = []
 
@@ -64,10 +65,13 @@ def main() -> None:
         cr = cli.post("/agents", json={"name": name, "description": None, "config": config})
         cr.raise_for_status()
         j = cr.json()
-        draft = next((v for v in j.get("versions", []) if v.get("status") == "draft"), None) or (
-            j.get("versions") or [{}]
-        )[0]
-        cli.post(f"/agents/{j['id']}/activate", json={"version": draft.get("version")}).raise_for_status()
+        draft = (
+            next((v for v in j.get("versions", []) if v.get("status") == "draft"), None)
+            or (j.get("versions") or [{}])[0]
+        )
+        cli.post(
+            f"/agents/{j['id']}/activate", json={"version": draft.get("version")}
+        ).raise_for_status()
         return j["id"]
 
     def chat(aid: str, msg: str, session: str | None, overrides: dict | None = None) -> str | None:
@@ -84,13 +88,24 @@ def main() -> None:
     # ── 일반(라이브러리 프롬프트) 에이전트: 두 턴 ──────────────────────────────
     aid = make_agent(
         f"v364-lib-{tag}",
-        {"model": "mock-llm", "prompt": prompt_name, "mcps": [], "memories": [], "vectorTables": []},
+        {
+            "model": "mock-llm",
+            "prompt": prompt_name,
+            "mcps": [],
+            "memories": [],
+            "vectorTables": [],
+        },
     )
     sess = chat(aid, "364 첫 번째 턴입니다", None)
     check(bool(sess), f"채팅 턴1 세션 생성 (session={sess})")
     chat(aid, "364 두 번째 턴입니다", sess)
     if overrides_supported := True:  # C4 — 같은 세션에서 systemPrompt 오버라이드 턴
-        chat(aid, "364 오버라이드 턴입니다", sess, overrides={"systemPrompt": "임시 오버라이드 프롬프트 364"})
+        chat(
+            aid,
+            "364 오버라이드 턴입니다",
+            sess,
+            overrides={"systemPrompt": "임시 오버라이드 프롬프트 364"},
+        )
 
     with eng.connect() as c:
         rows = c.execute(
@@ -119,25 +134,40 @@ def main() -> None:
     for i in (0, 1):
         a = turns[i][1]
         snap = (a.trace or {}).get("promptSnapshot") or {}
-        check(a.prompt_id == prompt_id, f"C3: 턴{i+1} assistant.prompt_id=프롬프트 id")
-        check(a.prompt_name == prompt_name, f"C3: 턴{i+1} assistant.prompt_name=프롬프트 이름")
-        check(snap.get("body") == prompt_body, f"C3: 턴{i+1} promptSnapshot.body=프롬프트 본문")
+        check(a.prompt_id == prompt_id, f"C3: 턴{i + 1} assistant.prompt_id=프롬프트 id")
+        check(a.prompt_name == prompt_name, f"C3: 턴{i + 1} assistant.prompt_name=프롬프트 이름")
+        check(snap.get("body") == prompt_body, f"C3: 턴{i + 1} promptSnapshot.body=프롬프트 본문")
 
     # C4 — 오버라이드 턴 assistant: 라이브러리 참조 아님(null) + 스냅샷=오버라이드 텍스트
     ov = turns[2][1]
     ov_snap = (ov.trace or {}).get("promptSnapshot") or {}
-    check(ov.prompt_id is None and ov.prompt_name is None, "C4: 오버라이드 턴 prompt_id/name=null(라이브러리 아님)")
-    check(ov_snap.get("body") == "임시 오버라이드 프롬프트 364", "C4: 오버라이드 턴 스냅샷 body=오버라이드 텍스트")
+    check(
+        ov.prompt_id is None and ov.prompt_name is None,
+        "C4: 오버라이드 턴 prompt_id/name=null(라이브러리 아님)",
+    )
+    check(
+        ov_snap.get("body") == "임시 오버라이드 프롬프트 364",
+        "C4: 오버라이드 턴 스냅샷 body=오버라이드 텍스트",
+    )
 
     # ── C6 ephemeral: 메시지 미저장 ───────────────────────────────────────────
     eid = make_agent(
         f"v364-eph-{tag}",
-        {"model": "mock-llm", "prompt": prompt_name, "mcps": [], "memories": [], "vectorTables": [], "ephemeral": True},
+        {
+            "model": "mock-llm",
+            "prompt": prompt_name,
+            "mcps": [],
+            "memories": [],
+            "vectorTables": [],
+            "ephemeral": True,
+        },
     )
     esess = chat(eid, "364 ephemeral 턴", None)
     with eng.connect() as c:
         n = c.execute(
-            text("select count(*) from messages m join sessions s on s.id=m.session_pk where s.session_id=:sid"),
+            text(
+                "select count(*) from messages m join sessions s on s.id=m.session_pk where s.session_id=:sid"
+            ),
             {"sid": esess or ""},
         ).scalar()
     check((n or 0) == 0, f"C6: ephemeral 턴 메시지 미저장 (rows={n})")

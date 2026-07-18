@@ -44,8 +44,10 @@ def check(cond: bool, msg: str) -> None:
 
 
 # 실 LLM 없이 그래프 구조만 검사할 수 있게 mock model_cfg 사용(085과 동일 규칙).
+VBASE = os.environ.get("VERIFY_BASE", "http://127.0.0.1:8000")  # 스펙 390: 격리 서버 주입
+
 _MODEL_CFG = {
-    "base_url": "http://127.0.0.1:8000/_remote/v1",
+    "base_url": VBASE + "/_remote/v1",
     "model_id": "mock-chat",
     "api_key": "sk-noauth",
     "params": {},
@@ -75,19 +77,27 @@ def unit_checks() -> None:
     g = ra.build_graph(_ctx())
     check(hasattr(g, "astream"), "U2 그래프가 astream 보유(호출 계약)")
     nodes = set(g.get_graph().nodes)
-    check({"classify", "answer_a", "answer_b"} <= nodes,
-          f"U2 조건분기 3노드(classify·answer_a·answer_b) (got {nodes})")
+    check(
+        {"classify", "answer_a", "answer_b"} <= nodes,
+        f"U2 조건분기 3노드(classify·answer_a·answer_b) (got {nodes})",
+    )
     check("plan" not in nodes, "U2 plan 노드 없음(plan_execute와 구조 상이 = 과적합 측정 토대)")
 
     # U3 conformance 분류 + 신뢰 로딩 — ui+impl=route → conforming, 인스턴스 적합.
     check(get_agent_impl("route") is not None, "U3 get_agent_impl('route') 적합 인스턴스 반환")
-    check(classify_runtime("ui", "route") == "conforming",
-          f"U3 classify_runtime(ui, route)=='conforming' (got {classify_runtime('ui', 'route')})")
+    check(
+        classify_runtime("ui", "route") == "conforming",
+        f"U3 classify_runtime(ui, route)=='conforming' (got {classify_runtime('ui', 'route')})",
+    )
     # 원격 소스는 여전히 non_conforming(무회귀), 미등록 키는 config_error(신뢰경계 유지).
-    check(classify_runtime("code", "route") == "non_conforming",
-          "U3 code 소스는 non_conforming(원격 fallback, route 무관)")
-    check(classify_runtime("ui", "route_does_not_exist") == "config_error",
-          "U3 미등록 키 → config_error(만회 없음)")
+    check(
+        classify_runtime("code", "route") == "non_conforming",
+        "U3 code 소스는 non_conforming(원격 fallback, route 무관)",
+    )
+    check(
+        classify_runtime("ui", "route_does_not_exist") == "config_error",
+        "U3 미등록 키 → config_error(만회 없음)",
+    )
 
     # U4 분기 순수함수 결정성 — 질문("?")→"a", 평서문→"b". 모델 없이 검증(스킬 규약: 분기 로직 순수함수).
     check(classify_route("이건 무엇인가요?") == "a", "U4 '?' 포함 → 분기 'a'(직답)")
@@ -97,8 +107,10 @@ def unit_checks() -> None:
     # U5 레지스트리 드리프트 0 — 'route' 등록됨, 문자열→import 경로 없음(신뢰경계 무회귀).
     check("route" in list_agent_impls(), "U5 route가 신뢰 레지스트리에 등록됨")
     check(get_agent_impl("os.system") is None, "U5 점경로 문자열 → None(import/eval 안 함)")
-    check(list_agent_impls() == sorted(agent_rt._REGISTRY),
-          "U5 list_agent_impls()=등록 키 집합(드리프트 0)")
+    check(
+        list_agent_impls() == sorted(agent_rt._REGISTRY),
+        "U5 list_agent_impls()=등록 키 집합(드리프트 0)",
+    )
 
 
 # ================================================================ [H] 통합(in-process ASGI + 실 그래프)
@@ -117,7 +129,8 @@ async def http_checks() -> None:
     async def _chat_trace(client, agent_db_id: str, text: str):
         acc, trace = [], None
         async with client.stream(
-            "POST", f"/agents/{agent_db_id}/chat",
+            "POST",
+            f"/agents/{agent_db_id}/chat",
             json={"messages": [{"role": "user", "content": text}]},
         ) as resp:
             assert resp.status_code == 200, f"chat status {resp.status_code}"
@@ -143,22 +156,30 @@ async def http_checks() -> None:
         transport=transport, base_url="http://t", headers=auth, timeout=120
     ) as c:
         # H0 route 에이전트 생성(ui+impl=route). 자체 정리.
-        r = await c.post("/agents", json={
-            "name": f"v099-route-{uuid.uuid4().hex[:6]}",
-            "config": {"model": "mock-llm", "prompt": "", "historyDepth": 10, "impl": "route"},
-        })
+        r = await c.post(
+            "/agents",
+            json={
+                "name": f"v099-route-{uuid.uuid4().hex[:6]}",
+                "config": {"model": "mock-llm", "prompt": "", "historyDepth": 10, "impl": "route"},
+            },
+        )
         check(r.status_code == 201, f"H0 route 에이전트 생성 201 (got {r.status_code})")
         out = r.json()
         rid = out["id"]
         created_ids.append(rid)
-        check(out.get("impl") == "route", f"H1 AgentOut.impl 라운드트립='route' (got {out.get('impl')})")
+        check(
+            out.get("impl") == "route",
+            f"H1 AgentOut.impl 라운드트립='route' (got {out.get('impl')})",
+        )
 
         # H2 질문("?") → 토큰 + 타임라인이 [classify, answer_a], answer_b는 발화 안 함(조건분기 실증).
         t_a, tr_a = await _chat_trace(c, rid, "파이썬이 무엇인가요?")
         check(bool(t_a), "H2 질문 입력에 토큰 스트림")
         nodes_a = [n["node"] for n in (tr_a or {}).get("graph", [])]
-        check("classify" in nodes_a and "answer_a" in nodes_a,
-              f"H2 질문→실 노드 타임라인에 classify·answer_a (got {nodes_a})")
+        check(
+            "classify" in nodes_a and "answer_a" in nodes_a,
+            f"H2 질문→실 노드 타임라인에 classify·answer_a (got {nodes_a})",
+        )
         check("answer_b" not in nodes_a, f"H2 질문→answer_b 분기 미발화(조건분기) (got {nodes_a})")
         check("call_model" not in nodes_a, "H2 실 노드열은 합성 call_model 안 씀")
 
@@ -166,9 +187,13 @@ async def http_checks() -> None:
         t_b, tr_b = await _chat_trace(c, rid, "파이썬은 프로그래밍 언어입니다.")
         check(bool(t_b), "H3 평서문 입력에 토큰 스트림")
         nodes_b = [n["node"] for n in (tr_b or {}).get("graph", [])]
-        check("classify" in nodes_b and "answer_b" in nodes_b,
-              f"H3 평서문→실 노드 타임라인에 classify·answer_b (got {nodes_b})")
-        check("answer_a" not in nodes_b, f"H3 평서문→answer_a 분기 미발화(조건분기) (got {nodes_b})")
+        check(
+            "classify" in nodes_b and "answer_b" in nodes_b,
+            f"H3 평서문→실 노드 타임라인에 classify·answer_b (got {nodes_b})",
+        )
+        check(
+            "answer_a" not in nodes_b, f"H3 평서문→answer_a 분기 미발화(조건분기) (got {nodes_b})"
+        )
 
         # 정리.
         for aid in created_ids:

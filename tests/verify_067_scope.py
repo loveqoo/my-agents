@@ -17,6 +17,7 @@ NOTE(스펙 070): 067은 item 가시성을 `_visible_or_404`(fetch-then-check)�
 
 실행: .venv/bin/python tests/verify_067_scope.py
 """
+
 import os
 import sys
 import uuid
@@ -54,18 +55,23 @@ class FakeEnforcer:
 # ---- 주체 ----
 machine = "machine"
 superuser = P(is_superuser=True)
-operator = P(is_superuser=False)   # casbin sessions:read 보유(전체 열람 운영자 훅)
-member = P(is_superuser=False)     # 정책 전무
+operator = P(is_superuser=False)  # casbin sessions:read 보유(전체 열람 운영자 훅)
+member = P(is_superuser=False)  # 정책 전무
 m1 = str(member.id)
 
-authz.get_enforcer = lambda: FakeEnforcer({
-    (str(operator.id), "sessions", "read"),
-})
+authz.get_enforcer = lambda: FakeEnforcer(
+    {
+        (str(operator.id), "sessions", "read"),
+    }
+)
 
 # ---- M1. is_admin_for(·, "sessions", "read") ----
 check(authz.is_admin_for(machine, "sessions", "read") is True, "M1: 머신 토큰 = 전체 열람")
 check(authz.is_admin_for(superuser, "sessions", "read") is True, "M1: superuser = 전체(우회)")
-check(authz.is_admin_for(operator, "sessions", "read") is True, "M1: casbin sessions:read = 전체 열람 운영자")
+check(
+    authz.is_admin_for(operator, "sessions", "read") is True,
+    "M1: casbin sessions:read = 전체 열람 운영자",
+)
 check(authz.is_admin_for(member, "sessions", "read") is False, "M1: member = 비-admin(자기 것만)")
 
 # ---- M2. own_scope(·, "sessions", "read") ----
@@ -92,4 +98,6 @@ if _fails:
     for m in _fails:
         print("  - " + m)
     sys.exit(1)
-print("ALL PASS — 스펙 067/299 세션 스코핑 시맨틱(M1/M2 읽기·M3 쓰기) 통과 (가시성은 verify_070_scope.py)")
+print(
+    "ALL PASS — 스펙 067/299 세션 스코핑 시맨틱(M1/M2 읽기·M3 쓰기) 통과 (가시성은 verify_070_scope.py)"
+)

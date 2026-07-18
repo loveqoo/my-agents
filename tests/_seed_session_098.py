@@ -3,6 +3,7 @@
 브라우저에서 검색어 `ZZBROWSERMARK098`로 좁혀 2건만 남는지 눈+구조로 확인하기 위한 픽스처.
 자가정리(prefix sess_zz098_). 실행: .venv/bin/python tests/_seed_session_098.py seed|clean
 """
+
 import asyncio
 import os
 import sys
@@ -28,14 +29,16 @@ async def seed() -> None:
             raise RuntimeError("시드 불가: agents 비어있음")
         now = datetime.now(timezone.utc)
         for i, tag in enumerate(("a", "b")):
-            sess.add(Session(
-                session_id=f"{PREFIX}{tag}",
-                agent_pk=agent.id,
-                agent_name=MARK,
-                status="active",
-                started_at=now - timedelta(seconds=i),
-                last_activity=now - timedelta(seconds=i),
-            ))
+            sess.add(
+                Session(
+                    session_id=f"{PREFIX}{tag}",
+                    agent_pk=agent.id,
+                    agent_name=MARK,
+                    status="active",
+                    started_at=now - timedelta(seconds=i),
+                    last_activity=now - timedelta(seconds=i),
+                )
+            )
         await sess.commit()
     print(f"SEEDED 2 sessions (agent_name={MARK})")
 

@@ -78,7 +78,10 @@ def main() -> None:
             for n in set(b) & set(a)
             if set(b[n]["keywords"]) - set(a[n]["keywords"])
         }
-        check(not dropped, f"[{name}] I2 키워드 손실 0 (버려진 키워드: {dict(list(dropped.items())[:5]) or '—'})")
+        check(
+            not dropped,
+            f"[{name}] I2 키워드 손실 0 (버려진 키워드: {dict(list(dropped.items())[:5]) or '—'})",
+        )
         # I3 압축 실효
         big_b = sum(1 for n in b if b[n]["len"] > 200)
         big_a = sum(1 for n in a if a[n]["len"] > 200)

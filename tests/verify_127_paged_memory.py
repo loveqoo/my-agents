@@ -17,7 +17,12 @@ import subprocess
 import sys
 import uuid
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "packages", "api", "src"))
+sys.path.insert(
+    0,
+    os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "packages", "api", "src"
+    ),
+)
 
 _fails: list[str] = []
 passed = 0
@@ -42,12 +47,18 @@ def part_a() -> None:
     b.add({"user_id": "u2"}, [{"content": "남의 기억"}], infer=False)
 
     p1 = b.list_page({"user_id": "u1"}, None, 20, 0)
-    check(p1["total"] == 25 and len(p1["items"]) == 20, f"A1 1페이지 20/총25 (got {p1['total']}/{len(p1['items'])})")
+    check(
+        p1["total"] == 25 and len(p1["items"]) == 20,
+        f"A1 1페이지 20/총25 (got {p1['total']}/{len(p1['items'])})",
+    )
     p2 = b.list_page({"user_id": "u1"}, None, 20, 20)
     check(len(p2["items"]) == 5, f"A2 2페이지 5건 (got {len(p2['items'])})")
     check(p1["items"][0]["text"] == "기억 번호 25", f"A3 최신순 (got {p1['items'][0]['text']!r})")
     q = b.list_page({"user_id": "u1"}, "번호 7", 20, 0)
-    check(q["total"] == 1 and q["items"][0]["text"] == "기억 번호 7", f"A4 부분일치 (got {q['total']})")
+    check(
+        q["total"] == 1 and q["items"][0]["text"] == "기억 번호 7",
+        f"A4 부분일치 (got {q['total']})",
+    )
     check(b.list_page({"user_id": "u2"}, None, 20, 0)["total"] == 1, "A5 스코프 격리(u2=1건)")
     check(b.list_page({}, None, 20, 0) == {"items": [], "total": 0}, "A6 빈 스코프 → 빈/0")
     big = b.list_page({"user_id": "u1"}, None, 9999, -5)
@@ -68,12 +79,26 @@ def part_b() -> None:
     obj = MB.Mem0Backend.__new__(MB.Mem0Backend)  # __init__(mem0 초기화) 우회 — get_all 인자만 검사
     obj._mem = FakeMem()
     rows = obj.list_all({"user_id": "u"})
-    check(len(rows) == 1 and calls and calls[0].get("top_k") == MB._LIST_ALL_CAP,
-          f"B1 list_all이 top_k={MB._LIST_ALL_CAP} 명시(미지정=20 잘림 회귀 방지) (got {calls})")
+    check(
+        len(rows) == 1 and calls and calls[0].get("top_k") == MB._LIST_ALL_CAP,
+        f"B1 list_all이 top_k={MB._LIST_ALL_CAP} 명시(미지정=20 잘림 회귀 방지) (got {calls})",
+    )
 
 
 # ---------- C: 실 pg 통합 ----------
-_PG = ["docker", "exec", "my-agents-postgres-1", "psql", "-U", "agent", "-d", "agents", "-t", "-A", "-c"]
+_PG = [
+    "docker",
+    "exec",
+    "my-agents-postgres-1",
+    "psql",
+    "-U",
+    "agent",
+    "-d",
+    "agents",
+    "-t",
+    "-A",
+    "-c",
+]
 SEED_USER = f"verify127-{uuid.uuid4().hex[:8]}"
 OTHER_USER = SEED_USER + "-other"
 
@@ -102,7 +127,9 @@ def seed() -> None:
 
 
 def cleanup() -> None:
-    n = psql(f"WITH d AS (DELETE FROM mem0_memories WHERE payload->>'user_id' IN ('{SEED_USER}', '{OTHER_USER}') RETURNING 1) SELECT count(*) FROM d")
+    n = psql(
+        f"WITH d AS (DELETE FROM mem0_memories WHERE payload->>'user_id' IN ('{SEED_USER}', '{OTHER_USER}') RETURNING 1) SELECT count(*) FROM d"
+    )
     print(f"  (정리: {n}건 삭제)")
 
 
@@ -110,7 +137,9 @@ def part_c() -> None:
     from api.memory import mem0_backend as MB
 
     obj = MB.Mem0Backend.__new__(MB.Mem0Backend)  # mem0 초기화 우회 — list_page는 _dsn만 사용
-    obj._dsn = MB._sync_dsn(os.environ.get("DATABASE_URL", "postgresql+asyncpg://agent:agent@localhost:5432/agents"))
+    obj._dsn = MB._sync_dsn(
+        os.environ.get("DATABASE_URL", "postgresql+asyncpg://agent:agent@localhost:5432/agents")
+    )
 
     p1 = obj.list_page({"user_id": SEED_USER}, None, 20, 0)
     check(p1["total"] == 25, f"C1 total=25 — 20건 캡 해소 (got {p1['total']})")
@@ -119,19 +148,30 @@ def part_c() -> None:
     check(len(p2["items"]) == 5, f"C3 2페이지 5건 (got {len(p2['items'])})")
     ids1 = {it["id"] for it in p1["items"]}
     check(not ids1 & {it["id"] for it in p2["items"]}, "C4 페이지 간 중복 없음(결정적 순서)")
-    check(p1["items"][0]["text"] == "seed 기억 #1", f"C5 최신순(1분 전=#1 최신) (got {p1['items'][0]['text']!r})")
+    check(
+        p1["items"][0]["text"] == "seed 기억 #1",
+        f"C5 최신순(1분 전=#1 최신) (got {p1['items'][0]['text']!r})",
+    )
 
     q = obj.list_page({"user_id": SEED_USER}, "기억 #7", 20, 0)
     check(q["total"] == 1, f"C6 ILIKE 부분일치 유일 매치 (got {q['total']})")
     wc = obj.list_page({"user_id": SEED_USER}, "a%b_c", 20, 0)
-    check(wc["total"] == 1 and "a%b_c" in wc["items"][0]["text"],
-          f"C7 와일드카드(%·_) 이스케이프 — 리터럴만 매치 (got {wc['total']})")
+    check(
+        wc["total"] == 1 and "a%b_c" in wc["items"][0]["text"],
+        f"C7 와일드카드(%·_) 이스케이프 — 리터럴만 매치 (got {wc['total']})",
+    )
     pct = obj.list_page({"user_id": SEED_USER}, "%", 20, 0)
-    check(pct["total"] == 1, f"C8 '%' 단독 질의가 전체 매치로 새지 않음 (got {pct['total']}, 특수문자 행만)")
+    check(
+        pct["total"] == 1,
+        f"C8 '%' 단독 질의가 전체 매치로 새지 않음 (got {pct['total']}, 특수문자 행만)",
+    )
 
     texts = [it["text"] for it in p1["items"]] + [it["text"] for it in p2["items"]]
     check("타유저 기억" not in texts, "C9 타 유저 행 불가시(스코프 SQL WHERE)")
-    check(any("#21" in t for t in texts), "D1 자가-잠금: 21번째 기억이 목록에 존재(캡 버그였다면 부재)")
+    check(
+        any("#21" in t for t in texts),
+        "D1 자가-잠금: 21번째 기억이 목록에 존재(캡 버그였다면 부재)",
+    )
 
     # C11(codex 127 #3): created_at 포맷 이탈 행('9999')이 섞여도 쿼리가 안 깨지고 맨 뒤(NULLS LAST)로.
     psql(
@@ -139,8 +179,10 @@ def part_c() -> None:
         f"(gen_random_uuid(), array_fill(0, ARRAY[1024])::vector, jsonb_build_object('data', 'seed 포맷이탈', 'user_id', '{SEED_USER}', 'created_at', '9999'))"
     )
     mixed = obj.list_page({"user_id": SEED_USER}, None, 100, 0)
-    check(mixed["total"] == 26 and mixed["items"][-1]["text"] == "seed 포맷이탈",
-          f"C11 포맷 이탈 created_at → 캐스트 가드로 맨 뒤(NULLS LAST) (got last={mixed['items'][-1]['text']!r})")
+    check(
+        mixed["total"] == 26 and mixed["items"][-1]["text"] == "seed 포맷이탈",
+        f"C11 포맷 이탈 created_at → 캐스트 가드로 맨 뒤(NULLS LAST) (got last={mixed['items'][-1]['text']!r})",
+    )
 
     # 실패≠0건: 잘못된 DSN이면 빈 결과가 아니라 예외를 던진다(learning 125).
     bad = MB.Mem0Backend.__new__(MB.Mem0Backend)

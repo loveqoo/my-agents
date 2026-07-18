@@ -9,12 +9,18 @@
   V7 DB 불변식: kind당 기본 1개 부분 유니크 인덱스 존재 + 직접 위반 insert가 DB서 거부.
 실행: uv run --project packages/api --env-file .env python tests/verify_150_default_model.py
 """
+
 import asyncio
 import os
 import sys
 import uuid as _uuid
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "packages", "api", "src"))
+sys.path.insert(
+    0,
+    os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "packages", "api", "src"
+    ),
+)
 
 from fastapi import HTTPException  # noqa: E402
 from sqlalchemy import select  # noqa: E402
@@ -42,10 +48,18 @@ async def main():
         prov = (await s.execute(select(Provider))).scalars().first()
         assert prov is not None, "provider가 하나는 있어야 함(시드)"
         orig_default_chat = (
-            await s.execute(select(ModelConfig).where(ModelConfig.kind == "chat", ModelConfig.is_default.is_(True)))
+            await s.execute(
+                select(ModelConfig).where(
+                    ModelConfig.kind == "chat", ModelConfig.is_default.is_(True)
+                )
+            )
         ).scalar_one_or_none()
         orig_default_emb = (
-            await s.execute(select(ModelConfig).where(ModelConfig.kind == "embedding", ModelConfig.is_default.is_(True)))
+            await s.execute(
+                select(ModelConfig).where(
+                    ModelConfig.kind == "embedding", ModelConfig.is_default.is_(True)
+                )
+            )
         ).scalar_one_or_none()
         a = ModelConfig(name=f"{tag}-a", provider_id=prov.id, model_id=f"{tag}-a", kind="chat")
         b = ModelConfig(name=f"{tag}-b", provider_id=prov.id, model_id=f"{tag}-b", kind="chat")
@@ -64,14 +78,31 @@ async def main():
             check(out.is_default is True, "V2a B 지정")
         async with async_session() as s:
             rows = (
-                await s.execute(select(ModelConfig).where(ModelConfig.kind == "chat", ModelConfig.is_default.is_(True)))
-            ).scalars().all()
-            check(len(rows) == 1 and rows[0].id == b_id, f"V2b chat 기본은 정확히 1개(B) — got {[r.name for r in rows]}")
+                (
+                    await s.execute(
+                        select(ModelConfig).where(
+                            ModelConfig.kind == "chat", ModelConfig.is_default.is_(True)
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            check(
+                len(rows) == 1 and rows[0].id == b_id,
+                f"V2b chat 기본은 정확히 1개(B) — got {[r.name for r in rows]}",
+            )
         async with async_session() as s:
             emb_now = (
-                await s.execute(select(ModelConfig).where(ModelConfig.kind == "embedding", ModelConfig.is_default.is_(True)))
+                await s.execute(
+                    select(ModelConfig).where(
+                        ModelConfig.kind == "embedding", ModelConfig.is_default.is_(True)
+                    )
+                )
             ).scalar_one_or_none()
-            check((emb_now.id if emb_now else None) == orig_emb_id, "V2c 다른 kind(embedding) 무영향")
+            check(
+                (emb_now.id if emb_now else None) == orig_emb_id, "V2c 다른 kind(embedding) 무영향"
+            )
         async with async_session() as s:
             try:
                 await MR.set_default_model(_uuid.uuid4(), session=s)
@@ -89,6 +120,7 @@ async def main():
             is_superuser = True
 
         from api.authz import init_authz
+
         await init_authz()
         try:
             await MR.require_model_manage(principal=_Member())
@@ -96,11 +128,15 @@ async def main():
         except HTTPException as e:
             check(e.status_code == 403, f"V5a member 403 (got {e.status_code})")
         check(await MR.require_model_manage(principal="machine") == "machine", "V5b 머신 토큰 통과")
-        check((await MR.require_model_manage(principal=_Super())).is_superuser, "V5c superuser 통과")
+        check(
+            (await MR.require_model_manage(principal=_Super())).is_superuser, "V5c superuser 통과"
+        )
 
         # V6 kind 가드 — chat/embedding 외 kind는 400
         async with async_session() as s:
-            weird = ModelConfig(name=f"{tag}-img", provider_id=prov.id, model_id=f"{tag}-img", kind="image")
+            weird = ModelConfig(
+                name=f"{tag}-img", provider_id=prov.id, model_id=f"{tag}-img", kind="image"
+            )
             s.add(weird)
             await s.commit()
             weird_id = weird.id
@@ -121,19 +157,30 @@ async def main():
         # V7 DB 불변식 — 부분 유니크 인덱스 존재 + 직접 위반이 DB서 거부
         from sqlalchemy import text as _text
         from sqlalchemy.exc import IntegrityError as _IE
+
         async with async_session() as s:
-            idx = (await s.execute(_text(
-                "SELECT indexname FROM pg_indexes WHERE tablename='models' AND indexname='uq_models_default_per_kind'"
-            ))).scalar_one_or_none()
+            idx = (
+                await s.execute(
+                    _text(
+                        "SELECT indexname FROM pg_indexes WHERE tablename='models' AND indexname='uq_models_default_per_kind'"
+                    )
+                )
+            ).scalar_one_or_none()
             check(idx is not None, "V7a 부분 유니크 인덱스 존재")
         async with async_session() as s:
-            dup = ModelConfig(name=f"{tag}-dup", provider_id=prov.id, model_id=f"{tag}-dup",
-                              kind="chat", is_default=True)  # 현재 기본(B)과 충돌해야 한다
+            dup = ModelConfig(
+                name=f"{tag}-dup",
+                provider_id=prov.id,
+                model_id=f"{tag}-dup",
+                kind="chat",
+                is_default=True,
+            )  # 현재 기본(B)과 충돌해야 한다
             s.add(dup)
             try:
                 await s.commit()
                 check(False, "V7b 기본 2개 insert가 DB서 거부돼야")
-                await s.delete(dup); await s.commit()
+                await s.delete(dup)
+                await s.commit()
             except _IE:
                 await s.rollback()
                 check(True, "V7b 기본 2개 직접 insert DB 거부(IntegrityError)")
@@ -149,7 +196,11 @@ async def main():
             await s.commit()
         async with async_session() as s:
             now = (
-                await s.execute(select(ModelConfig).where(ModelConfig.kind == "chat", ModelConfig.is_default.is_(True)))
+                await s.execute(
+                    select(ModelConfig).where(
+                        ModelConfig.kind == "chat", ModelConfig.is_default.is_(True)
+                    )
+                )
             ).scalar_one_or_none()
             check((now.id if now else None) == orig_chat_id, "V4 시험 전 기본 chat 복원")
 

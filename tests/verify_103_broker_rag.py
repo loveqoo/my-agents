@@ -13,6 +13,7 @@
 전제: 072와 동일 — in-process 앱이 127.0.0.1:8000 mock 임베딩을 침 → dev 서버 필요.
 실행: .venv/bin/python tests/verify_103_broker_rag.py
 """
+
 import asyncio
 import os
 import sys
@@ -64,6 +65,7 @@ def check(cond: bool, msg: str) -> None:
 def _raise_factory():
     def make():
         raise AssertionError("거부/무해 경로가 DB를 만졌다(존재 누출 위험)")
+
     return make
 
 
@@ -83,7 +85,9 @@ async def _collection_dict(name: str) -> dict:
             await s.execute(
                 select(Collection)
                 .where(Collection.name == name)
-                .options(selectinload(Collection.embedding_model).selectinload(ModelConfig.provider))
+                .options(
+                    selectinload(Collection.embedding_model).selectinload(ModelConfig.provider)
+                )
             )
         ).scalar_one()
         em = c.embedding_model
@@ -102,12 +106,21 @@ async def _first_chunk_text(name: str) -> str:
         cid = (await s.execute(select(Collection.id).where(Collection.name == name))).scalar_one()
         return (
             await s.execute(
-                select(Chunk.text).where(Chunk.collection_id == cid).order_by(Chunk.ordinal).limit(1)
+                select(Chunk.text)
+                .where(Chunk.collection_id == cid)
+                .order_by(Chunk.ordinal)
+                .limit(1)
             )
         ).scalar_one()
 
 
-_FAKE_COL = {"id": 1, "name": "x", "embed_base_url": "u", "embed_api_key": "k", "embed_model_id": "m"}
+_FAKE_COL = {
+    "id": 1,
+    "name": "x",
+    "embed_base_url": "u",
+    "embed_api_key": "k",
+    "embed_model_id": "m",
+}
 
 
 def unit_checks() -> None:
@@ -120,25 +133,42 @@ def unit_checks() -> None:
     check(_parse_rag("agt_x") == "agt_x", "U1 접두사 없음 → 원본 방어")
 
     # U3 _permitted rag — 1레벨 정확 매치(mcp 서버-전체 특례 없음).
-    bt = PolicyScopedBroker({RAG_MAIN}, lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=_raise_factory())))
+    bt = PolicyScopedBroker(
+        {RAG_MAIN},
+        lambda k, name=None: True,
+        providers=build_providers(BrokerContext(session_factory=_raise_factory())),
+    )
     check(bt._permitted(RAG_MAIN) is True, "U3 정확 rag cap 허용 → permitted")
     check(bt._permitted(f"rag:{CP}other") is False, "U3 allow 밖 rag → deny(비노출)")
-    brd = PolicyScopedBroker({RAG_MAIN}, lambda k, name=None: False, providers=build_providers(BrokerContext(session_factory=_raise_factory())))
+    brd = PolicyScopedBroker(
+        {RAG_MAIN},
+        lambda k, name=None: False,
+        providers=build_providers(BrokerContext(session_factory=_raise_factory())),
+    )
     check(brd._permitted(RAG_MAIN) is False, "U3 RBAC 거부 → deny(교집합)")
 
     rp = RagProvider(_raise_factory())
     # U4 approval_for — RAG는 읽기전용 → 항상 None(HIL 없음).
-    check(rp.approval_for(None, RAG_MAIN, {"text": "x"}) is None, "U4 rag approval_for → 항상 None(읽기전용)")
+    check(
+        rp.approval_for(None, RAG_MAIN, {"text": "x"}) is None,
+        "U4 rag approval_for → 항상 None(읽기전용)",
+    )
 
     # U5 describe input_schema — text 필수, top_k 선택.
     desc = rp.describe(_RagBacking(f"{CP}main", "설명", _FAKE_COL))
     props = (desc.input_schema or {}).get("properties", {})
     check(desc.kind == "rag" and desc.id == RAG_MAIN, "U5 describe id/kind")
-    check("text" in props and desc.input_schema.get("required") == ["text"], "U5 text 필수 파라미터")
+    check(
+        "text" in props and desc.input_schema.get("required") == ["text"], "U5 text 필수 파라미터"
+    )
     check("top_k" in props, "U5 top_k 선택 파라미터 노출")
 
     # U6 _by_kind에 rag 포함(memory는 스펙 104서 추가 — ⊇로 완화, 무회귀).
-    b = PolicyScopedBroker([], lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=_raise_factory())))
+    b = PolicyScopedBroker(
+        [],
+        lambda k, name=None: True,
+        providers=build_providers(BrokerContext(session_factory=_raise_factory())),
+    )
     check({"agent", "mcp", "rag"} <= set(b._by_kind), "U6 브로커가 agent·mcp·rag provider 보유")
     check(isinstance(b._by_kind["rag"], RagProvider), "U6 rag → RagProvider")
 
@@ -146,7 +176,10 @@ def unit_checks() -> None:
     for m in ("candidates", "load", "describe", "invoke", "node_label", "approval_for"):
         check(hasattr(rp, m), f"U7 RagProvider.{m} 존재(시임 계약)")
     check(rp.kind == "rag", "U7 RagProvider.kind == rag")
-    check(rp.node_label(_RagBacking("docs", "", None)) == "broker_invoke:rag:docs", "U7 node_label 형식")
+    check(
+        rp.node_label(_RagBacking("docs", "", None)) == "broker_invoke:rag:docs",
+        "U7 node_label 형식",
+    )
 
 
 async def unit_async_checks() -> None:
@@ -154,8 +187,10 @@ async def unit_async_checks() -> None:
     rp = RagProvider(_raise_factory())
     # U8 col=None(임베딩 설정 불완전) → graceful 오류, DB/네트워크 미접촉.
     res = await rp.invoke(_RagBacking("docs", "", None), {"text": "q"})
-    check(bool(res.error) and "불완전" in res.error and res.trust == "untrusted",
-          "U8 col=None → graceful 오류(untrusted)")
+    check(
+        bool(res.error) and "불완전" in res.error and res.trust == "untrusted",
+        "U8 col=None → graceful 오류(untrusted)",
+    )
     # candidates: rag 항목 없으면 [](DB 미접촉 — _raise_factory 안 터짐).
     check(await rp.candidates({"agt_x", "mcp:s/t"}) == [], "U8 rag 항목 없음 → [](DB 미접촉)")
     # 빈 리소스 이름 `rag:`는 능력 승격 안 함(적대 리뷰 103 P2) — candidates/load서 걸러 DB 미접촉.
@@ -163,13 +198,25 @@ async def unit_async_checks() -> None:
     check(await rp.candidates({"rag:"}) == [], "U8 빈 이름 `rag:` → [](승격 안 함, DB 미접촉)")
     check(await rp.load("rag:") is None, "U8 빈 이름 load → None(DB 미접촉)")
     # 빈 allowlist → discover [](provider.candidates 미호출).
-    b_empty = PolicyScopedBroker([], lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=_raise_factory())))
+    b_empty = PolicyScopedBroker(
+        [],
+        lambda k, name=None: True,
+        providers=build_providers(BrokerContext(session_factory=_raise_factory())),
+    )
     check(await b_empty.discover("문서") == [], "U8 빈 allowlist → [](DB 미접촉)")
     # rag allow 있으나 RBAC 거부 → provider 미호출(존재 누출 0).
-    b_rbac = PolicyScopedBroker({RAG_MAIN}, lambda k, name=None: False, providers=build_providers(BrokerContext(session_factory=_raise_factory())))
+    b_rbac = PolicyScopedBroker(
+        {RAG_MAIN},
+        lambda k, name=None: False,
+        providers=build_providers(BrokerContext(session_factory=_raise_factory())),
+    )
     check(await b_rbac.discover("") == [], "U8 RBAC rag 거부 → [](존재 누출 0)")
     # allow 밖 invoke → not-found(_permitted가 load 이전에 거부 → DB 미접촉).
-    b_main = PolicyScopedBroker({RAG_MAIN}, lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=_raise_factory())))
+    b_main = PolicyScopedBroker(
+        {RAG_MAIN},
+        lambda k, name=None: True,
+        providers=build_providers(BrokerContext(session_factory=_raise_factory())),
+    )
     r = await b_main.invoke(f"rag:{CP}other", {"text": "q"})
     check(r.error == "capability not found", "U8 allow 밖 rag invoke → not-found(존재 비노출)")
 
@@ -177,44 +224,74 @@ async def unit_async_checks() -> None:
 async def integration_checks() -> None:
     print("[H] 통합(실 mock 임베딩 + 실 DB) — discover/describe/invoke·정책격리·공유 포맷 drift 0")
     transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://t", headers=_AUTH, timeout=60) as c:
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://t", headers=_AUTH, timeout=60
+    ) as c:
         provs = (await c.get("/providers")).json()
         mock_p = next((p for p in provs if "_remote" in (p.get("base_url") or "")), None)
         check(mock_p is not None, "H seed: mock(_remote) provider 존재")
-        mk = await c.post("/models", json={
-            "name": f"{MP}embed", "provider_id": mock_p["id"], "model_id": "mock-embed",
-            "kind": "embedding", "is_default": False, "params": {},
-        })
+        mk = await c.post(
+            "/models",
+            json={
+                "name": f"{MP}embed",
+                "provider_id": mock_p["id"],
+                "model_id": "mock-embed",
+                "kind": "embedding",
+                "is_default": False,
+                "params": {},
+            },
+        )
         check(mk.status_code == 201, f"H seed: mock 임베딩 모델 201 (got {mk.status_code})")
         embed_mid = mk.json()["id"]
         for nm in ("main", "empty"):
-            cc = await c.post("/collections", json={
-                "name": f"{CP}{nm}", "embedding_model_id": embed_mid,
-                "chunk_size": 200, "chunk_overlap": 20,
-            })
+            cc = await c.post(
+                "/collections",
+                json={
+                    "name": f"{CP}{nm}",
+                    "embedding_model_id": embed_mid,
+                    "chunk_size": 200,
+                    "chunk_overlap": 20,
+                },
+            )
             check(cc.status_code == 201, f"H seed: 컬렉션 {nm} 201 (got {cc.status_code})")
-        cid = next(x["id"] for x in (await c.get("/collections")).json() if x["name"] == f"{CP}main")
-        up = await c.post(f"/collections/{cid}/documents",
-                          files={"file": ("main.txt", DOC_TEXT.encode("utf-8"), "text/plain")})
+        cid = next(
+            x["id"] for x in (await c.get("/collections")).json() if x["name"] == f"{CP}main"
+        )
+        up = await c.post(
+            f"/collections/{cid}/documents",
+            files={"file": ("main.txt", DOC_TEXT.encode("utf-8"), "text/plain")},
+        )
         check(up.json()["status"] == "ready", "H seed: main 인제스트 ready")
         chunk0 = await _first_chunk_text(f"{CP}main")
 
         # 브로커: allow=rag:main, RBAC 허용, 실 DB.
-        b = PolicyScopedBroker({RAG_MAIN}, lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=SessionLocal)))
+        b = PolicyScopedBroker(
+            {RAG_MAIN},
+            lambda k, name=None: True,
+            providers=build_providers(BrokerContext(session_factory=SessionLocal)),
+        )
 
         # H1 discover → rag cap 노출.
         caps = await b.discover(CP)  # 부분일치(컬렉션 이름 접두사)
         rag_caps = [x for x in caps if x.kind == "rag"]
-        check(any(x.id == RAG_MAIN for x in rag_caps), f"H1 discover → rag cap 노출 (got {[x.id for x in caps]})")
+        check(
+            any(x.id == RAG_MAIN for x in rag_caps),
+            f"H1 discover → rag cap 노출 (got {[x.id for x in caps]})",
+        )
 
         # H2 describe → input_schema.
         d = await b.describe(RAG_MAIN)
-        check(d.kind == "rag" and "text" in (d.input_schema or {}).get("properties", {}),
-              "H2 describe → kind=rag·text 파라미터")
+        check(
+            d.kind == "rag" and "text" in (d.input_schema or {}).get("properties", {}),
+            "H2 describe → kind=rag·text 파라미터",
+        )
 
         # H3 invoke → 검색 결과 텍스트(untrusted) + 관측 프레임 1개.
         res = await b.invoke(RAG_MAIN, {"text": chunk0})
-        check(res.error is None and "문서 검색 결과" in res.text, f"H3 invoke → 검색 결과 텍스트 (err={res.error})")
+        check(
+            res.error is None and "문서 검색 결과" in res.text,
+            f"H3 invoke → 검색 결과 텍스트 (err={res.error})",
+        )
         check(res.trust == "untrusted", "H3 결과 trust=untrusted(데이터 채널 격리 대상)")
         frames = [i for i in b.invocations if i["node"] == f"broker_invoke:rag:{CP}main"]
         check(len(frames) == 1, f"H3 broker.invocations에 rag 프레임 1개 (got {len(frames)})")
@@ -222,12 +299,18 @@ async def integration_checks() -> None:
         check(bool(secret) and secret not in res.text, "H3 복호화 api_key 결과 미노출")
 
         # H4 정책 격리: RBAC rag 거부 → discover에 rag 0(DB 미접촉).
-        b_deny = PolicyScopedBroker({RAG_MAIN}, lambda k, name=None: False, providers=build_providers(BrokerContext(session_factory=_raise_factory())))
+        b_deny = PolicyScopedBroker(
+            {RAG_MAIN},
+            lambda k, name=None: False,
+            providers=build_providers(BrokerContext(session_factory=_raise_factory())),
+        )
         check(await b_deny.discover(CP) == [], "H4 RBAC rag 거부 → discover [](DB 미접촉)")
 
         # H5 allow 밖(rag:empty는 실존하나 미허가) invoke → not-found(존재 비노출).
         r5 = await b.invoke(f"rag:{CP}empty", {"text": "x"})
-        check(r5.error == "capability not found", "H5 allow 밖(실존) invoke → not-found(존재 비노출)")
+        check(
+            r5.error == "capability not found", "H5 allow 밖(실존) invoke → not-found(존재 비노출)"
+        )
         # H6 allow 밖 describe → CapabilityNotFoundError(미존재·미허가 동일).
         try:
             await b.describe(f"rag:{CP}empty")
@@ -238,16 +321,29 @@ async def integration_checks() -> None:
         # H7 공유 포맷 drift 0 — provider invoke text == format_rag_hits(search_collections(...)).
         col = await _collection_dict(f"{CP}main")
         core_hits = await runtime.search_collections([col], chunk0, 4)
-        check(res.text == runtime.format_rag_hits(core_hits), "H7 provider invoke == 공유 코어+포맷(drift 0)")
+        check(
+            res.text == runtime.format_rag_hits(core_hits),
+            "H7 provider invoke == 공유 코어+포맷(drift 0)",
+        )
 
         # H8 빈 컬렉션 위임(허가) → graceful 무결과 텍스트(코어 [] → 공유 포맷).
-        b_empty_allow = PolicyScopedBroker({f"rag:{CP}empty"}, lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=SessionLocal)))
+        b_empty_allow = PolicyScopedBroker(
+            {f"rag:{CP}empty"},
+            lambda k, name=None: True,
+            providers=build_providers(BrokerContext(session_factory=SessionLocal)),
+        )
         r8 = await b_empty_allow.invoke(f"rag:{CP}empty", {"text": "아무거나 질의"})
-        check(r8.error is None and "찾지 못했습니다" in r8.text, "H8 빈 컬렉션 → graceful 무결과 텍스트")
+        check(
+            r8.error is None and "찾지 못했습니다" in r8.text,
+            "H8 빈 컬렉션 → graceful 무결과 텍스트",
+        )
 
         # H9 과대 질의(적대 리뷰 103 P2) — 4000자 초과도 코어서 잘려 크래시/오류 없이 처리.
         r9 = await b.invoke(RAG_MAIN, {"text": "가" * 6000})
-        check(r9.error is None and "문서 검색 결과" in r9.text, "H9 6000자 질의 → 상한 처리(크래시 없음)")
+        check(
+            r9.error is None and "문서 검색 결과" in r9.text,
+            "H9 6000자 질의 → 상한 처리(크래시 없음)",
+        )
 
 
 async def main() -> None:

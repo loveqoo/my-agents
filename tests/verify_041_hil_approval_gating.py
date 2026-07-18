@@ -125,7 +125,9 @@ async def precondition():
     danger = runtime._safe_name(mock_mcp.MOCK_MCP_SERVER_NAME, "delete_record")
     safe = runtime._safe_name(mock_mcp.MOCK_MCP_SERVER_NAME, "web_search")
     ok = danger in names and safe in names
-    check(ok, f"PRE: live mock MCP 연결 → 실 도구 빌드({len(tools)}개; delete_record·web_search 존재)")
+    check(
+        ok, f"PRE: live mock MCP 연결 → 실 도구 빌드({len(tools)}개; delete_record·web_search 존재)"
+    )
     if not ok:
         print("\n❌ 전제 실패 — API 서버(127.0.0.1:8000)가 떠 있어야 합니다. 종료.")
         sys.exit(1)
@@ -173,7 +175,9 @@ async def g4_read_tool():
     sink: list[dict] = []
     graph = await _graph_calling("web_search", {"query": "hello"}, sink)  # 비위험 — 정책 미포함
     cfg = {"configurable": {"thread_id": "g4"}}
-    interrupted, _ = await _stream(graph, {"messages": [{"role": "user", "content": "search"}]}, cfg)
+    interrupted, _ = await _stream(
+        graph, {"messages": [{"role": "user", "content": "search"}]}, cfg
+    )
     check(interrupted is None, "G4: 비위험(web_search) 도구 → interrupt 0")
     check(
         len(sink) == 1 and sink[0]["tool"] == "web_search" and "검색결과" in sink[0]["result"],
@@ -211,7 +215,9 @@ def g7_policy_map():
         ("local-tools", "delete_record")[0] == mock_mcp.MOCK_MCP_SERVER_NAME,
         "G7: 게이트 서버명이 mock_mcp.MOCK_MCP_SERVER_NAME와 일치(drift 0)",
     )
-    check(("local-tools", "web_search") not in pol, "G7: read 도구(web_search)는 게이트 정책에 미포함")
+    check(
+        ("local-tools", "web_search") not in pol, "G7: read 도구(web_search)는 게이트 정책에 미포함"
+    )
 
 
 async def main():

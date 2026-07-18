@@ -36,12 +36,18 @@ def check(cond, msg):
 def part_v1():
     from api.eval_golden import _parse_question
 
-    check(_parse_question("A/B 테스트에서 문해력이 중요한 이유는 무엇인가?") is not None, "V1a 유효 질문")
+    check(
+        _parse_question("A/B 테스트에서 문해력이 중요한 이유는 무엇인가?") is not None,
+        "V1a 유효 질문",
+    )
     check(_parse_question("문해력이 중요하다") is None, "V1b 물음표 없음 → None")
     check(_parse_question("왜?") is None, "V1c 5자 미만 → None")
     check(_parse_question("이 문단에서 말하는 핵심은?") is None, "V1d 문단 지칭 → None")
     check(_parse_question("") is None and _parse_question("  \n ") is None, "V1e 빈 응답 → None")
-    check(_parse_question('"질문은 따옴표를 벗는가?"') == "질문은 따옴표를 벗는가?", "V1f 따옴표 스트립")
+    check(
+        _parse_question('"질문은 따옴표를 벗는가?"') == "질문은 따옴표를 벗는가?",
+        "V1f 따옴표 스트립",
+    )
     check(
         _parse_question("A/B 테스트에서 문해력이 중요한 이유는 무엇인가")
         == "A/B 테스트에서 문해력이 중요한 이유는 무엇인가?",
@@ -89,12 +95,16 @@ async def part_v45():
 
     async with SessionLocal() as s:
         cols = (
-            await s.execute(
-                text(
-                    "SELECT column_name FROM information_schema.columns WHERE table_name='rag_chunks'"
+            (
+                await s.execute(
+                    text(
+                        "SELECT column_name FROM information_schema.columns WHERE table_name='rag_chunks'"
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         # 빈 결과(테이블명 오타)로 자명 통과하지 않게 산 컬럼 존재를 함께 단언(codex 329 P1 —
         # 첫 판은 'chunks'를 조회해 false green이었다).
         check(
@@ -106,8 +116,10 @@ async def part_v45():
 
         # V5 — 인제스트가 하는 그대로의 Chunk insert(모델에 token_count가 없어도 왕복 정상)
         emb_model = (
-            await s.execute(select(ModelConfig).where(ModelConfig.kind == "embedding").limit(1))
-        ).scalars().first()
+            (await s.execute(select(ModelConfig).where(ModelConfig.kind == "embedding").limit(1)))
+            .scalars()
+            .first()
+        )
         check(emb_model is not None, "V5a 시드 embedding 모델 존재")
         tag = f"v329-{_uuid.uuid4().hex[:6]}"
         col = Collection(name=tag, embedding_model_id=emb_model.id, dims=RAG_EMBED_DIMS)

@@ -64,42 +64,73 @@ async def _activate_scratch(c: httpx.AsyncClient, agent_id: str) -> str | None:
 async def run() -> bool:
     t = httpx.ASGITransport(app=app)
     headers = {"Authorization": f"Bearer {_token()}"}
-    async with httpx.AsyncClient(transport=t, base_url="http://t", headers=headers, timeout=120) as c:
+    async with httpx.AsyncClient(
+        transport=t, base_url="http://t", headers=headers, timeout=120
+    ) as c:
         agents: list[str] = []
         ds_id = None
         try:
-            a = (await c.post("/agents", json={
-                "name": f"reg241-{uuid.uuid4().hex[:6]}",
-                "config": {"model": "mock-llm", "prompt": "회귀 실습"},
-            })).json()
+            a = (
+                await c.post(
+                    "/agents",
+                    json={
+                        "name": f"reg241-{uuid.uuid4().hex[:6]}",
+                        "config": {"model": "mock-llm", "prompt": "회귀 실습"},
+                    },
+                )
+            ).json()
             agents.append(a["id"])
             v1 = await _activate_scratch(c, a["id"])  # v1 활성화(자동 회귀는 문제집 없어 0)
 
-            ds = (await c.post("/eval/datasets", json={"name": f"ds241-{uuid.uuid4().hex[:6]}", "kind": "agent"})).json()
+            ds = (
+                await c.post(
+                    "/eval/datasets",
+                    json={"name": f"ds241-{uuid.uuid4().hex[:6]}", "kind": "agent"},
+                )
+            ).json()
             ds_id = ds["id"]
-            await c.post(f"/eval/datasets/{ds_id}/cases", json={"name": "인사", "input": "안녕", "asserts": [{"type": "no_error"}]})
+            await c.post(
+                f"/eval/datasets/{ds_id}/cases",
+                json={"name": "인사", "input": "안녕", "asserts": [{"type": "no_error"}]},
+            )
 
             # R1 베이스라인 수동 런(링크 생성)
             await c.post(f"/eval/datasets/{ds_id}/runs", json={"agent_id": a["id"]})
             rs = await _wait_all_done(c, ds_id)
-            ck(len(rs) == 1 and rs[0]["status"] == "ok", f"R1 베이스라인 수동 런 완료 (v={rs[0].get('agent_version')})")
+            ck(
+                len(rs) == 1 and rs[0]["status"] == "ok",
+                f"R1 베이스라인 수동 런 완료 (v={rs[0].get('agent_version')})",
+            )
 
             # R2 편집→v2 활성화 → 자동 회귀 런
-            await c.put(f"/agents/{a['id']}", json={"config": {"model": "mock-llm", "prompt": "회귀 실습 v2"}})
+            await c.put(
+                f"/agents/{a['id']}",
+                json={"config": {"model": "mock-llm", "prompt": "회귀 실습 v2"}},
+            )
             v2 = await _activate_scratch(c, a["id"])
             await asyncio.sleep(1.0)  # fire-and-forget 태스크 시작 여유
             rs = await _wait_all_done(c, ds_id)
             auto = [r for r in rs if (r.get("env") or {}).get("trigger") == "activate"]
             ck(len(auto) == 1, f"R2a 활성화가 자동 런 1건 생성 (총 {len(rs)}건)")
-            ck(auto and auto[0].get("agent_version") == v2 and v2 != v1,
-               f"R2b 자동 런에 새 버전 박제 ({v1}→{v2}, run={auto[0].get('agent_version') if auto else None})")
-            ck(auto and auto[0]["status"] == "ok", f"R2c 자동 런 완주 (status={auto[0]['status'] if auto else None})")
+            ck(
+                auto and auto[0].get("agent_version") == v2 and v2 != v1,
+                f"R2b 자동 런에 새 버전 박제 ({v1}→{v2}, run={auto[0].get('agent_version') if auto else None})",
+            )
+            ck(
+                auto and auto[0]["status"] == "ok",
+                f"R2c 자동 런 완주 (status={auto[0]['status'] if auto else None})",
+            )
 
             # R3 문제집 없는 에이전트 — 활성화해도 아무 일 없음(전체 런 수 불변)
-            b = (await c.post("/agents", json={
-                "name": f"noreg-{uuid.uuid4().hex[:6]}",
-                "config": {"model": "mock-llm", "prompt": "x"},
-            })).json()
+            b = (
+                await c.post(
+                    "/agents",
+                    json={
+                        "name": f"noreg-{uuid.uuid4().hex[:6]}",
+                        "config": {"model": "mock-llm", "prompt": "x"},
+                    },
+                )
+            ).json()
             agents.append(b["id"])
             before = len(await _runs(c, ds_id))
             await _activate_scratch(c, b["id"])
@@ -116,15 +147,20 @@ async def run() -> bool:
                 await asyncio.sleep(1.0)
                 rs = await _wait_all_done(c, ds_id)
                 new_auto = [x for x in rs if (x.get("env") or {}).get("trigger") == "activate"]
-                ck(len(rs) == before + 1 and len(new_auto) == 2,
-                   f"R4 revert 승격도 자동 회귀 ({before}→{len(rs)}건, auto={len(new_auto)})")
+                ck(
+                    len(rs) == before + 1 and len(new_auto) == 2,
+                    f"R4 revert 승격도 자동 회귀 ({before}→{len(rs)}건, auto={len(new_auto)})",
+                )
 
                 # R5 — 같은 버전(v2) 재활성화: 이미 v2 자동 런이 있으므로 dedupe로 스킵(비용 폭주 차단, codex #2)
                 before5 = len(await _runs(c, ds_id))
                 await c.post(f"/agents/{a['id']}/activate", json={"version": v2})
                 await asyncio.sleep(1.5)
                 after5 = len(await _runs(c, ds_id))
-                ck(after5 == before5, f"R5 같은 버전 재활성화 → 중복 자동 런 없음 ({before5}→{after5})")
+                ck(
+                    after5 == before5,
+                    f"R5 같은 버전 재활성화 → 중복 자동 런 없음 ({before5}→{after5})",
+                )
         finally:
             if ds_id:
                 await c.delete(f"/eval/datasets/{ds_id}")

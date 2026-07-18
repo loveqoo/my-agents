@@ -134,7 +134,10 @@ async def main() -> None:
     # P5 — list_approvals 시그니처 회귀(status 기본 None=전량)
     sig = inspect.signature(approvals.list_approvals)
     p = sig.parameters.get("status")
-    check(p is not None and p.default is None, "P5 list_approvals(status=None) 시그니처(전량 기본 보존)")
+    check(
+        p is not None and p.default is None,
+        "P5 list_approvals(status=None) 시그니처(전량 기본 보존)",
+    )
 
     print()
     if _fails:

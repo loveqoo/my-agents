@@ -11,6 +11,7 @@ verify_100 H4는 external 위임을 돌리나 원격이 에러(도달불가)라 
 
 실행: cd packages/api && uv run python ../../tests/verify_117_a2a_collaboration_and_approval.py
 """
+
 import asyncio
 import json
 import uuid
@@ -20,6 +21,7 @@ import httpx
 from api.auth import _token, current_principal
 from api.main import app
 from api.broker import BrokerContext, build_providers  # noqa: E402, F401  (스펙 294)
+
 
 # 위임은 유저 세션 RBAC 통과 필요(머신토큰 deny-by-default, learning 110). 채팅 EP principal만 슈퍼유저로.
 class _SuperPrincipal:
@@ -33,6 +35,8 @@ class _SuperPrincipal:
 app.dependency_overrides[current_principal] = lambda: _SuperPrincipal()
 
 _fails = []
+
+
 def check(c, m):
     print(("  ok  " if c else " FAIL ") + m)
     if not c:
@@ -55,12 +59,20 @@ async def part_a_http_e2e():
     from sqlalchemy import delete
 
     pfx = f"v117{uuid.uuid4().hex[:6]}"
-    target_name = f"{pfx}partner"  # 채팅 질의가 이 이름을 부분포함해야 lexical discover가 찾음(learning 110)
+    target_name = (
+        f"{pfx}partner"  # 채팅 질의가 이 이름을 부분포함해야 lexical discover가 찾음(learning 110)
+    )
     target_id = f"{pfx}-tgt"
     async with SessionLocal() as s:
-        s.add(Agent(agent_id=target_id, name=target_name, source="external",
-                    endpoint="https://partner.example/a2a",
-                    config={"card": {"description": "협업 파트너 에이전트"}}))
+        s.add(
+            Agent(
+                agent_id=target_id,
+                name=target_name,
+                source="external",
+                endpoint="https://partner.example/a2a",
+                config={"card": {"description": "협업 파트너 에이전트"}},
+            )
+        )
         await s.commit()
 
     made = []
@@ -68,19 +80,32 @@ async def part_a_http_e2e():
     try:
         auth = {"Authorization": f"Bearer {_token()}"}
         transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(transport=transport, base_url="http://t", headers=auth, timeout=120) as c:
-            r = await c.post("/agents", json={
-                "name": f"{pfx}-orch",
-                "config": {"model": "mock-llm", "prompt": "", "historyDepth": 10,
-                           "impl": "orchestrate", "capabilities": [target_id]},
-            })
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://t", headers=auth, timeout=120
+        ) as c:
+            r = await c.post(
+                "/agents",
+                json={
+                    "name": f"{pfx}-orch",
+                    "config": {
+                        "model": "mock-llm",
+                        "prompt": "",
+                        "historyDepth": 10,
+                        "impl": "orchestrate",
+                        "capabilities": [target_id],
+                    },
+                },
+            )
             check(r.status_code == 201, f"A0 조율형 생성 201 (got {r.status_code})")
             oid = r.json()["id"]
             made.append(oid)
 
             acc, trace, event = [], None, None
-            async with c.stream("POST", f"/agents/{oid}/chat",
-                                json={"messages": [{"role": "user", "content": target_name}]}) as resp:
+            async with c.stream(
+                "POST",
+                f"/agents/{oid}/chat",
+                json={"messages": [{"role": "user", "content": target_name}]},
+            ) as resp:
                 check(resp.status_code == 200, f"A1 chat 200 (got {resp.status_code})")
                 async for line in resp.aiter_lines():
                     if line.startswith("event:"):
@@ -98,18 +123,27 @@ async def part_a_http_e2e():
                         elif isinstance(obj, dict) and obj.get("text"):
                             acc.append(obj["text"])
             nodes = [n["node"] for n in (trace or {}).get("graph", [])]
-            check(any(n.startswith("broker_invoke:agent:") for n in nodes),
-                  f"A2 위임 대상 kind=agent (broker_invoke:agent 노드) (got {nodes})")
-            check(len(_a2a_calls) == 1, f"A3 원격 A2A 정확히 1회 호출(협업 성공) (got {len(_a2a_calls)})")
-            check(_a2a_calls and target_name in _a2a_calls[0]["text"],
-                  "A4 사용자 질의가 원격에 전달(이음매 관통)")
+            check(
+                any(n.startswith("broker_invoke:agent:") for n in nodes),
+                f"A2 위임 대상 kind=agent (broker_invoke:agent 노드) (got {nodes})",
+            )
+            check(
+                len(_a2a_calls) == 1,
+                f"A3 원격 A2A 정확히 1회 호출(협업 성공) (got {len(_a2a_calls)})",
+            )
+            check(
+                _a2a_calls and target_name in _a2a_calls[0]["text"],
+                "A4 사용자 질의가 원격에 전달(이음매 관통)",
+            )
             check(bool(acc), "A5 종합 발화(원격 답이 데이터 채널 거쳐 종합됨)")
     finally:
         for aid in made:
             try:
-                async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),
-                                             base_url="http://t",
-                                             headers={"Authorization": f"Bearer {_token()}"}) as c:
+                async with httpx.AsyncClient(
+                    transport=httpx.ASGITransport(app=app),
+                    base_url="http://t",
+                    headers={"Authorization": f"Bearer {_token()}"},
+                ) as c:
                     await c.delete(f"/agents/{aid}")
             except Exception:
                 pass
@@ -129,19 +163,25 @@ async def part_schema_roundtrip():
     made = None
     try:
         auth = {"Authorization": f"Bearer {_token()}"}
-        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),
-                                     base_url="http://t", headers=auth, timeout=60) as c:
-            r = await c.post("/agents", json={
-                "name": f"{pfx}-rt",
-                "config": {"model": "mock-llm", "prompt": "", "requires_approval": True},
-            })
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://t", headers=auth, timeout=60
+        ) as c:
+            r = await c.post(
+                "/agents",
+                json={
+                    "name": f"{pfx}-rt",
+                    "config": {"model": "mock-llm", "prompt": "", "requires_approval": True},
+                },
+            )
             check(r.status_code == 201, f"B0 생성 201 (got {r.status_code})")
             made = r.json()["id"]
         # DB에 저장된 config가 플래그를 보존했나(write-schema 관통 증명).
         async with SessionLocal() as s:
             row = (await s.execute(select(Agent).where(Agent.id == uuid.UUID(made)))).scalar_one()
-            check((row.config or {}).get("requires_approval") is True,
-                  f"B0 requires_approval API 라운드트립 보존(스키마 필드) (got {(row.config or {}).get('requires_approval')})")
+            check(
+                (row.config or {}).get("requires_approval") is True,
+                f"B0 requires_approval API 라운드트립 보존(스키마 필드) (got {(row.config or {}).get('requires_approval')})",
+            )
     finally:
         if made:
             async with SessionLocal() as s:
@@ -161,17 +201,23 @@ def part_b_unit():
     off = _Row("파트너", {"card": {}})
     on = _Row("파트너", {"requires_approval": True})
 
-    check(ap.approval_for(off, "x", {"text": "질의"}) is None,
-          "B1 requires_approval 없음 → None(게이트 없음·무회귀)")
+    check(
+        ap.approval_for(off, "x", {"text": "질의"}) is None,
+        "B1 requires_approval 없음 → None(게이트 없음·무회귀)",
+    )
     pay = ap.approval_for(on, "x", {"text": "민감질의"})
-    check(isinstance(pay, dict) and pay.get("action") == "a2a.delegate",
-          "B2 requires_approval True → 승인 payload(a2a.delegate)")
+    check(
+        isinstance(pay, dict) and pay.get("action") == "a2a.delegate",
+        "B2 requires_approval True → 승인 payload(a2a.delegate)",
+    )
     check(pay and "파트너" in pay.get("summary", ""), "B2 payload summary에 대상 이름")
     # 승인한 것 == 전송되는 것(approval_for·invoke 동일 _a2a_text)
     args = {"text": "정확히 이 텍스트"}
     check(pay2 := ap.approval_for(on, "x", args), "B3 payload 존재")
-    check(pay2["args"]["text"] == _a2a_text(args),
-          "B3 승인 노출 텍스트 == invoke 전송 텍스트(승인==전송)")
+    check(
+        pay2["args"]["text"] == _a2a_text(args),
+        "B3 승인 노출 텍스트 == invoke 전송 텍스트(승인==전송)",
+    )
 
 
 async def part_b_integration():
@@ -190,13 +236,23 @@ async def part_b_integration():
     pfx = f"v117g{uuid.uuid4().hex[:6]}"
     tid = f"{pfx}-gtgt"
     async with SessionLocal() as s:
-        s.add(Agent(agent_id=tid, name=f"{pfx}gate", source="external",
-                    endpoint="https://gate.example/a2a",
-                    config={"requires_approval": True}))  # opt-in 게이트
+        s.add(
+            Agent(
+                agent_id=tid,
+                name=f"{pfx}gate",
+                source="external",
+                endpoint="https://gate.example/a2a",
+                config={"requires_approval": True},
+            )
+        )  # opt-in 게이트
         await s.commit()
 
     try:
-        broker = PolicyScopedBroker({tid}, lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=SessionLocal)))
+        broker = PolicyScopedBroker(
+            {tid},
+            lambda k, name=None: True,
+            providers=build_providers(BrokerContext(session_factory=SessionLocal)),
+        )
 
         class S(TypedDict):
             out: str
@@ -218,12 +274,16 @@ async def part_b_integration():
         async for mode, chunk in graph.astream({}, config=cfg, stream_mode=["updates"]):
             if isinstance(chunk, dict) and "__interrupt__" in chunk:
                 interrupted = chunk["__interrupt__"][0].value
-        check(interrupted and interrupted.get("action") == "a2a.delegate",
-              "B4 전송 이전 interrupt(a2a.delegate 승인 대기)")
+        check(
+            interrupted and interrupted.get("action") == "a2a.delegate",
+            "B4 전송 이전 interrupt(a2a.delegate 승인 대기)",
+        )
         check(len(_a2a_calls) == 0, f"B4 pause 시점 a2a 전송 0 (got {len(_a2a_calls)})")
 
         # (2) approve → 정확히 1회 전송
-        async for _ in graph.astream(Command(resume={"decision": "approve"}), config=cfg, stream_mode=["updates"]):
+        async for _ in graph.astream(
+            Command(resume={"decision": "approve"}), config=cfg, stream_mode=["updates"]
+        ):
             pass
         check(len(_a2a_calls) == 1, f"B5 approve 후 a2a 정확히 1회 전송 (got {len(_a2a_calls)})")
 
@@ -232,7 +292,9 @@ async def part_b_integration():
         cfg_r = {"configurable": {"thread_id": f"{pfx}-reject"}}
         async for mode, chunk in graph.astream({}, config=cfg_r, stream_mode=["updates"]):
             pass
-        async for _ in graph.astream(Command(resume={"decision": "reject"}), config=cfg_r, stream_mode=["updates"]):
+        async for _ in graph.astream(
+            Command(resume={"decision": "reject"}), config=cfg_r, stream_mode=["updates"]
+        ):
             pass
         check(len(_a2a_calls) == 0, f"B6 reject 후 a2a 전송 0(fail-closed) (got {len(_a2a_calls)})")
     finally:
@@ -243,7 +305,10 @@ async def part_b_integration():
 
 async def run():
     import api.a2a_client as a2ac
-    a2ac.a2a_stream = _fake_a2a_stream  # 패치(모듈 속성 재할당 = broker의 a2a_client.a2a_stream도 이것)
+
+    a2ac.a2a_stream = (
+        _fake_a2a_stream  # 패치(모듈 속성 재할당 = broker의 a2a_client.a2a_stream도 이것)
+    )
 
     await part_a_http_e2e()
     await part_schema_roundtrip()

@@ -11,7 +11,12 @@ import os
 import sys
 import uuid as _uuid
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "packages", "api", "src"))
+sys.path.insert(
+    0,
+    os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "packages", "api", "src"
+    ),
+)
 
 from fastapi import HTTPException  # noqa: E402
 from sqlalchemy import select  # noqa: E402
@@ -36,19 +41,25 @@ def check(cond, msg):
 
 class _Super:
     """principal 스텁(verify_093 패턴) — 라우트 직접 호출용."""
+
     id = _uuid.uuid4()
     is_superuser = True
     email = "verify137@example.com"
 
 
 def part_a():
-    scorers = build_asserts([
-        {"type": "trace_has", "arg": "rag:"},
-        {"type": "trace_lacks", "arg": "mcp:danger/"},
-        {"type": "no_error"},
-        {"type": "output_contains", "arg": "문해력"},
-    ])
-    check(len(scorers) == 4 and scorers[0][0] == "trace_has:rag:", f"A1 유효 매핑 4종 (got {[s[0] for s in scorers]})")
+    scorers = build_asserts(
+        [
+            {"type": "trace_has", "arg": "rag:"},
+            {"type": "trace_lacks", "arg": "mcp:danger/"},
+            {"type": "no_error"},
+            {"type": "output_contains", "arg": "문해력"},
+        ]
+    )
+    check(
+        len(scorers) == 4 and scorers[0][0] == "trace_has:rag:",
+        f"A1 유효 매핑 4종 (got {[s[0] for s in scorers]})",
+    )
     for bad, label in [
         ([{"type": "llm_judge", "arg": "x"}], "미지 type"),
         ([{"type": "trace_has"}], "arg 누락"),
@@ -66,22 +77,31 @@ async def part_b():
     tag = f"v137-{_uuid.uuid4().hex[:6]}"
     sup = _Super()
     async with async_session() as s:
-        ds = await ER.create_dataset(ER.DatasetIn(name=f"{tag}-문제집", kind="agent"), session=s, user=sup)
+        ds = await ER.create_dataset(
+            ER.DatasetIn(name=f"{tag}-문제집", kind="agent"), session=s, user=sup
+        )
         check(ds.kind == "agent" and ds.case_count == 0, "B1 데이터셋 생성")
     try:
         async with async_session() as s:
             case = await ER.create_case(
                 ds.id,
-                ER.CaseIn(name="rag 필수", input="노트에서 A/B 테스트 정리해줘",
-                          asserts=[{"type": "trace_has", "arg": "rag:"}, {"type": "no_error"}]),
-                session=s, user=sup,
+                ER.CaseIn(
+                    name="rag 필수",
+                    input="노트에서 A/B 테스트 정리해줘",
+                    asserts=[{"type": "trace_has", "arg": "rag:"}, {"type": "no_error"}],
+                ),
+                session=s,
+                user=sup,
             )
             check(len(case.asserts) == 2, "B2 케이스 생성(필수 도구 asserts)")
         async with async_session() as s:
             try:
-                await ER.create_case(ds.id, ER.CaseIn(name="bad", input="x",
-                                                       asserts=[{"type": "없는채점", "arg": "y"}]),
-                                     session=s, user=sup)
+                await ER.create_case(
+                    ds.id,
+                    ER.CaseIn(name="bad", input="x", asserts=[{"type": "없는채점", "arg": "y"}]),
+                    session=s,
+                    user=sup,
+                )
                 check(False, "B3 미지 type 케이스 → 400이어야 함")
             except HTTPException as e:
                 check(e.status_code == 400, f"B3 미지 type → 400 (got {e.status_code})")
@@ -89,10 +109,16 @@ async def part_b():
             rows = await ER.list_cases(ds.id, session=s, user=sup)
             check(len(rows) == 1 and rows[0].name == "rag 필수", f"B4 목록 1건 (got {len(rows)})")
         async with async_session() as s:
-            upd = await ER.update_case(case.id, ER.CaseIn(name="rag 필수 v2", input="수정",
-                                                           asserts=[{"type": "output_nonempty"}]),
-                                       session=s, user=sup)
-            check(upd.name == "rag 필수 v2" and upd.asserts == [{"type": "output_nonempty"}], "B5 케이스 수정")
+            upd = await ER.update_case(
+                case.id,
+                ER.CaseIn(name="rag 필수 v2", input="수정", asserts=[{"type": "output_nonempty"}]),
+                session=s,
+                user=sup,
+            )
+            check(
+                upd.name == "rag 필수 v2" and upd.asserts == [{"type": "output_nonempty"}],
+                "B5 케이스 수정",
+            )
         async with async_session() as s:
             dss = await ER.list_datasets(session=s, user=sup)
             mine = [d for d in dss if d.id == ds.id]
@@ -104,7 +130,11 @@ async def part_b():
             except Exception:
                 pass
         async with async_session() as s:
-            left = (await s.execute(select(EvalCase).where(EvalCase.dataset_id == ds.id))).scalars().all()
+            left = (
+                (await s.execute(select(EvalCase).where(EvalCase.dataset_id == ds.id)))
+                .scalars()
+                .all()
+            )
             check(left == [], "B7 데이터셋 삭제 → 케이스 CASCADE(잔존 0)")
 
 

@@ -17,6 +17,7 @@ McpServer는 다른 테이블의 FK 대상이 아니다(에이전트는 mcps를 
   A2A_ALLOWED_HOSTS=127.0.0.1,localhost .venv/bin/python tests/reconcile_054_mcp_seed.py          # dry-run
   A2A_ALLOWED_HOSTS=127.0.0.1,localhost .venv/bin/python tests/reconcile_054_mcp_seed.py --apply   # 실행
 """
+
 import asyncio
 import os
 import sys
@@ -50,8 +51,8 @@ def _remap(mcps: list) -> list:
 async def _gather(sess) -> dict:
     mcps = (await sess.execute(select(McpServer))).scalars().all()
     agents = (
-        await sess.execute(select(Agent).options(selectinload(Agent.versions)))
-    ).scalars().all()
+        (await sess.execute(select(Agent).options(selectinload(Agent.versions)))).scalars().all()
+    )
 
     mcp_del = [m for m in mcps if m.name in OLD_MCPS]
     existing_new = next((m for m in mcps if m.name == NEW_NAME), None)
@@ -71,7 +72,9 @@ async def _gather(sess) -> dict:
             remap_plan.append((a, before, after, vers))
 
     return {
-        "mcp_all": mcps, "mcp_del": mcp_del, "existing_new": existing_new,
+        "mcp_all": mcps,
+        "mcp_del": mcp_del,
+        "existing_new": existing_new,
         "remap_plan": remap_plan,
     }
 
@@ -82,13 +85,19 @@ def _report(plan: dict) -> None:
     print("=" * 68)
 
     print(f"\n[MCP] 현재 {len(plan['mcp_all'])}행: {sorted(m.name for m in plan['mcp_all'])}")
-    print(f"[MCP] 삭제 대상(가짜) {len(plan['mcp_del'])}: {sorted(m.name for m in plan['mcp_del'])}")
+    print(
+        f"[MCP] 삭제 대상(가짜) {len(plan['mcp_del'])}: {sorted(m.name for m in plan['mcp_del'])}"
+    )
     if plan["existing_new"]:
         m = plan["existing_new"]
-        print(f"[MCP] '{NEW_NAME}' 이미 존재 → UPDATE (url={m.url}, transport={m.transport}, "
-              f"tools={m.enabled_tools})")
+        print(
+            f"[MCP] '{NEW_NAME}' 이미 존재 → UPDATE (url={m.url}, transport={m.transport}, "
+            f"tools={m.enabled_tools})"
+        )
     else:
-        print(f"[MCP] '{NEW_NAME}' 없음 → CREATE (http, {MOCK_MCP_URL}, {NEW_TOOLS}, published=True)")
+        print(
+            f"[MCP] '{NEW_NAME}' 없음 → CREATE (http, {MOCK_MCP_URL}, {NEW_TOOLS}, published=True)"
+        )
 
     print(f"\n[config 재매핑] {len(plan['remap_plan'])}개 에이전트:")
     for a, before, after, vers in plan["remap_plan"]:
@@ -108,11 +117,20 @@ async def _apply(sess, plan: dict) -> None:
     # 1) local-tools upsert.
     m = plan["existing_new"]
     if m is None:
-        sess.add(McpServer(
-            name=NEW_NAME, source="local", transport="http", url=MOCK_MCP_URL, endpoint=None,
-            tools=list(NEW_TOOLS), enabled_tools=list(NEW_TOOLS), status="connected",
-            published=True, auth=None,
-        ))
+        sess.add(
+            McpServer(
+                name=NEW_NAME,
+                source="local",
+                transport="http",
+                url=MOCK_MCP_URL,
+                endpoint=None,
+                tools=list(NEW_TOOLS),
+                enabled_tools=list(NEW_TOOLS),
+                status="connected",
+                published=True,
+                auth=None,
+            )
+        )
     else:
         m.source = "local"
         m.transport = "http"
@@ -146,12 +164,16 @@ async def _apply(sess, plan: dict) -> None:
 
     # 3) 가짜 행 삭제(FK 연쇄 없음 — 이름 참조는 위에서 재매핑됨).
     if plan["mcp_del"]:
-        await sess.execute(delete(McpServer).where(McpServer.name.in_([m.name for m in plan["mcp_del"]])))
+        await sess.execute(
+            delete(McpServer).where(McpServer.name.in_([m.name for m in plan["mcp_del"]]))
+        )
 
     await sess.commit()
-    print(f"\n✅ 적용 완료 — 가짜 {len(plan['mcp_del'])}행 삭제, "
-          f"'{NEW_NAME}' {'생성' if m is None else '갱신'}, "
-          f"에이전트 {len(plan['remap_plan'])}개 재매핑.")
+    print(
+        f"\n✅ 적용 완료 — 가짜 {len(plan['mcp_del'])}행 삭제, "
+        f"'{NEW_NAME}' {'생성' if m is None else '갱신'}, "
+        f"에이전트 {len(plan['remap_plan'])}개 재매핑."
+    )
 
 
 async def main() -> None:

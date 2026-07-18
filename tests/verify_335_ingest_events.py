@@ -102,16 +102,24 @@ async def main():
         )
         assert emb is not None
         col = Collection(
-            name=tag, kind="entity", embedding_model_id=emb.id, dims=RAG_EMBED_DIMS,
-            status="empty", owner_id=str(sup.id),
+            name=tag,
+            kind="entity",
+            embedding_model_id=emb.id,
+            dims=RAG_EMBED_DIMS,
+            status="empty",
+            owner_id=str(sup.id),
         )
         s.add(col)
         await s.commit()
         rows = "\n".join(
-            json.dumps({"metadata": {"id": i}, "data": f"이벤트 검증 행 {i}번입니다."}, ensure_ascii=False)
+            json.dumps(
+                {"metadata": {"id": i}, "data": f"이벤트 검증 행 {i}번입니다."}, ensure_ascii=False
+            )
             for i in range(1, 4)
         )
-        await RAG.ingest_document(col.id, _upload("ev.jsonl", rows.encode(), "application/jsonl"), s, sup)
+        await RAG.ingest_document(
+            col.id, _upload("ev.jsonl", rows.encode(), "application/jsonl"), s, sup
+        )
         ev3 = await _next_event(q, "ingest")
         check(
             ev3.get("status") == "ready"
@@ -123,12 +131,18 @@ async def main():
 
         # ── E4 인제스트 실패 이벤트 ──
         dcol = Collection(
-            name=f"{tag}-doc", kind="document", embedding_model_id=emb.id, dims=RAG_EMBED_DIMS,
-            status="empty", owner_id=str(sup.id),
+            name=f"{tag}-doc",
+            kind="document",
+            embedding_model_id=emb.id,
+            dims=RAG_EMBED_DIMS,
+            status="empty",
+            owner_id=str(sup.id),
         )
         s.add(dcol)
         await s.commit()
-        await RAG.ingest_document(dcol.id, _upload("broken.pdf", b"not-a-pdf", "application/pdf"), s, sup)
+        await RAG.ingest_document(
+            dcol.id, _upload("broken.pdf", b"not-a-pdf", "application/pdf"), s, sup
+        )
         ev4 = await _next_event(q, "ingest")
         check(
             ev4.get("status") == "error" and "PDF" in (ev4.get("error") or ""),
@@ -150,7 +164,10 @@ async def main():
 
     # ── E7 해제 후 누수 0 ──
     EV._test_unsubscribe(q)
-    check(len(EV._SUBS) == baseline - 1, f"E7 해제 후 _SUBS 기준선 복귀 (got {len(EV._SUBS)}, base {baseline})")
+    check(
+        len(EV._SUBS) == baseline - 1,
+        f"E7 해제 후 _SUBS 기준선 복귀 (got {len(EV._SUBS)}, base {baseline})",
+    )
     print()
     if _fails:
         print(f"FAIL {len(_fails)}건: {_fails}")

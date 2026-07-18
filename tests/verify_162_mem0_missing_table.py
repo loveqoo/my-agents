@@ -26,7 +26,9 @@ def check(cond: bool, label: str) -> None:
 
 
 SCHEMA = "t162_verify"
-base = _sync_dsn(os.environ.get("DATABASE_URL", "postgresql+asyncpg://agent:agent@localhost:5432/agents"))
+base = _sync_dsn(
+    os.environ.get("DATABASE_URL", "postgresql+asyncpg://agent:agent@localhost:5432/agents")
+)
 # search_path를 빈 스키마로 고정한 DSN — mem0_memories가 이 스키마에서 해석되어 없으면 UndefinedTable.
 sep = "&" if "?" in base else "?"
 scoped_dsn = f"{base}{sep}options={quote(f'-c search_path={SCHEMA}')}"
@@ -56,8 +58,7 @@ def main() -> int:
             "(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), payload jsonb)"
         )
         cur.execute(
-            f"INSERT INTO {SCHEMA}.mem0_memories (payload) VALUES "
-            "(%s::jsonb)",
+            f"INSERT INTO {SCHEMA}.mem0_memories (payload) VALUES (%s::jsonb)",
             ['{"data": "회귀용 기억", "user_id": "u-162", "created_at": "2026-07-04T00:00:00Z"}'],
         )
     r2 = Mem0Backend.list_page(stub, scope, None, 20, 0)

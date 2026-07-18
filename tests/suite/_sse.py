@@ -12,7 +12,14 @@ from typing import Any
 
 def parse_sse(body: str) -> dict[str, Any]:
     """SSE 본문 전체를 프레임별로 해석해 {session, text, trace, approval, artifact}로 접는다."""
-    out: dict[str, Any] = {"session": None, "text": "", "trace": None, "approval": None, "artifact": None, "error": None}
+    out: dict[str, Any] = {
+        "session": None,
+        "text": "",
+        "trace": None,
+        "approval": None,
+        "artifact": None,
+        "error": None,
+    }
     # CRLF 정규화(codex 288 #3) — SSE 표준은 \r\n도 허용. \n만 가정하면 프레임이 안 갈라져
     # trace를 놓치고, 부재(absence) 단언들이 공허하게 통과한다.
     body = body.replace("\r\n", "\n")
@@ -21,9 +28,9 @@ def parse_sse(body: str) -> dict[str, Any]:
         data_lines: list[str] = []
         for line in block.split("\n"):
             if line.startswith("event:"):
-                event = line[len("event:"):].strip()
+                event = line[len("event:") :].strip()
             elif line.startswith("data:"):
-                data_lines.append(line[len("data:"):].lstrip())
+                data_lines.append(line[len("data:") :].lstrip())
         if not data_lines:
             continue
         raw = "\n".join(data_lines)

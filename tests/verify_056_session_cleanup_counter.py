@@ -16,6 +16,7 @@
 
 실행: .venv/bin/python tests/verify_056_session_cleanup_counter.py
 """
+
 import asyncio
 import os
 import sys
@@ -56,8 +57,13 @@ def sid(tag: str) -> str:
 
 async def _add_session(sess, agent, tag, *, turns, msgs, last_activity, status="active"):
     s = Session(
-        session_id=sid(tag), agent_pk=agent.id, channel="test",
-        status=status, turns=turns, tokens=0, last_activity=last_activity,
+        session_id=sid(tag),
+        agent_pk=agent.id,
+        channel="test",
+        status=status,
+        turns=turns,
+        tokens=0,
+        last_activity=last_activity,
     )
     sess.add(s)
     await sess.flush()
@@ -67,9 +73,11 @@ async def _add_session(sess, agent, tag, *, turns, msgs, last_activity, status="
 
 
 async def _cleanup_prefix(sess):
-    rows = (await sess.execute(
-        select(Session.id).where(Session.session_id.like(PREFIX + "%"))
-    )).scalars().all()
+    rows = (
+        (await sess.execute(select(Session.id).where(Session.session_id.like(PREFIX + "%"))))
+        .scalars()
+        .all()
+    )
     if rows:
         await sess.execute(delete(Message).where(Message.session_pk.in_(rows)))
     await sess.execute(delete(Approval).where(Approval.session_id.like(PREFIX + "%")))
@@ -84,12 +92,16 @@ async def main():
             raise RuntimeError("검증 불가: agents 비어있음(시드 필요)")
         cfg = (await sess.execute(select(BatchConfig).limit(1))).scalars().first()
         if cfg is None:
-            cfg = BatchConfig(); sess.add(cfg); await sess.flush()
+            cfg = BatchConfig()
+            sess.add(cfg)
+            await sess.flush()
         orig = (cfg.session_retention_days, cfg.min_session_turns)
 
         await _cleanup_prefix(sess)
         await _add_session(sess, agent, "empty_low", turns=0, msgs=0, last_activity=OLD)
-        await _add_session(sess, agent, "windowed_high", turns=100, msgs=0, last_activity=OLD)  # ★ codex
+        await _add_session(
+            sess, agent, "windowed_high", turns=100, msgs=0, last_activity=OLD
+        )  # ★ codex
         await _add_session(sess, agent, "normal_high", turns=10, msgs=6, last_activity=OLD)
         await _add_session(sess, agent, "recent_low", turns=0, msgs=0, last_activity=now)
         await _add_session(sess, agent, "hil_low", turns=0, msgs=0, last_activity=OLD)
@@ -108,9 +120,15 @@ async def main():
         mine = {s for s in sample if s.startswith(PREFIX)}
         check(res.get("status") == "dry_run", "phase1 dry_run 상태")
         no_trunc = res.get("would_delete", 0) == len(res.get("sample", []))
-        check(no_trunc, f"sample 비트렁케이트(would_delete={res.get('would_delete')}, sample={len(sample)})")
+        check(
+            no_trunc,
+            f"sample 비트렁케이트(would_delete={res.get('would_delete')}, sample={len(sample)})",
+        )
         check(sid("empty_low") in mine, "turns=0 빈 세션 → 삭제(시드형)")
-        check(sid("windowed_high") not in mine, "★ turns=100·메시지0행 → 보존(윈도우모드, codex 회귀 가드)")
+        check(
+            sid("windowed_high") not in mine,
+            "★ turns=100·메시지0행 → 보존(윈도우모드, codex 회귀 가드)",
+        )
         check(sid("normal_high") not in mine, "turns=10 정상 세션 → 보존")
         check(sid("recent_low") not in mine, "최근활동 turns=0 → 보존(IDLE_GUARD)")
         check(sid("hil_low") not in mine, "HIL pending turns=0 → 보존(049 가드)")

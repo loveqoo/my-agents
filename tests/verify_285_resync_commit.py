@@ -56,7 +56,11 @@ def _card() -> dict:
         "skills": [{"id": "s", "name": "s", "description": "d", "tags": []}],
         "x-my-agents": {
             "manifest": {"model": "remote-model", "prompt": "p", "historyDepth": 10},
-            "deploy": {"commit": STATE["commit"], "repo": STATE["repo"], "runtime": STATE["runtime"]},
+            "deploy": {
+                "commit": STATE["commit"],
+                "repo": STATE["repo"],
+                "runtime": STATE["runtime"],
+            },
         },
     }
 
@@ -101,7 +105,10 @@ async def _row(pk):
     async with SessionLocal() as s:
         from sqlalchemy import select
         from sqlalchemy.orm import selectinload
-        r = await s.execute(select(Agent).where(Agent.id == pk).options(selectinload(Agent.versions)))
+
+        r = await s.execute(
+            select(Agent).where(Agent.id == pk).options(selectinload(Agent.versions))
+        )
         return r.scalar_one()
 
 
@@ -124,14 +131,20 @@ async def main() -> None:
         # ① connect: commit A
         out = await _connect(f"{base}/.well-known/agent-card.json")
         pk = out.id
-        ck(out.source == "code" and out.commit == "aaaa111", f"① connect: source=code·commit=A (got {out.source}/{out.commit})")
+        ck(
+            out.source == "code" and out.commit == "aaaa111",
+            f"① connect: source=code·commit=A (got {out.source}/{out.commit})",
+        )
         ck(out.activeVersion == "aaaa111", f"① active_version=A (got {out.activeVersion})")
 
         # ② 동일 commit resync → 버전 행 수 불변
         before = len((await _row(pk)).versions)
         await _resync(pk)
         row = await _row(pk)
-        ck(len(row.versions) == before and row.commit == "aaaa111", f"② 동일 commit resync 무변경 (rows {before}→{len(row.versions)})")
+        ck(
+            len(row.versions) == before and row.commit == "aaaa111",
+            f"② 동일 commit resync 무변경 (rows {before}→{len(row.versions)})",
+        )
 
         # ③ 재배포(commit B) → resync → 재보고
         STATE.update(commit="bbbb222", repo="org/svc2", runtime="python-3.13")
@@ -143,10 +156,15 @@ async def main() -> None:
         # 버전 행은 ever_opened(배포 이력)만 가진다.
         st = {v.version: v.ever_opened for v in row.versions}
         ck(
-            row.active_version == "bbbb222" and st.get("bbbb222") is True and st.get("aaaa111") is True,
+            row.active_version == "bbbb222"
+            and st.get("bbbb222") is True
+            and st.get("aaaa111") is True,
             f"③ 버전 전이(057 F4→370): pointer=B·이력 보존 {st}",
         )
-        ck(row.repo == "org/svc2" and row.runtime == "python-3.13", f"③ repo·runtime 재보고 (got {row.repo}/{row.runtime})")
+        ck(
+            row.repo == "org/svc2" and row.runtime == "python-3.13",
+            f"③ repo·runtime 재보고 (got {row.repo}/{row.runtime})",
+        )
 
         # ④ A→B→A 재왕복: 기존 A 행 승격(중복 금지)
         STATE.update(commit="aaaa111")
@@ -163,9 +181,14 @@ async def main() -> None:
         # 같은 행 유지 상태에서 카드가 확장을 잃어도(운영 실수) 기존 commit을 파괴하지 않는다.
         saved_commit = row.commit
         import __main__
+
         orig = __main__._card  # 원본을 먼저 캡처(패치 함수가 orig를 부르게 — 자기재귀 금지)
+
         def _card_no_ext():
-            c = orig(); c.pop("x-my-agents"); return c
+            c = orig()
+            c.pop("x-my-agents")
+            return c
+
         __main__._card = _card_no_ext
         try:
             await _resync(pk)
@@ -176,7 +199,10 @@ async def main() -> None:
         # 진짜 확장-소실 경로였음을 판별: 도달 실패 경로는 카드 스냅샷을 안 만지므로, 스냅샷이
         # 갱신됐고(x-my-agents 부재) commit이 보존됐다면 ext-소실 보존 로직이 실행된 것.
         snap = (row.config or {}).get("card") or {}
-        ck("x-my-agents" not in snap, f"⑤ 카드 스냅샷 갱신됨(확장 부재) — 도달실패 경로 아님 (keys={sorted(snap.keys())[:6]})")
+        ck(
+            "x-my-agents" not in snap,
+            f"⑤ 카드 스냅샷 갱신됨(확장 부재) — 도달실패 경로 아님 (keys={sorted(snap.keys())[:6]})",
+        )
     finally:
         if pk is not None:
             await _cleanup(pk)

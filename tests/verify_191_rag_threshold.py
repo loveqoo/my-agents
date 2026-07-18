@@ -9,6 +9,7 @@
 
 실행: uv run --project packages/api python tests/verify_191_rag_threshold.py
 """
+
 import asyncio
 import sys
 
@@ -34,28 +35,51 @@ def _used(hits, ms):
     return runtime.used_hits(runtime._annotate_cutoffs(hits, ms))
 
 
-hits = [_hit(0.9, "docs"), _hit(0.4, "docs"), _hit(0.6, "prod"), _hit(0.2, "prod"), _hit(0.5, "docs")]
+hits = [
+    _hit(0.9, "docs"),
+    _hit(0.4, "docs"),
+    _hit(0.6, "prod"),
+    _hit(0.2, "prod"),
+    _hit(0.5, "docs"),
+]
 u = _used(hits, {"docs": 0.5, "prod": 0.5})
 # docs≥0.5 → 0.9,0.5 / prod≥0.5 → 0.6 (0.4docs·0.2prod 미달)
-ok(len(u) == 3 and {h["score"] for h in u} == {0.9, 0.5, 0.6}, "[F1] used=통과분(docs 0.9·0.5, prod 0.6)")
-ok(len(_used(hits, {"docs": 0.5})) == 4 and any(h["score"] == 0.2 for h in _used(hits, {"docs": 0.5})),
-   "[F2] 미설정 컬렉션(prod)은 무필터")
+ok(
+    len(u) == 3 and {h["score"] for h in u} == {0.9, 0.5, 0.6},
+    "[F1] used=통과분(docs 0.9·0.5, prod 0.6)",
+)
+ok(
+    len(_used(hits, {"docs": 0.5})) == 4
+    and any(h["score"] == 0.2 for h in _used(hits, {"docs": 0.5})),
+    "[F2] 미설정 컬렉션(prod)은 무필터",
+)
 ok(len(_used(hits, {})) == 5, "[F3] 빈 맵 = 무필터")
 ok(len(_used(hits, {"docs": 0})) == 5, "[F4] 값 0 = 무필터")
 ok(len(_used(hits, None)) == 5, "[F5] None = 무필터")
-ok(len(_used(hits, {"docs": 0.5, "prod": 0.7})) == 2, "[F6] 경계·컬렉션 독립(0.9·0.5 docs, prod 0건)")
+ok(
+    len(_used(hits, {"docs": 0.5, "prod": 0.7})) == 2,
+    "[F6] 경계·컬렉션 독립(0.9·0.5 docs, prod 0건)",
+)
 ok(len(_used(hits, {"docs": 1.5, "prod": "x"})) == 5, "[F7] 비정상 값 → 무필터")
 # [F8] annotate는 **드롭 안 함** — 전부 유지 + belowCutoff 플래그(인스펙터 "못 쓴 문서"용).
 ann = runtime._annotate_cutoffs(hits, {"docs": 0.5, "prod": 0.5})
 dropped = [h for h in ann if h.get("belowCutoff")]
-ok(len(ann) == 5 and len(dropped) == 2 and {h["score"] for h in dropped} == {0.4, 0.2},
-   "[F8] annotate 전부 유지 + 미달 2건 belowCutoff 표시(못 쓴 문서)")
+ok(
+    len(ann) == 5 and len(dropped) == 2 and {h["score"] for h in dropped} == {0.4, 0.2},
+    "[F8] annotate 전부 유지 + 미달 2건 belowCutoff 표시(못 쓴 문서)",
+)
 ok(all(h.get("cutoff") == 0.5 for h in ann if "cutoff" in h), "[F9] cutoff 값 부착")
-ok(all("belowCutoff" not in h for h in runtime._annotate_cutoffs(hits, {})), "[F10] 커트라인 없으면 키 없음(외부 안전)")
+ok(
+    all("belowCutoff" not in h for h in runtime._annotate_cutoffs(hits, {})),
+    "[F10] 커트라인 없으면 키 없음(외부 안전)",
+)
 
 
 # ── [N] 맵 정규화 ───────────────────────────────────────────
-ok(runtime._norm_min_scores({"a": 0.5, "b": 0, "z": 0.9}, ["a", "b"]) == {"a": 0.5}, "[N1] 컬렉션 한정 + 0/무관 제거")
+ok(
+    runtime._norm_min_scores({"a": 0.5, "b": 0, "z": 0.9}, ["a", "b"]) == {"a": 0.5},
+    "[N1] 컬렉션 한정 + 0/무관 제거",
+)
 ok(runtime._norm_min_scores({"a": 1.5}, ["a"]) == {}, "[N2] 범위 밖 → 제거")
 ok(runtime._norm_min_scores(None) == {}, "[N3] None → 빈 맵")
 
@@ -63,17 +87,30 @@ ok(runtime._norm_min_scores(None) == {}, "[N3] None → 빈 맵")
 # ── [D] 히트 표시 구조 ──────────────────────────────────────
 detail = runtime._hits_detail([_hit(0.81234, "kb", "doc.pdf", "hello\nworld " * 40)])
 ok(detail[0]["score"] == 0.812, "[D1] score 3자리 반올림")
-ok(detail[0]["filename"] == "doc.pdf" and detail[0]["collection"] == "kb", "[D2] filename·collection 보존")
-ok(len(detail[0]["textPreview"]) <= 241 and "\n" not in detail[0]["textPreview"], "[D3] 본문 프리뷰 캡+개행 제거")
+ok(
+    detail[0]["filename"] == "doc.pdf" and detail[0]["collection"] == "kb",
+    "[D2] filename·collection 보존",
+)
+ok(
+    len(detail[0]["textPreview"]) <= 241 and "\n" not in detail[0]["textPreview"],
+    "[D3] 본문 프리뷰 캡+개행 제거",
+)
 ok(runtime._hits_detail([]) == [], "[D4] 빈 결과 → 빈 리스트")
 # [D5] 비밀 마스킹 — trace 누출 방지(087/092/125, resultPreview와 동일 규율). 원문 비밀 미노출.
-_masked = runtime._hits_detail([_hit(0.8, "kb", "f", "token sk-ABCDEF1234567890ABCDEF tail " * 20)])[0]["textPreview"]
-ok("sk-ABCDEF1234567890ABCDEF" not in _masked and "«secret»" in _masked, "[D5] textPreview 비밀 마스킹(누출 0)")
+_masked = runtime._hits_detail(
+    [_hit(0.8, "kb", "f", "token sk-ABCDEF1234567890ABCDEF tail " * 20)]
+)[0]["textPreview"]
+ok(
+    "sk-ABCDEF1234567890ABCDEF" not in _masked and "«secret»" in _masked,
+    "[D5] textPreview 비밀 마스킹(누출 0)",
+)
 # [D6] 커트라인 플래그 전달(스펙 192) — annotate된 히트의 belowCutoff/cutoff가 detail에 실림.
 _ann = runtime._annotate_cutoffs([_hit(0.4, "kb"), _hit(0.8, "kb")], {"kb": 0.5})
 _d6 = runtime._hits_detail(_ann)
-ok(_d6[0]["belowCutoff"] is True and _d6[1]["belowCutoff"] is False and _d6[0]["cutoff"] == 0.5,
-   "[D6] hitsDetail에 belowCutoff/cutoff 전달(못 쓴 문서 표시)")
+ok(
+    _d6[0]["belowCutoff"] is True and _d6[1]["belowCutoff"] is False and _d6[0]["cutoff"] == 0.5,
+    "[D6] hitsDetail에 belowCutoff/cutoff 전달(못 쓴 문서 표시)",
+)
 
 
 # ── [W] 직접 도구 배선 ──────────────────────────────────────
@@ -97,7 +134,10 @@ async def _direct():
     ok(captured.get("min_scores") == {"docs-kb": 0.55}, "[W1] 코어에 min_scores(배선 한정) 전달")
     e = sink[0]
     ok(e["server"] == "rag" and e["hits"] == 2, "[W2] sink 기록(server=rag, hits=2)")
-    ok(len(e["hitsDetail"]) == 2 and e["hitsDetail"][0]["collection"] == "docs-kb", "[W3] sink hitsDetail(컬렉션 포함)")
+    ok(
+        len(e["hitsDetail"]) == 2 and e["hitsDetail"][0]["collection"] == "docs-kb",
+        "[W3] sink hitsDetail(컬렉션 포함)",
+    )
     ok(e["minScores"] == {"docs-kb": 0.55}, "[W4] sink에 minScores 맵")
 
     # [W5] 직접 sink의 result 필드도 비밀 마스킹(codex 적대검토 — 브로커 resultPreview와 대칭)
@@ -111,13 +151,19 @@ async def _direct():
         await tool2.coroutine(query="q", top_k=4)
     finally:
         runtime.search_collections = orig
-    ok("sk-DEADBEEF0123456789DEADBEEF" not in sink2[0]["result"], "[W5] 직접 sink result 비밀 마스킹(누출 0)")
+    ok(
+        "sk-DEADBEEF0123456789DEADBEEF" not in sink2[0]["result"],
+        "[W5] 직접 sink result 비밀 마스킹(누출 0)",
+    )
 
     # [W6] 스펙 192 — 에이전트 결과는 used(통과분)만, hitsDetail엔 dropped(미달)도 실림.
     async def fake_annotated(collections, query, top_k=4, min_scores=None):
         # search_collections가 annotate한 것처럼 belowCutoff 부착 상태로 반환.
         return runtime._annotate_cutoffs(
-            [_hit(0.8, "docs-kb", "keep.md", "kept"), _hit(0.3, "docs-kb", "drop.md", "dropped body")],
+            [
+                _hit(0.8, "docs-kb", "keep.md", "kept"),
+                _hit(0.3, "docs-kb", "drop.md", "dropped body"),
+            ],
             {"docs-kb": 0.5},
         )
 
@@ -128,9 +174,15 @@ async def _direct():
         agent_text = await tool3.coroutine(query="q", top_k=4)
     finally:
         runtime.search_collections = orig
-    ok("keep.md" in agent_text and "drop.md" not in agent_text, "[W6] 에이전트 결과는 used(통과)만 — 미달 문서 안 보임")
+    ok(
+        "keep.md" in agent_text and "drop.md" not in agent_text,
+        "[W6] 에이전트 결과는 used(통과)만 — 미달 문서 안 보임",
+    )
     hd = sink3[0]["hitsDetail"]
-    ok(len(hd) == 2 and any(x.get("belowCutoff") for x in hd), "[W6b] hitsDetail엔 dropped(미달)도 포함(인스펙터용)")
+    ok(
+        len(hd) == 2 and any(x.get("belowCutoff") for x in hd),
+        "[W6b] hitsDetail엔 dropped(미달)도 포함(인스펙터용)",
+    )
     ok(sink3[0]["hits"] == 1, "[W6c] hits 카운트=used(통과분) 수")
 
 
@@ -174,7 +226,10 @@ asyncio.run(_broker())
 # ── [S] 스키마 왕복 ─────────────────────────────────────────
 ok(AgentConfig().ragMinScores == {}, "[S1] 기본 빈 맵")
 ok(AgentConfig(ragMinScores={"docs-kb": 0.5}).ragMinScores == {"docs-kb": 0.5}, "[S2] 유효 맵")
-ok("ragMinScores" in AgentConfig(ragMinScores={"a": 0.3}).model_dump(), "[S3] model_dump 왕복(직렬화 누락 없음)")
+ok(
+    "ragMinScores" in AgentConfig(ragMinScores={"a": 0.3}).model_dump(),
+    "[S3] model_dump 왕복(직렬화 누락 없음)",
+)
 for bad in [{"a": 1.5}, {"a": -0.1}, {"a": "x"}, {"a": True}, {"": 0.5}, [1, 2]]:
     try:
         AgentConfig(ragMinScores=bad)

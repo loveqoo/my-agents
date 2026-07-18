@@ -19,6 +19,7 @@
 import asyncio
 import importlib
 import json
+import os
 import pathlib
 import sys
 import urllib.request
@@ -33,7 +34,7 @@ from api.batch.jobs import JOBS  # noqa: E402
 from api.db import SessionLocal  # noqa: E402
 from api.models import Base  # noqa: E402
 
-BASE = "http://127.0.0.1:8000"
+BASE = os.environ.get("VERIFY_BASE", "http://127.0.0.1:8000")  # 스펙 390: 격리 서버 주입
 EMAIL, PW = "admin@example.com", "adminpass123"
 
 _fails: list[str] = []
@@ -134,11 +135,7 @@ async def main() -> None:
     # 그래서 **살아있는 DB의 public 테이블 집합**을 직접 읽어 대장과 대조한다.
     async with SessionLocal() as s:
         live = set(
-            (
-                await s.execute(
-                    text("select tablename from pg_tables where schemaname = 'public'")
-                )
-            )
+            (await s.execute(text("select tablename from pg_tables where schemaname = 'public'")))
             .scalars()
             .all()
         )

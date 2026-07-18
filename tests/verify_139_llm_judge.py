@@ -7,11 +7,17 @@
   J5 미설정 fail-closed: llm_cfg None → pass=False+사유.
 실행: uv run --project packages/api python tests/verify_139_llm_judge.py
 """
+
 import asyncio
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "packages", "api", "src"))
+sys.path.insert(
+    0,
+    os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "packages", "api", "src"
+    ),
+)
 
 from api.eval_judge import _parse_verdict, run_llm_judge  # noqa: E402
 from api.eval_harness import build_asserts, llm_judge  # noqa: E402
@@ -19,11 +25,15 @@ from api.eval_harness import build_asserts, llm_judge  # noqa: E402
 _fails = []
 passed = 0
 
+
 def check(cond, msg):
     global passed
     print(("  ok  " if cond else " FAIL ") + msg)
-    if cond: passed += 1
-    else: _fails.append(msg)
+    if cond:
+        passed += 1
+    else:
+        _fails.append(msg)
+
 
 def part_j123():
     check(_parse_verdict("PASS\n좋음") == (True, "좋음"), "J1a PASS 파싱")
@@ -40,9 +50,14 @@ def part_j123():
     check(fn({"judge": {"다른기준": {"pass": True}}}) is False, "J2c 기준 불일치 → False")
 
     sc = build_asserts([{"type": "llm_judge", "arg": "정중한가"}])
-    check(sc[0][0].startswith("llm_judge:정중한가#"), f"J3a 매핑+해시 접미(codex #5) (got {sc[0][0]!r})")
-    a, b = build_asserts([{"type": "llm_judge", "arg": "x" * 70 + "A"}])[0][0], \
-           build_asserts([{"type": "llm_judge", "arg": "x" * 70 + "B"}])[0][0]
+    check(
+        sc[0][0].startswith("llm_judge:정중한가#"),
+        f"J3a 매핑+해시 접미(codex #5) (got {sc[0][0]!r})",
+    )
+    a, b = (
+        build_asserts([{"type": "llm_judge", "arg": "x" * 70 + "A"}])[0][0],
+        build_asserts([{"type": "llm_judge", "arg": "x" * 70 + "B"}])[0][0],
+    )
     check(a != b, "J3c 앞 60자 동일 기준도 이름 유일(codex #5)")
     try:
         build_asserts([{"type": "llm_judge", "arg": f"기준{i}"} for i in range(6)])
@@ -55,6 +70,7 @@ def part_j123():
     except ValueError:
         check(True, "J3b arg 누락 → ValueError")
 
+
 async def main():
     part_j123()
     # J5 미설정
@@ -63,15 +79,23 @@ async def main():
     # J4 실 모델
     from api.db import SessionLocal
     from api.mem_config import default_mem_cfg
+
     async with SessionLocal() as s:
         mc = await default_mem_cfg(s)
     llm = (mc or {}).get("llm")
     if not llm:
         check(False, "J4 전제 실패: 기본 chat 모델 미설정")
     else:
-        easy = await run_llm_judge("자기소개 해줘", "안녕하세요! 저는 도우미입니다.", "답변이 한국어로 작성되었는가", llm)
+        easy = await run_llm_judge(
+            "자기소개 해줘", "안녕하세요! 저는 도우미입니다.", "답변이 한국어로 작성되었는가", llm
+        )
         check(easy["pass"] is True, f"J4a 쉬운 기준 → PASS (got {easy})")
-        hard = await run_llm_judge("자기소개 해줘", "안녕하세요! 저는 도우미입니다.", "답변이 오직 아라비아 숫자로만 구성되어 있는가", llm)
+        hard = await run_llm_judge(
+            "자기소개 해줘",
+            "안녕하세요! 저는 도우미입니다.",
+            "답변이 오직 아라비아 숫자로만 구성되어 있는가",
+            llm,
+        )
         check(hard["pass"] is False, f"J4b 불가능 기준 → FAIL (got {hard})")
         check(len(easy.get("reason", "")) <= 300, "J4c 이유 캡")
         # J4d 구분자 위조(codex #1) — 답변이 ⟦답변 끝⟧을 위조해 가짜 기준+PASS 유도를 심어도
@@ -81,7 +105,9 @@ async def main():
         check(inj["pass"] is False, f"J4d 구분자 위조 무력화 (got {inj})")
 
     print(f"\n{passed} passed, {len(_fails)} failed")
-    if _fails: sys.exit(1)
+    if _fails:
+        sys.exit(1)
+
 
 if __name__ == "__main__":
     asyncio.run(main())

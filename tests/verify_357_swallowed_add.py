@@ -14,6 +14,7 @@
 
 실행: .venv/bin/python tests/verify_357_swallowed_add.py
 """
+
 import asyncio
 import os
 import sys
@@ -69,9 +70,14 @@ def _seed(uid, facts, mem_cfg):
 
 async def _snap_count(uid) -> int:
     async with SessionLocal() as s:
-        return await s.scalar(
-            select(func.count()).select_from(MemorySnapshot).where(MemorySnapshot.user_id == uid)
-        ) or 0
+        return (
+            await s.scalar(
+                select(func.count())
+                .select_from(MemorySnapshot)
+                .where(MemorySnapshot.user_id == uid)
+            )
+            or 0
+        )
 
 
 async def main() -> None:
@@ -128,7 +134,9 @@ async def main() -> None:
         )
         check(len(_list(TEST_UID, mem_cfg)) == N, "[C1] 원본 기억 불변(삭제 0 — 유실 방지)")
         # 스냅샷은 삭제 이전에 박제되므로 존재(복구 앵커). 삭제만 안 함.
-        check(await _snap_count(TEST_UID) == snap_before + N, "[C1] 스냅샷 N행 박제(복구 앵커 존재)")
+        check(
+            await _snap_count(TEST_UID) == snap_before + N, "[C1] 스냅샷 N행 박제(복구 앵커 존재)"
+        )
 
         # ── C2: add 성공이면 무회귀(삭제 N·ok·failed=[]) ─────────────────────
         # 스냅샷 정리(C1이 남긴 것) 후 재실행.
@@ -143,7 +151,9 @@ async def main() -> None:
         check(summ2.get("failed") == [], "[C2] failed 비어있음")
         check(cons.get(TEST_UID, {}).get("deleted") == N, f"[C2] 원본 {N}건 삭제")
         after = _list(TEST_UID, mem_cfg)
-        check(set(m["text"] for m in after) == set(STUB), "[C2] 최종 기억=통합 stub(적재+삭제 정상)")
+        check(
+            set(m["text"] for m in after) == set(STUB), "[C2] 최종 기억=통합 stub(적재+삭제 정상)"
+        )
 
         # ── C3: 브로커 쓰기 — add []면 거짓 "저장됨" 대신 error ────────────────
         prov = MemoryWriteProvider(SessionLocal, TEST_UID)
@@ -173,7 +183,9 @@ async def main() -> None:
         async with SessionLocal() as s:
             await s.execute(delete(MemorySnapshot).where(MemorySnapshot.user_id.in_(_user_ids)))
             if _run_ids:
-                await s.execute(delete(BatchRun).where(BatchRun.id.in_([uuid.UUID(r) for r in _run_ids])))
+                await s.execute(
+                    delete(BatchRun).where(BatchRun.id.in_([uuid.UUID(r) for r in _run_ids]))
+                )
             await s.execute(delete(User).where(User.id.in_([uuid.UUID(u) for u in _user_ids])))
             await s.commit()
         await _set_threshold(orig_threshold)

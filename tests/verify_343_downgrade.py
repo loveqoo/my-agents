@@ -60,19 +60,29 @@ async def main() -> None:
     cfg = _alembic_config()
 
     c = await _cols("message_feedback")
-    check({"owner_id", "created_at", "updated_at", "created_by", "updated_by"} <= c,
-          f"D1 upgrade 후 owner_id + 감사 4컬럼 공존 (got {sorted(c & {'owner_id','created_by','updated_by'})})")
+    check(
+        {"owner_id", "created_at", "updated_at", "created_by", "updated_by"} <= c,
+        f"D1 upgrade 후 owner_id + 감사 4컬럼 공존 (got {sorted(c & {'owner_id', 'created_by', 'updated_by'})})",
+    )
 
     await _sync(command.downgrade, cfg, PREV)  # 감사 컬럼 제거 + 개명 복귀
     c2 = await _cols("message_feedback")
-    check("created_by" in c2 and "owner_id" not in c2 and "updated_by" not in c2,
-          f"D2 downgrade = 감사 컬럼 제거·created_by(구 이름) 복귀 (got {sorted(c2)})")
+    check(
+        "created_by" in c2 and "owner_id" not in c2 and "updated_by" not in c2,
+        f"D2 downgrade = 감사 컬럼 제거·created_by(구 이름) 복귀 (got {sorted(c2)})",
+    )
     c2p = await _cols("prompts")
-    check(not ({"created_by", "updated_by"} & c2p), f"D2b 다른 테이블도 감사 컬럼 제거 (prompts: {sorted(c2p)})")
+    check(
+        not ({"created_by", "updated_by"} & c2p),
+        f"D2b 다른 테이블도 감사 컬럼 제거 (prompts: {sorted(c2p)})",
+    )
 
     await _sync(command.upgrade, cfg, REV)  # 재적용(멱등)
     c3 = await _cols("message_feedback")
-    check({"owner_id", "created_by", "updated_by"} <= c3, f"D3 재upgrade 성공(왕복 멱등) (got {sorted(c3 & {'owner_id','created_by','updated_by'})})")
+    check(
+        {"owner_id", "created_by", "updated_by"} <= c3,
+        f"D3 재upgrade 성공(왕복 멱등) (got {sorted(c3 & {'owner_id', 'created_by', 'updated_by'})})",
+    )
 
     print()
     if _fails:

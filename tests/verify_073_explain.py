@@ -20,6 +20,7 @@
 
 실행: .venv/bin/python tests/verify_073_explain.py
 """
+
 import asyncio
 import json
 import os
@@ -73,7 +74,9 @@ async def _seed_sessions(agent_pk: uuid.UUID) -> None:
         s.add(Sess(session_id=f"{PREFIX}alien", agent_pk=agent_pk, user_id=UID_A, status="active"))
         # B 소유 더미 다수 — 인덱스 선호 유도.
         for i in range(N_FILL):
-            s.add(Sess(session_id=f"{PREFIX}b{i}", agent_pk=agent_pk, user_id=UID_B, status="active"))
+            s.add(
+                Sess(session_id=f"{PREFIX}b{i}", agent_pk=agent_pk, user_id=UID_B, status="active")
+            )
         await s.commit()
     # 플래너 통계 최신화.
     async with engine.connect() as c:
@@ -131,46 +134,71 @@ async def main() -> None:
         RCOMP = "ix_sessions_user_id_agent_pk_session_id"
         SOLO = "sessions_session_id_key"
         read_sql = "SELECT * FROM sessions WHERE session_id = :sid AND user_id = :own"
-        resume_sql = ("SELECT * FROM sessions WHERE session_id = :sid "
-                      "AND agent_pk = :apk AND user_id = :own")
+        resume_sql = (
+            "SELECT * FROM sessions WHERE session_id = :sid AND agent_pk = :apk AND user_id = :own"
+        )
         async with engine.connect() as c:
             r1 = await _explain(c, read_sql, {"sid": f"{PREFIX}alien", "own": UID_B})  # 타인-존재
             r2 = await _explain(c, read_sql, {"sid": f"{PREFIX}ghost", "own": UID_B})  # 부재
 
             print("[읽기 게이트] _get_session_or_404 member (WHERE session_id AND user_id)")
-            print(f"  R1 타인-존재: indexes={r1['indexes']} removed_by_filter={r1['rows_removed_by_filter']} "
-                  f"blocks(hit+read)={r1['total_blocks']}")
-            print(f"  R2 부재    : indexes={r2['indexes']} removed_by_filter={r2['rows_removed_by_filter']} "
-                  f"blocks(hit+read)={r2['total_blocks']}")
+            print(
+                f"  R1 타인-존재: indexes={r1['indexes']} removed_by_filter={r1['rows_removed_by_filter']} "
+                f"blocks(hit+read)={r1['total_blocks']}"
+            )
+            print(
+                f"  R2 부재    : indexes={r2['indexes']} removed_by_filter={r2['rows_removed_by_filter']} "
+                f"blocks(hit+read)={r2['total_blocks']}"
+            )
             check(COMP in r1["indexes"], f"R1 타인-존재가 복합 인덱스({COMP}) 사용")
-            check(SOLO not in r1["indexes"], f"R1 타인-존재가 단독 unique({SOLO})를 타지 않음(heap-fetch 회피)")
+            check(
+                SOLO not in r1["indexes"],
+                f"R1 타인-존재가 단독 unique({SOLO})를 타지 않음(heap-fetch 회피)",
+            )
             check(r1["indexes"] == r2["indexes"], "R1·R2 동일 인덱스 경로(타인-존재=부재)")
-            check(r1["rows_removed_by_filter"] == 0,
-                  f"R1 타인행을 Filter로 만지지 않음(인덱스 단계 미스) (got {r1['rows_removed_by_filter']})")
+            check(
+                r1["rows_removed_by_filter"] == 0,
+                f"R1 타인행을 Filter로 만지지 않음(인덱스 단계 미스) (got {r1['rows_removed_by_filter']})",
+            )
             # codex P1 #2: rows_removed보다 강한 *타이밍 지표* — 총 블록 접근수 동등(타인행 heap 미접근).
-            check(r1["total_blocks"] == r2["total_blocks"],
-                  f"R1·R2 buffer 총 블록 동등(타인-존재=부재, 타인 heap 미접근) "
-                  f"(got {r1['total_blocks']} vs {r2['total_blocks']})")
+            check(
+                r1["total_blocks"] == r2["total_blocks"],
+                f"R1·R2 buffer 총 블록 동등(타인-존재=부재, 타인 heap 미접근) "
+                f"(got {r1['total_blocks']} vs {r2['total_blocks']})",
+            )
 
-            s1 = await _explain(c, resume_sql, {"sid": f"{PREFIX}alien", "apk": agent_pk, "own": UID_B})
-            s2 = await _explain(c, resume_sql, {"sid": f"{PREFIX}ghost", "apk": agent_pk, "own": UID_B})
+            s1 = await _explain(
+                c, resume_sql, {"sid": f"{PREFIX}alien", "apk": agent_pk, "own": UID_B}
+            )
+            s2 = await _explain(
+                c, resume_sql, {"sid": f"{PREFIX}ghost", "apk": agent_pk, "own": UID_B}
+            )
             print("[resume] chat member (WHERE session_id AND agent_pk AND user_id)")
-            print(f"  S1 타인-존재: indexes={s1['indexes']} removed_by_filter={s1['rows_removed_by_filter']} "
-                  f"blocks(hit+read)={s1['total_blocks']}")
-            print(f"  S2 부재    : indexes={s2['indexes']} removed_by_filter={s2['rows_removed_by_filter']} "
-                  f"blocks(hit+read)={s2['total_blocks']}")
+            print(
+                f"  S1 타인-존재: indexes={s1['indexes']} removed_by_filter={s1['rows_removed_by_filter']} "
+                f"blocks(hit+read)={s1['total_blocks']}"
+            )
+            print(
+                f"  S2 부재    : indexes={s2['indexes']} removed_by_filter={s2['rows_removed_by_filter']} "
+                f"blocks(hit+read)={s2['total_blocks']}"
+            )
             # codex P2 #3: resume 전용 복합을 *특정*해 단언(startswith는 (user_id,session_id)로도 통과해
             # 새 (user_id,agent_pk,session_id) 인덱스를 미입증). 단독 unique만 아니면 heap 회피는 성립하나,
             # resume 경로의 의도된 인덱스가 실제 선택됨을 못 박는다.
-            check(RCOMP in s1["indexes"],
-                  f"S1 타인-존재가 resume 전용 복합({RCOMP}) 사용 (got {s1['indexes']})")
-            check(SOLO not in s1["indexes"],
-                  f"S1 타인-존재가 단독 unique({SOLO})를 타지 않음")
+            check(
+                RCOMP in s1["indexes"],
+                f"S1 타인-존재가 resume 전용 복합({RCOMP}) 사용 (got {s1['indexes']})",
+            )
+            check(SOLO not in s1["indexes"], f"S1 타인-존재가 단독 unique({SOLO})를 타지 않음")
             check(s1["indexes"] == s2["indexes"], "S1·S2 동일 인덱스 경로")
-            check(s1["rows_removed_by_filter"] == 0,
-                  f"S1 타인행을 Filter로 만지지 않음 (got {s1['rows_removed_by_filter']})")
-            check(s1["total_blocks"] == s2["total_blocks"],
-                  f"S1·S2 buffer 총 블록 동등 (got {s1['total_blocks']} vs {s2['total_blocks']})")
+            check(
+                s1["rows_removed_by_filter"] == 0,
+                f"S1 타인행을 Filter로 만지지 않음 (got {s1['rows_removed_by_filter']})",
+            )
+            check(
+                s1["total_blocks"] == s2["total_blocks"],
+                f"S1·S2 buffer 총 블록 동등 (got {s1['total_blocks']} vs {s2['total_blocks']})",
+            )
 
         # ── 반증(sensitivity) — 복합이 봉합의 *원인*임을 강제로 입증 (codex P1 #1) ──
         # 복합을 트랜잭션 내에서 가려 플래너가 solo unique(session_id, 1행 selective)를 쓰게 강제 →
@@ -183,20 +211,32 @@ async def main() -> None:
             try:
                 await c.execute(text(f"DROP INDEX {COMP}"))
                 await c.execute(text(f"DROP INDEX {RCOMP}"))
-                f1 = await _explain(c, read_sql, {"sid": f"{PREFIX}alien", "own": UID_B}, warm=False)
-                f2 = await _explain(c, read_sql, {"sid": f"{PREFIX}ghost", "own": UID_B}, warm=False)
+                f1 = await _explain(
+                    c, read_sql, {"sid": f"{PREFIX}alien", "own": UID_B}, warm=False
+                )
+                f2 = await _explain(
+                    c, read_sql, {"sid": f"{PREFIX}ghost", "own": UID_B}, warm=False
+                )
             finally:
                 await trans.rollback()
             print("[반증] 복합 제거→플래너 solo unique 강제 (트랜잭션 rollback, 비파괴)")
-            print(f"  F1 타인-존재: indexes={f1['indexes']} removed_by_filter={f1['rows_removed_by_filter']} "
-                  f"blocks(hit+read)={f1['total_blocks']}")
-            print(f"  F2 부재    : indexes={f2['indexes']} removed_by_filter={f2['rows_removed_by_filter']} "
-                  f"blocks(hit+read)={f2['total_blocks']}")
-            check(SOLO in f1["indexes"],
-                  f"강제: 복합 제거 시 플래너가 solo unique({SOLO}) 선택 (got {f1['indexes']})")
-            check(f1["total_blocks"] != f2["total_blocks"],
-                  f"강제(solo): 타인-존재 vs 부재 buffer 델타 *재출현* → 테스트 민감+복합이 봉합 원인 입증 "
-                  f"(got {f1['total_blocks']} vs {f2['total_blocks']})")
+            print(
+                f"  F1 타인-존재: indexes={f1['indexes']} removed_by_filter={f1['rows_removed_by_filter']} "
+                f"blocks(hit+read)={f1['total_blocks']}"
+            )
+            print(
+                f"  F2 부재    : indexes={f2['indexes']} removed_by_filter={f2['rows_removed_by_filter']} "
+                f"blocks(hit+read)={f2['total_blocks']}"
+            )
+            check(
+                SOLO in f1["indexes"],
+                f"강제: 복합 제거 시 플래너가 solo unique({SOLO}) 선택 (got {f1['indexes']})",
+            )
+            check(
+                f1["total_blocks"] != f2["total_blocks"],
+                f"강제(solo): 타인-존재 vs 부재 buffer 델타 *재출현* → 테스트 민감+복합이 봉합 원인 입증 "
+                f"(got {f1['total_blocks']} vs {f2['total_blocks']})",
+            )
     finally:
         await _cleanup()
         await engine.dispose()

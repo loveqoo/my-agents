@@ -6,6 +6,7 @@
 
 실행: cd packages/api && uv run python ../../tests/verify_114_owner_display.py
 """
+
 import asyncio
 import uuid
 
@@ -43,21 +44,27 @@ def unit_checks() -> None:
     print("[U] may_manage ↔ assert_may_manage 동치")
     alice = Stub()
     for row_owner, principal, expect in [
-        (str(alice.id), alice, True),            # 소유자 본인
-        (str(uuid.uuid4()), alice, False),       # 타인
-        (None, alice, False),                    # NULL-owned member
-        (None, Stub(is_superuser=True), True),   # NULL-owned 특권
-        (str(uuid.uuid4()), "machine", True),    # 머신 토큰 특권
+        (str(alice.id), alice, True),  # 소유자 본인
+        (str(uuid.uuid4()), alice, False),  # 타인
+        (None, alice, False),  # NULL-owned member
+        (None, Stub(is_superuser=True), True),  # NULL-owned 특권
+        (str(uuid.uuid4()), "machine", True),  # 머신 토큰 특권
     ]:
         b = may_manage(row_owner, principal, None)
         # assert 동치: b True면 예외 없음, False면 404
         raised = False
-        class R: owner_id = row_owner
+
+        class R:
+            owner_id = row_owner
+
         try:
             assert_may_manage(R(), principal, None)
         except HTTPException:
             raised = True
-        check(b == expect and (b != raised), f"U1 may_manage({row_owner and row_owner[:6]},{getattr(principal,'email',principal)})={b} 동치")
+        check(
+            b == expect and (b != raised),
+            f"U1 may_manage({row_owner and row_owner[:6]},{getattr(principal, 'email', principal)})={b} 동치",
+        )
 
 
 async def integration_checks() -> None:
@@ -71,18 +78,35 @@ async def integration_checks() -> None:
     try:
         async with httpx.AsyncClient(transport=t, base_url="http://t", timeout=60) as c:
             _as(alice)
-            r = await c.post("/agents", json={"name": f"o114-{uuid.uuid4().hex[:6]}",
-                             "config": {"model": "mock-llm", "prompt": "", "historyDepth": 6}})
-            aid = r.json()["id"]; made.append(aid)
+            r = await c.post(
+                "/agents",
+                json={
+                    "name": f"o114-{uuid.uuid4().hex[:6]}",
+                    "config": {"model": "mock-llm", "prompt": "", "historyDepth": 6},
+                },
+            )
+            aid = r.json()["id"]
+            made.append(aid)
             check(r.json().get("owner_id") == str(alice.id), "H1 생성 응답 owner_id=alice")
             check(r.json().get("can_manage") is True, "H1 생성 응답 can_manage=True(행위자)")
 
             # NULL-owned 레거시 1개
             async with SessionLocal() as db:
-                leg = Agent(agent_id=f"agt_o114_{uuid.uuid4().hex[:6]}", name="leg", source="ui",
-                            model="mock-llm", prompt="", history_depth=6, config={"model": "mock-llm"},
-                            exposed={"a2a": False}, status="idle", owner_id=None)
-                db.add(leg); await db.commit(); made.append(str(leg.id))
+                leg = Agent(
+                    agent_id=f"agt_o114_{uuid.uuid4().hex[:6]}",
+                    name="leg",
+                    source="ui",
+                    model="mock-llm",
+                    prompt="",
+                    history_depth=6,
+                    config={"model": "mock-llm"},
+                    exposed={"a2a": False},
+                    status="idle",
+                    owner_id=None,
+                )
+                db.add(leg)
+                await db.commit()
+                made.append(str(leg.id))
 
             # alice 시점 목록: 자기 것 can_manage=true, NULL·타인=false
             _as(alice)
@@ -101,11 +125,16 @@ async def integration_checks() -> None:
             # superuser 시점: 전부 true
             _as(admin)
             lst_s = (await c.get("/agents")).json()
-            check(all(a["can_manage"] for a in lst_s if a["id"] in (aid, str(made[1]))),
-                  "H4 superuser: 전부 can_manage=True")
+            check(
+                all(a["can_manage"] for a in lst_s if a["id"] in (aid, str(made[1]))),
+                "H4 superuser: 전부 can_manage=True",
+            )
             # get 단건도 파생
             g = (await c.get(f"/agents/{aid}")).json()
-            check(g["can_manage"] is True and g["owner_id"] == str(alice.id), "H4 GET 단건도 owner_id·can_manage")
+            check(
+                g["can_manage"] is True and g["owner_id"] == str(alice.id),
+                "H4 GET 단건도 owner_id·can_manage",
+            )
     finally:
         _as(Stub(is_superuser=True))
         async with httpx.AsyncClient(transport=t, base_url="http://t", timeout=60) as c:
@@ -120,7 +149,9 @@ async def main() -> None:
     try:
         await integration_checks()
     except Exception as exc:  # noqa: BLE001
-        import traceback; traceback.print_exc()
+        import traceback
+
+        traceback.print_exc()
         check(False, f"[H] 예외 {type(exc).__name__}: {exc}")
     finally:
         app.dependency_overrides.pop(current_principal, None)

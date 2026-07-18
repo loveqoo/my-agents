@@ -15,6 +15,7 @@
 
 실행: A2A_ALLOWED_HOSTS=127.0.0.1,localhost .venv/bin/python tests/verify_054_mcp_auth_at_rest.py
 """
+
 import asyncio
 import os
 import sys
@@ -34,6 +35,7 @@ from api.main import app  # noqa: E402
 from api.models import McpServer  # noqa: E402
 
 _AUTH = {"Authorization": f"Bearer {_token()}"}
+VBASE = os.environ.get("VERIFY_BASE", "http://127.0.0.1:8000")  # 스펙 390: 격리 서버 주입
 _fails: list[str] = []
 NP = "mcp_v054f_"
 TOKEN = "sk-secret-abc-123"
@@ -70,11 +72,18 @@ async def main() -> None:
         async with httpx.AsyncClient(transport=transport, base_url="http://t", headers=_AUTH) as c:
             # --- (1) 생성: 평문 토큰 → 응답 마스킹 ---
             print("[create] 평문 Bearer 토큰 POST → 응답 마스킹")
-            pc = await c.post("/mcp-servers", json={
-                "name": f"{NP}a", "source": "external", "transport": "http",
-                "url": "http://127.0.0.1:8000/_remote/mcp/", "auth": TOKEN,
-                "tools": ["echo"], "enabled_tools": ["echo"],
-            })
+            pc = await c.post(
+                "/mcp-servers",
+                json={
+                    "name": f"{NP}a",
+                    "source": "external",
+                    "transport": "http",
+                    "url": VBASE + "/_remote/mcp/",
+                    "auth": TOKEN,
+                    "tools": ["echo"],
+                    "enabled_tools": ["echo"],
+                },
+            )
             check(pc.status_code == 201, f"생성 201 (got {pc.status_code})")
             body = pc.json()
             mid = body["id"]
@@ -84,8 +93,10 @@ async def main() -> None:
             # --- (2) DB 암호문 + 복호화 왕복 ---
             print("[at-rest] DB는 암호문, decrypt → 원본")
             stored = await _db_auth(mid)
-            check(isinstance(stored, str) and stored.startswith("gAAAAA"),
-                  f"DB 저장값이 Fernet 암호문 (got prefix {str(stored)[:6]!r})")
+            check(
+                isinstance(stored, str) and stored.startswith("gAAAAA"),
+                f"DB 저장값이 Fernet 암호문 (got prefix {str(stored)[:6]!r})",
+            )
             check(crypto.decrypt(stored) == TOKEN, "decrypt(저장값) == 원본 평문")
 
             # --- (3) 모든 GET 경로 마스킹 ---
@@ -105,31 +116,54 @@ async def main() -> None:
 
             # --- (4) 마스킹 수정 → 보존 ---
             print("[preserve] 마스킹값 PUT → 기존 토큰 보존")
-            await c.put(f"/mcp-servers/{mid}", json={
-                "name": f"{NP}a", "source": "external", "transport": "http",
-                "url": "http://127.0.0.1:8000/_remote/mcp/", "auth": SECRET_MASK,
-                "tools": ["echo"], "enabled_tools": ["echo"],
-            })
+            await c.put(
+                f"/mcp-servers/{mid}",
+                json={
+                    "name": f"{NP}a",
+                    "source": "external",
+                    "transport": "http",
+                    "url": VBASE + "/_remote/mcp/",
+                    "auth": SECRET_MASK,
+                    "tools": ["echo"],
+                    "enabled_tools": ["echo"],
+                },
+            )
             check(crypto.decrypt(await _db_auth(mid)) == TOKEN, "마스킹 수정 후 기존 토큰 유지")
 
             # --- (5) 새 토큰 수정 → 재암호화 ---
             print("[rotate] 새 평문 PUT → 재암호화")
-            await c.put(f"/mcp-servers/{mid}", json={
-                "name": f"{NP}a", "source": "external", "transport": "http",
-                "url": "http://127.0.0.1:8000/_remote/mcp/", "auth": TOKEN2,
-                "tools": ["echo"], "enabled_tools": ["echo"],
-            })
+            await c.put(
+                f"/mcp-servers/{mid}",
+                json={
+                    "name": f"{NP}a",
+                    "source": "external",
+                    "transport": "http",
+                    "url": VBASE + "/_remote/mcp/",
+                    "auth": TOKEN2,
+                    "tools": ["echo"],
+                    "enabled_tools": ["echo"],
+                },
+            )
             rot = await _db_auth(mid)
-            check(rot.startswith("gAAAAA") and crypto.decrypt(rot) == TOKEN2, "새 토큰으로 재암호화")
+            check(
+                rot.startswith("gAAAAA") and crypto.decrypt(rot) == TOKEN2, "새 토큰으로 재암호화"
+            )
             check(crypto.decrypt(rot) != TOKEN, "이전 토큰은 더 이상 복호화되지 않음")
 
             # --- (6) 명시 제거 ---
             print("[remove] auth='' PUT → 제거")
-            await c.put(f"/mcp-servers/{mid}", json={
-                "name": f"{NP}a", "source": "external", "transport": "http",
-                "url": "http://127.0.0.1:8000/_remote/mcp/", "auth": "",
-                "tools": ["echo"], "enabled_tools": ["echo"],
-            })
+            await c.put(
+                f"/mcp-servers/{mid}",
+                json={
+                    "name": f"{NP}a",
+                    "source": "external",
+                    "transport": "http",
+                    "url": VBASE + "/_remote/mcp/",
+                    "auth": "",
+                    "tools": ["echo"],
+                    "enabled_tools": ["echo"],
+                },
+            )
             check(await _db_auth(mid) is None, "빈 문자열 수정 → DB auth None(헤더 생략 경로)")
 
             # --- (7) 런타임 배선 규칙(chat._load_context) ---

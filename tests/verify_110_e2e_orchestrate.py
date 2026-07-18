@@ -19,6 +19,7 @@ import httpx
 from api.auth import _token, current_principal
 from api.main import app
 
+
 # 위임(rag)은 **유저 세션 RBAC**를 통과해야 한다(머신 토큰=string principal은 deny-by-default —
 # "능력 오케스트레이션 비대상", broker.py rbac_allows). 채팅 엔드포인트의 principal만 슈퍼유저로
 # 오버라이드해 실제 유저 세션 경로를 재현한다(다른 엔드포인트는 Bearer 유지). is_superuser 우회로
@@ -53,7 +54,9 @@ async def _chat_text(c: httpx.AsyncClient, agent_id: str, text: str) -> str:
 async def run() -> bool:
     t = httpx.ASGITransport(app=app)
     headers = {"Authorization": f"Bearer {_token()}"}
-    async with httpx.AsyncClient(transport=t, base_url="http://t", headers=headers, timeout=90) as c:
+    async with httpx.AsyncClient(
+        transport=t, base_url="http://t", headers=headers, timeout=90
+    ) as c:
         # 관측 가능한 cap: 존재하는 RAG 컬렉션 하나(청크 유무 무관 — invoke 자체가 broker_invoke 노드를 남김).
         cols = (await c.get("/collections")).json()
         if not cols:
@@ -68,23 +71,36 @@ async def run() -> bool:
         made: list[str] = []
         try:
             # (1) 위임: 능력 1개 조율형 → 채팅 1턴 → broker_invoke 노드 존재.
-            a = (await c.post("/agents", json={
-                "name": f"orch-e2e-{uuid.uuid4().hex[:6]}",
-                "config": {**base, "capabilities": [cap]},
-            })).json()
+            a = (
+                await c.post(
+                    "/agents",
+                    json={
+                        "name": f"orch-e2e-{uuid.uuid4().hex[:6]}",
+                        "config": {**base, "capabilities": [cap]},
+                    },
+                )
+            ).json()
             made.append(a["id"])
             ck(a.get("impl") == "orchestrate", "H0 조율형으로 저장(impl=orchestrate)")
             ck(a.get("capabilities") == [cap], f"H0 능력 저장({cap})")
 
             txt = await _chat_text(c, a["id"], query)
-            ck("broker_invoke" in txt, "H1 채팅 1턴 → trace에 broker_invoke 노드(브로커가 실제 위임)")
+            ck(
+                "broker_invoke" in txt,
+                "H1 채팅 1턴 → trace에 broker_invoke 노드(브로커가 실제 위임)",
+            )
             ck(f"broker_invoke:rag" in txt, f"H2 위임 대상 kind=rag ({cap})")
 
             # (2) 무위임 대조: 능력 0개 조율형 → broker_invoke 없음(deny-by-default, 위양성 배제).
-            a0 = (await c.post("/agents", json={
-                "name": f"orch-none-{uuid.uuid4().hex[:6]}",
-                "config": {**base, "capabilities": []},
-            })).json()
+            a0 = (
+                await c.post(
+                    "/agents",
+                    json={
+                        "name": f"orch-none-{uuid.uuid4().hex[:6]}",
+                        "config": {**base, "capabilities": []},
+                    },
+                )
+            ).json()
             made.append(a0["id"])
             txt0 = await _chat_text(c, a0["id"], query)
             ck("broker_invoke" not in txt0, "H3 무위임 대조 — 능력 0개면 broker_invoke 없음")

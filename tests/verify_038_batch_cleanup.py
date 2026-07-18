@@ -14,6 +14,7 @@
 
 실행: .venv/bin/python tests/verify_038_batch_cleanup.py
 """
+
 import asyncio
 import os
 import sys
@@ -56,12 +57,22 @@ async def _set_retention(days):
 
 async def _count_sessions() -> int:
     async with SessionLocal() as s:
-        return await s.scalar(select(func.count()).select_from(Session).where(Session.session_id.like(f"{SP}%"))) or 0
+        return (
+            await s.scalar(
+                select(func.count()).select_from(Session).where(Session.session_id.like(f"{SP}%"))
+            )
+            or 0
+        )
 
 
 async def _session_exists(sid: str) -> bool:
     async with SessionLocal() as s:
-        return (await s.scalar(select(func.count()).select_from(Session).where(Session.session_id == sid)) or 0) > 0
+        return (
+            await s.scalar(
+                select(func.count()).select_from(Session).where(Session.session_id == sid)
+            )
+            or 0
+        ) > 0
 
 
 async def _msg_count(sid: str) -> int:
@@ -69,7 +80,12 @@ async def _msg_count(sid: str) -> int:
         sess = (await s.execute(select(Session).where(Session.session_id == sid))).scalars().first()
         if sess is None:
             return 0
-        return await s.scalar(select(func.count()).select_from(Message).where(Message.session_pk == sess.id)) or 0
+        return (
+            await s.scalar(
+                select(func.count()).select_from(Message).where(Message.session_pk == sess.id)
+            )
+            or 0
+        )
 
 
 async def _mem0_count():
@@ -95,8 +111,12 @@ async def _seed_sessions():
         ]
         for sid, la, nmsg in specs:
             sess = Session(
-                session_id=sid, agent_pk=agent.id, agent_name=agent.name or "t",
-                channel="v038", status="completed", last_activity=la,
+                session_id=sid,
+                agent_pk=agent.id,
+                agent_name=agent.name or "t",
+                channel="v038",
+                status="completed",
+                last_activity=la,
             )
             s.add(sess)
             await s.flush()
@@ -143,17 +163,26 @@ async def main() -> None:
         summ = res.get("summary", {})
         check(res["status"] == "ok", "[1] dry-run run_job status=ok")
         check(summ.get("status") == "dry_run", "[1] summary.status=dry_run")
-        check(summ.get("would_delete") == 2, f"[1] would_delete=2 (실제 {summ.get('would_delete')})")
+        check(
+            summ.get("would_delete") == 2, f"[1] would_delete=2 (실제 {summ.get('would_delete')})"
+        )
         check(await _count_sessions() == 3, "[1] dry-run 후 DB 행 수 불변(3) — no-op 증명")
         check(await _session_exists(f"{SP}old_a"), "[1] dry-run이 오래된 세션을 지우지 않음")
         # 미리보기 sample은 라이브 응답엔 있고(운영자 미리보기), 감사행엔 미영속(데이터 최소화).
-        check(isinstance(summ.get("sample"), list) and len(summ["sample"]) == 2,
-              f"[1] 라이브 응답에 sample 2건(미리보기) — 실제 {summ.get('sample')}")
+        check(
+            isinstance(summ.get("sample"), list) and len(summ["sample"]) == 2,
+            f"[1] 라이브 응답에 sample 2건(미리보기) — 실제 {summ.get('sample')}",
+        )
         async with SessionLocal() as s:
             dry_row = await s.get(BatchRun, _run_ids[0])
             persisted = dry_row.summary or {} if dry_row else {}
-            check("sample" not in persisted, "[1] 감사행 summary에는 sample 미영속(원시 식별자 미적재)")
-            check(persisted.get("would_delete") == 2, "[1] 감사행 summary는 건수(would_delete)는 보존")
+            check(
+                "sample" not in persisted,
+                "[1] 감사행 summary에는 sample 미영속(원시 식별자 미적재)",
+            )
+            check(
+                persisted.get("would_delete") == 2, "[1] 감사행 summary는 건수(would_delete)는 보존"
+            )
 
         # --- [2] 실행: 오래된 것 삭제 + cascade + 최근 보존 ---
         old_a_msgs = await _msg_count(f"{SP}old_a")
@@ -168,7 +197,9 @@ async def main() -> None:
         check(not await _session_exists(f"{SP}old_b"), "[2] old_b 삭제됨")
         check(await _session_exists(f"{SP}recent"), "[2] recent 보존됨")
         check(await _msg_count(f"{SP}old_a") == 0, "[2] old_a 메시지 cascade 삭제(0)")
-        check(await _msg_count(f"{SP}recent") == recent_msgs_before == 1, "[2] recent 메시지 보존(1)")
+        check(
+            await _msg_count(f"{SP}recent") == recent_msgs_before == 1, "[2] recent 메시지 보존(1)"
+        )
 
         # --- [6] mem0 미접촉 ---
         mem_after = await _mem0_count()
@@ -189,7 +220,10 @@ async def main() -> None:
         cnt_before_disabled = await _count_sessions()
         res4 = await run_job("session-cleanup", dry_run=False)
         _run_ids.append(__import__("uuid").UUID(res4["run_id"]))
-        check(res4.get("summary", {}).get("status") == "disabled", "[4] retention=None → status=disabled")
+        check(
+            res4.get("summary", {}).get("status") == "disabled",
+            "[4] retention=None → status=disabled",
+        )
         check(await _count_sessions() == cnt_before_disabled, "[4] 비활성 시 행 수 불변")
 
         # --- [4b] days<1 푸트건 가드: retention=0 → disabled, 행 불변(delete-all 방지) ---
@@ -197,15 +231,24 @@ async def main() -> None:
         cnt_before_zero = await _count_sessions()
         res4b = await run_job("session-cleanup", dry_run=False)
         _run_ids.append(__import__("uuid").UUID(res4b["run_id"]))
-        check(res4b.get("summary", {}).get("status") == "disabled", "[4b] retention=0 → status=disabled(가드)")
-        check(await _count_sessions() == cnt_before_zero, "[4b] retention=0이어도 행 불변(delete-all 방지)")
+        check(
+            res4b.get("summary", {}).get("status") == "disabled",
+            "[4b] retention=0 → status=disabled(가드)",
+        )
+        check(
+            await _count_sessions() == cnt_before_zero,
+            "[4b] retention=0이어도 행 불변(delete-all 방지)",
+        )
 
         # --- [5] BatchRun 박제 + error graceful ---
         async with SessionLocal() as s:
             run_row = await s.get(BatchRun, _run_ids[1])  # [2]의 실행
             check(run_row is not None and run_row.status == "ok", "[5] BatchRun status=ok 박제")
             check(run_row is not None and run_row.finished_at is not None, "[5] finished_at 박제")
-            check(run_row is not None and (run_row.summary or {}).get("deleted") == 2, "[5] summary에 건수 박제")
+            check(
+                run_row is not None and (run_row.summary or {}).get("deleted") == 2,
+                "[5] summary에 건수 박제",
+            )
             check(run_row is not None and run_row.dry_run is False, "[5] dry_run 플래그 박제")
 
         # error 경로: 일부러 실패하는 작업을 임시 등록 → run_job이 raise 없이 status=error 박제.
@@ -220,7 +263,10 @@ async def main() -> None:
             check("RuntimeError" in (res5.get("error") or ""), "[5] error 메시지 박제")
             async with SessionLocal() as s:
                 boom_row = await s.get(BatchRun, _run_ids[-1])
-                check(boom_row is not None and boom_row.status == "error", "[5] BatchRun status=error 박제")
+                check(
+                    boom_row is not None and boom_row.status == "error",
+                    "[5] BatchRun status=error 박제",
+                )
         finally:
             JOBS.pop("_v038_boom", None)
 
@@ -237,9 +283,12 @@ async def main() -> None:
         # 실제 호출(`memory.` 속성 접근)만 본다 — 같은 모듈의 consolidate_user_memories(스펙 039)는
         # 정당하게 memory를 쓰므로 모듈 단위·산문 단위 검사는 stale.
         import inspect
+
         clean_src = inspect.getsource(jobs_mod.cleanup_sessions)
-        check("memory." not in clean_src and "mem0_memories" not in clean_src,
-              "[6] cleanup_sessions가 memory 모듈을 호출하지 않음(정적)")
+        check(
+            "memory." not in clean_src and "mem0_memories" not in clean_src,
+            "[6] cleanup_sessions가 memory 모듈을 호출하지 않음(정적)",
+        )
 
     finally:
         await _cleanup_db()

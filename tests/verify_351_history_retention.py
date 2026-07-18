@@ -110,7 +110,9 @@ async def _teardown(ds_id: str) -> None:
     async with SessionLocal() as s:
         await s.execute(text("delete from eval_datasets where id = :d"), {"d": ds_id})
         await s.execute(text("delete from batch_runs where job_name like :p"), {"p": f"{MARK}%"})
-        await s.execute(text("delete from memory_snapshots where user_id like :p"), {"p": f"{MARK}%"})
+        await s.execute(
+            text("delete from memory_snapshots where user_id like :p"), {"p": f"{MARK}%"}
+        )
         await s.commit()
 
 
@@ -127,7 +129,10 @@ async def main() -> None:
 
     before_runs = await _count(runs_q)
     before_results = await _count(results_q)
-    check(before_runs == 13 and before_results == 13, f"준비: 런 13 · 결과 13 (got {before_runs}/{before_results})")
+    check(
+        before_runs == 13 and before_results == 13,
+        f"준비: 런 13 · 결과 13 (got {before_runs}/{before_results})",
+    )
 
     # H4 dry-run
     dry = await cleanup_history(dry_run=True)

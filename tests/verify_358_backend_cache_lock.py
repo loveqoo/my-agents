@@ -11,6 +11,7 @@ mem_cfg로 두 스레드가 동시에 _construct → 풀 하나 고아 누수. d
 
 실행: .venv/bin/python tests/verify_358_backend_cache_lock.py
 """
+
 import os
 import sys
 import threading
@@ -88,7 +89,10 @@ def main() -> None:
     r_a = be.resolve_backend(cfg2)
     r_b = be.resolve_backend(cfg2)
     check(r_a is None and r_b is None, "[B2] 실패 → None 반환(graceful)")
-    check(fail_calls["n"] == 1, f"[B2] construct 1회만 시도(실제 {fail_calls['n']}) — None 캐시 재시도 억제")
+    check(
+        fail_calls["n"] == 1,
+        f"[B2] construct 1회만 시도(실제 {fail_calls['n']}) — None 캐시 재시도 억제",
+    )
 
     # ── B3: 캐시 히트 무회귀 ──────────────────────────────────────────────────
     be._reset_cache()

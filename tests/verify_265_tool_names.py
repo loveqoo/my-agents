@@ -10,10 +10,16 @@
 
 실행: uv run --project packages/api python tests/verify_265_tool_names.py
 """
+
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "packages", "agent", "src"))
+sys.path.insert(
+    0,
+    os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "packages", "agent", "src"
+    ),
+)
 
 from langchain_core.tools import StructuredTool  # noqa: E402
 
@@ -23,15 +29,20 @@ from agent.flows.pipeline import LinearPipelineAgent  # noqa: E402
 _fails = []
 passed = 0
 
+
 def check(cond, msg):
     global passed
     print(("  ok  " if cond else " FAIL ") + msg)
-    if cond: passed += 1
-    else: _fails.append(msg)
+    if cond:
+        passed += 1
+    else:
+        _fails.append(msg)
 
 
 def _tool(name):
-    return StructuredTool.from_function(func=lambda query="": "", name=name, description=f"{name} 도구")
+    return StructuredTool.from_function(
+        func=lambda query="": "", name=name, description=f"{name} 도구"
+    )
 
 
 MODEL_CFG = {"base_url": "http://x", "api_key": "k", "model_id": "m", "params": {}}
@@ -39,9 +50,14 @@ MODEL_CFG = {"base_url": "http://x", "api_key": "k", "model_id": "m", "params": 
 
 def _graph_nodes(node_tools_decl, pool_names):
     ctx = AgentBuildContext(
-        prompt="", model_cfg=MODEL_CFG,
+        prompt="",
+        model_cfg=MODEL_CFG,
         tools=[_tool(n) for n in pool_names],
-        impl_config={"nodes": [{"name": "n", "prompt": "p", "model_cfg": MODEL_CFG, "tools": node_tools_decl}]},
+        impl_config={
+            "nodes": [
+                {"name": "n", "prompt": "p", "model_cfg": MODEL_CFG, "tools": node_tools_decl}
+            ]
+        },
     )
     g = LinearPipelineAgent().build_graph(ctx)
     return set(g.get_graph().nodes)
@@ -49,7 +65,9 @@ def _graph_nodes(node_tools_decl, pool_names):
 
 def main():
     # T1 정확 일치(런타임 이름 저장)
-    nodes = _graph_nodes(["web-fetch__wiki_search"], ["web-fetch__wiki_search", "web-fetch__wiki_page"])
+    nodes = _graph_nodes(
+        ["web-fetch__wiki_search"], ["web-fetch__wiki_search", "web-fetch__wiki_page"]
+    )
     check("n__tools" in nodes, "T1 런타임 이름 정확 일치 → ToolNode 생성")
 
     # T2 접미 폴백(민이름 저장, 접미 유일)

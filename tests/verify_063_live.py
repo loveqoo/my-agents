@@ -30,7 +30,7 @@ from dotenv import load_dotenv
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 load_dotenv(os.path.join(ROOT, ".env"))
 
-BASE = "http://127.0.0.1:8000"
+BASE = os.environ.get("VERIFY_BASE", "http://127.0.0.1:8000")  # 스펙 390: 격리 서버 주입
 TOK = os.environ["API_AUTH_TOKEN"]
 AUTH = {"Authorization": f"Bearer {TOK}"}
 DSN = os.environ.get("MIGRATE_DSN", "postgresql://agent:agent@localhost:5432/agents")
@@ -105,8 +105,17 @@ async def _insert_stale(conn) -> str:
         "RETURNING id",
         TEST_AGENT_ID,
         "063 stale 테스트",
-        json.dumps({"card": card, "model": "", "prompt": "", "memories": [],
-                    "vectorTables": [], "mcps": [], "historyDepth": 10}),
+        json.dumps(
+            {
+                "card": card,
+                "model": "",
+                "prompt": "",
+                "memories": [],
+                "vectorTables": [],
+                "mcps": [],
+                "historyDepth": 10,
+            }
+        ),
         json.dumps({"a2a": False}),
         STALE_EP,
     )
@@ -120,8 +129,12 @@ async def main() -> int:
         print(f"주입된 stale 행 pk={pk}")
 
         # ---- 3. 실 채팅: 더는 "절대 URL" 아님, mock 텍스트 수신 ----
-        status, raw = _req("POST", f"/agents/{pk}/chat", headers=AUTH,
-                           body={"messages": [{"role": "user", "content": "안녕"}]})
+        status, raw = _req(
+            "POST",
+            f"/agents/{pk}/chat",
+            headers=AUTH,
+            body={"messages": [{"role": "user", "content": "안녕"}]},
+        )
         ck(status == 200, f"L1 POST /chat → 200 (실제 {status}: {raw[:120]})")
         ck("절대 URL" not in raw, "L2 응답에 '절대 URL' 에러 없음(D1 자가치유)")
         ck(MOCK_REPLY in raw, f"L3 mock 응답 텍스트 수신: {MOCK_REPLY!r} in SSE")
@@ -131,13 +144,22 @@ async def main() -> int:
         from tests.migrate_063_normalize_endpoints import _needs_norm
         from api.net_guard import normalize_http_url
 
-        ep_before = await conn.fetchval("SELECT endpoint FROM agents WHERE agent_id=$1", TEST_AGENT_ID)
-        ck(_needs_norm(ep_before) is True, f"L4 마이그레이션이 주입행을 후보로 선별(endpoint={ep_before!r})")
+        ep_before = await conn.fetchval(
+            "SELECT endpoint FROM agents WHERE agent_id=$1", TEST_AGENT_ID
+        )
+        ck(
+            _needs_norm(ep_before) is True,
+            f"L4 마이그레이션이 주입행을 후보로 선별(endpoint={ep_before!r})",
+        )
         # --apply 시뮬레이트 직접 적용(스크립트 _apply 경로와 동일 정규화)
         ep_norm = normalize_http_url(ep_before)
         ck(ep_norm == f"http://127.0.0.1:{PORT}", f"L5 절대화 결과 정확: {ep_norm!r}")
-        await conn.execute("UPDATE agents SET endpoint=$1 WHERE agent_id=$2", ep_norm, TEST_AGENT_ID)
-        ep_after = await conn.fetchval("SELECT endpoint FROM agents WHERE agent_id=$1", TEST_AGENT_ID)
+        await conn.execute(
+            "UPDATE agents SET endpoint=$1 WHERE agent_id=$2", ep_norm, TEST_AGENT_ID
+        )
+        ep_after = await conn.fetchval(
+            "SELECT endpoint FROM agents WHERE agent_id=$1", TEST_AGENT_ID
+        )
         ck(ep_after == ep_norm, f"L6 UPDATE 반영 재조회: {ep_after!r}")
         ck(_needs_norm(ep_after) is False, "L7 멱등: 절대화 후 더는 후보 아님")
     finally:

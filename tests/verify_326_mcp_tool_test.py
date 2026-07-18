@@ -10,11 +10,17 @@
 실행: uv run --project packages/api --env-file .env python tests/verify_326_mcp_tool_test.py
 ※ local-tools MCP가 자기 서비스(127.0.0.1:8000)라 API 서버가 떠 있어야 한다.
 """
+
 import asyncio
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "packages", "api", "src"))
+sys.path.insert(
+    0,
+    os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "packages", "api", "src"
+    ),
+)
 
 from fastapi import HTTPException  # noqa: E402
 from sqlalchemy import select  # noqa: E402
@@ -48,37 +54,59 @@ async def main():
         lt_id = await _local_tools_id(s)
 
         # U1 — echo 성공
-        out = await BL.test_mcp_tool(lt_id, McpToolTestIn(tool="echo", args={"text": "326-ping"}), s)
-        check(out.ok and "326-ping" in (out.result or "") and out.ms > 0, f"U1 echo 성공+반향+ms>0 (ms={out.ms})")
+        out = await BL.test_mcp_tool(
+            lt_id, McpToolTestIn(tool="echo", args={"text": "326-ping"}), s
+        )
+        check(
+            out.ok and "326-ping" in (out.result or "") and out.ms > 0,
+            f"U1 echo 성공+반향+ms>0 (ms={out.ms})",
+        )
 
         # U3 — 미허용 도구 400
         try:
             await BL.test_mcp_tool(lt_id, McpToolTestIn(tool="failing_op", args={"reason": "x"}), s)
             check(False, "U3 미허용 도구 400")
         except HTTPException as e:
-            check(e.status_code == 400 and "활성 도구" in e.detail, f"U3 미허용 도구 400 ({e.detail[:40]})")
+            check(
+                e.status_code == 400 and "활성 도구" in e.detail,
+                f"U3 미허용 도구 400 ({e.detail[:40]})",
+            )
 
         # U4 — 승인 도구 confirm 없이 400
         try:
-            await BL.test_mcp_tool(lt_id, McpToolTestIn(tool="delete_record", args={"record_id": "v326"}), s)
+            await BL.test_mcp_tool(
+                lt_id, McpToolTestIn(tool="delete_record", args={"record_id": "v326"}), s
+            )
             check(False, "U4 승인 confirm 게이트 400")
         except HTTPException as e:
-            check(e.status_code == 400 and "승인 정책" in e.detail, f"U4 승인 confirm 게이트 400 ({e.detail[:40]})")
+            check(
+                e.status_code == 400 and "승인 정책" in e.detail,
+                f"U4 승인 confirm 게이트 400 ({e.detail[:40]})",
+            )
 
         # U5 — confirm=True면 실행(mock, 부수효과 없음)
         out = await BL.test_mcp_tool(
             lt_id, McpToolTestIn(tool="delete_record", args={"record_id": "v326"}, confirm=True), s
         )
-        check(out.ok and out.error is None, f"U5 confirm=True 실행 (result={str(out.result)[:40]!r})")
+        check(
+            out.ok and out.error is None, f"U5 confirm=True 실행 (result={str(out.result)[:40]!r})"
+        )
 
         # U6 — 결과 마스킹(시크릿 반향)
         secret = "Bearer abcdefghijklmnop1234"
-        out = await BL.test_mcp_tool(lt_id, McpToolTestIn(tool="echo", args={"text": f"tok={secret}"}), s)
-        check(out.ok and secret not in (out.result or ""), f"U6 결과 마스킹 (result={str(out.result)[:60]!r})")
+        out = await BL.test_mcp_tool(
+            lt_id, McpToolTestIn(tool="echo", args={"text": f"tok={secret}"}), s
+        )
+        check(
+            out.ok and secret not in (out.result or ""),
+            f"U6 결과 마스킹 (result={str(out.result)[:60]!r})",
+        )
 
         # U7 — 인자 스키마 오류는 500 아닌 시험 결과
         out = await BL.test_mcp_tool(lt_id, McpToolTestIn(tool="echo", args={}), s)
-        check((not out.ok) and bool(out.error), f"U7 인자 오류 표면화 (error={str(out.error)[:60]!r})")
+        check(
+            (not out.ok) and bool(out.error), f"U7 인자 오류 표면화 (error={str(out.error)[:60]!r})"
+        )
 
         # U2 — 실패 사유 표면(임시 서버, failing_op만 활성 — seed 오염 없이 hermetic)
         tmp = McpServer(

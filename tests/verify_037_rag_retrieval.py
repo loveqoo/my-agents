@@ -18,6 +18,7 @@
 
 실행: .venv/bin/python tests/verify_037_rag_retrieval.py  (in-process 앱이 127.0.0.1:8000 mock을 침 → dev 서버 필요)
 """
+
 import asyncio
 import os
 import re
@@ -77,7 +78,9 @@ async def _collection_dict(name: str) -> dict:
             await s.execute(
                 select(Collection)
                 .where(Collection.name == name)
-                .options(selectinload(Collection.embedding_model).selectinload(ModelConfig.provider))
+                .options(
+                    selectinload(Collection.embedding_model).selectinload(ModelConfig.provider)
+                )
             )
         ).scalar_one()
         em = c.embedding_model
@@ -96,16 +99,22 @@ async def _first_chunk_text(name: str) -> str:
         cid = (await s.execute(select(Collection.id).where(Collection.name == name))).scalar_one()
         return (
             await s.execute(
-                select(Chunk.text).where(Chunk.collection_id == cid).order_by(Chunk.ordinal).limit(1)
+                select(Chunk.text)
+                .where(Chunk.collection_id == cid)
+                .order_by(Chunk.ordinal)
+                .limit(1)
             )
         ).scalar_one()
 
 
 async def _chunk_count(name: str) -> int:
     from sqlalchemy import func
+
     async with SessionLocal() as s:
         cid = (await s.execute(select(Collection.id).where(Collection.name == name))).scalar_one()
-        return await s.scalar(select(func.count()).select_from(Chunk).where(Chunk.collection_id == cid))
+        return await s.scalar(
+            select(func.count()).select_from(Chunk).where(Chunk.collection_id == cid)
+        )
 
 
 def _sims(out: str) -> list[float]:
@@ -120,28 +129,48 @@ async def main() -> None:
     await _cleanup()
     transport = httpx.ASGITransport(app=app)
     try:
-        async with httpx.AsyncClient(transport=transport, base_url="http://t", headers=_AUTH, timeout=60) as c:
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://t", headers=_AUTH, timeout=60
+        ) as c:
             provs = (await c.get("/providers")).json()
             mock_p = next((p for p in provs if "_remote" in (p.get("base_url") or "")), None)
             check(mock_p is not None, "mock(_remote) provider 존재")
-            mk = await c.post("/models", json={
-                "name": f"{MP}embed", "provider_id": mock_p["id"], "model_id": "mock-embed",
-                "kind": "embedding", "is_default": False, "params": {},
-            })
+            mk = await c.post(
+                "/models",
+                json={
+                    "name": f"{MP}embed",
+                    "provider_id": mock_p["id"],
+                    "model_id": "mock-embed",
+                    "kind": "embedding",
+                    "is_default": False,
+                    "params": {},
+                },
+            )
             check(mk.status_code == 201, f"mock 임베딩 모델 생성 201 (got {mk.status_code})")
             embed_mid = mk.json()["id"]
 
             # 컬렉션 A(문서 적재) + 컬렉션 B(빈) + 컬렉션 C(문서 적재, 멀티 컬렉션용)
             for nm in ("main", "empty", "second"):
-                cc = await c.post("/collections", json={
-                    "name": f"{CP}{nm}", "embedding_model_id": embed_mid,
-                    "chunk_size": 200, "chunk_overlap": 20,
-                })
+                cc = await c.post(
+                    "/collections",
+                    json={
+                        "name": f"{CP}{nm}",
+                        "embedding_model_id": embed_mid,
+                        "chunk_size": 200,
+                        "chunk_overlap": 20,
+                    },
+                )
                 check(cc.status_code == 201, f"컬렉션 {nm} 생성 201 (got {cc.status_code})")
             for nm in ("main", "second"):
-                cid = next(x["id"] for x in (await c.get("/collections")).json() if x["name"] == f"{CP}{nm}")
-                up = await c.post(f"/collections/{cid}/documents",
-                                  files={"file": (f"{nm}.txt", DOC_TEXT.encode("utf-8"), "text/plain")})
+                cid = next(
+                    x["id"]
+                    for x in (await c.get("/collections")).json()
+                    if x["name"] == f"{CP}{nm}"
+                )
+                up = await c.post(
+                    f"/collections/{cid}/documents",
+                    files={"file": (f"{nm}.txt", DOC_TEXT.encode("utf-8"), "text/plain")},
+                )
                 check(up.json()["status"] == "ready", f"{nm} 인제스트 ready")
 
             col_main = await _collection_dict(f"{CP}main")
@@ -159,12 +188,19 @@ async def main() -> None:
             check(sims and abs(sims[0] - 1.0) < 1e-3, f"1위 유사도≈1.000 (got {sims[:1]})")
             head = chunk0.strip().replace("\n", " ")[:24]
             check(head in out, "1위 라인에 동일 청크 텍스트 포함")
-            check(sink and sink[-1]["server"] == "rag" and sink[-1]["status"] == "ok" and sink[-1]["hits"] >= 1,
-                  f"calls_sink ok 기록 (got {sink[-1:] })")
+            check(
+                sink
+                and sink[-1]["server"] == "rag"
+                and sink[-1]["status"] == "ok"
+                and sink[-1]["hits"] >= 1,
+                f"calls_sink ok 기록 (got {sink[-1:]})",
+            )
             # 변별: mock이 입력 의존 벡터를 주므로 exact-match(1.000)는 다른 청크(<1)보다 엄격히 위.
             # (상수 벡터였다면 전부 1.000이라 이 단언이 retrieval 랭킹을 증명하지 못한다 — learning 035.)
-            check(len(sims) >= 2 and sims[0] > sims[1] + 1e-6,
-                  f"변별: 1위(exact) > 2위 (got {sims[:2]})")
+            check(
+                len(sims) >= 2 and sims[0] > sims[1] + 1e-6,
+                f"변별: 1위(exact) > 2위 (got {sims[:2]})",
+            )
             check(all(s < 1.0 - 1e-9 for s in sims[1:]), f"비-exact 청크는 유사도<1 (got {sims})")
             # 음수 유사도 floor(타자검증): 반-상관 청크는 근거가 아니므로 반환에서 제외 → 전부 >=0.
             check(all(s >= 0.0 for s in sims), f"음수 유사도(반-상관) 제외 (got {sims})")
@@ -187,7 +223,9 @@ async def main() -> None:
             t4 = runtime.build_rag_tool([col_empty], sink4)
             o4 = await t4.ainvoke({"query": "아무거나 질의", "top_k": 4})
             check("찾지 못" in o4, f"무매치 안내 (got {o4!r})")
-            check(sink4 and sink4[-1]["hits"] == 0 and sink4[-1]["status"] == "ok", "무매치 hits=0 ok")
+            check(
+                sink4 and sink4[-1]["hits"] == 0 and sink4[-1]["status"] == "ok", "무매치 hits=0 ok"
+            )
 
             # --- 5. top_k 클램프 + floor 내 전건 반환(starvation 없음) ---
             print("[5] top_k 클램프 + floor 내 전건 반환")
@@ -200,9 +238,13 @@ async def main() -> None:
             check(n5 <= 10, f"top_k 상한 10 클램프 (got {n5})")
             # floor(>=0) 적용 후 양수 유사도 청크는 빠짐없이 반환 — HNSW 후필터 starvation이 없음을 단언.
             # main_n(<10)개 중 음수 유사도분만 빠지므로 0<n5<=main_n, 그리고 반환은 전부 >=0이어야 한다.
-            check(0 < n5 <= main_n and all(s >= 0.0 for s in sims5),
-                  f"floor 내 양수 청크 전건·전부>=0 (main {main_n} → {n5}건, sims {sims5})")
-            check(abs(sims5[0] - 1.0) < 1e-3, f"클램프 후에도 exact-match 1위 1.000 (got {sims5[:1]})")
+            check(
+                0 < n5 <= main_n and all(s >= 0.0 for s in sims5),
+                f"floor 내 양수 청크 전건·전부>=0 (main {main_n} → {n5}건, sims {sims5})",
+            )
+            check(
+                abs(sims5[0] - 1.0) < 1e-3, f"클램프 후에도 exact-match 1위 1.000 (got {sims5[:1]})"
+            )
 
             # --- 6. 멀티 컬렉션 통합 ---
             print("[6] 멀티 컬렉션 통합 정렬")
@@ -210,7 +252,10 @@ async def main() -> None:
             t6 = runtime.build_rag_tool([col_main, col_second], sink6)
             o6 = await t6.ainvoke({"query": chunk0, "top_k": 4})
             s6 = _sims(o6)
-            check(bool(s6) and abs(s6[0] - 1.0) < 1e-3, f"멀티 컬렉션서 exact-match 여전히 1위 (got {s6[:1]})")
+            check(
+                bool(s6) and abs(s6[0] - 1.0) < 1e-3,
+                f"멀티 컬렉션서 exact-match 여전히 1위 (got {s6[:1]})",
+            )
             check(s6 == sorted(s6, reverse=True), "멀티 컬렉션 통합 정렬 유지")
 
             # --- 7. 임베딩 실패 graceful ---

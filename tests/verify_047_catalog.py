@@ -114,42 +114,64 @@ async def main() -> None:
     check(len(by_full) > 1000, f"index 로드됨 (full_ids={len(by_full)})")
     sample_full = next(iter(by_full))  # e.g. "openai/gpt-4o"
     meta = catalog.lookup(sample_full)
-    check(meta is not None and meta.get("catalog_id") == by_full[sample_full]["catalog_id"],
-          f"C1 full id 완전일치 → 메타 ({sample_full})")
+    check(
+        meta is not None and meta.get("catalog_id") == by_full[sample_full]["catalog_id"],
+        f"C1 full id 완전일치 → 메타 ({sample_full})",
+    )
 
     bare = sample_full.split("/")[-1]
     meta_bare = catalog.lookup(bare)
     check(meta_bare is not None, f"C2 bare id(마지막 세그먼트) → 매칭 ({bare})")
 
-    check(catalog.lookup("nonexistent/private-model-zzz-999") is None,
-          "C3 미수록 id → None (MLX 사설 모델 정상 미매칭)")
-    check(catalog.lookup(None) is None and catalog.lookup("") is None,
-          "C4 None/빈 입력 → None (크래시 없음)")
+    check(
+        catalog.lookup("nonexistent/private-model-zzz-999") is None,
+        "C3 미수록 id → None (MLX 사설 모델 정상 미매칭)",
+    )
+    check(
+        catalog.lookup(None) is None and catalog.lookup("") is None,
+        "C4 None/빈 입력 → None (크래시 없음)",
+    )
 
     # _to_meta 정규화 — 일부 키 누락 엔트리도 안전한 기본값.
     norm = catalog._to_meta({"id": "x/y", "name": "Y", "reasoning": True})
-    keys_ok = {"catalog_id", "name", "context", "output_limit", "modalities",
-               "cost", "capabilities", "release_date"} <= set(norm)
+    keys_ok = {
+        "catalog_id",
+        "name",
+        "context",
+        "output_limit",
+        "modalities",
+        "cost",
+        "capabilities",
+        "release_date",
+    } <= set(norm)
     check(keys_ok, "C5 _to_meta 정규화 키 셋 완비")
-    check(norm["capabilities"]["reasoning"] is True and norm["capabilities"]["tool_call"] is False,
-          "C5 capabilities bool 강제(reasoning True / tool_call 기본 False)")
-    check(norm["modalities"]["input"] == [] and norm["modalities"]["output"] == [],
-          "C5 modalities 누락 시 빈 리스트 기본값")
+    check(
+        norm["capabilities"]["reasoning"] is True and norm["capabilities"]["tool_call"] is False,
+        "C5 capabilities bool 강제(reasoning True / tool_call 기본 False)",
+    )
+    check(
+        norm["modalities"]["input"] == [] and norm["modalities"]["output"] == [],
+        "C5 modalities 누락 시 빈 리스트 기본값",
+    )
 
     # ── _list_remote_models 보안 가드 ───────────────────────────────────────
     reachable, detail, ids = await providers._list_remote_models("", None)
     check(reachable is False and ids == [], "S1 빈 base_url → (False, _, [])")
 
     reachable, detail, ids = await providers._list_remote_models("ftp://x/v1", None)
-    check(reachable is False and "스킴" in detail and ids == [],
-          "S2 비-http(s) 스킴 → 거부 (네트워크 안 함)")
+    check(
+        reachable is False and "스킴" in detail and ids == [],
+        "S2 비-http(s) 스킴 → 거부 (네트워크 안 함)",
+    )
 
     body = b'{"data":[{"id":"a"},{"id":"b"},{"noid":1},"notdict",{"id":""}]}'
     restore = _patch_httpx(200, [body])
     try:
         reachable, detail, ids = await providers._list_remote_models("http://h/v1", None)
-        check(reachable is True and ids == ["a", "b"] and detail == "연결됨",
-              f"S3 200 정상 → id만 필터(dict+truthy id): {ids}")
+        check(
+            reachable is True and ids == ["a", "b"] and detail == "연결됨",
+            f"S3 200 정상 → id만 필터(dict+truthy id): {ids}",
+        )
     finally:
         restore()
 
@@ -158,16 +180,20 @@ async def main() -> None:
     restore = _patch_httpx(200, [big, big])
     try:
         reachable, detail, ids = await providers._list_remote_models("http://h/v1", None)
-        check(reachable is True and ids == [] and "상한" in detail,
-              "S4 raw 바이트 상한 초과 → 차단 (버퍼 폭주 방지, learning 041)")
+        check(
+            reachable is True and ids == [] and "상한" in detail,
+            "S4 raw 바이트 상한 초과 → 차단 (버퍼 폭주 방지, learning 041)",
+        )
     finally:
         restore()
 
     restore = _patch_httpx(503, [b"secret-key-leak?"])
     try:
         reachable, detail, ids = await providers._list_remote_models("http://h/v1", None)
-        check(reachable is True and ids == [] and detail == "HTTP 503",
-              "S5 비-200 → 본문 미파싱(키 에코 차단), 상태코드만")
+        check(
+            reachable is True and ids == [] and detail == "HTTP 503",
+            "S5 비-200 → 본문 미파싱(키 에코 차단), 상태코드만",
+        )
     finally:
         restore()
 
@@ -178,8 +204,10 @@ async def main() -> None:
     restore = _patch_httpx_slow(gap=0.2, n_chunks=10)  # 0.2*10=2.0s ≫ 0.3s deadline
     try:
         reachable, detail, ids = await providers._list_remote_models("http://h/v1", None)
-        check(reachable is False and ids == [] and detail == "연결 실패",
-              "S6 slow-trickle 응답 → 벽시계 deadline이 차단(hold-open 방지, 적대 리뷰 047)")
+        check(
+            reachable is False and ids == [] and detail == "연결 실패",
+            "S6 slow-trickle 응답 → 벽시계 deadline이 차단(hold-open 방지, 적대 리뷰 047)",
+        )
     finally:
         restore()
         providers._STREAM_DEADLINE = orig_deadline

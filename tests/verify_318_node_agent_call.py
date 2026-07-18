@@ -66,10 +66,19 @@ def unit_checks() -> None:
     caps = [Capability(id="agt_abc123", kind="agent", name="전문가", hook="법률 자문 담당")]
     br = _FakeBroker()
     tools = runtime.build_agent_tools(br, caps)
-    check(len(tools) == 1 and tools[0].name == "agent__agt_abc123", f"U1 도구 이름 agent__{{id}} (got {tools[0].name})")
-    check("전문가" in tools[0].description and "법률 자문" in tools[0].description, "U1 설명에 이름+후크")
+    check(
+        len(tools) == 1 and tools[0].name == "agent__agt_abc123",
+        f"U1 도구 이름 agent__{{id}} (got {tools[0].name})",
+    )
+    check(
+        "전문가" in tools[0].description and "법률 자문" in tools[0].description,
+        "U1 설명에 이름+후크",
+    )
     out = asyncio.run(tools[0].ainvoke({"text": "질문"}))
-    check(out == "위임 응답" and br.calls == [("agt_abc123", {"text": "질문"})], f"U1 broker.invoke 경유 (calls={br.calls})")
+    check(
+        out == "위임 응답" and br.calls == [("agt_abc123", {"text": "질문"})],
+        f"U1 broker.invoke 경유 (calls={br.calls})",
+    )
 
     # U2 graceful 실패 — error면 죽지 않고 문자열
     br.result = InvokeResult(text="", error="대상 없음")
@@ -85,7 +94,8 @@ def unit_checks() -> None:
     check(prov._delegable(visited) is False, "U3 체인 내 재방문 id는 비위임(순환 차단)")
     check(prov._delegable(fresh) is True, "U3 새 id는 위임 가능")
     deep = AgentProvider(
-        session_factory=None, principal="machine",
+        session_factory=None,
+        principal="machine",
         delegation_chain=tuple(f"agt_{i}" for i in range(DELEGATION_MAX_DEPTH)),
     )
     check(deep._delegable(fresh) is False, f"U3 깊이 상한({DELEGATION_MAX_DEPTH}) 초과는 비위임")
@@ -150,10 +160,14 @@ async def http_checks() -> None:
     async with httpx.AsyncClient(transport=transport, base_url="http://t", timeout=120) as c:
         # 슈퍼유저 쿠키 로그인 — 위임 브로커가 실 유저 principal에만 능력을 허가(머신 토큰 deny).
         login = await c.post(
-            "/auth/login", data={"username": SUPER_EMAIL, "password": PW},
+            "/auth/login",
+            data={"username": SUPER_EMAIL, "password": PW},
             headers={"Content-Type": "application/x-www-form-urlencoded"},
         )
-        check(login.status_code in (200, 204), f"SETUP 슈퍼유저 로그인(쿠키) (got {login.status_code})")
+        check(
+            login.status_code in (200, 204),
+            f"SETUP 슈퍼유저 로그인(쿠키) (got {login.status_code})",
+        )
         async with SessionLocal() as s:
             super_user = (
                 await s.execute(select(User).where(User.email == SUPER_EMAIL))
@@ -161,32 +175,51 @@ async def http_checks() -> None:
         check(super_user is not None, "SETUP 슈퍼유저 principal 확보")
 
         # 전문가(위임 대상) — 로컬 ui, 활성 버전 보유(위임 자격). mock-llm이 평문 답.
-        r = await c.post("/agents", json={
-            "name": f"v318-expert-{uuid.uuid4().hex[:6]}",
-            "config": {"model": "mock-llm", "prompt": "너는 전문가다. 받은 질문에 답한다."},
-        })
+        r = await c.post(
+            "/agents",
+            json={
+                "name": f"v318-expert-{uuid.uuid4().hex[:6]}",
+                "config": {"model": "mock-llm", "prompt": "너는 전문가다. 받은 질문에 답한다."},
+            },
+        )
         check(r.status_code == 201, f"H0 전문가 생성 201 (got {r.status_code})")
         expert = r.json()
         expert_id = expert["agentId"]  # agt_...
         created.append(expert["id"])
         # 전문가 활성화(로컬 위임은 활성 버전 필수 — _delegable)
         g = (await c.get(f"/agents/{expert['id']}")).json()
-        draft = next((v["version"] for v in g.get("versions", []) if v.get("status") == "draft"), None)
+        draft = next(
+            (v["version"] for v in g.get("versions", []) if v.get("status") == "draft"), None
+        )
         if draft:
             await c.post(f"/agents/{expert['id']}/activate", json={"version": draft})
 
         # H1 풀 파생 — 노드 tools의 agent__{id} → capabilities 파생(저장 시 derive_pipeline_pool)
         agent_tool = f"agent__{expert_id}"
         cfg = {
-            "model": "mock-llm", "prompt": "", "impl": "pipeline",
-            "nodes": [{"name": "위임노드", "prompt": "전문가에게 물어라", "model": "mock-llm", "tools": [agent_tool]}],
+            "model": "mock-llm",
+            "prompt": "",
+            "impl": "pipeline",
+            "nodes": [
+                {
+                    "name": "위임노드",
+                    "prompt": "전문가에게 물어라",
+                    "model": "mock-llm",
+                    "tools": [agent_tool],
+                }
+            ],
         }
         derived = dict(cfg)
         await derive_pipeline_pool(derived)
-        check(derived.get("capabilities") == [expert_id], f"H1 capabilities 파생 (got {derived.get('capabilities')})")
+        check(
+            derived.get("capabilities") == [expert_id],
+            f"H1 capabilities 파생 (got {derived.get('capabilities')})",
+        )
 
         # H2 실행 왕복 — 노드가 전문가 호출(mock-llm은 도구 base=agent_id 언급 시 호출).
-        r = await c.post("/agents", json={"name": f"v318-pipe-{uuid.uuid4().hex[:6]}", "config": cfg})
+        r = await c.post(
+            "/agents", json={"name": f"v318-pipe-{uuid.uuid4().hex[:6]}", "config": cfg}
+        )
         check(r.status_code == 201, f"H2 파이프라인 생성 201 (got {r.status_code}: {r.text[:200]})")
         pid = r.json()["id"]
         created.append(pid)
@@ -194,17 +227,30 @@ async def http_checks() -> None:
         check(status == 200, f"H2 채팅 200 (status={status})")
         broker_calls = (tr or {}).get("brokerCalls", [])
         check(len(broker_calls) > 0, f"H2 위임이 brokerCalls로 표면화 (got {broker_calls})")
-        check(any(expert_id in json.dumps(bc, ensure_ascii=False) for bc in broker_calls),
-              f"H2 brokerCalls에 전문가 id (got {broker_calls})")
+        check(
+            any(expert_id in json.dumps(bc, ensure_ascii=False) for bc in broker_calls),
+            f"H2 brokerCalls에 전문가 id (got {broker_calls})",
+        )
 
         # H3 자기 참조 — 노드가 자기 id를 참조해도 무한 위임 없음(방문 집합 차단). 자기 id는 저장 후에야
         # 알 수 있으므로, 파이프라인 자신을 참조하도록 수정 저장 → 채팅이 무한루프 없이 종료.
         self_id = r.json()["agentId"]
         cfg_self = dict(cfg)
-        cfg_self["nodes"] = [{"name": "자기위임", "prompt": "자신에게 물어라", "model": "mock-llm", "tools": [f"agent__{self_id}"]}]
-        r = await c.put(f"/agents/{pid}", json={"name": None, "description": None, "config": cfg_self})
+        cfg_self["nodes"] = [
+            {
+                "name": "자기위임",
+                "prompt": "자신에게 물어라",
+                "model": "mock-llm",
+                "tools": [f"agent__{self_id}"],
+            }
+        ]
+        r = await c.put(
+            f"/agents/{pid}", json={"name": None, "description": None, "config": cfg_self}
+        )
         check(r.status_code == 200, f"H3 자기참조 저장 200 (got {r.status_code})")
-        status, _t, _tr, _e = await asyncio.wait_for(_chat(c, pid, f"{self_id} 에게 위임"), timeout=60)
+        status, _t, _tr, _e = await asyncio.wait_for(
+            _chat(c, pid, f"{self_id} 에게 위임"), timeout=60
+        )
         check(status == 200, "H3 자기참조도 무한루프 없이 200 종료(방문 집합 차단)")
 
         # H4 eval 입구 — 평가도 위임을 태운다(기본 노드 퇴화 아님). 전문가 참조 파이프라인으로 복원.
@@ -212,11 +258,15 @@ async def http_checks() -> None:
 
         r = await c.put(f"/agents/{pid}", json={"name": None, "description": None, "config": cfg})
         check(r.status_code == 200, "H4 전문가참조 복원 저장")
-        obs = await eval_run_agent(uuid.UUID(pid), f"{expert_id} 에게 위임해줘", principal=super_user)
+        obs = await eval_run_agent(
+            uuid.UUID(pid), f"{expert_id} 에게 위임해줘", principal=super_user
+        )
         check(not obs.get("error"), f"H4 eval 위임 실행 성공(error 0) (got {obs.get('detail')})")
-        check(expert_id in json.dumps(obs.get("trace_nodes", []), ensure_ascii=False)
-              or any("agent" in str(n) for n in obs.get("trace_nodes", [])),
-              f"H4 eval 트레이스에 위임 흔적 (got {obs.get('trace_nodes')})")
+        check(
+            expert_id in json.dumps(obs.get("trace_nodes", []), ensure_ascii=False)
+            or any("agent" in str(n) for n in obs.get("trace_nodes", [])),
+            f"H4 eval 트레이스에 위임 흔적 (got {obs.get('trace_nodes')})",
+        )
 
         for a in created:
             await c.delete(f"/agents/{a}")

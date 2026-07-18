@@ -15,6 +15,7 @@
 검증 자산은 finally에서 자가정리. BatchConfig 싱글톤은 저장→복원.
 실행: .venv/bin/python tests/verify_050_destructive_cleanup.py
 """
+
 import asyncio
 import os
 import sys
@@ -94,7 +95,9 @@ async def _user_exists(uid: uuidlib.UUID) -> bool:
 async def _session_exists(sid: str) -> bool:
     async with SessionLocal() as s:
         return (
-            await s.scalar(select(func.count()).select_from(Session).where(Session.session_id == sid))
+            await s.scalar(
+                select(func.count()).select_from(Session).where(Session.session_id == sid)
+            )
         ) > 0
 
 
@@ -131,12 +134,28 @@ def section_a_host() -> None:
     from api.batch.jobs import _is_private_host
 
     # 사설/루프백(대상) — True
-    for ep in ("127.0.0.1:8142", "http://10.0.0.5:9999", "localhost:3000", "192.168.1.5",
-               "172.16.0.1:80", "[::1]:9999", "http://[::ffff:10.0.0.1]:8142"):
+    for ep in (
+        "127.0.0.1:8142",
+        "http://10.0.0.5:9999",
+        "localhost:3000",
+        "192.168.1.5",
+        "172.16.0.1:80",
+        "[::1]:9999",
+        "http://[::ffff:10.0.0.1]:8142",
+    ):
         check(_is_private_host(ep), f"[A0] 사설/루프백 → True: {ep}")
     # 공개·예약대역(비대상, 오삭제 방지) — False. is_private 상위집합 회피가 핵심.
-    for ep in ("https://a2a.partner.com", "8.8.8.8:443", "0.0.0.0:80", "169.254.1.1:9999",
-               "198.18.0.1:80", "172.32.0.1:80", "127.0.0.1.evil.com", None, ""):
+    for ep in (
+        "https://a2a.partner.com",
+        "8.8.8.8:443",
+        "0.0.0.0:80",
+        "169.254.1.1:9999",
+        "198.18.0.1:80",
+        "172.32.0.1:80",
+        "127.0.0.1.evil.com",
+        None,
+        "",
+    ):
         check(not _is_private_host(ep), f"[A0] 공개/예약대역 → False: {ep!r}")
 
 
@@ -168,18 +187,20 @@ async def section_a() -> None:
         ).all()
     from api.batch.jobs import _is_private_host
 
-    extra = [
-        r for r in live if _is_private_host(r[1]) and r[0] not in targets
-    ]
+    extra = [r for r in live if _is_private_host(r[1]) and r[0] not in targets]
 
     res_dry = await cleanup_a2a_agents(dry_run=True)
     check(res_dry.get("status") == "dry_run", "[A] dry-run status=dry_run")
     sample_ids = {x["agent_id"] for x in res_dry.get("sample", [])}
-    check(f"{A_PREFIX}loop" in sample_ids and f"{A_PREFIX}priv" in sample_ids,
-          "[A] dry-run sample에 사설 대상 포함")
+    check(
+        f"{A_PREFIX}loop" in sample_ids and f"{A_PREFIX}priv" in sample_ids,
+        "[A] dry-run sample에 사설 대상 포함",
+    )
     check(f"{A_PREFIX}public" not in sample_ids, "[A] 공개 endpoint 비포함(바닥)")
-    check(f"{A_PREFIX}ui" not in sample_ids and f"{A_PREFIX}code" not in sample_ids,
-          "[A] source 비-external 비포함(바닥)")
+    check(
+        f"{A_PREFIX}ui" not in sample_ids and f"{A_PREFIX}code" not in sample_ids,
+        "[A] source 비-external 비포함(바닥)",
+    )
     check(res_dry.get("cascade_sessions", 0) >= 2, "[A] cascade_sessions가 시드 세션(>=2) 반영")
     check(res_dry.get("would_delete", 0) >= 2, "[A] would_delete >= 사설 대상 2")
 
@@ -204,9 +225,7 @@ async def section_a() -> None:
 async def _global_supers_outside(candidate_ids: set[uuidlib.UUID]) -> int:
     """후보 밖의 전역 슈퍼유저 수 — 마지막-super 보존 산술 교차검증."""
     async with SessionLocal() as s:
-        rows = (
-            await s.execute(select(User.id).where(User.is_superuser.is_(True)))
-        ).scalars().all()
+        rows = (await s.execute(select(User.id).where(User.is_superuser.is_(True)))).scalars().all()
         return len([r for r in rows if r not in candidate_ids])
 
 
@@ -221,7 +240,10 @@ async def section_b() -> None:
     for broad in ("%", "%%", "%@%", "%a%", "a%", "%.com", "%@x"):
         await _cfg_set_pattern(broad)
         r_b = await cleanup_test_users(dry_run=True)
-        check(r_b.get("status") == "rejected", f"[B0] 광범위 패턴 {broad!r} → rejected(delete-all 가드)")
+        check(
+            r_b.get("status") == "rejected",
+            f"[B0] 광범위 패턴 {broad!r} → rejected(delete-all 가드)",
+        )
     await _cfg_set_pattern("   ")
     r_ws = await cleanup_test_users(dry_run=True)
     check(r_ws.get("status") in ("disabled", "rejected"), "[B0] 공백-only 패턴 → 비실행")
@@ -234,8 +256,10 @@ async def section_b() -> None:
         emails = {x["email"] for x in r_keep.get("sample", [])}
         check("admin@example.com" not in emails, "[B1] keep-list admin@ 제외")
         check("alice@example.com" not in emails, "[B1] keep-list alice@ 제외")
-        check(r_keep.get("matched", 0) > r_keep.get("would_delete", 0),
-              "[B1] matched > would_delete(keep-list/super 제외분 존재)")
+        check(
+            r_keep.get("matched", 0) > r_keep.get("would_delete", 0),
+            "[B1] matched > would_delete(keep-list/super 제외분 존재)",
+        )
     else:
         check(False, f"[B1] 브로드 패턴 dry-run 기대, 실제 {r_keep.get('status')}")
 
@@ -259,8 +283,8 @@ async def section_b() -> None:
     # 적응형: 이 유일 도메인에 비-fixture 유저가 있으면 실삭제 생략.
     async with SessionLocal() as s:
         all_match = (
-            await s.execute(select(User.id).where(User.email.like(U_PATTERN)))
-        ).scalars().all()
+            (await s.execute(select(User.id).where(User.email.like(U_PATTERN)))).scalars().all()
+        )
     extra_u = [i for i in all_match if i not in set(_created_user_ids)]
 
     r_dry = await cleanup_test_users(dry_run=True)
@@ -286,7 +310,9 @@ async def section_b() -> None:
         r_idem = await cleanup_test_users(dry_run=False)
         check(r_idem.get("deleted") == 0, "[B2] 재실행 deleted=0(멱등)")
     else:
-        print(f"  note  [B2] 라이브 비-fixture 유저 {len(extra_u)}건 매치 → 실삭제 건너뜀(데이터 보호)")
+        print(
+            f"  note  [B2] 라이브 비-fixture 유저 {len(extra_u)}건 매치 → 실삭제 건너뜀(데이터 보호)"
+        )
         check(await _user_exists(uid_a), "[B2] dry-run no-op 보존")
 
     # --- B3: 마지막 super 보존 산술(전역 super 수 기준) ---
@@ -298,24 +324,32 @@ async def section_b() -> None:
                 select(User.id, User.email, User.is_superuser).where(User.email.like(U_PATTERN))
             )
         ).all()
-    cand_super_ids = {r[0] for r in cands if r[2] and (r[1] or "").lower() not in
-                      {"admin@example.com", "alice@example.com"}}
+    cand_super_ids = {
+        r[0]
+        for r in cands
+        if r[2] and (r[1] or "").lower() not in {"admin@example.com", "alice@example.com"}
+    }
     supers_outside = await _global_supers_outside(cand_super_ids)
     r_s = await cleanup_test_users(dry_run=True)
     check(r_s.get("status") == "dry_run", "[B3] dry-run status=dry_run")
     protected = set(r_s.get("protected_superusers", []))
     if supers_outside <= 0 and cand_super_ids:
         # 후보 밖 super가 없으면 매치 super 전부 보존돼야(잠금 방지).
-        check(f"super_x@{U_DOMAIN}" in protected,
-              "[B3] 후보 밖 super 0 → 매치 super 보존(잠금 방지)")
+        check(
+            f"super_x@{U_DOMAIN}" in protected, "[B3] 후보 밖 super 0 → 매치 super 보존(잠금 방지)"
+        )
     else:
         # 다른 super(실 admin 등)가 남으므로 fixture super는 삭제 대상(보존 아님).
-        check(f"super_x@{U_DOMAIN}" not in protected,
-              f"[B3] 후보 밖 super {supers_outside}명 → fixture super 삭제 가능(보존 아님)")
+        check(
+            f"super_x@{U_DOMAIN}" not in protected,
+            f"[B3] 후보 밖 super {supers_outside}명 → fixture super 삭제 가능(보존 아님)",
+        )
     # 산술 불변식: would_delete == 후보 - 보존 super.
     sample_all = {x["email"] for x in r_s.get("sample", [])}
-    check(all(e.endswith(f"@{U_DOMAIN}") for e in sample_all),
-          "[B3] 이 패턴 sample은 fixture 도메인만(누수 없음)")
+    check(
+        all(e.endswith(f"@{U_DOMAIN}") for e in sample_all),
+        "[B3] 이 패턴 sample은 fixture 도메인만(누수 없음)",
+    )
 
 
 # ----------------------------- Section C: API -----------------------------

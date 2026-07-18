@@ -52,8 +52,10 @@ def unit_checks() -> None:
     expected = "## 능력: 전문가 (agt_x)\n⟦BEGIN F1⟧\n결과\n⟦END F1⟧".replace(" (agt_x)", "")
     got = fold_results([(cap, "결과")], fence="F1")
     # _label_safe는 name만(id 없는 라벨) — 실제 포맷 확인
-    check("⟦BEGIN F1⟧\n결과\n⟦END F1⟧" in got and "## 능력:" in got,
-          f"U2 fold_results가 fence_wrap로 감쌈(행위보존) (got {got!r})")
+    check(
+        "⟦BEGIN F1⟧\n결과\n⟦END F1⟧" in got and "## 능력:" in got,
+        f"U2 fold_results가 fence_wrap로 감쌈(행위보존) (got {got!r})",
+    )
     # 단일도 펜스(codex 115 P2) — raw 아님
     check(got.count("⟦BEGIN F1⟧") == 1 and got.count("⟦END F1⟧") == 1, "U2 단일 결과도 펜스 1쌍")
 
@@ -76,8 +78,10 @@ def unit_checks() -> None:
     tms = [m for m in out["messages"] if isinstance(m, ToolMessage)]
     check(len(tms) == 1, f"U3 ToolNode가 ToolMessage 1개 (got {len(tms)})")
     content = tms[0].content
-    check(content.startswith("⟦BEGIN ") and content.rstrip().endswith("⟧"),
-          f"U3 도구 결과가 펜스로 감싸짐 (got {content[:40]!r})")
+    check(
+        content.startswith("⟦BEGIN ") and content.rstrip().endswith("⟧"),
+        f"U3 도구 결과가 펜스로 감싸짐 (got {content[:40]!r})",
+    )
     check("도구원본" in content, "U3 원본 결과 보존(펜스 안)")
     # 위조 ⟦END⟧는 펜스 *안*에 갇힘 — 진짜 종료 마커(끝)와 위조가 다른 nonce
     body = content.split("\n", 1)[1] if "\n" in content else content
@@ -92,13 +96,17 @@ def unit_checks() -> None:
 
     raw_rounds = pipeline._count_tool_rounds(_msgs("원본"))
     fenced_rounds = pipeline._count_tool_rounds(_msgs("⟦BEGIN N⟧\n원본\n⟦END N⟧"))
-    check(raw_rounds == fenced_rounds == 1,
-          f"U4 라운드 계산 펜스 무영향 (raw={raw_rounds} fenced={fenced_rounds})")
+    check(
+        raw_rounds == fenced_rounds == 1,
+        f"U4 라운드 계산 펜스 무영향 (raw={raw_rounds} fenced={fenced_rounds})",
+    )
 
     # U5 방어절 상수 — 펜스 마커를 참조하고 비어있지 않음
     guard = pipeline._TOOL_FENCE_GUARD
-    check(bool(guard) and "⟦BEGIN" in guard and "신뢰 불가" in guard,
-          "U5 _TOOL_FENCE_GUARD가 펜스·신뢰불가 명시")
+    check(
+        bool(guard) and "⟦BEGIN" in guard and "신뢰 불가" in guard,
+        "U5 _TOOL_FENCE_GUARD가 펜스·신뢰불가 명시",
+    )
 
 
 # ================================================================ [G] 그래프(스텁 모델)
@@ -154,8 +162,13 @@ def graph_checks() -> None:
             tools=[probe_tool],
             impl_config={
                 "nodes": [
-                    {"name": "n1", "prompt": "probe_tool을 호출해 답하라", "model": "stub",
-                     "tools": ["probe_tool"], "context": "carry"}
+                    {
+                        "name": "n1",
+                        "prompt": "probe_tool을 호출해 답하라",
+                        "model": "stub",
+                        "tools": ["probe_tool"],
+                        "context": "carry",
+                    }
                 ]
             },
         )
@@ -167,20 +180,31 @@ def graph_checks() -> None:
     check(len(seen) >= 2, f"G0 모델이 최소 2회 호출(도구 루프) (got {len(seen)})")
     # G1 첫 호출 sys에 방어절
     first_sys = next((m for m in seen[0] if isinstance(m, SystemMessage)), None)
-    check(first_sys is not None and "⟦BEGIN" in first_sys.content and "신뢰 불가" in first_sys.content,
-          "G1 노드 sys에 도구 결과 방어절 포함(모델이 실제로 받음)")
+    check(
+        first_sys is not None
+        and "⟦BEGIN" in first_sys.content
+        and "신뢰 불가" in first_sys.content,
+        "G1 노드 sys에 도구 결과 방어절 포함(모델이 실제로 받음)",
+    )
     # G2 재진입 호출이 본 ToolMessage가 펜스로 감싸짐
     reentry = seen[-1]
     tms = [m for m in reentry if isinstance(m, ToolMessage)]
     check(len(tms) >= 1, f"G2 재진입에 ToolMessage 존재 (got {len(tms)})")
-    fenced_ok = tms and tms[0].content.startswith("⟦BEGIN ") and "문서에 심긴 지시" in tms[0].content
-    check(bool(fenced_ok), f"G2 모델이 본 도구 결과가 펜스로 격리 (got {(tms[0].content[:45] if tms else None)!r})")
+    fenced_ok = (
+        tms and tms[0].content.startswith("⟦BEGIN ") and "문서에 심긴 지시" in tms[0].content
+    )
+    check(
+        bool(fenced_ok),
+        f"G2 모델이 본 도구 결과가 펜스로 격리 (got {(tms[0].content[:45] if tms else None)!r})",
+    )
     # G3 위조 마커가 펜스 안(진짜 nonce 모름) — 인젝션 격리
     if tms:
         c = tms[0].content
         real_end = c.rsplit("⟦END ", 1)[-1]  # 진짜 종료 마커 뒤(nonce⟧)
-        check("⟦END x⟧" in c and "x⟧" != real_end.strip(),
-              "G3 콘텐츠 속 위조 ⟦END⟧는 펜스 안에 격리(진짜 종료와 다름)")
+        check(
+            "⟦END x⟧" in c and "x⟧" != real_end.strip(),
+            "G3 콘텐츠 속 위조 ⟦END⟧는 펜스 안에 격리(진짜 종료와 다름)",
+        )
 
 
 def main() -> None:
@@ -191,7 +215,9 @@ def main() -> None:
         for f in _fails:
             print("  FAILED:", f)
         sys.exit(1)
-    print("VERIFY319_OK — 파이프라인 도구 결과 인젝션 펜스(펜스·방어절·행위보존·라운드 불변식) 정착")
+    print(
+        "VERIFY319_OK — 파이프라인 도구 결과 인젝션 펜스(펜스·방어절·행위보존·라운드 불변식) 정착"
+    )
 
 
 if __name__ == "__main__":

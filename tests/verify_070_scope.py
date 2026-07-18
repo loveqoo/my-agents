@@ -17,6 +17,7 @@
 
 실행: .venv/bin/python tests/verify_070_scope.py
 """
+
 import asyncio
 import os
 import sys
@@ -95,7 +96,10 @@ check(s is SENTINEL, "U2: 본인행은 반환")
 # ---- U3. 결과 None(타인/NULL/부재 무차별) → 단일 404, WHERE엔 user_id 필터 ----
 s, binds, code = _run(None, "sess-x", "owner-1")
 check(code == 404, "U3: 스코프 불일치/부재 → 404(타인-존재행과 부재행 동일 경로)")
-check(_has_user_filter(binds), "U3: 거부행은 WHERE user_id로 걸러짐 = 로드조차 안 함(타이밍 오라클 봉합)")
+check(
+    _has_user_filter(binds),
+    "U3: 거부행은 WHERE user_id로 걸러짐 = 로드조차 안 함(타이밍 오라클 봉합)",
+)
 check(s is None, "U3: 반환 없음")
 
 # ---- U4. admin + 부재 → 404 ----

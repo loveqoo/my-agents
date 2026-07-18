@@ -13,6 +13,7 @@
 """
 
 import asyncio
+import os
 import pathlib
 import sys
 import urllib.request
@@ -27,7 +28,7 @@ from sqlalchemy import text  # noqa: E402
 from api.batch.jobs import cleanup_tokens  # noqa: E402
 from api.db import SessionLocal  # noqa: E402
 
-BASE = "http://127.0.0.1:8000"
+BASE = os.environ.get("VERIFY_BASE", "http://127.0.0.1:8000")  # 스펙 390: 격리 서버 주입
 _fails: list[str] = []
 passed = 0
 MARK = f"v349{uuid.uuid4().hex[:6]}"
@@ -71,11 +72,12 @@ async def _plant_expired(n: int) -> None:
         uid = (await s.execute(text('select id from "user" limit 1'))).scalar_one()
         for i in range(n):
             await s.execute(
-                text(
-                    "insert into accesstoken (token, user_id, created_at) "
-                    "values (:t, :u, :c)"
-                ),
-                {"t": f"{MARK}{i}{uuid.uuid4().hex[:24]}", "u": uid, "c": old},  # token 컬럼은 varchar(43)
+                text("insert into accesstoken (token, user_id, created_at) values (:t, :u, :c)"),
+                {
+                    "t": f"{MARK}{i}{uuid.uuid4().hex[:24]}",
+                    "u": uid,
+                    "c": old,
+                },  # token 컬럼은 varchar(43)
             )
         await s.commit()
 
@@ -107,7 +109,10 @@ async def main() -> None:
     res = await cleanup_tokens(dry_run=False)
     left_expired = await _count(f"where token like '{MARK}%'")
     fresh_after = await _count("where created_at > now() - interval '1 hour'")
-    check(left_expired == 0, f"T1a 만료 토큰 삭제됨 (남은 만료 토큰: {left_expired}, deleted={res.get('deleted')})")
+    check(
+        left_expired == 0,
+        f"T1a 만료 토큰 삭제됨 (남은 만료 토큰: {left_expired}, deleted={res.get('deleted')})",
+    )
     check(
         fresh_after == fresh_before,
         f"T1b 방금 만든 토큰은 **안 지운다** ({fresh_before} → {fresh_after})",

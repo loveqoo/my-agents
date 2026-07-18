@@ -32,18 +32,18 @@ PREDICATE_ENDINGS = re.compile(
 # R1 — 동작형(부수효과 있고 성공 bool 반환) 감사 화이트리스트: 술어 규칙 면제.
 # 새 항목은 "부수효과가 실제로 있는가"를 확인하고 사유와 함께 추가한다.
 ACTION_WHITELIST = {
-    "add_policy",       # casbin 정책 추가 — 성공 여부 반환
-    "remove_policy",    # casbin 정책 제거 — 성공 여부 반환
-    "probe_endpoint",   # 원격 endpoint 실제 프로브(IO) — 도달 여부 반환
-    "update",           # 메모리 백엔드 Protocol — 기억 수정(부수효과), 성공 반환
-    "delete",           # 〃 — 기억 삭제
-    "update_memory",    # 메모리 파사드 — update 위임
-    "delete_memory",    # 〃 — delete 위임
+    "add_policy",  # casbin 정책 추가 — 성공 여부 반환
+    "remove_policy",  # casbin 정책 제거 — 성공 여부 반환
+    "probe_endpoint",  # 원격 endpoint 실제 프로브(IO) — 도달 여부 반환
+    "update",  # 메모리 백엔드 Protocol — 기억 수정(부수효과), 성공 반환
+    "delete",  # 〃 — 기억 삭제
+    "update_memory",  # 메모리 파사드 — update 위임
+    "delete_memory",  # 〃 — delete 위임
     # 스펙 386 등재 4건 — 전부 실부수효과+성공 bool 확인:
-    "record_block_version",   # 블록 이력 append+version 증가(스펙 369) — "버전이 올랐는가" 반환
+    "record_block_version",  # 블록 이력 append+version 증가(스펙 369) — "버전이 올랐는가" 반환
     "_acquire_reindex_lock",  # 컬렉션 status→reindexing UPDATE(배타 잠금 획득) — 획득 여부 반환
-    "_try_become_leader",     # pg advisory lock 획득+커넥션 보유(스펙 348) — 리더 여부 반환
-    "reload_schedules",       # 스케줄러 잡 재구성(cron 즉시 반영, 스펙 348) — 리더로 반영했는가 반환
+    "_try_become_leader",  # pg advisory lock 획득+커넥션 보유(스펙 348) — 리더 여부 반환
+    "reload_schedules",  # 스케줄러 잡 재구성(cron 즉시 반영, 스펙 348) — 리더로 반영했는가 반환
 }
 
 

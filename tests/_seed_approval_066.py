@@ -8,6 +8,7 @@
   unseed                              apr-066shot* 전부 삭제
 실행: uv run python tests/_seed_approval_066.py seed user@example.com data.delete
 """
+
 import asyncio
 import sys
 
@@ -22,13 +23,21 @@ PREFIX = "apr-066shot"
 async def _seed(email: str, permission: str) -> None:
     async with SessionLocal() as s:
         uid = (await s.execute(select(User.id).where(User.email == email))).scalar_one()
-        s.add(Approval(
-            approval_id=PREFIX, session_id="sess-066shot", user_id=str(uid),
-            agent_pk=None, agent_name="probe066", permission=permission,
-            action=f"{permission}.action", args={"target": "row-42"},
-            summary="민감 작업: 레코드 삭제 요청", checkpoint="ckpt-066shot",
-            status="pending",
-        ))
+        s.add(
+            Approval(
+                approval_id=PREFIX,
+                session_id="sess-066shot",
+                user_id=str(uid),
+                agent_pk=None,
+                agent_name="probe066",
+                permission=permission,
+                action=f"{permission}.action",
+                args={"target": "row-42"},
+                summary="민감 작업: 레코드 삭제 요청",
+                checkpoint="ckpt-066shot",
+                status="pending",
+            )
+        )
         await s.commit()
     print(PREFIX)
 

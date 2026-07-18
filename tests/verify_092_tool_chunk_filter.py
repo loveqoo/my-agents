@@ -53,13 +53,16 @@ check(not runtime.is_tool_message(AIMessage(content="hi")), "AIMessage → False
 check(not runtime.is_tool_message(AIMessageChunk(content="hi")), "AIMessageChunk → False")
 check(not runtime.is_tool_message(HumanMessage(content="hi")), "HumanMessage → False")
 check(not runtime.is_tool_message(object()), "type 없는 객체 → False(getattr 기본값)")
-check(not runtime.is_tool_message(AIMessage(content="")), "빈 content AIMessage → False(타입만 본다)")
+check(
+    not runtime.is_tool_message(AIMessage(content="")), "빈 content AIMessage → False(타입만 본다)"
+)
 
 # ① content 정규화(codex P1): content가 content-block 리스트여도 str 보장 — 본문 sink가
 # "".join(acc)로 합치므로 list가 새면 TypeError. _content_text가 막는다.
 check(runtime._content_text("hi") == "hi", "str content → 그대로")
 check(
-    runtime._content_text([{"type": "text", "text": "가"}, {"type": "text", "text": "나"}]) == "가\n나",
+    runtime._content_text([{"type": "text", "text": "가"}, {"type": "text", "text": "나"}])
+    == "가\n나",
     "content-block 리스트 → 텍스트 결합(str)",
 )
 check(runtime._content_text("") == "" and runtime._content_text(None) == "", "빈/None → 빈 str")
@@ -135,7 +138,10 @@ async def integration() -> None:
     check(all(RAW not in f for f in frames), "RAW가 yield 프레임에 없음(도구 원본 미노출)")
     check(RAW not in body, "RAW가 acc(영속/메모리/토큰 본문)에 없음")
     check(FINAL in body, "FINAL(모델 최종 추론)은 본문에 보존")
-    check(any(c.get("result") == RAW for c in calls_sink), "calls_sink엔 도구 원본 보존(인스펙터 관측성)")
+    check(
+        any(c.get("result") == RAW for c in calls_sink),
+        "calls_sink엔 도구 원본 보존(인스펙터 관측성)",
+    )
     check(len(calls_sink) == 1, "도구 1회 호출이 calls_sink에 정확히 1건")
 
 

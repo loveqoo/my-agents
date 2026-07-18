@@ -18,7 +18,12 @@ import asyncio
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "packages", "api", "src"))
+sys.path.insert(
+    0,
+    os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "packages", "api", "src"
+    ),
+)
 
 from api.broker import PolicyScopedBroker  # noqa: E402
 from api.broker import BrokerContext, build_providers  # noqa: E402, F401  (스펙 294)
@@ -37,7 +42,11 @@ def check(cond: bool, msg: str) -> None:
 
 
 def _broker(allowlist, rbac=lambda kind, name=None: True):
-    return PolicyScopedBroker(allowlist=allowlist, rbac_allows=rbac, providers=build_providers(BrokerContext(user_id="u-verify124")))
+    return PolicyScopedBroker(
+        allowlist=allowlist,
+        rbac_allows=rbac,
+        providers=build_providers(BrokerContext(user_id="u-verify124")),
+    )
 
 
 async def main() -> None:
@@ -45,31 +54,42 @@ async def main() -> None:
 
     # ── D1: 실 자연어 쿼리에서도 memory 능력 반환 ──
     caps = await _broker(["memory:user"]).discover(NAT, limit=10)
-    check([c.id for c in caps] == ["memory:user"], f"D1 자연어 쿼리서 memory:user 반환(버그 반전, got {[c.id for c in caps]})")
+    check(
+        [c.id for c in caps] == ["memory:user"],
+        f"D1 자연어 쿼리서 memory:user 반환(버그 반전, got {[c.id for c in caps]})",
+    )
 
     # ── D1b: mcp local-tools도 자연어 쿼리서 반환 ──
     mcaps = await _broker(["mcp:local-tools"]).discover(NAT, limit=10)
     ids = {c.id for c in mcaps}
-    check(len(mcaps) >= 1 and any("local-tools" in i for i in ids),
-          f"D1b 자연어 쿼리서 mcp local-tools 툴 반환(got {sorted(ids)})")
+    check(
+        len(mcaps) >= 1 and any("local-tools" in i for i in ids),
+        f"D1b 자연어 쿼리서 mcp local-tools 툴 반환(got {sorted(ids)})",
+    )
 
     # ── D2: 랭킹 — 'search web' 쿼리는 web_search를 앞으로 ──
     ranked = await _broker(["mcp:local-tools"]).discover("search the web please", limit=10)
     rids = [c.id for c in ranked]
     if rids:
-        check(rids[0].endswith("/web_search"),
-              f"D2 겹치는 능력(web_search)이 1순위(got {rids})")
+        check(rids[0].endswith("/web_search"), f"D2 겹치는 능력(web_search)이 1순위(got {rids})")
     else:
         check(False, "D2 랭킹 후보 없음(예상 밖)")
 
     # ── D3: 빈 쿼리도 전체 반환(무회귀) ──
     empty = await _broker(["memory:user", "memwrite:user"]).discover("", limit=10)
-    check({c.id for c in empty} == {"memory:user", "memwrite:user"},
-          f"D3 빈 쿼리 전체 반환(got {sorted(c.id for c in empty)})")
+    check(
+        {c.id for c in empty} == {"memory:user", "memwrite:user"},
+        f"D3 빈 쿼리 전체 반환(got {sorted(c.id for c in empty)})",
+    )
 
     # ── D4: RBAC 거부 → 여전히 안 뜸(게이트 무회귀) ──
-    denied = await _broker(["memory:user"], rbac=lambda kind, name=None: False).discover(NAT, limit=10)
-    check(denied == [], f"D4 RBAC 전부 거부면 discover 공집합(게이트 우회 없음, got {[c.id for c in denied]})")
+    denied = await _broker(["memory:user"], rbac=lambda kind, name=None: False).discover(
+        NAT, limit=10
+    )
+    check(
+        denied == [],
+        f"D4 RBAC 전부 거부면 discover 공집합(게이트 우회 없음, got {[c.id for c in denied]})",
+    )
 
     # ── D4b: allowlist 비면 공집합(deny-by-default 무회귀) ──
     none_allowed = await _broker([]).discover(NAT, limit=10)

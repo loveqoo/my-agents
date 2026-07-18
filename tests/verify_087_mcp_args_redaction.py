@@ -37,31 +37,48 @@ def unit_checks() -> None:
     print("[U] 단위 — _redact_args(키 마스킹·값 보존·캡·fail-closed)")
 
     # U1 민감 키(top-level)는 값 마스킹 — 모든 _SENSITIVE_KEY 변종.
-    out = R({"api_key": "sk-live-xxx", "token": "t", "password": "p", "Authorization": "Bearer z",
-             "secret": "s", "my_credential": "c", "bearer_tok": "b"})
+    out = R(
+        {
+            "api_key": "sk-live-xxx",
+            "token": "t",
+            "password": "p",
+            "Authorization": "Bearer z",
+            "secret": "s",
+            "my_credential": "c",
+            "bearer_tok": "b",
+        }
+    )
     check(all(out[k] == RED for k in out), f"U1 민감 키 전부 마스킹: {out}")
 
     # U1b 평범한 키의 값은 *원문 보존*(인스펙터 디버깅 가치 — args는 보여주는 게 목적).
     out = R({"query": "cats and dogs", "top_k": 4, "path": "/etc/hosts"})
-    check(out["query"] == "cats and dogs" and out["top_k"] == 4 and out["path"] == "/etc/hosts",
-          f"U1b 평범 키 값 보존: {out}")
+    check(
+        out["query"] == "cats and dogs" and out["top_k"] == 4 and out["path"] == "/etc/hosts",
+        f"U1b 평범 키 값 보존: {out}",
+    )
 
     # U2 중첩 dict 안의 민감 키도 마스킹(재귀).
     out = R({"opts": {"nested": {"token": "deep", "name": "ok"}}})
-    check(out["opts"]["nested"]["token"] == RED and out["opts"]["nested"]["name"] == "ok",
-          f"U2 중첩 dict 재귀 마스킹: {out}")
+    check(
+        out["opts"]["nested"]["token"] == RED and out["opts"]["nested"]["name"] == "ok",
+        f"U2 중첩 dict 재귀 마스킹: {out}",
+    )
 
     # U3 list 안의 dict도 재귀 — 리스트 원소의 민감 키 마스킹.
     out = R({"items": [{"api_key": "x"}, {"q": "keep"}]})
-    check(out["items"][0]["api_key"] == RED and out["items"][1]["q"] == "keep",
-          f"U3 list 내 dict 재귀: {out}")
+    check(
+        out["items"][0]["api_key"] == RED and out["items"][1]["q"] == "keep",
+        f"U3 list 내 dict 재귀: {out}",
+    )
 
     # U4 긴 문자열 leaf는 budgeted 캡 — 정직한 생략 표기.
     big = "z" * 5000
     out = R({"q": big})
     cap = api_rt._ARG_VALUE_CAP
-    check(len(out["q"]) < cap + 50 and "생략" in out["q"],
-          f"U4 긴 값 캡(len={len(out['q'])}, cap={cap})")
+    check(
+        len(out["q"]) < cap + 50 and "생략" in out["q"],
+        f"U4 긴 값 캡(len={len(out['q'])}, cap={cap})",
+    )
 
     # U5 fail-closed: 비문자 키에 안 죽고, 그 키가 민감 패턴이면 마스킹.
     out = R({1: "a", ("tuple",): "b", "secret_x": "c"})
@@ -92,18 +109,30 @@ def unit_checks() -> None:
     import json
 
     # C1 (F1): *_key 표준 비밀 이름도 마스킹 — api_key만으론 부족.
-    out = R({"private_key": "-----BEGIN-----", "access_key": "AKIA", "client_key": "ck",
-             "signing_key": "sk", "encryption_key": "ek", "key": "raw-api-key"})
+    out = R(
+        {
+            "private_key": "-----BEGIN-----",
+            "access_key": "AKIA",
+            "client_key": "ck",
+            "signing_key": "sk",
+            "encryption_key": "ek",
+            "key": "raw-api-key",
+        }
+    )
     check(all(out[k] == RED for k in out), f"C1 *_key 비밀 이름 전부 마스킹: {out}")
     # C1b 거짓양성 없음 — 구분자 없는 단어(monkey)·top_k는 마스킹 안 됨(디버깅 보존).
     out = R({"monkey": "ok", "top_k": 4, "donkey": "ok"})
-    check(out["monkey"] == "ok" and out["top_k"] == 4 and out["donkey"] == "ok",
-          f"C1b key-유사 평범어 보존: {out}")
+    check(
+        out["monkey"] == "ok" and out["top_k"] == 4 and out["donkey"] == "ok",
+        f"C1b key-유사 평범어 보존: {out}",
+    )
 
     # C2 (F2): NaN/Infinity float은 JSONB·JSON 비유효 → 안전 마커. json.dumps로 유효성 단언.
     out = R({"a": float("nan"), "b": float("inf"), "c": float("-inf"), "d": 1.5})
-    check(out["a"] == "<nan>" and out["b"] == "<inf>" and out["c"] == "<-inf>" and out["d"] == 1.5,
-          f"C2 비유한 float 마커화: {out}")
+    check(
+        out["a"] == "<nan>" and out["b"] == "<inf>" and out["c"] == "<-inf>" and out["d"] == 1.5,
+        f"C2 비유한 float 마커화: {out}",
+    )
     try:
         json.dumps(out, allow_nan=False)  # JSONB 호환(엄격 JSON) — 비유한 남았으면 raises.
         check(True, "C2b 결과가 엄격 JSON 직렬화 가능(JSONB 안전)")
@@ -122,7 +151,10 @@ def source_site_checks() -> None:
     import inspect
 
     src = inspect.getsource(api_rt._wrap_mcp_tool)
-    check(src.count("_redact_args") >= 2, "S1 _wrap_mcp_tool: _execute args + interrupt args 둘 다 redact")
+    check(
+        src.count("_redact_args") >= 2,
+        "S1 _wrap_mcp_tool: _execute args + interrupt args 둘 다 redact",
+    )
     check("_RESULT_CAP" in src, "S2 _wrap_mcp_tool: result 캡 적용")
     rag = inspect.getsource(api_rt.build_rag_tool)
     check("_redact_args" in rag, "S3 build_rag_tool: rag _record args redact")

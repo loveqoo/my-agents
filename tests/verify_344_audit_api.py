@@ -11,11 +11,12 @@
 """
 
 import json
+import os
 import sys
 import time
 import urllib.request
 
-BASE = "http://127.0.0.1:8000"
+BASE = os.environ.get("VERIFY_BASE", "http://127.0.0.1:8000")  # 스펙 390: 격리 서버 주입
 EMAIL, PW = "admin@example.com", "adminpass123"
 AUDIT = ("created_at", "updated_at", "created_by", "updated_by")
 
@@ -99,7 +100,9 @@ def main() -> None:
         body = json.dumps(card)
         # **거짓 통과 방지**: 404 빈 응답이면 "누출 없음"이 아니라 "카드를 못 본 것"이다 — 카드가
         # 진짜 카드인지(name/url 등 실체)를 먼저 확인하고, 그 다음에 감사키 부재를 단언한다.
-        real_card = bool(card) and any(k in card for k in ("name", "url", "protocolVersion", "capabilities"))
+        real_card = bool(card) and any(
+            k in card for k in ("name", "url", "protocolVersion", "capabilities")
+        )
         check(real_card, f"A3-pre A2A 카드 실체 확인(404 거짓통과 방지) (keys={sorted(card)[:5]})")
         leaked = [k for k in AUDIT if k in body]
         check(

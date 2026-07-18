@@ -69,15 +69,18 @@ R2_NEW = "올드보이 — 이유 모를 15년 감금 뒤 오대수의 처절한
 ORIG = "\n".join([_row(1, R1), _row(2, R2), _row(3, R3)])
 # 행1 유지 · 행2 data 변경 · 행3 meta만 변경(id 3→30, data 동일)
 EDITED = "\n".join(
-    [_row(1, R1), _row(2, R2_NEW), json.dumps({"metadata": {"id": 30}, "data": R3}, ensure_ascii=False)]
+    [
+        _row(1, R1),
+        _row(2, R2_NEW),
+        json.dumps({"metadata": {"id": 30}, "data": R3}, ensure_ascii=False),
+    ]
 )
-
-
 
 
 async def _wait_ingest_ready(doc_id) -> int:
     """배경 인제스트(스펙 334) 완료 대기 → chunk_count. 실패/타임아웃은 -1."""
     import asyncio as _a
+
     for _ in range(100):
         async with SessionLocal() as _s:
             row = (
@@ -139,7 +142,9 @@ async def main():
 
         # ── E1 GET — editable=true + JSONL 왕복 ──
         content = await RAG.get_document_content(cid, doc_id, s, sup)
-        check(content.editable is True and content.text == ORIG, "E1 엔티티 editable=true+원문 왕복")
+        check(
+            content.editable is True and content.text == ORIG, "E1 엔티티 editable=true+원문 왕복"
+        )
 
         # ── E2 행 단위 부분 재임베딩 ──
         sent: list[list[str]] = []
@@ -164,7 +169,9 @@ async def main():
         )
         rows = (
             await s.execute(
-                select(Chunk.text, Chunk.meta).where(Chunk.document_id == doc_id).order_by(Chunk.ordinal)
+                select(Chunk.text, Chunk.meta)
+                .where(Chunk.document_id == doc_id)
+                .order_by(Chunk.ordinal)
             )
         ).all()
         check(
@@ -189,12 +196,19 @@ async def main():
             400,
             "E3c NaN 행 → 400",
         )
-        check("2번째 줄" in detail_nan and "비표준" in detail_nan, f"E3d NaN 거절 사유+줄 번호 (detail={detail_nan[:80]})")
+        check(
+            "2번째 줄" in detail_nan and "비표준" in detail_nan,
+            f"E3d NaN 거절 사유+줄 번호 (detail={detail_nan[:80]})",
+        )
 
         # ── E3e 미지 kind 컬렉션 → 편집 fail-closed(codex 332 P3 — DB String(20) 화이트리스트) ──
         wcol = Collection(
-            name=f"{tag}-w", kind="weird", embedding_model_id=emb.id, dims=RAG_EMBED_DIMS,
-            status="empty", owner_id=str(sup.id),
+            name=f"{tag}-w",
+            kind="weird",
+            embedding_model_id=emb.id,
+            dims=RAG_EMBED_DIMS,
+            status="empty",
+            owner_id=str(sup.id),
         )
         s.add(wcol)
         await s.flush()
@@ -204,7 +218,10 @@ async def main():
         s.add(DocumentBlob(document_id=wdoc.id, data=b"x"))
         await s.commit()
         cw = await RAG.get_document_content(wcol.id, wdoc.id, s, sup)
-        check(cw.editable is False and cw.reason is not None and "알 수 없는" in cw.reason, "E3e 미지 kind editable=false")
+        check(
+            cw.editable is False and cw.reason is not None and "알 수 없는" in cw.reason,
+            "E3e 미지 kind editable=false",
+        )
 
         # ── E4 blob 없는 엔티티(312 이전 꼴) → editable=false ──
         old_doc = Document(collection_id=cid, filename="legacy.jsonl", byte_size=2, status="ready")

@@ -17,6 +17,7 @@
 
 실행: cd packages/api && uv run python ../../tests/verify_111_broker_memedit.py
 """
+
 import asyncio
 import os
 import sys
@@ -78,8 +79,10 @@ class FakeMemStore:
         return mid
 
     def list_all(self, scope: dict):
-        (axis, val), = scope.items()
-        return [{"id": r["id"], "text": r["text"]} for r in self.rows.values() if r.get(axis) == val]
+        ((axis, val),) = scope.items()
+        return [
+            {"id": r["id"], "text": r["text"]} for r in self.rows.values() if r.get(axis) == val
+        ]
 
     def update(self, mem_id: str, text: str) -> bool:
         if mem_id in self.rows:
@@ -99,6 +102,7 @@ def with_mem(store) -> None:
 def _async(val):
     async def _f(*a, **k):
         return val
+
     return _f
 
 
@@ -117,6 +121,7 @@ def _fake_factory():
 def _raise_factory():
     def make():
         raise AssertionError("거부/무해 경로가 DB를 만졌다(존재 누출 위험)")
+
     return make
 
 
@@ -124,29 +129,56 @@ def _raise_factory():
 def unit_checks() -> None:
     print("[U] 단위 — 네임스페이스·_permitted·approval 항상 non-None·describe·시임 계약")
     check(_kind_of("memedit:user") == "memedit", "U1 memedit: 접두사 → kind memedit")
-    check(_kind_of("memwrite:user") == "memwrite" and _kind_of("memory:user") == "memory"
-          and _kind_of("rag:x") == "rag" and _kind_of("agt_x") == "agent",
-          "U1 memwrite/memory/rag/agent 판정 무회귀(memedit와 충돌 없음)")
+    check(
+        _kind_of("memwrite:user") == "memwrite"
+        and _kind_of("memory:user") == "memory"
+        and _kind_of("rag:x") == "rag"
+        and _kind_of("agt_x") == "agent",
+        "U1 memwrite/memory/rag/agent 판정 무회귀(memedit와 충돌 없음)",
+    )
     check(_parse_memedit("memedit:user") == "user", "U1 memedit:user → user")
     check(_parse_memedit("memedit:") == "", "U1 memedit: → 빈 리소스")
-    check(_parse_memedit("memory:user") == "memory:user", "U1 다른 kind는 원본 방어(접두사 안 벗김)")
+    check(
+        _parse_memedit("memory:user") == "memory:user", "U1 다른 kind는 원본 방어(접두사 안 벗김)"
+    )
 
-    bt = PolicyScopedBroker({MEMEDIT}, lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=_raise_factory(), user_id="bob")))
+    bt = PolicyScopedBroker(
+        {MEMEDIT},
+        lambda k, name=None: True,
+        providers=build_providers(BrokerContext(session_factory=_raise_factory(), user_id="bob")),
+    )
     check(bt._permitted(MEMEDIT) is True, "U2 정확 memedit cap 허용 → permitted")
     check(bt._permitted("memedit:other") is False, "U2 allow 밖 → deny(비노출)")
-    brd = PolicyScopedBroker({MEMEDIT}, lambda k, name=None: False, providers=build_providers(BrokerContext(session_factory=_raise_factory(), user_id="bob")))
+    brd = PolicyScopedBroker(
+        {MEMEDIT},
+        lambda k, name=None: False,
+        providers=build_providers(BrokerContext(session_factory=_raise_factory(), user_id="bob")),
+    )
     check(brd._permitted(MEMEDIT) is False, "U2 RBAC 거부 → deny(교집합)")
 
     me = MemEditProvider(_raise_factory(), "bob")
     # U3 approval_for — 부수효과 → **항상 non-None** + 액션 노출.
     ap_del = me.approval_for(None, MEMEDIT, {"op": "delete", "mem_id": "m1"})
-    check(ap_del is not None and ap_del["permission"] == MEMEDIT_PERMISSION == "memory.edit",
-          "U3 approval_for delete → non-None, permission=memory.edit(admin 전용)")
-    check("m1" in ap_del["summary"] and "삭제" in ap_del["summary"], "U3 delete summary에 대상 id·액션 노출")
-    ap_up = me.approval_for(None, MEMEDIT, {"op": "update", "mem_id": "m2", "text": "밥은 재즈를 친다"})
-    check("재즈" in ap_up["args"]["text"] and "재즈" in ap_up["summary"], "U3 update 새 본문 마스킹 없이 노출")
+    check(
+        ap_del is not None and ap_del["permission"] == MEMEDIT_PERMISSION == "memory.edit",
+        "U3 approval_for delete → non-None, permission=memory.edit(admin 전용)",
+    )
+    check(
+        "m1" in ap_del["summary"] and "삭제" in ap_del["summary"],
+        "U3 delete summary에 대상 id·액션 노출",
+    )
+    ap_up = me.approval_for(
+        None, MEMEDIT, {"op": "update", "mem_id": "m2", "text": "밥은 재즈를 친다"}
+    )
+    check(
+        "재즈" in ap_up["args"]["text"] and "재즈" in ap_up["summary"],
+        "U3 update 새 본문 마스킹 없이 노출",
+    )
     ap_long = me.approval_for(None, MEMEDIT, {"op": "update", "mem_id": "m3", "text": "가" * 500})
-    check(len(ap_long["summary"]) < 400 and "…" in ap_long["summary"], "U3 update summary 미리보기 상한")
+    check(
+        len(ap_long["summary"]) < 400 and "…" in ap_long["summary"],
+        "U3 update summary 미리보기 상한",
+    )
 
     # U4 describe — op enum + mem_id 필수, user_id 필드 없음(주체 고정).
     desc = me.describe(_MemBacking("user"))
@@ -156,24 +188,39 @@ def unit_checks() -> None:
     check(desc.input_schema.get("required") == ["op", "mem_id"], "U4 op·mem_id 필수")
     check("user_id" not in props, "U4 스키마에 user_id 없음(대상=주체 도출)")
 
-    b = PolicyScopedBroker([], lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=_raise_factory(), user_id="bob")))
-    check("memedit" in b._by_kind and isinstance(b._by_kind["memedit"], MemEditProvider),
-          "U5 _by_kind에 memedit → MemEditProvider")
-    check({"agent", "mcp", "rag", "memory", "memwrite", "memedit"} <= set(b._by_kind),
-          "U5 6 provider 보유(읽기+쓰기+수정삭제)")
+    b = PolicyScopedBroker(
+        [],
+        lambda k, name=None: True,
+        providers=build_providers(BrokerContext(session_factory=_raise_factory(), user_id="bob")),
+    )
+    check(
+        "memedit" in b._by_kind and isinstance(b._by_kind["memedit"], MemEditProvider),
+        "U5 _by_kind에 memedit → MemEditProvider",
+    )
+    check(
+        {"agent", "mcp", "rag", "memory", "memwrite", "memedit"} <= set(b._by_kind),
+        "U5 6 provider 보유(읽기+쓰기+수정삭제)",
+    )
     check(me.node_label(_MemBacking("user")) == "broker_invoke:memedit:user", "U5 node_label 형식")
 
 
 async def unit_async_checks() -> None:
-    print("[U] 단위(async) — candidates 게이트·머신·self-scope 수정/삭제·교차유저 거부·anti-leak·404-fold")
+    print(
+        "[U] 단위(async) — candidates 게이트·머신·self-scope 수정/삭제·교차유저 거부·anti-leak·404-fold"
+    )
     MC.default_mem_cfg = _async({"llm": {}, "embedder": {}})  # type: ignore[assignment]
 
     me_bob = MemEditProvider(_raise_factory(), "bob")
-    check([c.id for c in await me_bob.candidates({MEMEDIT})] == [MEMEDIT], "U6 allow∋memedit:user+user_id → cap")
+    check(
+        [c.id for c in await me_bob.candidates({MEMEDIT})] == [MEMEDIT],
+        "U6 allow∋memedit:user+user_id → cap",
+    )
     check(await me_bob.candidates(set()) == [], "U6 allow 밖 → []")
     check(await me_bob.candidates({"memedit:other", "memedit:"}) == [], "U6 미지원/빈 리소스 → []")
     me_machine = MemEditProvider(_raise_factory(), None)
-    check(await me_machine.candidates({MEMEDIT}) == [], "U6 머신(user_id None) → [](자기 스코프 없음)")
+    check(
+        await me_machine.candidates({MEMEDIT}) == [], "U6 머신(user_id None) → [](자기 스코프 없음)"
+    )
     check(await me_machine.load(MEMEDIT) is None, "U6 머신 load → None(존재 비노출)")
     check(await me_bob.load("memedit:other") is None, "U6 미지원 리소스 load → None")
 
@@ -185,47 +232,73 @@ async def unit_async_checks() -> None:
     me = MemEditProvider(_fake_factory, "bob")
 
     # 자가잠금 핀: 본인 기억 수정 성공(체크리스트 §6).
-    r_up = await me.invoke(_MemBacking("user"), {"op": "update", "mem_id": bob_mid, "text": "밥은 차를 마신다"})
-    check(r_up.error is None and store.rows[bob_mid]["text"] == "밥은 차를 마신다",
-          "U7 자가잠금 핀: 본인 mem_id 수정 성공(본문 반영)")
+    r_up = await me.invoke(
+        _MemBacking("user"), {"op": "update", "mem_id": bob_mid, "text": "밥은 차를 마신다"}
+    )
+    check(
+        r_up.error is None and store.rows[bob_mid]["text"] == "밥은 차를 마신다",
+        "U7 자가잠금 핀: 본인 mem_id 수정 성공(본문 반영)",
+    )
 
     # 교차유저: alice mem_id를 bob provider로 → 404-fold 거부, **부수효과 0**.
     before = store.rows[alice_mid]["text"]
-    r_x = await me.invoke(_MemBacking("user"), {"op": "update", "mem_id": alice_mid, "text": "변조"})
-    check(r_x.error is not None and "유저의 기억이 아닙니다" in r_x.error,
-          "U7 교차유저 수정 → 거부(미소유)")
-    check(store.rows[alice_mid]["text"] == before, "U7 교차유저 거부 시 부수효과 0(alice 행 무변경)")
+    r_x = await me.invoke(
+        _MemBacking("user"), {"op": "update", "mem_id": alice_mid, "text": "변조"}
+    )
+    check(
+        r_x.error is not None and "유저의 기억이 아닙니다" in r_x.error,
+        "U7 교차유저 수정 → 거부(미소유)",
+    )
+    check(
+        store.rows[alice_mid]["text"] == before, "U7 교차유저 거부 시 부수효과 0(alice 행 무변경)"
+    )
 
     # 존재 비노출: 부재 mem_id와 미소유 mem_id가 **동일 error**(404-fold, 403/404 구분 없음).
     r_absent = await me.invoke(_MemBacking("user"), {"op": "delete", "mem_id": "no-such-id"})
     check(r_absent.error == r_x.error, "U7 부재 mem_id error == 미소유 error(존재 비노출·404-fold)")
 
     # anti-leak: args user_id=alice 밀반입 + 본인 mem_id → 무시(스코프 bob 고정), 수정 성공.
-    r_leak = await me.invoke(_MemBacking("user"),
-                             {"op": "update", "mem_id": bob_mid, "text": "다시 커피", "user_id": "alice"})
-    check(r_leak.error is None and store.rows[bob_mid]["text"] == "다시 커피",
-          "U7 args user_id=alice 밀반입 → 무시(스코프 bob 고정, 본인 수정 성공)")
+    r_leak = await me.invoke(
+        _MemBacking("user"),
+        {"op": "update", "mem_id": bob_mid, "text": "다시 커피", "user_id": "alice"},
+    )
+    check(
+        r_leak.error is None and store.rows[bob_mid]["text"] == "다시 커피",
+        "U7 args user_id=alice 밀반입 → 무시(스코프 bob 고정, 본인 수정 성공)",
+    )
     # anti-leak 역: args user_id=bob 밀반입 + alice mem_id → 여전히 거부(scope는 args 아님).
-    r_leak2 = await me.invoke(_MemBacking("user"),
-                              {"op": "delete", "mem_id": alice_mid, "user_id": "bob"})
-    check(r_leak2.error is not None and alice_mid in store.rows,
-          "U7 args user_id=bob 밀반입 + alice mem_id → 거부(scope=principal, args 무시)")
+    r_leak2 = await me.invoke(
+        _MemBacking("user"), {"op": "delete", "mem_id": alice_mid, "user_id": "bob"}
+    )
+    check(
+        r_leak2.error is not None and alice_mid in store.rows,
+        "U7 args user_id=bob 밀반입 + alice mem_id → 거부(scope=principal, args 무시)",
+    )
 
     # 입력 검증: 잘못된 op / mem_id 없음 / update 빈 본문 → 부수효과 0.
     r_badop = await me.invoke(_MemBacking("user"), {"op": "purge", "mem_id": bob_mid})
-    check(r_badop.error is not None and "update/delete" in r_badop.error, "U7 미지원 op → 거부(부수효과 0)")
+    check(
+        r_badop.error is not None and "update/delete" in r_badop.error,
+        "U7 미지원 op → 거부(부수효과 0)",
+    )
     r_noid = await me.invoke(_MemBacking("user"), {"op": "delete", "mem_id": "  "})
     check(r_noid.error is not None and "id" in r_noid.error, "U7 mem_id 없음 → 거부")
-    r_emptyup = await me.invoke(_MemBacking("user"), {"op": "update", "mem_id": bob_mid, "text": "   "})
+    r_emptyup = await me.invoke(
+        _MemBacking("user"), {"op": "update", "mem_id": bob_mid, "text": "   "}
+    )
     check(r_emptyup.error is not None, "U7 update 빈 본문 → 거부(부수효과 0)")
 
     # 승인한 것 == 실행되는 것: 거대 update 본문 → 저장·승인 모두 동일 상한.
     huge = "가" * 50_000
     await me.invoke(_MemBacking("user"), {"op": "update", "mem_id": bob_mid, "text": huge})
     stored = store.rows[bob_mid]["text"]
-    approved = me.approval_for(None, MEMEDIT, {"op": "update", "mem_id": bob_mid, "text": huge})["args"]["text"]
-    check(len(stored) == MEMEDIT_MAX_CHARS and stored == approved,
-          f"U7 거대 update → 상한({MEMEDIT_MAX_CHARS}) & 승인==실행(길이 {len(stored)})")
+    approved = me.approval_for(None, MEMEDIT, {"op": "update", "mem_id": bob_mid, "text": huge})[
+        "args"
+    ]["text"]
+    check(
+        len(stored) == MEMEDIT_MAX_CHARS and stored == approved,
+        f"U7 거대 update → 상한({MEMEDIT_MAX_CHARS}) & 승인==실행(길이 {len(stored)})",
+    )
 
     # 삭제 성공(본인).
     r_del = await me.invoke(_MemBacking("user"), {"op": "delete", "mem_id": bob_mid})
@@ -234,15 +307,24 @@ async def unit_async_checks() -> None:
     # 백엔드 미가용 → graceful.
     M.resolve_backend = lambda mem_cfg: None  # type: ignore[assignment]
     r_off = await me.invoke(_MemBacking("user"), {"op": "delete", "mem_id": "m1"})
-    check(r_off.error is not None and "구성" in r_off.error, "U7 백엔드 미가용 → graceful 오류(부수효과 0)")
+    check(
+        r_off.error is not None and "구성" in r_off.error,
+        "U7 백엔드 미가용 → graceful 오류(부수효과 0)",
+    )
 
     # 배선: build_broker + resume broker가 memedit provider에 user_id 주입.
     bob = P()
     wired = build_broker(bob, {MEMEDIT})
-    check(wired._by_kind["memedit"]._user_id == str(bob.id), "U8 build_broker → memedit user_id 주입")
+    check(
+        wired._by_kind["memedit"]._user_id == str(bob.id), "U8 build_broker → memedit user_id 주입"
+    )
     from api import chat as CHAT
+
     rb = await CHAT._build_resume_broker("bob-uid", {MEMEDIT})
-    check(rb._by_kind["memedit"]._user_id == "bob-uid", "U8 _build_resume_broker → memedit user_id 복원(재개)")
+    check(
+        rb._by_kind["memedit"]._user_id == "bob-uid",
+        "U8 _build_resume_broker → memedit user_id 복원(재개)",
+    )
 
 
 # ================================================================ [G] 그래프 게이트(승인 왕복)
@@ -280,23 +362,37 @@ async def graph_gate_checks() -> None:
     store = FakeMemStore()
     mid = store.seed("bob", "삭제될 사실")
     with_mem(store)
-    b = PolicyScopedBroker({MEMEDIT}, lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=_fake_factory, user_id="bob")))
+    b = PolicyScopedBroker(
+        {MEMEDIT},
+        lambda k, name=None: True,
+        providers=build_providers(BrokerContext(session_factory=_fake_factory, user_id="bob")),
+    )
     g = _edit_graph(b)
     cfg = {"configurable": {"thread_id": "v111-approve"}}
     itr = await _stream(g, {"op": "delete", "mem_id": mid}, cfg)
-    check(itr is not None and itr.get("permission") == "memory.edit",
-          "G1 memedit 위임 → interrupt(permission=memory.edit)")
-    check(mid in store.rows and len(b.invocations) == 0, "G1 pause 시 무변경(승인 전 부수효과 0=멱등)")
+    check(
+        itr is not None and itr.get("permission") == "memory.edit",
+        "G1 memedit 위임 → interrupt(permission=memory.edit)",
+    )
+    check(
+        mid in store.rows and len(b.invocations) == 0, "G1 pause 시 무변경(승인 전 부수효과 0=멱등)"
+    )
     await _stream(g, Command(resume={"decision": "approve"}), cfg)
     check(mid not in store.rows, "G1 approve 재개 → 정확히 1회 삭제")
-    check(len(b.invocations) == 1 and b.invocations[0]["node"] == "broker_invoke:memedit:user",
-          "G1 approve → invocations 1(memedit 노드)")
+    check(
+        len(b.invocations) == 1 and b.invocations[0]["node"] == "broker_invoke:memedit:user",
+        "G1 approve → invocations 1(memedit 노드)",
+    )
 
     # reject 결.
     store2 = FakeMemStore()
     mid2 = store2.seed("bob", "삭제되면 안 되는 사실")
     with_mem(store2)
-    b2 = PolicyScopedBroker({MEMEDIT}, lambda k, name=None: True, providers=build_providers(BrokerContext(session_factory=_fake_factory, user_id="bob")))
+    b2 = PolicyScopedBroker(
+        {MEMEDIT},
+        lambda k, name=None: True,
+        providers=build_providers(BrokerContext(session_factory=_fake_factory, user_id="bob")),
+    )
     g2 = _edit_graph(b2)
     cfg2 = {"configurable": {"thread_id": "v111-reject"}}
     itr2 = await _stream(g2, {"op": "delete", "mem_id": mid2}, cfg2)
@@ -307,8 +403,11 @@ async def graph_gate_checks() -> None:
 
 # ================================================================ [H] 통합(실 DB·mem0 — guarded)
 async def integration_checks() -> None:
-    print("[H] 통합(실 DB·mem0) — memedit member 미시드(fail-closed) + 실 add→update→delete 왕복·교차유저 거부")
+    print(
+        "[H] 통합(실 DB·mem0) — memedit member 미시드(fail-closed) + 실 add→update→delete 왕복·교차유저 거부"
+    )
     import importlib
+
     importlib.reload(M)
     importlib.reload(MC)
     from api import authz
@@ -317,10 +416,14 @@ async def integration_checks() -> None:
     await authz.init_authz()
     e = authz.get_enforcer()
     # 삭제 비가역 → memedit는 member 시드 없음(fail-closed). admin은 (*,*)로 허용.
-    check(not e.has_policy("member", "capability:memedit", "invoke"),
-          "H1 member capability:memedit 미시드(삭제 비가역 fail-closed)")
-    check(e.enforce("__admin_probe__", "capability:memedit", "invoke") is False,
-          "H1 정책 없는 주체는 memedit deny(deny-by-default)")
+    check(
+        not e.has_policy("member", "capability:memedit", "invoke"),
+        "H1 member capability:memedit 미시드(삭제 비가역 fail-closed)",
+    )
+    check(
+        e.enforce("__admin_probe__", "capability:memedit", "invoke") is False,
+        "H1 정책 없는 주체는 memedit deny(deny-by-default)",
+    )
 
     async with SessionLocal() as db:
         mem_cfg = await MC.default_mem_cfg(db)
@@ -340,9 +443,19 @@ async def integration_checks() -> None:
     try:
         # 실 mem0에 시드(add, infer=False=원문).
         await asyncio.to_thread(
-            M.add, {"user_id": bob_uid}, [{"role": "user", "content": "밥은 재즈 피아노를 친다 v111"}], mem_cfg, False)
+            M.add,
+            {"user_id": bob_uid},
+            [{"role": "user", "content": "밥은 재즈 피아노를 친다 v111"}],
+            mem_cfg,
+            False,
+        )
         await asyncio.to_thread(
-            M.add, {"user_id": alice_uid}, [{"role": "user", "content": "앨리스의 비밀 v111"}], mem_cfg, False)
+            M.add,
+            {"user_id": alice_uid},
+            [{"role": "user", "content": "앨리스의 비밀 v111"}],
+            mem_cfg,
+            False,
+        )
         bob_rows = await asyncio.to_thread(M.list_memories, {"user_id": bob_uid}, mem_cfg)
         alice_rows = await asyncio.to_thread(M.list_memories, {"user_id": alice_uid}, mem_cfg)
         check(len(bob_rows) >= 1 and len(alice_rows) >= 1, "H2 실 mem0 시드(bob·alice 각 1+)")
@@ -351,7 +464,10 @@ async def integration_checks() -> None:
 
         me = MemEditProvider(SessionLocal, bob_uid)
         # 자가잠금 핀: 본인 수정 성공 → 반영.
-        r_up = await me.invoke(_MemBacking("user"), {"op": "update", "mem_id": bob_mid, "text": "밥은 클래식을 친다 v111"})
+        r_up = await me.invoke(
+            _MemBacking("user"),
+            {"op": "update", "mem_id": bob_mid, "text": "밥은 클래식을 친다 v111"},
+        )
         check(r_up.error is None, f"H3 자가잠금 핀: 본인 수정 성공 (err={r_up.error})")
         refreshed = await asyncio.to_thread(M.list_memories, {"user_id": bob_uid}, mem_cfg)
         check(any("클래식" in r["text"] for r in refreshed), "H3 수정 본문이 실제 반영")

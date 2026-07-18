@@ -9,6 +9,7 @@ list↔item↔배지 세 입구가 일관되게 막히는지(404 존재 은폐).
 
 실행: .venv/bin/python tests/verify_067_live.py  (API 서버 떠 있어야 함)
 """
+
 import asyncio
 import os
 import subprocess
@@ -26,7 +27,7 @@ load_dotenv(os.path.join(ROOT, ".env"))
 from api.db import SessionLocal  # noqa: E402
 from api.models import Agent, Message, Session, User  # noqa: E402
 
-BASE = "http://127.0.0.1:8000"
+BASE = os.environ.get("VERIFY_BASE", "http://127.0.0.1:8000")  # 스펙 390: 격리 서버 주입
 MACHINE = (os.environ.get("API_AUTH_TOKEN") or "").strip()
 PY = os.path.join(ROOT, ".venv", "bin", "python")
 PROV = os.path.join(ROOT, "tests", "_provision_super.py")
@@ -68,8 +69,13 @@ async def _seed(member_id: str, super_id: str) -> dict:
         for k, owner in rows.items():
             sid = f"{SPREFIX}{k}"
             ids[k] = sid
-            sess = Session(session_id=sid, agent_pk=agent.id, agent_name="probe067",
-                           user_id=owner, status="active")
+            sess = Session(
+                session_id=sid,
+                agent_pk=agent.id,
+                agent_name="probe067",
+                user_id=owner,
+                status="active",
+            )
             s.add(sess)
             await s.flush()
             s.add(Message(session_pk=sess.id, role="user", content=f"비밀-{k}"))
@@ -86,8 +92,11 @@ async def _cleanup() -> None:
 
 
 async def _login(client: httpx.AsyncClient, email: str) -> bool:
-    r = await client.post("/auth/login", data={"username": email, "password": PW},
-                          headers={"Content-Type": "application/x-www-form-urlencoded"})
+    r = await client.post(
+        "/auth/login",
+        data={"username": email, "password": PW},
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
     return r.status_code in (200, 204)
 
 
@@ -102,9 +111,13 @@ async def main() -> None:
     async with httpx.AsyncClient(base_url=BASE, timeout=10) as mc:
         mc.headers["Authorization"] = f"Bearer {MACHINE}"
         pre = await mc.get("/sessions", params={"limit": 1})
-        check(pre.status_code == 200, f"PRE: 머신 GET /sessions 200(서버 생존) — got {pre.status_code}")
+        check(
+            pre.status_code == 200,
+            f"PRE: 머신 GET /sessions 200(서버 생존) — got {pre.status_code}",
+        )
         if pre.status_code != 200:
-            print("❌ 전제 실패 — 서버/토큰. 종료."); sys.exit(1)
+            print("❌ 전제 실패 — 서버/토큰. 종료.")
+            sys.exit(1)
 
     _provision(create=True)
     try:
@@ -125,7 +138,9 @@ async def main() -> None:
             # ---- D2 list 스코핑 ----
             mlist = (await member.get("/sessions", params={"limit": 100})).json()
             mseen = _our_ids(mlist["items"], allids)
-            check(mseen == {ids["own"]}, f"D2: member list = 자기 세션만(own) — got {sorted(mseen)}")
+            check(
+                mseen == {ids["own"]}, f"D2: member list = 자기 세션만(own) — got {sorted(mseen)}"
+            )
             check(ids["others"] not in mseen, "D2(T1): member에게 타인 세션 숨김")
             check(ids["null_owner"] not in mseen, "D2(T3): member에게 NULL-owner 세션 숨김")
 
@@ -140,29 +155,65 @@ async def main() -> None:
                 return r.status_code
 
             # member: 자기 것 200, 타인/NULL → 404(존재 은폐), 추측 → 404
-            check(await code(member, f"/sessions/{ids['own']}") == 200, "D4: member 자기 세션 detail → 200")
-            check(await code(member, f"/sessions/{ids['own']}/messages") == 200, "D4: member 자기 messages → 200")
-            check(await code(member, f"/sessions/{ids['others']}") == 404, "D4(T2): member 타인 detail → 404(은폐)")
-            check(await code(member, f"/sessions/{ids['others']}/messages") == 404, "D4(T2): member 타인 전사 → 404(은폐)")
-            check(await code(member, f"/sessions/{ids['null_owner']}/messages") == 404, "D4(T3): member NULL-owner 전사 → 404")
-            check(await code(member, f"/sessions/{SPREFIX}nope") == 404, "D4: member 없는 세션 → 404(부재와 동일)")
+            check(
+                await code(member, f"/sessions/{ids['own']}") == 200,
+                "D4: member 자기 세션 detail → 200",
+            )
+            check(
+                await code(member, f"/sessions/{ids['own']}/messages") == 200,
+                "D4: member 자기 messages → 200",
+            )
+            check(
+                await code(member, f"/sessions/{ids['others']}") == 404,
+                "D4(T2): member 타인 detail → 404(은폐)",
+            )
+            check(
+                await code(member, f"/sessions/{ids['others']}/messages") == 404,
+                "D4(T2): member 타인 전사 → 404(은폐)",
+            )
+            check(
+                await code(member, f"/sessions/{ids['null_owner']}/messages") == 404,
+                "D4(T3): member NULL-owner 전사 → 404",
+            )
+            check(
+                await code(member, f"/sessions/{SPREFIX}nope") == 404,
+                "D4: member 없는 세션 → 404(부재와 동일)",
+            )
 
             # member 타인 세션 종료 변조 → 404 (그리고 실제로 status 안 바뀜)
-            check(await code(member, f"/sessions/{ids['others']}/end", "POST") == 404, "D4(T5): member 타인 세션 end → 404")
+            check(
+                await code(member, f"/sessions/{ids['others']}/end", "POST") == 404,
+                "D4(T5): member 타인 세션 end → 404",
+            )
             async with SessionLocal() as s:
-                still = (await s.execute(select(Session.status).where(Session.session_id == ids["others"]))).scalar_one()
+                still = (
+                    await s.execute(
+                        select(Session.status).where(Session.session_id == ids["others"])
+                    )
+                ).scalar_one()
             check(still == "active", "D4(T5): 타인 세션 status 무변경(종료 변조 차단 실측)")
 
             # super: 타인(=member 소유) 세션도 200
-            check(await code(superc, f"/sessions/{ids['own']}/messages") == 200, "D4: super 임의 세션 전사 → 200(전체)")
-            check(await code(machine, f"/sessions/{ids['null_owner']}/messages") == 200, "D4: 머신 NULL-owner 전사 → 200(전체)")
+            check(
+                await code(superc, f"/sessions/{ids['own']}/messages") == 200,
+                "D4: super 임의 세션 전사 → 200(전체)",
+            )
+            check(
+                await code(machine, f"/sessions/{ids['null_owner']}/messages") == 200,
+                "D4: 머신 NULL-owner 전사 → 200(전체)",
+            )
 
             # ---- D3 배지 counts 스코핑 ----
             mcounts = mlist["counts"]
             scounts = slist["counts"]
-            check(mcounts["all"] == 1, f"D3(T6): member 배지 all=1(자기 세션 수) — got {mcounts['all']}")
+            check(
+                mcounts["all"] == 1,
+                f"D3(T6): member 배지 all=1(자기 세션 수) — got {mcounts['all']}",
+            )
             check(scounts["all"] >= 3, f"D3: super 배지 all≥3(전역) — got {scounts['all']}")
-            check(mcounts["all"] < scounts["all"], "D3(T6): member 배지 < super 배지(전역 누설 차단)")
+            check(
+                mcounts["all"] < scounts["all"], "D3(T6): member 배지 < super 배지(전역 누설 차단)"
+            )
 
             # ---- D5 list_user_ids 스코핑 ----
             muids = (await member.get("/sessions/users")).json()
@@ -170,7 +221,9 @@ async def main() -> None:
             suids = (await superc.get("/sessions/users")).json()
             check(member_id in suids and super_id in suids, "D5: super /sessions/users = 전체 포함")
         finally:
-            await member.aclose(); await superc.aclose(); await machine.aclose()
+            await member.aclose()
+            await superc.aclose()
+            await machine.aclose()
     finally:
         await _cleanup()
         _provision(create=False)

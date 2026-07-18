@@ -28,6 +28,7 @@ os.environ.pop("A2A_SELF_BASE_URL", None)  # request.base_url 폴백을 단언
 
 from api import a2a_client, a2a_server, agent_card, chat  # noqa: E402
 
+VBASE = os.environ.get("VERIFY_BASE", "http://127.0.0.1:8000")  # 스펙 390: 격리 서버 주입
 _fails: list[str] = []
 
 
@@ -44,7 +45,7 @@ FAKE_AGENT = types.SimpleNamespace(
     exposed={"a2a": True},
     active_version="v3",
 )
-FAKE_REQUEST = types.SimpleNamespace(base_url="http://127.0.0.1:8000/")
+FAKE_REQUEST = types.SimpleNamespace(base_url=VBASE + "/")
 RUNTIME_REPLY_CHUNKS = ["안녕하세요, ", "로컬 ", "에이전트 ", "응답입니다."]
 RUNTIME_REPLY = "".join(RUNTIME_REPLY_CHUNKS)
 
@@ -117,9 +118,7 @@ async def main():
         url.startswith("http://") or url.startswith("https://"), f"D1 카드 url 절대 http(s): {url}"
     )
     check(url.endswith("/a2a"), f"D1 카드 url이 /a2a로 끝남: {url}")
-    check(
-        url == "http://127.0.0.1:8000/agents/agt-x/a2a", f"D1 url=self_base+/agents/id/a2a: {url}"
-    )
+    check(url == VBASE + "/agents/agt-x/a2a", f"D1 url=self_base+/agents/id/a2a: {url}")
     check(
         "x-my-agents" not in card and "myAgents" not in card,
         "D1 x-my-agents 없음(connect→external)",

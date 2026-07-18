@@ -64,7 +64,8 @@ ck(
     "R7 스킴상대 // passthrough(http 전치)",
 )
 ck(
-    _resolve_card_endpoint("/api/v1/a2a", WK) == "https://h.test/ai-core/ccab-weekly-report/api/v1/a2a",
+    _resolve_card_endpoint("/api/v1/a2a", WK)
+    == "https://h.test/ai-core/ccab-weekly-report/api/v1/a2a",
     "R8 깊은 루트상대 → prefix 하위 전체 보존",
 )
 

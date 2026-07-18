@@ -19,6 +19,7 @@ casbin enforce는 FakeEnforcer로 주입(get_enforcer 패치) — 분기 로직�
 
 실행: .venv/bin/python tests/verify_066_resolve_authz.py
 """
+
 import os
 import sys
 import uuid
@@ -68,45 +69,64 @@ class FakeEnforcer:
 # ---- 주체 ----
 machine = "machine"
 superuser = P(is_superuser=True)
-admin = P(is_superuser=False)       # casbin approvals:resolve 보유
-member = P(is_superuser=False)      # data.read만 self_approve 보유
-member2 = P(is_superuser=False)     # self_approve 정책 전무(T7)
+admin = P(is_superuser=False)  # casbin approvals:resolve 보유
+member = P(is_superuser=False)  # data.read만 self_approve 보유
+member2 = P(is_superuser=False)  # self_approve 정책 전무(T7)
 
 m1 = str(member.id)
 # casbin: admin은 approvals:resolve, member(m1)은 data.read self_approve. 그 외 전부 deny.
-authz.get_enforcer = lambda: FakeEnforcer({
-    (str(admin.id), "approvals", "resolve"),
-    (m1, "data.read", "self_approve"),
-})
+authz.get_enforcer = lambda: FakeEnforcer(
+    {
+        (str(admin.id), "approvals", "resolve"),
+        (m1, "data.read", "self_approve"),
+    }
+)
 
 # ---- M1. is_admin_for(·, "approvals", "resolve") ----
-check(authz.is_admin_for(machine, "approvals", "resolve") is True, "M1: 머신 토큰 = admin 등가(전체 승인)")
+check(
+    authz.is_admin_for(machine, "approvals", "resolve") is True,
+    "M1: 머신 토큰 = admin 등가(전체 승인)",
+)
 check(authz.is_admin_for(superuser, "approvals", "resolve") is True, "M1: superuser = admin(우회)")
-check(authz.is_admin_for(admin, "approvals", "resolve") is True, "M1: casbin approvals:resolve = admin")
+check(
+    authz.is_admin_for(admin, "approvals", "resolve") is True,
+    "M1: casbin approvals:resolve = admin",
+)
 check(authz.is_admin_for(member, "approvals", "resolve") is False, "M1: member = 비-admin")
 
 # ---- M2. _may_resolve 3-way ----
-own_read = A(m1, "data.read")        # owner + self_approve 정책 있음
-own_delete = A(m1, "data.delete")    # owner + 민감(정책 없음)
-own_empty = A(m1, "")                # owner + 빈 perm
+own_read = A(m1, "data.read")  # owner + self_approve 정책 있음
+own_delete = A(m1, "data.delete")  # owner + 민감(정책 없음)
+own_empty = A(m1, "")  # owner + 빈 perm
 others = A(str(member2.id), "data.read")  # 타인 것(perm은 self지만 소유자 아님)
-null_owner = A(None, "data.read")    # 머신/레거시 발
+null_owner = A(None, "data.read")  # 머신/레거시 발
 
 # admin 3종 + 머신: 무엇이든 True (민감 perm여도)
 for name, pr in [("머신", machine), ("superuser", superuser), ("casbin-admin", admin)]:
-    check(AP._may_resolve(own_delete, pr) is True, f"M2: {name} → 민감 perm(data.delete)도 승인 허용")
+    check(
+        AP._may_resolve(own_delete, pr) is True, f"M2: {name} → 민감 perm(data.delete)도 승인 허용"
+    )
     check(AP._may_resolve(null_owner, pr) is True, f"M2: {name} → NULL-owner 행도 승인 허용(전체)")
 
 # owner + self_approve 정책 → True
 check(AP._may_resolve(own_read, member) is True, "M2: owner + self_approve perm(data.read) → 허용")
 # owner + 민감 perm(정책 없음) → False
-check(AP._may_resolve(own_delete, member) is False, "M2: owner + 민감 perm(data.delete) → 거부(admin 필수)")
+check(
+    AP._may_resolve(own_delete, member) is False,
+    "M2: owner + 민감 perm(data.delete) → 거부(admin 필수)",
+)
 # owner + 빈 perm → False (T6)
-check(AP._may_resolve(own_empty, member) is False, "M2(T6): owner + 빈 permission → 거부(알 수 없는 권한)")
+check(
+    AP._may_resolve(own_empty, member) is False,
+    "M2(T6): owner + 빈 permission → 거부(알 수 없는 권한)",
+)
 # 타인 것 → False (T1) — perm이 self-허용이라도 소유자 불일치
 check(AP._may_resolve(others, member) is False, "M2(T1): 타인 소유 행 → 거부(교차 유저 차단)")
 # NULL-owner → False (T2)
-check(AP._may_resolve(null_owner, member) is False, "M2(T2): user_id=None 행 → 거부(레거시/머신 탈취 차단)")
+check(
+    AP._may_resolve(null_owner, member) is False,
+    "M2(T2): user_id=None 행 → 거부(레거시/머신 탈취 차단)",
+)
 # self_approve 정책 없는 member가 자기 것 → False (T7)
 check(
     AP._may_resolve(A(str(member2.id), "data.read"), member2) is False,
@@ -115,24 +135,36 @@ check(
 
 # ---- M5. approver 연결(스펙 177 P2) — approver 스탬프가 Casbin보다 우선(도구 정책 일원화) ----
 # approver="self" + owner → True(자기 것). 정책 부재 perm이어도 approver 필드가 권위(이스케이프 무관).
-check(AP._may_resolve(A(m1, "mcp.local-tools.delete_record", approver="self"), member) is True,
-      "M5: approver=self + owner → 허용(정책 없는 perm이어도 필드가 권위)")
+check(
+    AP._may_resolve(A(m1, "mcp.local-tools.delete_record", approver="self"), member) is True,
+    "M5: approver=self + owner → 허용(정책 없는 perm이어도 필드가 권위)",
+)
 # approver="self" + 타인 → False(교차유저 차단).
-check(AP._may_resolve(A(m1, "mcp.x.y", approver="self"), member2) is False,
-      "M5: approver=self + 비-owner → 거부")
+check(
+    AP._may_resolve(A(m1, "mcp.x.y", approver="self"), member2) is False,
+    "M5: approver=self + 비-owner → 거부",
+)
 # approver="self" + NULL-owner → False(fail-closed).
-check(AP._may_resolve(A(None, "mcp.x.y", approver="self"), member) is False,
-      "M5: approver=self + NULL-owner → 거부(fail-closed)")
+check(
+    AP._may_resolve(A(None, "mcp.x.y", approver="self"), member) is False,
+    "M5: approver=self + NULL-owner → 거부(fail-closed)",
+)
 # approver="admin" + owner(member) → False(관리자만).
-check(AP._may_resolve(A(m1, "mcp.x.y", approver="admin"), member) is False,
-      "M5: approver=admin + 비-admin owner → 거부(관리자만)")
+check(
+    AP._may_resolve(A(m1, "mcp.x.y", approver="admin"), member) is False,
+    "M5: approver=admin + 비-admin owner → 거부(관리자만)",
+)
 # approver="admin" + casbin-admin → True(admin 우회).
-check(AP._may_resolve(A(m1, "mcp.x.y", approver="admin"), admin) is True,
-      "M5: approver=admin + admin → 허용")
+check(
+    AP._may_resolve(A(m1, "mcp.x.y", approver="admin"), admin) is True,
+    "M5: approver=admin + admin → 허용",
+)
 # approver="admin"이 Casbin self_approve보다 **우선** — data.read는 member self_approve 정책이 있으나
 # approver=admin으로 스탬프되면 admin만(도구 정책이 진실원, 스펙 177 D3).
-check(AP._may_resolve(A(m1, "data.read", approver="admin"), member) is False,
-      "M5: approver=admin이 Casbin self_approve를 덮음(도구 정책 우선)")
+check(
+    AP._may_resolve(A(m1, "data.read", approver="admin"), member) is False,
+    "M5: approver=admin이 Casbin self_approve를 덮음(도구 정책 우선)",
+)
 
 # ---- M3. own_scope(·, "approvals", "resolve") ----
 check(authz.own_scope(machine, "approvals", "resolve") is None, "M3: 머신 → 전체(스코프 None)")

@@ -59,30 +59,52 @@ async def _chat(c: httpx.AsyncClient, aid: str, text: str) -> dict:
 async def run() -> bool:
     t = httpx.ASGITransport(app=app)
     headers = {"Authorization": f"Bearer {_token()}"}
-    async with httpx.AsyncClient(transport=t, base_url="http://t", headers=headers, timeout=90) as c:
+    async with httpx.AsyncClient(
+        transport=t, base_url="http://t", headers=headers, timeout=90
+    ) as c:
         # 도구 서버 확보 — search_documents 키워드 트리거가 있는 rag 경로 대신, 실제 MCP 서버
         # (local-tools=delete_record 포함)와 wiki(web-fetch)가 있으면 그것도 시험.
         servers = (await c.get("/mcp-servers")).json()
         names = [s["name"] for s in servers]
-        local = next((s["name"] for s in servers if "delete_record" in (s.get("enabled_tools") or [])), None)
-        wiki = next((s["name"] for s in servers if any("wiki" in t for t in (s.get("enabled_tools") or []))), None)
+        local = next(
+            (s["name"] for s in servers if "delete_record" in (s.get("enabled_tools") or [])), None
+        )
+        wiki = next(
+            (
+                s["name"]
+                for s in servers
+                if any("wiki" in t for t in (s.get("enabled_tools") or []))
+            ),
+            None,
+        )
         if not local:
             print(f"VERIFY236_FAIL(local-tools 서버 부재 — 시드 필요, 현재: {names})")
             return False
 
         made: list[str] = []
         try:
-            tooled = (await c.post("/agents", json={
-                "name": f"td-{uuid.uuid4().hex[:6]}",
-                "config": {"model": "mock-llm", "prompt": "도구 실습", "mcps": [local] + ([wiki] if wiki else [])},
-            })).json()
+            tooled = (
+                await c.post(
+                    "/agents",
+                    json={
+                        "name": f"td-{uuid.uuid4().hex[:6]}",
+                        "config": {
+                            "model": "mock-llm",
+                            "prompt": "도구 실습",
+                            "mcps": [local] + ([wiki] if wiki else []),
+                        },
+                    },
+                )
+            ).json()
             made.append(tooled["id"])
 
             # T1 — 무관 질문: 무발동인데 toolDiag가 "왜"를 남기나
             tr = await _chat(c, tooled["id"], "오늘 기분이 어때?")
             td = tr.get("toolDiag")
-            ck(bool(td) and td.get("called") == 0 and len(td.get("bound") or []) > 0,
-               f"T1 무발동 턴 toolDiag(called=0·bound>0) — {td}")
+            ck(
+                bool(td) and td.get("called") == 0 and len(td.get("bound") or []) > 0,
+                f"T1 무발동 턴 toolDiag(called=0·bound>0) — {td}",
+            )
 
             # T2 — 키워드 트리거(삭제→delete_record): 발동 턴은 called>0
             tr = await _chat(c, tooled["id"], "레코드 rec-001 삭제해줘")
@@ -90,7 +112,10 @@ async def run() -> bool:
             # delete_record는 HIL 승인 대기로 끝날 수 있음 — 그 턴 trace엔 mcp 기록 전 interrupt.
             # 발동 판정은 승인 대기(approval) 또는 called>0 어느 쪽이든 "조용하지 않음"이면 ok.
             fired = (td or {}).get("called", 0) > 0 or bool(tr.get("approval"))
-            ck(fired, f"T2 키워드 트리거 발동 표식(called>0 또는 approval) — td={td} approval={tr.get('approval')}")
+            ck(
+                fired,
+                f"T2 키워드 트리거 발동 표식(called>0 또는 approval) — td={td} approval={tr.get('approval')}",
+            )
 
             # T4 — 일반 트리거: 문장에 도구 base 이름 언급 → 실발동
             if wiki:
@@ -98,19 +123,31 @@ async def run() -> bool:
                 td = tr.get("toolDiag") or {}
                 mcp_calls = tr.get("mcp") or []
                 wiki_called = any("wiki" in (m.get("tool") or "") for m in mcp_calls)
-                ck(td.get("called", 0) > 0 and wiki_called,
-                   f"T4 일반 트리거로 wiki 도구 실발동 — called={td.get('called')} mcp={[m.get('tool') for m in mcp_calls]}")
+                ck(
+                    td.get("called", 0) > 0 and wiki_called,
+                    f"T4 일반 트리거로 wiki 도구 실발동 — called={td.get('called')} mcp={[m.get('tool') for m in mcp_calls]}",
+                )
             else:
                 print("  skip T4 — wiki 도구 서버 부재(시드에 web-fetch 없음)")
 
             # T3 — 도구 없는 에이전트: toolDiag 자체가 없어야(오진 금지)
-            bare = (await c.post("/agents", json={
-                "name": f"bare-{uuid.uuid4().hex[:6]}",
-                "config": {"model": "mock-llm", "prompt": "무도구"},
-            })).json()
+            bare = (
+                await c.post(
+                    "/agents",
+                    json={
+                        "name": f"bare-{uuid.uuid4().hex[:6]}",
+                        "config": {"model": "mock-llm", "prompt": "무도구"},
+                    },
+                )
+            ).json()
             made.append(bare["id"])
-            tr = await _chat(c, bare["id"], "검색 삭제 wiki_search")  # 트리거 단어가 있어도 도구가 없으니 무관
-            ck("toolDiag" not in tr, f"T3 무도구 에이전트 toolDiag 부재 — keys={sorted(tr.keys())[:8]}")
+            tr = await _chat(
+                c, bare["id"], "검색 삭제 wiki_search"
+            )  # 트리거 단어가 있어도 도구가 없으니 무관
+            ck(
+                "toolDiag" not in tr,
+                f"T3 무도구 에이전트 toolDiag 부재 — keys={sorted(tr.keys())[:8]}",
+            )
         finally:
             for aid in made:
                 await c.delete(f"/agents/{aid}")

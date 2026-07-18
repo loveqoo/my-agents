@@ -5,12 +5,18 @@
   V3 카드 통합(ASGI): 노출 ui 에이전트 카드의 organization이 설정값 반영 → 원복 후 기본값.
 실행: uv run --project packages/api --env-file .env python tests/verify_153_a2a_org.py
 """
+
 import asyncio
 import os
 import sys
 import uuid as _uuid
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "packages", "api", "src"))
+sys.path.insert(
+    0,
+    os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "packages", "api", "src"
+    ),
+)
 
 import httpx  # noqa: E402
 from fastapi import HTTPException  # noqa: E402
@@ -19,6 +25,7 @@ from api.db import SessionLocal as async_session  # noqa: E402
 from api import app_settings as ST  # noqa: E402
 from api.models import Agent, AppSetting  # noqa: E402
 
+VBASE = os.environ.get("VERIFY_BASE", "http://127.0.0.1:8000")  # 스펙 390: 격리 서버 주입
 _fails = []
 passed = 0
 
@@ -44,6 +51,7 @@ class _Member:
 
 async def main():
     from api.authz import init_authz
+
     await init_authz()
     admin = _P()
     tag = f"v153-{_uuid.uuid4().hex[:6]}"
@@ -56,10 +64,14 @@ async def main():
     made_agent = None
     try:
         # V1 CRUD
-        check(await ST.get_setting("a2a_org_name") in ("my-agents", (orig_value or {}).get("v")),
-              "V1a 기본/기존값 조회")
+        check(
+            await ST.get_setting("a2a_org_name") in ("my-agents", (orig_value or {}).get("v")),
+            "V1a 기본/기존값 조회",
+        )
         async with async_session() as s:
-            out = await ST.put_setting("a2a_org_name", ST.SettingIn(value=f"{tag}-org"), session=s, _p=admin)
+            out = await ST.put_setting(
+                "a2a_org_name", ST.SettingIn(value=f"{tag}-org"), session=s, _p=admin
+            )
             check(out == {"a2a_org_name": f"{tag}-org"}, "V1b 저장")
         check(await ST.get_setting("a2a_org_name") == f"{tag}-org", "V1c get_setting 반영")
         async with async_session() as s:
@@ -76,11 +88,14 @@ async def main():
         for bad, why in [("", "빈 값"), ("   ", "공백"), ("x" * 81, "81자"), (123, "비문자열")]:
             async with async_session() as s:
                 try:
-                    await ST.put_setting("a2a_org_name", ST.SettingIn(value=bad), session=s, _p=admin)
+                    await ST.put_setting(
+                        "a2a_org_name", ST.SettingIn(value=bad), session=s, _p=admin
+                    )
                     check(False, f"V2b 거부돼야: {why}")
                 except HTTPException as e:
                     check(e.status_code == 400, f"V2b 값 검증 400({why})")
         from api.model_registry import require_model_manage
+
         try:
             await require_model_manage(principal=_Member())
             check(False, "V2c member → 403이어야")
@@ -89,15 +104,21 @@ async def main():
 
         # V3 카드 통합 — 노출 ui 에이전트 생성 후 ASGI로 카드 fetch
         async with async_session() as s:
-            made_agent = Agent(agent_id=f"{tag}-ag", name=f"{tag}-ag", source="ui",
-                               config={"model": "", "prompt": ""}, exposed={"a2a": True},
-                               active_version="v1")
+            made_agent = Agent(
+                agent_id=f"{tag}-ag",
+                name=f"{tag}-ag",
+                source="ui",
+                config={"model": "", "prompt": ""},
+                exposed={"a2a": True},
+                active_version="v1",
+            )
             s.add(made_agent)
             await s.commit()
             agent_pk = made_agent.id
         from api.main import app
+
         transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1:8000") as c:
+        async with httpx.AsyncClient(transport=transport, base_url=VBASE) as c:
             r = await c.get(f"/agents/{agent_pk}/.well-known/agent-card.json")
             check(r.status_code == 200, f"V3a 카드 200 (got {r.status_code})")
             org = (r.json().get("provider") or {}).get("organization")
@@ -124,6 +145,7 @@ async def main():
     os.environ["A2A_ORG_NAME"] = f"{tag}-env"
     try:
         from api.a2a_server import _org_name
+
         async with async_session() as s:
             row = await s.get(AppSetting, "a2a_org_name")
             saved_state = dict(row.value) if row is not None else None
@@ -140,7 +162,10 @@ async def main():
             row = await s.get(AppSetting, "a2a_org_name")
             row.value = {"v": ["not", "a", "string"]}
             await s.commit()
-        check(await _org_name() == f"{tag}-env", "V4c 오염 값 → 미저장 취급(env 폴백, 공개 카드 fail-safe)")
+        check(
+            await _org_name() == f"{tag}-env",
+            "V4c 오염 값 → 미저장 취급(env 폴백, 공개 카드 fail-safe)",
+        )
     finally:
         os.environ.pop("A2A_ORG_NAME", None)
         async with async_session() as s:

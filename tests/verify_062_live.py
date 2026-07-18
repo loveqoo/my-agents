@@ -22,7 +22,7 @@ from dotenv import load_dotenv
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 load_dotenv(os.path.join(ROOT, ".env"))
 
-BASE = "http://127.0.0.1:8000"
+BASE = os.environ.get("VERIFY_BASE", "http://127.0.0.1:8000")  # 스펙 390: 격리 서버 주입
 TOK = os.environ["API_AUTH_TOKEN"]
 AUTH = {"Authorization": f"Bearer {TOK}"}
 
@@ -101,7 +101,10 @@ if status == 200:
         d2 = b2.get("detail", "")
         if s2 == 409 and isinstance(d2, str) and "차원" in d2:
             mismatch_tried = True
-            check("선택하거나" in d2 or "요청하세요" in d2, f"L3 차원 불일치 detail에 조치 문구 포함: {d2!r}")
+            check(
+                "선택하거나" in d2 or "요청하세요" in d2,
+                f"L3 차원 불일치 detail에 조치 문구 포함: {d2!r}",
+            )
             break
         if s2 == 201:
             # 우연히 생성됨(1024 호환) — 정리하고 계속

@@ -17,7 +17,7 @@ import uuid
 import httpx
 from sqlalchemy import create_engine, text
 
-BASE = os.environ.get("API_BASE", "http://127.0.0.1:8000")
+BASE = os.environ.get("VERIFY_BASE", "http://127.0.0.1:8000")  # 스펙 390: 격리 서버 주입
 EMAIL = os.environ.get("ADMIN_EMAIL", "admin@example.com")
 PASSWORD = os.environ.get("ADMIN_PASSWORD", "adminpass123")
 DB = os.environ.get(

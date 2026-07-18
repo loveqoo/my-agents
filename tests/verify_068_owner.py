@@ -14,6 +14,7 @@ verify_068_live.py(통합 rung)에서 별도 확인.
 
 실행: .venv/bin/python tests/verify_068_owner.py
 """
+
 import os
 import sys
 

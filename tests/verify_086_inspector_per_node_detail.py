@@ -60,13 +60,19 @@ def unit_checks() -> None:
     # plan은 유일한 값-노출 안전 키(이 기능의 존재이유) — 원문 표시 유지.
     # 스펙 131: 안전 키가 4개(plan/query/route/delegated)로 늘며 "키: 값" 접두 표기 — 불변식은
     # **값 원문 노출**(길이 가림 아님)이지 접두 유무가 아니다(learning 124: 표시형식≠불변식).
-    check("단계1" in (api_rt._summarize_node_update("plan", {"plan": "단계1"}) or ""), "U1c plan은 값 원문 유지")
+    check(
+        "단계1" in (api_rt._summarize_node_update("plan", {"plan": "단계1"}) or ""),
+        "U1c plan은 값 원문 유지",
+    )
 
     # U2 캡 — raw 문자열 길이에서 자르고 정직 표기(no silent truncation).
     big = api_rt._summarize_node_update("n", {"plan": "가" * 1000})
     check(len(big) <= api_rt._FIELD_CAP + 20, f"U2 필드 캡 적용 (len={len(big)})")
     check("생략" in big, "U2 잘린 길이 정직 표기(…N자 생략)")
-    check("700자 생략" in big, f"U2 생략 길이 정확(원문 1000−필드캡 300, 이중캡 없음) (got 끝: ...{big[-15:]})")
+    check(
+        "700자 생략" in big,
+        f"U2 생략 길이 정확(원문 1000−필드캡 300, 이중캡 없음) (got 끝: ...{big[-15:]})",
+    )
 
     # U2b budgeted(codex F3) — 거대 값이어도 요약 길이가 캡 근처로 유한(통째 만들지 않음). 비안전 키는
     # 길이만 → 입력 크기와 무관하게 짧다. 안전 키(plan)도 캡으로 유한.
@@ -74,21 +80,39 @@ def unit_checks() -> None:
     check(len(huge) < 100, f"U2b 비안전 키 거대 값은 길이표시만(요약 유한) (len={len(huge)})")
     check("5000000자" in huge, f"U2b 길이는 정확히 보고 (got {huge})")
     huge_plan = api_rt._summarize_node_update("plan", {"plan": "y" * 5_000_000})
-    check(len(huge_plan) <= api_rt._FIELD_CAP + 20, f"U2b 안전 키도 필드 캡으로 유한 (len={len(huge_plan)})")
+    check(
+        len(huge_plan) <= api_rt._FIELD_CAP + 20,
+        f"U2b 안전 키도 필드 캡으로 유한 (len={len(huge_plan)})",
+    )
 
     # U3 알려진 형태 — plan 문자열·messages 프리뷰(스펙 192)·빈/비dict→None.
     plan_s = api_rt._summarize_node_update("plan", {"plan": "1) 핵심 2) 근거"})
-    check("1) 핵심 2) 근거" in (plan_s or ""), f"U3 plan 값 원문 포함(131: 키 접두 허용) (got {plan_s})")
+    check(
+        "1) 핵심 2) 근거" in (plan_s or ""),
+        f"U3 plan 값 원문 포함(131: 키 접두 허용) (got {plan_s})",
+    )
     # 스펙 192: messages는 건수만 → role+본문 프리뷰(그 단계 발화를 타임라인서). 마스킹·fail-closed 유지.
     from langchain_core.messages import AIMessage as _AIMsg
-    msg_s = api_rt._summarize_node_update("execute", {"messages": [_AIMsg(content="실행 결과 본문")]})
+
+    msg_s = api_rt._summarize_node_update(
+        "execute", {"messages": [_AIMsg(content="실행 결과 본문")]}
+    )
     check(msg_s == "assistant: «실행 결과 본문»", f"U3 messages는 role+프리뷰 (got {msg_s})")
-    check(api_rt._summarize_node_update("x", {"messages": []}) == "메시지 0건", "U3 빈 messages → '메시지 0건'")
-    _mask_s = api_rt._summarize_node_update("x", {"messages": [_AIMsg(content="키 sk-ABCDEF1234567890ABCDEF end")]})
-    check("sk-ABCDEF1234567890ABCDEF" not in _mask_s and "«secret»" in _mask_s,
-          f"U3 messages 프리뷰 비밀 마스킹(누출0) (got {_mask_s})")
-    check(api_rt._summarize_node_update("x", {"messages": [object()]}) is not None,
-          "U3 비정상 메시지도 fail-closed(크래시 없음)")
+    check(
+        api_rt._summarize_node_update("x", {"messages": []}) == "메시지 0건",
+        "U3 빈 messages → '메시지 0건'",
+    )
+    _mask_s = api_rt._summarize_node_update(
+        "x", {"messages": [_AIMsg(content="키 sk-ABCDEF1234567890ABCDEF end")]}
+    )
+    check(
+        "sk-ABCDEF1234567890ABCDEF" not in _mask_s and "«secret»" in _mask_s,
+        f"U3 messages 프리뷰 비밀 마스킹(누출0) (got {_mask_s})",
+    )
+    check(
+        api_rt._summarize_node_update("x", {"messages": [object()]}) is not None,
+        "U3 비정상 메시지도 fail-closed(크래시 없음)",
+    )
     check(api_rt._summarize_node_update("n", {}) is None, "U3 빈 델타 → None(요약 행 미표시)")
     check(api_rt._summarize_node_update("n", "not-a-dict") is None, "U3 비dict 델타 → None")
 
@@ -100,19 +124,25 @@ def unit_checks() -> None:
     ]
     tl = api_rt._timeline_from_observations(obs)
     seq = [n["node"] for n in tl]
-    check(seq == ["__start__", "plan", "execute", "execute", "__end__"],
-          f"U4 start/end 감쌈 + 재진입 중복 보존 (got {seq})")
+    check(
+        seq == ["__start__", "plan", "execute", "execute", "__end__"],
+        f"U4 start/end 감쌈 + 재진입 중복 보존 (got {seq})",
+    )
     check(tl[1]["ms"] == 2 and tl[2]["ms"] == 88, "U4 실측 ms 보존(균등분할 아님)")
     check(tl[1]["summary"] == "P", "U4 요약 보존")
     check("summary" not in tl[3], "U4 요약 None인 노드는 summary 키 없음(폴백 행 미표시)")
 
     # U4b parallel 플래그 보존(codex F4) — 병렬 superstep 노드는 parallel=True가 타임라인에 전달.
-    tl_par = api_rt._timeline_from_observations([
-        {"node": "a", "ms": 100, "summary": None, "parallel": True},
-        {"node": "b", "ms": 100, "summary": None, "parallel": True},
-    ])
-    check(tl_par[1].get("parallel") is True and tl_par[2].get("parallel") is True,
-          "U4b 병렬 노드는 parallel=True 보존(ms 과장 방지)")
+    tl_par = api_rt._timeline_from_observations(
+        [
+            {"node": "a", "ms": 100, "summary": None, "parallel": True},
+            {"node": "b", "ms": 100, "summary": None, "parallel": True},
+        ]
+    )
+    check(
+        tl_par[1].get("parallel") is True and tl_par[2].get("parallel") is True,
+        "U4b 병렬 노드는 parallel=True 보존(ms 과장 방지)",
+    )
     check("parallel" not in tl[1], "U4b 직렬 노드는 parallel 키 없음(무회귀)")
 
     # U4c 비문자 키 fail-closed(codex F5) — 요약기가 예외로 죽지 않고 안전 처리.
@@ -122,26 +152,49 @@ def unit_checks() -> None:
 
     # U5 assemble_trace 3경로 우선순위 — observations > nodes > 폴백(무회귀).
     tr_obs = api_rt.assemble_trace(
-        agent_id="a", memories=[], mcp_calls=[], used_memory=False, total_ms=100,
-        tokens={"in": 1, "out": 1}, graph_nodes=["x"],
+        agent_id="a",
+        memories=[],
+        mcp_calls=[],
+        used_memory=False,
+        total_ms=100,
+        tokens={"in": 1, "out": 1},
+        graph_nodes=["x"],
         graph_observations=[{"node": "plan", "ms": 5, "summary": "S"}],
     )
-    check([n["node"] for n in tr_obs["graph"]] == ["__start__", "plan", "__end__"],
-          "U5 observations가 nodes보다 우선(풀디테일)")
+    check(
+        [n["node"] for n in tr_obs["graph"]] == ["__start__", "plan", "__end__"],
+        "U5 observations가 nodes보다 우선(풀디테일)",
+    )
     check(tr_obs["graph"][1].get("summary") == "S", "U5 observations 경로가 요약 실음")
     tr_nodes = api_rt.assemble_trace(
-        agent_id="a", memories=[], mcp_calls=[], used_memory=False, total_ms=100,
-        tokens={"in": 1, "out": 1}, graph_nodes=["plan", "execute"],  # 085 경로(요약 없음)
+        agent_id="a",
+        memories=[],
+        mcp_calls=[],
+        used_memory=False,
+        total_ms=100,
+        tokens={"in": 1, "out": 1},
+        graph_nodes=["plan", "execute"],  # 085 경로(요약 없음)
     )
-    check([n["node"] for n in tr_nodes["graph"]] == ["__start__", "plan", "execute", "__end__"],
-          "U5 observations 없으면 graph_nodes 경로(085 무회귀)")
-    check(all("summary" not in n for n in tr_nodes["graph"]), "U5 nodes 경로는 요약 없음(085 계약 불변)")
+    check(
+        [n["node"] for n in tr_nodes["graph"]] == ["__start__", "plan", "execute", "__end__"],
+        "U5 observations 없으면 graph_nodes 경로(085 무회귀)",
+    )
+    check(
+        all("summary" not in n for n in tr_nodes["graph"]),
+        "U5 nodes 경로는 요약 없음(085 계약 불변)",
+    )
     tr_fb = api_rt.assemble_trace(
-        agent_id="a", memories=[], mcp_calls=[], used_memory=False, total_ms=100,
+        agent_id="a",
+        memories=[],
+        mcp_calls=[],
+        used_memory=False,
+        total_ms=100,
         tokens={"in": 1, "out": 1},  # 둘 다 없음 → 합성 폴백
     )
-    check("call_model" in [n["node"] for n in tr_fb["graph"]],
-          "U5 둘 다 없으면 합성 폴백(원격 재개 무회귀, learning 060)")
+    check(
+        "call_model" in [n["node"] for n in tr_fb["graph"]],
+        "U5 둘 다 없으면 합성 폴백(원격 재개 무회귀, learning 060)",
+    )
 
 
 # ================================================================ [H] 통합(in-process ASGI + 실 그래프)
@@ -161,7 +214,8 @@ async def http_checks() -> None:
         acc: list[str] = []
         trace = None
         async with client.stream(
-            "POST", f"/agents/{agent_db_id}/chat",
+            "POST",
+            f"/agents/{agent_db_id}/chat",
             json={"messages": [{"role": "user", "content": text}]},
         ) as resp:
             assert resp.status_code == 200, f"chat status {resp.status_code}"
@@ -187,11 +241,18 @@ async def http_checks() -> None:
         transport=transport, base_url="http://t", headers=auth, timeout=120
     ) as c:
         # plan_execute 커스텀 에이전트 생성(자체 정리).
-        r_pe = await c.post("/agents", json={
-            "name": f"v086-plex-{uuid.uuid4().hex[:6]}",
-            "config": {"model": "mock-llm", "prompt": "", "historyDepth": 10,
-                       "impl": "plan_execute"},
-        })
+        r_pe = await c.post(
+            "/agents",
+            json={
+                "name": f"v086-plex-{uuid.uuid4().hex[:6]}",
+                "config": {
+                    "model": "mock-llm",
+                    "prompt": "",
+                    "historyDepth": 10,
+                    "impl": "plan_execute",
+                },
+            },
+        )
         check(r_pe.status_code == 201, f"H0 plan_execute 생성 201 (got {r_pe.status_code})")
         pe_id = r_pe.json()["id"]
         created_ids.append(pe_id)
@@ -200,30 +261,42 @@ async def http_checks() -> None:
         check(bool(pe_text), "H1 plan_execute 토큰 스트림")
         graph = (pe_trace or {}).get("graph", [])
         nodes = {n["node"]: n for n in graph}
-        check("plan" in nodes and "execute" in nodes, f"H1 실 노드 plan·execute (got {list(nodes)})")
+        check(
+            "plan" in nodes and "execute" in nodes, f"H1 실 노드 plan·execute (got {list(nodes)})"
+        )
 
         # H2 plan 노드 summary에 *실 계획 문자열*(자리표시 아님 — plan_execute가 주입한 고정 힌트).
         plan_sum = nodes.get("plan", {}).get("summary", "")
-        check("핵심" in plan_sum and "근거" in plan_sum,
-              f"H2 plan summary에 실 계획 문자열 (got {plan_sum!r})")
+        check(
+            "핵심" in plan_sum and "근거" in plan_sum,
+            f"H2 plan summary에 실 계획 문자열 (got {plan_sum!r})",
+        )
         # execute는 messages를 만든다 → role+본문 프리뷰(스펙 192: 그 단계 발화를 타임라인서 보이게).
         exec_sum = nodes.get("execute", {}).get("summary", "")
-        check("«" in exec_sum or "assistant" in exec_sum,
-              f"H2 execute summary=발화 role+프리뷰 (got {exec_sum!r})")
+        check(
+            "«" in exec_sum or "assistant" in exec_sum,
+            f"H2 execute summary=발화 role+프리뷰 (got {exec_sum!r})",
+        )
 
         # H3 노드별 실측 ms — plan(모델 호출 없는 결정적)은 execute(모델 호출)보다 빠르다.
         # 균등분할이면 둘이 같아야 하므로, plan<execute는 *실측*의 증거.
         plan_ms = nodes.get("plan", {}).get("ms", -1)
         exec_ms = nodes.get("execute", {}).get("ms", -1)
         check(plan_ms >= 0 and exec_ms >= 0, "H3 노드별 ms 존재")
-        check(plan_ms <= exec_ms, f"H3 실측 ms: plan({plan_ms}) ≤ execute({exec_ms}) (균등분할 아님)")
-        check(plan_ms + exec_ms <= (pe_trace or {}).get("latencyMs", 0) + 50,
-              f"H3 노드 ms 합 ≤ 전체 지연(+slack) (plan{plan_ms}+exec{exec_ms} vs {(pe_trace or {}).get('latencyMs')})")
+        check(
+            plan_ms <= exec_ms, f"H3 실측 ms: plan({plan_ms}) ≤ execute({exec_ms}) (균등분할 아님)"
+        )
+        check(
+            plan_ms + exec_ms <= (pe_trace or {}).get("latencyMs", 0) + 50,
+            f"H3 노드 ms 합 ≤ 전체 지연(+slack) (plan{plan_ms}+exec{exec_ms} vs {(pe_trace or {}).get('latencyMs')})",
+        )
 
         # H4 비밀 누출 종단 — 요약기를 거친 어떤 노드 summary에도 흔한 비밀 토큰 패턴이 없어야.
         # (이 그래프는 비밀 키 상태가 없지만, 마스킹 경로가 종단 배선됐는지 요약기 단위로 재확인.)
         leaked = api_rt._summarize_node_update("execute", {"bearer_token": "tok-LEAK-123"})
-        check("tok-LEAK-123" not in (leaked or ""), "H4 종단 요약기 비밀 마스킹(스트림 trace 누출 0)")
+        check(
+            "tok-LEAK-123" not in (leaked or ""), "H4 종단 요약기 비밀 마스킹(스트림 trace 누출 0)"
+        )
 
         for aid in created_ids:
             await c.delete(f"/agents/{aid}")
@@ -238,7 +311,9 @@ async def main() -> None:
         for f in _fails:
             print("  -", f)
         sys.exit(1)
-    print("✅ 스펙 086 노드별 세부정보 전부 통과 (요약 redaction·캡 + 노드별 실측 ms + 폴백 무회귀)")
+    print(
+        "✅ 스펙 086 노드별 세부정보 전부 통과 (요약 redaction·캡 + 노드별 실측 ms + 폴백 무회귀)"
+    )
 
 
 if __name__ == "__main__":

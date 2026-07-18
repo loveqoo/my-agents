@@ -39,21 +39,28 @@ def main() -> int:
     # C3: 마이그레이션 후 deprecation 경고가 없어야 함(빌드 경로에서 포착).
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        stub = GenericFakeChatModel(messages=iter([AIMessage(content="안녕하세요, 무엇을 도와드릴까요?")]))
+        stub = GenericFakeChatModel(
+            messages=iter([AIMessage(content="안녕하세요, 무엇을 도와드릴까요?")])
+        )
         graph = _build_with_stub(stub)
     deprecations = [
-        w for w in caught
+        w
+        for w in caught
         if issubclass(w.category, DeprecationWarning) and "create_react_agent" in str(w.message)
     ]
     if deprecations:
-        fails.append(f"C3 create_react_agent DeprecationWarning 잔존: {[str(w.message) for w in deprecations]}")
+        fails.append(
+            f"C3 create_react_agent DeprecationWarning 잔존: {[str(w.message) for w in deprecations]}"
+        )
     else:
         print("C3 PASS — create_react_agent DeprecationWarning 없음(전환 완료)")
 
     # C1: .invoke({"messages"}) → messages 키.
     result = graph.invoke({"messages": [{"role": "user", "content": "안녕"}]})
     if not (isinstance(result, dict) and "messages" in result and result["messages"]):
-        fails.append(f"C1 invoke messages 키 없음: keys={list(result) if isinstance(result, dict) else type(result)}")
+        fails.append(
+            f"C1 invoke messages 키 없음: keys={list(result) if isinstance(result, dict) else type(result)}"
+        )
     else:
         last = result["messages"][-1]
         print(f"C1 PASS — invoke messages 반환, 최종='{getattr(last, 'content', last)[:30]}'")
@@ -80,7 +87,9 @@ def main() -> int:
         for f in fails:
             print(" -", f)
         return 1
-    print("\nALL PASS — create_agent 호출계약 보존(C1 invoke, C2 astream messages, C3 no-deprecation)")
+    print(
+        "\nALL PASS — create_agent 호출계약 보존(C1 invoke, C2 astream messages, C3 no-deprecation)"
+    )
     return 0
 
 

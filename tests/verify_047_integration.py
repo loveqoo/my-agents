@@ -31,6 +31,7 @@ from api.db import SessionLocal  # noqa: E402
 from api.models import Agent, AgentVersion, ModelConfig, Provider  # noqa: E402
 from api.schemas import ModelIn  # noqa: E402
 
+VBASE = os.environ.get("VERIFY_BASE", "http://127.0.0.1:8000")  # 스펙 390: 격리 서버 주입
 _fails: list[str] = []
 _TAG = "_verify047"  # 픽스처 식별 접두사(정리용)
 
@@ -48,30 +49,41 @@ async def main() -> None:
 
         # ── I1. Provider kind/description 영속 ──────────────────────────────
         prov = Provider(
-            name=f"{_TAG}_prov", protocol="openai-compatible",
-            base_url="http://127.0.0.1:8000/_remote/v1",
+            name=f"{_TAG}_prov",
+            protocol="openai-compatible",
+            base_url=VBASE + "/_remote/v1",
             api_key=crypto.encrypt("sk-noauth"),
-            kind="mock", description="047 통합 픽스처",
+            kind="mock",
+            description="047 통합 픽스처",
         )
         s.add(prov)
         await s.commit()
         await s.refresh(prov)
         prov_id = prov.id  # 이후 commit/rollback로 ORM 객체가 만료되므로 PK는 평문으로 보관
         got = await s.get(Provider, prov_id)
-        check(got.kind == "mock" and got.description == "047 통합 픽스처",
-              "I1 Provider kind/description DB 왕복 보존")
+        check(
+            got.kind == "mock" and got.description == "047 통합 픽스처",
+            "I1 Provider kind/description DB 왕복 보존",
+        )
 
         # ── I2. available-models(등록 전) ──────────────────────────────────
         out = await providers.available_models(prov_id, s)
         check(out.reachable is True, f"I2 목 reachable (detail={out.detail!r})")
         mc = next((m for m in out.models if m.model_id == "mock-chat"), None)
-        check(mc is not None and mc.registered is False,
-              "I2 mock-chat 노출 + registered=False(미등록)")
+        check(
+            mc is not None and mc.registered is False,
+            "I2 mock-chat 노출 + registered=False(미등록)",
+        )
 
         # ── I3. ModelConfig.meta 영속 ──────────────────────────────────────
         body = ModelIn(
-            name=f"{_TAG}_model", provider_id=prov_id, model_id="mock-chat",
-            kind="chat", is_default=False, params={}, meta={"catalog_id": "x", "n": 7},
+            name=f"{_TAG}_model",
+            provider_id=prov_id,
+            model_id="mock-chat",
+            kind="chat",
+            is_default=False,
+            params={},
+            meta={"catalog_id": "x", "n": 7},
         )
         created = await model_registry.create_model(body, s)
         check(created.meta.get("n") == 7, "I3 model.meta JSONB 등록 왕복 보존")
@@ -80,14 +92,20 @@ async def main() -> None:
         # ── I4. available-models(등록 후) ──────────────────────────────────
         out2 = await providers.available_models(prov_id, s)
         mc2 = next((m for m in out2.models if m.model_id == "mock-chat"), None)
-        check(mc2 is not None and mc2.registered is True
-              and mc2.registered_name == f"{_TAG}_model" and mc2.registered_id == model_pk,
-              "I4 등록 후 mock-chat registered=True + name/id 채워짐(토글 OFF 가능)")
+        check(
+            mc2 is not None
+            and mc2.registered is True
+            and mc2.registered_name == f"{_TAG}_model"
+            and mc2.registered_id == model_pk,
+            "I4 등록 후 mock-chat registered=True + name/id 채워짐(토글 OFF 가능)",
+        )
 
         # ── I5. 삭제 가드 — 에이전트가 이름으로 참조 ──────────────────────────
         agent = Agent(
-            agent_id=f"{_TAG}_agt", name=f"{_TAG} agent",
-            model=f"{_TAG}_model", config={"model": f"{_TAG}_model"},
+            agent_id=f"{_TAG}_agt",
+            name=f"{_TAG} agent",
+            model=f"{_TAG}_model",
+            config={"model": f"{_TAG}_model"},
         )
         s.add(agent)
         await s.commit()
@@ -105,16 +123,21 @@ async def main() -> None:
         await s.delete(agent)
         await s.commit()
         agent2 = Agent(
-            agent_id=f"{_TAG}_agt2", name=f"{_TAG} agent2",
-            model="some-other-model", config={"model": "some-other-model"},
+            agent_id=f"{_TAG}_agt2",
+            name=f"{_TAG} agent2",
+            model="some-other-model",
+            config={"model": "some-other-model"},
         )
         s.add(agent2)
         await s.commit()
         await s.refresh(agent2)
-        s.add(AgentVersion(
-            agent_pk=agent2.id, version="v1",
-            config={"model": f"{_TAG}_model"},
-        ))  # status 필드는 스펙 367/369서 제거(버전 상태=Agent.active_version 포인터·ever_opened)
+        s.add(
+            AgentVersion(
+                agent_pk=agent2.id,
+                version="v1",
+                config={"model": f"{_TAG}_model"},
+            )
+        )  # status 필드는 스펙 367/369서 제거(버전 상태=Agent.active_version 포인터·ever_opened)
         await s.commit()
         ver_blocked = False
         try:
@@ -131,8 +154,15 @@ async def main() -> None:
         check(await s.get(ModelConfig, model_pk) is None, "I6 참조 해제 후 모델 삭제 성공")
 
         # ── I7. provider 삭제 RESTRICT ─────────────────────────────────────
-        m2 = ModelConfig(name=f"{_TAG}_m2", provider_id=prov_id, model_id="mock-chat",
-                         kind="chat", is_default=False, params={}, meta={})
+        m2 = ModelConfig(
+            name=f"{_TAG}_m2",
+            provider_id=prov_id,
+            model_id="mock-chat",
+            kind="chat",
+            is_default=False,
+            params={},
+            meta={},
+        )
         s.add(m2)
         await s.commit()
         await s.refresh(m2)
@@ -166,7 +196,9 @@ async def _cleanup(s) -> None:
 
     for a in (await s.execute(select(Agent).where(Agent.agent_id.like(f"{_TAG}%")))).scalars():
         await s.delete(a)
-    for m in (await s.execute(select(ModelConfig).where(ModelConfig.name.like(f"{_TAG}%")))).scalars():
+    for m in (
+        await s.execute(select(ModelConfig).where(ModelConfig.name.like(f"{_TAG}%")))
+    ).scalars():
         await s.delete(m)
     await s.flush()
     for p in (await s.execute(select(Provider).where(Provider.name.like(f"{_TAG}%")))).scalars():

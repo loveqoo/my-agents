@@ -9,6 +9,7 @@
 라이브 mem0 필터 AND 의미·실제 회상은 사용자 브랜치 통합 테스트에서 확인(스펙 020 검증 절).
 실행: .venv/bin/python tests/verify_020_memory_scope.py
 """
+
 import importlib.util
 import os
 import sys
@@ -35,7 +36,7 @@ class FakeMem:
         self.added: list[tuple] = []
 
     def search(self, query, filters, top_k):  # mem0 2.0.7 시그니처(top_k=)
-        (axis, val), = filters.items()
+        ((axis, val),) = filters.items()
         rows = [r for r in self.store if r.get(axis) == val]
         return {"results": rows[:top_k]}
 
@@ -46,6 +47,7 @@ class FakeMem:
 def with_mem(mem):
     """resolve_backend를 FakeMem 주입 Mem0Backend로 패치(실제 백엔드 병합 경로를 탄다)."""
     from api.memory.mem0_backend import Mem0Backend
+
     backend = Mem0Backend.__new__(Mem0Backend)
     backend._mem = mem
     M.resolve_backend = lambda mem_cfg: backend  # type: ignore[assignment]
@@ -58,7 +60,13 @@ def test_search() -> None:
         # alice 의 유저 기억(세션 가로지름) — user_id 만 태깅된 옛 기억
         {"id": "u1", "memory": "alice는 비건이다", "score": 0.9, "user_id": "alice"},
         # alice 의 풍부 태깅 기억 — user_id + run_id 둘 다 (양쪽 검색에 잡혀야 하나 1번만)
-        {"id": "ur1", "memory": "alice는 s1에서 파이썬을 물었다", "score": 0.8, "user_id": "alice", "run_id": "s1"},
+        {
+            "id": "ur1",
+            "memory": "alice는 s1에서 파이썬을 물었다",
+            "score": 0.8,
+            "user_id": "alice",
+            "run_id": "s1",
+        },
         # 익명 세션 s2 기억 — run_id 만
         {"id": "r2", "memory": "s2 세션의 사실", "score": 0.7, "run_id": "s2"},
         # bob 의 유저 기억
@@ -86,8 +94,10 @@ def test_search() -> None:
     # 익명(userId 없음): run_id 만 → s2 기억만, 유저 기억 안 보임
     hits2 = M.search({"user_id": None, "run_id": "s2"}, "q", {"x": 1}, limit=10)
     t2 = [h["text"] for h in hits2]
-    check(any("s2" in t for t in t2) and not any("alice" in t or "bob" in t for t in t2),
-          "익명 세션은 run_id 기억만(유저 기억 격리)")
+    check(
+        any("s2" in t for t in t2) and not any("alice" in t or "bob" in t for t in t2),
+        "익명 세션은 run_id 기억만(유저 기억 격리)",
+    )
 
     # top-k 절단: limit 적용
     hits3 = M.search({"user_id": "alice", "run_id": "s1"}, "q", {"x": 1}, limit=1)
@@ -115,8 +125,10 @@ def test_add() -> None:
         return {k: v for k, v in kw.items() if k != "infer"}
 
     M.add({"user_id": "alice", "run_id": "s1"}, msgs, {"x": 1})
-    check(m.added and axes(m.added[-1][1]) == {"user_id": "alice", "run_id": "s1"},
-          "userId 있으면 user_id+run_id 동시 태깅")
+    check(
+        m.added and axes(m.added[-1][1]) == {"user_id": "alice", "run_id": "s1"},
+        "userId 있으면 user_id+run_id 동시 태깅",
+    )
 
     M.add({"user_id": None, "run_id": "s1"}, msgs, {"x": 1})
     check(axes(m.added[-1][1]) == {"run_id": "s1"}, "userId 없으면 run_id 만 태깅")
@@ -133,20 +145,25 @@ def test_add() -> None:
 # ---------------------------------------------------------------- 마이그레이션 리맵
 def test_migration_remap() -> None:
     print("[migration] config.memories 옛→새 리맵(dedup·순서)")
-    path = os.path.join(ROOT, "packages", "api", "alembic", "versions",
-                        "c1d2e3f4a5b6_realign_memory_catalog.py")
+    path = os.path.join(
+        ROOT, "packages", "api", "alembic", "versions", "c1d2e3f4a5b6_realign_memory_catalog.py"
+    )
     spec = importlib.util.spec_from_file_location("mig020", path)
     mig = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mig)
 
     class FakeResult:
-        def __init__(self, rows): self._rows = rows
-        def fetchall(self): return self._rows
+        def __init__(self, rows):
+            self._rows = rows
+
+        def fetchall(self):
+            return self._rows
 
     class FakeConn:
         def __init__(self, rows_by_table):
             self.rows = rows_by_table
             self.updates: list[tuple] = []
+
         def execute(self, stmt, params=None):
             sql = str(stmt)
             if sql.strip().upper().startswith("SELECT"):
@@ -156,27 +173,34 @@ def test_migration_remap() -> None:
                 self.updates.append((sql, params))
             return None
 
-    conn = FakeConn({
-        "agents": [
-            ("a1", {"memories": ["단기(세션)", "장기·일화적", "절차적"], "historyDepth": 40}),
-            ("a2", {"memories": ["단기(세션)", "장기·의미론적"]}),
-            ("a3", {"memories": ["단기(세션)"]}),  # 변경 없음 → UPDATE 안 나야
-        ],
-        "agent_versions": [],
-    })
+    conn = FakeConn(
+        {
+            "agents": [
+                ("a1", {"memories": ["단기(세션)", "장기·일화적", "절차적"], "historyDepth": 40}),
+                ("a2", {"memories": ["단기(세션)", "장기·의미론적"]}),
+                ("a3", {"memories": ["단기(세션)"]}),  # 변경 없음 → UPDATE 안 나야
+            ],
+            "agent_versions": [],
+        }
+    )
     mig._remap_memories(conn, mig._RENAME)
 
     updated = {p["id"]: p for _sql, p in conn.updates}
     import json
+
     check("a1" in updated, "a1(일화/절차) 업데이트됨")
     if "a1" in updated:
         mems = json.loads(updated["a1"]["c"])["memories"]
-        check(mems == ["단기(세션)", "장기 기억 (mem0)"],
-              "일화+절차 → 장기 기억(mem0)로 흡수·중복 제거·순서 보존")
-        check("historyDepth" in json.loads(updated["a1"]["c"]),
-              "config 의 다른 키 보존")
-    check("a2" in updated and json.loads(updated["a2"]["c"])["memories"] == ["단기(세션)", "장기 기억 (mem0)"],
-          "의미론적 → 장기 기억(mem0)")
+        check(
+            mems == ["단기(세션)", "장기 기억 (mem0)"],
+            "일화+절차 → 장기 기억(mem0)로 흡수·중복 제거·순서 보존",
+        )
+        check("historyDepth" in json.loads(updated["a1"]["c"]), "config 의 다른 키 보존")
+    check(
+        "a2" in updated
+        and json.loads(updated["a2"]["c"])["memories"] == ["단기(세션)", "장기 기억 (mem0)"],
+        "의미론적 → 장기 기억(mem0)",
+    )
     check("a3" not in updated, "변경 없는 행은 UPDATE 안 함")
 
 

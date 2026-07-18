@@ -21,7 +21,7 @@ import uuid
 
 import httpx
 
-BASE = os.environ.get("API_BASE", "http://127.0.0.1:8000")
+BASE = os.environ.get("VERIFY_BASE", "http://127.0.0.1:8000")  # 스펙 390: 격리 서버 주입
 EMAIL = os.environ.get("ADMIN_EMAIL", "admin@example.com")
 PASSWORD = os.environ.get("ADMIN_PASSWORD", "adminpass123")
 
@@ -49,9 +49,7 @@ def main() -> None:
 
     def run_eval(aid: str, ds: str, version: str) -> dict:
         """실 지정 평가 실행 + 완료까지 폴링(백그라운드 순차 실행)."""
-        r = cli.post(
-            f"/eval/datasets/{ds}/runs", json={"agent_id": aid, "agent_version": version}
-        )
+        r = cli.post(f"/eval/datasets/{ds}/runs", json={"agent_id": aid, "agent_version": version})
         r.raise_for_status()
         run_id = r.json()["id"]
         for _ in range(120):
@@ -64,8 +62,17 @@ def main() -> None:
     # UI 에이전트(source=ui 기본) + 실 평가용 데이터셋(케이스 no_error → 결정적 ok·score=1.0)
     a = cli.post(
         "/agents",
-        json={"name": f"v373-{tag}", "config": {"model": "mock-llm", "prompt": "", "memories": [],
-                                                 "vectorTables": [], "mcps": [], "historyDepth": 10}},
+        json={
+            "name": f"v373-{tag}",
+            "config": {
+                "model": "mock-llm",
+                "prompt": "",
+                "memories": [],
+                "vectorTables": [],
+                "mcps": [],
+                "historyDepth": 10,
+            },
+        },
     ).json()
     aid = a["id"]
     ds = cli.post("/eval/datasets", json={"name": f"v373-ds-{tag}", "kind": "agent"}).json()
@@ -82,7 +89,9 @@ def main() -> None:
 
         # 편집 → v2 스크래치. 게이트 on(1회·점수 무관 — 결정적 통과 점수 불필요).
         cfg = a["versions"][0]["config"]
-        cli.put(f"/agents/{aid}", json={"name": f"v373-{tag}", "config": {**cfg, "historyDepth": 12}}).raise_for_status()
+        cli.put(
+            f"/agents/{aid}", json={"name": f"v373-{tag}", "config": {**cfg, "historyDepth": 12}}
+        ).raise_for_status()
         v2 = scratch_ver(aid)
         set_gate(1, 0)
 
@@ -92,7 +101,9 @@ def main() -> None:
 
         # ── D1 — 미오픈 스크래치 v2를 **실제** 지정 평가 ───────────────────────────────
         got = run_eval(aid, ds_id, v2)
-        check(got.get("status") == "ok", f"D1 실 지정 평가 완료(status=ok) (got {got.get('status')})")
+        check(
+            got.get("status") == "ok", f"D1 실 지정 평가 완료(status=ok) (got {got.get('status')})"
+        )
         check(
             got.get("agent_version") == v2,
             f"D1 실 런이 스크래치({v2})로 태깅 — active(v1) 아님 (got {got.get('agent_version')})",
@@ -108,7 +119,9 @@ def main() -> None:
         check(r.status_code == 200, f"D2 실 ok 런 1건 후 스크래치 오픈 200 (got {r.status_code})")
 
         # ── D3 — 버전별 귀속: 다음 스크래치는 실적 0이라 여전히 400 ──────────────────
-        cli.put(f"/agents/{aid}", json={"name": f"v373-{tag}", "config": {**cfg, "historyDepth": 14}}).raise_for_status()
+        cli.put(
+            f"/agents/{aid}", json={"name": f"v373-{tag}", "config": {**cfg, "historyDepth": 14}}
+        ).raise_for_status()
         v3 = scratch_ver(aid)
         r = cli.post(f"/agents/{aid}/activate", json={"version": v3})
         check(

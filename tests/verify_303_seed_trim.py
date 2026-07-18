@@ -31,8 +31,13 @@ def main() -> None:
     collection_names = {c[0] for c in seed.COLLECTIONS}
 
     # ── C. 카운트(트림 후 정예) ────────────────────────────────────────────
-    check(len(seed.PROMPTS) == 2, f"C 프롬프트 2 (현재 {len(seed.PROMPTS)}: {sorted(prompt_names)})")
-    check(len(seed.COLLECTIONS) == 3, f"C 컬렉션 3 (현재 {len(seed.COLLECTIONS)}: {sorted(collection_names)})")
+    check(
+        len(seed.PROMPTS) == 2, f"C 프롬프트 2 (현재 {len(seed.PROMPTS)}: {sorted(prompt_names)})"
+    )
+    check(
+        len(seed.COLLECTIONS) == 3,
+        f"C 컬렉션 3 (현재 {len(seed.COLLECTIONS)}: {sorted(collection_names)})",
+    )
     check(len(seed.SESSIONS) == 0, f"C 세션 0 (현재 {len(seed.SESSIONS)})")
     check(len(seed.APPROVALS) == 0, f"C 승인 0 (현재 {len(seed.APPROVALS)})")
 
@@ -46,8 +51,8 @@ def main() -> None:
     ref_prompts: set[str] = set()
     ref_vts: set[str] = set()
     for row in seed.AGENTS:
-        ref_prompts.add(row[5])   # prompt 키
-        ref_vts.update(row[8])     # vectorTables
+        ref_prompts.add(row[5])  # prompt 키
+        ref_vts.update(row[8])  # vectorTables
     # plan-execute 데모(별도 시드 함수)는 prompt="methodical-researcher"·vectorTables=[] 고정.
     ref_prompts.add("methodical-researcher")
 

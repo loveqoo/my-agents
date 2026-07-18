@@ -100,9 +100,7 @@ async def main() -> None:
         # ── F1: 코드가 모르는 리비전 → fail-fast + 부수효과 0 ──
         conn = await asyncpg.connect(_pg_dsn(base, db_broken))
         try:
-            await conn.execute(
-                "CREATE TABLE alembic_version (version_num VARCHAR(32) PRIMARY KEY)"
-            )
+            await conn.execute("CREATE TABLE alembic_version (version_num VARCHAR(32) PRIMARY KEY)")
             await conn.execute("INSERT INTO alembic_version VALUES ('deadbeef')")
         finally:
             await conn.close()
@@ -112,7 +110,8 @@ async def main() -> None:
         check("마이그레이션 실패" in out1 and "alembic current" in out1, "F1b 조치 메시지 출력")
         check("폴백" not in out1.replace("폴백 없음", ""), "F1c '폴백합니다' 류 문구 부재")
         tables = await _q(
-            base, db_broken,
+            base,
+            db_broken,
             "SELECT table_name FROM information_schema.tables WHERE table_schema='public'",
         )
         names = sorted(t[0] for t in tables)
@@ -129,7 +128,8 @@ async def main() -> None:
         ver2 = await _q(base, db_virgin, "SELECT version_num FROM alembic_version")
         check(ver2[0][0] == head, f"F2c alembic_version==파일 head({head}) (got {ver2[0][0]})")
         cols = await _q(
-            base, db_virgin,
+            base,
+            db_virgin,
             "SELECT column_name FROM information_schema.columns WHERE table_name='rag_chunks'",
         )
         colnames = sorted(c[0] for c in cols)
@@ -145,10 +145,11 @@ async def main() -> None:
         # ── F4: 확장 선설치 없는 DB → 마이그레이션이 확장까지 보장 ──
         r4 = _boot(_sa_url(base, db_noext))
         out4 = r4.stdout + r4.stderr
-        check(r4.returncode == 0, f"F4a 확장 미설치 DB 부팅 성공 (rc={r4.returncode}, tail={out4[-300:]})")
-        ext = await _q(
-            base, db_noext, "SELECT extname FROM pg_extension WHERE extname='vector'"
+        check(
+            r4.returncode == 0,
+            f"F4a 확장 미설치 DB 부팅 성공 (rc={r4.returncode}, tail={out4[-300:]})",
         )
+        ext = await _q(base, db_noext, "SELECT extname FROM pg_extension WHERE extname='vector'")
         check(bool(ext), "F4b vector 확장이 마이그레이션으로 생성됨(b2c3d4e5f6a7 승계)")
     finally:
         await _drop(base, db_broken)

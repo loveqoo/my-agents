@@ -13,6 +13,7 @@
 
 실행: .venv/bin/python tests/verify_055_session_agent_filter.py
 """
+
 import asyncio
 import os
 import sys
@@ -102,8 +103,22 @@ async def main() -> None:
         # created_at을 명시적으로 어긋나게 — '첫 사용자 메시지' 판정을 결정적으로(동일 트랜잭션
         # server_default면 타임스탬프가 같아 정렬이 모호해진다).
         sess.add(Message(session_pk=s000.id, role="user", content=long_first, created_at=mbase))
-        sess.add(Message(session_pk=s000.id, role="assistant", content="답변1", created_at=mbase + timedelta(seconds=1)))
-        sess.add(Message(session_pk=s000.id, role="user", content="두번째질문-무시되어야함", created_at=mbase + timedelta(seconds=2)))
+        sess.add(
+            Message(
+                session_pk=s000.id,
+                role="assistant",
+                content="답변1",
+                created_at=mbase + timedelta(seconds=1),
+            )
+        )
+        sess.add(
+            Message(
+                session_pk=s000.id,
+                role="user",
+                content="두번째질문-무시되어야함",
+                created_at=mbase + timedelta(seconds=2),
+            )
+        )
         await sess.commit()
 
     transport = httpx.ASGITransport(app=app)
@@ -118,8 +133,10 @@ async def main() -> None:
             a_seen = {s["id"] for s in a_items}
             check(a_ids <= a_seen, f"주입한 A {len(a_ids)}건 모두 반환(got {len(a_ids & a_seen)})")
             check(len(b_ids & a_seen) == 0, "B 세션 누출 0(A 필터에 B 없음)")
-            check(all(s["agentId"] == a_ext for s in a_items),
-                  "A 필터 items 전부 agentId==A(타 에이전트 0)")
+            check(
+                all(s["agentId"] == a_ext for s in a_items),
+                "A 필터 items 전부 agentId==A(타 에이전트 0)",
+            )
 
             # --- preview: 첫 사용자 메시지가 80자 절단+'…'로 라벨화(스펙 055 사용자 피드백) ---
             print("[preview] 첫 사용자 메시지 → 사람이 알아볼 라벨(80자 절단)")
@@ -127,16 +144,24 @@ async def main() -> None:
             check(s000_out is not None, "A_000 세션이 응답에 존재")
             if s000_out:
                 pv = s000_out["preview"]
-                check(pv is not None and pv.startswith("사용자가-처음-보낸-매우-긴-질문-"),
-                      f"preview가 첫 사용자 메시지로 시작(got {pv!r})")
-                check(pv is not None and len(pv) == 81 and pv.endswith("…"),
-                      f"긴 메시지는 80자+'…'로 절단(len={len(pv) if pv else 0})")
-                check(pv is not None and "두번째질문" not in pv,
-                      "두번째 사용자 메시지는 preview에 안 들어감(첫 것만)")
+                check(
+                    pv is not None and pv.startswith("사용자가-처음-보낸-매우-긴-질문-"),
+                    f"preview가 첫 사용자 메시지로 시작(got {pv!r})",
+                )
+                check(
+                    pv is not None and len(pv) == 81 and pv.endswith("…"),
+                    f"긴 메시지는 80자+'…'로 절단(len={len(pv) if pv else 0})",
+                )
+                check(
+                    pv is not None and "두번째질문" not in pv,
+                    "두번째 사용자 메시지는 preview에 안 들어감(첫 것만)",
+                )
             # 메시지 없는 세션은 preview=None(빈 세션).
             s001_out = next((s for s in a_items if s["id"] == f"{PREFIX}A_001"), None)
-            check(s001_out is not None and s001_out["preview"] is None,
-                  "메시지 없는 세션 → preview=None")
+            check(
+                s001_out is not None and s001_out["preview"] is None,
+                "메시지 없는 세션 → preview=None",
+            )
 
             # --- 2. agent_id=B → B만 ---
             print("[filter] agent_id=B → B 세션만(A 누출 0)")
@@ -144,14 +169,17 @@ async def main() -> None:
             b_seen = {s["id"] for s in b_items}
             check(b_ids <= b_seen, f"주입한 B {len(b_ids)}건 모두 반환(got {len(b_ids & b_seen)})")
             check(len(a_ids & b_seen) == 0, "A 세션 누출 0(B 필터에 A 없음)")
-            check(all(s["agentId"] == b_ext for s in b_items),
-                  "B 필터 items 전부 agentId==B")
+            check(all(s["agentId"] == b_ext for s in b_items), "B 필터 items 전부 agentId==B")
 
             # --- 3. 미지의 agent_id → 빈 목록 ---
             print("[filter] 미지의 agent_id → items=[]·total=0(404 아님)")
-            r_unknown = (await c.get("/sessions", params={"agent_id": "agt_does_not_exist_zzz"})).json()
-            check(r_unknown["items"] == [] and r_unknown["total"] == 0,
-                  f"미지의 id → 빈 목록(items={len(r_unknown['items'])}, total={r_unknown['total']})")
+            r_unknown = (
+                await c.get("/sessions", params={"agent_id": "agt_does_not_exist_zzz"})
+            ).json()
+            check(
+                r_unknown["items"] == [] and r_unknown["total"] == 0,
+                f"미지의 id → 빈 목록(items={len(r_unknown['items'])}, total={r_unknown['total']})",
+            )
 
             # --- 4. counts 전역(필터 무관) ---
             print("[counts] agent_id 유무와 무관하게 counts 동일(전역)")
@@ -169,10 +197,20 @@ async def main() -> None:
             print("[combo] status=live + agent_id=A → A의 live만(6건)")
             la_items, la_total, _ = await _all_items(c, {"status": "live", "agent_id": a_ext})
             la_seen = {s["id"] for s in la_items}
-            a_live = {f"{PREFIX}A_{i:03d}" for i, st in enumerate(_A_DIST) if st in ("active", "running", "draining")}
+            a_live = {
+                f"{PREFIX}A_{i:03d}"
+                for i, st in enumerate(_A_DIST)
+                if st in ("active", "running", "draining")
+            }
             check(a_live <= la_seen, f"A의 live {len(a_live)}건 모두 포함")
-            check(len({f'{PREFIX}A_{i:03d}' for i, st in enumerate(_A_DIST) if st == 'completed'} & la_seen) == 0,
-                  "A의 completed는 live 필터에서 제외")
+            check(
+                len(
+                    {f"{PREFIX}A_{i:03d}" for i, st in enumerate(_A_DIST) if st == "completed"}
+                    & la_seen
+                )
+                == 0,
+                "A의 completed는 live 필터에서 제외",
+            )
             check(len(b_ids & la_seen) == 0, "live+A 교집합에 B 누출 0")
     finally:
         async with async_session() as sess:

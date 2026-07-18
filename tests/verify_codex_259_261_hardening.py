@@ -8,10 +8,16 @@
 
 실행: uv run --project packages/api python tests/verify_codex_259_261_hardening.py
 """
+
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "packages", "api", "src"))
+sys.path.insert(
+    0,
+    os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "packages", "api", "src"
+    ),
+)
 
 from pydantic import ValidationError  # noqa: E402
 
@@ -20,11 +26,14 @@ from api.schemas import AgentConfig  # noqa: E402
 _fails = []
 passed = 0
 
+
 def check(cond, msg):
     global passed
     print(("  ok  " if cond else " FAIL ") + msg)
-    if cond: passed += 1
-    else: _fails.append(msg)
+    if cond:
+        passed += 1
+    else:
+        _fails.append(msg)
 
 
 def _nodes(cfg):
@@ -47,13 +56,32 @@ def main():
     check(n[0] == {"prompt": "p"}, f"H1 알려진 키만 남음 (got {n[0]})")
 
     # H2 알려진 필드 보존
-    n = _nodes([{
-        "name": "분석", "prompt": "P", "model": "gpt", "tools": ["add"],
-        "context": "clean", "format": "json", "fields": ["title"],
-    }])
-    check(n[0] == {"name": "분석", "prompt": "P", "model": "gpt", "tools": ["add"],
-                   "context": "clean", "format": "json", "fields": ["title"]},
-          f"H2 알려진 필드 라운드트립 (got {n[0]})")
+    n = _nodes(
+        [
+            {
+                "name": "분석",
+                "prompt": "P",
+                "model": "gpt",
+                "tools": ["add"],
+                "context": "clean",
+                "format": "json",
+                "fields": ["title"],
+            }
+        ]
+    )
+    check(
+        n[0]
+        == {
+            "name": "분석",
+            "prompt": "P",
+            "model": "gpt",
+            "tools": ["add"],
+            "context": "clean",
+            "format": "json",
+            "fields": ["title"],
+        },
+        f"H2 알려진 필드 라운드트립 (got {n[0]})",
+    )
 
     # H3 값 화이트리스트 — context/format 잡값 드롭
     n = _nodes([{"prompt": "P", "context": "hacker", "format": "yaml"}])
@@ -68,7 +96,9 @@ def main():
 
     # H5 리스트 내 잡값 정리
     n = _nodes([{"prompt": "P", "tools": ["ok", 123, "y" * 201, "ok2"]}])
-    check(n[0]["tools"] == ["ok", "ok2"], f"H5 tools 비문자열·과길이 원소 제거 (got {n[0]['tools']})")
+    check(
+        n[0]["tools"] == ["ok", "ok2"], f"H5 tools 비문자열·과길이 원소 제거 (got {n[0]['tools']})"
+    )
 
     # 빈 prompt 여전히 거부(기존)
     _rejects([{"prompt": "   "}], "H4 빈 prompt 거부(기존)")

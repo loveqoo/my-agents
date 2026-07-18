@@ -10,6 +10,7 @@
 재사용: 새 자산 추가 후 인덱스 갱신 누락을 사후 탐지하는 회귀 검사로도 쓴다.
 실행: python3 tests/verify_043_index.py  (저장소 루트에서)
 """
+
 import os
 import re
 import sys
@@ -21,14 +22,19 @@ ROOT = os.path.abspath(os.path.join(HERE, ".."))
 TARGETS = [
     (os.path.join(ROOT, ".dev/learning"), os.path.join(ROOT, ".dev/learning/INDEX.md"), None),
     (os.path.join(ROOT, ".dev/retrospect"), os.path.join(ROOT, ".dev/retrospect/INDEX.md"), None),
-    (os.path.join(ROOT, "docs/spec"), os.path.join(ROOT, "docs/spec/INDEX.md"),
-     os.path.join(ROOT, "docs/spec/archive")),
+    (
+        os.path.join(ROOT, "docs/spec"),
+        os.path.join(ROOT, "docs/spec/INDEX.md"),
+        os.path.join(ROOT, "docs/spec/archive"),
+    ),
 ]
 
 NNN_FILE = re.compile(r"^(\d{3})-.*\.md$")
 NNN_LINE = re.compile(r"^- (\d{3}) ")
 
 failures = []
+
+
 def check(cond, msg):
     if not cond:
         failures.append(msg)
@@ -60,8 +66,10 @@ for d, index_path, archive in TARGETS:
     entry_nnns = [NNN_LINE.match(ln).group(1) for ln in lines if NNN_LINE.match(ln)]
 
     # (a) 줄 수 == 파일 수
-    check(len(entry_nnns) == len(files),
-          f"[{label}] 인덱스 항목 {len(entry_nnns)}개 != 실제 파일 {len(files)}개")
+    check(
+        len(entry_nnns) == len(files),
+        f"[{label}] 인덱스 항목 {len(entry_nnns)}개 != 실제 파일 {len(files)}개",
+    )
 
     # (b) 일대일 (중복 없음, 양방향 일치)
     dup = {n for n in entry_nnns if entry_nnns.count(n) > 1}

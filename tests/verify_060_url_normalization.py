@@ -55,7 +55,10 @@ def expect_error(raw, *, base=None, must_mention="http"):
         got = normalize_http_url(raw, base=base)
         check(False, f"normalize({raw!r}, base={base!r}) = {got!r} (기대 ValueError)")
     except ValueError as exc:
-        check(must_mention in str(exc), f"normalize({raw!r}) ValueError에 {must_mention!r} 포함: {exc}")
+        check(
+            must_mention in str(exc),
+            f"normalize({raw!r}) ValueError에 {must_mention!r} 포함: {exc}",
+        )
 
 
 # C1 — 스킴 없는 host:port[/path] → http:// 전치
@@ -64,8 +67,12 @@ expect_value("example.com/agents/x/a2a", "http://example.com/agents/x/a2a")
 expect_value("localhost:8000", "http://localhost:8000")
 
 # C2 — `/path` 상대 + base → resolve
-expect_value("/agents/x/a2a", "http://127.0.0.1:8000/agents/x/a2a", base="http://127.0.0.1:8000/foo")
-expect_value("/a2a", "https://host.example/a2a", base="https://host.example/.well-known/agent-card.json")
+expect_value(
+    "/agents/x/a2a", "http://127.0.0.1:8000/agents/x/a2a", base="http://127.0.0.1:8000/foo"
+)
+expect_value(
+    "/a2a", "https://host.example/a2a", base="https://host.example/.well-known/agent-card.json"
+)
 
 # C3 — 이미 절대 → 불변
 expect_value("https://api.acme.com/a2a", "https://api.acme.com/a2a")
@@ -74,14 +81,14 @@ expect_value("http://127.0.0.1:8000/_remote/a2a", "http://127.0.0.1:8000/_remote
 # C4 — 정규화 불가
 expect_error("")
 expect_error("   ")
-expect_error("ftp://host/x")        # 비-http 스킴
-expect_error("://host/x")           # 스킴 없는 `://`
-expect_error("/relative/no/base")   # base 없는 상대경로
+expect_error("ftp://host/x")  # 비-http 스킴
+expect_error("://host/x")  # 스킴 없는 `://`
+expect_error("/relative/no/base")  # base 없는 상대경로
 
 # 엣지(codex 적대 점검축) — 스킴-상대·IPv6·포트-only
-expect_value("//host.example/a2a", "http://host.example/a2a")          # 스킴-상대 → http
-expect_value("[::1]:8000/a2a", "http://[::1]:8000/a2a")                 # IPv6 리터럴
-expect_error(":8000/a2a")                                              # 포트-only(호스트 없음)
+expect_value("//host.example/a2a", "http://host.example/a2a")  # 스킴-상대 → http
+expect_value("[::1]:8000/a2a", "http://[::1]:8000/a2a")  # IPv6 리터럴
+expect_error(":8000/a2a")  # 포트-only(호스트 없음)
 
 # C5 — 보안 불변: 정규화된 사설/루프백도 guard_url(allowlist 없음)이 차단
 for raw in ("127.0.0.1:9000/a2a", "10.0.0.5:80/x", "192.168.1.2/a2a", "[::1]:8000/a2a"):

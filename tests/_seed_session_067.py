@@ -7,6 +7,7 @@
 member의 세션 뷰가 *자기 것만*(own) 보이고 타인(other)은 숨는지 브라우저로 확인하기 위한 합성 데이터.
 실행(packages/api 기준): uv run python tests/_seed_session_067.py seed <email>
 """
+
 import asyncio
 import os
 import sys
@@ -46,8 +47,13 @@ async def _seed(email: str) -> None:
             (OWN, str(member_id), "내 비밀 대화"),
             (OTHER, str(uuid.uuid4()), "남의 비밀 대화"),
         ]:
-            sess = Session(session_id=sid, agent_pk=agent.id, agent_name="probe067shot",
-                           user_id=owner, status="active")
+            sess = Session(
+                session_id=sid,
+                agent_pk=agent.id,
+                agent_name="probe067shot",
+                user_id=owner,
+                status="active",
+            )
             s.add(sess)
             await s.flush()
             s.add(Message(session_pk=sess.id, role="user", content=msg))

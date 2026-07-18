@@ -16,6 +16,7 @@ seed+restart 절차로 별도 수행(스펙 066 검증 노트).
 
 실행: .venv/bin/python tests/verify_066_live.py  (API 서버 떠 있어야 함)
 """
+
 import asyncio
 import os
 import subprocess
@@ -33,7 +34,7 @@ load_dotenv(os.path.join(ROOT, ".env"))
 from api.db import SessionLocal  # noqa: E402
 from api.models import Approval, User  # noqa: E402
 
-BASE = "http://127.0.0.1:8000"
+BASE = os.environ.get("VERIFY_BASE", "http://127.0.0.1:8000")  # 스펙 390: 격리 서버 주입
 MACHINE = (os.environ.get("API_AUTH_TOKEN") or "").strip()
 PY = os.path.join(ROOT, ".venv", "bin", "python")
 PROV = os.path.join(ROOT, "tests", "_provision_super.py")
@@ -76,12 +77,21 @@ async def _insert_approvals(member_id: str, super_id: str) -> dict:
         for i, (k, (uid, perm)) in enumerate(rows.items()):
             apid = f"{PREFIX}{i}"
             ids[k] = apid
-            s.add(Approval(
-                approval_id=apid, session_id="sess-066t", user_id=uid,
-                agent_pk=None, agent_name="probe066", permission=perm,
-                action=f"{perm}.action", args={}, summary="probe066", checkpoint=None,
-                status="pending",
-            ))
+            s.add(
+                Approval(
+                    approval_id=apid,
+                    session_id="sess-066t",
+                    user_id=uid,
+                    agent_pk=None,
+                    agent_name="probe066",
+                    permission=perm,
+                    action=f"{perm}.action",
+                    args={},
+                    summary="probe066",
+                    checkpoint=None,
+                    status="pending",
+                )
+            )
         await s.commit()
     return ids
 
@@ -93,8 +103,11 @@ async def _cleanup_db() -> None:
 
 
 async def _login(client: httpx.AsyncClient, email: str) -> bool:
-    r = await client.post("/auth/login", data={"username": email, "password": PW},
-                          headers={"Content-Type": "application/x-www-form-urlencoded"})
+    r = await client.post(
+        "/auth/login",
+        data={"username": email, "password": PW},
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
     return r.status_code in (200, 204)
 
 
@@ -111,9 +124,13 @@ async def main() -> None:
     async with httpx.AsyncClient(base_url=BASE, timeout=10) as mc:
         mc.headers["Authorization"] = f"Bearer {MACHINE}"
         pre = await mc.get("/approvals")
-        check(pre.status_code == 200, f"PRE: 머신 토큰 GET /approvals 200 (서버 생존) — got {pre.status_code}")
+        check(
+            pre.status_code == 200,
+            f"PRE: 머신 토큰 GET /approvals 200 (서버 생존) — got {pre.status_code}",
+        )
         if pre.status_code != 200:
-            print("❌ 전제 실패 — 서버/토큰. 종료."); sys.exit(1)
+            print("❌ 전제 실패 — 서버/토큰. 종료.")
+            sys.exit(1)
 
     _provision(create=True)
     try:
@@ -149,13 +166,24 @@ async def main() -> None:
 
             # ---- L4 resolve 인가(member 쿠키): 전부 거부(기본 fail-closed) ----
             async def mresolve(apid):
-                return (await member.post(f"/approvals/{apid}/resolve", json={"decision": "approve"})).status_code
+                return (
+                    await member.post(f"/approvals/{apid}/resolve", json={"decision": "approve"})
+                ).status_code
 
             # 비가시 행(타인·NULL-owner)은 404로 통일 — 존재 은폐(열거 오라클 차단, 적대리뷰 Low#1).
-            check(await mresolve(ids["others"]) == 404, "L4(T1): member가 타인 행 resolve → 404(존재 은폐)")
-            check(await mresolve(ids["null_owner"]) == 404, "L4(T2): member가 NULL-owner 행 resolve → 404(존재 은폐)")
+            check(
+                await mresolve(ids["others"]) == 404,
+                "L4(T1): member가 타인 행 resolve → 404(존재 은폐)",
+            )
+            check(
+                await mresolve(ids["null_owner"]) == 404,
+                "L4(T2): member가 NULL-owner 행 resolve → 404(존재 은폐)",
+            )
             # 자기 행이지만 민감 perm → 403(목록에 보여 존재는 이미 알려짐, 권한만 부족).
-            check(await mresolve(ids["own_delete"]) == 403, "L4: member가 자기 민감 perm(data.delete) → 403")
+            check(
+                await mresolve(ids["own_delete"]) == 403,
+                "L4: member가 자기 민감 perm(data.delete) → 403",
+            )
             check(
                 await mresolve(ids["own_read"]) == 403,
                 "L4(핵심): member가 자기 data.read도 → 403 (정책 부재=enforce 실제 소비, fail-closed)",
@@ -163,14 +191,27 @@ async def main() -> None:
             check(await mresolve("apr-066t-nope") == 404, "L4: 없는 approval_id → 404")
 
             # ---- L5 super(admin)는 민감 perm여도 승인(200) ----
-            sd = (await superc.post(f"/approvals/{ids['own_delete']}/resolve", json={"decision": "approve"})).status_code
-            check(sd == 200, f"L5: super가 민감 perm(data.delete) resolve → 200(admin 우선) — got {sd}")
+            sd = (
+                await superc.post(
+                    f"/approvals/{ids['own_delete']}/resolve", json={"decision": "approve"}
+                )
+            ).status_code
+            check(
+                sd == 200,
+                f"L5: super가 민감 perm(data.delete) resolve → 200(admin 우선) — got {sd}",
+            )
 
             # ---- L6 머신 토큰 전체 승인(200) ----
-            mc6 = (await machine.post(f"/approvals/{ids['own_read']}/resolve", json={"decision": "approve"})).status_code
+            mc6 = (
+                await machine.post(
+                    f"/approvals/{ids['own_read']}/resolve", json={"decision": "approve"}
+                )
+            ).status_code
             check(mc6 == 200, f"L6: 머신 토큰 resolve → 200(전체) — got {mc6}")
         finally:
-            await member.aclose(); await superc.aclose(); await machine.aclose()
+            await member.aclose()
+            await superc.aclose()
+            await machine.aclose()
     finally:
         await _cleanup_db()
         _provision(create=False)

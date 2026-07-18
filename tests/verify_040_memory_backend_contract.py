@@ -12,6 +12,7 @@
 라이브 mem0 라운드트립은 verify_039(실 add/delete/list) + 브라우저 CRUD에서 확인(스펙 040 §5).
 실행: .venv/bin/python tests/verify_040_memory_backend_contract.py
 """
+
 import os
 import sys
 
@@ -49,7 +50,7 @@ class Mem0Sim:
             self.recs.append({"id": f"m0-{self._seq}", "memory": text, "axes": dict(axes)})
 
     def _match(self, rec, filters):
-        (axis, val), = filters.items()
+        ((axis, val),) = filters.items()
         return rec["axes"].get(axis) == val
 
     def search(self, query, filters, top_k):
@@ -63,7 +64,9 @@ class Mem0Sim:
     def get_all(self, filters, top_k=20):
         # 실제 mem0 시그니처 미러(top_k 기본 20 = 미지정 시 잘림) — 어댑터가 top_k를 명시하는지가
         # 계약의 일부(스펙 127: 미지정이 21번째부터 조용히 자르던 버그).
-        rows = [{"id": r["id"], "memory": r["memory"]} for r in self.recs if self._match(r, filters)]
+        rows = [
+            {"id": r["id"], "memory": r["memory"]} for r in self.recs if self._match(r, filters)
+        ]
         return {"results": rows[:top_k]}
 
     def update(self, memory_id, data):
@@ -97,7 +100,11 @@ def run_contract(name: str, make_backend) -> None:
     # F1 user_id=alice / F2 run_id=s1 / F3 alice+s1(양축) / F4 user_id=bob
     b.add({"user_id": "alice"}, [{"role": "user", "content": "alice는 비건이다"}], True)
     b.add({"run_id": "s1"}, [{"role": "user", "content": "세션 사실 파이썬"}], True)
-    b.add({"user_id": "alice", "run_id": "s1"}, [{"role": "user", "content": "공유 사실 파이썬 비건"}], True)
+    b.add(
+        {"user_id": "alice", "run_id": "s1"},
+        [{"role": "user", "content": "공유 사실 파이썬 비건"}],
+        True,
+    )
     b.add({"user_id": "bob"}, [{"role": "user", "content": "bob의 매운맛 사실"}], True)
 
     # list_all: 합집합(F1,F2,F3) + 격리(bob 없음) + dedup(F3 1회)
@@ -115,21 +122,31 @@ def run_contract(name: str, make_backend) -> None:
     check(any("세션 사실" in t for t in ht), f"{name}: run_id 기억 회상(F2)")
     check(any("공유 사실" in t for t in ht), f"{name}: 양축 기억 회상(F3)")
     check(sum(1 for t in ht if "공유 사실" in t) == 1, f"{name}: 양축 기억 dedup(1회)")
-    check(all(h["scope"] in ("user_id", "run_id", "agent_id") for h in hits), f"{name}: hit scope 축 태깅")
+    check(
+        all(h["scope"] in ("user_id", "run_id", "agent_id") for h in hits),
+        f"{name}: hit scope 축 태깅",
+    )
     check(all(set(h) == {"type", "text", "score", "scope"} for h in hits), f"{name}: hit shape")
     check(not any("매운맛" in t for t in ht), f"{name}: search 격리(bob 없음)")
     scores = [h["score"] for h in hits]
     check(scores == sorted(scores, reverse=True), f"{name}: score 내림차순 정렬")
 
     # top-k 절단 / 빈 질의·스코프
-    check(len(b.search({"user_id": "alice", "run_id": "s1"}, "파이썬", 1)) == 1, f"{name}: top-k 절단")
+    check(
+        len(b.search({"user_id": "alice", "run_id": "s1"}, "파이썬", 1)) == 1, f"{name}: top-k 절단"
+    )
     check(b.search({"user_id": "alice"}, "", 10) == [], f"{name}: 빈 질의 → []")
     check(b.search({}, "q", 10) == [], f"{name}: 빈 스코프 search → []")
 
     # 빈 스코프 add 무저장
     b.add({}, [{"role": "user", "content": "orphan 파이썬"}], True)
-    check(not any("orphan" in h["text"] for h in b.search({"user_id": "alice", "run_id": "s1"}, "orphan", 10)),
-          f"{name}: 빈 스코프 add 무저장")
+    check(
+        not any(
+            "orphan" in h["text"]
+            for h in b.search({"user_id": "alice", "run_id": "s1"}, "orphan", 10)
+        ),
+        f"{name}: 빈 스코프 add 무저장",
+    )
 
     # update 왕복(id 지정)
     target = next(r for r in b.list_all({"user_id": "alice"}) if "비건이다" in r["text"])
@@ -139,7 +156,10 @@ def run_contract(name: str, make_backend) -> None:
 
     # delete 왕복
     check(b.delete(target["id"]) is True, f"{name}: delete True")
-    check(target["id"] not in {r["id"] for r in b.list_all({"user_id": "alice"})}, f"{name}: delete 반영")
+    check(
+        target["id"] not in {r["id"] for r in b.list_all({"user_id": "alice"})},
+        f"{name}: delete 반영",
+    )
 
     # 없는 id → False
     check(b.update("nope", "x") is False, f"{name}: 없는 id update False")
@@ -150,6 +170,7 @@ def run_contract(name: str, make_backend) -> None:
 def test_facade_graceful() -> None:
     print("[facade] backend None → 안전 기본값")
     from api import memory as M
+
     check(M.search({"user_id": "a"}, "q", None) == [], "search(None cfg) → []")
     check(M.list_memories({"user_id": "a"}, None) == [], "list_memories(None cfg) → []")
     check(M.update_memory("x", "y", None) is False, "update_memory(None cfg) → False")
@@ -161,13 +182,20 @@ def test_facade_graceful() -> None:
 def test_backend_selection() -> None:
     print("[drop-in] MEMORY_BACKEND env로 백엔드 선택")
     from api.memory import backend as B
-    cfg = {"llm": {"model_id": "m", "base_url": "x"}, "embedder": {"model_id": "e", "base_url": "y"}}
+
+    cfg = {
+        "llm": {"model_id": "m", "base_url": "x"},
+        "embedder": {"model_id": "e", "base_url": "y"},
+    }
     prev = os.environ.get("MEMORY_BACKEND")
     try:
         B._reset_cache()
         os.environ["MEMORY_BACKEND"] = "inmemory"
         b = B.resolve_backend(cfg)
-        check(type(b).__name__ == "InMemoryBackend", "env=inmemory → InMemoryBackend 해석(drop-in 기전)")
+        check(
+            type(b).__name__ == "InMemoryBackend",
+            "env=inmemory → InMemoryBackend 해석(drop-in 기전)",
+        )
         B._reset_cache()
         os.environ["MEMORY_BACKEND"] = "nope"
         check(B.resolve_backend(cfg) is None, "미등록 종류 → graceful None")

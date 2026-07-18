@@ -18,7 +18,7 @@ import uuid
 import httpx
 from sqlalchemy import create_engine, text
 
-BASE = os.environ.get("API_BASE", "http://127.0.0.1:8000")
+BASE = os.environ.get("VERIFY_BASE", "http://127.0.0.1:8000")  # 스펙 390: 격리 서버 주입
 EMAIL = os.environ.get("ADMIN_EMAIL", "admin@example.com")
 PASSWORD = os.environ.get("ADMIN_PASSWORD", "adminpass123")
 DB = os.environ.get(
@@ -44,7 +44,9 @@ def main() -> None:  # noqa: PLR0915
         cli.put("/admin/settings/eval_gate_min_runs", json={"value": runs}).raise_for_status()
         cli.put("/admin/settings/eval_gate_min_score", json={"value": score}).raise_for_status()
 
-    def seed_runs(agent_pk: str, version: str, scores: list[float | None], status: str = "ok") -> None:
+    def seed_runs(
+        agent_pk: str, version: str, scores: list[float | None], status: str = "ok"
+    ) -> None:
         with eng.begin() as c:
             for sc in scores:
                 c.execute(
@@ -53,30 +55,57 @@ def main() -> None:  # noqa: PLR0915
                         "created_at, updated_at, created_by, updated_by, started_at) "
                         "values (:id, :ds, :ap, :ver, :st, :sc, now(), now(), 'v372', 'v372', now())"
                     ),
-                    {"id": str(uuid.uuid4()), "ds": ds_id, "ap": agent_pk, "ver": version,
-                     "st": status, "sc": sc},
+                    {
+                        "id": str(uuid.uuid4()),
+                        "ds": ds_id,
+                        "ap": agent_pk,
+                        "ver": version,
+                        "st": status,
+                        "sc": sc,
+                    },
                 )
 
     # 픽스처: 최소 데이터셋(FK) — 스키마 필수 컬럼은 실측 후 적재.
     with eng.begin() as c:
-        cols = {r[0] for r in c.execute(text(
-            "select column_name from information_schema.columns where table_name='eval_datasets'"
-        ))}
+        cols = {
+            r[0]
+            for r in c.execute(
+                text(
+                    "select column_name from information_schema.columns where table_name='eval_datasets'"
+                )
+            )
+        }
     ds_id = str(uuid.uuid4())
     base_cols = {"id": ds_id, "name": f"v372-ds-{tag}"}
     extra = {}
-    for col, val in (("kind", "qa"), ("status", "ready"), ("created_by", "v372"), ("updated_by", "v372")):
+    for col, val in (
+        ("kind", "qa"),
+        ("status", "ready"),
+        ("created_by", "v372"),
+        ("updated_by", "v372"),
+    ):
         if col in cols:
             extra[col] = val
     with eng.begin() as c:
         names = ", ".join(list(base_cols) + list(extra) + ["created_at", "updated_at"])
         binds = ", ".join([f":{k}" for k in list(base_cols) + list(extra)] + ["now()", "now()"])
-        c.execute(text(f"insert into eval_datasets ({names}) values ({binds})"), {**base_cols, **extra})
+        c.execute(
+            text(f"insert into eval_datasets ({names}) values ({binds})"), {**base_cols, **extra}
+        )
 
     a = cli.post(
         "/agents",
-        json={"name": f"v372-{tag}", "config": {"model": "mock-llm", "prompt": "", "memories": [],
-                                                  "vectorTables": [], "mcps": [], "historyDepth": 10}},
+        json={
+            "name": f"v372-{tag}",
+            "config": {
+                "model": "mock-llm",
+                "prompt": "",
+                "memories": [],
+                "vectorTables": [],
+                "mcps": [],
+                "historyDepth": 10,
+            },
+        },
     ).json()
     aid, apk = a["id"], a["id"]
 
@@ -88,7 +117,9 @@ def main() -> None:  # noqa: PLR0915
 
         # 편집 → v2 스크래치(게이트 대상)
         cfg = a["versions"][0]["config"]
-        cli.put(f"/agents/{aid}", json={"name": f"v372-{tag}", "config": {**cfg, "historyDepth": 12}}).raise_for_status()
+        cli.put(
+            f"/agents/{aid}", json={"name": f"v372-{tag}", "config": {**cfg, "historyDepth": 12}}
+        ).raise_for_status()
 
         # ── C1 게이트 on: 미달 400 → 충족 200 ──────────────────────────────────
         set_gate(2, 0.8)
@@ -114,7 +145,9 @@ def main() -> None:  # noqa: PLR0915
         check(r.status_code == 200, f"C3 롤백(v1 재오픈)은 게이트 면제 → 200 (got {r.status_code})")
 
         # ── C4 에러 런 불산입 ────────────────────────────────────────────────────
-        cli.put(f"/agents/{aid}", json={"name": f"v372-{tag}", "config": {**cfg, "historyDepth": 14}}).raise_for_status()
+        cli.put(
+            f"/agents/{aid}", json={"name": f"v372-{tag}", "config": {**cfg, "historyDepth": 14}}
+        ).raise_for_status()
         vers = cli.get(f"/agents/{aid}").json()["versions"]
         scratch = next(v["version"] for v in vers if not v["everOpened"])
         seed_runs(apk, scratch, [0.9, 0.9, 0.9], status="error")
@@ -123,11 +156,17 @@ def main() -> None:  # noqa: PLR0915
 
         # ── C5 설정 왕복·즉시 발효 ──────────────────────────────────────────────
         got = cli.get("/admin/settings").json()
-        check(got.get("eval_gate_min_runs") == 2 and abs(got.get("eval_gate_min_score", 0) - 0.8) < 1e-9,
-              f"C5 설정 왕복 (got runs={got.get('eval_gate_min_runs')} score={got.get('eval_gate_min_score')})")
+        check(
+            got.get("eval_gate_min_runs") == 2
+            and abs(got.get("eval_gate_min_score", 0) - 0.8) < 1e-9,
+            f"C5 설정 왕복 (got runs={got.get('eval_gate_min_runs')} score={got.get('eval_gate_min_score')})",
+        )
         set_gate(0, 0)
         r = cli.post(f"/agents/{aid}/activate", json={"version": scratch})
-        check(r.status_code == 200, f"C5 게이트 끄면 즉시 발효(재시작 없이 오픈 200) (got {r.status_code})")
+        check(
+            r.status_code == 200,
+            f"C5 게이트 끄면 즉시 발효(재시작 없이 오픈 200) (got {r.status_code})",
+        )
     finally:
         set_gate(0, 0)  # 전역 설정 원복(다른 테스트 오염 방지)
         cli.delete(f"/agents/{aid}")

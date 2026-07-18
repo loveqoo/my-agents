@@ -9,10 +9,16 @@
 
 실행: uv run --project packages/api python tests/verify_259_pipeline.py
 """
+
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "packages", "agent", "src"))
+sys.path.insert(
+    0,
+    os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "packages", "agent", "src"
+    ),
+)
 
 from agent.runtime import (  # noqa: E402
     AgentBuildContext,
@@ -25,11 +31,14 @@ from agent.flows.pipeline import LinearPipelineAgent, normalize_nodes  # noqa: E
 _fails = []
 passed = 0
 
+
 def check(cond, msg):
     global passed
     print(("  ok  " if cond else " FAIL ") + msg)
-    if cond: passed += 1
-    else: _fails.append(msg)
+    if cond:
+        passed += 1
+    else:
+        _fails.append(msg)
 
 
 from langchain_core.tools import StructuredTool  # noqa: E402
@@ -50,10 +59,18 @@ MODEL_CFG = {"base_url": "http://x", "api_key": "k", "model_id": "m", "params": 
 def main():
     # U1 등록
     impl = get_agent_impl("pipeline")
-    check(impl is not None and isinstance(impl, LinearPipelineAgent), "U1 get_agent_impl('pipeline') 적합 인스턴스")
+    check(
+        impl is not None and isinstance(impl, LinearPipelineAgent),
+        "U1 get_agent_impl('pipeline') 적합 인스턴스",
+    )
     check("pipeline" in list_agent_impls(), "U1 list_agent_impls에 'pipeline'")
-    check(classify_runtime("ui", "pipeline") == "conforming", "U1 classify_runtime(ui,pipeline)=='conforming'")
-    check(classify_runtime("code", "pipeline") == "non_conforming", "U1 원격은 non_conforming(무회귀)")
+    check(
+        classify_runtime("ui", "pipeline") == "conforming",
+        "U1 classify_runtime(ui,pipeline)=='conforming'",
+    )
+    check(
+        classify_runtime("code", "pipeline") == "non_conforming", "U1 원격은 non_conforming(무회귀)"
+    )
 
     # U2 describe 정직
     m = impl.describe()
@@ -63,15 +80,19 @@ def main():
     # U3 normalize_nodes 순수
     raw = [
         {"name": "분석", "prompt": "분석하라", "model": "gpt", "tools": ["search_documents", 123]},
-        {"name": "빈", "prompt": "   "},          # 프롬프트 공백 → 제외
-        "잡값",                                     # dict 아님 → 제외
-        {"prompt": "이름없음"},                     # 이름 자동
+        {"name": "빈", "prompt": "   "},  # 프롬프트 공백 → 제외
+        "잡값",  # dict 아님 → 제외
+        {"prompt": "이름없음"},  # 이름 자동
     ]
     norm = normalize_nodes(raw)
     check(len(norm) == 2, f"U3 프롬프트 없는/잡 노드 제외 (2개 남음, got {len(norm)})")
-    check(norm[0]["name"] == "분석" and norm[1]["name"] == "노드4", "U3 이름 보존/자동 이름(인덱스)")
+    check(
+        norm[0]["name"] == "분석" and norm[1]["name"] == "노드4", "U3 이름 보존/자동 이름(인덱스)"
+    )
     check(norm[0]["tools"] == ["search_documents"], "U3 tools 문자열만 정규화(잡값 제거)")
-    check(normalize_nodes("notalist") == [] and normalize_nodes(None) == [], "U3 비리스트 → 빈 리스트")
+    check(
+        normalize_nodes("notalist") == [] and normalize_nodes(None) == [], "U3 비리스트 → 빈 리스트"
+    )
 
     # U4/U5 그래프 구조 + 노드별 모델/도구
     nodes = [
@@ -91,7 +112,9 @@ def main():
     # 없어(권한 밖) 필터링돼 도구 노드 없음(무시 = 권한 상승 0).
     check({"분석", "작성", "검토"}.issubset(gnodes), f"U4 선언 노드 3개 그래프에 (got {gnodes})")
     check("분석__tools" in gnodes, "U5 도구 있는 노드에 ToolNode(분석__tools)")
-    check("검토__tools" not in gnodes, "U5 ctx.tools 밖 도구는 무시(검토__tools 없음 = 권한 상승 0)")
+    check(
+        "검토__tools" not in gnodes, "U5 ctx.tools 밖 도구는 무시(검토__tools 없음 = 권한 상승 0)"
+    )
     check("작성__tools" not in gnodes, "U5 도구 없는 노드는 ToolNode 없음")
 
     # U4 빈 노드 → 단일 패스스루(크래시 안 함)

@@ -19,6 +19,7 @@
 
 실행: .venv/bin/python tests/verify_039_memory_consolidation.py
 """
+
 import asyncio
 import os
 import sys
@@ -76,9 +77,14 @@ def _seed(uid, facts, mem_cfg):
 
 async def _snap_count(uid) -> int:
     async with SessionLocal() as s:
-        return await s.scalar(
-            select(func.count()).select_from(MemorySnapshot).where(MemorySnapshot.user_id == uid)
-        ) or 0
+        return (
+            await s.scalar(
+                select(func.count())
+                .select_from(MemorySnapshot)
+                .where(MemorySnapshot.user_id == uid)
+            )
+            or 0
+        )
 
 
 async def main() -> None:
@@ -138,7 +144,8 @@ async def main() -> None:
         check(TEST_UID in cand1, "[1] TEST 유저가 후보로 집계")
         check(OTHER_UID not in cand1, "[1] OTHER 유저(미달)는 후보 아님")
         check(
-            cand1.get(TEST_UID, {}).get("before") == N and cand1.get(TEST_UID, {}).get("after") == len(STUB),
+            cand1.get(TEST_UID, {}).get("before") == N
+            and cand1.get(TEST_UID, {}).get("after") == len(STUB),
             f"[1] 미리보기 before={N} after={len(STUB)}",
         )
         check(len(_list(TEST_UID, mem_cfg)) == N, "[1] dry-run 후 기억수 불변(무변형)")
@@ -163,15 +170,28 @@ async def main() -> None:
         check(TEST_UID in cons, "[2] TEST 유저 통합 수행")
         c = cons.get(TEST_UID, {})
         check(
-            c.get("before") == N and c.get("after") == len(STUB) and c.get("snapshot") == N and c.get("deleted") == N,
+            c.get("before") == N
+            and c.get("after") == len(STUB)
+            and c.get("snapshot") == N
+            and c.get("deleted") == N,
             f"[2] before={N} after={len(STUB)} snapshot={N} deleted={N}",
         )
-        check(summ2.get("total_before") == N and summ2.get("total_after") == len(STUB), "[2] 합계 before/after")
+        check(
+            summ2.get("total_before") == N and summ2.get("total_after") == len(STUB),
+            "[2] 합계 before/after",
+        )
         # MemorySnapshot: N행 + run_id 링크
         async with SessionLocal() as s:
-            snaps = (await s.execute(select(MemorySnapshot).where(MemorySnapshot.user_id == TEST_UID))).scalars().all()
+            snaps = (
+                (await s.execute(select(MemorySnapshot).where(MemorySnapshot.user_id == TEST_UID)))
+                .scalars()
+                .all()
+            )
         check(len(snaps) == N, f"[2] MemorySnapshot {N}행 박제")
-        check(all(str(sn.batch_run_id) == r2["run_id"] for sn in snaps), "[2] 스냅샷 batch_run_id=run_id 링크")
+        check(
+            all(str(sn.batch_run_id) == r2["run_id"] for sn in snaps),
+            "[2] 스냅샷 batch_run_id=run_id 링크",
+        )
         # 원본 삭제 + 통합본 적재 → 최종 기억수 == len(STUB).
         # ISSUE 4 핀: deleted==N(원본 N개가 add 이후에도 살아 있어 명시 삭제로 지워짐) + 최종==STUB은
         # mem0 add(infer=False)가 형제 기억을 건드리지 않는 순수 insert임을 실측으로 증명한다.
@@ -189,11 +209,15 @@ async def main() -> None:
         await _set_threshold(None)
         r3 = await run_job("memory-consolidation", dry_run=False)
         _run_ids.append(r3["run_id"])
-        check((r3.get("summary") or {}).get("status") == "disabled", "[3] threshold=NULL → disabled")
+        check(
+            (r3.get("summary") or {}).get("status") == "disabled", "[3] threshold=NULL → disabled"
+        )
         await _set_threshold(1)  # API ge=2지만 작업 가드(<2)를 직접 단언
         r3b = await run_job("memory-consolidation", dry_run=False)
         _run_ids.append(r3b["run_id"])
-        check((r3b.get("summary") or {}).get("status") == "disabled", "[3] threshold=1(<2) → disabled")
+        check(
+            (r3b.get("summary") or {}).get("status") == "disabled", "[3] threshold=1(<2) → disabled"
+        )
 
         # ── [4] 안전 불변식 2: 통합 빈 결과 → 유저 전체 스킵 ───────────────
         # TEST를 다시 후보로(현재 2건 → 2건 추가해 4건). 임계치 3.
@@ -206,7 +230,8 @@ async def main() -> None:
         _run_ids.append(r4["run_id"])
         check((r4.get("summary") or {}).get("status") == "ok", "[4] 실행 status=ok")
         check(
-            TEST_UID not in {c["user_id"] for c in (r4.get("summary") or {}).get("consolidated", [])},
+            TEST_UID
+            not in {c["user_id"] for c in (r4.get("summary") or {}).get("consolidated", [])},
             "[4] 통합 빈 결과 → consolidated 미포함(스킵)",
         )
         check(len(_list(TEST_UID, mem_cfg)) == N, "[4] 기억 불변(삭제 안 함 — 안전 불변식 2)")
@@ -219,7 +244,8 @@ async def main() -> None:
         r4b = await run_job("memory-consolidation", dry_run=False)
         _run_ids.append(r4b["run_id"])
         check(
-            TEST_UID not in {c["user_id"] for c in (r4b.get("summary") or {}).get("consolidated", [])},
+            TEST_UID
+            not in {c["user_id"] for c in (r4b.get("summary") or {}).get("consolidated", [])},
             "[4b] 미축소(N→N) → consolidated 미포함(스킵)",
         )
         check(len(_list(TEST_UID, mem_cfg)) == N, "[4b] 기억 불변(미축소면 삭제 안 함)")
@@ -228,7 +254,10 @@ async def main() -> None:
         r4c = await run_job("memory-consolidation", dry_run=True)
         _run_ids.append(r4c["run_id"])
         cand4c = {c["user_id"]: c for c in (r4c.get("summary") or {}).get("candidates", [])}
-        check(cand4c.get(TEST_UID, {}).get("skip") == "no_shrink", "[4b] dry-run이 skip='no_shrink' 표기")
+        check(
+            cand4c.get(TEST_UID, {}).get("skip") == "no_shrink",
+            "[4b] dry-run이 skip='no_shrink' 표기",
+        )
 
         # ── [5] mem_cfg 미해석 → disabled(no_mem_cfg) ────────────────────
         async def _none(_s):
@@ -256,7 +285,9 @@ async def main() -> None:
         async with SessionLocal() as s:
             await s.execute(delete(MemorySnapshot).where(MemorySnapshot.user_id.in_(_user_ids)))
             if _run_ids:
-                await s.execute(delete(BatchRun).where(BatchRun.id.in_([uuid.UUID(r) for r in _run_ids])))
+                await s.execute(
+                    delete(BatchRun).where(BatchRun.id.in_([uuid.UUID(r) for r in _run_ids]))
+                )
             await s.execute(delete(User).where(User.id.in_([uuid.UUID(u) for u in _user_ids])))
             await s.commit()
         # 임계치 복원
