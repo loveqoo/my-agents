@@ -31,7 +31,9 @@ sys.path.insert(0, os.path.join(ROOT, "packages", "api", "src"))
 from sqlalchemy import delete, func, select  # noqa: E402
 
 from api import memory as memory_mod  # noqa: E402
-from api.batch import jobs as jobs_mod  # noqa: E402
+from api.batch import jobs_memory_consolidation as jobs_mod  # noqa: E402
+
+# 스펙 395: _consolidate·default_mem_cfg 패치 대상은 정의 모듈(파사드 재수출 패치는 내부 호출에 안 먹음 — monkeypatch-is-consumer)
 from api.batch.runner import run_job  # noqa: E402
 from api.db import SessionLocal  # noqa: E402
 from api.main import app  # noqa: E402,F401  (모듈 캐시 워밍)
