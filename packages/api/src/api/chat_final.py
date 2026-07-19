@@ -83,7 +83,14 @@ def _memory_kickoff(
     완료 이벤트로 조용히 해제할 방법이 없어(mid로 패치) 스피너가 안 풀린다(codex P1)."""
     if not will_add_memory:
         return None, trace
-    task = _spawn_memory_task(turn.add_scope, user_text, full, ctx.mem_cfg, mid)
+    # 자동 기억 저장도 원발화만(스펙 407) — 첨부 문서 3만자가 유저 기억에 섞이지 않게.
+    task = _spawn_memory_task(
+        turn.add_scope,
+        user_text if ctx.memory_user_text is None else ctx.memory_user_text,
+        full,
+        ctx.mem_cfg,
+        mid,
+    )
     return task, ({**trace, "memoryPending": True} if mid else trace)
 
 

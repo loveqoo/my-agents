@@ -177,7 +177,10 @@ def test_chat_scope_split() -> None:
     )
     check('"agent_id": ctx.ext_agent_id' in src, "회상 agent_id=ext_agent_id")
     # search는 recall_scope 사용.
-    check("memory.search, recall_scope" in src, "search는 recall_scope 사용")
+    check(
+        re.search(r"memory\.search,\s*recall_scope", src) is not None,
+        "search는 recall_scope 사용",
+    )
     # 자동 턴 add는 add_scope(agent_id 없음)로 호출 — 저장 지점은 chat_final(스펙 396 분할).
     fsrc = open(
         os.path.join(ROOT, "packages", "api", "src", "api", "chat_final.py"), encoding="utf-8"

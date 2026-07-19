@@ -92,13 +92,23 @@ async def _memory_inputs(
     )
     pipeline = ctx.nodes_resolved is not None
     mem_hits = (
-        await asyncio.to_thread(memory.search, recall_scope, user_text, ctx.mem_cfg)
+        await asyncio.to_thread(
+            memory.search,
+            recall_scope,
+            user_text if ctx.memory_user_text is None else ctx.memory_user_text,
+            ctx.mem_cfg,
+        )
         if used_memory and not pipeline
         else []
     )
     memory_recalls: list[dict] = []
     mem_proxy = (
-        _MemoryRecallProxy(recall_scope, ctx.mem_cfg, user_text, memory_recalls)
+        _MemoryRecallProxy(
+            recall_scope,
+            ctx.mem_cfg,
+            user_text if ctx.memory_user_text is None else ctx.memory_user_text,
+            memory_recalls,
+        )
         if (used_memory and pipeline)
         else None
     )

@@ -407,3 +407,4 @@
 - 404 플레이그라운드 파일첨부(A안 1회성 주입) — **완료**: 추출 엔드포인트(무상태·매직바이트 판별·스레드 격리+페이지캡)+nonce 펜스 주입(데이터 선언문·파일명 소독)+trace 표면화+캡 3종(5MB·3만자·3개, 승인값); codex P1 2건 반영. [file-attach,nonce-fence,magic-byte-first,thread-isolated-extract,caps-approved]
 - 405 첨부→지식 저장(B안 RAG) — **완료**: 클립 입구에 "이번 대화만/지식으로 저장" 분기, 저장=기존 컬렉션 재사용·배선=세션 오버라이드(vectorTables — 370 버전 의식 회피), 백엔드 신규 ~0(인제스트·오버라이드·검색 재사용). [attach-to-knowledge,session-override-wiring,reuse-collections,frontend-only]
 - 406 플레이그라운드 드래그&드롭 첨부 — **완료**: 드롭 오버레이+선택 모달(이번 대화만/지식 저장)이 404/405 기존 입구로 라우팅만(백엔드 0줄), Files 타입 판별·A2A 무시. [drag-drop-attach,route-to-existing-entrances,frontend-only]
+- 407 첨부-메모리 축 분리+깨진 PDF 정직화 — **완료**: 회상·자동저장이 주입본 소비(문서가 유저 기억 오염)→ctx.memory_user_text 원발화 분리, 오추출(타 문자권) 휴리스틱 400, pdfminer 폴백은 승인 항목. [attachment-memory-separation,recall-query-pollution,broken-pdf-honest-400,charset-coherence-heuristic]

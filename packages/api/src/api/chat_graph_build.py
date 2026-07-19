@@ -83,6 +83,11 @@ class _MemoryRecallProxy:
 
     async def __call__(self, query: str | None = None, node: str = "") -> str:
         q = (query if isinstance(query, str) and query.strip() else self._default).strip()[:300]
+        # 메모리 축 정화(스펙 407) — memoryQuery=input 모드는 노드가 받은 메시지(첨부 주입본 포함)를
+        # 그대로 넘긴다. 회상 관문에서 펜스를 걷어 원발화만 검색(문서는 지식 축이지 기억 축이 아님).
+        from .chat_attachments import strip_attachment_blocks
+
+        q = strip_attachment_blocks(q)[:300]
         if not q:
             return ""
         cached = q in self._cache

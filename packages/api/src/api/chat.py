@@ -251,6 +251,8 @@ async def chat(
     )
     # 파일첨부 주입(스펙 404) — user_text 확정 **전**에 마지막 user 메시지를 재작성해야
     # user_text·conversation·영속·히스토리 재구성이 전부 같은(주입된) 본문을 본다.
+    # 단, 메모리 축(회상·자동 저장)은 **주입 전 원발화**만 봐야 한다(스펙 407) — 캡처해 ctx로.
+    ctx.memory_user_text = body.messages[-1].content if body.messages else ""
     if body.attachments:
         if _is_remote(ctx.source):
             raise HTTPException(

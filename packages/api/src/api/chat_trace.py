@@ -171,7 +171,10 @@ def _annotate_context_sources(
     if ctx.rag_unresolved:
         # 요청됐으나 해석 실패한 이름 — 도구가 조용히 비는 footgun을 인스펙터에 드러냄(타자검증 F).
         trace["ragUnresolved"] = ctx.rag_unresolved
-    _annotate_memory_observations(trace, turn, user_text=user_text)
+    # 회상 쿼리 표시=원발화(스펙 407) — 실제 검색 쿼리와 표시가 일치해야 한다.
+    _annotate_memory_observations(
+        trace, turn, user_text=user_text if ctx.memory_user_text is None else ctx.memory_user_text
+    )
 
 
 def _annotate_memory_observations(trace: dict, turn: "ChatTurnRuntime", *, user_text: str) -> None:

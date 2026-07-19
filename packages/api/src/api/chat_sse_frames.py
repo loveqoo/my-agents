@@ -234,7 +234,9 @@ def _pending_approval_trace(
     }
     # 승인대기 턴도 회상 조회 이력 일관 노출(스펙 079).
     if turn.used_memory:
-        pending_trace["memoryQuery"] = user_text[:300]
+        pending_trace["memoryQuery"] = (
+            user_text if ctx.memory_user_text is None else ctx.memory_user_text
+        )[:300]
     if turn.broker.invocations:
         # 일시정지 **이전에 이미 실행된** 선행 브로커 호출 표면화(스펙 130, codex #2).
         pending_trace["brokerCalls"] = _broker_calls_trace(turn.broker.invocations)

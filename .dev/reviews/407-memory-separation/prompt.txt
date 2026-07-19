@@ -1,0 +1,12 @@
+스팟 적대 리뷰(스펙 407): 첨부-메모리 축 분리와 깨진 PDF 게이트를 검토해달라.
+
+구현: ①ctx.memory_user_text=주입 전 원발화(chat.py 캡처) — _memory_inputs의 mem 검색·_MemoryRecallProxy·chat_final 자동 저장·trace.memoryQuery(표시)가 `ctx.memory_user_text or user_text` 사용 ②chat_attachments.is_extract_coherent(허용 문자권: ASCII·라틴확장·한글자모/음절·CJK·문장부호·전각, 비공백 중 70% 임계, <20자 보류) — PDF 추출을 pypdf→부정합/실패 시 pdfminer.six 폴백→그래도 부정합이면 400 ③E8a/b/c·E9a-d 테스트.
+
+적대 질문:
+1. 축 분리 누락 입구 — user_text가 메모리로 흘러가는 다른 경로가 남았나? (A2A 서빙 _memory_add — 서빙은 첨부 불가라 무관? / 재개(resume_approval) 턴의 기억 저장 — 재개 시 ctx.memory_user_text는 세팅되나? _load_context는 안 만들고 chat()만 세팅하는데 재개 입구가 chat()을 거치는지 / 노드형 _MemoryRecallProxy 캐시 키·eval 경로)
+2. 반대 방향 회귀 — memory_user_text가 **무첨부 턴**에도 항상 세팅되는데(chat()에서 무조건 대입) 폴백 `or user_text`가 죽은 코드가 되나, 또는 빈 문자열("")일 때 `or`가 user_text(주입본 아님, 동일)로 폴백해 문제 없나. 재개/폼 제출 턴에서 body.messages가 비거나 형태가 다를 때 memory_user_text=""가 검색을 빈 쿼리로 만들 위험은? (memory.search가 빈 쿼리에 안전한가)
+3. 휴리스틱 우회/오탐 — 70% 임계의 경계: 정상 문서인데 수식·이모지·키릴 인용이 많으면 오탐 400? 반대로 절반만 깨진 문서(코히런트 70% 턱걸이)가 통과해 쓰레기 30%가 주입되는 건 수용 가능한 경계인가. pdfminer 폴백이 pypdf보다 나쁜 텍스트를 내는 경우 게이트가 막나(폴백도 게이트 통과 요구 확인).
+4. pdfminer.six 추가의 부작용 — import 비용(지연 import 확인)·maxpages 절단의 정직성.
+
+파일: packages/api/src/api/chat.py, chat_turn_runtime.py, chat_final.py, chat_trace.py, chat_sse_frames.py, chat_attachments.py, chat_approval.py(재개 경로), chat_a2a_serve.py
+결론: P1/P2/확인함.

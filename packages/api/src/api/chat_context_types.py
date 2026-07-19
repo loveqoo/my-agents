@@ -45,6 +45,9 @@ class ChatContext:
     attachments_trace: list | None = (
         None  # 파일첨부 메타(스펙 404) — 인스펙터 표면화용(chat()이 주입 시 세팅)
     )
+    # 메모리 축 원발화(스펙 407): 첨부 주입 전의 유저 발화. 회상 쿼리·자동 기억 저장은 이걸 쓴다 —
+    # 문서는 지식(RAG) 축이지 기억 축이 아니다(주입본이 기억을 오염시키던 버그의 봉합).
+    memory_user_text: str | None = None
     # 능력·도구 정책
     memories: list = field(default_factory=list)
     capabilities: list = field(default_factory=list)
