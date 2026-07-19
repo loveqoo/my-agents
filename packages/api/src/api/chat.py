@@ -386,6 +386,10 @@ async def chat(
             async for frame in _run_turn():
                 yield frame
         finally:
-            await checkpoint_retention.release_thread(thread_id, paused=bool(interrupts))
+            # 취소-보호(스펙 403): 클라이언트 이탈이 이 finally 도중까지 취소하면 release가
+            # 반쯤 돈 채 끊겨 체크포인터 커넥션이 오염된다("another command in progress" —
+            # 402 실측, 후속 요청 비결정 500의 한 축). 관문 헬퍼가 강참조+shield로 완주 보장
+            # (codex 403 P1 반영) — 정상 종료 경로 시맨틱(346 폐기 관문)은 동일.
+            await checkpoint_retention.shielded_release(thread_id, paused=bool(interrupts))
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")

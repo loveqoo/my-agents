@@ -107,34 +107,42 @@ class LocalServeTurn:
         acc: list[str] = []  # 영속·자동 기억 저장용 어시스턴트 응답 누적
         interrupts: list[dict] = []
         run_kwargs: dict = {"durability": "exit"} if self.has_ckpt else {}  # 스펙 346
-        async for mode, chunk in self.graph.astream(  # type: ignore[attr-defined]
-            {"messages": self.messages},
-            config=self.cfg,
-            stream_mode=["messages", "updates"],
-            **run_kwargs,
-        ):
-            if mode == "updates":
-                # interrupt 수집(스펙 388 P2) — 한 업데이트에 다중 interrupt 가능(메인 chat 미러).
-                if isinstance(chunk, dict) and "__interrupt__" in chunk:
-                    interrupts.extend(i.value for i in chunk["__interrupt__"])
-                continue
-            msg_chunk, _meta = chunk
-            # A2A 서빙도 도구 원본 응답은 외부 소비자에게 노출 않음(스펙 092, 본문 sink와 동일 술어).
-            if runtime.is_tool_message(msg_chunk):
-                continue
-            # content-block 리스트 → str 정규화(본문 sink와 동일, 092 codex P1).
-            text = runtime._content_text(getattr(msg_chunk, "content", ""))
-            if text:
-                acc.append(text)
-                yield text
-        if interrupts:
-            # 인터럽트 턴은 영속·기억 저장 안 함(메인 chat _approval_frames 미러 — 재개가 전체 턴 영속).
-            self._outcome = await self._interrupt_outcome(interrupts)
-            return
-        reply = "".join(acc)
-        await self._persist_turn(reply)  # 영속(P1)
-        await self._memory_add(reply)  # 자동 저장(스펙 387)
-        self._outcome = ServeCompleted(reply)
+        try:
+            async for mode, chunk in self.graph.astream(  # type: ignore[attr-defined]
+                {"messages": self.messages},
+                config=self.cfg,
+                stream_mode=["messages", "updates"],
+                **run_kwargs,
+            ):
+                if mode == "updates":
+                    # interrupt 수집(스펙 388 P2) — 한 업데이트에 다중 interrupt 가능(메인 chat 미러).
+                    if isinstance(chunk, dict) and "__interrupt__" in chunk:
+                        interrupts.extend(i.value for i in chunk["__interrupt__"])
+                    continue
+                msg_chunk, _meta = chunk
+                # A2A 서빙도 도구 원본 응답은 외부 소비자에게 노출 않음(스펙 092, 본문 sink와 동일 술어).
+                if runtime.is_tool_message(msg_chunk):
+                    continue
+                # content-block 리스트 → str 정규화(본문 sink와 동일, 092 codex P1).
+                text = runtime._content_text(getattr(msg_chunk, "content", ""))
+                if text:
+                    acc.append(text)
+                    yield text
+            if interrupts:
+                # 인터럽트 턴은 영속·기억 저장 안 함(메인 chat _approval_frames 미러 — 재개가 전체 턴 영속).
+                self._outcome = await self._interrupt_outcome(interrupts)
+                return
+            reply = "".join(acc)
+            await self._persist_turn(reply)  # 영속(P1)
+            await self._memory_add(reply)  # 자동 저장(스펙 387)
+            self._outcome = ServeCompleted(reply)
+        finally:
+            # 폐기 관문(스펙 403 — codex P1②): 388 P2가 서빙에 체크포인터를 붙인 뒤에도 346 관문이
+            # 없어 완료 턴의 체크포인트가 TTL까지 잔류했고, SSE abort 취소 오염 후보도 열려 있었다.
+            # 메인 chat과 같은 관문·같은 취소-보호(강참조 shield) — paused=interrupt는 재개 근거 보존.
+            from . import checkpoint_retention
+
+            await checkpoint_retention.shielded_release(self.thread_id, paused=bool(interrupts))
 
     async def _interrupt_outcome(self, interrupts: list[dict]) -> ServeOutcome:
         """서빙 interrupt → 승인 대기 변환(스펙 388 P2).

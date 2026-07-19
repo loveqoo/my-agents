@@ -18,6 +18,7 @@
 (API 재시작만으로도 그 포인터는 사라진다).
 """
 
+import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
 
@@ -64,6 +65,27 @@ async def keep_reason(thread_id: str) -> str | None:
     if _is_pinned_by_artifact(thread_id):
         return "artifact"
     return None
+
+
+# 스트림 finally 전용 취소-보호(스펙 403) — 강참조 세트: 외곽(클라 이탈) 취소가 shield를 풀어도
+# 정리 태스크가 GC/고아가 되지 않고 이벤트루프에서 완주한다(codex 403 P1 — 참조 없는 shield는
+# "완주"가 아니라 "방치"였다). 완료 시 콜백으로 제거(누수 0).
+_RELEASE_TASKS: set[asyncio.Task] = set()
+
+
+async def shielded_release(thread_id: str, *, paused: bool = False) -> str | None:
+    """`release_thread`의 취소-보호 래퍼 — SSE/스트림 finally에서 이걸 쓴다(스펙 403).
+
+    정상·에러 종료: 완주를 기다려 판정 문자열 반환(기존 시맨틱 동일 — 스펙 346 관문 무변경).
+    클라이언트 이탈(외곽 취소): 외곽엔 조용히 None을 돌려주고, 정리 자체는 강참조로 완주.
+    취소 재전파는 안 한다 — 스트림은 이미 종료 국면이라 전파 대상이 없다."""
+    task = asyncio.ensure_future(release_thread(thread_id, paused=paused))
+    _RELEASE_TASKS.add(task)
+    task.add_done_callback(_RELEASE_TASKS.discard)
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        return None
 
 
 async def release_thread(thread_id: str, *, paused: bool = False) -> str:

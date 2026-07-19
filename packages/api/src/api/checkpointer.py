@@ -72,6 +72,9 @@ async def init_checkpointer() -> AsyncPostgresSaver | None:
                 max_size=_POOL_MAX,
                 open=False,
                 kwargs=_CONN_KWARGS,
+                # checkout 검증(스펙 403): SSE 이탈 취소가 오염시킨 커넥션("another command in
+                # progress"·closed)을 빌려주기 전에 검출·교체 — 메인 엔진 pool_pre_ping과 쌍.
+                check=AsyncConnectionPool.check_connection,
             )
             await pool.open()
             saver = AsyncPostgresSaver(pool)

@@ -1,0 +1,19 @@
+스팟 적대 리뷰(스펙 403): SSE 이탈 커넥션 풀 오염 봉합 3지점을 검토해달라.
+
+변경:
+1. db.py: create_async_engine(..., pool_pre_ping=True)
+2. checkpointer.py: AsyncConnectionPool(..., check=AsyncConnectionPool.check_connection)
+3. chat.py event_stream finally:
+   cleanup = asyncio.ensure_future(checkpoint_retention.release_thread(thread_id, paused=bool(interrupts)))
+   with contextlib.suppress(asyncio.CancelledError):
+       await asyncio.shield(cleanup)
+
+실측: 봉합 전 abort 폭격에서 chat 시작이 200/500 교차(풀 poison), 봉합 후 3라운드 전부 200.
+
+적대 질문:
+1. shield 패턴이 **정상 종료 경로**의 시맨틱을 바꾸는가? — 스펙 346 폐기 관문(턴 종료 시 체크포인트 정리, paused=interrupt 시 보존)이 정상/에러/클라끊김 세 경로에서 여전히 같은 판정으로 완주하는가. 특히: (a) suppress(CancelledError)가 이 태스크의 취소 신호를 삼켜 uvicorn 종료(graceful shutdown)를 지연/방해할 수 있는가 (b) ensure_future로 만든 cleanup이 어떤 경로에서 await 없이 고아가 되는가(예: shield 밖 예외) (c) async generator의 finally에서 await가 GeneratorExit와 상호작용해 "async generator ignored GeneratorExit"를 낼 수 있는 경로가 있는가.
+2. pool_pre_ping·check의 부작용 — 요청당 오버헤드 외에, 재검증이 못 잡는 오염 모드(half-open, in-transaction 잔류)가 있는가.
+3. 같은 부류의 미봉합 지점 — chat SSE 외에 클라이언트 abort로 취소되는 스트리밍 경로(A2A 서빙 stream_local_reply, eval SSE 등)에서 같은 finally-정리 패턴이 shield 없이 남아 있는 곳이 있는가(있으면 목록만 — 수정은 별도).
+
+파일: packages/api/src/api/chat.py, db.py, checkpointer.py, checkpoint_retention.py, chat_a2a_serve.py, background.py
+결론: P1(결함)/P2(개선)/확인함 목록.

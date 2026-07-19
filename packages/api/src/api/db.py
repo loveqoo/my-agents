@@ -33,7 +33,10 @@ DATABASE_URL = os.environ.get(
     "DATABASE_URL", "postgresql+asyncpg://agent:agent@localhost:5432/agents"
 )
 
-engine = create_async_engine(DATABASE_URL, echo=False)
+# pool_pre_ping(스펙 403): SSE 클라이언트 중도 이탈이 ASGI 취소로 in-flight 커넥션을 오염시키면
+# 풀에 poison이 남아 후속 요청 인증 쿼리가 비결정 500이었다(402 실측 — verify_068이 재현기).
+# checkout 시 재검증·폐기로 자가 복구(체크포인터 psycopg 풀은 checkpointer.py의 check가 담당).
+engine = create_async_engine(DATABASE_URL, echo=False, pool_pre_ping=True)
 SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 
 
