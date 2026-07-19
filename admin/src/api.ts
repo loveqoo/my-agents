@@ -18,6 +18,28 @@ export interface ChatMessage {
   content: string
 }
 
+/* 파일첨부(스펙 404, A안) — 추출 결과를 클라이언트가 들고 있다가 전송 시 되보낸다(무상태). */
+export interface ChatAttachmentDraft {
+  filename: string
+  text: string
+  chars: number
+  truncated: boolean
+}
+
+export async function uploadChatAttachment(file: File): Promise<ChatAttachmentDraft> {
+  const fd = new FormData()
+  fd.append('file', file)
+  // FormData는 브라우저가 boundary 포함 Content-Type을 정한다 — 수동 지정 금지(hasBody=false).
+  const res = await fetch(`${BASE}/chat/attachments`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: authHeaders(false),
+    body: fd,
+  })
+  if (!res.ok) throw await httpError(res, 'POST', '/chat/attachments')
+  return res.json()
+}
+
 // 401(세션 만료·미인증) 전역 핸들러 — AuthGate가 등록해 로그인 화면으로 되돌린다.
 let unauthorizedHandler: (() => void) | null = null
 export function setUnauthorizedHandler(fn: (() => void) | null): void {
@@ -911,6 +933,8 @@ export async function streamChat(
   form?: { formId: string; values: Record<string, string> },
   // 버전 지정 실행(스펙 242/243) — 미지정=활성(서빙) 버전. 관리 권한 필요(서버 403).
   version?: string,
+  // 파일첨부(스펙 404) — 서버가 마지막 user 메시지에 경계 블록으로 주입(1회성).
+  attachments?: { filename: string; text: string }[],
 ): Promise<void> {
   const callbacks: ChatCallbacks = typeof cb === 'function' ? { onToken: cb } : cb
   const hasOverrides = overrides != null && Object.keys(overrides).length > 0
@@ -925,6 +949,7 @@ export async function streamChat(
       overrides: hasOverrides ? overrides : undefined,
       form,
       version,
+      attachments: attachments && attachments.length > 0 ? attachments : undefined,
     }),
     signal,
   })

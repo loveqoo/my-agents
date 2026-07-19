@@ -249,6 +249,17 @@ async def chat(
     ctx = await _load_context(
         agent_id, body.sessionId, body.overrides, own=own, version=req_version
     )
+    # 파일첨부 주입(스펙 404) — user_text 확정 **전**에 마지막 user 메시지를 재작성해야
+    # user_text·conversation·영속·히스토리 재구성이 전부 같은(주입된) 본문을 본다.
+    if body.attachments:
+        if _is_remote(ctx.source):
+            raise HTTPException(
+                status_code=422,
+                detail="파일첨부는 로컬 에이전트에서만 지원합니다(원격 A2A는 카드 계약 밖).",
+            )
+        from .chat_attachments import apply_attachments
+
+        ctx.attachments_trace = apply_attachments(body)
     user_text = body.messages[-1].content if body.messages else ""
 
     # mem0 user_id 축 = 인증 주체에서 도출(스펙 032). 쿠키 유저면 안정 UUID(str(user.id)),

@@ -1,0 +1,12 @@
+스팟 적대 리뷰(스펙 404): 플레이그라운드 파일첨부(A안 — 1회성 대화 주입)를 검토해달라.
+
+구현: ①POST /chat/attachments(multipart) — rag_ingest.extract_text 재사용, raw 5MB 스트리밍 누적 413, 추출 3만자 캡(truncated) ②ChatRequest.attachments[{filename,text}] — chat()이 apply_attachments로 마지막 user 메시지에 경계 블록([첨부 문서: 이름]...[첨부 끝]) 주입, 캡 재강제(개수 3·길이 3만), 원격(A2A) 에이전트 422 ③trace.attachments(파일명·chars·_sanitize 프리뷰) ④주입본 그대로 세션 영속.
+
+적대 질문:
+1. 캡 우회 — 클라이언트가 추출 엔드포인트를 안 거치고 attachments에 임의 거대 텍스트를 보낼 때 재강제가 완전한가? (개수·파일명 길이·텍스트 길이·총합— 3개×3만자=9만자는 의도된 상한인가, 메시지 자체 길이엔 별도 캡이 없는 구조와의 상호작용) pydantic 스키마 층에서 막을 게 남았나?
+2. 주입 경계 — [첨부 끝] 문자열을 본문에 포함한 악성 문서가 경계를 탈출해 "지시"로 승격될 수 있는 구조인가(첨부는 데이터 원칙)? 시스템 프롬프트/도구 호출에 영향 주는 경로가 있나?
+3. 입구 열거 — chat() 외에 ChatRequest를 받는 입구(eval_run_agent·A2A 서빙·resume_approval 등)가 attachments를 무시/처리하는지 — 조용히 무시되는 입구가 있으면 정직한가?
+4. 추출 엔드포인트 자체 — 인증 외 남용 여지(대용량 반복 업로드, pypdf 폭탄 PDF — 압축 해제 폭발), content-type 위조.
+
+파일: packages/api/src/api/chat_attachments.py, chat.py(주입 지점), schemas/sessions.py, rag_ingest.py(extract_text), chat_trace.py
+결론: P1/P2/확인함 목록.

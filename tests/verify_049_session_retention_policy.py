@@ -347,8 +347,20 @@ async def section_b(agent) -> None:
     await _seed_session(agent.id, f"{SP}u_turn", turns=1, age=timedelta(hours=2))  # 턴만
     await _seed_session(agent.id, f"{SP}u_both", turns=1, age=timedelta(days=40))  # 둘 다
     union = await _scoped_targets(agent.id, 30, 3)
-    # t_idle(turns2,2h)도 턴 기준에 걸림 → 합집합에 포함. u_both은 한 번만(중복 없음).
-    expected_union = {f"{SP}u_age", f"{SP}u_turn", f"{SP}u_both", f"{SP}t_idle"}
+    # t_idle(turns2,2h)도 턴 기준에 걸리지만 **B1의 적응형 분기에 종속**(스펙 400류 수선):
+    # B1이 실삭제 경로(비-fixture 매치 0 — 깨끗한 DB)를 탔으면 이미 지워져 합집합에 없다.
+    # 고정 기대는 dry-run 경로만 참이었다(reset-dev 후 첫 실삭제 분기에서 적발된 테스트 결함).
+    from sqlalchemy import select as _sel
+
+    from api.models import Session as _Sess
+
+    async with SessionLocal() as _s:
+        t_idle_alive = (
+            await _s.execute(_sel(_Sess.id).where(_Sess.session_id == f"{SP}t_idle"))
+        ).first() is not None
+    expected_union = {f"{SP}u_age", f"{SP}u_turn", f"{SP}u_both"} | (
+        {f"{SP}t_idle"} if t_idle_alive else set()
+    )
     check(union == expected_union, f"[B2] 합집합 = 나이∪턴, 중복 없음 — 실제 {union}")
     res_u = await cleanup_sessions(dry_run=True)
     check(

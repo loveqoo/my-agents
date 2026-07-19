@@ -86,6 +86,7 @@ from .registry import (  # noqa: F401
 from .sessions import (  # noqa: F401
     ApprovalOut,
     ApprovalPage,
+    ChatAttachment,
     ChatFormSubmission,
     ChatMessage,
     ChatRequest,

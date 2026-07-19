@@ -158,6 +158,9 @@ def _annotate_context_sources(
     if history_restore:
         # 히스토리 서버 재구성 실측(스펙 289 P1) — 몇 개를 몇 ms에 이어붙였나(캐시 재론의 근거 데이터).
         trace["historyRestore"] = history_restore
+    if ctx.attachments_trace:
+        # 파일첨부(스펙 404) — 무엇이 주입됐나(파일명·글자수·마스킹 프리뷰). 미첨부 턴은 필드 없음.
+        trace["attachments"] = ctx.attachments_trace
     if turn.broker.invocations:
         # 브로커 호출 상세(스펙 130) — 조율형의 RAG 검색이 인스펙터에 "N건·최고 유사도"로 보이게.
         # 위임 없던 턴은 필드 자체가 없음(무회귀).

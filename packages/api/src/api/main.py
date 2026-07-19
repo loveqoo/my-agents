@@ -20,6 +20,7 @@ from . import (
     batch_routes,
     blocks,
     chat,
+    chat_attachments,
     checkpointer,
     eval_routes,
     events,
@@ -138,6 +139,7 @@ app.include_router(
     agents.meta_router, dependencies=_auth
 )  # /agent-impls(스펙 106) — uuid 경로 충돌 회피
 app.include_router(chat.router, dependencies=_auth)
+app.include_router(chat_attachments.router, dependencies=_auth)  # 파일첨부 추출(스펙 404)
 app.include_router(events.router, dependencies=_auth)  # 배경 잡 SSE 알림(스펙 335)
 app.include_router(sessions.router, dependencies=_auth)
 app.include_router(memory_routes.router, dependencies=_auth)

@@ -10,9 +10,9 @@ import { Icon } from '../admin/icons'
 import type { ChatMsg, Trace } from './agentData'
 import type { Agent, BlockCategory, Session } from '../admin/mockData'
 import {
-  listAgents, streamChat, streamChatA2A, getBlocks, listModels, listSessions, getSessionMessages, listCollections,
+  listAgents, streamChat, streamChatA2A, uploadChatAttachment, getBlocks, listModels, listSessions, getSessionMessages, listCollections,
   getApproval, resolveApproval,
-  type ChatMessage, type Model, type Collection, type ChatFormFrame, type MessageFeedback,
+  type ChatMessage, type Model, type Collection, type ChatFormFrame, type MessageFeedback, type ChatAttachmentDraft,
 } from '../api'
 import { onAgentsChanged } from '../agentsBus'
 import { isA2AExposed } from './DebugChat'
@@ -329,6 +329,24 @@ export function Playground({
     setStreaming(false)
   }
 
+  // 파일첨부(스펙 404) — 활성 대화의 대기 첨부(전송 시 소모·1회성). 대화 전환 시 리셋.
+  const [attachments, setAttachments] = useState<ChatAttachmentDraft[]>([])
+  useEffect(() => setAttachments([]), [activeId])
+  const attachFiles = async (files: File[]) => {
+    for (const f of files) {
+      if (attachments.length >= 3) {
+        message.warning('첨부는 턴당 3개까지입니다.')
+        return
+      }
+      try {
+        const a = await uploadChatAttachment(f)
+        setAttachments((prev) => (prev.length >= 3 ? prev : [...prev, a]))
+      } catch (e) {
+        message.error(e instanceof Error ? e.message : String(e))
+      }
+    }
+  }
+
   const send = async (text: string, form?: { formId: string; values: Record<string, string> }) => {
     if (streaming) return
     const id = activeId
@@ -347,10 +365,15 @@ export function Playground({
       .map((m) => ({ role: m.role === 'me' ? 'user' : 'assistant', content: m.text }))
     apiMessages.push({ role: 'user', content: text })
 
+    // 파일첨부 스냅샷+소모(스펙 404, 1회성). 원문 주입본은 서버가 영속 — UI는 칩 표기만.
+    const sendAtts = attachments
+    setAttachments([])
+    const meText =
+      sendAtts.length > 0 ? `${text}\n📎 ${sendAtts.map((a) => a.filename).join(' · ')}` : text
     // 사용자 턴 + 빈 ai 플레이스홀더 추가.
     setConvos((c) => ({
       ...c,
-      [id]: [...(c[id] || []), { role: 'me', text }, { role: 'ai', text: '' }],
+      [id]: [...(c[id] || []), { role: 'me', text: meText }, { role: 'ai', text: '' }],
     }))
 
     const appendToLastAi = (fn: (prev: ChatMsg) => ChatMsg) => {
@@ -438,6 +461,7 @@ export function Playground({
         ovPayload, // 세션 한정 오버라이드(변경된 키만; 빈 객체면 streamChat이 보내지 않음)
         form, // 산출물형 폼 제출(스펙 188) — 텍스트 입력이면 undefined
         pinnedVersions[id], // 버전 미리보기(스펙 243) — undefined=활성(무회귀)
+        sendAtts.map((a) => ({ filename: a.filename, text: a.text })), // 파일첨부(스펙 404)
       )
     } catch (e) {
       if (e instanceof DOMException && e.name === 'AbortError') {
@@ -657,6 +681,9 @@ export function Playground({
         onSubmitForm={submitForm}
         selectedTurn={inspectorOpen ? selectedTurn : null}
         onSelectTurn={openInspector}
+        attachments={attachments}
+        onAttachFiles={attachFiles}
+        onRemoveAttachment={(i) => setAttachments((prev) => prev.filter((_, x) => x !== i))}
         onSend={send}
         onStop={stop}
         onResetConversation={resetConversation}
@@ -698,6 +725,9 @@ export function Playground({
         onSubmitForm={submitForm}
         selectedTurn={inspectorOpen ? selectedTurn : null}
         onSelectTurn={openInspector}
+        attachments={attachments}
+        onAttachFiles={attachFiles}
+        onRemoveAttachment={(i) => setAttachments((prev) => prev.filter((_, x) => x !== i))}
         onSend={send}
         onStop={stop}
         onResetConversation={resetConversation}

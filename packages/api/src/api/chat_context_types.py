@@ -42,6 +42,9 @@ class ChatContext:
     nodes_resolved: list | None = None  # 노드별 모델 해석 결과
     overrides_nodes_status: str | None = None  # 노드 오버라이드 적용 상태(트레이스용)
     overrides: dict | None = None  # in-process 커스텀이 화이트리스트 밖 키도 읽게 전달(스펙 085)
+    attachments_trace: list | None = (
+        None  # 파일첨부 메타(스펙 404) — 인스펙터 표면화용(chat()이 주입 시 세팅)
+    )
     # 능력·도구 정책
     memories: list = field(default_factory=list)
     capabilities: list = field(default_factory=list)
