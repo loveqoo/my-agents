@@ -38,14 +38,56 @@ def check(cond: bool, msg: str) -> None:
         _fails.append(msg)
 
 
+_DOC_TEXT = "A/B 테스트에서 중요한 것은 표본 크기와 문해력 지표다."
+
+
+async def _seed_docs_kb() -> None:
+    """자기완결 픽스처(스펙 400 재활) — virgin의 docs-kb는 빈 컬렉션이라 문서 1건 인제스트."""
+    import io
+    import uuid as _uuid
+
+    from fastapi import UploadFile
+    from sqlalchemy import select
+
+    from api import rag as RG
+    from api.db import SessionLocal
+    from api.models import Collection, Document
+
+    class _Super:
+        id = _uuid.uuid4()
+        is_superuser = True
+
+    async with SessionLocal() as s:
+        cid = (
+            await s.execute(select(Collection.id).where(Collection.name == "docs-kb"))
+        ).scalar_one()
+    async with SessionLocal() as s:
+        d = await RG.ingest_document(
+            cid,
+            file=UploadFile(file=io.BytesIO(_DOC_TEXT.encode()), filename="v131.txt"),
+            session=s,
+            principal=_Super(),
+        )
+    for _ in range(120):
+        async with SessionLocal() as s:
+            st = (
+                await s.execute(select(Document.status).where(Document.id == d.id))
+            ).scalar_one()
+        if st in ("ready", "error"):
+            break
+        await asyncio.sleep(0.5)
+
+
 async def main() -> None:
+    await _seed_docs_kb()
     # V1 — 실 컬렉션
     b = PolicyScopedBroker(
         allowlist=["rag:docs-kb"],
         rbac_allows=lambda k, n=None: True,
         providers=build_providers(BrokerContext(user_id="v131")),
     )
-    await b.invoke("rag:docs-kb", {"text": "A/B 테스트에서 중요한 것은?"})
+    # 질의=원문 동일 문자열(mock-embed 결정성 — 140/130과 같은 처방)
+    await b.invoke("rag:docs-kb", {"text": _DOC_TEXT})
     inv = b.invocations[0]
     rp = inv.get("resultPreview", "")
     check(
@@ -134,12 +176,14 @@ async def main() -> None:
 
     # V5 — RAG 직접 도구 result 스니펫 (search_collections 모킹)
     calls: list[dict] = []
-    orig = runtime.search_collections
+    from api import rag_runtime as RR  # 정의 모듈 패치(파사드 재수출 패치는 내부 호출에 안 먹음)
+
+    orig = RR.search_collections
 
     async def fake_search(cols, q, k, min_scores=None):  # 스펙 191 min_scores 인자
         return [{"filename": "f.md", "score": 0.91, "text": "문서 본문 스니펫"}]
 
-    runtime.search_collections = fake_search
+    RR.search_collections = fake_search
     try:
         tool = runtime.build_rag_tool([{"name": "C"}], calls)
         out = await tool.coroutine(query="질문", top_k=2)
@@ -149,7 +193,7 @@ async def main() -> None:
         )
         check("문서 본문 스니펫" in out, "V5b 도구 반환 무회귀(포맷 공유)")
     finally:
-        runtime.search_collections = orig
+        RR.search_collections = orig
 
     # V6 — sentMessages 헬퍼(codex 131 #2·#3): 프롬프트 비밀 마스킹 + 개수 상한(생략 표식)
     from api.chat import _build_sent_messages

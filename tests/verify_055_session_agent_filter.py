@@ -32,7 +32,8 @@ from api.models import Agent, Message, Session  # noqa: E402
 _AUTH = {"Authorization": f"Bearer {_token()}"}
 _fails: list[str] = []
 PREFIX = "sess_v055_"
-# A: live 6 (active4+running2) + completed 3 = 9.  B: live 4 (active4) + error 2 = 6.
+# A: live 4 (active4 — 스펙 324: running은 죽은 분류·live 아님) + running 2 + completed 3 = 9.
+# B: live 4 (active4) + error 2 = 6.
 _A_DIST = ["active"] * 4 + ["running"] * 2 + ["completed"] * 3
 _B_DIST = ["active"] * 4 + ["error"] * 2
 
@@ -194,13 +195,13 @@ async def main() -> None:
             check(a_ids <= no_seen and b_ids <= no_seen, "필터 없으면 A·B 모두 포함(기존 동작)")
 
             # --- 6. status + agent_id 교집합 ---
-            print("[combo] status=live + agent_id=A → A의 live만(6건)")
+            print("[combo] status=live + agent_id=A → A의 live(active)만(4건)")
             la_items, la_total, _ = await _all_items(c, {"status": "live", "agent_id": a_ext})
             la_seen = {s["id"] for s in la_items}
             a_live = {
                 f"{PREFIX}A_{i:03d}"
                 for i, st in enumerate(_A_DIST)
-                if st in ("active", "running", "draining")
+                if st == "active"  # 스펙 324: live = active만
             }
             check(a_live <= la_seen, f"A의 live {len(a_live)}건 모두 포함")
             check(

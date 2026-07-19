@@ -38,14 +38,16 @@ class FakeMem:
         self.store = list(store or [])
         self.added: list[tuple] = []  # (messages, kwargs) — infer 포함
 
-    def search(self, query, filters, top_k):
+    def search(self, query, filters, top_k, **extra):  # extra: threshold(스펙 158)
         ((axis, val),) = filters.items()
         rows = [r for r in self.store if r.get(axis) == val]
         return {"results": rows[:top_k]}
 
-    def get_all(self, filters):
+    def get_all(self, filters, top_k=None):
+        # 현 백엔드(list_all)는 top_k=_LIST_ALL_CAP을 명시해 넘긴다 — 시그니처 수용.
         ((axis, val),) = filters.items()
-        return {"results": [r for r in self.store if r.get(axis) == val]}
+        rows = [r for r in self.store if r.get(axis) == val]
+        return {"results": rows[: top_k or len(rows)]}
 
     def add(self, messages, **kwargs):
         self.added.append((messages, kwargs))
@@ -163,9 +165,10 @@ def test_crud_helpers() -> None:
 
 # ---------------------------------------------------------------- chat.py 스코프 분리(정적)
 def test_chat_scope_split() -> None:
-    print("[chat] recall/add 스코프 분리(소스 정적 점검)")
+    print("[chat] recall/add 스코프 분리(소스 정적 점검 — 정의 모듈은 chat_turn_runtime, 스펙 396 분할)")
     src = open(
-        os.path.join(ROOT, "packages", "api", "src", "api", "chat.py"), encoding="utf-8"
+        os.path.join(ROOT, "packages", "api", "src", "api", "chat_turn_runtime.py"),
+        encoding="utf-8",
     ).read()
     # recall_scope는 add_scope에 agent_id를 더한다.
     check(
@@ -173,11 +176,14 @@ def test_chat_scope_split() -> None:
         "recall_scope = {**add_scope, agent_id:…}",
     )
     check('"agent_id": ctx.ext_agent_id' in src, "회상 agent_id=ext_agent_id")
-    # 자동 턴 add는 add_scope(agent_id 없음)로 호출 — search는 recall_scope.
+    # search는 recall_scope 사용.
     check("memory.search, recall_scope" in src, "search는 recall_scope 사용")
-    # add 호출은 add_scope 인자로 (자동 턴 저장)
+    # 자동 턴 add는 add_scope(agent_id 없음)로 호출 — 저장 지점은 chat_final(스펙 396 분할).
+    fsrc = open(
+        os.path.join(ROOT, "packages", "api", "src", "api", "chat_final.py"), encoding="utf-8"
+    ).read()
     check(
-        re.search(r"memory\.add,\s*\n\s*add_scope", src) is not None,
+        re.search(r"memory\.add,\s*\n\s*add_scope", fsrc) is not None,
         "자동 add는 add_scope(agent_id 미포함) 사용",
     )
     # add_scope 정의에 agent_id가 들어가지 않음
@@ -192,7 +198,8 @@ def test_chat_scope_split() -> None:
 def test_owner_guard() -> None:
     print("[guard] admin update/delete가 _assert_owns로 소유권 강제(소스 정적 점검)")
     src = open(
-        os.path.join(ROOT, "packages", "api", "src", "api", "agents.py"), encoding="utf-8"
+        os.path.join(ROOT, "packages", "api", "src", "api", "agents", "memory_routes.py"),
+        encoding="utf-8",
     ).read()
     # mem_id를 받는 두 변조 엔드포인트는 mem0 호출 전에 _assert_owns를 통과해야 한다.
     # (공유 pgvector라 path agent_id 없이는 타 에이전트/유저 행을 변조 가능 — 라이브로 404 확인됨)

@@ -310,6 +310,7 @@ async def integration() -> None:
         # rollback이 ORM 객체를 expire시키므로 id/name을 plain 값으로 먼저 캡처(재로드 방지).
         active_id = srv_active.id
         active_name = srv_active.name
+        agent_a_id = agent_a.id  # T7서 만료 후 .id 접근도 IO(MissingGreenlet) — 미리 캡처
 
         # ── T8. **활성** 참조 중인 MCP rename → 409 (operation-symmetry: 삭제와 형제 입구) ──
         # srv_active는 agent_a의 활성 config가 참조. name을 바꾸면 옛 name이 활성 config에 dangling으로
@@ -345,10 +346,19 @@ async def integration() -> None:
             check(False, f"T9 name 동일 update가 막힘(과잉차단!) status={e.status_code}")
 
         # ── T7. 활성 참조 해제 후 삭제 성공 (해제→삭제 경로, 자가-잠금 대칭 핀) ──
-        agent_a.config = {"mcps": [], "vectorTables": []}
-        for v in agent_a.versions:
-            if v.status == "active":
-                v.config = {"mcps": [], "vectorTables": []}
+        # rollback(T8) 후 agent_a는 만료 상태 — .versions 접근은 async 밖 lazy load(MissingGreenlet).
+        # selectinload로 재조회하고, status(draft/active)는 스펙 370서 폐기됐으므로 전 버전의 config를
+        # 비운다(가드는 head+버전 config의 참조를 본다).
+        from sqlalchemy.orm import selectinload as _sil
+
+        ag = (
+            await s.execute(
+                _sel(Agent).where(Agent.id == agent_a_id).options(_sil(Agent.versions))
+            )
+        ).scalar_one()
+        ag.config = {"mcps": [], "vectorTables": []}
+        for v in ag.versions:
+            v.config = {"mcps": [], "vectorTables": []}
         await s.commit()
         try:
             await blocks.delete_mcp_server(active_id, s, _SUPER)

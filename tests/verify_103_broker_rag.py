@@ -261,7 +261,8 @@ async def integration_checks() -> None:
             f"/collections/{cid}/documents",
             files={"file": ("main.txt", DOC_TEXT.encode("utf-8"), "text/plain")},
         )
-        check(up.json()["status"] == "ready", "H seed: main 인제스트 ready")
+        d = await _wait_doc(c, str(cid), up.json()["id"])
+        check(d.get("status") == "ready", f"H seed: main 인제스트 ready (got {d.get('status')})")
         chunk0 = await _first_chunk_text(f"{CP}main")
 
         # 브로커: allow=rag:main, RBAC 허용, 실 DB.
@@ -344,6 +345,18 @@ async def integration_checks() -> None:
             r9.error is None and "문서 검색 결과" in r9.text,
             "H9 6000자 질의 → 상한 처리(크래시 없음)",
         )
+
+
+async def _wait_doc(c, cid: str, did: str, timeout_s: int = 60) -> dict:
+    """인제스트 비동기 계약(현 API) — 업로드는 parsing으로 즉시 201, 목록 폴링으로 종착(ready/error) 대기."""
+    d: dict = {}
+    for _ in range(timeout_s * 2):
+        page = (await c.get(f"/collections/{cid}/documents")).json()
+        d = next((x for x in page["items"] if x["id"] == did), {})
+        if d.get("status") in ("ready", "error"):
+            return d
+        await asyncio.sleep(0.5)
+    return d
 
 
 async def main() -> None:

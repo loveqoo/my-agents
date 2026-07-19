@@ -43,8 +43,8 @@ def part_a() -> None:
 
     b = InMemoryBackend()
     for i in range(1, 26):
-        b.add({"user_id": "u1"}, [{"content": f"기억 번호 {i}"}], infer=False)
-    b.add({"user_id": "u2"}, [{"content": "남의 기억"}], infer=False)
+        b.add({"user_id": "u1"}, [{"content": f"기억 번호 {i}"}], False)  # 현 시그니처: _infer 위치 인자
+    b.add({"user_id": "u2"}, [{"content": "남의 기억"}], False)
 
     p1 = b.list_page({"user_id": "u1"}, None, 20, 0)
     check(
@@ -86,6 +86,8 @@ def part_b() -> None:
 
 
 # ---------- C: 실 pg 통합 ----------
+# DB명은 DATABASE_URL에서 유도 — throwaway(virgin) 서버는 전용 DB를 쓴다(하드코딩 'agents' 금지).
+_DBNAME = os.environ.get("DATABASE_URL", "//agents").rsplit("/", 1)[-1]
 _PG = [
     "docker",
     "exec",
@@ -94,7 +96,7 @@ _PG = [
     "-U",
     "agent",
     "-d",
-    "agents",
+    _DBNAME,
     "-t",
     "-A",
     "-c",
@@ -111,6 +113,12 @@ def psql(sql: str) -> str:
 
 
 def seed() -> None:
+    # virgin DB엔 mem0 테이블이 없다(mem0가 첫 백엔드 초기화 때 지연 생성) — mem0 pgvector 스키마와
+    # 동형으로 선생성(IF NOT EXISTS: dev DB처럼 이미 있으면 무해). part C는 이 3컬럼만 쓴다.
+    psql(
+        "CREATE TABLE IF NOT EXISTS mem0_memories "
+        "(id UUID PRIMARY KEY, vector vector(1024), payload JSONB)"
+    )
     # 25건(+타유저 1건). 텍스트에 ILIKE 이스케이프 검증용 특수문자 행 포함(#24: 'a%b_c').
     psql(
         "INSERT INTO mem0_memories (id, vector, payload) "

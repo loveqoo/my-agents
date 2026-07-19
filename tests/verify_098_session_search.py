@@ -179,8 +179,13 @@ async def main() -> None:
             check(all_mine <= _mine(ws), "공백 q → 전부 반환(strip 후 미적용)")
 
             print("[4] q + status = AND(교집합)")
-            combo, _, _ = await _ids(c, {"q": "v098_plainagent", "status": "error"})
-            check(_mine(combo) == {f"{PREFIX}s2"}, f"plainagent+error → S2만(got {_mine(combo)})")
+            # 스펙 324: error 버킷은 죽은 분류로 제거(미지 status → all 폴백·필터 안 함).
+            # AND 교집합은 살아있는 live 버킷으로 검증 — S1(active)만 남고 S2(error)는 제외.
+            combo, _, _ = await _ids(c, {"q": "v098_plainagent", "status": "live"})
+            check(
+                _mine(combo) == {f"{PREFIX}MARKERID_1"},
+                f"plainagent+live → S1만(got {_mine(combo)})",
+            )
 
             print("[5] total·counts가 검색 반영(전체 스코프)")
             _, t_marker, _ = await _ids(c, {"q": "MARKERID"})

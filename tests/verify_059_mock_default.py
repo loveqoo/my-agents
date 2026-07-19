@@ -49,11 +49,8 @@ def main() -> None:
         seed.CHAT_MODEL_NAME == "mock-llm",
         f"D2 CHAT_MODEL_NAME=='mock-llm' (실제={seed.CHAT_MODEL_NAME!r})",
     )
-    ssrc = (
-        inspect.getsource(seed.seed_if_empty)
-        if hasattr(seed, "seed_if_empty")
-        else inspect.getsource(seed)
-    )
+    # seed_if_empty는 헬퍼 함수들로 분해됨(시드 마커가 함수 밖에 산다) — 모듈 전체를 스캔.
+    ssrc = inspect.getsource(seed)
     # Provider 시드 블록에 MLX 결합이 없어야 한다(이름·env 모두).
     check(
         "MLX_BASE_URL" not in ssrc and "MLX_API_KEY" not in ssrc and "MLX_MODEL" not in ssrc,
@@ -140,8 +137,11 @@ def main() -> None:
         schemas.AgentConfig().model == "mock-llm",
         f"D4 AgentConfig.model 기본 'mock-llm' (실제={schemas.AgentConfig().model!r})",
     )
-    # models.py Agent.model 컬럼 기본값.
-    msrc = inspect.getsource(api_models)
+    # Agent.model 컬럼 기본값 — models는 패키지로 분할됨(getsource(패키지)=__init__ 재수출만).
+    # Agent가 정의된 실제 모듈을 읽는다.
+    import sys as _sys
+
+    msrc = inspect.getsource(_sys.modules[api_models.Agent.__module__])
     check('default="mock-llm"' in msrc, "D4 Agent.model 컬럼 기본 'mock-llm'")
     check("local-mlx" not in msrc, "D4 models.py에 'local-mlx' 잔재 없음")
 

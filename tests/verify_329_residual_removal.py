@@ -82,7 +82,10 @@ def part_v3():
     check(not dups, f"V3a 리비전 중복/파싱실패 0 (got {dups})")
     children = set(downs.values()) - {None}
     heads = [r for r in revs if r not in children]
-    check(heads == ["d5795d21f6a2"], f"V3b 단일 head=d5795d21f6a2 (got {heads})")
+    # head 핀 제거(스펙 400 재활): 특정 리비전 핀은 새 마이그레이션마다 깨진다 — 이 검증의
+    # 축은 "단일 head"(분기 없음)이지 특정 값이 아니다. 329 당시 head(d5795d21f6a2)는 조상으로 실존해야 한다.
+    check(len(heads) == 1, f"V3b 단일 head (got {heads})")
+    check("d5795d21f6a2" in revs, "V3b' 329 당시 head가 조상으로 실존")
     orphans = [d for d in children if d not in revs]
     check(not orphans, f"V3c 고아 down_revision 없음 (got {orphans})")
 
@@ -112,7 +115,28 @@ async def part_v45():
             f"V4a rag_chunks에 token_count 부재(+테이블 실존) (cols={sorted(cols)})",
         )
         ver = (await s.execute(text("SELECT version_num FROM alembic_version"))).scalar_one()
-        check(ver == "d5795d21f6a2", f"V4b alembic_version == head (got {ver})")
+        # 핀 제거(스펙 400): DB 적용 리비전이 파일 그래프의 단일 head와 일치하는지로 단언.
+        import glob as _g
+        import re as _re
+
+        revs2 = set()
+        downs2 = {}
+        for f in _g.glob(
+            os.path.join(_ROOT, "packages", "api", "alembic", "versions", "*.py")
+        ):
+            src = open(f, encoding="utf-8").read()
+            r = _re.search(r"^revision(?::[^=]+)?\s*=\s*['\"]([0-9a-f]+)['\"]", src, _re.M)
+            d = _re.search(
+                r"^down_revision(?::[^=]+)?\s*=\s*(?:['\"]([0-9a-f]+)['\"]|None)", src, _re.M
+            )
+            if r:
+                revs2.add(r.group(1))
+                downs2[r.group(1)] = d.group(1) if d and d.group(1) else None
+        head_now = [x for x in revs2 if x not in (set(downs2.values()) - {None})]
+        check(
+            len(head_now) == 1 and ver == head_now[0],
+            f"V4b alembic_version == 파일 그래프 단일 head (got {ver}, head={head_now})",
+        )
 
         # V5 — 인제스트가 하는 그대로의 Chunk insert(모델에 token_count가 없어도 왕복 정상)
         emb_model = (

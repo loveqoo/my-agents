@@ -40,7 +40,7 @@ from api.models import Chunk, Collection, Document, ModelConfig, Provider  # noq
 
 _AUTH = {"Authorization": f"Bearer {_token()}"}
 _fails: list[str] = []
-CP = "col_v037_"
+CP = "col-v037-"  # 스펙 148 이름 규칙: 영소문자·숫자·대시만(밑줄 금지)
 MP = "mdl_v037_"
 
 DOC_TEXT = (
@@ -125,6 +125,18 @@ def _sims(out: str) -> list[float]:
     return [float(x) for x in re.findall(r"유사도 (-?[\d.]+)\)", out)]
 
 
+async def _wait_doc(c, cid: str, did: str, timeout_s: int = 60) -> dict:
+    """인제스트 비동기 계약(현 API) — 업로드는 parsing으로 즉시 201, 목록 폴링으로 종착(ready/error) 대기."""
+    d: dict = {}
+    for _ in range(timeout_s * 2):
+        page = (await c.get(f"/collections/{cid}/documents")).json()
+        d = next((x for x in page["items"] if x["id"] == did), {})
+        if d.get("status") in ("ready", "error"):
+            return d
+        await asyncio.sleep(0.5)
+    return d
+
+
 async def main() -> None:
     await _cleanup()
     transport = httpx.ASGITransport(app=app)
@@ -171,7 +183,8 @@ async def main() -> None:
                     f"/collections/{cid}/documents",
                     files={"file": (f"{nm}.txt", DOC_TEXT.encode("utf-8"), "text/plain")},
                 )
-                check(up.json()["status"] == "ready", f"{nm} 인제스트 ready")
+                d = await _wait_doc(c, str(cid), up.json()["id"])
+                check(d.get("status") == "ready", f"{nm} 인제스트 ready (got {d.get('status')})")
 
             col_main = await _collection_dict(f"{CP}main")
             col_empty = await _collection_dict(f"{CP}empty")

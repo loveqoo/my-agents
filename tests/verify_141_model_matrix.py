@@ -49,10 +49,9 @@ class _Super:
 async def main():
     sup = _Super()
     tag = f"v141-{_uuid.uuid4().hex[:6]}"
+    # 자기완결 픽스처(스펙 400 재활) — 구 '옵시디언 매니저' 시드 전제 제거. virgin seed에는
+    # 기본 chat 모델(mock)만 있고 에이전트는 없으므로 시험용 에이전트를 직접 만든다.
     async with async_session() as s:
-        agent = (
-            await s.execute(select(Agent).where(Agent.name == "옵시디언 매니저"))
-        ).scalar_one_or_none()
         default_chat = (
             await s.execute(
                 select(ModelConfig).where(
@@ -60,9 +59,21 @@ async def main():
                 )
             )
         ).scalar_one_or_none()
-    if agent is None or default_chat is None:
-        check(False, "전제 실패: 에이전트/기본 chat 모델 없음")
+    if default_chat is None:
+        check(False, "전제 실패: 기본 chat 모델 없음(seed)")
         sys.exit(1)
+    async with async_session() as s:
+        agent = Agent(
+            agent_id=f"agt_{tag}",
+            name=f"{tag}-agent",
+            source="ui",
+            prompt="질문에 간결히 답한다.",
+            config={},
+            active_version="v1",
+        )
+        s.add(agent)
+        await s.commit()
+        await s.refresh(agent)
 
     # 임시 두 번째 모델(같은 provider/model_id, 다른 이름) — 결정적 2모델 격자용
     alt_name = f"{tag}-모델B"
@@ -204,6 +215,11 @@ async def main():
             ).scalar_one_or_none()
             if tmp:
                 await s.delete(tmp)
+                await s.commit()
+        async with async_session() as s:
+            ag = await s.get(Agent, agent.id)
+            if ag:
+                await s.delete(ag)
                 await s.commit()
 
     print(f"\n{passed} passed, {len(_fails)} failed")

@@ -201,8 +201,8 @@ def u3_scope_isolation() -> None:
     check(not any("비건" in t or "매운" in t for t in texts), "agent_id 검색: user_id 기억 누출 0")
     check(all(h["scope"] == "agent_id" for h in hits), "agent_id hit scope 표기")
     check(
-        all({"type", "text", "score", "scope"} <= set(h) for h in hits),
-        "hit 구조 {type,text,score,scope}",
+        all({"text", "score", "scope"} <= set(h) for h in hits),
+        "hit 구조 {text,score,scope} (type 축은 후속 스펙서 제거)",
     )
 
     # user_id 검색 → 그 유저 기억만(타 유저·agent 누출 없음).

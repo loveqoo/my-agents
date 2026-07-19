@@ -79,11 +79,21 @@ async def _cleanup() -> None:
         await s.commit()
 
 
+class _Super:
+    id = uuid.UUID("00000083-0000-0000-0000-000000000083")
+    is_superuser = True
+    is_active = True
+    is_verified = True
+    email = "verify083@local"
+
+
 async def _call_expose(pk: uuid.UUID, a2a: bool):
-    """라우트 핸들러를 실세션으로 직접 호출. (status, exposed|None) 반환; 거부 시 (code, None)."""
+    """라우트 핸들러를 실세션으로 직접 호출. (status, exposed|None) 반환; 거부 시 (code, None).
+
+    현 계약: expose_agent은 principal(소유권 게이트)을 받는다 — 미전달 시 404-fold라 특권 전달."""
     async with SessionLocal() as s:
         try:
-            out = await expose_agent(pk, ExposeIn(a2a=a2a), s)
+            out = await expose_agent(pk, ExposeIn(a2a=a2a), s, _Super())
             return 200, bool(out.exposed.get("a2a"))
         except HTTPException as exc:
             return exc.status_code, None
@@ -95,11 +105,11 @@ async def test_gate():
     code, exp = await _call_expose(ui_pk, True)
     ck(code == 200 and exp is True, f"G1 ui+true → 200·exposed=True (got {code}, {exp})")
 
-    # G2 code + true → 400
+    # G2 code + true → 200 (스펙 154: 제1자 SDK 배포는 1홉 중계로 노출 허용 — 083의 ui-only에서 완화.
+    # 재공개 금지(스펙 152)는 외부 제3자(external)만 차단한다.)
     code_pk = await _mk("code", False)
-    code, _ = await _call_expose(code_pk, True)
-    ck(code == 400, f"G2 code+true → 400 (got {code})")
-    ck(await _exposed_of(code_pk) is False, "G2 거부 후 code의 exposed 변동 없음(False 유지)")
+    code, exp = await _call_expose(code_pk, True)
+    ck(code == 200 and exp is True, f"G2 code+true → 200·노출 허용(스펙 154) (got {code}, {exp})")
 
     # G3 external + true → 400
     ext_pk = await _mk("external", False)
@@ -182,7 +192,9 @@ async def test_migration():
                 )
             )
         ).scalar_one()
-    ck(n == 0, f"M3 불변식 exposed.a2a=true ⟹ source=ui (위반 row={n})")
+    # 스펙 154 이후 라이브 불변식은 "external 재공개 금지"로 완화 — 여기서는 이 마이그레이션 SQL
+    # 적용 직후의 상태(비-ui true 0)를 단언한다(jsonb_set 청소 동작 검증, 전역 계약 아님).
+    ck(n == 0, f"M3 마이그레이션 SQL 직후 비-ui true=0 (위반 row={n})")
 
     # M4 형제 키 보존: a2a는 false로 청소되되 note 키는 그대로 (통째 교체였다면 note 소실)
     raw = await _exposed_raw(code_sibling)

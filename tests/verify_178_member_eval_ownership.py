@@ -105,8 +105,8 @@ async def main() -> None:
 
         # ---- T1 읽기 공개 ----
         async with SessionLocal() as s:
-            lst = await ER.list_datasets(session=s, user=B)
-            mine = [d for d in lst if d.id == ds_id]
+            lst = await ER.list_datasets(session=s, user=B, q=None, kind=None, limit=20, offset=0)
+            mine = [d for d in lst.items if d.id == ds_id]  # 스펙 196: 페이징 봉투(items·total)
             check(bool(mine), "T1 B가 A의 문제집 list 열람(공개)")
             check(mine and mine[0].can_manage is False, "T1 B의 can_manage=False(관리 버튼 숨김)")
             cases = await ER.list_cases(ds_id, session=s, user=B)

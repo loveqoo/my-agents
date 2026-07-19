@@ -188,8 +188,9 @@ async def http_checks() -> None:
         created.append(expert["id"])
         # 전문가 활성화(로컬 위임은 활성 버전 필수 — _delegable)
         g = (await c.get(f"/agents/{expert['id']}")).json()
+        # 스펙 370: status(draft) 폐기 — 미오픈 스크래치(everOpened=false)를 오픈.
         draft = next(
-            (v["version"] for v in g.get("versions", []) if v.get("status") == "draft"), None
+            (v["version"] for v in g.get("versions", []) if not v.get("everOpened")), None
         )
         if draft:
             await c.post(f"/agents/{expert['id']}/activate", json={"version": draft})

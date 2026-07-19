@@ -37,7 +37,7 @@ from api.models import McpServer  # noqa: E402
 _AUTH = {"Authorization": f"Bearer {_token()}"}
 VBASE = os.environ.get("VERIFY_BASE", "http://127.0.0.1:8000")  # 스펙 390: 격리 서버 주입
 _fails: list[str] = []
-NP = "mcp_v054f_"
+NP = "mcp-v054f-"  # 스펙 148 이름 규칙: 영소문자·숫자·대시만(밑줄 금지)
 TOKEN = "sk-secret-abc-123"
 TOKEN2 = "sk-rotated-xyz-789"
 

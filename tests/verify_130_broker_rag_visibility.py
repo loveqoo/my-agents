@@ -38,14 +38,81 @@ def check(cond: bool, msg: str) -> None:
         _fails.append(msg)
 
 
+_DOC_TEXT = "A/B 테스트에서 중요한 것은 표본 크기와 문해력 지표다."
+
+
+async def _seed_docs_kb() -> str:
+    """자기완결 픽스처(스펙 400 재활) — virgin의 docs-kb는 빈 컬렉션(seed는 컬렉션만 생성).
+    문서 1건을 인제스트하고 doc id를 반환(끝에 삭제로 자가정리)."""
+    import io
+    import uuid as _uuid
+
+    from fastapi import UploadFile
+    from sqlalchemy import select
+
+    from api import rag as RG
+    from api.db import SessionLocal
+    from api.models import Collection, Document
+
+    class _Super:
+        id = _uuid.uuid4()
+        is_superuser = True
+
+    async with SessionLocal() as s:
+        cid = (
+            await s.execute(select(Collection.id).where(Collection.name == "docs-kb"))
+        ).scalar_one()
+    async with SessionLocal() as s:
+        d = await RG.ingest_document(
+            cid,
+            file=UploadFile(file=io.BytesIO(_DOC_TEXT.encode()), filename="v130.txt"),
+            session=s,
+            principal=_Super(),
+        )
+    for _ in range(120):
+        async with SessionLocal() as s:
+            st = (
+                await s.execute(select(Document.status).where(Document.id == d.id))
+            ).scalar_one()
+        if st in ("ready", "error"):
+            break
+        await asyncio.sleep(0.5)
+    return str(d.id)
+
+
+async def _cleanup_docs_kb(doc_id: str) -> None:
+    import uuid as _uuid
+
+    from sqlalchemy import select
+
+    from api import rag as RG
+    from api.db import SessionLocal
+    from api.models import Collection
+
+    class _Super:
+        id = _uuid.uuid4()
+        is_superuser = True
+
+    async with SessionLocal() as s:
+        cid = (
+            await s.execute(select(Collection.id).where(Collection.name == "docs-kb"))
+        ).scalar_one()
+        try:
+            await RG.delete_document(cid, _uuid.UUID(doc_id), session=s, principal=_Super())
+        except Exception:
+            pass
+
+
 async def main() -> None:
+    doc_id = await _seed_docs_kb()
     b = PolicyScopedBroker(
         allowlist=["rag:docs-kb"],
         rbac_allows=lambda k, n=None: True,
         providers=build_providers(BrokerContext(user_id="v130")),
     )
 
-    res = await b.invoke("rag:docs-kb", {"text": "A/B 테스트에서 중요한 것은?"})
+    # 질의=원문 동일 문자열 — mock-embed는 해시 기반이라 다른 문장은 음수 유사도 컷에 걸릴 수 있다.
+    res = await b.invoke("rag:docs-kb", {"text": _DOC_TEXT})
     raw = res.raw or {}
     check(
         res.error is None and raw.get("hits", 0) >= 1,
@@ -109,6 +176,8 @@ async def main() -> None:
         providers=build_providers(BrokerContext(user_id="v130b")),
     )
     check(b2.invocations == [], "V5 무위임 브로커 invocations 빈 리스트(트레이스 무회귀 전제)")
+
+    await _cleanup_docs_kb(doc_id)
 
     print(f"\n{passed} passed, {len(_fails)} failed")
     if _fails:

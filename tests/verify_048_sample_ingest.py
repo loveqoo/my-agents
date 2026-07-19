@@ -39,7 +39,7 @@ from api.models import RAG_EMBED_DIMS, Chunk, Collection, Document, ModelConfig 
 
 _AUTH = {"Authorization": f"Bearer {_token()}"}
 _fails: list[str] = []
-CP = "col_v048_"
+CP = "col-v048-"  # 스펙 148 이름 규칙: 영소문자·숫자·대시만(밑줄 금지)
 MP = "mdl_v048_"
 SAMPLES_DIR = os.path.join(ROOT, "packages", "api", "data", "rag_samples")
 
@@ -149,6 +149,18 @@ def _load_samples() -> list[tuple[str, bytes]]:
     return out
 
 
+async def _wait_doc(c, cid: str, did: str, timeout_s: int = 60) -> dict:
+    """인제스트 비동기 계약(현 API) — 업로드는 parsing으로 즉시 201, 목록 폴링으로 종착(ready/error) 대기."""
+    d: dict = {}
+    for _ in range(timeout_s * 2):
+        page = (await c.get(f"/collections/{cid}/documents")).json()
+        d = next((x for x in page["items"] if x["id"] == did), {})
+        if d.get("status") in ("ready", "error"):
+            return d
+        await asyncio.sleep(0.5)
+    return d
+
+
 async def main() -> None:
     _gate_tests()
     print("── B. 실제 번들 샘플 self-fixtured 적재 + 검색 ──")
@@ -235,7 +247,7 @@ async def main() -> None:
                     f"/collections/{col_id}/documents",
                     files={"file": (fn, data, "text/markdown")},
                 )
-                body = up.json()
+                body = await _wait_doc(c, col_id, up.json()["id"])
                 ok = (
                     up.status_code == 201
                     and body.get("status") == "ready"

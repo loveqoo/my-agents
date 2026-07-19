@@ -7,7 +7,8 @@
   1. 셰이프 {items, total, counts}, items ≤ limit.
   2. offset/limit 페이지네이션이 정렬(started_at desc, id desc) 위에서 결정적·비중복.
   3. total = 필터 적용 총 건수. 페이지 가로질러 합 = total.
-  4. counts(전체 집계)의 live 버킷이 status active/running/draining 합과 일치.
+  4. counts(전체 집계)의 live 버킷 = active 합(스펙 324: running/draining/awaiting/error는
+     죽은 분류로 제거 — 미매핑 status는 all에만 집계).
   5. limit 클램프(>100 → 422), offset 음수 → 422.
   6. 알 수 없는 status → all 폴백(필터 안 함).
 
@@ -35,7 +36,8 @@ _AUTH = {"Authorization": f"Bearer {_token()}"}
 _fails: list[str] = []
 PREFIX = "sess_v034_"
 N = 45  # > 2 페이지(limit 20)
-# 검증용 status 분포: active 25, running 8, draining 4, completed 8 → live 버킷 = 37
+# 검증용 status 분포: active 25, running 8, draining 4, completed 8 → live 버킷 = 25(active만).
+# running/draining은 스펙 324서 죽은 분류 — 미매핑 status가 all에만 집계됨을 함께 단언한다.
 _DIST = ["active"] * 25 + ["running"] * 8 + ["draining"] * 4 + ["completed"] * 8
 
 
@@ -92,7 +94,7 @@ async def main() -> None:
 
     transport = httpx.ASGITransport(app=app)
     # 불변식 기반 검증(실 DB에 기존 데이터가 있어도 견고). 주입한 47건 외 기존 행은 baseline으로 흡수.
-    INJ_LIVE = 37  # active 25 + running 8 + draining 4
+    INJ_LIVE = 25  # active만(스펙 324 — running/draining은 미매핑, all에만)
     INJ_ALL = len(_DIST)  # 45 (live 37 + completed 8)
     try:
         async with httpx.AsyncClient(transport=transport, base_url="http://t", headers=_AUTH) as c:
@@ -103,7 +105,7 @@ async def main() -> None:
             ).json()
             check(set(r1) == {"items", "total", "counts"}, "셰이프 {items,total,counts}")
             check(len(r1["items"]) == 20, f"1페이지 items == limit(20) (got {len(r1['items'])})")
-            check(set(r1["counts"]) == {"all", "live", "awaiting", "error"}, "counts 버킷 4종")
+            check(set(r1["counts"]) == {"all", "live"}, "counts 버킷 2종(스펙 324)")
 
             # --- 핵심 불변식: total(status=X) == counts[X] ---
             print("[invariant] total(status=X) == counts[X]")
@@ -152,8 +154,8 @@ async def main() -> None:
             check(len(seen) == total_live, f"순회 수집 == total({total_live}) (got {len(seen)})")
             check(len(set(seen)) == len(seen), "전 페이지 비중복(distinct)")
             check(monotonic, "started_at 내림차순 단조(정렬 안정)")
-            injected_live = {f"{PREFIX}{i:03d}" for i, st in enumerate(_DIST) if st != "completed"}
-            check(injected_live <= set(seen), "주입한 live 37건 모두 순회에 포함")
+            injected_live = {f"{PREFIX}{i:03d}" for i, st in enumerate(_DIST) if st == "active"}
+            check(injected_live <= set(seen), "주입한 live(active) 25건 모두 순회에 포함")
 
             # offset이 total 초과 → 빈 페이지(total 유지)
             over = (

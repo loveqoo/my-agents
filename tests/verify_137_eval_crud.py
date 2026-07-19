@@ -61,7 +61,8 @@ def part_a():
         f"A1 유효 매핑 4종 (got {[s[0] for s in scorers]})",
     )
     for bad, label in [
-        ([{"type": "llm_judge", "arg": "x"}], "미지 type"),
+        # 스펙 400 재활: 구 픽스처의 미지 type 예가 llm_judge였는데 스펙 139서 정식 등록됨 — 진짜 미지명으로.
+        ([{"type": "bogus_type_400", "arg": "x"}], "미지 type"),
         ([{"type": "trace_has"}], "arg 누락"),
         (["문자열"], "비-dict"),
         ([{"type": "trace_has", "arg": "x" * 501}], "arg 500자 초과(codex #3)"),
@@ -120,8 +121,8 @@ async def part_b():
                 "B5 케이스 수정",
             )
         async with async_session() as s:
-            dss = await ER.list_datasets(session=s, user=sup)
-            mine = [d for d in dss if d.id == ds.id]
+            dss = await ER.list_datasets(session=s, user=sup, q=None, kind=None, limit=20, offset=0)
+            mine = [d for d in dss.items if d.id == ds.id]
             check(mine and mine[0].case_count == 1, f"B6 데이터셋 목록에 case_count=1")
     finally:
         async with async_session() as s:

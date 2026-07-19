@@ -52,7 +52,8 @@ def _frames(sse: str) -> list[dict]:
 
 async def _activate_draft(c, aid):
     g = (await c.get(f"/agents/{aid}")).json()
-    d = next((v["version"] for v in g.get("versions", []) if v.get("status") == "draft"), None)
+    # 스펙 370: status(draft) 폐기 — 초안 = 미오픈 스크래치(everOpened=false).
+    d = next((v["version"] for v in g.get("versions", []) if not v.get("everOpened")), None)
     if d:
         await c.post(f"/agents/{aid}/activate", json={"version": d})
     g2 = (await c.get(f"/agents/{aid}")).json()

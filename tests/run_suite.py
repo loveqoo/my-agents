@@ -36,59 +36,14 @@ TESTS = ROOT / "tests"
 
 # 격리 목록 — 지금 드리프트(테스트/자산 노후, 코드 회귀 아님)라 그물에서 뺀다. 사유를 함께 적는다
 # (은폐 금지). **목표는 이 집합을 줄이는 것.** 고쳐서 통과하기 시작하면 여기서 지운다.
+# 스펙 400 재활 캠페인(2026-07-19): 노후 38건을 재작성해 그물 복귀(43→5). 남은 5건은 전부
+# 환경/인프라 전제(테스트 재작성으로 못 푸는 것) — 근본 해결은 별도 스펙(400 OUT).
 KNOWN_DRIFT: dict[str, str] = {
-    "verify_040_memory_backend_contract.py": "노후: 백엔드 계약 표면 변경 미반영(스펙 353 실측)",
-    "verify_043_index.py": "자산 드리프트: 인덱스↔파일 번호 불일치(learning 146~151·retro 130 등)",
-    "verify_059_mock_default.py": "노후: 시드 채팅모델 이름 mock-chat→mock-llm 미반영",
-    "verify_130_broker_rag_visibility.py": "노후: 브로커 RAG 가시성 표면 변경(스펙 353 실측)",
-    "verify_131_inspector_detail.py": "노후: 인스펙터 상세 스키마 변경 미반영",
-    "verify_191_rag_threshold.py": "노후: RAG 임계 기대치 드리프트",
-    "verify_029_agent_memory.py": "노후: 파일 경로 하드코딩(FileNotFound)",
-    "verify_115_attribution_fence.py": "노후: 상대경로 'src' 하드코딩(FileNotFound)",
-    # --- db층 드리프트(스펙 353 실측). 전부 **캠페인 346~352와 무관한 기존 노후**로 확증:
-    #     나머지는 캠페인 모듈을 import조차 안 함. eval 스위트가 무더기로 노후(스키마·라우트 표면 변경).
-    #     (verify_049는 스펙 382에서 해제 — _create_approval user_id 미갱신+ctx dict→DTO 동반 봉합.)
-    "verify_083_expose_gate.py": "노후: expose 게이트 기대치 드리프트(캠페인 무관)",
-    "verify_122_orchestrator_override_capabilities.py": "노후: B1이 모델 없는 에이전트+오버라이드서 400(스펙 290 거절 조건이 None==None 매칭 — HEAD 재현, 스펙 394 실측). 소스 단언은 394서 값 단언으로 갱신",
-    "verify_127_paged_memory.py": "노후: InMemoryBackend.add() 시그니처 변경 미반영",
-    "verify_137_eval_crud.py": "노후: eval 라우트 Query 시그니처 변경(expected str got Query)",
-    "verify_137_eval_runner.py": "노후: eval 러너 스키마 드리프트",
-    "verify_139_llm_judge.py": "노후: LLM judge eval 스키마 드리프트",
-    "verify_140_rag_eval.py": "노후: RAG eval 스키마 드리프트",
-    "verify_141_model_matrix.py": "노후: model matrix eval 드리프트",
-    "verify_148_naming.py": "노후: 네이밍 규칙 기대치 드리프트(캠페인 무관)",
-    "verify_178_member_eval_ownership.py": "노후: eval 라우트 Query 시그니처(expected str got Query)",
-    "verify_193_eval_ux.py": "노후: eval UX 라우트 Query 시그니처(expected str got Query)",
-    "verify_329_residual_removal.py": "노후: 플랜 데모 잔여 제거 기대치 드리프트(캠페인 무관)",
-    # --- http 층 드리프트(2026-07-16 test-all hygiene 실측). 전부 캠페인 374(리팩터)와 무관 —
-    #     baseline(2fbd224) 동일 실패 또는 데이터/환경 전제. 리팩터가 낸 회귀(rag 재수출·151·347)는
-    #     별도로 고쳐 그물에 복귀. 아래는 사전존재 드리프트라 사유 달아 격리(고치면 여기서 지운다).
     "verify_114_owner_display.py": "환경: owner_id=None 레거시 에이전트 전제(현 seed 없음 → next() StopIteration)",
     "verify_143_suggest.py": "환경: '옵시디언 매니저' 시드 에이전트 전제(현 seed에 없음)",
-    "verify_161_persona_sync.py": "노후: promptStale이 후속 스펙서 adopt(채택)로 일반화·대체(응답 키 없음)",
-    "verify_235_ephemeral.py": "노후: 스펙346 durability=exit로 턴종료 체크포인트 정리 → 비-ephemeral 대조도 Δ=0(pre-346 기대, ephemeral 본 로직 E4/E5는 통과)",
-    "verify_240_eval_version.py": "노후: eval 버전 추적 스키마 드리프트(agent_version None, baseline 동일·캠페인 무관)",
-    "verify_242_version_exec.py": "노후: 버전 실행 eval 스키마/데이터 드리프트(baseline 동일)",
-    "verify_244_version_ops.py": "노후: 버전 ops eval 집계 드리프트(runs/score None, baseline 동일)",
-    "verify_318_node_agent_call.py": "노후/전제: virgin DB에서도 실패(스펙385 실측). brokerCalls 단언이 시드 외 전제(실 principal 등)를 요구",
     "verify_068_live.py": "인프라: D6 member resume 실패 지속(초기화 후에도 재현 — 해제 시도 실측 실패, 2026-07-17). asyncpg 커넥션 수명 별도 조사 유지",
-    # --- http 층 triage(2026-07-16 스펙 384). 전부 테스트 쪽(앱 결함 아님) — 공유 라이브 DB 격리
-    #     하네스(백로그 대형)가 근본 해결. baseline(2fbd224) 동일 실패=사전존재. 개별 전제 추격은
-    #     두더지잡기라 정직한 사유로 격리(부채 가시화). 순수 드리프트 verify_047은 고쳐 그물 복귀.
-    "verify_036_rag_ingest.py": "노후: virgin 서버에서도 실패(스펙390 실측 — 오염 아님). 기대 컬렉션 플로우가 현 API와 어긋남",
-    "verify_037_rag_retrieval.py": "노후: virgin 서버에서도 StopIteration(스펙390 실측). 컬렉션 생성 플로우 노후+default 없는 next()",
-    "verify_072_rag_search.py": "노후: virgin 서버서 이름규칙(148) 400은 수선(col-v072-), 잔여=ready 상태 단언 드리프트(검색 3건은 동작 — 스펙390 실측)",
-    "verify_103_broker_rag.py": "노후: virgin 서버에서도 실패(스펙390 실측 — 오염 아님)",
-    "verify_054_mcp_auth_at_rest.py": "노후: virgin 서버에서도 KeyError(스펙390 실측 — 오염 아님)",
     "verify_054_mcp_real_runtime.py": "환경: stdio transport 실 MCP 런타임 전제(T6, 서버 부재 시 실패)",
-    "verify_084_memory_search.py": "노후: virgin DB에서도 hit 구조 단언 실패(스펙385 실측). {type,text,score,scope} shape가 현 응답과 어긋남",
-    "verify_034_session_pagination.py": "노후: virgin DB에서도 실패(스펙385 실측 — 오염 아님). counts 버킷·델타 단언이 현 배지 스코핑과 어긋남(기대치 재작성 필요)",
-    "verify_055_session_agent_filter.py": "노후: virgin DB에서도 실패(스펙385 실측 — 오염 아님). live 필터 기대치가 현 동작과 어긋남",
-    "verify_098_session_search.py": "노후: virgin DB에서도 실패(스펙385 실측 — 오염 아님). plainagent+error 조합 기대치가 현 검색 동작과 어긋남",
-    "verify_048_sample_ingest.py": "노후: virgin DB에서도 KeyError 'id'(스펙385 실측 — 오염 아님). 컬렉션 생성 플로우 기대치가 현 API와 어긋남",
     "verify_057_connect_classification.py": "하네스: asyncio Task가 다른 이벤트루프에 attach(테스트 이벤트루프 버그, 앱 무관)",
-    "verify_063_live.py": "노후: virgin 서버에서도 실패(스펙390) — _cleanup route 우회 insert의 created_by NOT NULL(스펙343), 앱 무죄",
-    "verify_093_delete_reference_guard.py": "노후(다층): virgin 서버 실측서 status 인자·이름규칙 400은 수선, 잔여=MissingGreenlet(async ORM 사용 노후) — 개별 재활 후보(스펙390)",
 }
 
 # 러너 자신·인자 필요·특수 스크립트는 스위트에서 제외(그물 대상 아님).

@@ -126,7 +126,8 @@ def run_contract(name: str, make_backend) -> None:
         all(h["scope"] in ("user_id", "run_id", "agent_id") for h in hits),
         f"{name}: hit scope 축 태깅",
     )
-    check(all(set(h) == {"type", "text", "score", "scope"} for h in hits), f"{name}: hit shape")
+    # 현 계약: type 축은 후속 스펙서 제거 — hit = {text, score, scope}(두 백엔드 동형).
+    check(all(set(h) == {"text", "score", "scope"} for h in hits), f"{name}: hit shape")
     check(not any("매운맛" in t for t in ht), f"{name}: search 격리(bob 없음)")
     scores = [h["score"] for h in hits]
     check(scores == sorted(scores, reverse=True), f"{name}: score 내림차순 정렬")

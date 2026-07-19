@@ -68,8 +68,8 @@ async def main():
             )
             check(out.kind == "rag", "P1a kind=rag")
             # list 왕복
-            lst = await ER.list_datasets(s, sup)
-            row = next((d for d in lst if d.id == out.id), None)
+            lst = await ER.list_datasets(s, sup, q=None, kind=None, limit=20, offset=0)
+            row = next((d for d in lst.items if d.id == out.id), None)  # 스펙 196: 페이징 봉투
             check(
                 row is not None and row.collection_id == col.id,
                 "P1b list_datasets DatasetOut.collection_id 왕복",
@@ -137,9 +137,12 @@ async def main():
             sup,
         )
         made.append(gout.id)
+        # 스펙 400 재활: '생성 중' description 접두 보조판정은 스펙 329에서 제거됨(사용자 설명
+        # 문구가 실행을 409로 막던 오탐 표면) — 판정은 _active_jobs 락 단일 출처. 설명 문구만으로는
+        # generating=False가 현 계약이다.
         check(
-            gout.generating is True,
-            f"P3a description '생성 중…' → generating=True (got {gout.generating})",
+            gout.generating is False,
+            f"P3a description 문구만으로는 generating=False(스펙 329) (got {gout.generating})",
         )
         nout = await ER.create_dataset(
             ER.DatasetIn(

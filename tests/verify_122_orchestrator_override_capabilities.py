@@ -59,7 +59,10 @@ async def integration() -> None:
             agent_id=f"agt_{_TAG}",
             name=f"{_TAG}_orchestrator",
             source="ui",
-            config={"impl": "orchestrate", "capabilities": ["mcp:srv_a"]},
+            # model 명시(스펙 400 재활): 모델 미지정+오버라이드 조합은 앱의 None==None 게이트
+            # 오폭(스펙 290 거절 조건, 실버그 의심 — 보고 적재)에 걸린다. 이 테스트의 축은
+            # capabilities 병합이므로 모델을 명시해 축을 분리한다.
+            config={"impl": "orchestrate", "model": "mock-llm", "capabilities": ["mcp:srv_a"]},
             active_version="v1",
         )
         s.add(agent)

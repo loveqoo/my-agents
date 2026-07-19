@@ -117,18 +117,30 @@ async def run() -> bool:
                 },
             )
             g = (await c.get(f"/agents/{a['id']}")).json()
+            # 스펙 370: status(draft) 폐기 → 미오픈 스크래치(everOpened=false)가 편집 결과물.
             draft = next(
-                (v["version"] for v in g.get("versions", []) if v.get("status") == "draft"), None
+                (v["version"] for v in g.get("versions", []) if not v.get("everOpened")), None
             )
             if draft:
                 await c.post(f"/agents/{a['id']}/activate", json={"version": draft})
             g2 = (await c.get(f"/agents/{a['id']}")).json()
             v1 = g2.get("activeVersion") or g2.get("active_version")
-            r2 = (await c.post(f"/eval/datasets/{ds_id}/runs", json={"agent_id": a["id"]})).json()
-            done2 = await _wait_run(c, r2["id"])
+            # V2는 활성화가 spawn한 **자동 회귀 런**(스펙 241, env.trigger=activate)으로 단언한다 —
+            # 수동 재실행은 자동 런과 같은 문제집을 두고 409(중복 running) 경합 플레이크가 있었고,
+            # 자동 런의 agent_version은 오픈 버전 핀(스펙 399)이라 "새 버전 박제" 검증 축과 정확히 같다.
+            done2 = {}
+            for _ in range(120):
+                rs = (await c.get(f"/eval/runs?dataset_id={ds_id}")).json()
+                auto = next(
+                    (x for x in rs if (x.get("env") or {}).get("trigger") == "activate"), None
+                )
+                if auto is not None and auto.get("status") != "running":
+                    done2 = auto
+                    break
+                await asyncio.sleep(0.5)
             ck(
                 bool(v1) and v1 != v0 and done2.get("agent_version") == v1,
-                f"V2 버전 전환 추적 ({v0} → {v1}, run={done2.get('agent_version')})",
+                f"V2 버전 전환 추적(자동 회귀 런 귀속) ({v0} → {v1}, run={done2.get('agent_version')})",
             )
 
             # V3 — 목록 API에도 노출

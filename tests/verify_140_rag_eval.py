@@ -1,7 +1,7 @@
 """verify_140 — RAG 컬렉션 평가 러너 (스펙 140).
 
   R1 assert 3종 매핑·arg 형식 오류 거부(비정수/비실수)·fail-closed(obs["rag"] 부재=False).
-  R2 실 컬렉션 통합(Obsidian): "A/B 테스트" 질의 → hits>0·top_score 실수·output에 결과 본문,
+  R2 실 컬렉션 통합(자기완결 픽스처 — 스펙 400 재활, 구 Obsidian 시드 전제 제거): "A/B 테스트" 질의 → hits>0·top_score 실수·output에 결과 본문,
      rag_source_contains(실제 근거 파일)·rag_score_gte 채점 통과.
   R3 실행 분기: rag 문제집 + collection_id로 _execute_run → status=ok·결과 영속(obs.rag 포함).
      agent 문제집에 rag assert → False(전용 기준의 정직한 실패).
@@ -75,19 +75,84 @@ def part_r1():
     )
 
 
+def _upload(name: str, data: bytes):
+    import io
+
+    from fastapi import UploadFile
+
+    return UploadFile(file=io.BytesIO(data), filename=name)
+
+
+async def _wait_ingest_ready(doc_id):
+    import asyncio as _a
+
+    from api.models import Document
+
+    for _ in range(334):  # ~100s — 배터리 부하(다수 uvicorn 부팅) 시 30s로는 임베딩 인제스트가 늦는다
+        async with async_session() as _s:
+            row = (
+                await _s.execute(
+                    select(Document.status, Document.chunk_count).where(Document.id == doc_id)
+                )
+            ).first()
+        if row and row[0] in ("ready", "error"):
+            return row[0], row[1]
+        await _a.sleep(0.3)
+    return "(타임아웃)", -1
+
+
 async def main():
     part_r1()
-    async with async_session() as s:
-        vt = (
-            await s.execute(select(Collection).where(Collection.name == "Obsidian"))
-        ).scalar_one_or_none()
-        if vt is None:
-            check(False, "전제 실패: Obsidian 컬렉션 없음")
-            sys.exit(1)
-        col = await resolve_search_collection(s, vt.id)
-        col_id = vt.id
+    # 자기완결 픽스처(스펙 400 재활) — Obsidian 시드 대신 컬렉션+문서를 직접 만든다.
+    ftag = f"v140f-{_uuid.uuid4().hex[:6]}"
+    from api import rag as RG
+    from api.models import ModelConfig
+    from api.schemas import CollectionIn
 
-    obs = await eval_run_rag(col, "A/B 테스트에서 중요한 것은?")
+    class _Admin:
+        id = _uuid.uuid4()
+        is_superuser = True
+
+    admin = _Admin()
+    async with async_session() as s:
+        emb = (
+            (
+                await s.execute(
+                    select(ModelConfig).where(
+                        ModelConfig.kind == "embedding", ModelConfig.is_default.is_(True)
+                    )
+                )
+            )
+            .scalars()
+            .first()
+        )
+        cout = await RG.create_collection(
+            CollectionIn(name=f"{ftag}-kb", kind="document", embedding_model_id=emb.id),
+            session=s,
+            principal=admin,
+        )
+    async with async_session() as s:
+        doc = await RG.ingest_document(
+            cout.id,
+            file=_upload("abtest.txt", "A/B 테스트에서 중요한 것은 표본 크기와 문해력 지표다.".encode()),
+            session=s,
+            principal=admin,
+        )
+    _st, _n = await _wait_ingest_ready(doc.id)
+    check(_st == "ready" and _n > 0, f"R2-fixture 인제스트 ready (got {_st}, chunks={_n})")
+    if _st != "ready" or _n <= 0:
+        # 픽스처 실패면 이후 단언은 전부 연쇄(FAIL·IndexError) — 조기 중단이 정직한 실패 표면.
+        print(f"\n{passed} passed, {len(_fails)} failed (픽스처 실패로 조기 중단)")
+        sys.exit(1)
+    async with async_session() as s:
+        col = await resolve_search_collection(s, cout.id)
+        col_id = cout.id
+
+    # 질의=원문 동일 문자열 — mock-embed는 해시 기반이라 의미 유사도가 없어, 다른 문장은 반상관
+    # (음수 score)이 되어 rag_runtime의 음수 유사도 컷(dist>1.0 제거)에 걸릴 수 있다(실측: 0건).
+    # 동일 문자열은 벡터 동일 → score 1.0 결정적.
+    _QUERY = "A/B 테스트에서 중요한 것은 표본 크기와 문해력 지표다."
+    obs = await eval_run_rag(col, _QUERY)
     check(
         not obs["error"] and len(obs["rag"]["hits"]) > 0,
         f"R2a 검색 성공·hits {len(obs['rag']['hits'])}건",
@@ -117,7 +182,7 @@ async def main():
                 ds.id,
                 ER.CaseIn(
                     name="검색 회귀",
-                    input="A/B 테스트에서 중요한 것은?",
+                    input=_QUERY,
                     asserts=[
                         {"type": "rag_hits_gte", "arg": "1"},
                         {"type": "no_error"},
@@ -129,7 +194,7 @@ async def main():
             )
         async with async_session() as s:
             run_row = EvalRun(
-                dataset_id=ds.id, agent_name="RAG · Obsidian", status="running", total=1
+                dataset_id=ds.id, agent_name=f"RAG · {ftag}-kb", status="running", total=1
             )
             s.add(run_row)
             await s.commit()

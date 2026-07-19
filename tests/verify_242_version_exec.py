@@ -54,8 +54,9 @@ def _last_trace(sse: str) -> dict:
 
 
 async def _activate_draft(c, agent_id):
+    # 스펙 370: status(draft) 폐기 — 초안 = 미오픈 스크래치(everOpened=false).
     g = (await c.get(f"/agents/{agent_id}")).json()
-    d = next((v["version"] for v in g.get("versions", []) if v.get("status") == "draft"), None)
+    d = next((v["version"] for v in g.get("versions", []) if not v.get("everOpened")), None)
     if d:
         await c.post(f"/agents/{agent_id}/activate", json={"version": d})
     g2 = (await c.get(f"/agents/{agent_id}")).json()
@@ -101,7 +102,7 @@ async def run() -> bool:
             )
             g = (await c.get(f"/agents/{aid}")).json()
             v2 = next(
-                (v["version"] for v in g.get("versions", []) if v.get("status") == "draft"), None
+                (v["version"] for v in g.get("versions", []) if not v.get("everOpened")), None
             )
 
             # V1 — 초안 지정 채팅

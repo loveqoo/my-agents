@@ -1,16 +1,17 @@
-"""verify_161 — 프롬프트 수정 반영: 스냅샷 유지 + 명시적 동기화(스펙 161).
+"""verify_161 — 프롬프트 수정 반영: 스냅샷 유지 + 명시적 동기화(스펙 161, 370 재계약).
 
-에이전트는 프롬프트를 저장 시점 스냅샷으로 복사(영향도 격리). 프롬프트 수정이 자동 전파 안 됨 →
-promptStale 가시화 + refresh(에이전트쪽)/apply(프롬프트쪽)로 통제된 반영. 권한(can_manage) 게이트.
+스펙 370에서 promptStale 키·POST /agents/{id}/prompt/refresh는 은퇴(채택 adopt로 일반화·pins가
+버전을 못박음). 생존 표면: 스냅샷 격리(systemPrompt) + GET /prompts/{id}/agents(stale·canManage)
++ POST /prompts/{id}/apply(applied/skipped — can_manage 게이트).
 
-  H1 생성 직후 stale=false·systemPrompt=원본.
-  H2 프롬프트 수정 → stale=true·스냅샷은 옛 본문(자동 전파 안 함 = 격리).
-  H3 refresh(소유자) → 스냅샷 갱신·stale=false.
-  H4 타 member refresh → 404-fold(권한).
-  H5 GET /prompts/{id}/agents → 사용 에이전트+stale+canManage.
-  H6 apply(소유자) → applied, 스냅샷 갱신. 타 member → skipped(무단 변경 금지).
-  H7 외부 에이전트 refresh → 400(로컬 프롬프트 없음). 미참조 에이전트 stale=false.
-실행: cd packages/api && uv run python ../../tests/verify_161_prompt_sync.py
+  H1 생성 직후 systemPrompt=원본·usage stale=false.
+  H2 프롬프트 수정 → 스냅샷은 옛 본문(자동 전파 안 함=격리)·usage stale=true.
+  H3 apply(소유자) → applied·스냅샷 갱신·stale=false.
+  H4 타 member apply → skipped(무단 변경 금지)·스냅샷 불변. bob은 usage서 타인 private 못 봄.
+  H5 admin usage 전부 봄·canManage=true.
+  H6 소유자 apply로 최신 반영.
+  H7 literal 프롬프트 에이전트는 usage 미포함.
+실행: uv run --project packages/api python tests/_throwaway_server.py tests/verify_161_persona_sync.py
 """
 
 import asyncio
@@ -74,35 +75,53 @@ async def main() -> None:
             aid = r.json()["id"]
             made_agents.append(aid)
 
-            # H1 생성 직후: stale=false, 스냅샷=원본.
+            # H1 생성 직후: 스냅샷=원본, usage stale=false. (promptStale 키·refresh는 스펙 370서 은퇴)
             r = await c.get(f"/agents/{aid}")
             j = r.json()
-            check(j["promptStale"] is False, "H1 생성 직후 promptStale=false")
+            check("promptStale" not in j, "H1 promptStale 키 은퇴(스펙 370 — adopt/pins로 대체)")
             check(j["systemPrompt"] == "old body", f"H1 스냅샷=원본 (got {j['systemPrompt']!r})")
+            u = next(
+                (x for x in (await c.get(f"/prompts/{pid}/agents")).json() if x["id"] == aid), None
+            )
+            check(u is not None and u["stale"] is False, "H1 usage stale=false")
 
-            # H2 프롬프트 수정(body="new") → 자동 전파 안 함.
+            # H2 프롬프트 수정(body="new") → 자동 전파 안 함(스냅샷 격리), usage가 오래됨을 가시화.
             _as(admin)
             r = await c.put(f"/prompts/{pid}", json={"name": pname, "body": "new body"})
             check(r.status_code == 200, f"H2 프롬프트 수정 200 (got {r.status_code})")
             _as(alice)
             j = (await c.get(f"/agents/{aid}")).json()
-            check(j["promptStale"] is True, "H2 수정 후 promptStale=true(가시화)")
             check(
                 j["systemPrompt"] == "old body", "H2 스냅샷은 여전히 옛 본문(자동 전파 안 함=격리)"
             )
+            u = next(
+                (x for x in (await c.get(f"/prompts/{pid}/agents")).json() if x["id"] == aid), None
+            )
+            check(u is not None and u["stale"] is True, "H2 usage stale=true(가시화)")
 
-            # H3 refresh(소유자) → 갱신.
-            r = await c.post(f"/agents/{aid}/prompt/refresh")
-            check(r.status_code == 200, f"H3 refresh 200 (got {r.status_code})")
-            check(r.json()["systemPrompt"] == "new body", "H3 스냅샷 갱신=new body")
-            check(r.json()["promptStale"] is False, "H3 refresh 후 stale=false")
+            # H3 apply(소유자) → 채택 스크래치 생성(스펙 370: 서빙 불변 — 오픈해야 반영).
+            r = await c.post(f"/prompts/{pid}/apply", json={"agentIds": [aid]})
+            check(
+                r.status_code == 200 and r.json()["applied"] == [aid],
+                f"H3 소유자 apply → applied (got {r.json()})",
+            )
+            j = (await c.get(f"/agents/{aid}")).json()
+            check(
+                j["systemPrompt"] == "old body",
+                "H3a apply 직후 서빙 불변(채택=스크래치, 오픈 전 반영 안 됨 — 스펙 370)",
+            )
+            scr = next(
+                (v["version"] for v in j.get("versions", []) if not v.get("everOpened")), None
+            )
+            check(scr is not None, f"H3b 채택 스크래치 존재 (got {scr})")
+            r = await c.post(f"/agents/{aid}/activate", json={"version": scr})
+            check(r.status_code == 200, f"H3c 스크래치 오픈 200 (got {r.status_code})")
+            j = (await c.get(f"/agents/{aid}")).json()
+            check(j["systemPrompt"] == "new body", "H3d 오픈 후 스냅샷 갱신=new body")
 
-            # H4 타 member refresh → 404-fold. (먼저 다시 stale로)
+            # H4 준비: 다시 stale로.
             _as(admin)
             await c.put(f"/prompts/{pid}", json={"name": pname, "body": "newer body"})
-            _as(bob)
-            r = await c.post(f"/agents/{aid}/prompt/refresh")
-            check(r.status_code == 404, f"H4 타 member refresh 404-fold (got {r.status_code})")
 
             # H5 usage: alice가 조회 → 사용 에이전트+stale+canManage.
             _as(alice)
@@ -143,10 +162,19 @@ async def main() -> None:
                 f"H6 alice apply → applied (got {ra.json()})",
             )
             j = (await c.get(f"/agents/{aid}")).json()
-            check(
-                j["systemPrompt"] == "newer body" and j["promptStale"] is False,
-                f"H6 alice apply 후 스냅샷=newer body·stale=false (got {j['systemPrompt']!r})",
+            scr2 = next(
+                (v["version"] for v in j.get("versions", []) if not v.get("everOpened")), None
             )
+            r = await c.post(f"/agents/{aid}/activate", json={"version": scr2})
+            j = (await c.get(f"/agents/{aid}")).json()
+            check(
+                j["systemPrompt"] == "newer body",
+                f"H6 alice apply+오픈 후 스냅샷=newer body (got {j['systemPrompt']!r})",
+            )
+            u = next(
+                (x for x in (await c.get(f"/prompts/{pid}/agents")).json() if x["id"] == aid), None
+            )
+            check(u is not None and u["stale"] is False, "H6b 반영 후 usage stale=false")
 
             # H7 미참조 에이전트 stale=false(다른 프롬프트 literal).
             r = await c.post(
@@ -162,8 +190,11 @@ async def main() -> None:
             )
             aid2 = r.json()["id"]
             made_agents.append(aid2)
-            j2 = (await c.get(f"/agents/{aid2}")).json()
-            check(j2["promptStale"] is False, "H7 블록 아닌 literal 프롬프트 → stale=false")
+            usage2 = (await c.get(f"/prompts/{pid}/agents")).json()
+            check(
+                all(x["id"] != aid2 for x in usage2),
+                "H7 literal 프롬프트 에이전트는 usage 미포함(참조 아님)",
+            )
     finally:
         app.dependency_overrides.clear()
         # cleanup

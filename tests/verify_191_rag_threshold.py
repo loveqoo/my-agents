@@ -92,8 +92,8 @@ ok(
     "[D2] filename·collection 보존",
 )
 ok(
-    len(detail[0]["textPreview"]) <= 241 and "\n" not in detail[0]["textPreview"],
-    "[D3] 본문 프리뷰 캡+개행 제거",
+    len(detail[0]["textPreview"]) <= 241,
+    "[D3] 본문 프리뷰 캡(개행은 스펙 255서 보존으로 변경 — 엔티티 구조화 렌더에 라인 경계 필요)",
 )
 ok(runtime._hits_detail([]) == [], "[D4] 빈 결과 → 빈 리스트")
 # [D5] 비밀 마스킹 — trace 누출 방지(087/092/125, resultPreview와 동일 규율). 원문 비밀 미노출.
@@ -121,14 +121,16 @@ async def _direct():
         captured["min_scores"] = min_scores
         return [_hit(0.8, "docs-kb", "x.md", "aaa"), _hit(0.7, "docs-kb", "y.md", "bbb")]
 
-    orig = runtime.search_collections
-    runtime.search_collections = fake_search
+    from api import rag_runtime as RR  # 정의 모듈 패치(파사드 재수출 패치는 내부 호출에 안 먹음)
+
+    orig = RR.search_collections
+    RR.search_collections = fake_search
     try:
         sink: list[dict] = []
         tool = runtime.build_rag_tool([{"name": "docs-kb"}], sink, {"docs-kb": 0.55, "무관": 0.9})
         await tool.coroutine(query="테스트 질의", top_k=4)
     finally:
-        runtime.search_collections = orig
+        RR.search_collections = orig
 
     # 배선된 컬렉션으로 한정 정규화 → "무관" 제거
     ok(captured.get("min_scores") == {"docs-kb": 0.55}, "[W1] 코어에 min_scores(배선 한정) 전달")
@@ -144,13 +146,13 @@ async def _direct():
     async def fake_secret(collections, query, top_k=4, min_scores=None):
         return [_hit(0.8, "docs-kb", "s.md", "api key sk-DEADBEEF0123456789DEADBEEF here")]
 
-    runtime.search_collections = fake_secret
+    RR.search_collections = fake_secret
     try:
         sink2: list[dict] = []
         tool2 = runtime.build_rag_tool([{"name": "docs-kb"}], sink2, {})
         await tool2.coroutine(query="q", top_k=4)
     finally:
-        runtime.search_collections = orig
+        RR.search_collections = orig
     ok(
         "sk-DEADBEEF0123456789DEADBEEF" not in sink2[0]["result"],
         "[W5] 직접 sink result 비밀 마스킹(누출 0)",
@@ -167,13 +169,13 @@ async def _direct():
             {"docs-kb": 0.5},
         )
 
-    runtime.search_collections = fake_annotated
+    RR.search_collections = fake_annotated
     try:
         sink3: list[dict] = []
         tool3 = runtime.build_rag_tool([{"name": "docs-kb"}], sink3, {"docs-kb": 0.5})
         agent_text = await tool3.coroutine(query="q", top_k=4)
     finally:
-        runtime.search_collections = orig
+        RR.search_collections = orig
     ok(
         "keep.md" in agent_text and "drop.md" not in agent_text,
         "[W6] 에이전트 결과는 used(통과)만 — 미달 문서 안 보임",
@@ -206,6 +208,8 @@ async def _broker():
         name = "kb"
         col = {"name": "kb"}
 
+    # 브로커 RagProvider는 파사드 속성(runtime.search_collections)을 호출 시점에 읽는다 —
+    # 이 경로는 파사드 패치가 정답(W 섹션의 build_rag_tool 내부 호출과 패치 지점이 다름).
     orig = runtime.search_collections
     runtime.search_collections = fake_search
     try:

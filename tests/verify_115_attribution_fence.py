@@ -113,7 +113,10 @@ async def integration_checks():
     check(len(n) >= 16, "H2 nonce 길이 충분(추측 불가)")
 
     # delegate 노드가 fold_results에 요청별 랜덤 nonce를 주입하는지 소스 계약 확인.
-    src = Path("src/agent/flows/orchestrate.py").read_text(encoding="utf-8")
+    root = Path(__file__).resolve().parent.parent  # CWD 무관(스펙 400 — 상대경로 하드코딩 수선)
+    src = (root / "packages" / "agent" / "src" / "agent" / "flows" / "orchestrate.py").read_text(
+        encoding="utf-8"
+    )
     check(
         "fold_results(parts, fence=secrets.token_hex" in src,
         "H3 delegate 노드: fold_results(fence=secrets.token_hex) 소스 계약",

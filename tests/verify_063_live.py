@@ -33,7 +33,13 @@ load_dotenv(os.path.join(ROOT, ".env"))
 BASE = os.environ.get("VERIFY_BASE", "http://127.0.0.1:8000")  # 스펙 390: 격리 서버 주입
 TOK = os.environ["API_AUTH_TOKEN"]
 AUTH = {"Authorization": f"Bearer {TOK}"}
-DSN = os.environ.get("MIGRATE_DSN", "postgresql://agent:agent@localhost:5432/agents")
+# DSN은 API 서버와 같은 DB를 봐야 한다(스펙 400: throwaway 서버는 전용 DB — dev 'agents' 하드코딩 금지).
+DSN = os.environ.get(
+    "MIGRATE_DSN",
+    os.environ.get(
+        "DATABASE_URL", "postgresql+asyncpg://agent:agent@localhost:5432/agents"
+    ).replace("+asyncpg", ""),
+)
 MOCK_REPLY = "스펙063 mock 응답 OK"
 TEST_AGENT_ID = "agt_test063_stale"
 
@@ -100,8 +106,9 @@ async def _insert_stale(conn) -> str:
     }
     pk = await conn.fetchval(
         "INSERT INTO agents (id, agent_id, name, source, model, prompt, history_depth, "
-        "config, exposed, status, endpoint, token) "
-        "VALUES (gen_random_uuid(), $1, $2, 'external', '', '', 10, $3, $4, 'online', $5, NULL) "
+        "config, exposed, status, endpoint, token, created_by, updated_by) "
+        "VALUES (gen_random_uuid(), $1, $2, 'external', '', '', 10, $3, $4, 'online', $5, NULL, "
+        "'verify063', 'verify063') "  # 감사 컬럼 NOT NULL(스펙 343) — route 우회 insert라 직접 스탬프
         "RETURNING id",
         TEST_AGENT_ID,
         "063 stale 테스트",

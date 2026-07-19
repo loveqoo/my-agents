@@ -129,9 +129,12 @@ async def run() -> bool:
             nd = _delta(n0, await _counts())
             ck(nd["session"] > 0, f"E4 대조: 비-ephemeral 세션 행 증가 (Δ={nd['session']})")
             ck(nd["message"] > 0, f"E5 대조: 비-ephemeral 메시지 행 증가 (Δ={nd['message']})")
+            # 스펙 346(durability=exit): 턴 종료 시 체크포인트를 정리하므로 비-ephemeral도 턴이 끝나면
+            # Δ=0이 정상(pre-346엔 Δ>0 대조였음). E7은 346 계약의 회귀 핀으로 전환 — 턴 종료 후
+            # 체크포인트 무잔류(ephemeral 여부와 무관한 구조적 보장).
             ck(
-                nd["checkpoints"] > 0,
-                f"E7 대조: 비-ephemeral 체크포인터 기록됨 (Δ={nd['checkpoints']}) — E6이 진짜 갭을 잡음을 증명",
+                nd["checkpoints"] == 0,
+                f"E7 turn-exit 체크포인트 무잔류(스펙 346, Δ={nd['checkpoints']})",
             )
         finally:
             for aid in made:

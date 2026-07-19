@@ -83,6 +83,18 @@ async def _count(model, **filt) -> int:
         return (await s.scalar(q)) or 0
 
 
+async def _wait_doc(c, cid: str, did: str, timeout_s: int = 60) -> dict:
+    """인제스트 비동기 계약(현 API) — 업로드는 parsing으로 즉시 201, 목록 폴링으로 종착(ready/error) 대기."""
+    d: dict = {}
+    for _ in range(timeout_s * 2):
+        page = (await c.get(f"/collections/{cid}/documents")).json()
+        d = next((x for x in page["items"] if x["id"] == did), {})
+        if d.get("status") in ("ready", "error"):
+            return d
+        await asyncio.sleep(0.5)
+    return d
+
+
 async def main() -> None:
     await _cleanup()
 
@@ -166,8 +178,8 @@ async def main() -> None:
                 files={"file": ("doc.txt", DOC_TEXT.encode("utf-8"), "text/plain")},
             )
             check(up.status_code == 201, f"문서 업로드 201 (got {up.status_code} {up.text[:160]})")
-            doc = up.json()
-            did = doc["id"]
+            did = up.json()["id"]
+            doc = await _wait_doc(c, cid, did)  # 비동기 인제스트 종착 대기
             n = doc["chunk_count"]
             check(
                 doc["status"] == "ready",
@@ -212,7 +224,7 @@ async def main() -> None:
                 f"/collections/{cid2}/documents",
                 files={"file": ("d.txt", DOC_TEXT.encode("utf-8"), "text/plain")},
             )
-            d2 = up2.json()
+            d2 = await _wait_doc(c, cid2, up2.json()["id"])
             check(d2["status"] == "error", f"차원 불일치 → status=error (got {d2['status']})")
             check("차원" in (d2.get("error") or ""), f"error에 사유 보존 (got {d2.get('error')})")
             check(await _count(Chunk, document_id=uuid.UUID(d2["id"])) == 0, "적재 중단 — 청크 0")
@@ -244,10 +256,11 @@ async def main() -> None:
             check(colg2["status"] == "empty", "마지막 문서 삭제 후 status=empty")
 
             # 재인제스트 후 컬렉션 통째 삭제 → 전멸
-            await c.post(
+            up3 = await c.post(
                 f"/collections/{cid}/documents",
                 files={"file": ("d2.txt", DOC_TEXT.encode("utf-8"), "text/plain")},
             )
+            await _wait_doc(c, cid, up3.json()["id"])  # 인제스트(쓰기 잠금) 종착 후 삭제
             dc = await c.delete(f"/collections/{cid}")
             check(dc.status_code == 204, f"컬렉션 삭제 204 (got {dc.status_code})")
             check(await _count(Document, collection_id=uuid.UUID(cid)) == 0, "컬렉션 문서 전멸")
