@@ -153,6 +153,10 @@ interface DebugChatProps {
   attachments?: { filename: string; chars: number; truncated: boolean }[]
   onAttachFiles?: (files: File[]) => void
   onRemoveAttachment?: (index: number) => void
+  // 지식 저장(스펙 405, B안) — 인제스트 잡 칩 + 지식 첨부 핸들러(모달은 Playground 소유).
+  knowledgeJobs?: { filename: string; collection: string; status: 'ingesting' | 'ready' | 'error'; err?: string }[]
+  onAttachKnowledge?: (files: File[]) => void
+  onDismissKnowledgeJob?: (index: number) => void
   onStop: () => void
   onResetConversation: () => void
   inspectorOpen: boolean
@@ -1021,6 +1025,9 @@ export function DebugChat({
   attachments = [],
   onAttachFiles,
   onRemoveAttachment,
+  knowledgeJobs = [],
+  onAttachKnowledge,
+  onDismissKnowledgeJob,
   onStop,
   onResetConversation,
   inspectorOpen,
@@ -1053,6 +1060,7 @@ export function DebugChat({
   // 여기선 caret 판정·DOM 부수효과만. history = 현재 대화에서 *내가 보낸* 입력(연속중복 접음).
   const senderRef = useRef<GetRef<typeof Sender>>(null)
   const fileRef = useRef<HTMLInputElement>(null) // 파일첨부(스펙 404) — 클립 버튼이 여는 숨은 입력
+  const attachModeRef = useRef<'stuff' | 'knowledge'>('stuff') // 클립 드롭다운 선택(스펙 405)
   const histRef = useRef<HistState>(INITIAL_HIST)
   // 재호출마다 ++ 하는 단조 카운터. caret 이동 effect의 의존을 draft가 아니라 이걸로 둬야,
   // 재호출 값이 현재 입력과 *우연히 같을 때*(예: 최신 입력이 이미 입력창에 있음)도 발화한다
@@ -1296,9 +1304,27 @@ export function DebugChat({
             onChange={(e) => {
               const files = Array.from(e.target.files || [])
               e.target.value = '' // 같은 파일 재선택도 발화하게 리셋
-              if (files.length > 0) onAttachFiles?.(files)
+              if (files.length === 0) return
+              if (attachModeRef.current === 'knowledge') onAttachKnowledge?.(files)
+              else onAttachFiles?.(files)
             }}
           />
+          {knowledgeJobs.length > 0 && (
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
+              {knowledgeJobs.map((j, i) => (
+                <Tag
+                  key={`${j.filename}-${i}`}
+                  color={j.status === 'ready' ? 'green' : j.status === 'error' ? 'red' : 'blue'}
+                  closable={j.status !== 'ingesting'}
+                  onClose={() => onDismissKnowledgeJob?.(i)}
+                >
+                  {j.status === 'ingesting' ? <Spin size="small" /> : j.status === 'ready' ? '📚' : '⚠️'}{' '}
+                  {j.filename} → {j.collection}
+                  {j.status === 'ready' ? ' (이번 세션 배선됨)' : j.status === 'error' ? ` — ${j.err ?? '실패'}` : ' 저장 중…'}
+                </Tag>
+              ))}
+            </div>
+          )}
           {attachments.length > 0 && (
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
               {attachments.map((a, i) => (
@@ -1335,14 +1361,29 @@ export function DebugChat({
             }}
             onCancel={onStop}
             prefix={
-              <Tooltip title={a2aMode ? 'A2A 모드에선 첨부를 지원하지 않습니다' : '파일 첨부(txt·md·pdf, 3개까지)'}>
-                <Button
-                  type="text"
-                  icon={<Icon name="paper-clip" />}
-                  disabled={a2aMode || attachments.length >= 3}
-                  onClick={() => fileRef.current?.click()}
-                />
-              </Tooltip>
+              <Dropdown
+                disabled={a2aMode}
+                trigger={['click']}
+                menu={{
+                  items: [
+                    {
+                      key: 'stuff',
+                      label: '이번 대화만 첨부',
+                      disabled: attachments.length >= 3,
+                      onClick: () => { attachModeRef.current = 'stuff'; fileRef.current?.click() },
+                    },
+                    {
+                      key: 'knowledge',
+                      label: '지식으로 저장 (RAG)',
+                      onClick: () => { attachModeRef.current = 'knowledge'; fileRef.current?.click() },
+                    },
+                  ],
+                }}
+              >
+                <Tooltip title={a2aMode ? 'A2A 모드에선 첨부를 지원하지 않습니다' : '파일 첨부'}>
+                  <Button type="text" icon={<Icon name="paper-clip" />} disabled={a2aMode} />
+                </Tooltip>
+              </Dropdown>
             }
             footer={() => (
               <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>턴마다 실행 기록이 남습니다 · ↑ 이전 입력</span>

@@ -1,0 +1,12 @@
+스팟 적대 리뷰(스펙 405): 플레이그라운드 "첨부→지식 저장(RAG)" — 프론트 중심 배선을 검토해달라. 백엔드 신규 코드 0(기존 인제스트·세션 오버라이드 재사용)이 주장이다.
+
+구현: admin/src/playground/Playground.tsx의 knowledgeAttach/runKnowledgeIngest — ①createCollection(기본 임베딩) 또는 기존 컬렉션 선택 ②uploadDocument(기존 API) ③listDocuments 폴링(120s)으로 ready 대기 ④ready 시 wiredByAgent에 컬렉션명 추가 → ovPayload.vectorTables = union(저장본, 기존 오버라이드, wired)로 매 채팅에 동봉. DebugChat.tsx 클립 드롭다운(이번 대화만/지식으로 저장)+잡 칩.
+
+적대 질문:
+1. 오버라이드 병합의 함정 — 노드형 에이전트(nodes 오버라이드가 pool 파생 vectorTables를 만드는 경우)와 wired 합집합이 충돌/무시되는 경로는? 서버 _apply_overrides의 vectorTables 처리(직접형 vs 노드형)에서 wired가 조용히 무효되는 유형이 있나?
+2. 권한 — 비특권 유저가 이 동선으로 컬렉션 생성/업로드할 때 기존 정책과 동일한가(우회 신설 없나)? 오버라이드 vectorTables로 "남의 컬렉션"을 세션 배선하면 검색이 되나(컬렉션 읽기 정책 — 스펙 211 공용 읽기였나) — 의도된 계약인지만 판정.
+3. 상태 함정 — 에이전트 전환/세션 전환 시 wiredByAgent·kJobs의 수명이 UX와 일치하나(다른 에이전트로 바꾸면 배선이 따라가면 안 됨 — 코드상 agentId 키지만 빠지는 경로), 폴링 중 페이지 이탈, 같은 파일명 중복 잡 patchKJob 오적중.
+4. 이름 규칙·에러 — 새 컬렉션 이름이 148 규칙 위반이면 서버 400인데 UI가 정직히 보여주나(모달 재오픈 없이 잡히나).
+
+파일: admin/src/playground/Playground.tsx, admin/src/playground/DebugChat.tsx, packages/api/src/api/chat_context_overrides.py(_apply_overrides), chat_context.py, rag/collections.py(권한)
+결론: P1/P2/확인함.

@@ -2,7 +2,7 @@
    streaming chat API, and links each assistant turn → the Inspector from the
    real execution trace. 3-pane: agent picker (in header) + debug chat + Inspector. */
 import { useEffect, useRef, useState } from 'react'
-import { message, Grid, Drawer, Splitter, Button } from 'antd'
+import { message, Grid, Drawer, Splitter, Button, Modal, Select, Input } from 'antd'
 import { DebugChat } from './DebugChat'
 import { Inspector } from './Inspector'
 import { OverridePanel, overrideDefaults, overridePayload, type Overrides } from './OverridePanel'
@@ -11,6 +11,7 @@ import type { ChatMsg, Trace } from './agentData'
 import type { Agent, BlockCategory, Session } from '../admin/mockData'
 import {
   listAgents, streamChat, streamChatA2A, uploadChatAttachment, getBlocks, listModels, listSessions, getSessionMessages, listCollections,
+  createCollection, uploadDocument, listDocuments,
   getApproval, resolveApproval,
   type ChatMessage, type Model, type Collection, type ChatFormFrame, type MessageFeedback, type ChatAttachmentDraft,
 } from '../api'
@@ -45,6 +46,13 @@ export function Playground({
   const [collections, setCollections] = useState<Collection[]>([]) // 조율형 위임 카탈로그(문서, 스펙 122)
   const [overridePanelOpen, setOverridePanelOpen] = useState(false)
   const [appliedByAgent, setAppliedByAgent] = useState<Record<string, Overrides>>({})
+  // 첨부→지식 저장(스펙 405) 상태 — 세션 배선·인제스트 잡·대상 선택 모달.
+  interface KJob { id: string; filename: string; collection: string; status: 'ingesting' | 'ready' | 'error'; err?: string }
+  const [wiredByAgent, setWiredByAgent] = useState<Record<string, string[]>>({})
+  const [kJobsByAgent, setKJobsByAgent] = useState<Record<string, KJob[]>>({})
+  const [kModal, setKModal] = useState<{ file: File } | null>(null)
+  const [kTarget, setKTarget] = useState<string>('') // 기존 컬렉션 id 또는 ''(새로 만들기)
+  const [kNewName, setKNewName] = useState<string>('')
   // A2A 루프백 테스트 모드(스펙 155) — 에이전트별. true면 send가 /agents/{id}/a2a(JSON-RPC)로
   // 외부 소비자처럼 호출. 노출 에이전트에서만 토글 노출. 기본 false(직접 /chat — 무회귀).
   const [a2aByAgent, setA2aByAgent] = useState<Record<string, boolean>>({})
@@ -89,6 +97,8 @@ export function Playground({
   // (A 요청이 B로 전환 후 도착해 B 피커를 오염시키는 것 차단).
   const activeExtRef = useRef<string | undefined>(undefined)
   activeExtRef.current = activeAgent?.agentId
+  const activeIdRef = useRef<string>('')
+  activeIdRef.current = activeId ?? '' // 지식 잡 toast staleness 가드(스펙 405)
 
   // 적용 중 오버라이드 → 변경된 키만 담은 페이로드(코드 에이전트는 무시). 비었으면 미적용.
   const appliedOv = activeAgent ? appliedByAgent[activeAgent.id] ?? null : null
@@ -97,6 +107,16 @@ export function Playground({
       ? // catalog(스펙 287): 노드형 노드 변경 시 풀(mcps/vectorTables/memories) 파생에 필요.
         overridePayload(appliedOv, overrideDefaults(activeAgent), { mcpItems: blocks.mcp?.items ?? [], collections })
       : {}
+  // 지식 배선(스펙 405) 병합 — 저장본+기존 오버라이드+이번 세션 배선의 합집합(중복 제거).
+  // **직접형 한정**(codex 405 P1①): 노드형(pipeline)은 서버가 노드 참조로 풀을 재파생해
+  // vectorTables 오버라이드를 대체하므로 세션 배선이 조용히 무효 — 병합 자체를 막아 거짓 양성 차단.
+  const isNodeAgent = (activeAgent?.nodes?.length ?? 0) > 0
+  const wired = activeAgent && !isNodeAgent ? wiredByAgent[activeAgent.id] ?? [] : []
+  if (wired.length > 0 && activeAgent && activeAgent.source !== 'code') {
+    ovPayload.vectorTables = Array.from(
+      new Set([...(activeAgent.vectorTables ?? []), ...((ovPayload.vectorTables as string[] | undefined) ?? []), ...wired]),
+    )
+  }
   const overrideActive = Object.keys(ovPayload).length > 0
 
   // 마운트 시 실제 에이전트 목록 로드 — 첫 번째 에이전트를 활성으로.
@@ -347,6 +367,82 @@ export function Playground({
     }
   }
 
+  // 첨부→지식 저장(스펙 405, B안) — 세션 배선(오버라이드 vectorTables) + 인제스트 잡 칩.
+  const patchKJob = (agentId: string, jobId: string, patch: Partial<KJob>) =>
+    setKJobsByAgent((m) => ({
+      ...m,
+      [agentId]: (m[agentId] || []).map((j) => (j.id === jobId ? { ...j, ...patch } : j)),
+    }))
+
+  const knowledgeAttach = (files: File[]) => {
+    if (files.length === 0) return
+    if (files.length > 1) message.info('지식 저장은 한 번에 한 파일씩 진행합니다 — 첫 파일만 올립니다.')
+    setKTarget('')
+    setKNewName('')
+    setKModal({ file: files[0] })
+  }
+
+  const runKnowledgeIngest = async () => {
+    const file = kModal?.file
+    const agentId = activeId
+    const agentIsNode = (activeAgent?.nodes?.length ?? 0) > 0
+    if (!file || !agentId) return
+    setKModal(null)
+    let colId = kTarget
+    let colName = collections.find((c) => c.id === kTarget)?.name ?? kNewName.trim()
+    // 잡 선등록(codex 405 P2③): 생성 단계 실패도 칩으로 남게(에러가 toast로만 스치지 않게).
+    const jobId = crypto.randomUUID()
+    setKJobsByAgent((m) => ({ ...m, [agentId]: [...(m[agentId] || []), { id: jobId, filename: file.name, collection: colName, status: 'ingesting' }] }))
+    const stale = () => agentId !== activeIdRef.current // 화면이 딴 에이전트면 toast 억제(P2②)
+    try {
+      if (!colId) {
+        // 새 컬렉션 — 기본 임베딩 모델로(스펙 148 이름 규칙은 서버가 검증).
+        // models 상태는 chat만 로드하므로(픽커용) 임베딩은 여기서 직접 조회한다.
+        const embs = await listModels('embedding')
+        const emb = embs.find((m) => m.is_default) ?? embs[0]
+        if (!emb) {
+          patchKJob(agentId, jobId, { status: 'error', err: '임베딩 모델 없음' })
+          message.error('임베딩 모델이 없습니다 — 프로바이더·모델에서 등록하세요.')
+          return
+        }
+        const created = await createCollection({ name: kNewName.trim(), embedding_model_id: emb.id })
+        colId = created.id
+        colName = created.name
+        setCollections((prev) => [...prev, created])
+      }
+      const doc = await uploadDocument(colId, file)
+      // 인제스트는 비동기(parsing→ready) — 문서 status 폴링(최대 120초).
+      for (let i = 0; i < 120; i++) {
+        await new Promise((r) => setTimeout(r, 1000))
+        const page = await listDocuments(colId, file.name, 5, 0)
+        const row = page.items.find((d) => d.id === doc.id)
+        if (row?.status === 'ready') {
+          patchKJob(agentId, jobId, { status: 'ready', collection: colName })
+          if (agentIsNode) {
+            // 노드형은 세션 배선 미지원(풀 재파생이 오버라이드를 대체 — codex 405 P1①): 저장까지만
+            // 정직하게. 배선은 노드에 검색 도구를 더하는 에이전트 편집으로.
+            if (!stale()) message.info(`'${colName}'에 저장됐습니다. 노드형은 세션 배선이 지원되지 않아 — 배선은 에이전트 편집(노드 도구)에서.`)
+          } else {
+            // 세션 배선(스펙 405 핵심): 저장 에이전트 불변 — 오버라이드 vectorTables에만 합류.
+            setWiredByAgent((m) => ({ ...m, [agentId]: Array.from(new Set([...(m[agentId] || []), colName])) }))
+            if (!stale()) message.success(`'${colName}'에 저장돼 이번 세션에 배선됐습니다 — 영구 배선은 에이전트 편집에서.`)
+          }
+          return
+        }
+        if (row?.status === 'error') {
+          patchKJob(agentId, jobId, { status: 'error', err: row.error ?? '인제스트 실패' })
+          if (!stale()) message.error(`인제스트 실패: ${row.error ?? '(원인 미상)'}`)
+          return
+        }
+      }
+      patchKJob(agentId, jobId, { status: 'error', err: '시간 초과' })
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      patchKJob(agentId, jobId, { status: 'error', err: msg })
+      if (!stale()) message.error(msg)
+    }
+  }
+
   const send = async (text: string, form?: { formId: string; values: Record<string, string> }) => {
     if (streaming) return
     const id = activeId
@@ -489,9 +585,17 @@ export function Playground({
     setOverridePanelOpen(false)
   }
 
+  // 지식 배선 정리(스펙 405, codex P1②) — "이번 세션 배선"의 수명을 세션과 일치시킨다:
+  // 새 대화·과거 세션 전환은 다른 세션이므로 배선·잡 칩을 비운다(에이전트 수명으로 새지 않게).
+  const clearKnowledgeWiring = (agentId: string) => {
+    setWiredByAgent((m) => ({ ...m, [agentId]: [] }))
+    setKJobsByAgent((m) => ({ ...m, [agentId]: [] }))
+  }
+
   // "새 대화" — 활성 에이전트의 대화·세션을 비워 처음부터 다시 시작한다(스펙 032: userId 잠금 분리).
   const resetConversation = () => {
     stop()
+    clearKnowledgeWiring(activeId)
     // 진행 중인 세션 로드가 리셋된 대화를 되살리지 않도록 시퀀스를 무효화(codex 지적).
     sessionLoadSeqRef.current++
     setConvos((c) => ({ ...c, [activeId]: [] }))
@@ -523,6 +627,7 @@ export function Playground({
     const picked = sessionList.find((s) => s.id === sid)
     if (picked && activeAgent && picked.agentId !== activeAgent.agentId) return
     stop()
+    clearKnowledgeWiring(activeId) // 과거 세션은 다른 세션 — 이번-세션 배선을 승계하지 않는다(스펙 405).
     const seq = ++sessionLoadSeqRef.current
     const targetId = activeId // 로드 중 에이전트가 바뀌어도 원 에이전트 대화에만 반영.
     const prevSid = sessions[targetId] // 실패 시 롤백용(undefined면 새 세션 상태로 복귀).
@@ -596,6 +701,41 @@ export function Playground({
   // 것처럼, 하단 U를 당기면(클릭) 서랍이 올라간다. 좌측 X는 제거(여닫이 입구 일원화).
   const overridePanelNode = (
     <>
+      <Modal
+        open={!!kModal}
+        title="지식으로 저장 (RAG)"
+        okText="저장"
+        cancelText="취소"
+        onCancel={() => setKModal(null)}
+        onOk={() => void runKnowledgeIngest()}
+        okButtonProps={{ disabled: !kTarget && !kNewName.trim() }}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div>
+            📎 <b>{kModal?.file.name}</b> — 문서를 컬렉션에 저장하고 이번 세션에 배선합니다.
+            <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginTop: 4 }}>
+              저장된 문서는 지식 자산으로 남습니다. 배선은 이번 세션 한정 — 영구 배선은 에이전트 편집에서.
+            </div>
+          </div>
+          <Select
+            placeholder="기존 컬렉션 선택 (또는 아래에 새 이름 입력)"
+            value={kTarget || undefined}
+            onChange={(v) => setKTarget(v)}
+            allowClear
+            onClear={() => setKTarget('')}
+            options={collections
+              .filter((c) => (c.kind ?? 'document') === 'document')
+              .map((c) => ({ value: c.id, label: c.name }))}
+          />
+          {!kTarget && (
+            <Input
+              placeholder="새 컬렉션 이름 (영소문자·숫자·대시)"
+              value={kNewName}
+              onChange={(e) => setKNewName(e.target.value)}
+            />
+          )}
+        </div>
+      </Modal>
       <OverridePanel
         open={overridePanelOpen}
         agent={activeAgent}
@@ -684,6 +824,11 @@ export function Playground({
         attachments={attachments}
         onAttachFiles={attachFiles}
         onRemoveAttachment={(i) => setAttachments((prev) => prev.filter((_, x) => x !== i))}
+        knowledgeJobs={kJobsByAgent[activeId] ?? []}
+        onAttachKnowledge={knowledgeAttach}
+        onDismissKnowledgeJob={(i) =>
+          setKJobsByAgent((m) => ({ ...m, [activeId]: (m[activeId] || []).filter((_, x) => x !== i) }))
+        }
         onSend={send}
         onStop={stop}
         onResetConversation={resetConversation}
@@ -728,6 +873,11 @@ export function Playground({
         attachments={attachments}
         onAttachFiles={attachFiles}
         onRemoveAttachment={(i) => setAttachments((prev) => prev.filter((_, x) => x !== i))}
+        knowledgeJobs={kJobsByAgent[activeId] ?? []}
+        onAttachKnowledge={knowledgeAttach}
+        onDismissKnowledgeJob={(i) =>
+          setKJobsByAgent((m) => ({ ...m, [activeId]: (m[activeId] || []).filter((_, x) => x !== i) }))
+        }
         onSend={send}
         onStop={stop}
         onResetConversation={resetConversation}
