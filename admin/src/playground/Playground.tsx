@@ -46,7 +46,7 @@ export function Playground({
   const [collections, setCollections] = useState<Collection[]>([]) // 조율형 위임 카탈로그(문서, 스펙 122)
   const [overridePanelOpen, setOverridePanelOpen] = useState(false)
   const [appliedByAgent, setAppliedByAgent] = useState<Record<string, Overrides>>({})
-  // 첨부→지식 저장(스펙 405) 상태 — 세션 배선·인제스트 잡·대상 선택 모달.
+  // 첨부→지식 저장(스펙 405) 상태 — 세션 연결·인제스트 잡·대상 선택 모달.
   interface KJob { id: string; filename: string; collection: string; status: 'ingesting' | 'ready' | 'error'; err?: string }
   const [wiredByAgent, setWiredByAgent] = useState<Record<string, string[]>>({})
   const [kJobsByAgent, setKJobsByAgent] = useState<Record<string, KJob[]>>({})
@@ -107,9 +107,9 @@ export function Playground({
       ? // catalog(스펙 287): 노드형 노드 변경 시 풀(mcps/vectorTables/memories) 파생에 필요.
         overridePayload(appliedOv, overrideDefaults(activeAgent), { mcpItems: blocks.mcp?.items ?? [], collections })
       : {}
-  // 지식 배선(스펙 405) 병합 — 저장본+기존 오버라이드+이번 세션 배선의 합집합(중복 제거).
+  // 지식 연결(스펙 405) 병합 — 저장본+기존 오버라이드+이번 세션 연결의 합집합(중복 제거).
   // **직접형 한정**(codex 405 P1①): 노드형(pipeline)은 서버가 노드 참조로 풀을 재파생해
-  // vectorTables 오버라이드를 대체하므로 세션 배선이 조용히 무효 — 병합 자체를 막아 거짓 양성 차단.
+  // vectorTables 오버라이드를 대체하므로 세션 연결이 조용히 무효 — 병합 자체를 막아 거짓 양성 차단.
   const isNodeAgent = (activeAgent?.nodes?.length ?? 0) > 0
   const wired = activeAgent && !isNodeAgent ? wiredByAgent[activeAgent.id] ?? [] : []
   if (wired.length > 0 && activeAgent && activeAgent.source !== 'code') {
@@ -367,7 +367,7 @@ export function Playground({
     }
   }
 
-  // 첨부→지식 저장(스펙 405, B안) — 세션 배선(오버라이드 vectorTables) + 인제스트 잡 칩.
+  // 첨부→지식 저장(스펙 405, B안) — 세션 연결(오버라이드 vectorTables) + 인제스트 잡 칩.
   const patchKJob = (agentId: string, jobId: string, patch: Partial<KJob>) =>
     setKJobsByAgent((m) => ({
       ...m,
@@ -419,13 +419,13 @@ export function Playground({
         if (row?.status === 'ready') {
           patchKJob(agentId, jobId, { status: 'ready', collection: colName })
           if (agentIsNode) {
-            // 노드형은 세션 배선 미지원(풀 재파생이 오버라이드를 대체 — codex 405 P1①): 저장까지만
-            // 정직하게. 배선은 노드에 검색 도구를 더하는 에이전트 편집으로.
-            if (!stale()) message.info(`'${colName}'에 저장됐습니다. 노드형은 세션 배선이 지원되지 않아 — 배선은 에이전트 편집(노드 도구)에서.`)
+            // 노드형은 세션 연결 미지원(풀 재파생이 오버라이드를 대체 — codex 405 P1①): 저장까지만
+            // 정직하게. 연결은 노드에 검색 도구를 더하는 에이전트 편집으로.
+            if (!stale()) message.info(`'${colName}'에 저장됐습니다. 노드형 에이전트는 이 자리에서 연결할 수 없어 — 에이전트 편집(노드 도구)에서 연결하면 사용할 수 있습니다.`)
           } else {
-            // 세션 배선(스펙 405 핵심): 저장 에이전트 불변 — 오버라이드 vectorTables에만 합류.
+            // 세션 연결(스펙 405 핵심): 저장 에이전트 불변 — 오버라이드 vectorTables에만 합류.
             setWiredByAgent((m) => ({ ...m, [agentId]: Array.from(new Set([...(m[agentId] || []), colName])) }))
-            if (!stale()) message.success(`'${colName}'에 저장돼 이번 세션에 배선됐습니다 — 영구 배선은 에이전트 편집에서.`)
+            if (!stale()) message.success(`'${colName}'에 저장돼 이번 세션에 연결됐습니다 — 계속 사용하려면 에이전트 편집에서 연결하세요.`)
           }
           return
         }
@@ -585,8 +585,8 @@ export function Playground({
     setOverridePanelOpen(false)
   }
 
-  // 지식 배선 정리(스펙 405, codex P1②) — "이번 세션 배선"의 수명을 세션과 일치시킨다:
-  // 새 대화·과거 세션 전환은 다른 세션이므로 배선·잡 칩을 비운다(에이전트 수명으로 새지 않게).
+  // 지식 연결 정리(스펙 405, codex P1②) — "이번 세션 연결"의 수명을 세션과 일치시킨다:
+  // 새 대화·과거 세션 전환은 다른 세션이므로 연결·잡 칩을 비운다(에이전트 수명으로 새지 않게).
   const clearKnowledgeWiring = (agentId: string) => {
     setWiredByAgent((m) => ({ ...m, [agentId]: [] }))
     setKJobsByAgent((m) => ({ ...m, [agentId]: [] }))
@@ -627,7 +627,7 @@ export function Playground({
     const picked = sessionList.find((s) => s.id === sid)
     if (picked && activeAgent && picked.agentId !== activeAgent.agentId) return
     stop()
-    clearKnowledgeWiring(activeId) // 과거 세션은 다른 세션 — 이번-세션 배선을 승계하지 않는다(스펙 405).
+    clearKnowledgeWiring(activeId) // 과거 세션은 다른 세션 — 이번-세션 연결을 승계하지 않는다(스펙 405).
     const seq = ++sessionLoadSeqRef.current
     const targetId = activeId // 로드 중 에이전트가 바뀌어도 원 에이전트 대화에만 반영.
     const prevSid = sessions[targetId] // 실패 시 롤백용(undefined면 새 세션 상태로 복귀).
@@ -712,9 +712,9 @@ export function Playground({
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div>
-            📎 <b>{kModal?.file.name}</b> — 문서를 컬렉션에 저장하고 이번 세션에 배선합니다.
+            📎 <b>{kModal?.file.name}</b> — 문서를 컬렉션에 저장하고 이번 세션에 연결합니다.
             <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginTop: 4 }}>
-              저장된 문서는 지식 자산으로 남습니다. 배선은 이번 세션 한정 — 영구 배선은 에이전트 편집에서.
+              저장된 문서는 지식 자산으로 남습니다. 연결은 이번 세션 동안 유지 — 계속 사용하려면 에이전트 편집에서 연결하세요.
             </div>
           </div>
           <Select

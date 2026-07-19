@@ -61,8 +61,8 @@ try {
   ok(true, '① 지식 저장 모달 → 새 컬렉션 이름 입력 → 저장')
 
   // ③ 인제스트 칩: 저장 중 → 배선됨(임베딩 포함 최대 120초)
-  await page.getByText('이번 세션 배선됨', { exact: false }).waitFor({ timeout: 120000 })
-  ok(true, `② 인제스트 ready + 세션 배선 칩 (컬렉션 ${COL})`)
+  await page.getByText('이번 세션에 연결됨', { exact: false }).waitFor({ timeout: 120000 })
+  ok(true, `② 인제스트 ready + 세션 연결 칩 (컬렉션 ${COL})`)
 
   // ④ 질문 → 검색 근거 답변(+메시지 메타 rag 히트)
   const input = page.getByPlaceholder(/에게 메시지/)

@@ -149,7 +149,7 @@ interface DebugChatProps {
   selectedTurn: number | null
   onSelectTurn: (i: number) => void
   onSend: (text: string) => void
-  // 파일첨부(스펙 404) — 대기 첨부 칩 + 클립 버튼 배선(상태는 Playground 소유).
+  // 파일첨부(스펙 404) — 대기 첨부 칩 + 클립 버튼 연결(상태는 Playground 소유).
   attachments?: { filename: string; chars: number; truncated: boolean }[]
   onAttachFiles?: (files: File[]) => void
   onRemoveAttachment?: (index: number) => void
@@ -1320,7 +1320,7 @@ export function DebugChat({
                 >
                   {j.status === 'ingesting' ? <Spin size="small" /> : j.status === 'ready' ? '📚' : '⚠️'}{' '}
                   {j.filename} → {j.collection}
-                  {j.status === 'ready' ? ' (이번 세션 배선됨)' : j.status === 'error' ? ` — ${j.err ?? '실패'}` : ' 저장 중…'}
+                  {j.status === 'ready' ? ' (이번 세션에 연결됨)' : j.status === 'error' ? ` — ${j.err ?? '실패'}` : ' 저장 중…'}
                 </Tag>
               ))}
             </div>
