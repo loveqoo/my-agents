@@ -6,6 +6,7 @@
 > 규칙이 아니라 종이 한 장 — 새 작업 정해지면 여기서 옮기고, 끝나면 완료로 내린다.
 
 ## 후보
+- [ ] **suite 진행 노출(구남님 제안, 2026-07-19)**: 장시간 스위트가 밖에서 안 보임 — 1차 조치=호출 습관(tail 캡처 금지, 전체 로그 파일로 흘려 tail -f 가능하게, 이번 세션부터 적용). 2차 후보=run.py가 진행 파일(예 /tmp/suite-progress.json: 완료 n/51·현재 키·경과)을 갱신하거나 heartbeat 줄 주기 출력 — 소형.
 - [ ] **배터리-한정 3인조 플레이크 관찰(137runner·140·141, 2026-07-19)**: make test-all에서만 간헐 red(단독·반복 실행은 그린, 400·402 배터리서 각 1회 재현). 원인 미상 — 스펙 402에서 run_suite에 실패 전문 보존 계측(/tmp/run_suite_fails/) 장착, **다음 재발 시 실물 로그로 근인 추적**(추측 수선 금지 — observe-before-remedy). 재발 없으면 종결.
 - [ ] **SSE 이탈 커넥션 풀 오염 봉합(스펙 402 실구멍 보고, 2026-07-19)**: 클라이언트가 chat SSE를 중도 이탈(탭 닫기·모바일)하면 ASGI 취소가 in-flight asyncpg/psycopg 커넥션을 오염 → 공유 풀 poison → 후속 요청 인증 쿼리 비결정 500(068 하네스가 우연 재현, deep-reasoner+codex 실구멍 확인). 봉합 스케치: ①db.py pool_pre_ping=True ②체크포인터 psycopg 풀 checkout 검증 ③event_stream finally의 release_thread를 shield+timeout ④early-abort 회귀 테스트. 근거=.dev/reviews/402-quarantine/codex.out.
 - ✅**verify 격리 잔여 5건 = 스펙 402 완료(5→0)**(2026-07-19): 4건 재활+068 하네스 드레인 재활, 대장 빈 dict. 원 항목: **verify 격리 잔여 5건 근본 해결(스펙 400 OUT, 2026-07-19)**: 격리 대장이 43→5로 줄어 남은 것 전부 환경/인프라 — ①068 asyncpg member resume 커넥션 수명 조사(재실측 실패 지속) ②114/143 시드 전제(옵시디언 매니저 등) → 자기완결 픽스처 재활 또는 seed 정비 ③054 stdio 실 MCP 런타임 하네스 ④057 테스트 이벤트루프 버그. 각각 소형 스펙 후보(묶음 가능).
