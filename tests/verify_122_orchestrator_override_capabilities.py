@@ -59,9 +59,8 @@ async def integration() -> None:
             agent_id=f"agt_{_TAG}",
             name=f"{_TAG}_orchestrator",
             source="ui",
-            # model 명시(스펙 400 재활): 모델 미지정+오버라이드 조합은 앱의 None==None 게이트
-            # 오폭(스펙 290 거절 조건, 실버그 의심 — 보고 적재)에 걸린다. 이 테스트의 축은
-            # capabilities 병합이므로 모델을 명시해 축을 분리한다.
+            # model 명시: 이 테스트의 축은 capabilities 병합 — 모델 축은 B6(스펙 401 회귀 핀)이
+            # 모델 미지정 에이전트로 별도 검증한다(None==None 오폭은 스펙 401서 수리됨).
             config={"impl": "orchestrate", "model": "mock-llm", "capabilities": ["mcp:srv_a"]},
             active_version="v1",
         )
@@ -97,6 +96,68 @@ async def integration() -> None:
     # B4: 빈 리스트 → 위임 대상 전부 해제.
     ctx = await chat._load_context(aid, None, {"capabilities": []}, own=None)
     check(ctx.capabilities == [], f"B4 빈 리스트 오버라이드 반영(got {ctx.capabilities!r})")
+
+    # B6(스펙 401 회귀 핀): 오버라이드 모델 거절 게이트는 **실명을 댄** 오버라이드에만.
+    # 모델 미지정 에이전트 + model 없는/null 오버라이드 = 기본 폴백, 명시 미등록 이름 = 400(290 유지).
+    from fastapi import HTTPException as _HTTPExc
+
+    from sqlalchemy import select
+
+    from api.models import ModelConfig as _MC
+
+    # 폴백 기대값은 하드코딩(mock-chat) 금지 — 라이브 DB에선 기본 chat이 실모델일 수 있다.
+    async with SessionLocal() as s:
+        _default_mid = (
+            await s.execute(
+                select(_MC.model_id).where(_MC.kind == "chat", _MC.is_default.is_(True))
+            )
+        ).scalar_one()
+
+    async with SessionLocal() as s:
+        bare = Agent(
+            agent_id=f"agt_{_TAG}b6",
+            name=f"{_TAG}_bare",
+            source="ui",
+            config={},  # model 미지정 — None==None 오폭의 트리거였던 형태
+            active_version="v1",
+        )
+        s.add(bare)
+        await s.commit()
+        await s.refresh(bare)
+        bare_id = bare.id
+    try:
+        # model_cfg는 연결 cfg(base_url/model_id/params — name 없음): 기본 mock 모델의 model_id로 단언.
+        ctx = await chat._load_context(bare_id, None, {"capabilities": []}, own=None)
+        check(
+            (ctx.model_cfg or {}).get("model_id") == _default_mid,
+            f"B6a 모델 미지정+model 키 없는 오버라이드 → 400 없이 기본 해석(got {(ctx.model_cfg or {}).get('model_id')!r})",
+        )
+        ctx = await chat._load_context(bare_id, None, {"model": None}, own=None)
+        check(
+            (ctx.model_cfg or {}).get("model_id") == _default_mid,
+            f"B6b overrides={{model: None}} → 동일 폴백(got {(ctx.model_cfg or {}).get('model_id')!r})",
+        )
+        # B6d 경계 핀(codex 401 P2 — 선택된 시맨틱의 문서화): 빈 문자열 오버라이드는 "명시 이름"이
+        # 아니라 미선언으로 접는다(저장 config의 빈값과 동형 — 스펙 401 승인 축). 400이 아님을 핀.
+        ctx = await chat._load_context(bare_id, None, {"model": ""}, own=None)
+        check(
+            (ctx.model_cfg or {}).get("model_id") == _default_mid,
+            f"B6d overrides={{model: \"\"}} → 미선언 취급·기본 폴백(got {(ctx.model_cfg or {}).get('model_id')!r})",
+        )
+        try:
+            await chat._load_context(bare_id, None, {"model": "없는모델401"}, own=None)
+            check(False, "B6c 명시 미등록 이름이 통과함(290 회귀!)")
+        except _HTTPExc as e:
+            check(
+                e.status_code == 400 and "없는모델401" in str(e.detail),
+                f"B6c 명시 미등록 이름 → 400 유지(스펙 290) (got {e.status_code}, {e.detail!r})",
+            )
+    finally:
+        async with SessionLocal() as s:
+            row = await s.get(Agent, bare_id)
+            if row:
+                await s.delete(row)
+                await s.commit()
 
     async with SessionLocal() as s:
         await _cleanup(s)

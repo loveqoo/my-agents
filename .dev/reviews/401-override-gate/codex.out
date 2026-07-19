@@ -1,0 +1,1710 @@
+Reading additional input from stdin...
+OpenAI Codex v0.144.6
+--------
+workdir: /Users/anthony/Repository/github/loveqoo/my-agents
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: medium
+reasoning summaries: none
+session id: 019f78ba-8405-7420-82c1-3329894c62a0
+--------
+user
+스팟 적대 리뷰(스펙 401): packages/api/src/api/chat_context_models.py의 _resolve_model에서 스펙 290 오버라이드 모델 거절 게이트를 한 줄 수리했다.
+
+전(버그): if overrides and overrides.get("model") == model_name:
+후(수리): if overrides and overrides.get("model") and overrides.get("model") == model_name:
+
+의도: "실명을 댄 오버라이드 모델이 미등록이면 400(시끄러운 거절)"은 유지하되, 모델 미지정 에이전트(model_name=None)에 model 키 없는(또는 null) 오버라이드가 왔을 때 None==None으로 오폭하던 400을 제거(기본 모델 폴백).
+
+적대 관점에서 검증해달라:
+1. 이 수정이 290의 거절 계약을 어디서든 **완화**하는가? (명시 미등록 이름이 조용히 폴백되는 경로가 생기는가 — 특히 overrides 병합(_apply_overrides가 cfg.update로 model을 덮음)과의 상호작용, 빈 문자열 "" 오버라이드, pins 경로(_pinned_model_cfg), 저장 config에 model이 있고 오버라이드가 다른 이름인 경우)
+2. 오폭 제거가 불완전한 잔여 경로가 있는가?
+3. 관련 호출부(chat_context_loader._load_context) 기준으로 이 게이트를 우회하는 다른 입구가 있는가?
+
+파일: packages/api/src/api/chat_context_models.py, packages/api/src/api/chat_context_overrides.py, packages/api/src/api/chat_context_loader.py
+결론은 P1(계약 완화/구멍)·P2(개선 여지)·확인함 목록으로.
+hook: SessionStart
+hook: SessionStart
+hook: SessionStart Completed
+hook: SessionStart Completed
+codex
+[단계 2 — Context] 스펙 401 적대 리뷰라서 먼저 저장소의 관련 자산 후크와 세 파일의 실제 구현을 확인하겠습니다. 읽기 전용으로 진행하고, 결론은 요청한 P1/P2/확인함 형식으로만 좁혀서 내겠습니다.
+exec
+/bin/zsh -lc "sed -n '1,260p' packages/api/src/api/chat_context_overrides.py" in /Users/anthony/Repository/github/loveqoo/my-agents
+exec
+/bin/zsh -lc "sed -n '1,320p' packages/api/src/api/chat_context_loader.py" in /Users/anthony/Repository/github/loveqoo/my-agents
+exec
+/bin/zsh -lc "sed -n '1,260p' packages/api/src/api/chat_context_models.py" in /Users/anthony/Repository/github/loveqoo/my-agents
+ succeeded in 0ms:
+"""세션 오버라이드·노드 병합 — chat_context.py에서 분할(스펙 394 P1).
+
+_merge_node_overrides(구 CC 12)는 노드별 병합(_merge_one_node) 추출로 분해.
+파사드는 chat_context.py(재수출 계약 — verify_317이 직접 임포트).
+"""
+
+from .chat_context_types import _is_remote
+from .models import Agent
+
+# 노드 오버라이드 필드 화이트리스트(스펙 287) — 구조 식별자(name)는 제외해 저장본 유지.
+# 노드 추가/삭제는 테스트 범위 밖(사용자 결정): 오버라이드는 "이 에이전트 그대로, 설정만 바꿔
+# 테스트"가 목적이라 구조 변경 요청은 받지 않는다(서버 강제 — 클라이언트 신뢰 금지).
+_NODE_OVERRIDE_FIELDS = {
+    "prompt",
+    "model",
+    "tools",
+    "historyDepth",
+    "memories",
+    "memoryQuery",
+    "context",
+    "format",
+    "fields",
+}
+
+
+def _node_patch_fields(base_n: dict) -> set[str]:
+    """이 노드에 병합 가능한 오버라이드 필드(스펙 317) — 설정 노드=화이트리스트 전체, 코드 노드=
+    manifest.overridable ∩ 화이트리스트(나머지는 코드가 소유 — 세션 패치로 못 바꾼다). 미등록
+    impl은 빈 집합(fail-closed — 어차피 실행이 설정 오류로 거부됨)."""
+    impl = base_n.get("impl")
+    if not isinstance(impl, str) or not impl.strip():
+        return _NODE_OVERRIDE_FIELDS
+    from agent.nodes import get_node_impl
+
+    node_impl = get_node_impl(impl)
+    if node_impl is None:
+        return set()
+    return _NODE_OVERRIDE_FIELDS & set(node_impl.describe().overridable)
+
+
+def _merge_one_node(base_n: object, ov_n: object) -> tuple[dict, bool] | None:
+    """노드 하나 병합 — (병합본, 코드소유 필드 드롭 여부). 형식 오류는 None(mismatch 신호)."""
+    if not isinstance(base_n, dict) or not isinstance(ov_n, dict):
+        return None
+    allowed = _node_patch_fields(base_n)
+    patch = {k: v for k, v in ov_n.items() if k in allowed}
+    dropped = any(k in _NODE_OVERRIDE_FIELDS and k not in allowed for k in ov_n)
+    return {**base_n, **patch}, dropped
+
+
+def _merge_node_overrides(saved: list, ov: object) -> tuple[list, str]:
+    """노드형 세션 오버라이드 merge(스펙 287). 길이(=구조)가 같을 때만 인덱스별로 필드
+    화이트리스트를 저장 노드 위에 덮는다. 불일치·형식 오류는 저장본 그대로 + "mismatch"
+    (조용한 드롭 금지 — 트레이스가 표면화, 스펙 125 계열). 코드 노드(스펙 317)는 manifest가
+    선언한 표면만 병합하고, 화이트리스트 필드가 표면 밖이라 떨어지면 "partial"로 표면화
+    (조용한 무시 금지 — 무엇이 안 먹었는지 트레이스가 말한다). 순수 함수(테스트 단위)."""
+    if not isinstance(ov, list) or len(ov) != len(saved):
+        return saved, "mismatch"
+    merged: list = []
+    dropped = False
+    for base_n, ov_n in zip(saved, ov, strict=True):
+        one = _merge_one_node(base_n, ov_n)
+        if one is None:
+            return saved, "mismatch"
+        node, one_dropped = one
+        dropped = dropped or one_dropped  # 코드 소유 필드를 덮으려 함 — 병합은 계속, 정직 표기
+        merged.append(node)
+    return merged, ("partial" if dropped else "applied")
+
+
+def _coerce_history_depth(cfg: dict, agent: Agent) -> None:
+    """historyDepth 형 가드(codex 287 Low) — 비정수(예: 문자열)는 _window의 `depth < 0` 비교에서
+    TypeError 500. 정수화 실패 시 저장값 폴백(요청 하나로 500 못 만들게)."""
+    if isinstance(cfg.get("historyDepth"), int):
+        return
+    try:
+        cfg["historyDepth"] = int(cfg["historyDepth"])
+    except (TypeError, ValueError):
+        cfg["historyDepth"] = (agent.config or {}).get("historyDepth", 20)
+
+
+def _apply_overrides(
+    cfg: dict, prompt: str, overrides: dict | None, agent: Agent, allowed: set
+) -> tuple[dict, str, str | None, dict | None]:
+    """web 한정 세션 오버라이드 병합(스펙 025) — 화이트리스트 키만, 저장 에이전트는 불변.
+
+    코드·외부(원격) 에이전트는 미적용(bypass 보존 — 026 read-only 취급). 모델은 여전히
+    cfg["model"] 이름으로 레지스트리에서만 해석 → [012] 단일 소스 불변식 유지.
+    - capabilities(스펙 122): 브로커가 build_broker(principal=호출자)로 호출자 RBAC 게이트
+      (_permitted = allowlist ∩ RBAC)하므로 주입분도 안전(confused-deputy 무관).
+    - tools(스펙 276): 직접형 도구 단위 배선 — 노출 축소/서버별 필터라 완화 아님.
+    - vectorTables(스펙 287): 노드형 문서 풀 파생의 실효 축 — RAG 읽기(사용=공용 정책 211).
+    - nodes(스펙 287): 구조 불변 강제 merge(allowed와 분리 — 통짜 교체가 아니라 저장 노드 위
+      필드 merge, 추가/삭제=범위 밖). 미적용 사유(mismatch)는 트레이스가 표면화.
+    반환 (cfg, prompt, nodes_status, passthrough) — passthrough=적용된 원본 오버라이드(미적용=None):
+    in-process 커스텀 에이전트가 화이트리스트 밖 키도 읽게 ctx["overrides"]로 전달(스펙 085)."""
+    if not overrides or _is_remote(agent.source):
+        return cfg, prompt, None, None
+    cfg.update({k: v for k, v in overrides.items() if k in allowed})
+    if "historyDepth" in overrides:
+        _coerce_history_depth(cfg, agent)
+    # systemPrompt는 비어있지 않을 때만 prompt를 덮어쓴다 — 빈/공백 문자열로
+    # 저장된 프롬프트를 지우지 않도록(백엔드 자체 가드, 클라이언트 신뢰 안 함. codex P1).
+    sp = overrides.get("systemPrompt")
+    if isinstance(sp, str) and sp.strip():
+        prompt = sp
+    nodes_status: str | None = None
+    if overrides.get("nodes") is not None:
+        if isinstance(cfg.get("nodes"), list):
+            cfg["nodes"], nodes_status = _merge_node_overrides(cfg["nodes"], overrides["nodes"])
+        else:
+            nodes_status = "mismatch"  # 노드형이 아닌 에이전트에 nodes를 보냄
+    return cfg, prompt, nodes_status, overrides
+
+
+def _filter_capabilities(cfg: dict) -> list:
+    """능력 브로커 allowlist(스펙 100) — 오케스트레이션 허용 cap id 목록(없으면 [] = deny-by-default).
+
+    비영속(스펙 237) 방어층: DB 쓰기 능력(memwrite/memedit)은 걸러낸다 — 정본 게이트는 저장 시
+    422(agents._enforce_ephemeral_boundary), 여기는 과거 저장분·우회 대비 fail-closed."""
+    return [
+        c
+        for c in cfg.get("capabilities", [])
+        if not (
+            cfg.get("ephemeral")
+            and isinstance(c, str)
+            and c.split(":", 1)[0] in ("memwrite", "memedit")
+        )
+    ]
+
+ succeeded in 0ms:
+"""_load_context 오케스트레이터 — chat_context.py에서 분할(스펙 394 P6).
+
+컨텍스트 계층의 **순서 계약**이 이 파일에 드러난다(codex 자문 — 순서 변경=동작 변경):
+① 버전 스냅샷 → ② 노드 ref 해석(오버라이드 **전** — 세션 패치는 해석된 유효 노드 위에) →
+③ 오버라이드 병합 → ④ 풀 재파생(모델/MCP/RAG 해석 **전**) → ⑤ exec_version 확정 **후** pins →
+⑥ 모델 → 노드 모델 → mem → MCP → RAG → 세션. 파사드는 chat_context.py(재수출 계약).
+"""
+
+import uuid
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from .chat_context_mcp import _resolve_mcp_servers
+from .chat_context_models import _resolve_mem_cfg, _resolve_model, _resolve_node_models
+from .chat_context_overrides import _apply_overrides, _filter_capabilities
+from .chat_context_pool import derive_pipeline_pool
+from .chat_context_rag import _resolve_rag
+from .chat_context_sessions import _resolve_session
+from .chat_context_types import ChatContext, _is_remote
+from .chat_context_versions import (
+    _resolve_exec_pins,
+    _resolve_prompt_provenance,
+    _resolve_version_and_prompt,
+)
+from .db import SessionLocal, get_or_404
+from .models import Agent
+from .node_templates import resolve_node_refs
+
+# 세션 오버라이드 화이트리스트(스펙 025/122/276/287 — 각 키 근거는 _apply_overrides docstring).
+_OVERRIDE_ALLOWED = {
+    "model",
+    "temperature",
+    "historyDepth",
+    "mcps",
+    "memories",
+    "capabilities",
+    "tools",
+    "vectorTables",
+}
+
+
+async def _resolve_nodes_for_ctx(
+    db: AsyncSession,
+    nodes: object,
+    model_cfg: dict | None,
+    remote: bool,
+    pins: dict | None = None,
+) -> list[dict] | None:
+    """노드형(스펙 259)이면 노드별 모델을 **플랫폼이 미리 해석**해 심는다(085 U2: build_graph는 DB
+    미접촉). 로컬(ui) 경로에서만 의미 — 비노드형/원격은 None."""
+    if remote or not isinstance(nodes, list):
+        return None
+    return await _resolve_node_models(db, nodes, model_cfg, pins)
+
+
+async def _prepare_cfg(
+    db: AsyncSession, agent: Agent, version: str | None, overrides: dict | None
+) -> tuple[dict, str, str | None, str | None, dict | None]:
+    """cfg 준비 단계(스펙 394 분해) — 버전 스냅샷·노드 ref 해석·오버라이드 병합·풀 재파생.
+    반환 (cfg, prompt, pinned_version, nodes_status, applied_overrides). 순서는 모듈 docstring ①~④."""
+    cfg = dict(agent.config or {})
+    # (스펙 211) 구 113 P0의 저장본/override 권한 분리(stored_mcps 포착)는 사용=공용 전환으로 소멸.
+    cfg, prompt, pinned_version = await _resolve_version_and_prompt(db, agent, cfg, version)
+    # 노드 참조 해석(스펙 316) — ref 항목을 등록 노드 config 사본으로 치환. **오버라이드 병합
+    # 전에**(해석→병합): 세션 패치는 해석된 유효 노드 위에 얹는다. 미해결 참조는 422로 명확히
+    # 실패(반쪽 파이프라인 조용히 실행 금지 — 089 패턴). 핀 버전 미리보기(version=) 스냅샷의
+    # 참조도 여기서 함께 해석된다(_resolve_version_and_prompt 뒤 단일 지점).
+    if not _is_remote(agent.source) and isinstance(cfg.get("nodes"), list):
+        cfg["nodes"] = await resolve_node_refs(db, cfg["nodes"])
+    cfg, prompt, nodes_status, applied_overrides = _apply_overrides(
+        cfg, prompt, overrides, agent, _OVERRIDE_ALLOWED
+    )
+    # 노드형 풀 서버 파생(스펙 289 P2) — 로드 시 무조건 재파생: 폼 밖 입구(API 직생성·구저장·
+    # 오버라이드)로 풀이 비었거나 낡았어도 노드 참조대로 도구·문서·기억이 빌드된다(learning 151).
+    # 저장 시 파생(agents.py)과 같은 규칙이라 폼 저장분엔 무변화(멱등).
+    if not _is_remote(agent.source):
+        await derive_pipeline_pool(cfg)
+    return cfg, prompt, pinned_version, nodes_status, applied_overrides
+
+
+async def _load_context(
+    agent_id: uuid.UUID,
+    session_str_id: str | None,
+    overrides: dict | None = None,
+    own: str | None = None,
+    version: str | None = None,
+) -> ChatContext:
+    """에이전트 구성 + MCP 활성 툴 + 세션(생성/지속)을 한 번에 준비.
+
+    overrides(스펙 025): Playground Proxy의 세션 한정 설정 덮어쓰기. **web 에이전트에만** 적용하고
+    화이트리스트 키만 받는다(저장된 에이전트는 불변). 코드 에이전트는 원격 실행이라 미적용(bypass).
+
+    own(스펙 068): resume 소유자 스코프. 비-admin이면 `str(principal.id)`, admin/머신·내부 호출은
+    None. `own is not None`이면 resume 바인딩이 `Session.user_id == own`을 요구해, *타인/NULL/추측*
+    session_id는 매칭 실패 → 새 세션 발급(067 읽기 게이트와 동일 판정 — 열거 오라클·소유권 탈취 봉인).
+    """
+    # 세션 id 위생(스펙 290 적대): Postgres text는 NUL(0x00)을 저장·조회할 수 없어, 오염된 id가
+    # WHERE에 닿으면 asyncpg가 DBAPIError(500)로 샌다. NUL 포함 id는 애초에 저장 행과 매칭 불가라
+    # 새 세션으로 fold하는 것이 계약("200+새 세션 발급")과 일치한다 — resume 자체를 건너뛴다.
+    # (다른 특수문자·긴 길이는 파라미터 바인딩이 안전 처리하므로 그대로 통과시켜 매칭 실패에 맡긴다.)
+    if session_str_id and "\x00" in session_str_id:
+        session_str_id = None
+    async with SessionLocal() as db:
+        agent = await get_or_404(db, Agent, agent_id, detail="agent not found")
+        cfg, prompt, pinned_version, nodes_status, applied_overrides = await _prepare_cfg(
+            db, agent, version, overrides
+        )
+        remote = _is_remote(agent.source)
+        # 실행 버전(스펙 242) — pinned=지정 버전(미리보기), exec=실제 실행 버전(지정 없으면 활성).
+        # trace.agentVersion 기록·HIL 게이트(pinned는 승인 재개가 서빙 config로 돌아 drift) 근거.
+        exec_version = pinned_version or agent.active_version
+        prompt_name, prompt_id = await _resolve_prompt_provenance(
+            db, cfg, applied_overrides, remote
+        )
+        pins = await _resolve_exec_pins(db, agent.id, exec_version, remote)
+        # 코드·외부 에이전트는 비로컬(원격/A2A) 실행이라 로컬 모델이 필요 없다(건너뜀 = None).
+        nodes = cfg.get("nodes")  # 노드형 파이프라인 노드 명세(스펙 259) — 아래서 노드별 모델 해석
+        model_cfg = await _resolve_model(db, cfg, overrides, pins) if not remote else None
+        nodes_resolved = await _resolve_nodes_for_ctx(db, nodes, model_cfg, remote, pins)
+        mem_cfg = await _resolve_mem_cfg(db, model_cfg)
+        mcp_servers, tool_names = await _resolve_mcp_servers(db, cfg, pins)
+        rag_collections, rag_unresolved = await _resolve_rag(db, cfg, remote)
+        session = await _resolve_session(db, agent, session_str_id, own)
+        return ChatContext(
+            prompt=prompt,
+            ext_agent_id=agent.agent_id,
+            agent_name=agent.name,
+            agent_pk=agent.id,
+            source=agent.source,
+            impl=cfg.get("impl"),
+            artifact_spec=cfg.get("artifactSpec"),
+            nodes=nodes,
+            overrides_nodes_status=nodes_status,
+            # 원본 오버라이드 — in-process 커스텀이 화이트리스트 밖 키도 읽게 전달(스펙 085
+            # AgentBuildContext.overrides). 원격은 None(로컬 설정 주입 무의미, bypass 보존).
+            overrides=applied_overrides,
+            endpoint=agent.endpoint,
+            token=agent.token,
+            card=cfg.get("card"),
+            memories=cfg.get("memories", []),
+            capabilities=_filter_capabilities(cfg),
+            # 도구 승인 오버라이드(스펙 177 P2) — 요청 오버라이드 허용키엔 불포함(요청으로 승인 완화
+            # 우회 금지, config-only). 완화 권한은 저장 시 admin 게이트로 강제.
+            tool_policy=cfg.get("toolPolicy") or {},
+            # 에이전트가 명시한 temperature만 전달(없으면 None) → 모델 등록 params가 적용되게.
+            temperature=cfg.get("temperature"),
+            history_depth=cfg.get("historyDepth", 20),
+            persist_history=cfg.get("persistHistory", True),
+            # 비영속(1회성) 모드(스펙 235) — true면 DB 적재 전면 스킵(persistHistory의 상위집합).
+            ephemeral=bool(cfg.get("ephemeral", False)),
+            pinned_version=pinned_version,
+            exec_version=exec_version,
+            prompt_name=prompt_name,
+            prompt_id=prompt_id,
+            pins=pins,
+            model_cfg=model_cfg,
+            nodes_resolved=nodes_resolved,
+            mem_cfg=mem_cfg,
+            mcp_servers=mcp_servers,
+            tool_names=tool_names,
+            rag_collections=rag_collections,
+            rag_unresolved=rag_unresolved,
+            # 컬렉션별 최소 유사도 맵(스펙 191 v2). downstream이 범위·컬렉션 재검증하므로 raw 통과({}=무필터).
+            rag_min_scores=cfg.get("ragMinScores") or {},
+            session_pk=session["session_pk"],
+            session_id=session["session_id"],
+            session_pending=session["session_pending"],
+        )
+
+ succeeded in 0ms:
+"""모델·mem0 설정 해석 — chat_context.py에서 분할(스펙 394 P3).
+
+_resolve_model(구 CC 12)은 레지스트리 조회(_registry_chat_model·_default_chat_registry)와
+행→dict 변환(_model_cfg_from_row) 추출로 분해. **의도 비대칭 보존**(codex 자문·스펙 290):
+오버라이드 모델 미등록=400(시끄럽게), 저장 설정 미등록=기본(is_default) 폴백(graceful).
+파사드는 chat_context.py(재수출 계약).
+"""
+
+import uuid
+
+from fastapi import HTTPException
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
+from . import crypto
+from .chat_context_types import _is_remote
+from .mem_config import (
+    _build_mem_cfg,
+    _default_chat_model,
+    _default_embed_model,
+    llm_cfg_of,
+    model_usable,
+)
+from .models import Agent, ModelConfig
+
+
+async def _pinned_model_cfg(db: AsyncSession, pins: dict | None, name: str) -> dict | None:
+    """pin이 head와 다를 때만 이력 payload로 model_cfg 구성(스펙 370) — 369 경계 그대로
+    저작 내용(model_id·params·provider_id)은 pin, 연결처 비밀(base_url·api_key)은 라이브 provider."""
+    from .block_versions import resolve_pinned
+    from .models import Provider as _Provider
+
+    payload = await resolve_pinned(db, pins, "model", name)
+    if payload is None:
+        return None
+    prov = None
+    if payload.get("provider_id"):
+        try:
+            prov = await db.get(_Provider, uuid.UUID(str(payload["provider_id"])))
+        except ValueError:
+            prov = None
+    if prov is None or not prov.base_url or not payload.get("model_id"):
+        return None  # 불완전 pin — head 폴백(정직 degrade)
+    return {
+        "base_url": prov.base_url,
+        "api_key": crypto.decrypt(prov.api_key),
+        "model_id": payload["model_id"],
+        "params": dict(payload.get("params") or {}),
+    }
+
+
+async def _registry_chat_model(db: AsyncSession, name: str) -> ModelConfig | None:
+    """레지스트리 chat 모델 단건 조회(name, kind=chat, provider 상속) — 해석 3경로 공유 조회."""
+    return (
+        await db.execute(
+            select(ModelConfig)
+            .where(ModelConfig.name == name, ModelConfig.kind == "chat")
+            .options(selectinload(ModelConfig.provider))
+        )
+    ).scalar_one_or_none()
+
+
+async def _default_chat_registry(db: AsyncSession) -> ModelConfig | None:
+    """기본(is_default) chat 모델 조회 — 저장 설정 미지정/미등록의 graceful 폴백 대상."""
+    return (
+        (
+            await db.execute(
+                select(ModelConfig)
+                .where(ModelConfig.kind == "chat", ModelConfig.is_default.is_(True))
+                .options(selectinload(ModelConfig.provider))
+            )
+        )
+        .scalars()
+        .first()
+    )
+
+
+def _model_cfg_from_row(m: ModelConfig) -> dict:
+    """모델 행 → model_cfg dict — 불완전(provider base_url/model_id 부재)은 400(명확한 안내)."""
+    base_url = m.provider.base_url if m.provider else ""
+    if not base_url or not m.model_id:
+        raise HTTPException(
+            status_code=400,
+            detail=f"모델 '{m.name}' 설정이 불완전합니다 (provider base_url/model_id 필요).",
+        )
+    # 등록 없음·설정 불완전이 각각 다른 에러 메시지라 model_usable로 접지 않음 — dict만 정본화.
+    return {**llm_cfg_of(m), "params": dict(m.params or {})}
+
+
+async def _chat_model_cfg(db: AsyncSession, name: str, pins: dict | None = None) -> dict | None:
+    """레지스트리 chat 모델(name→provider 상속) 해석 — pin 우선(스펙 370), 미존재/불완전이면 None."""
+    pinned = await _pinned_model_cfg(db, pins, name)
+    if pinned is not None:
+        return pinned
+    m = await _registry_chat_model(db, name)
+    if model_usable(m):
+        return {**llm_cfg_of(m), "params": dict(m.params or {})}
+    return None
+
+
+async def _resolve_node_models(
+    db: AsyncSession, nodes: list, default_cfg: dict | None, pins: dict | None = None
+) -> list[dict]:
+    """노드형(스펙 259) 노드별 모델을 레지스트리에서 미리 해석해 `model_cfg`를 심는다(085 U2 — impl은
+    DB 미접촉). 에이전트 모델 해석과 **동일 조회**(`ModelConfig.name==name, kind=="chat"`, provider
+    상속) — 드리프트 0. 미지정/미존재 이름은 `default_cfg`(에이전트 기본 chat 모델)로 폴백. 같은 모델
+    이름은 1회만 조회해 재사용(N 노드 M 중복 모델 → distinct 쿼리). 순수 데이터 반환(잡 노드는 통과 —
+    정규화는 impl의 normalize_nodes가)."""
+    resolved: list[dict] = []
+    cache: dict[str, dict | None] = {}
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        name = node.get("model")
+        cfg = None
+        if isinstance(name, str) and name.strip():
+            if name not in cache:
+                cache[name] = await _chat_model_cfg(db, name, pins)
+            cfg = cache[name]
+        # 심은 model_cfg는 해석된 노드 모델(없으면 에이전트 기본으로 폴백 — impl의 _model_from_node).
+        resolved.append({**node, "model_cfg": cfg or default_cfg})
+    return resolved
+
+
+async def _resolve_model(
+    db: AsyncSession, cfg: dict, overrides: dict | None, pins: dict | None = None
+) -> dict:
+    """chat 모델을 레지스트리에서만 해석(env 안 봄) — 반환 model_cfg dict(연결처는 provider 상속, 스펙 035).
+
+    에이전트가 고른 이름 → 없으면 기본(is_default) chat 모델 → 그것도 없으면 명확히 400.
+    명시 오버라이드 모델이 미등록이면 **시끄럽게 거절**(스펙 290 — learning 092: 조용한 폴백은
+    호출자가 다른 모델로 실행된 걸 모른 채 지나간다). 저장 설정의 미지정·미등록은 기존 기본 폴백
+    유지(graceful — 범위 밖, 백로그)."""
+    model_name = cfg.get("model")
+    if model_name:
+        pinned = await _pinned_model_cfg(db, pins, model_name)  # pin 우선(스펙 370)
+        if pinned is not None:
+            return pinned
+    m = await _registry_chat_model(db, model_name) if model_name else None
+    if m is None:
+        # 거절은 **실명을 댄** 오버라이드에만(스펙 401) — 모델 미지정 에이전트(model_name=None)에
+        # model 키 없는(또는 null) 오버라이드가 오면 None==None으로 오폭하던 것을 실명 요구로 봉합.
+        # 미선언은 기본 폴백(learning 092: 선언-but-broken만 거절).
+        if overrides and overrides.get("model") and overrides.get("model") == model_name:
+            raise HTTPException(
+                status_code=400,
+                detail=f"오버라이드 모델 '{model_name}'이(가) 등록돼 있지 않습니다 — 모델 이름을 확인하세요.",
+            )
+        m = await _default_chat_registry(db)
+    if m is None:
+        raise HTTPException(
+            status_code=400,
+            detail="등록된 채팅 모델이 없습니다 — 모델을 먼저 등록하세요.",
+        )
+    return _model_cfg_from_row(m)
+
+
+async def _resolve_mem_cfg(db: AsyncSession, model_cfg: dict | None) -> dict | None:
+    """mem0용 모델 설정(레지스트리) — llm=해석된 chat 모델, embedder=기본 embedding 모델.
+
+    임베딩 모델이 없으면 None → 메모리 비활성(graceful)."""
+    if not model_cfg:
+        return None
+    emb = (
+        (
+            await db.execute(
+                select(ModelConfig)
+                .where(ModelConfig.kind == "embedding", ModelConfig.is_default.is_(True))
+                .options(selectinload(ModelConfig.provider))
+            )
+        )
+        .scalars()
+        .first()
+    )
+    if emb is None or emb.provider is None:
+        return None
+    return {
+        "llm": {
+            "base_url": model_cfg["base_url"],
+            "api_key": model_cfg["api_key"],
+            "model_id": model_cfg["model_id"],
+        },
+        "embedder": llm_cfg_of(emb),
+    }
+
+
+async def resolve_agent_mem_cfg(db: AsyncSession, agent: Agent) -> dict | None:
+    """에이전트의 mem0 설정(레지스트리 chat llm + 기본 embedding)을 해석. 없으면 None.
+
+    관리자 메모리 CRUD(agents.py 스펙 029)가 _load_context와 같은 규칙으로 mem_cfg를 얻는 단일
+    경로. 코드·외부 에이전트는 비로컬(원격/A2A)이라 로컬 mem0가 없다 → None.
+    """
+    if _is_remote(agent.source):
+        return None
+    cfg = dict(agent.config or {})
+    model_name = cfg.get("model")
+    m = await _registry_chat_model(db, model_name) if model_name else None
+    if m is None:
+        m = await _default_chat_model(db)
+    return _build_mem_cfg(m, await _default_embed_model(db))
+
+exec
+/bin/zsh -lc "rg -n \"401|290|override|model|chat_context\" .dev AGENTS.md CLAUDE.md packages/api -g 'INDEX.md' -g '*.md'" in /Users/anthony/Repository/github/loveqoo/my-agents
+ succeeded in 0ms:
+.dev/reviews/395-batch-jobs/codex-consult.md:6:`packages/api/src/api/batch/jobs.py`는 지금 당장 `batch/jobs/` 서브패키지로 바꾸기보다, 이 저장소의 최근 선례처럼 `batch/jobs.py`를 파사드로 남기고 `batch/jobs_*.py` 평면 형제 모듈로 나누는 쪽이 맞습니다. 이미 `blocks_*.py`, `chat_context_*.py`, `chat_*`가 같은 방식이고, 현재 소비자는 `from api.batch.jobs import ...`를 많이 핀합니다.
+.dev/reviews/395-batch-jobs/codex-consult.md:13:3. `consolidate_user_memories`는 후보 조회, threshold/mem_cfg 해석, dry-run preview, per-user saga, 집계 summary를 한 함수가 조율합니다: [jobs.py](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/batch/jobs.py:358). 이미 `_consolidate_one_user`가 있지만, snapshot commit → mem0 add → 원본 delete의 외부 저장소 saga 경계가 내부에 숨습니다: [jobs.py](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/batch/jobs.py:290). `MemoryConsolidationPlanner`, `MemoryConsolidationExecutor`, `MemorySnapshotRepository`, `MemoryBackendAdapter`로 나누는 게 맞습니다.
+.dev/reviews/399-eval-runs/codex-consult.md:23:- `eval_admission.py`: `_resolve_run_target`, `_admission_check`, `_assert_run_admission`, `_validate_compare_models`, `_resolve_pinned_version`. HTTP 예외를 유지하되 “판정”과 “반응”은 분리.
+.dev/retrospect/153-rag-embedding-prominent-default.md:7:임베딩 라벨에 빨강 "(생성 후 변경 불가)". `useEffect`에서 `models.find(m=>m.is_default)` 프리셀렉트
+.dev/retrospect/019-playground-honest-model-badge.md:3:스펙: [028](../../docs/spec/028-playground-honest-model-badge.md)
+.dev/retrospect/019-playground-honest-model-badge.md:10:플레이그라운드 picker/헤더가 모든 에이전트의 `agent.model`을 실행 모델인 양 표시했다.
+.dev/retrospect/019-playground-honest-model-badge.md:11:code 에이전트(Doc Translator)는 `model="qwen3.6-35b"`로 박혀 있지만 실제론 원격 엔드포인트
+.dev/reviews/398-rag-shared/codex-consult.md:13:- `rag/embedding_models.py`: `_dim_mismatch`, `_embedding_model`, `_validate_embedding_model`; `_load_collection`은 여러 가족이 쓰므로 `collection_loaders.py` 또는 `collections_core.py`.
+.dev/reviews/398-rag-shared/codex-consult.md:14:- `rag/reindex_core.py`: `_LOCKABLE_STATUSES`, `_reject_if_reindexing`, `_acquire_reindex_lock`, `_set_collection_status`, `_embed_with_model`, `_record_reindex_event`, `_do_reindex`, `_resolve_reindex_model`, `_resolve_rechunk`, `_reject_inflight_ingest`, `_reject_blobless_docs`.
+.dev/reviews/398-rag-shared/codex-consult.md:33:4. `embedding_models.py`/`collection_loaders.py` 분리. 컬렉션 생성·검색·재색인이 모두 닿아 import 순환을 조심.
+.dev/retrospect/193-inspector-honesty.md:4:전송 프롬프트 재구성→**모델 콜백 실측**(TraceCaptureHandler: on_chat_model_start 메시지·on_llm_end
+.dev/retrospect/193-inspector-honesty.md:6:배지 메시지 인덱스→질문 순번. 실모델 검증 7/7: system 401자(계획·도구 안내 포함)·도구 왕복 6메시지·
+.dev/reviews/394-chat-context/codex-consult.md:1:# codex 자문 원문 — chat_context.py 리팩터 (2026-07-18, 스펙 394 입력)
+.dev/reviews/394-chat-context/codex-consult.md:6:`chat_context.py`는 “나쁜 god file”이라기보다 실행 컨텍스트의 여러 안정화 패치가 한 파일에 누적된 상태입니다. 그래서 1차 리팩터는 새 개념을 크게 만들기보다, `chat_context.py` 경로를 보존한 얇은 파사드/타입 허브로 두고 리졸버 가족을 평면 형제 모듈로 이동하는 게 맞습니다.
+.dev/reviews/394-chat-context/codex-consult.md:8:`ChatContextBuilder`는 지금 시점에는 과합니다. 374 당시 제안은 dict ctx를 typed DTO로 바꾸기 전의 문제의식인데, 현재는 [ChatContext](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat_context.py:40)가 이미 단일 DTO이고 [_load_context](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat_context.py:768)가 한 번에 생성합니다. 필요한 것은 fluent/mutable builder가 아니라, 순서가 보이는 얇은 오케스트레이터와 작은 결과 DTO입니다.
+.dev/reviews/394-chat-context/codex-consult.md:11:1. [_load_context](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat_context.py:700)가 컨텍스트 계층 전체의 순서 계약을 암묵 지역변수로 들고 있습니다. 버전 해석, 노드 ref 해석, override, pool 재파생, exec pins, 모델/MCP/RAG/session 해석이 한 함수에 직렬 결합되어 있어 순서를 바꾸는 리팩터가 곧 동작 변경입니다.
+.dev/reviews/394-chat-context/codex-consult.md:13:2. [_resolve_mcp_servers](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat_context.py:497)가 C급 중 가장 위험합니다. DB row 조회, pin overlay, auth 복호화, effective version, runtime dict projection, tool filter 정책을 한 함수가 처리합니다. `McpServerProjection.from_row(row, pinned, pins)`와 `resolve_tool_filter(cfg)`로 분리해야 합니다.
+.dev/reviews/394-chat-context/codex-consult.md:15:3. [derive_pipeline_pool](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat_context.py:250)는 순수 파생처럼 보이지만 DB 세션을 열고, node ref 해석과 MCP/Collection catalog scan 후 `cfg`를 mutate합니다. `PipelinePoolDeriver.derive(nodes, catalog)` 순수 함수와 `derive_pipeline_pool(cfg)` 호환 wrapper로 갈라야 합니다.
+.dev/reviews/394-chat-context/codex-consult.md:17:4. [_resolve_model](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat_context.py:413), [_chat_model_cfg](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat_context.py:124), [resolve_agent_mem_cfg](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat_context.py:283)가 같은 model/pin/provider 해석 규칙을 조금씩 다르게 들고 있습니다. `ModelConfigResolver`가 맞지만, “오버라이드 모델 미존재는 400, 저장 모델 미존재는 default fallback” 차이는 반드시 API로 표현해야 합니다.
+.dev/reviews/394-chat-context/codex-consult.md:19:5. [_merge_node_overrides](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat_context.py:196)는 순수 함수라 좋은 편이지만, public test가 [api.chat_context 직접 임포트](/Users/anthony/Repository/github/loveqoo/my-agents/tests/verify_317_code_node.py:91)를 핀합니다. 내부 이동은 가능하되 `_NODE_OVERRIDE_FIELDS`, `_node_patch_fields`, `_merge_node_overrides`는 `chat_context.py`에서 계속 재수출해야 합니다.
+.dev/reviews/394-chat-context/codex-consult.md:22:- `chat_context.py`: `ChatContext`, `_is_remote`, `_load_context` public facade, 기존 테스트/소비자용 재수출 유지. [chat.py 재수출](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat.py:73)도 그대로.
+.dev/reviews/394-chat-context/codex-consult.md:23:- `chat_context_loader.py`: 실제 `_load_context_impl`와 `assemble_chat_context(...)`. 순서가 드러나는 함수형 오케스트레이터.
+.dev/reviews/394-chat-context/codex-consult.md:24:- `chat_context_versions.py`: `_resolve_version_and_prompt`, `_resolve_exec_pins`, `_resolve_prompt_provenance`.
+.dev/reviews/394-chat-context/codex-consult.md:25:- `chat_context_models.py`: `_pinned_model_cfg`, `_chat_model_cfg`, `_resolve_model`, `_resolve_mem_cfg`, `resolve_agent_mem_cfg`, `_resolve_node_models`.
+.dev/reviews/394-chat-context/codex-consult.md:26:- `chat_context_overrides.py`: override allowlist, historyDepth coercion, node override merge, `OverrideResult`.
+.dev/reviews/394-chat-context/codex-consult.md:27:- `chat_context_mcp.py`: MCP row projection, pin overlay, auth handling, tool filter.
+.dev/reviews/394-chat-context/codex-consult.md:28:- `chat_context_rag.py`: RAG collection projection/resolve.
+.dev/reviews/394-chat-context/codex-consult.md:29:- `chat_context_pipeline_pool.py`: pure pool derivation + DB wrapper `derive_pipeline_pool`.
+.dev/reviews/394-chat-context/codex-consult.md:30:- `chat_context_sessions.py`: `_resolve_session`.
+.dev/reviews/394-chat-context/codex-consult.md:32:`ChatContext`는 당분간 `chat_context.py`에 남기는 편이 낫습니다. 소비자가 [chat_graph_build](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat_graph_build.py:17), [chat_approval](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat_approval.py:27), history/persist/trace/A2A 계열에서 직접 가져갑니다. 타입만 다른 파일로 옮겨 재수출하면 가능은 하지만 첫 단계 이득이 작고 표면 회귀만 늘어납니다.
+.dev/reviews/394-chat-context/codex-consult.md:35:- 노드 ref는 override 전에 해석됩니다: [_load_context](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat_context.py:727). 이 순서가 바뀌면 세션 patch가 ref 원본에 먹거나, 미해결 ref 실패 시점이 바뀝니다.
+.dev/reviews/394-chat-context/codex-consult.md:36:- pool 재파생은 override 뒤, model/MCP/RAG 해석 전입니다: [751-766](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat_context.py:751). API 생성/구저장/오버라이드 복구 계약입니다.
+.dev/reviews/394-chat-context/codex-consult.md:37:- `exec_version = pinned_version or agent.active_version` 뒤에 pins를 읽습니다: [753-759](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat_context.py:753). 승인 재개와 trace의 버전 승계에 영향.
+.dev/reviews/394-chat-context/codex-consult.md:38:- session ownership `own`은 타인/NULL/추측 session을 새 session으로 접습니다: [_resolve_session](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat_context.py:610), [chat.py 호출부](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat.py:1001).
+.dev/reviews/394-chat-context/codex-consult.md:40:- 그래프 캐시 지문은 `model_cfg`, `mcp_servers`의 `name/version/auth`, `tool_names`, `tool_policy`, `rag_collections`, `rag_min_scores`, `ephemeral`을 소비합니다: [_graph_fingerprint](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat_graph_build.py:110). projection dict의 필드명/값 의미 변경 금지입니다.
+.dev/reviews/394-chat-context/codex-consult.md:41:- runtime 조립은 `ctx.mcp_servers`, `ctx.tool_names`, `ctx.rag_min_scores`, `ctx.model_cfg`를 직접 씁니다: [_build_turn_runtime](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat.py:264). “동일 데이터, 다른 타입”도 downstream 변환 비용이 생기면 위험합니다.
+.dev/reviews/394-chat-context/codex-consult.md:44:1. 순수 함수/상수 이동: node override 가족을 `chat_context_overrides.py`로 옮기고 `chat_context.py` 재수출 유지. `verify_317_code_node.py`가 즉시 표면을 잡습니다.
+.dev/reviews/394-chat-context/codex-consult.md:46:3. model resolver 이동. 이때 override-missing 400 vs stored default fallback 테스트를 먼저 핀해야 합니다.
+.dev/reviews/394-chat-context/codex-consult.md:49:6. 마지막에 `_load_context`를 `chat_context_loader.py`로 옮기고 `chat_context.py`는 facade가 되게 합니다. 전후 `rg "from .*chat_context import"`와 직접 verify 전판이 필요합니다.
+.dev/learning/092-broken-config-refuse-loud-disclose-narrow.md:8:[[verification-ladder-three-rungs]], [[core-is-model-config-and-memory]](모델/설정은 토대 — 엄격 검증), retrospect 073.
+.dev/retrospect/015-mock-llm-as-registry-model.md:4:스펙: [024](../../docs/spec/024-mock-llm-registry-model.md)
+.dev/retrospect/015-mock-llm-as-registry-model.md:9:`/_remote/agent`(코드 에이전트 SSE 더블)·`/_remote/models`·`/_remote/embeddings`로 산발했고,
+.dev/retrospect/015-mock-llm-as-registry-model.md:20:   전환 → 실제 langgraph `call_model` 노드 통과 확인(latency 22ms, MLX 무관) → qwen3.6-35b 복원.
+.dev/reviews/392-chat-stream/codex-review.md:5:1. `state: dict` out-param은 가장 먼저 제거할 결함입니다. `stream_local_reply()`가 `(context_id, gen, state)`를 반환하고, `_serve_chunks()`가 스트림 소진 후 `state["approval"]` 또는 `state["error"]`를 채웁니다: `chat_stream.py:251-263, 285-290, 293-302, 377-390`. 소비자는 반드시 iterator를 끝까지 돈 뒤 같은 dict를 읽어야 합니다: `a2a_server.py:438-446, 451-489`. 시간 순서가 타입에 표현되지 않아 중간 취소, 조기 반환, 병렬 소비에서 깨지기 쉽습니다.
+.dev/troubleshooting/099-review-prompt.md:6:- AgentBuildContext(주입 단일 출처): 에이전트는 ctx(persona/model_cfg/tools/checkpointer/params)만
+.dev/troubleshooting/099-review-prompt.md:17:5. _model_from_cfg 재사용이 값 바인딩을 우회하거나 비밀을 로깅/노출하는가?
+.dev/retrospect/119-eval-model-matrix.md:5:기존 오버라이드 화이트리스트 경로 재사용({"model": 이름})·EvalRun에 model_name/group_id·
+.dev/retrospect/317-seed-actor.md:6:**갓 만든 DB인데 `providers`/`models`의 `created_by`가 `unknown`**인 걸 발견했다. `unknown`의 뜻은
+.dev/retrospect/317-seed-actor.md:16:처음엔 눈에 보인 providers/models만 고쳤다. 그런데 완료 조건을 "**처녀 DB에 `unknown` 0건**"이라는
+.dev/retrospect/150-remove-collection-visibility.md:25:- **접근 개방은 정적+라이브 둘 다로 검증**: deep-reasoner(관리 게이트 4개 온전·익명 401·잔여 0) +
+.dev/retrospect/150-remove-collection-visibility.md:26:  verify_172(비소유자 사용 200·관리 404·익명 401·publish 제거). 개방 변경일수록 "무엇이 안 열렸나"를 실측.
+.dev/reviews/393-blocks/codex-consult.md:29:트레이드오프: `blocks.py` 파사드는 당분간 F401 재수출이 지저분하지만, `from api import blocks as BL` 테스트들과 `from api.blocks import _tools_meta_from_details`를 즉시 살릴 수 있습니다. 패키지화는 장기적으로 이름 공간이 예쁘지만, 지금은 `api.blocks` 모듈 파일과 패키지명이 충돌해 import 리스크가 큽니다.
+.dev/reviews/393-blocks/codex-consult.md:38:- 블록 버저닝은 `record_block_version` + commit 충돌 409 흐름을 유지해야 합니다. unique race는 [BlockVersion 제약](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/models/blocks.py:42)과 [record_block_version](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/block_versions.py:93)에 걸려 있습니다.
+.dev/retrospect/018-admin-same-origin-api-proxy.md:30:- 검증을 **서버측 `/api` 프록시 curl(200/401)**로 끝냈다 — 무인증 401이 "vite SPA가 아니라 진짜
+.dev/troubleshooting/005-tailscale-expose-dev-servers.md:45:- 소형 401(42B)·인증 200(9KB)·**Vite 모듈 178KB** 모두 serve 경유 정상.
+.dev/retrospect/069-custom-agent-runtime-interface-in-process-sdk.md:25:핵심 패턴 하나로 묶인다: **새 필드(`impl`, `overrides`)를 인터페이스에 더했는데 일부 입구만 그걸
+.dev/retrospect/069-custom-agent-runtime-interface-in-process-sdk.md:28:- **F1 (impl silent drop).** `update_agent`(PUT)가 `body.config.model_dump()`로 draft를 통째 교체 →
+.dev/retrospect/069-custom-agent-runtime-interface-in-process-sdk.md:31:  겹 더 안 봄). 코덱스가 짚었다. 수정: `model_fields_set`에 impl 없으면 편집 베이스의 impl 이어받기 +
+.dev/retrospect/069-custom-agent-runtime-interface-in-process-sdk.md:33:- **F4 (dead overrides 계약).** `AgentBuildContext.overrides`를 설계해놓고 `_load_context`가 ctx에 안
+.dev/retrospect/069-custom-agent-runtime-interface-in-process-sdk.md:34:  실어 항상 None — *설계는 했으나 배선 안 한 죽은 계약*. happy-path는 누구도 overrides를 안 읽으니 초록.
+.dev/retrospect/069-custom-agent-runtime-interface-in-process-sdk.md:35:  수정: ctx["overrides"] 적재 + 3개 build 사이트 배선.
+.dev/retrospect/069-custom-agent-runtime-interface-in-process-sdk.md:43:다루는지 단언**해야 한다. full-replace 직렬화(`model_dump`)는 미전송 필드를 silent drop하고, ctx에 안
+.dev/retrospect/049-local-agent-a2a-exposure.md:37:   401로 깨진다. 그래서 `a2a_server.router`는 **무인증 마운트**(mock_remote와 동일 패턴), 카드는
+.dev/retrospect/049-local-agent-a2a-exposure.md:61:  노출 ON→공개 카드 200(절대 url `/a2a`로 끝·x-my-agents 없음)→무인증 POST→401→connect 실 왕복
+.dev/retrospect/017-external-agent-a2a-card-registration.md:21:  확장 + 외부 채팅 분기 하나로 끝. 외부도 code처럼 `model_cfg=None`/`mem_cfg=None`을 타서
+.dev/reviews/393-blocks/subagent-analysis.md:19:5. `/blocks` 집계는 별도 read-model인데 CRUD 파일 안에 손조립 dict로 있습니다 [blocks.py](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/blocks.py:862). 특히 MCP는 `enabledTools`, `toolsMeta`, `served_url`, `can_manage`처럼 REST DTO와 다른 표면을 만듭니다 [blocks.py](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/blocks.py:928). 리팩터 중 필드명 실수 가능성이 큽니다.
+.dev/retrospect/061-session-storage-composite-index-explain-seal.md:8:  (models.py `__table_args__` + alembic `f2a3b4c5d6e7`). `session_id` 단독 unique는 전역 uniqueness용
+.dev/learning/071-index-itself-bloats-recompress-periodically.md:18:  크기만 회수). 103KB→53KB(48%↓), 평균 585→290자/줄.
+.dev/reviews/397-runtime/codex-consult.md:10:2. [resolve_tool_approval](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/runtime.py:57)는 정책 정본인데 `tools_meta` 기본값, 레거시 `_APPROVAL_ACTIONS`, `tool_policy` override, approver normalize가 한 블록입니다. `_base_approval_from_meta_or_legacy`, `_apply_approval_override`, `_normalize_approval`로 쪼개면 우선순위가 드러납니다. 단 공개 표면은 `runtime.resolve_tool_approval` 그대로.
+.dev/reviews/397-runtime/codex-consult.md:26:- 승인 우선순위: [tools_meta 기본 > legacy fallback > tool_policy override](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/runtime.py:75)를 절대 바꾸면 안 됩니다. 브로커도 [같은 리졸버](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/broker/providers/mcp.py:254)를 씁니다.
+.dev/retrospect/026-rag-ingest.md:8:  교체. embedding_model FK는 RESTRICT(차원 정합 보장), doc/chunk는 CASCADE. HNSW cosine 인덱스(037용).
+.dev/retrospect/094-runtime-tool-wiring-authz.md:20:- **codex가 두 번째 confused deputy를 잡음**: 작성자 권한 게이트를 override 주입이 우회(P0) — 호출자가
+.dev/retrospect/094-runtime-tool-wiring-authz.md:21:  `overrides.mcps`로 남의 MCP를 작성자 권한에 태움. "저장본=작성자·주입분=호출자"로 분리 봉합(113 ②).
+.dev/retrospect/094-runtime-tool-wiring-authz.md:22:  자가검증이면 절대 못 봤을 반례(override 경로를 인가와 별개로 생각했음).
+.dev/retrospect/094-runtime-tool-wiring-authz.md:25:  무회귀·per-cap 레버·published·override 주입 차단·non-UUID 특권 오판 차단) + codex 적대. 110/112/100 무회귀.
+.dev/retrospect/094-runtime-tool-wiring-authz.md:30:  요청 주입분(override)은 호출자.
+.dev/retrospect/094-runtime-tool-wiring-authz.md:33:- override 화이트리스트는 mcps는 포함/vectorTables는 불포함 → 주입 표면이 mcps에 한정(vt는 무영향).
+.dev/retrospect/272-get-or-404-helper.md:5:`db.get_or_404(session, model, ident, detail="not found")` 헬퍼로 정본화. PEP 695 제네릭
+.dev/retrospect/272-get-or-404-helper.md:7:**37곳** 변환(blocks 13·providers 5·model_registry 4·rag 2·user_admin 3·eval_* 8·agents 1·chat_context 1).
+.dev/retrospect/272-get-or-404-helper.md:29:  `HTTPException` import가 F401. ruff가 잡아 정리 — dedup 후 import 정합은 게이트가 마감.
+.dev/reviews/374-backend-refactor/codex-D.md:6:[packages/api/src/api/rag.py:180] (P1) 임베딩 모델 kind/probe/dims 검증이 생성(`create_collection`)과 재인덱싱 모델 해석(`_resolve_reindex_model`)에 복제됨 → `validate_embedding_model_for_collection()` 단일 서비스로 합쳐 drift 차단.
+.dev/reviews/374-backend-refactor/codex-D.md:7:[packages/api/src/api/rag.py:367] (P2) `_embed_with_model`과 `_embed_chunks`가 provider 복호화·embed_texts 호출·차원 검사를 별도 구현함 → 모델 명시/컬렉션 기반 입력만 다른 공통 `EmbeddingClient.embed_checked()`로 수렴.
+.dev/reviews/374-backend-refactor/codex-D.md:18:[packages/agent/src/agent/flows/pipeline.py:290] (P2) 도구 해석이 런타임 이름 규칙 `서버__도구`와 suffix fallback을 flow 내부가 직접 앎 → 도구 네이밍/모호성 정책을 toolbox 쪽 resolver로 옮겨 flow는 추상 이름 매칭만 사용.
+.dev/reviews/374-backend-refactor/codex-D.md:22:[packages/agent/src/agent/flows/pipeline.py:398] (P2) `_step`이 reentry 판정, tool cap, system prompt 합성, recall, clean 모드 message removal, history injection, 모델 호출을 한 번에 수행함 → `build_prompt_context()`와 `invoke_node_model()`을 분리.
+.dev/retrospect/157-permission-cleanup-and-capability-grant-p3.md:51:잠복: 커스텀 impl(신뢰 레지스트리)이 `overrides.toolPolicy` 직접 주입 시 우회 가능하나 위협모델 밖.
+.dev/retrospect/249-model-prompt-shared-fields.md:13:주석("등록된 chat 모델로 옵션 구성")과 달리 `models.map` 무필터 — 임베딩 모델이 노출되고, 저장은
+.dev/retrospect/256-storage-items-list.md:18:측정: 비영속이 승인 필요 도구를 부르면 실행 거부(fail-closed, chat.py:1290 — 승인 대기=DB 필요).
+.dev/reviews/374-backend-refactor/codex-A.md:19:## packages/api/src/api/chat_context.py
+.dev/reviews/374-backend-refactor/codex-A.md:20:[chat_context.py:38] (P2) 모델 pin 해석, provider 복호화, 기본 모델 fallback이 `_pinned_model_cfg`, `_chat_model_cfg`, `_resolve_model`, `resolve_agent_mem_cfg`에 흩어짐 → `ModelConfigResolver`로 chat/model/pin/mem 설정 해석을 집중
+.dev/reviews/374-backend-refactor/codex-A.md:21:[chat_context.py:189] (P2) `derive_pipeline_pool`이 노드 ref 해석, MCP 서버 스캔, 컬렉션 스캔, memories/capabilities denormalization까지 수행 → 순수 `PipelinePoolDeriver`와 DB-backed catalog loader를 분리
+.dev/reviews/374-backend-refactor/codex-A.md:22:[chat_context.py:302] (P2) `_apply_overrides`가 화이트리스트 병합, historyDepth coercion, systemPrompt 적용, node override merge, passthrough 정책을 한 함수에서 처리 → override key별 작은 reducer와 결과 상태 객체로 분리
+.dev/reviews/374-backend-refactor/codex-A.md:23:[chat_context.py:436] (P2) `_resolve_mcp_servers`가 DB row 조회, pin overlay, token 복호화, version 계산, tool filter 정책까지 묶음 → `McpServerProjection` 생성과 tool-filter 정책 결정을 별도 함수로 분리
+.dev/reviews/374-backend-refactor/codex-A.md:24:[chat_context.py:594] (P2) `_load_context` 136행이 agent/version/prompt/override/pool/model/node/mem/MCP/RAG/session을 순차 조립하는 거대 조립점임 → `ChatContextBuilder` 단계 메서드로 쪼개고 ctx dict 대신 typed context DTO를 반환
+.dev/reviews/374-backend-refactor/codex-A.md:25:[chat_context.py:41] (P3) `.block_versions`, `Prompt`, `AgentVersion`, `agent.nodes` 지연 import가 여러 리졸버 내부에 흩어져 의존 그래프가 코드 검색만으로 잘 안 보임 → 순환 회피가 필요한 import만 남기고 나머지는 모듈 상단 또는 resolver 클래스로 모으기
+.dev/reviews/374-backend-refactor/codex-A.md:29:2. `chat_context.py:594` `_load_context`를 typed builder로 재구성 — ctx dict 키 계약이 3개 파일을 관통해 드리프트와 테스트 누락 위험이 큼
+.dev/retrospect/156-tool-approval-override-p2.md:22:  저장 땐 안 걸렸던 override가 런타임에 승인을 끈다(TOCTOU 우회). 해결 = **값 기반**: override가 완화 의도
+.dev/retrospect/156-tool-approval-override-p2.md:49:잠복: 커스텀 impl(신뢰 레지스트리)이 `overrides.toolPolicy`를 직접 build_mcp_tools에 넘기면 우회 가능하나
+.dev/learning/381-package-split-preserves-importers.md:5:캠페인 374 Tier 2에서 god-file 3개를 쪼갬 — schemas.py(1054줄·76클래스, 스펙 378)·models.py(765줄·
+.dev/learning/381-package-split-preserves-importers.md:11:  새 모듈에 그대로 쓴다. 헤더는 넉넉히 얹고 `ruff check --fix --select F401`로 미사용 import를 자동
+.dev/reviews/374-backend-refactor/codex-B.md:10:## packages/api/src/api/models.py
+.dev/reviews/374-backend-refactor/codex-B.md:11:[models.py:34] (P2) `RAG_EMBED_DIMS`가 모델 import 시점에 환경변수를 읽어 SQLAlchemy metadata 구성과 런타임 설정을 결합함 → 설정 모듈에서 명시적으로 산출한 값을 모델 factory/metadata 구성 단계에 주입하기  
+.dev/reviews/374-backend-refactor/codex-B.md:12:[models.py:45] (P2) 한 파일에 블록, RAG, provider/model, MCP, agent, session, approval, auth, batch, SSRF, eval 테이블이 모두 공존해 bounded context 경계가 없음 → `models/blocks.py`, `models/rag.py`, `models/agents.py`, `models/auth.py`, `models/eval.py`로 쪼개되 같은 `Base`만 공유하기  
+.dev/reviews/374-backend-refactor/codex-B.md:13:[models.py:279] (P2) `McpServer.tools/enabled_tools/tools_meta`가 raw JSONB list/dict로 저장되어 승인 정책·도구 메타 구조를 DB 모델이 보장하지 못함 → 최소한 typed value object 검증 계층 또는 별도 `mcp_tools` 테이블로 구조 경계를 세우기  
+.dev/reviews/374-backend-refactor/codex-B.md:14:[models.py:338] (P2) `Agent.config`와 `AgentVersion.config`가 raw JSONB dict라 스키마의 `AgentConfig` 규칙과 저장 진실원이 분리됨 → config normalization을 persistence 전용 함수로 단일화하고 모델 주변 저장 경로가 반드시 통과하게 만들기  
+.dev/reviews/374-backend-refactor/codex-B.md:15:[models.py:510] (P2) fastapi-users 테이블 import와 `User/AccessToken/Role`이 도메인 모델 파일 중간에 섞여 auth 인프라가 전체 도메인 metadata 모듈에 결합됨 → auth 모델 모듈로 분리하고 루트 metadata import에서 조립하기  
+.dev/reviews/374-backend-refactor/codex-B.md:18:[schemas.py:39] (P2) 한 스키마 파일에 블록/RAG/MCP/provider/model/agent/session/chat/auth/admin DTO가 모두 들어 있어 API 계약 변경의 blast radius가 과도함 → 라우터 또는 bounded context별 `schemas/*.py`로 분리하고 공통 `AuditOut`만 공유하기  
+.dev/reviews/374-backend-refactor/codex-B.md:21:[schemas.py:619] (P2) `artifactSpec`와 `nodes` 검증이 API DTO 내부에서 dict 조작과 의미 일부 정규화를 수행해 런타임 normalize와 책임이 겹침 → Pydantic nested model 또는 별도 config normalizer로 옮겨 API/seed/runtime이 같은 함수를 쓰게 하기  
+.dev/retrospect/114-override-in-trace.md:6:구멍 = 한 세션에 설정 다른 턴이 섞이는데 턴별 기록이 없음. 처방 = trace["overrides"](허용 키만·
+.dev/retrospect/114-override-in-trace.md:18:- 재개(승인 재개) 턴은 overrides 미보존이 기존 동작 — 경계만 명시(OUT). 재개 시 오버라이드 재적용
+.dev/retrospect/152-provider-models-into-admin-group.md:13:  목록은 `GET /models`(로그인만)로 읽고 변이만 `_manage`. 읽기/쓰기 게이트가 분리돼 있어 "관리 UI는
+.dev/retrospect/238-node-form-ux-review.md:10:결정 #2로 노드형에서 모델/페르소나 **입력 그리드**를 숨겼지만, `form.model`/`form.persona`엔
+.dev/retrospect/022-multi-user-auth-fastapi-users-casbin.md:11:- **PyCasbin + async SQLAlchemy adapter**: 오픈형 RBAC. 정책을 `rbac_model.conf`로 코드에서 분리 —
+.dev/retrospect/022-multi-user-auth-fastapi-users-casbin.md:14:- Admin SPA: AuthGate(부팅 시 `/users/me` → 미인증이면 로그인 화면, 전역 401도 여기로) +
+.dev/retrospect/022-multi-user-auth-fastapi-users-casbin.md:26:- **수치/상태로 끊어 검증**: curl 라운드트립(204/200/403/401 + Argon2 `$argon2id$` 접두 + 평문 누출 0)을
+.dev/retrospect/022-multi-user-auth-fastapi-users-casbin.md:34:- **머신 토큰 빈값 단락의 함정.** 첫 머신토큰 테스트가 401이라 "하위호환 깨졌나?" 했는데, 실제론
+.dev/retrospect/022-multi-user-auth-fastapi-users-casbin.md:37:- **콘솔 404를 버그로 오해할 뻔.** 브라우저 콘솔 404는 `/favicon.ico`(브라우저 자동요청), 401 두 개는
+.dev/retrospect/128-default-model-switch.md:5:mock 임베딩은 컬렉션 RESTRICT로 삭제 불가 → 사실상 잠김). PUT /models/{id}/default 전용 라우트 +
+.dev/retrospect/128-default-model-switch.md:19:  PUT /models로도 is_default를 바꿀 수 있다"는 것. 게이트는 **표면(라우트)이 아니라 능력(기본
+.dev/retrospect/128-default-model-switch.md:20:  변경)** 단위로 — models/providers 변이 전체에 관리 게이트(installed-guard≠covering-guard의
+.dev/retrospect/267-naming-conventions.md:28:  `response_model=None` 없이는 부팅 크래시 — C기가 발견·봉합하고 배정 밖(a2a_server)을 전달,
+.dev/retrospect/267-naming-conventions.md:36:- **반환 타입 유니언 주석은 FastAPI에선 코드 동작을 바꿀 수 있다**(response_model 생성 시도) —
+.dev/retrospect/270-agent-flow-dedup.md:7:  main·artifact·pipeline(변형 3) = **6곳** 복제 → `agent/model.py`의 `build_chat_openai`로 단일화.
+.dev/retrospect/270-agent-flow-dedup.md:14:수치: model.py 외 `ChatOpenAI(` 0·로컬 def(`_model_from_cfg`/`_make_model`/`_last_user_text`) 0·
+.dev/retrospect/270-agent-flow-dedup.md:20:  패턴을 "조립 누출"로 **좁게** 정의한 결과였다. 사용자가 직접 agent 코드서 `_model_from_cfg` 복붙을
+.dev/retrospect/270-agent-flow-dedup.md:27:  4개 pipeline 테스트(260·261·268·270)가 `_model_from_node`를 몽키패치. 전자는 정본(`model.ChatOpenAI`)
+.dev/retrospect/270-agent-flow-dedup.md:28:  으로 패치점 이동(오히려 단일 시임으로 개선), 후자는 **`_model_from_node`를 얇은 어댑터로 존치** —
+.dev/retrospect/270-agent-flow-dedup.md:43:- **정본화는 패치점도 하나로 만든다.** 흩어진 `ChatOpenAI` 구성을 `model.py`로 모으니 테스트가
+.dev/retrospect/270-agent-flow-dedup.md:44:  6곳 대신 `model.ChatOpenAI` 한 곳만 스텁하면 된다(부수 이득: 시임 단일화).
+.dev/retrospect/165-useasyncdata-hook.md:21:브라우저 검증서 "콘솔 에러 0" 단언이 실패했으나, 정체는 배경 401·antd6 Alert deprecated 경고—훅과
+.dev/retrospect/165-useasyncdata-hook.md:23:에러 토스트 0 = 200 성공이므로 401은 다른 배경 호출임을 논리로 확정. 코드가 아니라 **하네스 필터를
+.dev/retrospect/082-capability-broker-mcp-provider.md:35:`AgentConfig`(schemas.py) Pydantic 모델에 **`capabilities` 필드가 없어** `body.config.model_dump()`가
+.dev/retrospect/137-mem0-embed-dims-forced-param.md:25:  구분하는데 probe 캐시가 (base_url,model_id)만 쓰면 키별 라우팅 모델이 차원 오염 → 캐시 키는 상위
+.dev/retrospect/127-entity-rag.md:26:  `model_fields_set`으로 "미포함=미변경 / 명시적 null=제거"를 구분 — **선택 필드의 3상태(유지/
+.dev/retrospect/025-provider-entity.md:20:전수 grep**했고 두 번째 모델로딩 경로(`_build_mem_cfg`/`_default_chat_model`/`resolve_agent_mem_cfg`,
+.dev/retrospect/025-provider-entity.md:32:한 체크리스트로 묶는다. 직렬화 함수(`model_to_out`)에 "이 관계는 eager-load 전제" 주석을 남긴다.
+.dev/retrospect/007-service-hardening-models-remote-env.md:5:지배 스펙: [007](../../docs/spec/007-real-agent-service.md), [008](../../docs/spec/008-model-registry.md), [009](../../docs/spec/009-code-agent-remote-exec.md)
+.dev/retrospect/008-mobile-responsive-admin.md:6:이전 회고: [007-service-hardening-models-remote-env](./007-service-hardening-models-remote-env.md)
+.dev/retrospect/048-mlx-decouple-mock-default.md:14:- **D4 agent 패키지**: `MLX_*` env → 벤더무관 `MODEL_*`, `local-mlx` 기본 → `mock-llm`(models.py·schemas.py).
+.dev/retrospect/048-mlx-decouple-mock-default.md:30:**같은 관측 상태**(provider 이름/kind, is_default, model_id)로 수렴하도록 둘 다 작성.
+.dev/retrospect/048-mlx-decouple-mock-default.md:52:  - 두 경로가 **완전히 동일**한 상태로 수렴 — providers([Mock LLM/mock]), models(mock-llm/mock-chat
+.dev/retrospect/036-provider-model-merge-models-dev.md:1:# 036 — 프로바이더·모델 통합 + models.dev 카탈로그 회고
+.dev/retrospect/036-provider-model-merge-models-dev.md:3:스펙: `docs/spec/047-provider-model-merge-models-dev.md`
+.dev/retrospect/036-provider-model-merge-models-dev.md:4:마스터: `044`(2026-06-28 어드민 테스트 14건) 배치3 — #6(kind/description 라벨)·#7(models.dev 카탈로그)·#8(프로바이더·모델 메뉴 통합).
+.dev/retrospect/036-provider-model-merge-models-dev.md:8:  좌측 프로바이더(kind 배지·설명·모델 수), 우측 디테일에서 `[GET /models]`로 실모델 나열·토글 등록.
+.dev/retrospect/036-provider-model-merge-models-dev.md:9:- **#7 카탈로그**: models.dev 스냅샷(`data/models_dev.json`, 2656 엔트리)을 `catalog.py`로 박제,
+.dev/retrospect/036-provider-model-merge-models-dev.md:12:- 신규 엔드포인트 `GET /providers/{id}/available-models` — 실모델 + registered 플래그 + 카탈로그 메타.
+.dev/retrospect/036-provider-model-merge-models-dev.md:27:2. **삭제 가드가 버전 스냅샷을 안 봤다(MINOR).** 가드가 `Agent.model`/`config.model`(live)만 검사해,
+.dev/retrospect/036-provider-model-merge-models-dev.md:28:   아카이브된 `AgentVersion.config["model"]`이 참조하는 모델을 지운 뒤 그 버전으로 롤백하면 런타임이
+.dev/backlog.md:16:- ✅**http verify 17건 triage = 스펙 384 완료**(2026-07-16). test-all이 17건 "새 회귀" 보고 → triage(각 단독 실행+baseline 워크트리 대조)로 **전부 테스트 쪽·앱 결함 0 확정**(공유 라이브 DB 얽힘·스키마 진화 뒤처진 기대치·fragile 코드). verify_093 "잠재 실버그"도 delete_model 가드가 이미 컬렉션 참조 409로 덮음(테스트 route 우회 raw 삭제). 조치: 순수 드리프트 047(제거된 status 인자) 수정→그물 복귀·16건 KNOWN_DRIFT 격리. test-all SUITE_OK. 회고 386. **근본 미해결→아래 "verify 스위트 격리"로 승계**: 격리 16/17이 전부 공유 DB 원인이라 격리 하네스(fresh-DB-per-run) 없이는 재오염(개별 전제 수정=두더지잡기). 034 배지 델타·084 mem0 hit shape는 하네스 위 재검.
+.dev/backlog.md:38:  - **P1 배포 차단(3)**: ①**비밀키 파드별 발산**(`crypto.py _fernet`·`auth.py`: `APP_SECRET_KEY`/`API_AUTH_TOKEN` env 없으면 파드 로컬 파일에 각자 키 생성 → 파드 A가 공유 DB에 암호화한 provider키·에이전트토큰을 파드 B가 복호화 실패 500·머신토큰도 A인증→B 401) = **k8s Secret 전 파드 동일 주입**(최우선, 주입 시 폴백경로 소멸) ②**마이그레이션이 앱 lifespan**(`main.py`→`db.py init_db` alembic upgrade head) = 동시 부팅 경합 → **initContainer/Job 단일 러너로 분리**(seed·스윕도 이관) ③**부팅 좀비 스윕이 타 레플리카 실행 죽임**(`eval_runs.py sweep_zombie_runs`/`sweep_zombie_datasets`·`db.py _recover_stale_reindex` — "부팅=이전 프로세스 죽음" 단일 전제, 레플리카 B 부팅이 A의 running eval/재인덱싱 error 박제) = **heartbeat/lease 기반 회수 또는 Job 이관**(스펙 312 OUT 빚).
+.dev/backlog.md:45:- ✅**plan-execute-demo 멈춤/이상답=스펙 315 완료**(2026-07-13, 회고 290) — "스트리밍 UI 최신 동향 검색"이 오래 멈추고 이상한 답. 실측=실행 노드가 wiki 도구를 14회 반복(수렴 실패)하다 모델 서버 연결 끊김. 실행 노드 ReAct 루프에 상한(6) 도달 시 도구 언바인드+넛지로 강제 수렴→180초+/끊김→27초 정상. 사용자가 이 멈춤에 "314 미완"으로 오인(별개 원인—세션메모리라 314 경로 안 탐). codex P1(느슨한 provider 방어) 수정. **OUT**: recursion_limit 백스톱·모델 끊김 재시도·병렬 tool_calls 실행총량 캡.
+.dev/backlog.md:184:  UI 적용 상태, 세션 무관) → 턴별 trace.overrides+인스펙터 섹션+과거 세션 토스트. codex 2건(적용 가드
+.dev/backlog.md:287:  override 주입 confused-deputy(P0)→저장본=작성자·주입분=호출자 분리, non-UUID owner casbin 충돌(P2)→
+.dev/backlog.md:351:  [P2]override홀→@final, [P2]select계약→chosen⊆candidates 교집합, [설계한계]라벨스푸핑→명시, ABC=오탐.
+.dev/backlog.md:358:- ✅**프로바이더 테스트 "모델 미발견"=스펙 164 완료**(2026-07-04, 회고 142, 실사용 버그) — 프로바이더 레벨 테스트가 빈 model_id로 _probe 호출→무조건 "미발견". 수정=빈 model_id면 목록 개수로 판정("모델 N개 발견"). 프론트 무변경. **후속 씨앗(OUT)**: 발견 모델 목록 응답 포함·embedding 프로바이더 테스트.
+.dev/backlog.md:362:- ✅**축2 다디바이스 UI 오버플로 감사=스펙 165 완료**(회고 143) — `tests/browser/ui-audit.mjs` 하네스(전수 순회+수치판정+스크린샷). 원리=도구가 좁히고 육안이 확정. 파일럿으로 batch 버튼잘림 1건 발견·수정. ✅축1(사용 시나리오 감사)=스펙 166 완료(회고 144, J1·J2 7단계 ok·막힘0, 핵심경로 건전·초안 대화 잘 처리). ✅축3(문구·평이함 감사)=스펙 167 완료(회고 145, 내부 산출물 누출 12건 수정). **3축 파일럿 완료.** ✅드로어/모달 오버플로=스펙168·✅감사 커맨드화+스킬=스펙169(`/ui-audit`·audit-all.mjs, 회고147) 완료. **검증 아크(165~169) 마감.** **다음 후보**: 자율 감사 cron 실제 등록, 카피 축 기계화(LLM judge), 감사 커버리지 확장(세로잘림·중첩드로어), 또는 새 기능 방향(C시리즈 buddy agent·피드백 수확). ✅**RAG 공개/비공개 제거=스펙 172 완료**(회고 150·163 되돌림): 사용자 교정—public/private·공개/비공개 개념 RAG서 전면 제거, 사용=전부 공용(익명 401)·관리 소유자만. 별명 편집(실제 의도)=스펙 173 완료(회고 151, 편집 드로어 노출). ✅**메뉴 감사=스펙 174 완료**(회고 152): 관리자 그룹 5개 서버 강제 확인·프로바이더·모델(상단이나 변이 관리전용)을 관리자 그룹으로 이동. RAG 임베딩 UX=스펙 175 완료(회고 153). RAG 별명 편집 발견성=스펙 176 완료(회고 154, 행 편집 연필 버튼+전용 모달, 문서 드로어 설정패널 제거). ✅**승인 재개 impl-drift 가드=스펙 171 완료**(회고 149): deep-reasoner 적대 검토로 승인 로직 점검→유일 Low(stale 주석·impl 교체 재개)를 명시 가드로 닫음. 잔여(pre-migration pending 행·완전 런타임키 스냅샷)는 문서화. ✅**평가 도구 정직성=스펙 170 완료**(회고 148): 평가 통과≠도구 호출을 성적표 배지+출제 안내로 표면화. 후속: 메모리 vs 히스토리 의문①=**조사 완료**(learning 143)—mock이 추출 무너뜨려 안 보임(실 모델서 demo-mem-vs-history.mjs로 크로스세션 1 mem 실증 가능)·info-circle 아이콘 잔존 버그(AgentsView:1950, 맵키 info). ✅**드로어·모달 오버플로 감사=스펙 168 완료**(회고 146, 14/14·FAIL0 오버레이 반응형 건전, learning142 부산물). 후속 씨앗: 모바일서 현재 메뉴 재탭 시 사이더 백드롭 안 닫힘(controlled Menu onSelect 같은key 재발화 안 함, 실동작 경계). **축3 후속(백로그)**: mem0 라이브러리명 노출(백엔드 시드 memory type 이름)·`차원` 글로스·배치/프로바이더 admin jargon(SQL LIKE·grant·keep-list)·영어 enum 태그(kind·transport)·용어 사전 상시화.
+.dev/backlog.md:394:- ✅**스펙 300 = llm_cfg 빌더 정본화 완료**(2026-07-11, 회고 275). census 후보 C. `{base_url, api_key: crypto.decrypt, model_id}` 조립을 `mem_config.model_usable`(TypeGuard)+`llm_cfg_of` 원자로 **8곳** 단일화(census-lens=서브에이전트 eval 3곳→전역 grep 8곳 핫패스 포함, 사용자 AskUser 전체원자). dedup vs mypy narrowing=TypeGuard(TypeIs 불건전)·비밀 홈=serializers 회피·술어는 메시지 같을 때만. metrics-fast0·스위트51/51·codex.
+.dev/backlog.md:410:- ✅**백엔드 리팩토링 캠페인 Tier 1+2 완주**(스펙 374, 2026-07-16) — codex 4그룹 비판리뷰(활성버그0·전부 구조/드리프트) 위 위험오름차순 3-tier. **Tier1 DRY단일화**: 375 MCP캡·376 RAG임베딩검증·377 eval admission. **Tier2 파일분할·계약변경**: 378 schemas→9모듈·379 models→11모듈·380 runtime→rag_runtime·381 rag.py→`rag/`패키지(4도메인+shared)·382 chat_context ctx dict→ChatContext DTO(핫경로 7파일 ~211사이트, mypy가 완전성 그물). 전부 동작불변(SUITE_OK·e2e39·mypy 베이스라인외0·수치보존) per-spec 커밋·**미푸시**. 부산물: verify_049 격리해제(스펙291 _create_approval 드리프트 봉합). 기법=learning 381(verbatim슬라이스+__init__재수출+지연import)·382(mypy 소스그물·tests는 밖·required-not-optional·단일생성). **남음=Tier3**(god-function 수술): chat.py→ChatTurnService·eval_runs app service·jobs.py 파괴잡 plan/execute·pipeline build_graph — 파괴/핫경로라 **출하 전 codex 적대 리뷰 필수**, 별도 착수.
+.dev/retrospect/158-member-self-serve-eval-and-codex-hardening.md:41:work=`cases × models`로 셌는데, 케이스당 `llm_judge` 최대 5개가 실 LLM 호출을 배증한다 → 상한 60이
+.dev/retrospect/158-member-self-serve-eval-and-codex-hardening.md:42:실제 최대 360 호출을 허용. **work=`models × (cases + llm_judge 기준 수)`**로 정직화(harness와 동일 카운트).
+.dev/retrospect/031-hil-approval-gating.md:31:  머신→401). 불변식 자가테스트는 "인가"를 아예 검사하지 않았다(상상 밖 범주, learning 038 재현).
+.dev/retrospect/031-hil-approval-gating.md:44:- **쿠키 Secure:** RBAC probe가 admin 로그인 204 후 후속 401. 원인 = CookieTransport 기본 `cookie_secure=true`라
+.dev/retrospect/055-session-per-user-scoping.md:15:실측(무인증 `GET /agents`→401, 50/50 매트릭스 `verify_rbac_audit.py`)으로 교정 — **"내 측정이
+.dev/retrospect/055-session-per-user-scoping.md:20:1. **단일 워크스페이스 모델(011)이 자원 성격을 가른다.** 카탈로그(agents/blocks/models/collections)는
+.dev/retrospect/236-codex-node-pipeline-review.md:24:`dict[str, Any]`가 임의 키를 저장·에코해서, 직접 API 호출자가 `nodes[].model_cfg.api_key`를 심으면
+.dev/retrospect/236-codex-node-pipeline-review.md:26:저장·반사"라 위험. 처방: **키 화이트리스트**로 알려진 필드만 저장(model_cfg 등 드롭). 자유 형태
+.dev/retrospect/236-codex-node-pipeline-review.md:36:시크릿 미유출(model_cfg는 ctx에만·AgentOut.nodes는 저장 config만)·권한상승 불가(node 도구는
+.dev/retrospect/145-copy-clarity-audit.md:9:레지스트리`, 버튼 라벨 `GET /models`(HTTP 메서드!), `2차 스펙`(로드맵 용어), `(kind=embedding)`(코드
+.dev/retrospect/145-copy-clarity-audit.md:28:tsc 0. 회귀 grep: 누출 용어(스펙089·GET/models·2차스펙·kind=embedding·ready·Fernet·소비·매달린·윈도우
+.dev/learning/119-eval-harness-cardinal-sin-is-silent-green.md:12:- **숨은 실행 실패 → error로 표면화**: 러너(run_fn)가 HTTP 401/500·비-SSE를 status 확인 없이
+.dev/retrospect/213-ephemeral-no-persist-hidden-write-paths.md:38:`ephemeral`이 저장 안 돼 첫 테스트가 FAIL — Pydantic `model_dump`가 스키마에 없는 키를 조용히 드롭.
+.dev/retrospect/213-ephemeral-no-persist-hidden-write-paths.md:39:schemas.py의 persistHistory 옆 주석이 바로 이 함정("model_dump 드롭·seed-bypasses-write-schema")을 경고
+.dev/retrospect/042-user-memory-identity-scoped-enrichment-endpoint.md:28:반환 안 함 → response_model(`MemoryUserOut`)로 누출-안전을 *구조적*으로 강제
+.dev/retrospect/042-user-memory-identity-scoped-enrichment-endpoint.md:39:  제거(filterOption 함수 있으면 antd가 무시), (2) `response_model` 추가로 누출-안전
+.dev/retrospect/016-playground-proxy-config-override.md:3:스펙: [025](../../docs/spec/025-playground-proxy-config-override.md)
+.dev/retrospect/016-playground-proxy-config-override.md:10:덮어써(model·temperature·systemPrompt·mcps·memories·historyDepth) 테스트할 수 있고, 코드 에이전트는
+.dev/retrospect/016-playground-proxy-config-override.md:16:- **무회귀가 구조적으로 보장됐다.** `if overrides and agent.source != "code"` 한 줄이 게이트라,
+.dev/retrospect/016-playground-proxy-config-override.md:21:  여전히 `cfg["model"]` 이름으로 레지스트리에서만 해석. 특수분기 0개([026] 결과를 그대로 계승).
+.dev/retrospect/016-playground-proxy-config-override.md:22:- **프런트 diff-payload.** `overridePayload`가 "변경된 키만" 보내, 손 안 댄 필드는 저장값 그대로.
+.dev/retrospect/016-playground-proxy-config-override.md:27:빈 systemPrompt가 persona를 지우는 걸 **프런트 `overridePayload`에서만** 막았다(비어있지 않고 달라진
+.dev/retrospect/016-playground-proxy-config-override.md:29:클라이언트를 신뢰**한다. `_load_context`는 `"systemPrompt" in overrides`만 보고 빈 문자열도 그대로
+.dev/retrospect/075-playground-hide-raw-tool-response.md:37:근거를 직감이 아니라 측정으로: 표준 ReAct `messages` 스트림은 model 노드 AIMessage·tools 노드 ToolMessage
+.dev/retrospect/149-approval-impl-drift-guard.md:40:- 완전한 런타임 키 스냅샷(model/tools/persona까지) — impl 위상만 이번 범위. pre-migration pending 행의
+.dev/retrospect/060-rag-retrieval-test-shared-core.md:31:  - #2 컬렉션 참조 모델이 나중에 chat kind로 바뀌면(PUT update_model 허용) 완전성 검사가 base_url/model_id만
+.dev/retrospect/287-collection-reindex.md:9:  /collections/{id}/reindex {embedding_model_id?, chunk_size?, chunk_overlap?}`(모델만=재임베딩 /
+.dev/retrospect/138-mem0-embed-query-passage-prefix.md:31:[embed-prefix,asymmetric-model,measure-before-assume,non-destructive-via-measurement,transform-input-not-stored-data,capture-at-wrap-not-call-time,configurable-default-noop]
+.dev/retrospect/322-chat-context-restructure.md:1:# 322 — 스펙 394 회고: chat_context 해체 — 3회전에서 얻은 것
+.dev/retrospect/322-chat-context-restructure.md:5:392·393과 같은 루프의 3회전. chat_context.py(812줄·MI 23.85·C급 5)를 타입 허브+9형제 모듈로
+.dev/retrospect/322-chat-context-restructure.md:21:   chat_context_types). "파사드가 로더를 재수출하고 로더가 타입을 쓴다"는 구조에선 타입 하강이
+.dev/retrospect/328-verify-rehab-campaign.md:53:- **스펙 290 오버라이드 거절 게이트의 None==None 오폭**(chat_context_models._resolve_model):
+.dev/retrospect/328-verify-rehab-campaign.md:54:  모델 미지정 에이전트 + model 키 없는 오버라이드 dict 조합에서 `overrides.get("model") ==
+.dev/retrospect/328-verify-rehab-campaign.md:55:  model_name`이 None==None으로 참 → "오버라이드 모델 'None' 미등록" 400. 의도는 명시 오버라이드
+.dev/retrospect/328-verify-rehab-campaign.md:56:  이름의 시끄러운 거절. 처방 후보: `"model" in overrides and overrides["model"] is not None` 게이트.
+.dev/retrospect/027-rag-retrieval.md:8:- **`runtime.build_rag_tool`**: async `StructuredTool`. `(base_url, model_id)`별 질의 임베딩 캐시(같은
+.dev/retrospect/027-rag-retrieval.md:13:  embedding_model→provider, 키 복호화) → 검색 dict. code/external은 비로컬이라 게이트. `chat()`에서
+.dev/retrospect/176-nocode-artifact-builder.md:32:셋 다 추가해야 했다. 하나만 빠져도 model_dump가 조용히 드롭해 폼 재로드 시 명세 소실(learning 101
+.dev/retrospect/178-inspector-node-timeline.md:16:그래프가 `retrieve_memory→tools→model` **선형**이라 이벤트를 **타입으로** 노드에 귀속할 수 있었다(회상
+.dev/retrospect/178-inspector-node-timeline.md:32:`call_model` 노드에 라벨을 매핑했는데, 실제 LangGraph 노드는 `model`이었다(+`agent`도 가능). e2e는
+.dev/retrospect/178-inspector-node-timeline.md:33:초록이었지만(내용 텍스트는 맞음) **스크린샷에 raw "model"이 라벨 없이** 떠서 알았다. 스펙 설계 문구
+.dev/retrospect/178-inspector-node-timeline.md:34:("call_model")를 코드 상수로 그대로 믿은 것. **교훈: 노드명·enum 같은 "실행이 정하는 값"은 설계 문서가
+.dev/retrospect/319-resource-audit-campaign.md:35:6. **닫힌 집합은 우리 코드 밖에서 샌다.** 대장이 `models.py`만 대조하니 라이브러리(mem0·langgraph)가
+.dev/retrospect/218-eval-version-attribution.md:14:필드(embedding_model_name)를 ORM 속성으로 착각=수집 실패 축(Out 스키마 필드≠ORM 컬럼 — 파생은
+.dev/retrospect/279-test-debris-sweep.md:43:  실패", FK ondelete을 models.py와 대조 확증, `approval-demo` 오매칭 운영 위험만 지적(즉시 조임).
+.dev/retrospect/248-override-shared-memory.md:25:246 ④의 세 번째 반복: 273이 피커에서 '기억' 그룹을 빼자 shot-override-109의 "피커=도구·기억" 단언이
+.dev/retrospect/248-override-shared-memory.md:33:body를 캡처해 `overrides={"memories":[...],"historyDepth":0}` 배선을 단언 — 모델 응답 품질과 무관하게
+.dev/retrospect/091-e2e-orchestration-smoke.md:22:- **`dependency_overrides(current_principal)`로 슈퍼유저 경로를 결정적 재현**: 실 쿠키 없이 채팅
+.dev/retrospect/091-e2e-orchestration-smoke.md:34:  열고 이름 클릭(override 109 함정 재확인).
+.dev/retrospect/251-direct-agent-tool-level-wiring.md:34:codex High(overrides.tools=[]로 저장 필터 제거)는 실재하나, **오버라이드는 세션 한정 자기 덮어쓰기**
+.dev/retrospect/083-orchestration-strategy-pluggable.md:38:- **[P2] override 홀(build_graph/describe 재정의)** → `@final` 정적 강제(Python 런타임은 상속 재정의
+.dev/retrospect/071-mcp-args-result-redaction-threat-model-reframe.md:35:보조도구(인스펙터)에 **과한 금칠**(메모리: model/config·memory가 토대, 나머지는 과투자 금지).
+.dev/retrospect/208-collection-modal-batch-robust-signal.md:24:mock을 옵션에서만 빼고 프리셀렉트(is_default) 로직은 전체 models에서 고르면, 필터된 mock이 기본값으로
+.dev/retrospect/037-rag-embedding-gate-sample-ingest.md:8:   프론트는 `loaded && !models.length`로 배너+생성버튼 disabled, 백엔드는 유효 embedding id 없으면
+.dev/retrospect/324-chat-restructure.md:8:**캠페인 총결산: 5파일(chat_stream·blocks·chat_context·batch/jobs·chat) 4,805줄 해체,
+.dev/retrospect/324-chat-restructure.md:34:- 다음 후보는 대형 파일이 아니라 C급 47의 분포(rag_ingest·model_registry·mock_remote 등
+.dev/retrospect/327-eval-runs-restructure.md:25:- 8파일 6,845줄 해체(chat_stream·blocks·chat_context·batch/jobs·chat·runtime·rag/shared·
+.dev/retrospect/046-a2a-unification-provenance-only.md:35:  (model 120·active_version 40)에서 commit 500. → `_clip` 헬퍼로 컬럼 상한 절단(C6).
+.dev/retrospect/284-runwithtoast-view-migration.md:41:  **선제**로 surface. → [[core-is-model-config-and-memory]] [[craft-first-then-compound-as-asset]]
+.dev/retrospect/283-useasyncdata-view-migration.md:28:  (available-models가 고유 provider id 2종으로 나감=selectedId 반응 입증). 초기 선택 side-effect를 계산에
+.dev/retrospect/283-useasyncdata-view-migration.md:46:  정착(5행)·#7 프로바이더 체인 페치·#8 selectedId 전환→available-models 고유 id 2종·#10 getEvalRun 발화·
+.dev/retrospect/059-a2a-card-prefix-relative-endpoint.md:17:dead로 봄(405/200/3xx/401/403은 live) — route 부재와 method-mismatch를 구분.
+.dev/retrospect/291-node-library.md:32:  숨김 개수(`usedByHidden`)로 정직 표기, 변이는 특권 게이트(`require_node_manage`, model_registry
+.dev/retrospect/179-eval-ux-collection-pin-trend-genloading.md:23:`alembic heads`/`revision`이 순환 import(마이그레이션 파일의 `from api.models import …`가 CLI 컨텍스트서
+.dev/learning/014-secret-at-rest-fernet.md:4:맥락: [010 비밀 암호화](../../docs/spec/010-secret-at-rest.md), `crypto.py`/`chat.py`/`model_registry.py`
+.dev/retrospect/072-playground-markdown-json-render.md:5:[[core-is-model-config-and-memory]], [[adversarial-review-before-destructive-ship]], [[probe-deeper-before-concluding]],
+.dev/retrospect/072-playground-markdown-json-render.md:23:[[core-is-model-config-and-memory]]가 경계하는 과투자.
+.dev/retrospect/290-pipeline-tool-loop-cap.md:1:# 290 — 파이프라인 도구 루프 상한 + 우아한 마무리 (스펙 315)
+.dev/retrospect/290-pipeline-tool-loop-cap.md:46:  종료(T4, codex P1)**. mock 모델 주입(`_model_from_node` 몽키패치)으로 실 35B 없이 결정적.
+.dev/retrospect/INDEX.md:12:- 007 서비스 확장 회고(견고화·E2E·모델 레지스트리·원격·env) — 스펙 007/008/009; Alembic 도입·E2E의 숨은 memory 버그·env 단일소스 강제를 볼 때 [alembic,e2e,model-registry,remote-exec,playwright]
+.dev/retrospect/INDEX.md:21:- 016 Playground Proxy: 세션 한정 설정 오버라이드 회고 — 스펙 025; 한 줄 게이트로 무회귀 구조 보장하며 기존 경로 안 건드리는 추가 패턴을 볼 때 [playground,proxy,override,no-regression,single-source]
+.dev/retrospect/INDEX.md:24:- 019 플레이그라운드 모델 배지 정직화 회고 — 스펙 028; 거짓 모델명 표시를 source별 정직 배지로, 측정이 사용자 보고와 어긋날 때 양쪽 제시하는 법을 볼 때 [playground,model-badge,honest,probe,display]
+.dev/retrospect/INDEX.md:41:- 036 프로바이더·모델 통합+models.dev 카탈로그 회고 — 스펙 047(마스터 044 배치3); 두 메뉴→마스터-디테일·카탈로그 박제 lookup·셀프 GREEN 뒤 적대리뷰가 결함(per-read타임아웃≠전체deadline/삭제가드 누락) 적발하는 사례를 볼 때 [merge,catalog,models-dev,timeout,delete-guard,adversarial]
+.dev/retrospect/INDEX.md:47:- 042 유저 메모리 신원을 스코프 엔드포인트로 보강 회고 — 스펙 052; raw UUID 라벨로 식별불가·이메일 재사용 시 권한 조용히 결합·누출-안전 JOIN 엔드포인트(response_model)를 신설하는 법을 볼 때 [memory,identity,scoped-endpoint,authz-coupling,response-model,adversarial]
+.dev/retrospect/INDEX.md:94:- 089 에이전트 폼 재구성: 유저 언어 + 종류가 설정을 가른다 — 스펙 108; 내부 아키텍처를 UI단어로 노출 말고 종류가 설정면을 가르게 함(사용자 세번째 지적 후) [agent-form-plain-language,type-decides-fields,no-internal-jargon,system-vs-user-model,duplicate-resource-two-paths,mode-splits-surface,askuserquestion-preview,repeated-feedback-framing-signal] → learning 108
+.dev/retrospect/INDEX.md:95:- 090 폼 3단계 + 재사용 효율 피커(등록 폼 + 오버라이드) — 스펙 109; PickerGroups 재사용 컴포넌트로 등록폼·오버라이드 일관화(cross-surface) [form-tiers,reusable-component,cross-surface-consistency,adapter-prefix-routing,storage-agnostic,required-vs-optional,antd-v6-collapse-header,ui-agent-only-override] → learning 109
+.dev/retrospect/INDEX.md:96:- 091 엔드투엔드 오케스트레이션 시연 — 스펙 110; 각 고리는 증명됐으나 채팅 1턴 관통 미실측이라 dependency_overrides로 슈퍼유저 principal 재현해 결정적 E2E 시연 [links-vs-chain,auth-context-contract,machine-token-deny,dependency-overrides-principal,mock-llm-deterministic,broker-invoke-node,lexical-discover,false-negative-avoided] → learning 110
+.dev/retrospect/INDEX.md:99:- 094 런타임 tool 배선 인가 — 스펙 113(112 P0 봉합); codex가 override 주입 confused-deputy를 2번째로 짚어 저장본/주입분 분리로 막음 [runtime-wiring,confused-deputy,authorize-by-who-supplied-ref,override-injection-caller-authority,uuid-before-authz,rbac-lever-both-paths,null-owner-no-regression,codex-rung3] → learning 113
+.dev/retrospect/INDEX.md:108:- 103 조율형 오버라이드 capabilities — 스펙 122, 사용자 버그2; 108이 편집폼만 kind로 가르고 109가 직접형만 이식해 조율형 MCP가 오버라이드서 누락됐던 걸 kind-aware capGroups로 닫음 [orchestrator-override,fork-surface-propagate,single-source,browser-verify-catches-ui-gap,nul-byte-found] → learning 122
+.dev/retrospect/INDEX.md:119:- 114 턴 트레이스에 적용 오버라이드 기록 — 스펙 134; 오버라이드한 세션 재진입 시 설정 유지 질문에 trace.overrides로 턴별 기록, codex가 보낸 값≠적용 값 드리프트(공백 systemPrompt) 잡음 [override-per-turn-trace,ui-state-not-session,record-mirrors-apply-guard,toast-on-success-only,codex-2-fixed] (learning 생략 — 회고에 수록)
+.dev/retrospect/INDEX.md:124:- 119 평가 5탄: 모델 격자 — 스펙 141; 오버라이드 경로 재사용+그룹 순차+격자 탭, 미존재 모델명 사전검증, codex 3건, e2e가 조율형 위임선정=어휘겹침 로직이라 도구흔적은 모델축과 독립임을 반증 [model-matrix,fallback-pre-validation,axis-sensitive-asserts,partial-group-fix] → (learning 생략 — 회고 수록)
+.dev/retrospect/INDEX.md:125:- 120 평가 6탄: 골든셋 자동 생성 — 스펙 142; 청크→질문 출제+자기일관 기준 자동부여, e2e가 실모델 습관 반증(물음표 생략→수율 추락)→어미 정규화로 복구, e2e 도중 백엔드 핫수정 금지(reload가 백그라운드 태스크 죽임) [golden-set-generation,self-consistency-signal,real-model-idiom-yield,no-hot-edit-during-e2e,cap-is-priority-not-block] → (learning 생략 — 회고 수록)
+.dev/retrospect/INDEX.md:133:- 128 기본 모델 전환 — 스펙 150(자율 루프 1건차); 버그 실체=기능 부재 아닌 상태 비가시+동선 부재, codex High=동시 지정 레이스를 부분 유니크 인덱스로 DB 봉인·신설 라우트만 잠그면 기존 PUT 우회 [default-model,partial-unique-index,capability-gate,visibility-bug] → (learning 생략 — 회고 수록)
+.dev/retrospect/INDEX.md:143:- 138 mem0 임베딩 query/passage 접두어 주입 — 스펙 160; 가정 만들면 측정부터(e5 효과 미미→설정형 기본no-op, arctic만 켜게), 검색만 접두어 무해 실측 [embed-prefix,asymmetric-model,measure-before-assume,non-destructive-via-measurement,transform-input-not-stored-data,capture-at-wrap-not-call-time,configurable-default-noop] → (learning 생략 — 회고 수록)
+.dev/retrospect/INDEX.md:147:- 142 프로바이더 연결 테스트가 항상 모델 미발견 — 스펙 164; `model_id in ids if model_id else False`가 빈 값을 무조건 False로→항상 미발견, 158 계열의 또다른 얼굴(모호 입력을 실패로 뭉개지 말고 그 입력 의미대로 판정) [diagnostic-honesty,name-the-state,reuse-empty-arg-footgun,thin-display-backend-fix] → (learning 생략 — 회고 수록)
+.dev/retrospect/INDEX.md:161:- 156 도구 승인 오버라이드+승인자 연결 P2 — 스펙 177 P2; 권한 게이트를 가변 기준값 비교로 하면 TOCTOU 우회되니 의도 값 자체로 판정, 인가는 명시 필드(approver)로 이스케이프 소멸 [tool-approval-override,gate-on-intent-value-not-mutable-baseline-toctou,authorize-by-explicit-field-not-string-match,uniform-interface-param-over-isinstance,enumerate-all-mutation-entries-for-gate,policy-fields-config-only-not-request-overridable] → (learning 생략 — 회고 수록)
+.dev/retrospect/INDEX.md:192:- 187 ui-audit 재실행(스킬 발동) — 기계 3종 FAIL0+축3 막힘0; 커버리지 목록이 정적이면 신설 표면에 공허 초록, 카피 지적은 소비자별 처방(사람용 vs 모델용) [audit-coverage-follows-assets,copy-consumer-split-human-vs-model] → 기계3종+deep-reasoner 축3
+.dev/retrospect/INDEX.md:229:- 224 집중→가림→배치(스펙 247) — UI 진단 순서: 주 과업 정의→방해물→배치(역순이라 예측·진단 2연속 빗나감), UX 개편 전 표준 문헌 선행이 논의를 압축, 기각된 추천은 사용자 설계관의 측정값으로 기록 [primary-task-first,read-standards-before-ux-work,rejected-proposals-reveal-user-model] → learning 생략(회고 수록)
+.dev/retrospect/INDEX.md:244:- 239 플랜 데모 노드형 전환: 하드코딩 flow→노코드 등가 재구성(스펙 264) — 결정적 plan이 모델 계획 수립으로 승격, 전환 전 인프라 확인(모델 서버 ping) [hardcoded-flow-to-nocode,deterministic-to-model-upgrade,ping-infra-before-blame,reversible-conversion,intermediate-stream-difference,real-model-reveals]
+.dev/retrospect/INDEX.md:270:- 265 조합 스위트 엣지 티어(스펙 290) — 사용자 의심(성공 위한 테스트 아닌가)이 진짜 500 크래시 적발(NUL 바이트→DBAPIError), 엣지 티어 단언은 성공 아니라 실패의 품질(4xx/error/폴백), 경계 정규화는 부수효과점 아닌 입구에서 [edge-tier,failure-quality,suspicion-finds-crash,null-byte-fold,normalize-at-entry,silent-misbehavior-two-faces] → 스펙 290
+.dev/retrospect/INDEX.md:290:- 285 영화 엔티티 데모 로더 스킬(스펙 311) — 엔티티 RAG(149) 첫 구동 예제 부재를 모델 선택형 온디맨드 로더로, 성숙 코드베이스에선 먼저 뭐가 있나 확인이 스캐폴딩 절반, 데모 의미품질은 임베딩 모델이 정함(같은 모델이라야 의미) [entity-rag-demo,confirm-existing-first,vector-space-same-model,model-choosable-loader,seed-clean-ondemand] → 스펙 311
+.dev/retrospect/INDEX.md:295:- 290 파이프라인 도구 루프 상한+우아한 마무리(스펙 315) — plan-execute-demo가 wiki_search 14회 반복, 한 증상어가 두 원인 가리킴, ReAct 루프엔 상한 필요(도구 언바인드+넛지) [confirm-user-repro-path-before-fix,ping-infra-then-trace-narrow,react-loop-needs-cap,invariant-in-code-not-provider-goodwill,user-observation-right-cause-separate] → 스펙 315
+.dev/retrospect/INDEX.md:300:- 295 도구 실행 실패 사유 인스펙터 표면화(스펙 320) — langchain-mcp-adapters가 MCP isError를 삼켜 정상 문자열 반환하는 어댑터 swallow 함정, 형제 표면 비일관·새 노출은 마스킹도 넓혀야 [adapter-swallow-not-exception,functional-rung-catches-false-green,sibling-surface-consistency,mask-new-exposure-surface,test-infra-isolation,preserve-model-facing-info] → 스펙 320
+.dev/retrospect/INDEX.md:327:- 322 스펙 394 chat_context 해체 — 백로그 처방도 집행 전 전제 재검증(382 이미 해소→기각), 적대 리뷰 수확 체감(P2 2→1→0)=방법 성숙 신호, 테스트 실패는 HEAD 워크트리로 판정 [backlog-premise-recheck,adversarial-yield-decay,head-worktree-adjudicates,type-descent-convention,or-chain-cc]
+.dev/retrospect/INDEX.md:333:- 328 노후 verify 재활 캠페인(스펙 400) — 38건 재활의 실체는 7개 계약 변경의 방사선(370 버전·비동기 인제스트·148 이름·mock-embed 원문질의·hit shape·324 버킷·모듈분할 패치지점); DB 하드코딩 금지·지연생성 테이블 선생성·만료 ORM 사전캡처, 실버그 1건 보고(290 None==None); 240 플레이크=드레인 대기로 못 닫는 spawn TOCTOU→spawn 산출물 자체 단언 [verify-rehab,contract-change-radiation,mock-embed-identical-query,patch-defining-vs-facade,assert-spawned-artifact] → 랄프 완주
+.dev/retrospect/288-zero-downtime-reindex.md:30:  이미 있었다. → [[core-is-model-config-and-memory]]
+.dev/learning/062-default-is-convergence-of-all-boot-paths.md:26:name='Mock LLM'/kind=mock, mock-llm chat is_default, mock-embed embedding is_default, 동일 model_id)로
+.dev/retrospect/012-playground-userid-ux-and-feedback-burst.md:6:연관 코드: `admin/src/playground/{Playground,DebugChat,Inspector}.tsx`, `admin/src/api.ts`, `packages/api/src/api/{chat,sessions,models}.py`, alembic `d2e3f4a5b6c7`
+.dev/retrospect/234-node-context-mode.md:30:`build_graph`가 실 ChatOpenAI를 만들어 검증이 어렵던 걸, `_model_from_node`를 몽키패치해 각 노드가
+.dev/retrospect/234-node-context-mode.md:36:`context`는 `_resolve_node_models`가 `{**n}`이라 자동 보존, 저장/재로드도 노드 통째라 자동 왕복.
+.dev/retrospect/047-first-run-robustness.md:33:P2 2건(프리플라이트가 연결 외 범주도 포괄=원본오류 로깅으로 완화 / `_model_error_hint`의 timeout 마커
+.dev/retrospect/006-real-agent-service.md:30:- **기반 먼저 → 병렬 팬아웃**을 백엔드에도 적용: models/schemas/serializers를 직접 안정화한 뒤 라우터 3그룹을 병렬 서브에이전트로. Phase 3도 동일(api.ts → 5뷰 병렬).
+.dev/retrospect/043-user-memory-role-scoping-two-axis-guard.md:21:**머신 토큰을 401**로 막는다. 메모리 라우트는 쿠키 유저 + 머신 토큰 둘 다 받아야 하므로
+.dev/retrospect/081-capability-broker-a2a-orchestration.md:42:  모델엔 owner 컬럼이 없어(공유 카탈로그, models.py:203 실측) 인가 입도가 전적으로 RBAC 축(kind 단위)에
+.dev/retrospect/293-node-agent-call.md:64:  `derive_pipeline_pool`이 오버라이드된 노드에서 capabilities 재파생(chat_context.py:582, learning 151
+.dev/retrospect/293-node-agent-call.md:69:  picker 노출·후보 스코프·선택→override payload에 `agent__{id}` 배선·MCP 보존 단언).
+.dev/retrospect/023-playground-userid-from-auth-principal.md:48:  무사하지만, sessionId 뒤에 overrides를 positional로 넘기던 호출자는 밀려 깨질 수 있다(이번엔 안전).
+.dev/retrospect/090-form-tiers-and-reusable-picker.md:17:  Temperature·history → "세부 설정" 접힘. `Overrides`·`overridePayload` 무변경(표현 계층만).
+.dev/retrospect/090-form-tiers-and-reusable-picker.md:41:- 저장/적용 로직(`overridePayload` diff, `save` config)·백엔드 무변경 — 표현 계층만 교체(회귀 뷰에 갇힘).
+.dev/retrospect/282-test-isolation-close.md:54:- verify_*.py는 게이트 밖 ad-hoc(실게이트=make suite). 기존 F401/E702(056 등)는 tests/ 미게이트 잔여(무관).
+.dev/retrospect/142-provider-test-model-count.md:6:프로바이더 레벨 테스트는 `_probe(base_url, key, "", "chat")`로 **빈 model_id**를 넘긴다(프로바이더
+.dev/retrospect/142-provider-test-model-count.md:7:도달성 확인, 특정 모델 아님). 그런데 `_probe`는 `available = model_id in ids if model_id else False` —
+.dev/retrospect/142-provider-test-model-count.md:8:빈 model_id를 무조건 False로 판정 → 항상 "미발견". "특정 모델이 목록에 있나" 함수를 빈 이름으로
+.dev/retrospect/142-provider-test-model-count.md:14:  실패로 뭉개지 말고 그 입력의 의미대로 판정**(빈 model_id=프로바이더 확인이지 모델 확인이 아님 →
+.dev/retrospect/142-provider-test-model-count.md:17:  빈 model_id로 "프로바이더 검사"에 재사용 → 부재 케이스를 새 의미로 분기했어야 했다. 재사용 시
+.dev/retrospect/142-provider-test-model-count.md:19:- **프론트 무변경으로 고쳐짐**: ProbeRow가 detail 문자열+ok만 표시(modelAvailable/텍스트 특수분기
+.dev/retrospect/142-provider-test-model-count.md:23:verify_164 4/4 — 로컬 stub /models 서버로 실제 _probe 호출: 빈 model_id+모델2개→"2개 발견"·True,
+.dev/retrospect/142-provider-test-model-count.md:28:- 테스트가 발견한 모델 목록을 응답에 담아 UI 드롭다운 채우기(현재 /available-models 담당).
+.dev/retrospect/275-llm-cfg-builder-canon.md:4:census 후보 C. `{base_url, api_key: crypto.decrypt(...), model_id}` llm_cfg 조립을 mem_config의 원자 2개로
+.dev/retrospect/275-llm-cfg-builder-canon.md:5:단일화: `model_usable(cm) -> TypeGuard[ModelConfig]`(유효성 술어)·`llm_cfg_of(cm) -> dict`(연결 dict).
+.dev/retrospect/275-llm-cfg-builder-canon.md:6:**8곳** 편입(eval 3·chat_context 3·mem_config 2 call). 무효 분기는 호출자별 존치.
+.dev/retrospect/275-llm-cfg-builder-canon.md:11:  전수(`"api_key": crypto.decrypt` grep)하니 **동일 3-키 원자가 8곳**(chat_context 핫패스·mem_config 중첩
+.dev/retrospect/275-llm-cfg-builder-canon.md:16:  or ...`)는 mypy에 narrowing을 주는데, 그걸 opaque 함수 `model_usable(cm)`로 빼면 **호출부의 이후 코드
+.dev/retrospect/275-llm-cfg-builder-canon.md:17:  (cm.provider 접근)가 narrow를 잃어 mypy 깨진다**. 해결: `model_usable`을 `TypeGuard[ModelConfig]`로 →
+.dev/retrospect/275-llm-cfg-builder-canon.md:18:  positive 분기(`if model_usable(cm):`)서 mypy가 cm을 narrow. **TypeIs는 불건전**(값-유효성 술어라 빈
+.dev/retrospect/275-llm-cfg-builder-canon.md:20:  사이트(`if not model_usable(cm): raise`)는 TypeGuard가 negative narrow 안 해 `assert cm is not None`
+.dev/retrospect/275-llm-cfg-builder-canon.md:27:- **술어 공유는 "메시지가 같을 때만"**. chat_context 기본 chat 해석은 무효 사유가 2종(등록 없음·설정
+.dev/retrospect/275-llm-cfg-builder-canon.md:28:  불완전)이라 각각 다른 HTTPException 메시지 → `model_usable`로 접으면 UX 손실. 그래서 **dict 조립만
+.dev/retrospect/275-llm-cfg-builder-canon.md:35:- **실인프라 통합**: 스위트 51/51(실패 0, flaky 1 재시도 통과) — chat 시나리오가 chat_context 핫패스,
+.dev/learning/027-frontend-filter-is-not-a-backend-guard.md:4:출처: 스펙 [025](../../docs/spec/025-playground-proxy-config-override.md) 타자 검증(codex P1)
+.dev/learning/027-frontend-filter-is-not-a-backend-guard.md:5:연결: [[016-playground-proxy-config-override]], [[probe-deeper-before-concluding]]
+.dev/learning/027-frontend-filter-is-not-a-backend-guard.md:16:- 실수: 프런트 `overridePayload`에서만 빈 값을 거름 → "프런트로는 안 가니 안전"이라 자가 결론.
+.dev/learning/027-frontend-filter-is-not-a-backend-guard.md:17:- 결함: 백엔드 `_load_context`는 `"systemPrompt" in overrides`만 확인하고 빈 문자열도 persona에 덮어씀
+.dev/learning/027-frontend-filter-is-not-a-backend-guard.md:19:- 수정: 백엔드에 가드 — `sp = overrides.get("systemPrompt"); if isinstance(sp,str) and sp.strip(): persona = sp`.
+.dev/learning/364-alembic-cli-broken-generate-programmatically.md:7:그런데 그 심볼은 실제로 존재하고(`dir(fastapi_users.db)`에 있음) `import api.models`도 단독으론 성공.
+.dev/learning/364-alembic-cli-broken-generate-programmatically.md:12:파일들을 로드할 때 오래된 마이그레이션(`b2c3d4e5f6a7`)이 `from api.models import RAG_EMBED_DIMS`로
+.dev/learning/364-alembic-cli-broken-generate-programmatically.md:13:api.models를 **재-임포트**하는데, 그 시점 fastapi_users가 아직 초기화 중이라 순환이 터진다. 앱 부팅은
+.dev/learning/364-alembic-cli-broken-generate-programmatically.md:18:CLI를 고치려 하지 말고, `api.models`를 **먼저 완전 로드**한 뒤 alembic을 프로그램적으로 부른다:
+.dev/learning/364-alembic-cli-broken-generate-programmatically.md:22:import api.models                      # 완전 로드 → 이후 재-임포트는 sys.modules 히트(순환 없음)
+.dev/retrospect/292-code-node.md:35:- **코드 노드는 prompt/model이 없다 — 부분 객체를 렌더하는 UI는 방어가 기본값이 아니라 분기다.** 316에서
+.dev/learning/012-runtime-config-single-source.md:4:맥락: [008 모델 레지스트리](../../docs/spec/008-model-registry.md), `build_agent`/`chat.py`/`memory.py`
+.dev/learning/012-runtime-config-single-source.md:9:- `build_agent`: `model_cfg` 필수(base_url/model_id). 없으면 에러.
+.dev/learning/012-runtime-config-single-source.md:18:- **캐시 키에 자격증명 포함**: mem0 인스턴스를 `(base_url, model_id)`로만 캐시하면 **api_key 회전 후 stale 인스턴스**가 재사용된다. 키에 api_key까지 포함(메모리 내, 미로깅).
+.dev/learning/012-runtime-config-single-source.md:19:- **불완전 설정은 400으로**: 빈 base_url/model_id 모델을 고르면 `build_agent`가 RuntimeError(→500). `_load_context`에서 미리 검증해 **400**으로.
+.dev/learning/053-enrich-with-a-scoped-endpoint-not-a-higher-privilege-one.md:18:3. 반환 형을 **response_model로 좁혀** 누출-안전을 *구조적*으로 강제 — 손수 만든 dict는
+.dev/learning/386-http-verify-triage-app-innocent.md:18:  FK 위반을 보고 "모델삭제 가드가 컬렉션 참조를 안 본다"고 가설을 세웠으나, delete_model 핸들러를
+.dev/review-materials-2026-07-18-complexity.md:21:chat.py 1,262 · blocks.py 995 · batch/jobs.py 904 · chat_context.py 812 · runtime.py 738 · seed.py 715.
+.dev/review-materials-2026-07-18-complexity.md:24:- MI 문턱(20) 근접: **blocks.py 21.6** · chat_context.py 23.9 · chat.py 24.9 — 다음 추가가 문턱을 깬다.
+.dev/learning/148-format-enforcement-attempt-not-guarantee.md:7:키워드: format-enforcement,untrusted-producer,attempt-not-guarantee,honest-fallback-no-fabrication,pass-through-original-not-repair,intervene-on-final-response,lenient-extractor-trust-boundary,fake-model-scripted-verify
+.dev/learning/152-display-honesty-gate-by-consumes.md:8:1. **목록 모델 부제** — 노드형은 노드마다 모델이 다른데 최상위 model(폴백값)을 대표처럼 표시.
+.dev/learning/152-display-honesty-gate-by-consumes.md:10:   읽으니 실행은 노드별 `model_cfg`, 최상위 persona는 **아예 미참조**.
+.dev/learning/030-verify-ui-in-a-real-browser.md:4:출처: 스펙 [028](../../docs/spec/028-playground-honest-model-badge.md) — 플레이그라운드 모델 배지
+.dev/learning/030-verify-ui-in-a-real-browser.md:5:연결: [[019-playground-honest-model-badge]], [[probe-deeper-before-concluding]]
+.dev/learning/088-new-interface-field-is-dead-until-wired-at-every-entry.md:7:(스펙 085에서 `AgentConfig.impl`(런타임 구현 키)·`AgentBuildContext.overrides`(원본 오버라이드) 두
+.dev/learning/088-new-interface-field-is-dead-until-wired-at-every-entry.md:15:1. **full-replace 쓰기 = silent drop.** 갱신 입구가 `body.model_dump()`/통째 직렬화로 레코드를 교체하면,
+.dev/learning/088-new-interface-field-is-dead-until-wired-at-every-entry.md:21:   초록. (085 F4: `AgentBuildContext.overrides`가 `_load_context`에서 미적재 + 3개 build 사이트 미배선.)
+.dev/learning/088-new-interface-field-is-dead-until-wired-at-every-entry.md:25:- **입구를 닫힌 집합으로 센다**: 읽기(소비)뿐 아니라 **create / update / 직렬화(model_dump 등) /
+.dev/learning/088-new-interface-field-is-dead-until-wired-at-every-entry.md:27:- **full-replace 갱신은 미전송 필드를 보존**: `model_fields_set`(Pydantic) 등으로 *명시 전송됐는지*
+.dev/learning/088-new-interface-field-is-dead-until-wired-at-every-entry.md:44:[new-interface-field,wire-at-every-entry,full-replace-silent-drop,model-fields-set,dead-contract,enumerate-entries,roundtrip-through-all-entries,adversarial-codex,probe-deeper,086-sibling-axis]
+.dev/learning/079-verify-deprecation-migration-via-strongest-existing-regression.md:31:  create_agent`"), `langchain` 미설치→1.3.11 추가. `create_agent(model=, tools=, system_prompt=, checkpointer=)`.
+.dev/learning/079-verify-deprecation-migration-via-strongest-existing-regression.md:35:  [[core-is-model-config-and-memory]](런타임 빌더=토대 → 엄격 검증).
+.dev/plan/001-minimal-hardcoded-agent.md:65:3. `src/agent/main.py`: `ChatOpenAI(base_url, api_key=env, model)` → `create_react_agent(model, tools=[], prompt=PERSONA)` + stdin 대화 루프.
+.dev/learning/117-demonstrate-success-not-just-invocation.md:19:`AgentConfig` 스키마에 **추가하지 않으면** create/update의 `config.model_dump()`가 **조용히 드롭**한다 →
+.dev/learning/141a-platforms-report.md:31:- Eval={data_source_config(JSON 스키마), testing_criteria}. 데이터=JSONL item(골든 라벨 포함). Run=eval을 특정 모델+프롬프트로 실행. result_counts/per_testing_criteria_results/per_model_usage.
+.dev/learning/141a-platforms-report.md:32:- 그레이더: string_check(eq/ne/like/ilike)·text_similarity(fuzzy/bleu/rouge…+threshold)·label_model(분류 judge)·score_model(점수 judge)·python(def grade)·**multi(calculate_output 수식 결합)**. 인간 층 없음(5종 중 유일).
+.dev/learning/137-response-model-lazy-relationship-and-route-called-verifies.md:9:- **500 버그**: `RunDetailOut.model_validate(run)` — results 필드가 ORM `EvalRun.results`(lazy 관계)와
+.dev/learning/392-a2a-session-p1-wiring-not-invention.md:14:  복붙 아니면 chat() 침습이었다. chat_context/chat_history/chat_persist로 갈라져 있어서 서빙이
+.dev/learning/077-measure-table-overflow-to-find-the-culprit-column.md:5:(1) 검색이 흐릿한 `type="text"` 버튼이라 저발견성, (2) 액션 컬럼(width 290)이 넓어 잘림. 첫
+.dev/learning/077-measure-table-overflow-to-find-the-culprit-column.md:6:직감은 "액션 컬럼이 범인"이었다. 액션을 아이콘으로 압축(290→170)했는데도 **여전히 점검·삭제가
+.dev/learning/077-measure-table-overflow-to-find-the-culprit-column.md:13:  내 첫 추측(액션 290)은 틀렸다 — `max-content` 테이블에서 한 칸이 비대하면 *다른 칸*이 스크롤 밖으로
+.dev/learning/025-seed-mock-drift-needs-migration-and-shared-constant.md:4:맥락: [스펙 023](../../docs/spec/023-agent-foundation-model-realign.md), `seed.py`/`mockData.ts`/`AgentsView.tsx`, [[012-runtime-config-single-source]]
+.dev/learning/025-seed-mock-drift-needs-migration-and-shared-constant.md:7:시드된 에이전트 5건의 `model`이 레지스트리에 없는 **가상명**(`claude-sonnet-4`/`gpt-4o`/
+.dev/learning/025-seed-mock-drift-needs-migration-and-shared-constant.md:14:   마이그레이션**이 필요. (마이그레이션은 가상명을 하드코딩하지 말고 `models` 테이블에서
+.dev/learning/025-seed-mock-drift-needs-migration-and-shared-constant.md:18:   UI 폼 기본값도 하드코딩 대신 **등록된 첫 chat 모델**(`models.find(m=>m.kind==='chat')`)에서.
+.dev/learning/025-seed-mock-drift-needs-migration-and-shared-constant.md:19:3. **두 저장 위치를 다 본다.** model은 `agents.model` 컬럼과 `config.model`(JSONB), 그리고
+.dev/learning/025-seed-mock-drift-needs-migration-and-shared-constant.md:20:   `agent_versions.config.model`에 흩어져 있다. 런타임이 읽는 건 `config.model`이지만 UI는 컬럼을
+.dev/learning/025-seed-mock-drift-needs-migration-and-shared-constant.md:24:- **키 부재 시 추가하지 않는다**: `config.model` 키가 *있고 미등록*일 때만 정정. 없는 키를 새로
+.dev/learning/025-seed-mock-drift-needs-migration-and-shared-constant.md:25:  넣으면 불필요한 데이터 변형(`agents`/`agent_versions` 처리 기준 불일치). `"model" in cfg and ...`로 가드.
+.dev/learning/025-seed-mock-drift-needs-migration-and-shared-constant.md:26:- **명시 필터 > 인덱스 접근**: UI 기본값을 `models[0]`로 잡으면 페치가 chat-only가 아닐 때
+.dev/learning/020-pgvector-shared-backend-and-dsn-delegation.md:15:`embedding_model_dims` + `hnsw:True`. 같은 DB에 mem0 전용 테이블(`vector(N)`, `payload jsonb`)이 하나 생긴다.
+.dev/learning/020-pgvector-shared-backend-and-dsn-delegation.md:37:# config: {"connection_string": _sync_dsn(DATABASE_URL), "collection_name":..., "embedding_model_dims":..., "hnsw":True}
+.dev/learning/029-same-origin-proxy-collapses-cross-origin-class.md:29:- **검증은 프록시 경유 curl**로(브라우저·hairpin 없이): 인증→200, **무인증→401**(프록시가 SPA가 아니라
+.dev/learning/102-abc-template-second-impl-honest-boundary.md:36:## Python은 override를 못 막는다 → 정적 강제 + 저작시점 게이트로 겹쳐 막아라
+.dev/learning/102-abc-template-second-impl-honest-boundary.md:39:- `@final`(typing) — 타입체커·리뷰가 override를 잡음(자기문서화 + 정적 강제).
+.dev/learning/102-abc-template-second-impl-honest-boundary.md:51:[abc-template-method, strategy-as-impl, common-ancestor-owns-invariant, only-hole-abstractmethod, drift-zero-measured, second-impl-measures-abstraction, behavior-preserving-refactor, complement-attack-is-honest-boundary, gated-side-effect-exactly-once, document-boundary-not-silent, final-static-enforcement, python-cant-block-override, chosen-subset-candidates-guard, chooser-not-maker, codex-design-limit-third-verdict, discover-substring-vs-rank-token, adversarial-codex, probe-deeper]
+.dev/learning/125-observability-moves-unreproducible-bugs-and-failure-not-zero.md:12:- 처방: `recall_diag`(예외 안 던지고 `{configured, backend_ready, embedder_model, error, results}`로
+.dev/learning/366-runnable-test-catches-real-bug.md:29:못 풀어 401 → SPA `getMe()` null → 로그인 화면 막힘. 표준 해법(백엔드 무변경): **Playwright global-setup이
+.dev/learning/113-authorize-by-who-supplied-the-reference.md:16:codex P0: 위를 작성자 권한으로 게이트했더니, 채팅 호출자가 `overrides.mcps`(세션 한정 덮어쓰기)에 **남의
+.dev/learning/113-authorize-by-who-supplied-the-reference.md:21:봉합: override **병합 전** 저장본 자원 집합을 포착 → 저장본은 작성자 권한, **주입분은 호출자(`own`)
+.dev/learning/113-authorize-by-who-supplied-the-reference.md:23:캘러 제어 입력(override/query param)이 저장 상태에 섞여 downstream 권한 판정에 태워지는 지점을 의심하라.
+.dev/learning/122-fork-a-surface-by-kind-propagate-to-every-consumer.md:9:- 원인: 런타임이 이원화([[core-is-model-config-and-memory]] 아님 — learning 108). **조율형은 MCP를
+.dev/learning/122-fork-a-surface-by-kind-propagate-to-every-consumer.md:13:  하고 **조율형 capabilities는 빠뜨렸다**. → `overrideDefaults`가 `agent.mcps`만 읽어 조율형은 빈 값
+.dev/learning/369-explicit-serializer-drops-new-fields.md:6:- **ORM 모드**(`model_config = ORM` + ORM 객체 반환): 스키마에 필드를 추가하면 자동으로 실림
+.dev/learning/369-explicit-serializer-drops-new-fields.md:8:- **명시적 생성자**(`mcp_to_out`·`provider_to_out`·`model_to_out`처럼 필드를 손으로 나열): 스키마에
+.dev/learning/009-mem0-local-mlx-integration.md:10:   채팅 모델이 아니라 **별도 임베딩 모델**(`--embedding-model`)로만 동작한다.
+.dev/learning/009-mem0-local-mlx-integration.md:11:   - 확인: `curl /v1/embeddings -d '{"model":"<chat-model>","input":"..."}'` →
+.dev/learning/009-mem0-local-mlx-integration.md:15:   - `llm`: provider `openai`, config `{model: <MLX chat>, openai_base_url, api_key}`
+.dev/learning/009-mem0-local-mlx-integration.md:16:   - `embedder`: provider `openai`, config `{model: <MLX embed>, openai_base_url, api_key, embedding_dims: 1024}`
+.dev/learning/009-mem0-local-mlx-integration.md:17:   - `vector_store`: provider `qdrant`, config `{path: <local dir>, embedding_model_dims: 1024, on_disk: True}`
+.dev/learning/026-mock-belongs-in-registry-not-runtime-branch.md:4:맥락: [스펙 024](../../docs/spec/024-mock-llm-registry-model.md), `mock_remote.py`/`seed.py`, [[012-runtime-config-single-source]], [[025-seed-mock-drift-needs-migration-and-shared-constant]]
+.dev/learning/026-mock-belongs-in-registry-not-runtime-branch.md:10:1. **그 단일 소스에 들어갈 데이터**를 등록한다 — 여기선 레지스트리 `models` 테이블의
+.dev/learning/026-mock-belongs-in-registry-not-runtime-branch.md:13:   `{base_url}/chat/completions`(OpenAI 호환 스트림/비스트림 + `/models` list).
+.dev/learning/389-real-model-rows-lost-and-cross-embedder-vectors.md:12:   유사도 0, 회상 5개 전 유형 실패(`memories=[]`). `PUT /models/{id}/default`로 복원.
+.dev/learning/389-real-model-rows-lost-and-cross-embedder-vectors.md:40:recall-diagnosis-by-layers, distrust-your-own-probe, model-rows-lost-mystery]
+.dev/learning/066-normalize-at-boundary-can-reopen-guard-rejected-input.md:34:3. **방어 다중화는 유지하되 그것에 기대지 마라.** percent-encoded `@`(`evil.com%40127.0.0.1`)는
+.dev/learning/090-inherited-severity-and-display-redactor-breaks-persistence.md:49:[inherited-severity,reframe-on-isolated-surface,threat-model-measure-not-assume,defense-in-depth-vs-p0,display-redactor-breaks-persistence,jsonb-nan-infinity,failclosed-serialization,assert-serializable,purpose-sets-polarity,probe-deeper,adversarial-codex]
+.dev/learning/091-guard-must-precede-the-cost-it-prevents.md:7:[[cap-the-raw-source-not-the-buffer]]=059(어디서 캡하나), [[core-is-model-config-and-memory]](보조도구 과한 금칠 금지),
+.dev/learning/091-guard-must-precede-the-cost-it-prevents.md:34:그래서 타입 메타 파이프라인(stream→schema→model→영속)은 **비목표**로 두고, *같은 추측*을 **렌더시점
+.dev/learning/091-guard-must-precede-the-cost-it-prevents.md:35:프런트 휴리스틱**으로 공짜로 했다(보조도구에 스키마 확장=과한 금칠, [[core-is-model-config-and-memory]]).
+.dev/learning/110-links-proven-is-not-chain-proven.md:27:해결: FastAPI `app.dependency_overrides[current_principal] = lambda: <슈퍼유저 스텁>`으로 채팅
+.dev/learning/110-links-proven-is-not-chain-proven.md:47:E2E는 **프로덕션과 같은 인증 컨텍스트**로(principal 타입이 결과를 가름); 다르면 dependency_overrides로
+.dev/learning/101-seed-bypasses-write-schema-and-verify-the-reviewer.md:10:`body.config.model_dump()`가 그 키를 **조용히 드롭** → 저장 config에 allowlist가 없음 →
+.dev/learning/INDEX.md:58:- 053 신원 보강은 스코프 엔드포인트로, 고권한 엔드포인트 재사용 금지 — 저권한 화면을 고권한 엔드포인트(users:manage)로 보강하면 권한등급이 조용히 상승; 최소권한 read 엔드포인트 신설 [authz,coupling,scoped-endpoint,least-privilege,response-model,leak,adversarial]
+.dev/learning/INDEX.md:93:- 088 인터페이스에 새 필드를 더하면 모든 입구에서 다뤄질 때까지 죽은 것이다 — 빠뜨린 입구가 초록인 채 떨어뜨림(full-replace silent drop); 입구 닫힌집합 확정+model_fields_set 보존+통합 라운드트립 [new-interface-field,wire-at-every-entry,full-replace-silent-drop,model-fields-set,dead-contract,enumerate-entries,roundtrip-through-all-entries,086-sibling-axis]
+.dev/learning/INDEX.md:95:- 090 분리된 표면에선 위협 모델을 실측하라(상속한 심각도 의심) — 선행 P0를 그대로 상속하면 과투자; 표시용 redactor 출력이 영속 저장소(JSONB)에도 실리면 NaN이 commit을 깸 [inherited-severity,reframe-on-isolated-surface,threat-model-measure-not-assume,defense-in-depth-vs-p0,display-redactor-breaks-persistence,jsonb-nan-infinity,failclosed-serialization,purpose-sets-polarity]
+.dev/learning/INDEX.md:107:- 102 전략은 impl로 갈라 공통 조상(ABC 템플릿)에 불변식을 소유시켜라 — config["impl"] 재사용, 자식 유일구멍=select; 둘째구현이 추상무누수를 측정하고 여집합공격 성공은 정직한 경계일 수도 [abc-template-method,strategy-as-impl,common-ancestor-owns-invariant,only-hole-abstractmethod,drift-zero-measured,second-impl-measures-abstraction,behavior-preserving-refactor,complement-attack-is-honest-boundary,gated-side-effect-exactly-once,document-boundary-not-silent,final-static-enforcement,python-cant-block-override,chosen-subset-candidates-guard,chooser-not-maker,codex-design-limit-third-verdict,discover-substring-vs-rank-token,adversarial-codex,probe-deeper]
+.dev/learning/INDEX.md:113:- 108 내부 아키텍처를 UI 단어로 노출하지 마라 — 시스템 분해≠유저 멘탈모델; 같은 자원이 두 곳에 나오면 두 배타 런타임경로 증상이니 모드로 갈라라(사용자 세 번 지적 후 뿌리를 팜) [no-internal-jargon-in-ui,system-decomposition-vs-user-model,measure-jargon-absence-innertext,duplicate-resource-two-exclusive-paths,mode-splits-config-surface,diagnose-duplication-in-code,repeated-feedback-is-framing-signal,askuserquestion-preview-naming]
+.dev/learning/INDEX.md:114:- 109 cross-surface UI 일관성은 재사용 컴포넌트로 — 복붙은 즉시 drift; 저장구조 달라도 id prefix+toggle 라우팅 어댑터로 이질 상태 흡수, 폼 위계=필수→종류별→선택(접힘) [reusable-component-for-consistency,cross-surface,copy-paste-causes-drift,adapter-prefix-routing,single-selected-ontoggle-contract,form-tiers-required-typespecific-optional,antd-v6-collapse-header,ui-agent-only-override]
+.dev/learning/INDEX.md:115:- 110 "각 고리 증명" ≠ "체인 증명" — 브로커 전 체인 각 고리가 따로 검증돼도 채팅 EP 관통은 첫 E2E가 이음매를 드러냄; E2E는 프로덕션과 같은 인증컨텍스트를 재현해야(dependency_overrides) [links-proven-not-chain-proven,seams-only-show-on-traversal,auth-context-is-part-of-contract,e2e-must-reproduce-real-principal,false-negative-from-wrong-auth,mock-deterministic-for-llm-independent-path,lexical-discover-substring,custom-agent-selector]
+.dev/learning/INDEX.md:118:- 113 confused deputy는 "누가 그 참조를 넣었나"로 인가한다 — 참조를 넣은 주체(작성자)로 인가하되 호출자 입력(override)은 저장본과 분리해 2차 confused-deputy 봉합; 신원은 형식검증 먼저 [authorize-by-who-supplied-the-reference,confused-deputy,author-not-caller-for-stored,caller-authority-for-injected,uuid-validate-before-authz-key,identifier-vs-role-namespace-collision,rbac-lever-covers-both-paths,lazy-enforcer-fail-closed]
+.dev/learning/INDEX.md:138:- 141 조사: 타 제품 평가 설계(플랫폼 5+RAG 4) — 케이스 3요소(expected 1급)·채점 3계층+인간·비교="고정 데이터셋×가변 구성"·RAG 표준=Faithfulness/Context P·R(절차로 도입); 우리 격차=모델별 비교·expected 1급·judge 신뢰성 [eval-landscape,model-comparison-standard,golden-set-generation,judge-benchmarking,rag-standard-metrics] → 141a/141b 원문
+.dev/learning/INDEX.md:145:- 148 신뢰 못 할 생산자 위 "형식 강제"는 보장이 아니라 시도+정직한 실패로 짜라 — structured-output 미보장 환경(mock)에서 실패하면 거짓 형식 짓지 말고 원문 통과(가짜 성공 은폐 금지); 강제 개입은 최종 응답에만 [format-enforcement,untrusted-producer,attempt-not-guarantee,honest-fallback-no-fabrication,pass-through-original-not-repair,intervene-on-final-response,lenient-extractor-trust-boundary,fake-model-scripted-verify]
+.dev/learning/INDEX.md:149:- 152 화면 표기 정직성은 실행 코드가 판정한다 — 저장값 표시가 사실이어도 실행이 안 읽으면 거짓(노드형 model/persona=pipeline.py 미참조); 소비 선언(consumes)이 있으면 그 단일 출처로 게이트, 자매 표면까지 스윕 [display-honesty,execution-decides-truth,consumes-single-source,sibling-surface-sweep,plant-unconsumed-assert-absent]
+.dev/learning/INDEX.md:155:- 364 이 레포 alembic CLI는 순환 임포트로 깨진다·마이그레이션은 프로그램적으로 — uv run alembic은 순환임포트로 깨진다 → api.models 완전 로드 후 command.upgrade/revision을 프로그램적으로 호출하고, autogenerate가 제안하는 런타임소유 테이블 drop은 손으로 트림해야 [alembic-cli-circular-import,programmatic-migration,autogenerate-runtime-owned-drift,trim-generated,restart-after-migrate]
+.dev/learning/382-dict-to-dto-mypy-is-net-tests-arent.md:27:  **직접 인자**(nodes·model_cfg)로 리팩터 → 증분 상태 의존 소멸. 수령 후 변형(chat_approval의
+
+codex
+[단계 4 — Execution] 참고 자산: 092 broken config refuse loud → 선언된 깨진 모델은 조용히 폴백하지 않음, 088 새 인터페이스 필드는 모든 입구 배선 확인, 113 override 주입은 저장본과 분리해 봄. 이제 실제 라인 기준으로 `_resolve_model` 소비 경로와 오버라이드 병합 순서를 닫힌 집합으로 세겠습니다.
+exec
+/bin/zsh -lc "nl -ba packages/api/src/api/chat_context_models.py | sed -n '1,220p'" in /Users/anthony/Repository/github/loveqoo/my-agents
+exec
+/bin/zsh -lc "nl -ba packages/api/src/api/chat_context_loader.py | sed -n '1,240p'" in /Users/anthony/Repository/github/loveqoo/my-agents
+ succeeded in 0ms:
+     1	"""_load_context 오케스트레이터 — chat_context.py에서 분할(스펙 394 P6).
+     2	
+     3	컨텍스트 계층의 **순서 계약**이 이 파일에 드러난다(codex 자문 — 순서 변경=동작 변경):
+     4	① 버전 스냅샷 → ② 노드 ref 해석(오버라이드 **전** — 세션 패치는 해석된 유효 노드 위에) →
+     5	③ 오버라이드 병합 → ④ 풀 재파생(모델/MCP/RAG 해석 **전**) → ⑤ exec_version 확정 **후** pins →
+     6	⑥ 모델 → 노드 모델 → mem → MCP → RAG → 세션. 파사드는 chat_context.py(재수출 계약).
+     7	"""
+     8	
+     9	import uuid
+    10	
+    11	from sqlalchemy.ext.asyncio import AsyncSession
+    12	
+    13	from .chat_context_mcp import _resolve_mcp_servers
+    14	from .chat_context_models import _resolve_mem_cfg, _resolve_model, _resolve_node_models
+    15	from .chat_context_overrides import _apply_overrides, _filter_capabilities
+    16	from .chat_context_pool import derive_pipeline_pool
+    17	from .chat_context_rag import _resolve_rag
+    18	from .chat_context_sessions import _resolve_session
+    19	from .chat_context_types import ChatContext, _is_remote
+    20	from .chat_context_versions import (
+    21	    _resolve_exec_pins,
+    22	    _resolve_prompt_provenance,
+    23	    _resolve_version_and_prompt,
+    24	)
+    25	from .db import SessionLocal, get_or_404
+    26	from .models import Agent
+    27	from .node_templates import resolve_node_refs
+    28	
+    29	# 세션 오버라이드 화이트리스트(스펙 025/122/276/287 — 각 키 근거는 _apply_overrides docstring).
+    30	_OVERRIDE_ALLOWED = {
+    31	    "model",
+    32	    "temperature",
+    33	    "historyDepth",
+    34	    "mcps",
+    35	    "memories",
+    36	    "capabilities",
+    37	    "tools",
+    38	    "vectorTables",
+    39	}
+    40	
+    41	
+    42	async def _resolve_nodes_for_ctx(
+    43	    db: AsyncSession,
+    44	    nodes: object,
+    45	    model_cfg: dict | None,
+    46	    remote: bool,
+    47	    pins: dict | None = None,
+    48	) -> list[dict] | None:
+    49	    """노드형(스펙 259)이면 노드별 모델을 **플랫폼이 미리 해석**해 심는다(085 U2: build_graph는 DB
+    50	    미접촉). 로컬(ui) 경로에서만 의미 — 비노드형/원격은 None."""
+    51	    if remote or not isinstance(nodes, list):
+    52	        return None
+    53	    return await _resolve_node_models(db, nodes, model_cfg, pins)
+    54	
+    55	
+    56	async def _prepare_cfg(
+    57	    db: AsyncSession, agent: Agent, version: str | None, overrides: dict | None
+    58	) -> tuple[dict, str, str | None, str | None, dict | None]:
+    59	    """cfg 준비 단계(스펙 394 분해) — 버전 스냅샷·노드 ref 해석·오버라이드 병합·풀 재파생.
+    60	    반환 (cfg, prompt, pinned_version, nodes_status, applied_overrides). 순서는 모듈 docstring ①~④."""
+    61	    cfg = dict(agent.config or {})
+    62	    # (스펙 211) 구 113 P0의 저장본/override 권한 분리(stored_mcps 포착)는 사용=공용 전환으로 소멸.
+    63	    cfg, prompt, pinned_version = await _resolve_version_and_prompt(db, agent, cfg, version)
+    64	    # 노드 참조 해석(스펙 316) — ref 항목을 등록 노드 config 사본으로 치환. **오버라이드 병합
+    65	    # 전에**(해석→병합): 세션 패치는 해석된 유효 노드 위에 얹는다. 미해결 참조는 422로 명확히
+    66	    # 실패(반쪽 파이프라인 조용히 실행 금지 — 089 패턴). 핀 버전 미리보기(version=) 스냅샷의
+    67	    # 참조도 여기서 함께 해석된다(_resolve_version_and_prompt 뒤 단일 지점).
+    68	    if not _is_remote(agent.source) and isinstance(cfg.get("nodes"), list):
+    69	        cfg["nodes"] = await resolve_node_refs(db, cfg["nodes"])
+    70	    cfg, prompt, nodes_status, applied_overrides = _apply_overrides(
+    71	        cfg, prompt, overrides, agent, _OVERRIDE_ALLOWED
+    72	    )
+    73	    # 노드형 풀 서버 파생(스펙 289 P2) — 로드 시 무조건 재파생: 폼 밖 입구(API 직생성·구저장·
+    74	    # 오버라이드)로 풀이 비었거나 낡았어도 노드 참조대로 도구·문서·기억이 빌드된다(learning 151).
+    75	    # 저장 시 파생(agents.py)과 같은 규칙이라 폼 저장분엔 무변화(멱등).
+    76	    if not _is_remote(agent.source):
+    77	        await derive_pipeline_pool(cfg)
+    78	    return cfg, prompt, pinned_version, nodes_status, applied_overrides
+    79	
+    80	
+    81	async def _load_context(
+    82	    agent_id: uuid.UUID,
+    83	    session_str_id: str | None,
+    84	    overrides: dict | None = None,
+    85	    own: str | None = None,
+    86	    version: str | None = None,
+    87	) -> ChatContext:
+    88	    """에이전트 구성 + MCP 활성 툴 + 세션(생성/지속)을 한 번에 준비.
+    89	
+    90	    overrides(스펙 025): Playground Proxy의 세션 한정 설정 덮어쓰기. **web 에이전트에만** 적용하고
+    91	    화이트리스트 키만 받는다(저장된 에이전트는 불변). 코드 에이전트는 원격 실행이라 미적용(bypass).
+    92	
+    93	    own(스펙 068): resume 소유자 스코프. 비-admin이면 `str(principal.id)`, admin/머신·내부 호출은
+    94	    None. `own is not None`이면 resume 바인딩이 `Session.user_id == own`을 요구해, *타인/NULL/추측*
+    95	    session_id는 매칭 실패 → 새 세션 발급(067 읽기 게이트와 동일 판정 — 열거 오라클·소유권 탈취 봉인).
+    96	    """
+    97	    # 세션 id 위생(스펙 290 적대): Postgres text는 NUL(0x00)을 저장·조회할 수 없어, 오염된 id가
+    98	    # WHERE에 닿으면 asyncpg가 DBAPIError(500)로 샌다. NUL 포함 id는 애초에 저장 행과 매칭 불가라
+    99	    # 새 세션으로 fold하는 것이 계약("200+새 세션 발급")과 일치한다 — resume 자체를 건너뛴다.
+   100	    # (다른 특수문자·긴 길이는 파라미터 바인딩이 안전 처리하므로 그대로 통과시켜 매칭 실패에 맡긴다.)
+   101	    if session_str_id and "\x00" in session_str_id:
+   102	        session_str_id = None
+   103	    async with SessionLocal() as db:
+   104	        agent = await get_or_404(db, Agent, agent_id, detail="agent not found")
+   105	        cfg, prompt, pinned_version, nodes_status, applied_overrides = await _prepare_cfg(
+   106	            db, agent, version, overrides
+   107	        )
+   108	        remote = _is_remote(agent.source)
+   109	        # 실행 버전(스펙 242) — pinned=지정 버전(미리보기), exec=실제 실행 버전(지정 없으면 활성).
+   110	        # trace.agentVersion 기록·HIL 게이트(pinned는 승인 재개가 서빙 config로 돌아 drift) 근거.
+   111	        exec_version = pinned_version or agent.active_version
+   112	        prompt_name, prompt_id = await _resolve_prompt_provenance(
+   113	            db, cfg, applied_overrides, remote
+   114	        )
+   115	        pins = await _resolve_exec_pins(db, agent.id, exec_version, remote)
+   116	        # 코드·외부 에이전트는 비로컬(원격/A2A) 실행이라 로컬 모델이 필요 없다(건너뜀 = None).
+   117	        nodes = cfg.get("nodes")  # 노드형 파이프라인 노드 명세(스펙 259) — 아래서 노드별 모델 해석
+   118	        model_cfg = await _resolve_model(db, cfg, overrides, pins) if not remote else None
+   119	        nodes_resolved = await _resolve_nodes_for_ctx(db, nodes, model_cfg, remote, pins)
+   120	        mem_cfg = await _resolve_mem_cfg(db, model_cfg)
+   121	        mcp_servers, tool_names = await _resolve_mcp_servers(db, cfg, pins)
+   122	        rag_collections, rag_unresolved = await _resolve_rag(db, cfg, remote)
+   123	        session = await _resolve_session(db, agent, session_str_id, own)
+   124	        return ChatContext(
+   125	            prompt=prompt,
+   126	            ext_agent_id=agent.agent_id,
+   127	            agent_name=agent.name,
+   128	            agent_pk=agent.id,
+   129	            source=agent.source,
+   130	            impl=cfg.get("impl"),
+   131	            artifact_spec=cfg.get("artifactSpec"),
+   132	            nodes=nodes,
+   133	            overrides_nodes_status=nodes_status,
+   134	            # 원본 오버라이드 — in-process 커스텀이 화이트리스트 밖 키도 읽게 전달(스펙 085
+   135	            # AgentBuildContext.overrides). 원격은 None(로컬 설정 주입 무의미, bypass 보존).
+   136	            overrides=applied_overrides,
+   137	            endpoint=agent.endpoint,
+   138	            token=agent.token,
+   139	            card=cfg.get("card"),
+   140	            memories=cfg.get("memories", []),
+   141	            capabilities=_filter_capabilities(cfg),
+   142	            # 도구 승인 오버라이드(스펙 177 P2) — 요청 오버라이드 허용키엔 불포함(요청으로 승인 완화
+   143	            # 우회 금지, config-only). 완화 권한은 저장 시 admin 게이트로 강제.
+   144	            tool_policy=cfg.get("toolPolicy") or {},
+   145	            # 에이전트가 명시한 temperature만 전달(없으면 None) → 모델 등록 params가 적용되게.
+   146	            temperature=cfg.get("temperature"),
+   147	            history_depth=cfg.get("historyDepth", 20),
+   148	            persist_history=cfg.get("persistHistory", True),
+   149	            # 비영속(1회성) 모드(스펙 235) — true면 DB 적재 전면 스킵(persistHistory의 상위집합).
+   150	            ephemeral=bool(cfg.get("ephemeral", False)),
+   151	            pinned_version=pinned_version,
+   152	            exec_version=exec_version,
+   153	            prompt_name=prompt_name,
+   154	            prompt_id=prompt_id,
+   155	            pins=pins,
+   156	            model_cfg=model_cfg,
+   157	            nodes_resolved=nodes_resolved,
+   158	            mem_cfg=mem_cfg,
+   159	            mcp_servers=mcp_servers,
+   160	            tool_names=tool_names,
+   161	            rag_collections=rag_collections,
+   162	            rag_unresolved=rag_unresolved,
+   163	            # 컬렉션별 최소 유사도 맵(스펙 191 v2). downstream이 범위·컬렉션 재검증하므로 raw 통과({}=무필터).
+   164	            rag_min_scores=cfg.get("ragMinScores") or {},
+   165	            session_pk=session["session_pk"],
+   166	            session_id=session["session_id"],
+   167	            session_pending=session["session_pending"],
+   168	        )
+
+ succeeded in 0ms:
+     1	"""모델·mem0 설정 해석 — chat_context.py에서 분할(스펙 394 P3).
+     2	
+     3	_resolve_model(구 CC 12)은 레지스트리 조회(_registry_chat_model·_default_chat_registry)와
+     4	행→dict 변환(_model_cfg_from_row) 추출로 분해. **의도 비대칭 보존**(codex 자문·스펙 290):
+     5	오버라이드 모델 미등록=400(시끄럽게), 저장 설정 미등록=기본(is_default) 폴백(graceful).
+     6	파사드는 chat_context.py(재수출 계약).
+     7	"""
+     8	
+     9	import uuid
+    10	
+    11	from fastapi import HTTPException
+    12	from sqlalchemy import select
+    13	from sqlalchemy.ext.asyncio import AsyncSession
+    14	from sqlalchemy.orm import selectinload
+    15	
+    16	from . import crypto
+    17	from .chat_context_types import _is_remote
+    18	from .mem_config import (
+    19	    _build_mem_cfg,
+    20	    _default_chat_model,
+    21	    _default_embed_model,
+    22	    llm_cfg_of,
+    23	    model_usable,
+    24	)
+    25	from .models import Agent, ModelConfig
+    26	
+    27	
+    28	async def _pinned_model_cfg(db: AsyncSession, pins: dict | None, name: str) -> dict | None:
+    29	    """pin이 head와 다를 때만 이력 payload로 model_cfg 구성(스펙 370) — 369 경계 그대로
+    30	    저작 내용(model_id·params·provider_id)은 pin, 연결처 비밀(base_url·api_key)은 라이브 provider."""
+    31	    from .block_versions import resolve_pinned
+    32	    from .models import Provider as _Provider
+    33	
+    34	    payload = await resolve_pinned(db, pins, "model", name)
+    35	    if payload is None:
+    36	        return None
+    37	    prov = None
+    38	    if payload.get("provider_id"):
+    39	        try:
+    40	            prov = await db.get(_Provider, uuid.UUID(str(payload["provider_id"])))
+    41	        except ValueError:
+    42	            prov = None
+    43	    if prov is None or not prov.base_url or not payload.get("model_id"):
+    44	        return None  # 불완전 pin — head 폴백(정직 degrade)
+    45	    return {
+    46	        "base_url": prov.base_url,
+    47	        "api_key": crypto.decrypt(prov.api_key),
+    48	        "model_id": payload["model_id"],
+    49	        "params": dict(payload.get("params") or {}),
+    50	    }
+    51	
+    52	
+    53	async def _registry_chat_model(db: AsyncSession, name: str) -> ModelConfig | None:
+    54	    """레지스트리 chat 모델 단건 조회(name, kind=chat, provider 상속) — 해석 3경로 공유 조회."""
+    55	    return (
+    56	        await db.execute(
+    57	            select(ModelConfig)
+    58	            .where(ModelConfig.name == name, ModelConfig.kind == "chat")
+    59	            .options(selectinload(ModelConfig.provider))
+    60	        )
+    61	    ).scalar_one_or_none()
+    62	
+    63	
+    64	async def _default_chat_registry(db: AsyncSession) -> ModelConfig | None:
+    65	    """기본(is_default) chat 모델 조회 — 저장 설정 미지정/미등록의 graceful 폴백 대상."""
+    66	    return (
+    67	        (
+    68	            await db.execute(
+    69	                select(ModelConfig)
+    70	                .where(ModelConfig.kind == "chat", ModelConfig.is_default.is_(True))
+    71	                .options(selectinload(ModelConfig.provider))
+    72	            )
+    73	        )
+    74	        .scalars()
+    75	        .first()
+    76	    )
+    77	
+    78	
+    79	def _model_cfg_from_row(m: ModelConfig) -> dict:
+    80	    """모델 행 → model_cfg dict — 불완전(provider base_url/model_id 부재)은 400(명확한 안내)."""
+    81	    base_url = m.provider.base_url if m.provider else ""
+    82	    if not base_url or not m.model_id:
+    83	        raise HTTPException(
+    84	            status_code=400,
+    85	            detail=f"모델 '{m.name}' 설정이 불완전합니다 (provider base_url/model_id 필요).",
+    86	        )
+    87	    # 등록 없음·설정 불완전이 각각 다른 에러 메시지라 model_usable로 접지 않음 — dict만 정본화.
+    88	    return {**llm_cfg_of(m), "params": dict(m.params or {})}
+    89	
+    90	
+    91	async def _chat_model_cfg(db: AsyncSession, name: str, pins: dict | None = None) -> dict | None:
+    92	    """레지스트리 chat 모델(name→provider 상속) 해석 — pin 우선(스펙 370), 미존재/불완전이면 None."""
+    93	    pinned = await _pinned_model_cfg(db, pins, name)
+    94	    if pinned is not None:
+    95	        return pinned
+    96	    m = await _registry_chat_model(db, name)
+    97	    if model_usable(m):
+    98	        return {**llm_cfg_of(m), "params": dict(m.params or {})}
+    99	    return None
+   100	
+   101	
+   102	async def _resolve_node_models(
+   103	    db: AsyncSession, nodes: list, default_cfg: dict | None, pins: dict | None = None
+   104	) -> list[dict]:
+   105	    """노드형(스펙 259) 노드별 모델을 레지스트리에서 미리 해석해 `model_cfg`를 심는다(085 U2 — impl은
+   106	    DB 미접촉). 에이전트 모델 해석과 **동일 조회**(`ModelConfig.name==name, kind=="chat"`, provider
+   107	    상속) — 드리프트 0. 미지정/미존재 이름은 `default_cfg`(에이전트 기본 chat 모델)로 폴백. 같은 모델
+   108	    이름은 1회만 조회해 재사용(N 노드 M 중복 모델 → distinct 쿼리). 순수 데이터 반환(잡 노드는 통과 —
+   109	    정규화는 impl의 normalize_nodes가)."""
+   110	    resolved: list[dict] = []
+   111	    cache: dict[str, dict | None] = {}
+   112	    for node in nodes:
+   113	        if not isinstance(node, dict):
+   114	            continue
+   115	        name = node.get("model")
+   116	        cfg = None
+   117	        if isinstance(name, str) and name.strip():
+   118	            if name not in cache:
+   119	                cache[name] = await _chat_model_cfg(db, name, pins)
+   120	            cfg = cache[name]
+   121	        # 심은 model_cfg는 해석된 노드 모델(없으면 에이전트 기본으로 폴백 — impl의 _model_from_node).
+   122	        resolved.append({**node, "model_cfg": cfg or default_cfg})
+   123	    return resolved
+   124	
+   125	
+   126	async def _resolve_model(
+   127	    db: AsyncSession, cfg: dict, overrides: dict | None, pins: dict | None = None
+   128	) -> dict:
+   129	    """chat 모델을 레지스트리에서만 해석(env 안 봄) — 반환 model_cfg dict(연결처는 provider 상속, 스펙 035).
+   130	
+   131	    에이전트가 고른 이름 → 없으면 기본(is_default) chat 모델 → 그것도 없으면 명확히 400.
+   132	    명시 오버라이드 모델이 미등록이면 **시끄럽게 거절**(스펙 290 — learning 092: 조용한 폴백은
+   133	    호출자가 다른 모델로 실행된 걸 모른 채 지나간다). 저장 설정의 미지정·미등록은 기존 기본 폴백
+   134	    유지(graceful — 범위 밖, 백로그)."""
+   135	    model_name = cfg.get("model")
+   136	    if model_name:
+   137	        pinned = await _pinned_model_cfg(db, pins, model_name)  # pin 우선(스펙 370)
+   138	        if pinned is not None:
+   139	            return pinned
+   140	    m = await _registry_chat_model(db, model_name) if model_name else None
+   141	    if m is None:
+   142	        # 거절은 **실명을 댄** 오버라이드에만(스펙 401) — 모델 미지정 에이전트(model_name=None)에
+   143	        # model 키 없는(또는 null) 오버라이드가 오면 None==None으로 오폭하던 것을 실명 요구로 봉합.
+   144	        # 미선언은 기본 폴백(learning 092: 선언-but-broken만 거절).
+   145	        if overrides and overrides.get("model") and overrides.get("model") == model_name:
+   146	            raise HTTPException(
+   147	                status_code=400,
+   148	                detail=f"오버라이드 모델 '{model_name}'이(가) 등록돼 있지 않습니다 — 모델 이름을 확인하세요.",
+   149	            )
+   150	        m = await _default_chat_registry(db)
+   151	    if m is None:
+   152	        raise HTTPException(
+   153	            status_code=400,
+   154	            detail="등록된 채팅 모델이 없습니다 — 모델을 먼저 등록하세요.",
+   155	        )
+   156	    return _model_cfg_from_row(m)
+   157	
+   158	
+   159	async def _resolve_mem_cfg(db: AsyncSession, model_cfg: dict | None) -> dict | None:
+   160	    """mem0용 모델 설정(레지스트리) — llm=해석된 chat 모델, embedder=기본 embedding 모델.
+   161	
+   162	    임베딩 모델이 없으면 None → 메모리 비활성(graceful)."""
+   163	    if not model_cfg:
+   164	        return None
+   165	    emb = (
+   166	        (
+   167	            await db.execute(
+   168	                select(ModelConfig)
+   169	                .where(ModelConfig.kind == "embedding", ModelConfig.is_default.is_(True))
+   170	                .options(selectinload(ModelConfig.provider))
+   171	            )
+   172	        )
+   173	        .scalars()
+   174	        .first()
+   175	    )
+   176	    if emb is None or emb.provider is None:
+   177	        return None
+   178	    return {
+   179	        "llm": {
+   180	            "base_url": model_cfg["base_url"],
+   181	            "api_key": model_cfg["api_key"],
+   182	            "model_id": model_cfg["model_id"],
+   183	        },
+   184	        "embedder": llm_cfg_of(emb),
+   185	    }
+   186	
+   187	
+   188	async def resolve_agent_mem_cfg(db: AsyncSession, agent: Agent) -> dict | None:
+   189	    """에이전트의 mem0 설정(레지스트리 chat llm + 기본 embedding)을 해석. 없으면 None.
+   190	
+   191	    관리자 메모리 CRUD(agents.py 스펙 029)가 _load_context와 같은 규칙으로 mem_cfg를 얻는 단일
+   192	    경로. 코드·외부 에이전트는 비로컬(원격/A2A)이라 로컬 mem0가 없다 → None.
+   193	    """
+   194	    if _is_remote(agent.source):
+   195	        return None
+   196	    cfg = dict(agent.config or {})
+   197	    model_name = cfg.get("model")
+   198	    m = await _registry_chat_model(db, model_name) if model_name else None
+   199	    if m is None:
+   200	        m = await _default_chat_model(db)
+   201	    return _build_mem_cfg(m, await _default_embed_model(db))
+
+exec
+/bin/zsh -lc "nl -ba packages/api/src/api/chat_context_overrides.py | sed -n '1,180p'" in /Users/anthony/Repository/github/loveqoo/my-agents
+ succeeded in 0ms:
+     1	"""세션 오버라이드·노드 병합 — chat_context.py에서 분할(스펙 394 P1).
+     2	
+     3	_merge_node_overrides(구 CC 12)는 노드별 병합(_merge_one_node) 추출로 분해.
+     4	파사드는 chat_context.py(재수출 계약 — verify_317이 직접 임포트).
+     5	"""
+     6	
+     7	from .chat_context_types import _is_remote
+     8	from .models import Agent
+     9	
+    10	# 노드 오버라이드 필드 화이트리스트(스펙 287) — 구조 식별자(name)는 제외해 저장본 유지.
+    11	# 노드 추가/삭제는 테스트 범위 밖(사용자 결정): 오버라이드는 "이 에이전트 그대로, 설정만 바꿔
+    12	# 테스트"가 목적이라 구조 변경 요청은 받지 않는다(서버 강제 — 클라이언트 신뢰 금지).
+    13	_NODE_OVERRIDE_FIELDS = {
+    14	    "prompt",
+    15	    "model",
+    16	    "tools",
+    17	    "historyDepth",
+    18	    "memories",
+    19	    "memoryQuery",
+    20	    "context",
+    21	    "format",
+    22	    "fields",
+    23	}
+    24	
+    25	
+    26	def _node_patch_fields(base_n: dict) -> set[str]:
+    27	    """이 노드에 병합 가능한 오버라이드 필드(스펙 317) — 설정 노드=화이트리스트 전체, 코드 노드=
+    28	    manifest.overridable ∩ 화이트리스트(나머지는 코드가 소유 — 세션 패치로 못 바꾼다). 미등록
+    29	    impl은 빈 집합(fail-closed — 어차피 실행이 설정 오류로 거부됨)."""
+    30	    impl = base_n.get("impl")
+    31	    if not isinstance(impl, str) or not impl.strip():
+    32	        return _NODE_OVERRIDE_FIELDS
+    33	    from agent.nodes import get_node_impl
+    34	
+    35	    node_impl = get_node_impl(impl)
+    36	    if node_impl is None:
+    37	        return set()
+    38	    return _NODE_OVERRIDE_FIELDS & set(node_impl.describe().overridable)
+    39	
+    40	
+    41	def _merge_one_node(base_n: object, ov_n: object) -> tuple[dict, bool] | None:
+    42	    """노드 하나 병합 — (병합본, 코드소유 필드 드롭 여부). 형식 오류는 None(mismatch 신호)."""
+    43	    if not isinstance(base_n, dict) or not isinstance(ov_n, dict):
+    44	        return None
+    45	    allowed = _node_patch_fields(base_n)
+    46	    patch = {k: v for k, v in ov_n.items() if k in allowed}
+    47	    dropped = any(k in _NODE_OVERRIDE_FIELDS and k not in allowed for k in ov_n)
+    48	    return {**base_n, **patch}, dropped
+    49	
+    50	
+    51	def _merge_node_overrides(saved: list, ov: object) -> tuple[list, str]:
+    52	    """노드형 세션 오버라이드 merge(스펙 287). 길이(=구조)가 같을 때만 인덱스별로 필드
+    53	    화이트리스트를 저장 노드 위에 덮는다. 불일치·형식 오류는 저장본 그대로 + "mismatch"
+    54	    (조용한 드롭 금지 — 트레이스가 표면화, 스펙 125 계열). 코드 노드(스펙 317)는 manifest가
+    55	    선언한 표면만 병합하고, 화이트리스트 필드가 표면 밖이라 떨어지면 "partial"로 표면화
+    56	    (조용한 무시 금지 — 무엇이 안 먹었는지 트레이스가 말한다). 순수 함수(테스트 단위)."""
+    57	    if not isinstance(ov, list) or len(ov) != len(saved):
+    58	        return saved, "mismatch"
+    59	    merged: list = []
+    60	    dropped = False
+    61	    for base_n, ov_n in zip(saved, ov, strict=True):
+    62	        one = _merge_one_node(base_n, ov_n)
+    63	        if one is None:
+    64	            return saved, "mismatch"
+    65	        node, one_dropped = one
+    66	        dropped = dropped or one_dropped  # 코드 소유 필드를 덮으려 함 — 병합은 계속, 정직 표기
+    67	        merged.append(node)
+    68	    return merged, ("partial" if dropped else "applied")
+    69	
+    70	
+    71	def _coerce_history_depth(cfg: dict, agent: Agent) -> None:
+    72	    """historyDepth 형 가드(codex 287 Low) — 비정수(예: 문자열)는 _window의 `depth < 0` 비교에서
+    73	    TypeError 500. 정수화 실패 시 저장값 폴백(요청 하나로 500 못 만들게)."""
+    74	    if isinstance(cfg.get("historyDepth"), int):
+    75	        return
+    76	    try:
+    77	        cfg["historyDepth"] = int(cfg["historyDepth"])
+    78	    except (TypeError, ValueError):
+    79	        cfg["historyDepth"] = (agent.config or {}).get("historyDepth", 20)
+    80	
+    81	
+    82	def _apply_overrides(
+    83	    cfg: dict, prompt: str, overrides: dict | None, agent: Agent, allowed: set
+    84	) -> tuple[dict, str, str | None, dict | None]:
+    85	    """web 한정 세션 오버라이드 병합(스펙 025) — 화이트리스트 키만, 저장 에이전트는 불변.
+    86	
+    87	    코드·외부(원격) 에이전트는 미적용(bypass 보존 — 026 read-only 취급). 모델은 여전히
+    88	    cfg["model"] 이름으로 레지스트리에서만 해석 → [012] 단일 소스 불변식 유지.
+    89	    - capabilities(스펙 122): 브로커가 build_broker(principal=호출자)로 호출자 RBAC 게이트
+    90	      (_permitted = allowlist ∩ RBAC)하므로 주입분도 안전(confused-deputy 무관).
+    91	    - tools(스펙 276): 직접형 도구 단위 배선 — 노출 축소/서버별 필터라 완화 아님.
+    92	    - vectorTables(스펙 287): 노드형 문서 풀 파생의 실효 축 — RAG 읽기(사용=공용 정책 211).
+    93	    - nodes(스펙 287): 구조 불변 강제 merge(allowed와 분리 — 통짜 교체가 아니라 저장 노드 위
+    94	      필드 merge, 추가/삭제=범위 밖). 미적용 사유(mismatch)는 트레이스가 표면화.
+    95	    반환 (cfg, prompt, nodes_status, passthrough) — passthrough=적용된 원본 오버라이드(미적용=None):
+    96	    in-process 커스텀 에이전트가 화이트리스트 밖 키도 읽게 ctx["overrides"]로 전달(스펙 085)."""
+    97	    if not overrides or _is_remote(agent.source):
+    98	        return cfg, prompt, None, None
+    99	    cfg.update({k: v for k, v in overrides.items() if k in allowed})
+   100	    if "historyDepth" in overrides:
+   101	        _coerce_history_depth(cfg, agent)
+   102	    # systemPrompt는 비어있지 않을 때만 prompt를 덮어쓴다 — 빈/공백 문자열로
+   103	    # 저장된 프롬프트를 지우지 않도록(백엔드 자체 가드, 클라이언트 신뢰 안 함. codex P1).
+   104	    sp = overrides.get("systemPrompt")
+   105	    if isinstance(sp, str) and sp.strip():
+   106	        prompt = sp
+   107	    nodes_status: str | None = None
+   108	    if overrides.get("nodes") is not None:
+   109	        if isinstance(cfg.get("nodes"), list):
+   110	            cfg["nodes"], nodes_status = _merge_node_overrides(cfg["nodes"], overrides["nodes"])
+   111	        else:
+   112	            nodes_status = "mismatch"  # 노드형이 아닌 에이전트에 nodes를 보냄
+   113	    return cfg, prompt, nodes_status, overrides
+   114	
+   115	
+   116	def _filter_capabilities(cfg: dict) -> list:
+   117	    """능력 브로커 allowlist(스펙 100) — 오케스트레이션 허용 cap id 목록(없으면 [] = deny-by-default).
+   118	
+   119	    비영속(스펙 237) 방어층: DB 쓰기 능력(memwrite/memedit)은 걸러낸다 — 정본 게이트는 저장 시
+   120	    422(agents._enforce_ephemeral_boundary), 여기는 과거 저장분·우회 대비 fail-closed."""
+   121	    return [
+   122	        c
+   123	        for c in cfg.get("capabilities", [])
+   124	        if not (
+   125	            cfg.get("ephemeral")
+   126	            and isinstance(c, str)
+   127	            and c.split(":", 1)[0] in ("memwrite", "memedit")
+   128	        )
+   129	    ]
+
+exec
+/bin/zsh -lc "rg -n \"_resolve_model\\(|_prepare_cfg\\(|_apply_overrides\\(|_load_context\\(\" packages/api/src tests -g '*.py'" in /Users/anthony/Repository/github/loveqoo/my-agents
+ succeeded in 0ms:
+packages/api/src/api/chat_context_overrides.py:82:def _apply_overrides(
+tests/verify_122_orchestrator_override_capabilities.py:74:    ctx = await chat._load_context(
+tests/verify_122_orchestrator_override_capabilities.py:83:    ctx = await chat._load_context(aid, None, {"model": "mock-llm"}, own=None)
+tests/verify_122_orchestrator_override_capabilities.py:90:    ctx = await chat._load_context(aid, None, None, own=None)
+tests/verify_122_orchestrator_override_capabilities.py:97:    ctx = await chat._load_context(aid, None, {"capabilities": []}, own=None)
+tests/verify_122_orchestrator_override_capabilities.py:118:        ctx = await chat._load_context(bare_id, None, {"capabilities": []}, own=None)
+tests/verify_122_orchestrator_override_capabilities.py:123:        ctx = await chat._load_context(bare_id, None, {"model": None}, own=None)
+tests/verify_122_orchestrator_override_capabilities.py:129:            await chat._load_context(bare_id, None, {"model": "없는모델401"}, own=None)
+tests/verify_049_session_retention_policy.py:5:     - `_load_context(agent, None)`는 행을 만들지 않는다(session_pk=None + session_pending 세팅).
+tests/verify_049_session_retention_policy.py:231:    ctx = await _load_context(agent.id, None)
+tests/verify_049_session_retention_policy.py:257:    ctx_re = await _load_context(agent.id, sid)
+tests/verify_049_session_retention_policy.py:262:    ctx_ap = await _load_context(agent.id, None)
+tests/verify_049_session_retention_policy.py:283:    ctx_resume = await _load_context(agent.id, ap_sid)
+tests/verify_049_session_retention_policy.py:375:    ctx_g = await _load_context(agent.id, None)
+tests/verify_152_no_reexport.py:246:        ctx = await CH._load_context(made_agents[-1], None)
+packages/api/src/api/chat_approval.py:194:    ctx = await _load_context(approval.agent_pk, approval.session_id)
+packages/api/src/api/chat_context_models.py:3:_resolve_model(구 CC 12)은 레지스트리 조회(_registry_chat_model·_default_chat_registry)와
+packages/api/src/api/chat_context_models.py:126:async def _resolve_model(
+packages/api/src/api/eval_runner.py:171:        ctx = await _load_context(
+packages/api/src/api/chat_a2a_serve.py:309:    ctx = await _load_context(agent_id, context_id, own=user_id)
+packages/api/src/api/chat_context_loader.py:56:async def _prepare_cfg(
+packages/api/src/api/chat_context_loader.py:70:    cfg, prompt, nodes_status, applied_overrides = _apply_overrides(
+packages/api/src/api/chat_context_loader.py:81:async def _load_context(
+packages/api/src/api/chat_context_loader.py:105:        cfg, prompt, pinned_version, nodes_status, applied_overrides = await _prepare_cfg(
+packages/api/src/api/chat_context_loader.py:118:        model_cfg = await _resolve_model(db, cfg, overrides, pins) if not remote else None
+packages/api/src/api/chat.py:249:    ctx = await _load_context(
+packages/api/src/api/eval_suggest.py:174:    ctx = await _load_context(agent_pk, None)  # 프롬프트·해석된 RAG 컬렉션(id 포함)
+
+codex
+[단계 5 — Verification] `_resolve_model` 직접 호출은 `_load_context` 내부 한 곳뿐이고, `_apply_overrides`도 `_prepare_cfg` 한 곳뿐입니다. 남은 우회 여부는 `_load_context` 호출자들이 overrides를 어떤 형태로 넘기는지 확인해 판정하겠습니다.
+exec
+/bin/zsh -lc "nl -ba packages/api/src/api/chat.py | sed -n '220,280p'" in /Users/anthony/Repository/github/loveqoo/my-agents
+ succeeded in 0ms:
+   220	    보존) ② **body가 정확히 user 메시지 1개**. codex 289 #1~#3으로 조인 규칙: "assistant 부재"만
+   221	    보면 빈 배열·user-only 누적 클라·assistant 위조가 샌다 — "새 턴 1개"가 계약 그 자체.
+   222	    그 외 형태(누적 전송 등)=클라 관리 모드(플레이그라운드 무회귀). 캐시는 두지 않는다(스펙 289
+   223	    합의) — 조회를 필요 최대 depth로 LIMIT해 읽기량 상수 고정, 소요 ms를 trace.historyRestore로 실측."""
+   224	    conversation = [{"role": m.role, "content": m.content} for m in body.messages]
+   225	    history_restore: dict | None = None
+   226	    if ctx.session_pk is not None and len(body.messages) == 1 and body.messages[0].role == "user":
+   227	        t_hr = time.perf_counter()
+   228	        prior = await _load_session_conversation(
+   229	            ctx.session_id, ctx.agent_pk, limit=_history_load_limit(ctx)
+   230	        )
+   231	        if prior:
+   232	            conversation = prior + conversation
+   233	            history_restore = {
+   234	                "mode": "server",
+   235	                "restored": len(prior),
+   236	                "ms": int((time.perf_counter() - t_hr) * 1000),
+   237	            }
+   238	    return conversation, history_restore
+   239	
+   240	
+   241	@router.post("/{agent_id}/chat")
+   242	async def chat(
+   243	    agent_id: uuid.UUID, body: ChatRequest, principal: User | str = Depends(current_principal)
+   244	) -> StreamingResponse:
+   245	    # 스펙 068: resume 바인딩에 067과 *동일한* 소유자 스코프를 주입(정본 authz.own_scope 재사용, 298).
+   246	    # 비-admin이 타인/추측 session_id를 줘도 매칭 실패 → 새 세션(열거 오라클·소유권 탈취 봉인).
+   247	    own = authz.own_scope(principal, "sessions", "read")
+   248	    req_version = await _validate_entry(agent_id, body, principal)
+   249	    ctx = await _load_context(
+   250	        agent_id, body.sessionId, body.overrides, own=own, version=req_version
+   251	    )
+   252	    user_text = body.messages[-1].content if body.messages else ""
+   253	
+   254	    # mem0 user_id 축 = 인증 주체에서 도출(스펙 032). 쿠키 유저면 안정 UUID(str(user.id)),
+   255	    # mem0 user 축 정체성(스펙 387) — 단일 관문: 머신 토큰만 body.userId 수용(위임 호출),
+   256	    # 쿠키 유저가 보내면 422(032 보안 보존). 미지정 시 기존 동작(쿠키=자기 id, 머신=세션 축만).
+   257	    user_id = resolve_memory_user_id(principal, body.userId)
+   258	
+   259	    # 코드(SDK)·외부(A2A) 에이전트 모두 비로컬 — 등록된 카드 url로 A2A 런타임 호출(스펙 057: A2A 단일화).
+   260	    # code=우리가 SDK로 배포한 A2A(provenance 메타 보유), external=제3자 A2A. 전송은 _a2a_stream 하나.
+   261	    # (구 _remote_stream 자체 SSE·code 분기는 057에서 폐기 — 플랫폼 전제대로 SDK도 A2A를 말한다.)
+   262	    # in-process 런타임 구현 해석(스펙 085). None이면 원격(A2A 불투명) → 기존 fallback 그대로.
+   263	    # 선언한 impl이 미해결이면 AgentConfigError(스펙 089 교정3) → default로 만회 않고 설정 실패 통보.
+   264	    try:
+   265	        impl = resolve_agent_runtime(ctx)
+   266	    except AgentConfigError as e:
+   267	        return StreamingResponse(_config_error_stream(str(e)), media_type="text/event-stream")
+   268	    if impl is None:
+   269	        return StreamingResponse(
+   270	            _a2a_stream(ctx, user_text, user_id), media_type="text/event-stream"
+   271	        )
+   272	
+   273	    conversation, history_restore = await _prepare_conversation(ctx, body)
+   274	    try:
+   275	        turn = await _build_turn_runtime(ctx, impl, principal, user_id, user_text, conversation)
+   276	    except AgentConfigError as e:
+   277	        # 그래프 조립 시점 설정 실패(스펙 317 — 코드 노드 impl 미등록 등)도 resolve 실패와 동일하게
+   278	        # 정직 통보(default 만회·조용한 스킵 금지, 089 패턴).
+   279	        return StreamingResponse(_config_error_stream(str(e)), media_type="text/event-stream")
+   280	    graph = turn.graph
+
+exec
+/bin/zsh -lc "nl -ba packages/api/src/api/chat_approval.py | sed -n '180,205p'" in /Users/anthony/Repository/github/loveqoo/my-agents
+ succeeded in 0ms:
+   180	    (approval은 이미 결재됨·세션 무파손·approved-but-not-executed=안전방향). 다중 HIL impl 출하 중
+   181	    (DefaultUiAgent·orchestrate·orchestrate_ranked)이라 이 스왑은 실제 도달 가능(deep-reasoner 적대
+   182	    검토). 방아쇠는 admin의 impl 교체(agents:manage)에 갇혀 권한상승은 아니다. impl 스냅샷이 None인
+   183	    행(171 마이그레이션 이전)은 대조 불가라 스킵하고 supports_hil 가드로만 넘긴다(하위호환)."""
+   184	
+   185	    thread_id = approval.checkpoint
+   186	    if not thread_id or not approval.agent_pk:
+   187	        log.warning("resume 건너뜀: checkpoint/agent_pk 없음 (approval %s)", approval.approval_id)
+   188	        return None
+   189	    ckpt = checkpointer.get_checkpointer()
+   190	    if ckpt is None:
+   191	        log.warning("resume 불가: 체크포인터 비활성 (approval %s)", approval.approval_id)
+   192	        return None
+   193	    # 원 턴과 동일하게 컨텍스트·도구·프롬프트를 재구성(같은 세션 id → 기존 세션 로딩, 새로 안 만듦).
+   194	    ctx = await _load_context(approval.agent_pk, approval.session_id)
+   195	    try:
+   196	        impl = resolve_agent_runtime(ctx)
+   197	    except AgentConfigError as e:
+   198	        # 선언한 구현이 미해결(스펙 089) — 재개 불가, graceful 무시(approval은 이미 결재됨, 세션 무파손).
+   199	        log.warning("resume 불가: 설정 실패 impl '%s' (approval %s)", e, approval.approval_id)
+   200	        return None
+   201	    if impl is None or ctx.model_cfg is None:
+   202	        log.warning("resume 불가: 비로컬/모델없음 소스 (approval %s)", approval.approval_id)
+   203	        return None
+   204	    if _impl_drifted(approval.impl, ctx.impl):
+   205	        log.warning(
+
+exec
+/bin/zsh -lc "nl -ba packages/api/src/api/eval_runner.py | sed -n '150,190p'" in /Users/anthony/Repository/github/loveqoo/my-agents
+ succeeded in 0ms:
+   150	        error = True
+   151	        detail = str(exc)[:500]
+   152	    return "".join(acc), observed_nodes, error, detail
+   153	
+   154	
+   155	async def eval_run_agent(
+   156	    agent_pk: uuid.UUID,
+   157	    user_text: str,
+   158	    principal: User | str,
+   159	    overrides: dict | None = None,
+   160	    version: str | None = None,
+   161	    delegation_chain: tuple = (),
+   162	    delegation_budget: dict | None = None,
+   163	) -> dict:
+   164	    """케이스 1건 실행 → obs {"output", "trace_nodes", "error", "detail"?}.
+   165	
+   166	    overrides(스펙 141): 모델 비교 실행용 — 기존 화이트리스트 경로(_load_context)를 그대로 태워
+   167	    {"model": 레지스트리 이름}만 주입한다(admin 내부 호출이라 own=None 특권 경로).
+   168	    실패(설정 오류·모델 예외·HIL interrupt)는 예외를 던지지 않고 error=True obs로 접는다 —
+   169	    run_eval이 no_error assert로 채점하고 전체 평가는 계속(하네스 계약)."""
+   170	    try:
+   171	        ctx = await _load_context(
+   172	            agent_pk, None, overrides, version=version
+   173	        )  # 버전 지정 평가(스펙 242)
+   174	    except Exception as exc:
+   175	        return {
+   176	            "output": "",
+   177	            "trace_nodes": [],
+   178	            "error": True,
+   179	            "detail": f"컨텍스트 로드 실패: {exc}",
+   180	        }
+   181	    try:
+   182	        impl = resolve_agent_runtime(ctx)
+   183	    except AgentConfigError as exc:
+   184	        return {"output": "", "trace_nodes": [], "error": True, "detail": f"런타임 미해결: {exc}"}
+   185	    if impl is None or ctx.model_cfg is None:
+   186	        return {
+   187	            "output": "",
+   188	            "trace_nodes": [],
+   189	            "error": True,
+   190	            "detail": "로컬(ui) 에이전트가 아니거나 채팅 모델이 없습니다(평가는 로컬 에이전트만)",
+
+exec
+/bin/zsh -lc "nl -ba packages/api/src/api/chat_a2a_serve.py | sed -n '295,320p'" in /Users/anthony/Repository/github/loveqoo/my-agents
+ succeeded in 0ms:
+   295	) -> LocalServeTurn:
+   296	    """로컬(ui) 에이전트의 A2A 서빙 턴을 조립 — 반환 LocalServeTurn(Command).
+   297	
+   298	    a2a_server가 노출된 로컬 에이전트의 JSON-RPC 호출을 받아 실 LangGraph 런타임을 돌릴 때 쓴다.
+   299	    기존 chat() 경로는 건드리지 않는다(핵심 채팅 무회귀) — _load_context·대화 재구성(chat_history)·
+   300	    영속(_persist)을 재사용한다.
+   301	
+   302	    스펙 388 P1 — **contextId 세션 연속성**: contextId(=우리 session_id, 서버 발급·클라 에코)를
+   303	    세션으로 해석해 멀티턴을 잇는다. 소유권은 068 그대로 — own=user_id 바인딩(요청 userId가 있으면
+   304	    그 유저 소유 세션만 재개, 불일치=새 세션 발급으로 접음·오라클 0). 대화는 세션·메시지로 영속
+   305	    (channel="a2a", 관리자 세션 화면 가시 — 승인됨). 기억(387)은 user+run 축.
+   306	    스펙 388 P2 — **승인 브리지**: 체크포인터 부착(비영속 제외), interrupt를 예외로 죽이지 않고
+   307	    Approval(pending)로 변환해 outcome(ServeApprovalRequired)으로 알린다(응답 표현은 a2a_server).
+   308	    code/external 소스·모델 미해석이면 ValueError(로컬 그래프 아님 → 라우터가 4xx)."""
+   309	    ctx = await _load_context(agent_id, context_id, own=user_id)
+   310	    # 세션 출처 표기(스펙 388 P1) — lazy-create 시 channel="a2a"로(세션 화면에서 구분).
+   311	    if ctx.session_pending:
+   312	        ctx.session_pending["channel"] = "a2a"
+   313	    impl = _resolve_serve_impl(ctx)  # 적격 검사 먼저 — 도구·회상 부수효과 전에(codex 392 P3)
+   314	    tools, _calls_sink = await _build_serve_tools(
+   315	        ctx, agent_id
+   316	    )  # 싱크는 서빙 미노출(트레이스 없음)
+   317	    serve_prompt = await _recall_prompt(ctx, user_id, user_text)  # 회상(스펙 387)
+   318	    # HIL 체크포인터(스펙 388 P2, 041 미러) — 비영속은 미부착(235: 승인·재개에는 기록 필요,
+   319	    # interrupt는 발생해도 outcome=ServeFailed 안내로 접는다). thread_id는 턴별(메인 chat 규약).
+   320	    ckpt = None if ctx.ephemeral else checkpointer.get_checkpointer()
+
+exec
+/bin/zsh -lc "nl -ba tests/verify_122_orchestrator_override_capabilities.py | sed -n '110,135p'" in /Users/anthony/Repository/github/loveqoo/my-agents
+ succeeded in 0ms:
+   110	            active_version="v1",
+   111	        )
+   112	        s.add(bare)
+   113	        await s.commit()
+   114	        await s.refresh(bare)
+   115	        bare_id = bare.id
+   116	    try:
+   117	        # model_cfg는 연결 cfg(base_url/model_id/params — name 없음): 기본 mock 모델의 model_id로 단언.
+   118	        ctx = await chat._load_context(bare_id, None, {"capabilities": []}, own=None)
+   119	        check(
+   120	            (ctx.model_cfg or {}).get("model_id") == "mock-chat",
+   121	            f"B6a 모델 미지정+model 키 없는 오버라이드 → 400 없이 기본 해석(got {(ctx.model_cfg or {}).get('model_id')!r})",
+   122	        )
+   123	        ctx = await chat._load_context(bare_id, None, {"model": None}, own=None)
+   124	        check(
+   125	            (ctx.model_cfg or {}).get("model_id") == "mock-chat",
+   126	            f"B6b overrides={{model: None}} → 동일 폴백(got {(ctx.model_cfg or {}).get('model_id')!r})",
+   127	        )
+   128	        try:
+   129	            await chat._load_context(bare_id, None, {"model": "없는모델401"}, own=None)
+   130	            check(False, "B6c 명시 미등록 이름이 통과함(290 회귀!)")
+   131	        except _HTTPExc as e:
+   132	            check(
+   133	                e.status_code == 400 and "없는모델401" in str(e.detail),
+   134	                f"B6c 명시 미등록 이름 → 400 유지(스펙 290) (got {e.status_code}, {e.detail!r})",
+   135	            )
+
+codex
+[단계 5 — Verification] 결론: **P1 없음**. 비어 있지 않은 명시 오버라이드 모델명이 미등록일 때 조용히 기본 모델로 폴백되는 새 경로는 보이지 않습니다.
+
+**P1**
+없음.
+
+**P2**
+- 빈 문자열 `{"model": ""}`은 이번 변경으로 기존 400에서 기본 모델 폴백으로 바뀝니다. [chat_context_overrides.py](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat_context_overrides.py:99)가 `cfg["model"]`을 `""`로 덮고, [chat_context_models.py](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat_context_models.py:135)의 `model_name`이 falsey라 레지스트리 조회를 건너뛴 뒤, [145](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat_context_models.py:145)의 `overrides.get("model")`도 falsey라 거절하지 않습니다. “실명” 기준이면 P1은 아니지만, `model` 키 존재 자체를 명시 오버라이드로 본다면 계약 완화입니다. 보수적으로는 `model in overrides and isinstance(v, str) and v.strip()` 같은 판정으로 의도를 명확히 하는 편이 낫습니다.
+- `0`, `False` 같은 falsey 비문자 값도 같은 이유로 기본 폴백됩니다. 정상 클라이언트 표면이면 낮은 위험이지만, 서버 경계만 보면 빈 문자열과 같은 계열입니다.
+
+**확인함**
+- 일반 명시 미등록 이름: 유지됩니다. `cfg.update` 이후 `cfg["model"] == overrides["model"]`가 되고, 비어 있지 않은 값이면 [145](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat_context_models.py:145)에서 400입니다.
+- `model` 키 없음 / `{"model": None}`: 의도대로 기본 모델 폴백입니다. 기존 회귀 테스트도 이 케이스를 이미 핀하고 있습니다: [verify_122_orchestrator_override_capabilities.py](/Users/anthony/Repository/github/loveqoo/my-agents/tests/verify_122_orchestrator_override_capabilities.py:118).
+- 저장 config에 모델이 있고 오버라이드가 다른 미등록 이름인 경우: `_apply_overrides`가 저장 모델을 덮어도, 덮인 값이 비어 있지 않으면 400입니다.
+- pins 경로: `_pinned_model_cfg`가 먼저 성공하면 400이 아니라 pinned payload로 실행됩니다. 이는 “조용한 기본 폴백”은 아니고 기존 pin 우선 계약입니다. pin이 없거나 불완전하면 다시 400 경로로 내려갑니다.
+- 호출부 우회: `rg` 기준 `_resolve_model` 호출은 `_load_context` 내부 한 곳뿐입니다. overrides를 넘기는 입구는 `chat()`와 `eval_run_agent()`이고, approval/A2A/eval_suggest는 overrides 없이 호출합니다. `_apply_overrides`도 `_prepare_cfg` 한 곳에서만 호출됩니다.
+hook: Stop
+hook: Stop Completed
+tokens used
+60,953
+[단계 5 — Verification] 결론: **P1 없음**. 비어 있지 않은 명시 오버라이드 모델명이 미등록일 때 조용히 기본 모델로 폴백되는 새 경로는 보이지 않습니다.
+
+**P1**
+없음.
+
+**P2**
+- 빈 문자열 `{"model": ""}`은 이번 변경으로 기존 400에서 기본 모델 폴백으로 바뀝니다. [chat_context_overrides.py](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat_context_overrides.py:99)가 `cfg["model"]`을 `""`로 덮고, [chat_context_models.py](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat_context_models.py:135)의 `model_name`이 falsey라 레지스트리 조회를 건너뛴 뒤, [145](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat_context_models.py:145)의 `overrides.get("model")`도 falsey라 거절하지 않습니다. “실명” 기준이면 P1은 아니지만, `model` 키 존재 자체를 명시 오버라이드로 본다면 계약 완화입니다. 보수적으로는 `model in overrides and isinstance(v, str) and v.strip()` 같은 판정으로 의도를 명확히 하는 편이 낫습니다.
+- `0`, `False` 같은 falsey 비문자 값도 같은 이유로 기본 폴백됩니다. 정상 클라이언트 표면이면 낮은 위험이지만, 서버 경계만 보면 빈 문자열과 같은 계열입니다.
+
+**확인함**
+- 일반 명시 미등록 이름: 유지됩니다. `cfg.update` 이후 `cfg["model"] == overrides["model"]`가 되고, 비어 있지 않은 값이면 [145](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat_context_models.py:145)에서 400입니다.
+- `model` 키 없음 / `{"model": None}`: 의도대로 기본 모델 폴백입니다. 기존 회귀 테스트도 이 케이스를 이미 핀하고 있습니다: [verify_122_orchestrator_override_capabilities.py](/Users/anthony/Repository/github/loveqoo/my-agents/tests/verify_122_orchestrator_override_capabilities.py:118).
+- 저장 config에 모델이 있고 오버라이드가 다른 미등록 이름인 경우: `_apply_overrides`가 저장 모델을 덮어도, 덮인 값이 비어 있지 않으면 400입니다.
+- pins 경로: `_pinned_model_cfg`가 먼저 성공하면 400이 아니라 pinned payload로 실행됩니다. 이는 “조용한 기본 폴백”은 아니고 기존 pin 우선 계약입니다. pin이 없거나 불완전하면 다시 400 경로로 내려갑니다.
+- 호출부 우회: `rg` 기준 `_resolve_model` 호출은 `_load_context` 내부 한 곳뿐입니다. overrides를 넘기는 입구는 `chat()`와 `eval_run_agent()`이고, approval/A2A/eval_suggest는 overrides 없이 호출합니다. `_apply_overrides`도 `_prepare_cfg` 한 곳에서만 호출됩니다.

@@ -1,0 +1,14 @@
+스팟 적대 리뷰(스펙 401): packages/api/src/api/chat_context_models.py의 _resolve_model에서 스펙 290 오버라이드 모델 거절 게이트를 한 줄 수리했다.
+
+전(버그): if overrides and overrides.get("model") == model_name:
+후(수리): if overrides and overrides.get("model") and overrides.get("model") == model_name:
+
+의도: "실명을 댄 오버라이드 모델이 미등록이면 400(시끄러운 거절)"은 유지하되, 모델 미지정 에이전트(model_name=None)에 model 키 없는(또는 null) 오버라이드가 왔을 때 None==None으로 오폭하던 400을 제거(기본 모델 폴백).
+
+적대 관점에서 검증해달라:
+1. 이 수정이 290의 거절 계약을 어디서든 **완화**하는가? (명시 미등록 이름이 조용히 폴백되는 경로가 생기는가 — 특히 overrides 병합(_apply_overrides가 cfg.update로 model을 덮음)과의 상호작용, 빈 문자열 "" 오버라이드, pins 경로(_pinned_model_cfg), 저장 config에 model이 있고 오버라이드가 다른 이름인 경우)
+2. 오폭 제거가 불완전한 잔여 경로가 있는가?
+3. 관련 호출부(chat_context_loader._load_context) 기준으로 이 게이트를 우회하는 다른 입구가 있는가?
+
+파일: packages/api/src/api/chat_context_models.py, packages/api/src/api/chat_context_overrides.py, packages/api/src/api/chat_context_loader.py
+결론은 P1(계약 완화/구멍)·P2(개선 여지)·확인함 목록으로.

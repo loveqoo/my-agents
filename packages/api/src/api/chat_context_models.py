@@ -139,7 +139,10 @@ async def _resolve_model(
             return pinned
     m = await _registry_chat_model(db, model_name) if model_name else None
     if m is None:
-        if overrides and overrides.get("model") == model_name:
+        # 거절은 **실명을 댄** 오버라이드에만(스펙 401) — 모델 미지정 에이전트(model_name=None)에
+        # model 키 없는(또는 null) 오버라이드가 오면 None==None으로 오폭하던 것을 실명 요구로 봉합.
+        # 미선언은 기본 폴백(learning 092: 선언-but-broken만 거절).
+        if overrides and overrides.get("model") and overrides.get("model") == model_name:
             raise HTTPException(
                 status_code=400,
                 detail=f"오버라이드 모델 '{model_name}'이(가) 등록돼 있지 않습니다 — 모델 이름을 확인하세요.",
