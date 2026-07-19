@@ -37,6 +37,8 @@ def llm_cfg_of(cm: ModelConfig) -> dict:
         "base_url": cm.provider.base_url,
         "api_key": crypto.decrypt(cm.provider.api_key),
         "model_id": cm.model_id,
+        # 능력 선언 동봉(스펙 408) — 실행부(agent/model.py)가 streaming 능력에 맞춰 클라이언트 구성.
+        "capabilities": dict(cm.capabilities or {}),
     }
 
 

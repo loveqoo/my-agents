@@ -5,7 +5,7 @@
      models.dev 카탈로그 메타(ctx·modalities·cost) 칩. 도달 실패 시 안내 배너. 직접 추가 폼.
    토글 ON = 모델 등록 모달(POST /models, meta 포함), OFF = DELETE /models/{id}(에이전트 참조 시 409). */
 import { useState, useEffect } from 'react'
-import { Tag, Button, Modal, Input, Select, Switch, Checkbox, Tooltip, message } from 'antd'
+import { Tag, Button, Modal, Input, Select, Switch, Checkbox, Tooltip, message, Popover } from 'antd'
 import { Page, Panel } from '../shared'
 import { Icon } from '../icons'
 import {
@@ -28,6 +28,7 @@ import {
   type AvailableModelsOut,
   type CatalogMeta,
   type ModelProbeResult,
+  updateModel,
 } from '../../api'
 import { useAsyncData, runWithToast } from '../../hooks'
 
@@ -223,6 +224,57 @@ function ProviderModal({
 }
 
 /* ── 모델 등록 모달 (프로바이더 고정; 토글 ON·직접추가 공용) ─────────────────── */
+/* 능력·설정 편집(스펙 408) — 등록 모델 행의 소형 popover. 능력(사실: 스트리밍/thinking/비전)과
+   사용 기본(enable_thinking·stream)을 함께 편집. 참조 중 모델은 삭제가 막히므로(093) 이 편집이
+   유일한 수정 경로다. PUT은 전체 body 계약이라 행 값 그대로 되보낸다. */
+function CapsEditor({ reg, onSaved }: { reg: Model; onSaved: () => void }) {
+  const [busy, setBusy] = useState(false)
+  const caps = { streaming: true, thinking: false, vision: false, ...((reg.capabilities ?? {}) as Record<string, boolean>) }
+  const usage = reg.params ?? {}
+  const save = async (capsPatch: Record<string, boolean>, usagePatch: Record<string, unknown>) => {
+    setBusy(true)
+    try {
+      await updateModel(reg.id, {
+        name: reg.name, provider_id: reg.provider_id, model_id: reg.model_id,
+        kind: reg.kind, is_default: reg.is_default,
+        params: { ...usage, ...usagePatch },
+        capabilities: { ...caps, ...capsPatch },
+        meta: reg.meta ?? {},
+      })
+      onSaved()
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+  const row = (label: string, checked: boolean, onChange: (v: boolean) => void, hint?: string) => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <Checkbox checked={checked} disabled={busy} onChange={(e) => onChange(e.target.checked)}>{label}</Checkbox>
+      {hint ? <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>{hint}</span> : null}
+    </div>
+  )
+  return (
+    <Popover
+      trigger="click"
+      title="모델 능력·설정"
+      content={
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 240 }}>
+          <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>능력 — 서버가 할 수 있는 것(사실)</div>
+          {row('스트리밍 지원', caps.streaming, (v) => void save({ streaming: v }, {}), '끄면 단건 실행')}
+          {row('thinking 모드 보유', caps.thinking, (v) => void save({ thinking: v }, {}))}
+          {row('비전(이미지) 지원', caps.vision, (v) => void save({ vision: v }, {}))}
+          <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginTop: 4 }}>사용 기본 — 요청에 보낼 기본값</div>
+          {row('thinking 켜서 호출', Boolean(usage.enable_thinking), (v) => void save({}, { enable_thinking: v }), '일반 요청은 끄기 권장')}
+          {caps.streaming ? row('스트리밍으로 호출', usage.stream !== false, (v) => void save({}, { stream: v })) : null}
+        </div>
+      }
+    >
+      <Button size="small">능력·설정</Button>
+    </Popover>
+  )
+}
+
 interface ModelForm {
   name: string
   kind: 'chat' | 'embedding'
@@ -735,6 +787,7 @@ export default function ProviderModelView() {
                                     기본으로 지정
                                   </Button>
                                 )}
+                                <CapsEditor reg={reg} onSaved={refresh} />
                               </>
                             )
                           })()}

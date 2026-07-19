@@ -161,6 +161,15 @@ def _annotate_context_sources(
     if ctx.attachments_trace:
         # 파일첨부(스펙 404) — 무엇이 주입됐나(파일명·글자수·마스킹 프리뷰). 미첨부 턴은 필드 없음.
         trace["attachments"] = ctx.attachments_trace
+    # 응답 방식(스펙 408) — 단건(비스트리밍)일 때만 표기(스트리밍 기본은 무배지). 유효식은
+    # 실행부(model.py)와 동일: 능력 AND 사용값. **직접형 한정**(codex 408 P2): 노드형은 노드별
+    # 모델이 서로 다른 모드일 수 있어 턴 단위 단일 배지가 거짓이 된다 — 정직하게 무표기.
+    if ctx.nodes_resolved is None:
+        _mc = ctx.model_cfg or {}
+        _caps = _mc.get("capabilities") or {}
+        _mp = _mc.get("params") or {}
+        if not (_caps.get("streaming", True) and _mp.get("stream", True)):
+            trace["responseMode"] = "single"
     if turn.broker.invocations:
         # 브로커 호출 상세(스펙 130) — 조율형의 RAG 검색이 인스펙터에 "N건·최고 유사도"로 보이게.
         # 위임 없던 턴은 필드 자체가 없음(무회귀).

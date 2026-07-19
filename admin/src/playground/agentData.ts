@@ -54,6 +54,7 @@ export interface GraphNode {
 
 export interface Trace {
   latencyMs: number
+  responseMode?: 'single' // 스펙 408 — 단건(비스트리밍) 응답일 때만 서버가 표기
   tokens: { in: number; out: number; estimated?: boolean } // estimated=usage 부재 시 글자수 추정(스펙 205)
   promptRef: string
   memories: Memory[]

@@ -1,0 +1,2963 @@
+Reading additional input from stdin...
+2026-07-19T14:06:00.431675Z ERROR codex_models_manager::cache: failed to load models cache: missing field `supports_reasoning_summaries` at line 88 column 5
+OpenAI Codex v0.144.6
+--------
+workdir: /Users/anthony/Repository/github/loveqoo/my-agents
+model: gpt-5.6-sol
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: low
+reasoning summaries: none
+session id: 019f7ab2-c1d3-7533-99de-33cd83ded5bd
+--------
+user
+스팟 적대 리뷰(스펙 408): 모델 능력(capabilities)·설정 캐스케이드를 검토해달라.
+
+구현: ①ModelConfig.capabilities JSONB(streaming/thinking/vision, 마이그레이션 9c13f807b6c2) ②llm_cfg_of가 capabilities 동봉, _pinned_model_cfg는 라이브 행에서 능력 주입(능력=라이브 사실, pin 스냅샷 비대상) ③_apply_agent_model_params — 에이전트 config.modelParams 화이트리스트(enable_thinking·stream)만 모델 params 위에 병합(temperature는 기존 AgentConfig.temperature가 정본이라 제외) ④build_chat_openai — stream_effective=능력 AND 사용값 → disable_streaming, 풀 키에 포함; enable_thinking 캐스케이드(세션 인자>병합 params) ⑤trace.responseMode="single"(단건일 때만) ⑥admin: 모델 행 능력 popover(PUT)·에이전트 폼 tri-state.
+
+적대 질문:
+1. 관통 누락 — model_cfg가 만들어지는 다른 경로에서 capabilities가 빠져 유효식이 기본(streaming)으로 오판되는 곳: _chat_model_cfg(노드 모델 해석 — 88/98행 부근 llm_cfg_of 경유라 포함?), _resolve_node_models, eval(eval_env/_execute 경로의 모델 해석), mem0 llm(_resolve_mem_cfg — 스트리밍 무관?), A2A 서빙, 커스텀 impl(085)이 model_cfg 직접 소비.
+2. 캐스케이드 정합 — 노드형: 노드별 모델에 에이전트 modelParams가 적용되나(의도: 적용돼야 하나? 노드 모델은 별도 축 — 현 구현은 _resolve_model만 병합, _chat_model_cfg는 미병합 → 노드 모델엔 에이전트 thinking/stream이 안 먹음. 이게 구멍인가 정직한 경계인가 판정). 세션 오버라이드에 stream/enable_thinking 키가 없는 것(화이트리스트 밖)의 일관성.
+3. trace 정합 — responseMode 유효식이 실행부(model.py)와 어긋날 수 있는 경로(예: 노드형은 노드 모델로 실행되는데 trace는 ctx.model_cfg 기준 — 거짓 배지?).
+4. PUT 능력 편집 — record_block_version과 능력 변경의 상호작용(능력이 payload에 들어가 버전 증가? 능력=라이브 사실이면 버전 무증가가 맞는지), 참조 중 편집의 안전성.
+
+파일: packages/api/src/api/chat_context_models.py, mem_config.py, models/registry.py, model_registry.py, chat_trace.py, packages/agent/src/agent/model.py, alembic/versions/9c13f807b6c2*.py
+결론: P1/P2/확인함.
+hook: SessionStart
+hook: SessionStart
+hook: SessionStart Completed
+hook: SessionStart Completed
+codex
+[단계 1 — Scaffolding]
+요청 범위를 스펙 408의 모델 능력·설정 캐스케이드에 대한 읽기 전용 스팟 적대 리뷰로 고정합니다. 코드 리뷰 실수를 줄이기 위해 `karpathy-guidelines` 스킬을 적용하고, 저장소의 관련 학습·회고 인덱스와 실제 생산자·소비자 경로를 먼저 닫힌 집합으로 확인하겠습니다. 결론은 요청대로 `P1 / P2 / 확인함`으로만 분류하겠습니다.
+exec
+/bin/zsh -lc "sed -n '1,240p' /Users/anthony/.codex/plugins/cache/karpathy-skills/andrej-karpathy-skills/1.0.0/skills/karpathy-guidelines/SKILL.md && rg -n \"408|capabilit|modelParams|responseMode|disable_streaming|record_block_version|9c13f807b6c2\" /Users/anthony/.codex/memories/MEMORY.md .dev/learning/INDEX.md .dev/retrospect/INDEX.md .dev/troubleshooting/INDEX.md 2>/dev/null" in /Users/anthony/Repository/github/loveqoo/my-agents
+ exited 2 in 0ms:
+---
+name: karpathy-guidelines
+description: Behavioral guidelines to reduce common LLM coding mistakes. Use when writing, reviewing, or refactoring code to avoid overcomplication, make surgical changes, surface assumptions, and define verifiable success criteria.
+license: MIT
+---
+
+# Karpathy Guidelines
+
+Behavioral guidelines to reduce common LLM coding mistakes, derived from [Andrej Karpathy's observations](https://x.com/karpathy/status/2015883857489522876) on LLM coding pitfalls.
+
+**Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
+
+## 1. Think Before Coding
+
+**Don't assume. Don't hide confusion. Surface tradeoffs.**
+
+Before implementing:
+- State your assumptions explicitly. If uncertain, ask.
+- If multiple interpretations exist, present them - don't pick silently.
+- If a simpler approach exists, say so. Push back when warranted.
+- If something is unclear, stop. Name what's confusing. Ask.
+
+## 2. Simplicity First
+
+**Minimum code that solves the problem. Nothing speculative.**
+
+- No features beyond what was asked.
+- No abstractions for single-use code.
+- No "flexibility" or "configurability" that wasn't requested.
+- No error handling for impossible scenarios.
+- If you write 200 lines and it could be 50, rewrite it.
+
+Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
+
+## 3. Surgical Changes
+
+**Touch only what you must. Clean up only your own mess.**
+
+When editing existing code:
+- Don't "improve" adjacent code, comments, or formatting.
+- Don't refactor things that aren't broken.
+- Match existing style, even if you'd do it differently.
+- If you notice unrelated dead code, mention it - don't delete it.
+
+When your changes create orphans:
+- Remove imports/variables/functions that YOUR changes made unused.
+- Don't remove pre-existing dead code unless asked.
+
+The test: Every changed line should trace directly to the user's request.
+
+## 4. Goal-Driven Execution
+
+**Define success criteria. Loop until verified.**
+
+Transform tasks into verifiable goals:
+- "Add validation" → "Write tests for invalid inputs, then make them pass"
+- "Fix the bug" → "Write a test that reproduces it, then make it pass"
+- "Refactor X" → "Ensure tests pass before and after"
+
+For multi-step tasks, state a brief plan:
+```
+1. [Step] → verify: [check]
+2. [Step] → verify: [check]
+3. [Step] → verify: [check]
+```
+
+Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
+.dev/learning/INDEX.md:91:- 086 소비층 fail-closed만으론 "죽은 상태"가 샌다 — capability 플래그가 소비측에서만 fail-closed면 "되는 것처럼 보이는데 안 됨"; flag⟹predicate를 모든 쓰기/렌더 입구 계약으로 정렬 [capability-flag,fail-closed-consumer,dead-state,enumerate-write-entries,idempotent-clear,no-frontend-only-guard,data-is-an-entry,jsonb-sibling-key]
+.dev/learning/INDEX.md:108:- 103 읽기전용 능력은 정책은 받고 승인은 안 받는다 — 브로커 게이트 정책(모든 provider)과 승인(부수효과만)을 합치면 읽기전용 kind에도 새거나 걸림; 두 게이트 분리 유지+자원경계는 공유 코어에 [read-only-capability,two-gates-policy-vs-approval,approval-for-none,extension-as-combination,shared-core-holds-input-invariant,cap-at-shared-point-not-per-entrance,schema-validation-is-local-only,drift-zero]
+.dev/learning/INDEX.md:109:- 104 per-user 소유 자원은 능력 이름 아닌 실행 주체에 묶어라 — per-user는 소유자를 principal서 도출해야 구조적 anti-leak; 새 상태축(user_id)은 request+resume 모든 팩토리에 세라 [per-user-capability,bind-to-principal-not-cap-id,structural-anti-leak-impossibility,shared-catalog-vs-per-user,no-admin-escalation,new-state-axis-all-factories,request-vs-resume-symmetry,limit-coerce-clamp-shared-point]
+.dev/learning/INDEX.md:110:- 105 부수효과 능력은 승인 게이트가 "구조"다 — approval_for는 항상 non-None이어야 안전; 게이트 검증은 최소 하네스로, privacy finding은 다른 경로가 이미 가진 권한을 넓히나로 판정 [side-effect-capability,approval-gate-is-structure,prompt-not-boundary,approval-for-always-non-none,unmask-for-approval-visibility,two-gates-complete,privacy-finding-permission-delta,sensitivity-grade-domain-decision]
+.dev/learning/INDEX.md:141:- 144 승인(HIL)을 결정적으로 띄우려면 조율형+capability memwrite:user+"기억해줘" 발화 — DefaultUiAgent(직접응답)는 브로커 미사용이라 절대 안 뜸, Mock도 tool_call 미방출; 도구승인은 _APPROVAL_ACTIONS 하드코딩(다음 과제) [approval-hil-trigger,orchestrate-plus-memwrite-deterministic,defaultuiagent-no-broker,mock-llm-no-toolcall,per-tool-approval-hardcoded]
+.dev/learning/INDEX.md:154:- 363 숨은 활동을 새로 보이게 하면 "텅 빈 턴" 휴리스틱이 조용히 오탐한다 — 숨은 활동을 새로 보이게 하면 "아무 일 없었다"류 옛 휴리스틱이 그 활동을 못 보고 오탐한다; 관측성 추가 시 그런 옛 휴리스틱을 재감사하고 억제 신호는 능력별 아닌 "하나라도 썼나"로 통일 [surface-activity-breaks-empty-heuristic,premise-silently-false,cross-spec-interaction,capability-suppress-unify,recall-not-in-calls-sink]
+.dev/retrospect/INDEX.md:72:- 067 A2A 노출 게이트 겉도는 죽은 상태는 소비층 fail-closed만으론 못 막음 — 스펙 083; 보안은 닫혔으나 데이터정합/UX가 안 닫혀 dead-state 누적, 소비층 술어를 모든 쓰기/렌더 입구에 정렬 [capability-flag,fail-closed-at-consumer,dead-state,align-predicate-every-writer,enumerate-write-entries,jsonb-sibling-key,adversarial-codex,probe-deeper] → learning 086
+.dev/retrospect/INDEX.md:86:- 081 능력 브로커 Phase 1 + A2A 오케스트레이션(서브스텝) — 스펙 100; 능력을 preload 아닌 discovery로 오케스트레이션하는 단일 시임(discover/describe/invoke) [capability-broker,discovery-not-preload,single-seam-discover-describe-invoke,allowlist-intersect-rbac,deny-by-default,invoke-recheck-toctou,existence-non-disclosure,untrusted-data-channel-not-system] → learning 100
+.dev/retrospect/INDEX.md:87:- 082 능력 브로커 kind 확장: MCP provider(Phase 2-a) + 서브스텝 HIL — 스펙 101; integration rung이 설정지속경로 누락+스테일 --reload split-brain을 통합검증서만 잡음 [capability-broker,mcp-provider,hil-substep,interrupt-before-sideeffect,stale-reload-split-brain,seed-bypasses-write-schema,config-capabilities-persistence,approval-policy-single-source] → learning 101
+.dev/retrospect/INDEX.md:89:- 084 능력 브로커 kind 확장: RAG provider(Phase 2, 셋째·첫 읽기전용) — 스펙 103; codex가 짚은 vectorTables 정책밖은 안전위반 아닌 미문서 경계로 OUT+안전불변식 명시 [capability-broker,rag-provider,read-only-provider,two-gates-policy-vs-approval,untrusted-data-channel,approval-for-none,complement-attack-honest-boundary,core-holds-cross-entrance-invariant] → learning 103
+.dev/retrospect/INDEX.md:90:- 085 능력 브로커 kind 확장: Memory provider(첫 per-user 소유, 스펙 104) — cap_id에 대상 안 박고 principal서 소유자 도출해 구조적 anti-leak [capability-broker,memory-provider,per-user-ownership,bind-to-principal-not-cap-id,structural-anti-leak,no-admin-escalation,real-mem0-integration,complement-attack-honest-boundary] → learning 104
+.dev/retrospect/INDEX.md:91:- 086 능력 브로커 kind 확장: Memory write provider(첫 부수효과·승인 게이트, 스펙 105) — 기억해줘를 프롬프트 금지 아닌 승인게이트 구조로 막아 자동쓰기 누출(051·031) 봉인 [capability-broker,memory-write-provider,first-side-effect,approval-gate-is-structure,prompt-not-boundary,agent-id-forbidden-051,read-write-separate-permission,privacy-finding-permission-delta] → learning 105
+.dev/retrospect/INDEX.md:92:- 087 에이전트 편집 폼에 impl + capabilities 노출 — 스펙 106; config 필드 왕복 완전성=4지점 교집합(직렬화 비대칭 누락으로 재열기 때 사라짐) [capability-broker,admin-ui,capabilities-picker,agent-impls-endpoint,config-roundtrip-4-points,asymmetric-serialize-gap,rbac-not-triggered,vite-ipv6-only] → learning 106
+.dev/retrospect/INDEX.md:93:- 088 능력 피커 UX: 조건부 + 접이식 — 스펙 107; 사용자 지적(RAG 늘면 폼 복잡)으로 조건부+접이식, AskUserQuestion 미리보기로 방식 즉결 [capabilities-picker-ux,user-feedback,conditional-display,accordion-by-kind,form-height-vs-catalog,pure-presentation-swap,askuserquestion-preview,antd-checkbox-check] → learning 107
+.dev/retrospect/INDEX.md:108:- 103 조율형 오버라이드 capabilities — 스펙 122, 사용자 버그2; 108이 편집폼만 kind로 가르고 109가 직접형만 이식해 조율형 MCP가 오버라이드서 누락됐던 걸 kind-aware capGroups로 닫음 [orchestrator-override,fork-surface-propagate,single-source,browser-verify-catches-ui-gap,nul-byte-found] → learning 122
+.dev/retrospect/INDEX.md:126:- 121 평가 7탄: AI 출제(도우미 1탄) — 스펙 143; 능력별 출제 조립, 실측 결함(조율형 RAG는 capabilities 재림·1건×N회→한 호출 N줄), 검증안된 가설로 e2e 완화지침 준 실수(실측은 반대=antd6 클래스 드리프트) [ai-suggest,capability-dual-wiring,memory-lock-gate,unverified-hypothesis-guidance,semantic-selectors] → (learning 생략 — 회고 수록)
+.dev/retrospect/INDEX.md:133:- 128 기본 모델 전환 — 스펙 150(자율 루프 1건차); 버그 실체=기능 부재 아닌 상태 비가시+동선 부재, codex High=동시 지정 레이스를 부분 유니크 인덱스로 DB 봉인·신설 라우트만 잠그면 기존 PUT 우회 [default-model,partial-unique-index,capability-gate,visibility-bug] → (learning 생략 — 회고 수록)
+.dev/retrospect/INDEX.md:194:- 189 플랜 에이전트 도구-인지 — 스펙 202; plan에 도구 반영+execute bind_tools+ToolNode 루프, Protocol 계약은 주입받는다까지만 강제(설정=동작이려면 소비 적합성 rung 필요), 무조건 말고 필요하면=능력(호출할 수 있다)으로 번역해 결정적 검증 [contract-injection-needs-consumption-rung,capability-not-behavior-verification,existing-tests-as-design-guardrail] → 단위+무회귀+실모델
+.dev/retrospect/INDEX.md:336:- 331 SSE 이탈 풀 오염 봉합(스펙 403) — 공격 실증 먼저(봉합 전 200/500 교차 재현→봉합 후 0); shield는 강참조까지가 패턴(참조 없는 shield=방치, codex P1)·능력 추가 시 수명 관문 동반 이사(388 서빙 체크포인터에 346 관문 소급)·방어 효과+정리 불변식(잔류 0) 쌍 단언 [attack-proof-first,shield-needs-strong-ref,gate-follows-capability,invariant-not-just-effect] → verify_403 18/18
+
+codex
+[단계 2 — Context]
+참고 자산: 086 capability 플래그의 쓰기·렌더 입구 정렬 → admin PUT의 라이브 사실 편집 경계 점검, 101 설정 지속경로 누락 → capabilities의 생산자·소비자 관통 점검, 202 계약 주입 뒤 실제 소비 검증 → `modelParams` 캐스케이드가 각 실행 경로에서 실제 적용되는지 확인. 스킬의 영향으로 구현 의도를 추측해 메우지 않고, 각 finding을 구체 호출 경로와 재현 가능한 조건에 묶겠습니다.
+exec
+/bin/zsh -lc "rg -n \"spec.?408|408-|capabilities|modelParams|responseMode|disable_streaming|record_block_version|def llm_cfg_of|def _pinned_model_cfg|def _chat_model_cfg|def _resolve_node_models|def _resolve_mem_cfg|def _apply_agent_model_params|def build_chat_openai\" packages .dev alembic --glob '"'!**/node_modules/**'"' --glob '"'!**/.venv/**'"'" in /Users/anthony/Repository/github/loveqoo/my-agents
+ exited 2 in 0ms:
+rg: alembic: No such file or directory (os error 2)
+packages/api/src/api/chat_context_overrides.py:89:    - capabilities(스펙 122): 브로커가 build_broker(principal=호출자)로 호출자 RBAC 게이트
+packages/api/src/api/chat_context_overrides.py:116:def _filter_capabilities(cfg: dict) -> list:
+packages/api/src/api/chat_context_overrides.py:123:        for c in cfg.get("capabilities", [])
+packages/api/src/api/mem_config.py:32:def llm_cfg_of(cm: ModelConfig) -> dict:
+packages/api/src/api/mem_config.py:41:        "capabilities": dict(cm.capabilities or {}),
+packages/api/src/api/model_registry.py:19:from .block_versions import delete_block_history, record_block_version
+packages/api/src/api/model_registry.py:244:        capabilities=body.capabilities,  # 능력 선언(스펙 408)
+packages/api/src/api/model_registry.py:250:    await record_block_version(session, "model", m)  # v1 이력(스펙 369)
+packages/api/src/api/model_registry.py:279:    m.capabilities = body.capabilities  # 능력 선언(스펙 408)
+packages/api/src/api/model_registry.py:282:    await record_block_version(session, "model", m)
+packages/api/src/api/agent_card.py:3:외부 에이전트는 자기 capabilities·skills·서비스 엔드포인트·인증을 **Agent Card**(JSON 문서)로
+packages/api/src/api/agent_card.py:34:    # capabilities(객체) 또는 skills(배열) 중 최소 하나는 제대로 채워져 있어야 한다.
+packages/api/src/api/agent_card.py:36:    has_caps = isinstance(card.get("capabilities"), dict) and bool(card.get("capabilities"))
+packages/api/src/api/agent_card.py:39:        raise ValueError("Agent Card에 'capabilities'(객체) 또는 'skills'(배열)가 없습니다")
+.dev/reviews/393-blocks/codex-consult.md:38:- 블록 버저닝은 `record_block_version` + commit 충돌 409 흐름을 유지해야 합니다. unique race는 [BlockVersion 제약](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/models/blocks.py:42)과 [record_block_version](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/block_versions.py:93)에 걸려 있습니다.
+.dev/probe_042_a2a_integration.py:67:        "capabilities": {"streaming": streaming, "pushNotifications": False},
+.dev/probe_042_a2a_integration.py:174:                             "capabilities": {"streaming": True}, "skills": [{"id": "s"}]}},
+.dev/reviews/407-memory-separation/codex.out:401:    53	    capabilities: list = field(default_factory=list)
+.dev/reviews/407-memory-separation/codex.out:1143:   102	    capabilities: list[str] | None,
+.dev/reviews/407-memory-separation/codex.out:1192:   151	    return PolicyScopedBroker(capabilities, rbac_allows, providers, tool_policy=tool_policy)
+.dev/reviews/407-memory-separation/codex.out:2006:   316	        ctx.capabilities,
+.dev/reviews/407-memory-separation/codex.out:2016:   326	            runtime.build_agent_tools(resume_broker, await resume_broker.agent_capabilities())
+.dev/reviews/407-memory-separation/codex.out:2541:     capabilities: list = field(default_factory=list)
+.dev/reviews/407-memory-separation/codex.out:3639:   228	        ctx.capabilities,
+.dev/reviews/407-memory-separation/codex.out:3649:   238	        tools.extend(runtime.build_agent_tools(broker, await broker.agent_capabilities()))
+packages/api/src/api/broker/core.py:68:    `allowlist` = 호출 에이전트 config `capabilities`(cap id 목록, 없으면 [] = deny-by-default).
+packages/api/src/api/broker/core.py:148:    async def agent_capabilities(self) -> list[Capability]:
+packages/api/src/api/chat_context.py:36:    _filter_capabilities,
+packages/api/src/api/blocks_memory_types.py:14:from .block_versions import record_block_version
+packages/api/src/api/blocks_memory_types.py:62:    await record_block_version(session, "memory-type", obj)  # 스펙 369 관문
+packages/api/src/api/serializers.py:76:        capabilities=dict(m.capabilities or {}),  # 능력 선언(스펙 408)
+packages/api/src/api/serializers.py:119:        modelParams=dict(cfg.get("modelParams") or {}),  # 스펙 408 캐스케이드(폼 재로드용)
+packages/api/src/api/serializers.py:134:        capabilities=cfg.get("capabilities", []),  # 능력 브로커 allowlist(스펙 106, 폼 재로드용)
+packages/api/src/api/eval_runner.py:96:        ctx.capabilities,
+packages/api/src/api/eval_runner.py:104:        tools.extend(runtime.build_agent_tools(broker, await broker.agent_capabilities()))
+packages/api/src/api/chat_trace.py:29:    "capabilities",
+packages/api/src/api/chat_trace.py:167:    _caps = _mc.get("capabilities") or {}
+packages/api/src/api/chat_trace.py:170:        trace["responseMode"] = "single"
+packages/api/src/api/chat_context_types.py:53:    capabilities: list = field(default_factory=list)
+packages/api/src/api/chat_context_loader.py:15:from .chat_context_overrides import _apply_overrides, _filter_capabilities
+packages/api/src/api/chat_context_loader.py:36:    "capabilities",
+packages/api/src/api/chat_context_loader.py:141:            capabilities=_filter_capabilities(cfg),
+packages/api/src/api/chat_turn_runtime.py:234:        ctx.capabilities,
+packages/api/src/api/chat_turn_runtime.py:244:        tools.extend(runtime.build_agent_tools(broker, await broker.agent_capabilities()))
+packages/api/src/api/seed.py:444:        "capabilities": {"streaming": True, "pushNotifications": False},
+packages/api/src/api/seed.py:536:        "capabilities": {"streaming": True, "pushNotifications": False},
+packages/api/src/api/seed.py:667:            from .block_versions import record_block_version
+packages/api/src/api/seed.py:669:            await record_block_version(session, "mcp-server", row)
+packages/api/src/api/chat_context_pool.py:55:    memories/capabilities를 파생. 규칙은 폼 derivePipelinePool과 동일(단일 의미)."""
+packages/api/src/api/chat_context_pool.py:64:        # capabilities(브로커 allowlist)로 심는다. 권한 비상승: 노드가 이미 참조하는 것의 합집합.
+packages/api/src/api/chat_context_pool.py:66:        "capabilities": sorted(
+.dev/reviews/374-backend-refactor/codex-A.md:21:[chat_context.py:189] (P2) `derive_pipeline_pool`이 노드 ref 해석, MCP 서버 스캔, 컬렉션 스캔, memories/capabilities denormalization까지 수행 → 순수 `PipelinePoolDeriver`와 DB-backed catalog loader를 분리
+packages/api/src/api/a2a_server.py:98:    """MCP 서버→원하는 툴 집합(None=서버 전체)을 반환 — config.mcps(직접) + capabilities mcp:(조율) 병합."""
+packages/api/src/api/a2a_server.py:209:    출처: config.mcps(직접형 서버 전체) + config.capabilities(조율형 `mcp:server[/tool]`·`agent:agt_…`·
+packages/api/src/api/a2a_server.py:221:    caps = [c for c in (cfg.get("capabilities") or []) if isinstance(c, str)]
+packages/api/src/api/a2a_server.py:256:        "capabilities": {"streaming": True, "pushNotifications": False},
+packages/api/src/api/providers.py:21:from .block_versions import delete_block_history, record_block_version
+packages/api/src/api/providers.py:98:    await record_block_version(session, "provider", p)  # v1 이력(스펙 369)
+packages/api/src/api/providers.py:216:    await record_block_version(session, "provider", p)
+packages/api/src/api/chat_context_models.py:28:async def _pinned_model_cfg(db: AsyncSession, pins: dict | None, name: str) -> dict | None:
+packages/api/src/api/chat_context_models.py:48:    caps = dict(live.capabilities or {}) if live is not None else {}
+packages/api/src/api/chat_context_models.py:54:        "capabilities": caps,
+packages/api/src/api/chat_context_models.py:96:async def _chat_model_cfg(db: AsyncSession, name: str, pins: dict | None = None) -> dict | None:
+packages/api/src/api/chat_context_models.py:107:async def _resolve_node_models(
+packages/api/src/api/chat_context_models.py:132:# 에이전트 config.modelParams → 세션 오버라이드). 능력(capabilities)은 층에 없다 — 사실은 불가침.
+packages/api/src/api/chat_context_models.py:137:def _apply_agent_model_params(model_cfg: dict, cfg: dict) -> dict:
+packages/api/src/api/chat_context_models.py:138:    """모델 params 위에 에이전트 modelParams(화이트리스트만)를 덮는다 — 미명시 키는 상속."""
+packages/api/src/api/chat_context_models.py:139:    agent_mp = cfg.get("modelParams") or {}
+packages/api/src/api/chat_context_models.py:182:async def _resolve_mem_cfg(db: AsyncSession, model_cfg: dict | None) -> dict | None:
+packages/api/src/api/references.py:32:# 배열 필드 외에 조율형 capabilities(`{kind}:{name}` 또는 `{kind}:{name}/{tool}`)로도 참조된다
+packages/api/src/api/references.py:33:# (codex 148 Medium — mcps가 비고 capabilities만 있는 조율형이 가드를 우회하던 구멍).
+packages/api/src/api/references.py:53:    prompt=스칼라 비교, mcps/vectorTables는 배열 + capabilities(`kind:name[/tool]`)도 본다(스펙 148)."""
+packages/api/src/api/references.py:69:        caps = config.get("capabilities")
+packages/api/src/api/references.py:133:        caps = (agent.config or {}).get("capabilities") if isinstance(agent.config, dict) else None
+packages/api/src/api/eval_env.py:42:    """config capabilities 중 해당 접두 항목의 접두 제거 값 목록."""
+packages/api/src/api/eval_env.py:45:        for c in cfg.get("capabilities") or []
+packages/api/src/api/eval_env.py:78:    """배선 컬렉션 상태 스냅샷(배선 표면: vectorTables ∪ capabilities rag:* — 239 codex #4와
+packages/api/src/api/chat_context_mcp.py:68:    노드 도구가 조용히 미바인딩된다(codex 276 Low). 조율형은 capabilities가 도구를 관장. 그래서 이
+packages/api/src/api/schemas/agents.py:22:    modelParams: dict[str, Any] = Field(default_factory=dict)
+packages/api/src/api/schemas/agents.py:33:    capabilities: list[str] = Field(default_factory=list)
+packages/api/src/api/schemas/agents.py:283:    modelParams: dict[str, Any] = Field(
+packages/api/src/api/schemas/agents.py:303:    capabilities: list[str] = Field(
+.dev/reviews/408-capabilities/codex.out:15:스팟 적대 리뷰(스펙 408): 모델 능력(capabilities)·설정 캐스케이드를 검토해달라.
+.dev/reviews/408-capabilities/codex.out:17:구현: ①ModelConfig.capabilities JSONB(streaming/thinking/vision, 마이그레이션 9c13f807b6c2) ②llm_cfg_of가 capabilities 동봉, _pinned_model_cfg는 라이브 행에서 능력 주입(능력=라이브 사실, pin 스냅샷 비대상) ③_apply_agent_model_params — 에이전트 config.modelParams 화이트리스트(enable_thinking·stream)만 모델 params 위에 병합(temperature는 기존 AgentConfig.temperature가 정본이라 제외) ④build_chat_openai — stream_effective=능력 AND 사용값 → disable_streaming, 풀 키에 포함; enable_thinking 캐스케이드(세션 인자>병합 params) ⑤trace.responseMode="single"(단건일 때만) ⑥admin: 모델 행 능력 popover(PUT)·에이전트 폼 tri-state.
+.dev/reviews/408-capabilities/codex.out:20:1. 관통 누락 — model_cfg가 만들어지는 다른 경로에서 capabilities가 빠져 유효식이 기본(streaming)으로 오판되는 곳: _chat_model_cfg(노드 모델 해석 — 88/98행 부근 llm_cfg_of 경유라 포함?), _resolve_node_models, eval(eval_env/_execute 경로의 모델 해석), mem0 llm(_resolve_mem_cfg — 스트리밍 무관?), A2A 서빙, 커스텀 impl(085)이 model_cfg 직접 소비.
+.dev/reviews/408-capabilities/codex.out:21:2. 캐스케이드 정합 — 노드형: 노드별 모델에 에이전트 modelParams가 적용되나(의도: 적용돼야 하나? 노드 모델은 별도 축 — 현 구현은 _resolve_model만 병합, _chat_model_cfg는 미병합 → 노드 모델엔 에이전트 thinking/stream이 안 먹음. 이게 구멍인가 정직한 경계인가 판정). 세션 오버라이드에 stream/enable_thinking 키가 없는 것(화이트리스트 밖)의 일관성.
+.dev/reviews/408-capabilities/codex.out:22:3. trace 정합 — responseMode 유효식이 실행부(model.py)와 어긋날 수 있는 경로(예: 노드형은 노드 모델로 실행되는데 trace는 ctx.model_cfg 기준 — 거짓 배지?).
+.dev/reviews/408-capabilities/codex.out:23:4. PUT 능력 편집 — record_block_version과 능력 변경의 상호작용(능력이 payload에 들어가 버전 증가? 능력=라이브 사실이면 버전 무증가가 맞는지), 참조 중 편집의 안전성.
+.dev/reviews/408-capabilities/codex.out:35:/bin/zsh -lc "sed -n '1,240p' /Users/anthony/.codex/plugins/cache/karpathy-skills/andrej-karpathy-skills/1.0.0/skills/karpathy-guidelines/SKILL.md && rg -n \"408|capabilit|modelParams|responseMode|disable_streaming|record_block_version|9c13f807b6c2\" /Users/anthony/.codex/memories/MEMORY.md .dev/learning/INDEX.md .dev/retrospect/INDEX.md .dev/troubleshooting/INDEX.md 2>/dev/null" in /Users/anthony/Repository/github/loveqoo/my-agents
+.dev/reviews/408-capabilities/codex.out:112:.dev/retrospect/INDEX.md:87:- 082 능력 브로커 kind 확장: MCP provider(Phase 2-a) + 서브스텝 HIL — 스펙 101; integration rung이 설정지속경로 누락+스테일 --reload split-brain을 통합검증서만 잡음 [capability-broker,mcp-provider,hil-substep,interrupt-before-sideeffect,stale-reload-split-brain,seed-bypasses-write-schema,config-capabilities-persistence,approval-policy-single-source] → learning 101
+.dev/reviews/408-capabilities/codex.out:116:.dev/retrospect/INDEX.md:92:- 087 에이전트 편집 폼에 impl + capabilities 노출 — 스펙 106; config 필드 왕복 완전성=4지점 교집합(직렬화 비대칭 누락으로 재열기 때 사라짐) [capability-broker,admin-ui,capabilities-picker,agent-impls-endpoint,config-roundtrip-4-points,asymmetric-serialize-gap,rbac-not-triggered,vite-ipv6-only] → learning 106
+.dev/reviews/408-capabilities/codex.out:117:.dev/retrospect/INDEX.md:93:- 088 능력 피커 UX: 조건부 + 접이식 — 스펙 107; 사용자 지적(RAG 늘면 폼 복잡)으로 조건부+접이식, AskUserQuestion 미리보기로 방식 즉결 [capabilities-picker-ux,user-feedback,conditional-display,accordion-by-kind,form-height-vs-catalog,pure-presentation-swap,askuserquestion-preview,antd-checkbox-check] → learning 107
+.dev/reviews/408-capabilities/codex.out:118:.dev/retrospect/INDEX.md:108:- 103 조율형 오버라이드 capabilities — 스펙 122, 사용자 버그2; 108이 편집폼만 kind로 가르고 109가 직접형만 이식해 조율형 MCP가 오버라이드서 누락됐던 걸 kind-aware capGroups로 닫음 [orchestrator-override,fork-surface-propagate,single-source,browser-verify-catches-ui-gap,nul-byte-found] → learning 122
+.dev/reviews/408-capabilities/codex.out:119:.dev/retrospect/INDEX.md:126:- 121 평가 7탄: AI 출제(도우미 1탄) — 스펙 143; 능력별 출제 조립, 실측 결함(조율형 RAG는 capabilities 재림·1건×N회→한 호출 N줄), 검증안된 가설로 e2e 완화지침 준 실수(실측은 반대=antd6 클래스 드리프트) [ai-suggest,capability-dual-wiring,memory-lock-gate,unverified-hypothesis-guidance,semantic-selectors] → (learning 생략 — 회고 수록)
+.dev/reviews/408-capabilities/codex.out:126:참고 자산: 086 capability 플래그의 쓰기·렌더 입구 정렬 → admin PUT의 라이브 사실 편집 경계 점검, 101 설정 지속경로 누락 → capabilities의 생산자·소비자 관통 점검, 202 계약 주입 뒤 실제 소비 검증 → `modelParams` 캐스케이드가 각 실행 경로에서 실제 적용되는지 확인. 스킬의 영향으로 구현 의도를 추측해 메우지 않고, 각 finding을 구체 호출 경로와 재현 가능한 조건에 묶겠습니다.
+packages/api/src/api/blocks_prompts.py:20:from .block_versions import delete_block_history, record_block_version
+packages/api/src/api/blocks_prompts.py:45:    await record_block_version(session, "prompt", obj)  # v1 이력(스펙 369)
+packages/api/src/api/blocks_prompts.py:71:    await record_block_version(session, "prompt", obj)
+packages/api/src/api/blocks_mcp.py:17:from .block_versions import delete_block_history, record_block_version
+packages/api/src/api/blocks_mcp.py:93:    await record_block_version(session, "mcp-server", obj)  # v1 이력(스펙 369)
+packages/api/src/api/blocks_mcp.py:165:    await record_block_version(session, "mcp-server", obj)
+packages/api/src/api/blocks_mcp.py:340:    await record_block_version(session, "mcp-server", obj)
+.dev/reviews/408-capabilities/prompt.txt:1:스팟 적대 리뷰(스펙 408): 모델 능력(capabilities)·설정 캐스케이드를 검토해달라.
+.dev/reviews/408-capabilities/prompt.txt:3:구현: ①ModelConfig.capabilities JSONB(streaming/thinking/vision, 마이그레이션 9c13f807b6c2) ②llm_cfg_of가 capabilities 동봉, _pinned_model_cfg는 라이브 행에서 능력 주입(능력=라이브 사실, pin 스냅샷 비대상) ③_apply_agent_model_params — 에이전트 config.modelParams 화이트리스트(enable_thinking·stream)만 모델 params 위에 병합(temperature는 기존 AgentConfig.temperature가 정본이라 제외) ④build_chat_openai — stream_effective=능력 AND 사용값 → disable_streaming, 풀 키에 포함; enable_thinking 캐스케이드(세션 인자>병합 params) ⑤trace.responseMode="single"(단건일 때만) ⑥admin: 모델 행 능력 popover(PUT)·에이전트 폼 tri-state.
+.dev/reviews/408-capabilities/prompt.txt:6:1. 관통 누락 — model_cfg가 만들어지는 다른 경로에서 capabilities가 빠져 유효식이 기본(streaming)으로 오판되는 곳: _chat_model_cfg(노드 모델 해석 — 88/98행 부근 llm_cfg_of 경유라 포함?), _resolve_node_models, eval(eval_env/_execute 경로의 모델 해석), mem0 llm(_resolve_mem_cfg — 스트리밍 무관?), A2A 서빙, 커스텀 impl(085)이 model_cfg 직접 소비.
+.dev/reviews/408-capabilities/prompt.txt:7:2. 캐스케이드 정합 — 노드형: 노드별 모델에 에이전트 modelParams가 적용되나(의도: 적용돼야 하나? 노드 모델은 별도 축 — 현 구현은 _resolve_model만 병합, _chat_model_cfg는 미병합 → 노드 모델엔 에이전트 thinking/stream이 안 먹음. 이게 구멍인가 정직한 경계인가 판정). 세션 오버라이드에 stream/enable_thinking 키가 없는 것(화이트리스트 밖)의 일관성.
+.dev/reviews/408-capabilities/prompt.txt:8:3. trace 정합 — responseMode 유효식이 실행부(model.py)와 어긋날 수 있는 경로(예: 노드형은 노드 모델로 실행되는데 trace는 ctx.model_cfg 기준 — 거짓 배지?).
+.dev/reviews/408-capabilities/prompt.txt:9:4. PUT 능력 편집 — record_block_version과 능력 변경의 상호작용(능력이 payload에 들어가 버전 증가? 능력=라이브 사실이면 버전 무증가가 맞는지), 참조 중 편집의 안전성.
+.dev/reviews/405-knowledge/codex.out:95:.dev/retrospect/INDEX.md:108:- 103 조율형 오버라이드 capabilities — 스펙 122, 사용자 버그2; 108이 편집폼만 kind로 가르고 109가 직접형만 이식해 조율형 MCP가 오버라이드서 누락됐던 걸 kind-aware capGroups로 닫음 [orchestrator-override,fork-surface-propagate,single-source,browser-verify-catches-ui-gap,nul-byte-found] → learning 122
+.dev/reviews/405-knowledge/codex.out:153:docs/spec/148-naming-rule.md:23:**에이전트/버전 config 안의 이름 참조(persona·vectorTables·mcps·permissions·capabilities
+.dev/reviews/405-knowledge/codex.out:154:docs/spec/148-naming-rule.md:35:  mcps/vectorTables는 조율형 capabilities(`kind:name[/tool]`)도 검사. 페르소나·권한 rename/삭제에
+.dev/reviews/405-knowledge/codex.out:194:docs/spec/188-artifact-agent.md:155:- **[P1-1/P1-2 경계·정직화] override/broker capabilities**: `build_broker(principal=호출자)`가
+.dev/reviews/405-knowledge/codex.out:222:docs/spec/206-manifest-consumes-form-gate.md:13:  어휘: `"mcps" | "vectorTables" | "memories" | "capabilities" | "artifactSpec"`.
+.dev/reviews/405-knowledge/codex.out:1425:    89	    - capabilities(스펙 122): 브로커가 build_broker(principal=호출자)로 호출자 RBAC 게이트
+.dev/reviews/405-knowledge/codex.out:1452:   116	def _filter_capabilities(cfg: dict) -> list:
+.dev/reviews/405-knowledge/codex.out:1459:   123	        for c in cfg.get("capabilities", [])
+.dev/reviews/405-knowledge/codex.out:1501:    36	    _filter_capabilities,
+.dev/reviews/405-knowledge/codex.out:1534:    15	from .chat_context_overrides import _apply_overrides, _filter_capabilities
+.dev/reviews/405-knowledge/codex.out:1555:    36	    "capabilities",
+.dev/reviews/405-knowledge/codex.out:1660:   141	            capabilities=_filter_capabilities(cfg),
+.dev/reviews/405-knowledge/codex.out:1790:    55	    memories/capabilities를 파생. 규칙은 폼 derivePipelinePool과 동일(단일 의미)."""
+.dev/reviews/405-knowledge/codex.out:1799:    64	        # capabilities(브로커 allowlist)로 심는다. 권한 비상승: 노드가 이미 참조하는 것의 합집합.
+.dev/reviews/405-knowledge/codex.out:1801:    66	        "capabilities": sorted(
+.dev/reviews/405-knowledge/codex.out:2829:.dev/reviews/405-knowledge/codex.out:153:docs/spec/148-naming-rule.md:23:**에이전트/버전 config 안의 이름 참조(persona·vectorTables·mcps·permissions·capabilities
+packages/api/src/api/schemas/registry.py:68:    capabilities: dict[str, Any] = Field(
+packages/api/src/api/schemas/registry.py:85:    capabilities: dict[str, Any] = Field(
+packages/api/src/api/mock_remote.py:350:        "capabilities": {"streaming": True, "pushNotifications": False},
+packages/api/src/api/mock_remote.py:380:        "capabilities": {"streaming": True, "pushNotifications": False},
+packages/api/src/api/a2a_client.py:7:- 단건: `message/send` → 단일 JSONRPCResponse(카드 capabilities.streaming=false 폴백).
+packages/api/src/api/a2a_client.py:284:    """카드 capabilities.streaming(정본, 스펙 296). 없으면 True(message/stream 우선, 안 되면
+packages/api/src/api/a2a_client.py:287:        caps = card.get("capabilities")
+.dev/backlog.md:311:- **능력 브로커 UI**(스펙 106) — 편집 폼에 실행 방식(impl) Select + 능력(capabilities) kind별 피커
+.dev/backlog.md:313:  capabilities 직렬화; 능력 피커는 cap id `<kind>:<name>` 규약이라 폼이 이미 가진 데이터서 순수 포매팅
+.dev/backlog.md:315:  **백로그 2항목(impl 노출·capabilities 편집 Phase 2-d) 동시 소진.**
+.dev/backlog.md:328:  (`AgentConfig.capabilities` 필드) 포착·수정. codex 0 actionable(#3 오탐 기각, #1/#2 기존 명시경계).
+packages/api/src/api/block_versions.py:4:`record_block_version`을 경유한다(PUT·재탐색 동기화·생성). 잡별 삽입 금지 — 미경유 mutate가
+packages/api/src/api/block_versions.py:93:async def record_block_version(session: AsyncSession, kind: str, row: Any) -> bool:
+.dev/reviews/403-sse-abort/codex.out:3135:    96	        ctx.capabilities,
+.dev/reviews/403-sse-abort/codex.out:3143:   104	        tools.extend(runtime.build_agent_tools(broker, await broker.agent_capabilities()))
+.dev/reviews/403-sse-abort/codex.out:4425:408-
+.dev/reviews/403-sse-abort/codex.out:4876:   104	        tools.extend(runtime.build_agent_tools(broker, await broker.agent_capabilities()))
+packages/api/src/api/chat_approval.py:102:    capabilities: list[str] | None,
+packages/api/src/api/chat_approval.py:151:    return PolicyScopedBroker(capabilities, rbac_allows, providers, tool_policy=tool_policy)
+packages/api/src/api/chat_approval.py:316:        ctx.capabilities,
+packages/api/src/api/chat_approval.py:326:            runtime.build_agent_tools(resume_broker, await resume_broker.agent_capabilities())
+packages/api/src/api/eval_suggest.py:81:    RAG 재료는 배선 방식이 둘(verify_143 실측 — 조율형은 rag_collections가 비고 capabilities에
+packages/api/src/api/eval_suggest.py:82:    "rag:{이름}"으로 있다): 직접형 목록 + 조율형 capabilities에서 이름 해석해 합친다."""
+packages/api/src/api/eval_suggest.py:86:        for c in (ctx.capabilities or [])
+packages/api/src/api/catalog.py:4:돌려준 raw 모델 id를 카탈로그와 매칭하여 메타(context·modalities·cost·capabilities)를 채운다.
+packages/api/src/api/catalog.py:36:        "capabilities": {
+.dev/reviews/404-file-attach/codex.out:1311:    29	    "capabilities",
+.dev/reviews/404-file-attach/codex.out:2723:packages/api/src/api/chat_context_overrides.py:89:    - capabilities(스펙 122): 브로커가 build_broker(principal=호출자)로 호출자 RBAC 게이트
+.dev/reviews/404-file-attach/codex.out:2724:packages/api/src/api/chat_context_overrides.py:89:    - capabilities(스펙 122): 브로커가 build_broker(principal=호출자)로 호출자 RBAC 게이트
+.dev/reviews/404-file-attach/codex.out:2972:   224	        ctx.capabilities,
+.dev/reviews/404-file-attach/codex.out:2982:   234	        tools.extend(runtime.build_agent_tools(broker, await broker.agent_capabilities()))
+.dev/migrate_057_doc_translator.py:40:        "capabilities": {"streaming": True, "pushNotifications": False},
+packages/api/src/api/models/registry.py:69:    capabilities: Mapped[dict] = mapped_column(
+packages/api/src/api/models/registry.py:74:    # models.dev 카탈로그 파생 메타(스펙 047 #7) — context·modalities·cost·capabilities. params와 분리.
+packages/api/src/api/agents/guards.py:70:        for c in (config.get("capabilities") or [])
+.dev/reviews/401-override-gate/codex.out:129:    - capabilities(스펙 122): 브로커가 build_broker(principal=호출자)로 호출자 RBAC 게이트
+.dev/reviews/401-override-gate/codex.out:156:def _filter_capabilities(cfg: dict) -> list:
+.dev/reviews/401-override-gate/codex.out:163:        for c in cfg.get("capabilities", [])
+.dev/reviews/401-override-gate/codex.out:186:from .chat_context_overrides import _apply_overrides, _filter_capabilities
+.dev/reviews/401-override-gate/codex.out:207:    "capabilities",
+.dev/reviews/401-override-gate/codex.out:312:            capabilities=_filter_capabilities(cfg),
+.dev/reviews/401-override-gate/codex.out:369:async def _pinned_model_cfg(db: AsyncSession, pins: dict | None, name: str) -> dict | None:
+.dev/reviews/401-override-gate/codex.out:432:async def _chat_model_cfg(db: AsyncSession, name: str, pins: dict | None = None) -> dict | None:
+.dev/reviews/401-override-gate/codex.out:443:async def _resolve_node_models(
+.dev/reviews/401-override-gate/codex.out:500:async def _resolve_mem_cfg(db: AsyncSession, model_cfg: dict | None) -> dict | None:
+.dev/reviews/401-override-gate/codex.out:599:.dev/reviews/393-blocks/codex-consult.md:38:- 블록 버저닝은 `record_block_version` + commit 충돌 409 흐름을 유지해야 합니다. unique race는 [BlockVersion 제약](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/models/blocks.py:42)과 [record_block_version](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/block_versions.py:93)에 걸려 있습니다.
+.dev/reviews/401-override-gate/codex.out:636:.dev/reviews/374-backend-refactor/codex-A.md:21:[chat_context.py:189] (P2) `derive_pipeline_pool`이 노드 ref 해석, MCP 서버 스캔, 컬렉션 스캔, memories/capabilities denormalization까지 수행 → 순수 `PipelinePoolDeriver`와 DB-backed catalog loader를 분리
+.dev/reviews/401-override-gate/codex.out:677:.dev/retrospect/082-capability-broker-mcp-provider.md:35:`AgentConfig`(schemas.py) Pydantic 모델에 **`capabilities` 필드가 없어** `body.config.model_dump()`가
+.dev/reviews/401-override-gate/codex.out:783:.dev/retrospect/INDEX.md:108:- 103 조율형 오버라이드 capabilities — 스펙 122, 사용자 버그2; 108이 편집폼만 kind로 가르고 109가 직접형만 이식해 조율형 MCP가 오버라이드서 누락됐던 걸 kind-aware capGroups로 닫음 [orchestrator-override,fork-surface-propagate,single-source,browser-verify-catches-ui-gap,nul-byte-found] → learning 122
+.dev/reviews/401-override-gate/codex.out:809:.dev/retrospect/293-node-agent-call.md:64:  `derive_pipeline_pool`이 오버라이드된 노드에서 capabilities 재파생(chat_context.py:582, learning 151
+.dev/reviews/401-override-gate/codex.out:896:.dev/learning/122-fork-a-surface-by-kind-propagate-to-every-consumer.md:13:  하고 **조율형 capabilities는 빠뜨렸다**. → `overrideDefaults`가 `agent.mcps`만 읽어 조율형은 빈 값
+.dev/reviews/401-override-gate/codex.out:952:    15	from .chat_context_overrides import _apply_overrides, _filter_capabilities
+.dev/reviews/401-override-gate/codex.out:973:    36	    "capabilities",
+.dev/reviews/401-override-gate/codex.out:1078:   141	            capabilities=_filter_capabilities(cfg),
+.dev/reviews/401-override-gate/codex.out:1135:    28	async def _pinned_model_cfg(db: AsyncSession, pins: dict | None, name: str) -> dict | None:
+.dev/reviews/401-override-gate/codex.out:1198:    91	async def _chat_model_cfg(db: AsyncSession, name: str, pins: dict | None = None) -> dict | None:
+.dev/reviews/401-override-gate/codex.out:1209:   102	async def _resolve_node_models(
+.dev/reviews/401-override-gate/codex.out:1266:   159	async def _resolve_mem_cfg(db: AsyncSession, model_cfg: dict | None) -> dict | None:
+.dev/reviews/401-override-gate/codex.out:1401:    89	    - capabilities(스펙 122): 브로커가 build_broker(principal=호출자)로 호출자 RBAC 게이트
+.dev/reviews/401-override-gate/codex.out:1428:   116	def _filter_capabilities(cfg: dict) -> list:
+.dev/reviews/401-override-gate/codex.out:1435:   123	        for c in cfg.get("capabilities", [])
+.dev/reviews/401-override-gate/codex.out:1447:tests/verify_122_orchestrator_override_capabilities.py:74:    ctx = await chat._load_context(
+.dev/reviews/401-override-gate/codex.out:1448:tests/verify_122_orchestrator_override_capabilities.py:83:    ctx = await chat._load_context(aid, None, {"model": "mock-llm"}, own=None)
+.dev/reviews/401-override-gate/codex.out:1449:tests/verify_122_orchestrator_override_capabilities.py:90:    ctx = await chat._load_context(aid, None, None, own=None)
+.dev/reviews/401-override-gate/codex.out:1450:tests/verify_122_orchestrator_override_capabilities.py:97:    ctx = await chat._load_context(aid, None, {"capabilities": []}, own=None)
+.dev/reviews/401-override-gate/codex.out:1451:tests/verify_122_orchestrator_override_capabilities.py:118:        ctx = await chat._load_context(bare_id, None, {"capabilities": []}, own=None)
+.dev/reviews/401-override-gate/codex.out:1452:tests/verify_122_orchestrator_override_capabilities.py:123:        ctx = await chat._load_context(bare_id, None, {"model": None}, own=None)
+.dev/reviews/401-override-gate/codex.out:1453:tests/verify_122_orchestrator_override_capabilities.py:129:            await chat._load_context(bare_id, None, {"model": "없는모델401"}, own=None)
+.dev/reviews/401-override-gate/codex.out:1647:/bin/zsh -lc "nl -ba tests/verify_122_orchestrator_override_capabilities.py | sed -n '110,135p'" in /Users/anthony/Repository/github/loveqoo/my-agents
+.dev/reviews/401-override-gate/codex.out:1657:   118	        ctx = await chat._load_context(bare_id, None, {"capabilities": []}, own=None)
+.dev/reviews/401-override-gate/codex.out:1688:- `model` 키 없음 / `{"model": None}`: 의도대로 기본 모델 폴백입니다. 기존 회귀 테스트도 이 케이스를 이미 핀하고 있습니다: [verify_122_orchestrator_override_capabilities.py](/Users/anthony/Repository/github/loveqoo/my-agents/tests/verify_122_orchestrator_override_capabilities.py:118).
+.dev/reviews/401-override-gate/codex.out:1707:- `model` 키 없음 / `{"model": None}`: 의도대로 기본 모델 폴백입니다. 기존 회귀 테스트도 이 케이스를 이미 핀하고 있습니다: [verify_122_orchestrator_override_capabilities.py](/Users/anthony/Repository/github/loveqoo/my-agents/tests/verify_122_orchestrator_override_capabilities.py:118).
+packages/agent/src/agent/flows/orchestrate.py:210:            consumes=("capabilities", "memories"),
+packages/agent/src/agent/model.py:25:def build_chat_openai(
+packages/agent/src/agent/model.py:34:def build_chat_openai(
+packages/agent/src/agent/model.py:42:def build_chat_openai(
+packages/agent/src/agent/model.py:65:    # 스트리밍 유효식(스펙 408, 2층): 능력(capabilities.streaming — 사실, 협상 불가) AND
+packages/agent/src/agent/model.py:68:    caps = cfg.get("capabilities") or {}
+packages/agent/src/agent/model.py:101:        disable_streaming=not stream_effective,
+packages/agent/src/agent/toolbox.py:7:- **브로커 미경유**: 브로커는 per-user RBAC(capabilities 축)라 직접형의 권한 의미(에이전트 배선=사용)
+packages/agent/src/agent/runtime.py:129:    """커스텀 에이전트 자기소개 — 이름·설명·capabilities. describe()가 반환."""
+packages/agent/src/agent/runtime.py:135:    # 이 impl이 실제로 읽는 설정 표면(스펙 206) — "mcps"|"vectorTables"|"memories"|"capabilities"|
+.dev/learning/109-reusable-component-for-cross-surface-consistency.md:26:- 조율형 능력 = **1개** 배열(capabilities)
+.dev/reviews/402-quarantine/codex.out:550:packages/api/src/api/model_registry.py:19:from .block_versions import delete_block_history, record_block_version
+.dev/reviews/402-quarantine/codex.out:551:packages/api/src/api/model_registry.py:249:    await record_block_version(session, "model", m)  # v1 이력(스펙 369)
+.dev/reviews/402-quarantine/codex.out:552:packages/api/src/api/model_registry.py:280:    await record_block_version(session, "model", m)
+.dev/reviews/402-quarantine/codex.out:820:tests/verify_122_orchestrator_override_capabilities.py:26:from api import broker as broker_mod  # noqa: E402
+.dev/reviews/402-quarantine/codex.out:821:tests/verify_122_orchestrator_override_capabilities.py:27:from api import chat  # noqa: E402
+.dev/reviews/402-quarantine/codex.out:822:tests/verify_122_orchestrator_override_capabilities.py:28:from api.db import SessionLocal  # noqa: E402
+.dev/reviews/402-quarantine/codex.out:823:tests/verify_122_orchestrator_override_capabilities.py:29:from api.models import Agent  # noqa: E402
+.dev/reviews/402-quarantine/codex.out:824:tests/verify_122_orchestrator_override_capabilities.py:65:            active_version="v1",
+.dev/reviews/402-quarantine/codex.out:825:tests/verify_122_orchestrator_override_capabilities.py:122:            active_version="v1",
+.dev/reviews/402-quarantine/codex.out:986:packages/api/src/api/blocks_memory_types.py:14:from .block_versions import record_block_version
+.dev/reviews/402-quarantine/codex.out:987:packages/api/src/api/blocks_memory_types.py:62:    await record_block_version(session, "memory-type", obj)  # 스펙 369 관문
+.dev/reviews/402-quarantine/codex.out:1121:.dev/reviews/393-blocks/codex-consult.md:38:- 블록 버저닝은 `record_block_version` + commit 충돌 409 흐름을 유지해야 합니다. unique race는 [BlockVersion 제약](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/models/blocks.py:42)과 [record_block_version](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/block_versions.py:93)에 걸려 있습니다.
+.dev/reviews/402-quarantine/codex.out:1426:.dev/reviews/401-override-gate/codex.out:599:.dev/reviews/393-blocks/codex-consult.md:38:- 블록 버저닝은 `record_block_version` + commit 충돌 409 흐름을 유지해야 합니다. unique race는 [BlockVersion 제약](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/models/blocks.py:42)과 [record_block_version](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/block_versions.py:93)에 걸려 있습니다.
+.dev/reviews/402-quarantine/codex.out:1656:packages/api/src/api/blocks_prompts.py:20:from .block_versions import delete_block_history, record_block_version
+.dev/reviews/402-quarantine/codex.out:1657:packages/api/src/api/blocks_prompts.py:45:    await record_block_version(session, "prompt", obj)  # v1 이력(스펙 369)
+.dev/reviews/402-quarantine/codex.out:1658:packages/api/src/api/blocks_prompts.py:71:    await record_block_version(session, "prompt", obj)
+.dev/reviews/402-quarantine/codex.out:1682:packages/api/src/api/blocks_mcp.py:17:from .block_versions import delete_block_history, record_block_version
+.dev/reviews/402-quarantine/codex.out:1691:packages/api/src/api/blocks_mcp.py:93:    await record_block_version(session, "mcp-server", obj)  # v1 이력(스펙 369)
+.dev/reviews/402-quarantine/codex.out:1695:packages/api/src/api/blocks_mcp.py:165:    await record_block_version(session, "mcp-server", obj)
+.dev/reviews/402-quarantine/codex.out:1712:packages/api/src/api/blocks_mcp.py:340:    await record_block_version(session, "mcp-server", obj)
+.dev/reviews/402-quarantine/codex.out:1751:packages/api/src/api/seed.py:667:            from .block_versions import record_block_version
+.dev/reviews/402-quarantine/codex.out:1752:packages/api/src/api/seed.py:669:            await record_block_version(session, "mcp-server", row)
+.dev/reviews/402-quarantine/codex.out:1827:packages/api/src/api/providers.py:21:from .block_versions import delete_block_history, record_block_version
+.dev/reviews/402-quarantine/codex.out:1828:packages/api/src/api/providers.py:98:    await record_block_version(session, "provider", p)  # v1 이력(스펙 369)
+.dev/reviews/402-quarantine/codex.out:1829:packages/api/src/api/providers.py:216:    await record_block_version(session, "provider", p)
+.dev/reviews/402-quarantine/codex.out:1891:tests/verify_369_block_versioning.py:94:        # 수정 경로에 여전히 걸린다(record_block_version 유지). 여기선 봉인 계약만 확인.
+.dev/reviews/402-quarantine/codex.out:2296:packages/api/src/api/block_versions.py:4:`record_block_version`을 경유한다(PUT·재탐색 동기화·생성). 잡별 삽입 금지 — 미경유 mutate가
+.dev/reviews/402-quarantine/codex.out:2303:packages/api/src/api/block_versions.py:93:async def record_block_version(session: AsyncSession, kind: str, row: Any) -> bool:
+.dev/reviews/402-quarantine/codex.out:3049:tests/browser/verify-webfetch-201.mjs:37:    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'verify', version: '0' } } }),
+.dev/reviews/402-quarantine/codex.out:3375:    17	from .block_versions import delete_block_history, record_block_version
+.dev/reviews/402-quarantine/codex.out:3451:    93	    await record_block_version(session, "mcp-server", obj)  # v1 이력(스펙 369)
+.dev/reviews/402-quarantine/codex.out:3523:   165	    await record_block_version(session, "mcp-server", obj)
+.dev/reviews/402-quarantine/codex.out:3698:   340	    await record_block_version(session, "mcp-server", obj)
+.dev/reviews/402-quarantine/codex.out:3813:    68	    노드 도구가 조용히 미바인딩된다(codex 276 Low). 조율형은 capabilities가 도구를 관장. 그래서 이
+.dev/reviews/402-quarantine/codex.out:3838:[단계 4 — Execution] MCP 쪽은 유효 버전 주입과 편집 라우트가 모두 보입니다. 아직 `record_block_version`의 no-op 판정 대상에 url/transport가 들어가는지 확인해야 해서 그 함수와 block history payload를 읽겠습니다.
+.dev/reviews/402-quarantine/codex.out:3867:   340	    await record_block_version(session, "mcp-server", obj)
+.dev/reviews/402-quarantine/codex.out:3917:     4	`record_block_version`을 경유한다(PUT·재탐색 동기화·생성). 잡별 삽입 금지 — 미경유 mutate가
+.dev/reviews/402-quarantine/codex.out:4006:    93	async def record_block_version(session: AsyncSession, kind: str, row: Any) -> bool:
+.dev/reviews/402-quarantine/codex.out:4176:/bin/zsh -lc 'rg -n "def record_block_version|mcp-server|transport|tools_meta|enabled_tools|url|endpoint|version" packages/api/src/api/block_versions.py packages/api/src/api/blocks_presenters.py packages/api/src/api/schemas.py packages/api/alembic/versions' in /Users/anthony/Repository/github/loveqoo/my-agents
+.dev/reviews/402-quarantine/codex.out:4189:packages/api/src/api/block_versions.py:4:`record_block_version`을 경유한다(PUT·재탐색 동기화·생성). 잡별 삽입 금지 — 미경유 mutate가
+.dev/reviews/402-quarantine/codex.out:4199:packages/api/src/api/block_versions.py:93:async def record_block_version(session: AsyncSession, kind: str, row: Any) -> bool:
+.dev/reviews/402-quarantine/codex.out:4306:/bin/zsh -lc "rg -n \"McpServer\\(|update_mcp_server\\(|record_block_version\\(.*mcp-server|\\.version\\s*=|McpServer.*version|mcp_servers\" packages/api/src/api packages/api/alembic/versions tests/verify_*.py" in /Users/anthony/Repository/github/loveqoo/my-agents
+.dev/reviews/402-quarantine/codex.out:4366:packages/api/src/api/blocks_mcp.py:93:    await record_block_version(session, "mcp-server", obj)  # v1 이력(스펙 369)
+.dev/reviews/402-quarantine/codex.out:4367:packages/api/src/api/blocks_mcp.py:165:    await record_block_version(session, "mcp-server", obj)
+.dev/reviews/402-quarantine/codex.out:4369:packages/api/src/api/blocks_mcp.py:340:    await record_block_version(session, "mcp-server", obj)
+.dev/reviews/402-quarantine/codex.out:4426:packages/api/src/api/seed.py:669:            await record_block_version(session, "mcp-server", row)
+.dev/reviews/402-quarantine/codex.out:4645:   141	            capabilities=_filter_capabilities(cfg),
+.dev/reviews/402-quarantine/codex.out:4750:   667	            from .block_versions import record_block_version
+.dev/reviews/402-quarantine/codex.out:4752:   669	            await record_block_version(session, "mcp-server", row)
+.dev/reviews/402-quarantine/codex.out:5677:tests/verify_318_node_agent_call.py:104:    # derive_pipeline_pool이 그 id를 config `capabilities`(=브로커 allowlist)에 넣는다. 하지만
+.dev/reviews/402-quarantine/codex.out:5679:tests/verify_318_node_agent_call.py:198:        # H1 풀 파생 — 노드 tools의 agent__{id} → capabilities 파생(저장 시 derive_pipeline_pool)
+.dev/reviews/402-quarantine/codex.out:5693:tests/browser/verify-318-override-agent-picker.mjs:3:   허용·derive_pipeline_pool이 로드 시 capabilities 재파생) — 프론트 picker만 배선.
+.dev/reviews/402-quarantine/codex.out:6779:   224	        ctx.capabilities,
+.dev/reviews/402-quarantine/codex.out:6789:   234	        tools.extend(runtime.build_agent_tools(broker, await broker.agent_capabilities()))
+.dev/reviews/402-quarantine/codex.out:6964:일반 MCP 서버 수정 경로에서는 `transport`, `url`, `endpoint` 변경이 `version`을 반드시 회전시킵니다. `update_mcp_server()`가 body 값을 row에 반영한 뒤 `record_block_version()`을 호출하고, MCP payload에는 `transport`, `url`, `endpoint`가 포함됩니다. payload가 직전 버전과 다르면 `row.version = last.version + 1`입니다. 런타임 projection도 `version`을 `server` dict에 넣고, 캐시 키는 `(name, version, auth_fp)`라 head 경로에서는 키가 바뀝니다.
+.dev/reviews/402-quarantine/codex.out:6970:- [blocks_mcp.py](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/blocks_mcp.py:340): 수정 후 `record_block_version(session, "mcp-server", obj)`.
+.dev/reviews/402-quarantine/codex.out:7008:일반 MCP 서버 수정 경로에서는 `transport`, `url`, `endpoint` 변경이 `version`을 반드시 회전시킵니다. `update_mcp_server()`가 body 값을 row에 반영한 뒤 `record_block_version()`을 호출하고, MCP payload에는 `transport`, `url`, `endpoint`가 포함됩니다. payload가 직전 버전과 다르면 `row.version = last.version + 1`입니다. 런타임 projection도 `version`을 `server` dict에 넣고, 캐시 키는 `(name, version, auth_fp)`라 head 경로에서는 키가 바뀝니다.
+.dev/reviews/402-quarantine/codex.out:7014:- [blocks_mcp.py](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/blocks_mcp.py:340): 수정 후 `record_block_version(session, "mcp-server", obj)`.
+.dev/learning/152-display-honesty-gate-by-consumes.md:12:   `consumes=("capabilities","memories")` — 도구·문서를 **소비하지 않는다**.
+.dev/learning/108-dont-expose-internal-architecture-as-ui.md:26:- 조율형(`orchestrate`)은 `ctx.broker`(capabilities)**만** 쓴다.
+.dev/retrospect/126-naming-rule-alias.md:28:- **capabilities 축 구조적 누락**: 조율형은 mcps가 비고 capabilities("mcp:서버/툴")로 참조 —
+.dev/learning/144-how-approval-fires.md:31:  `config.capabilities`에 `memwrite:user`가 있어야 브로커 allowlist에 들어간다(chat.py:167, broker.py:783).
+.dev/learning/107-growing-catalog-in-form-conditional-plus-accordion.md:29:선택 상태(`form.capabilities`)·토글(`toggleCap`)·저장 배선은 그대로 두고 **렌더링 계층만** flat→
+.dev/learning/101-seed-bypasses-write-schema-and-verify-the-reviewer.md:7:**증상.** 능력 브로커의 allowlist는 `AgentConfig.config["capabilities"]`에서 온다. 단위·그래프 레벨
+.dev/learning/101-seed-bypasses-write-schema-and-verify-the-reviewer.md:9:아무것도 발견 못 함. 원인 = `AgentConfig` Pydantic 모델에 `capabilities` 필드가 없어
+.dev/learning/122-fork-a-surface-by-kind-propagate-to-every-consumer.md:4:같은 자원을 **에이전트 종류(kind)별로 다른 필드/표면**에 담기 시작할 때(예: 조율형=capabilities,
+.dev/learning/122-fork-a-surface-by-kind-propagate-to-every-consumer.md:10:  `config.capabilities`(`mcp:서버`)로** 담고 브로커로 실행, **직접형은 `config.mcps`로** 담고 ctx.tools로
+.dev/learning/122-fork-a-surface-by-kind-propagate-to-every-consumer.md:11:  실행. 스펙 108이 **편집 폼**을 이 kind로 갈랐다(조율형=capabilities 피커, 직접형=직접 자원).
+.dev/learning/122-fork-a-surface-by-kind-propagate-to-every-consumer.md:13:  하고 **조율형 capabilities는 빠뜨렸다**. → `overrideDefaults`가 `agent.mcps`만 읽어 조율형은 빈 값
+.dev/learning/122-fork-a-surface-by-kind-propagate-to-every-consumer.md:14:  → 오버라이드 패널에 MCP가 안 뜸. 런타임은 저장 capabilities를 그대로 써서 **에이전트는 정상 동작**,
+.dev/learning/122-fork-a-surface-by-kind-propagate-to-every-consumer.md:17:  `draft.capabilities`에 바인딩, 직접형은 기존 mcps/memories. `isOrchestratorImpl`을 mockData로 승격해
+.dev/learning/122-fork-a-surface-by-kind-propagate-to-every-consumer.md:18:  두 폼이 **단일 판정** 공유. 백엔드 오버라이드 허용목록에도 `capabilities` 추가.
+.dev/learning/122-fork-a-surface-by-kind-propagate-to-every-consumer.md:31:capabilities를 오버라이드 허용목록에 넣어도 **confused-deputy(스펙 113) 없음**: 브로커가
+.dev/learning/122-fork-a-surface-by-kind-propagate-to-every-consumer.md:32:`build_broker(principal=호출자, capabilities)`로 `_permitted = allowlist ∩ 호출자 RBAC`를 닫는다 —
+.dev/learning/106-config-roundtrip-completeness-and-namespace-as-authoring-layer.md:5:능력 브로커(100–105)를 UI에서 엮으려 편집 폼에 `impl`·`capabilities` 두 필드를 노출(스펙 106).
+.dev/learning/106-config-roundtrip-completeness-and-namespace-as-authoring-layer.md:19:스펙 106에서 `capabilities`는 (1)만 있었다(101이 write-schema에 추가). 직렬화는 `impl`은 방출했지만
+.dev/learning/106-config-roundtrip-completeness-and-namespace-as-authoring-layer.md:20:`capabilities`는 **말없이 빠져** 있었다. 그러면 폼이 저장은 성공하나(1·4 OK) **편집 재열기 때
+packages/api/alembic/versions/9c13f807b6c2_model_capabilities_spec_408.py:1:"""model capabilities spec 408
+packages/api/alembic/versions/9c13f807b6c2_model_capabilities_spec_408.py:28:            "capabilities",
+packages/api/alembic/versions/9c13f807b6c2_model_capabilities_spec_408.py:37:    op.drop_column("models", "capabilities")
+packages/api/alembic/versions/e9f0a1b2c3d4_naming_rule_alias_spec_148.py:5:mcps·permissions·capabilities, casbin_rule의 per-cap 부여)을 old→new 매핑으로 함께 재작성한다
+packages/api/alembic/versions/e9f0a1b2c3d4_naming_rule_alias_spec_148.py:84:    caps = cfg.get("capabilities")
+packages/api/alembic/versions/e9f0a1b2c3d4_naming_rule_alias_spec_148.py:97:            cfg["capabilities"] = new_caps
+.dev/retrospect/089-agent-form-plain-language-by-type.md:13:- 조율형(`orchestrate`)은 `ctx.broker`(=capabilities)**만** 쓰고 직접 tools를 안 씀.
+.dev/retrospect/135-a2a-skills-expansion.md:8:- `_agent_a2a_skills(agent)`: config.mcps + config.capabilities(broker 파서 재사용)를 실제 능력 스킬로.
+.dev/retrospect/017-external-agent-a2a-card-registration.md:37:2. **`validate_card` 타입 미검증** — `"skills":"x"`(문자열)가 truthy라 통과. → capabilities는 dict,
+.dev/retrospect/217-form-wizard.md:24:위저드와 무관하게, 저장 로직이 vectorTables만 돌아 조율형(capabilities `rag:*`)의 최소 유사도
+.dev/retrospect/087-agent-capabilities-impl-ui.md:1:# 087 — 에이전트 편집 폼에 impl + capabilities 노출 (스펙 106)
+.dev/retrospect/087-agent-capabilities-impl-ui.md:9:- **능력(capabilities) 피커** — kind별로 위임 가능 cap id를 고름.
+.dev/retrospect/087-agent-capabilities-impl-ui.md:14:  top-level `meta_router`), AgentOut에 `capabilities` 필드 + 직렬화 보강.
+.dev/retrospect/087-agent-capabilities-impl-ui.md:15:- 프론트: `AgentConfig`·`Agent`·`AgentFormData`에 impl/capabilities, `blankForm`·`configOf`·`initial`·
+.dev/retrospect/087-agent-capabilities-impl-ui.md:30:- **config 필드 왕복 완전성은 4지점의 교집합**(learning 106 핵심): 쓰기 스키마(AgentCreate)가 `capabilities`를
+.dev/retrospect/087-agent-capabilities-impl-ui.md:31:  101에서 이미 수용했고 직렬화는 `impl`은 보냈지만 `capabilities`는 **말없이 빠져 있었다** → 폼이 저장은
+.dev/retrospect/087-agent-capabilities-impl-ui.md:43:  띄우는지. UI→config.capabilities 지속은 이번에 증명, config→build_broker 소비는 100–105가 증명 →
+.dev/retrospect/103-orchestrator-override-capabilities.md:1:# 103 — 회고: 조율형 오버라이드 capabilities 반영 (스펙 122, 버그2)
+.dev/retrospect/103-orchestrator-override-capabilities.md:5:누락." 원인은 표면 분기 누락: 스펙 108이 편집 폼을 kind별로 갈랐으나(조율형=capabilities), 스펙 109가
+.dev/retrospect/103-orchestrator-override-capabilities.md:6:오버라이드 패널엔 직접형(mcps/memories)만 이식해 조율형 capabilities가 빠졌다. 오버라이드 패널을
+.dev/retrospect/103-orchestrator-override-capabilities.md:7:kind-aware로 고치고(capGroups 바인딩), 백엔드 허용목록에 capabilities 추가.
+.dev/retrospect/103-orchestrator-override-capabilities.md:10:- **런타임 이원화(learning 108) 지식으로 원인을 바로 특정** — "왜 MCP가 mcps가 아니라 capabilities인가"를
+.dev/retrospect/103-orchestrator-override-capabilities.md:11:  추측 없이 코드로 확인(chat.py 오버라이드 허용목록에 capabilities 없음 + OverridePanel이 mcps만).
+.dev/retrospect/103-orchestrator-override-capabilities.md:14:- **보안 비대칭을 명확히**: capabilities는 브로커가 항상 호출자 RBAC로 닫아 confused-deputy 없음(mcps의
+.dev/retrospect/082-capability-broker-mcp-provider.md:35:`AgentConfig`(schemas.py) Pydantic 모델에 **`capabilities` 필드가 없어** `body.config.model_dump()`가
+.dev/retrospect/082-capability-broker-mcp-provider.md:36:allowlist를 **조용히 버렸다**. `chat.py:139`는 `cfg.get("capabilities", [])`를 읽지만 지속 경로가 끊겨
+.dev/retrospect/082-capability-broker-mcp-provider.md:40:principal로 chat)만이 이 틈을 잡았다. 고침 = `AgentConfig.capabilities` 필드 한 줄 추가(스펙 100 §69가
+.dev/retrospect/082-capability-broker-mcp-provider.md:41:`config["capabilities"]`를 출처로 명시). → learning 101.
+.dev/retrospect/082-capability-broker-mcp-provider.md:76:(kind 확장 후속), 또는 admin UI capabilities 편집(Phase 2-d, 지속 경로가 이제 열렸으니 UI만 남음).
+.dev/retrospect/036-provider-model-merge-models-dev.md:10:  `lookup(full→bare→None)`. 등록된 모델에 context/cost/modalities/capabilities 메타 자동 첨부.
+.dev/retrospect/088-capabilities-picker-ux.md:14:- 데이터 모델·저장 배선 무변경(`form.capabilities`·`toggleCap` 그대로) — 순수 표현 계층 교체.
+.dev/retrospect/105-discover-rank-not-filter.md:31:- 참고: learning 124, [[verification-ladder-three-rungs]], learning 108(조율형=broker/capabilities).
+.dev/retrospect/091-e2e-orchestration-smoke.md:12:  orchestrate, capabilities=[rag:<col>])로 조율형 생성 → **채팅 엔드포인트** 1턴 → trace에
+.dev/retrospect/INDEX.md:87:- 082 능력 브로커 kind 확장: MCP provider(Phase 2-a) + 서브스텝 HIL — 스펙 101; integration rung이 설정지속경로 누락+스테일 --reload split-brain을 통합검증서만 잡음 [capability-broker,mcp-provider,hil-substep,interrupt-before-sideeffect,stale-reload-split-brain,seed-bypasses-write-schema,config-capabilities-persistence,approval-policy-single-source] → learning 101
+.dev/retrospect/INDEX.md:92:- 087 에이전트 편집 폼에 impl + capabilities 노출 — 스펙 106; config 필드 왕복 완전성=4지점 교집합(직렬화 비대칭 누락으로 재열기 때 사라짐) [capability-broker,admin-ui,capabilities-picker,agent-impls-endpoint,config-roundtrip-4-points,asymmetric-serialize-gap,rbac-not-triggered,vite-ipv6-only] → learning 106
+.dev/retrospect/INDEX.md:93:- 088 능력 피커 UX: 조건부 + 접이식 — 스펙 107; 사용자 지적(RAG 늘면 폼 복잡)으로 조건부+접이식, AskUserQuestion 미리보기로 방식 즉결 [capabilities-picker-ux,user-feedback,conditional-display,accordion-by-kind,form-height-vs-catalog,pure-presentation-swap,askuserquestion-preview,antd-checkbox-check] → learning 107
+.dev/retrospect/INDEX.md:108:- 103 조율형 오버라이드 capabilities — 스펙 122, 사용자 버그2; 108이 편집폼만 kind로 가르고 109가 직접형만 이식해 조율형 MCP가 오버라이드서 누락됐던 걸 kind-aware capGroups로 닫음 [orchestrator-override,fork-surface-propagate,single-source,browser-verify-catches-ui-gap,nul-byte-found] → learning 122
+.dev/retrospect/INDEX.md:126:- 121 평가 7탄: AI 출제(도우미 1탄) — 스펙 143; 능력별 출제 조립, 실측 결함(조율형 RAG는 capabilities 재림·1건×N회→한 호출 N줄), 검증안된 가설로 e2e 완화지침 준 실수(실측은 반대=antd6 클래스 드리프트) [ai-suggest,capability-dual-wiring,memory-lock-gate,unverified-hypothesis-guidance,semantic-selectors] → (learning 생략 — 회고 수록)
+.dev/retrospect/121-eval-suggest-helper.md:11:- 실측이 두 결함을 즉시 노출: ①**조율형은 RAG가 capabilities에 있다**(rag_collections만 보면
+.dev/retrospect/121-eval-suggest-helper.md:28:- 조율형/직접형 이중 배선 축(capabilities vs 직접 필드)은 **모든 신규 기능에서 양쪽 다** 확인.
+.dev/retrospect/081-capability-broker-a2a-orchestration.md:68:- 다음(백로그): admin UI impl/capabilities 편집(085 H5), 능력 브로커 Phase 2(kind 확장 + 인가 입도).
+.dev/retrospect/293-node-agent-call.md:22:  넣으면 derive_pipeline_pool이 그 id를 config `capabilities`(=브로커 allowlist)에 얹는다. codex는 이걸
+.dev/retrospect/293-node-agent-call.md:25:  참조해도 `agent_capabilities()`가 0, 도구도 0, invoke도 거부. 이는 **MCP/RAG 풀 파생(259·289)과 동일한
+.dev/retrospect/293-node-agent-call.md:40:  후보 스코프(expert 있음·자기 없음)·선택→`nodes[0].tools`에 `agent__{id}` 합류·capabilities 파생을
+.dev/retrospect/293-node-agent-call.md:48:- 기능 UI: VERIFY318_UI_OK(picker 후보 스코프·자기제외·선택→tools·capabilities 파생, API 단언).
+.dev/retrospect/293-node-agent-call.md:64:  `derive_pipeline_pool`이 오버라이드된 노드에서 capabilities 재파생(chat_context.py:582, learning 151
+
+codex
+[단계 3 — Planning]
+완료 조건은 세 가지입니다: (1) `model_cfg` 생성·변형 지점을 전수 열거해 capabilities 유실 여부 판정, (2) 실제 실행 모델과 trace 표시 모델을 경로별 대조, (3) PUT→버전 payload→pin/live 참조의 의미를 대조. 검증은 정적 호출부 스캔과 관련 테스트/스펙 계약 대조로 수행하며, 읽기 전용 요청이라 파일 수정·회고·커밋은 생략합니다.
+exec
+/bin/zsh -lc "nl -ba packages/api/src/api/chat_context_models.py | sed -n '1,240p'; nl -ba packages/api/src/api/mem_config.py | sed -n '1,180p'; nl -ba packages/api/src/api/chat_trace.py | sed -n '130,195p'; nl -ba packages/agent/src/agent/model.py | sed -n '1,280p'; nl -ba packages/api/src/api/model_registry.py | sed -n '210,305p'; nl -ba packages/api/src/api/block_versions.py | sed -n '1,180p'; nl -ba packages/api/src/api/models/registry.py | sed -n '1,180p'; nl -ba packages/api/alembic/versions/9c13f807b6c2_model_capabilities_spec_408.py" in /Users/anthony/Repository/github/loveqoo/my-agents
+ succeeded in 0ms:
+     1	"""모델·mem0 설정 해석 — chat_context.py에서 분할(스펙 394 P3).
+     2	
+     3	_resolve_model(구 CC 12)은 레지스트리 조회(_registry_chat_model·_default_chat_registry)와
+     4	행→dict 변환(_model_cfg_from_row) 추출로 분해. **의도 비대칭 보존**(codex 자문·스펙 290):
+     5	오버라이드 모델 미등록=400(시끄럽게), 저장 설정 미등록=기본(is_default) 폴백(graceful).
+     6	파사드는 chat_context.py(재수출 계약).
+     7	"""
+     8	
+     9	import uuid
+    10	
+    11	from fastapi import HTTPException
+    12	from sqlalchemy import select
+    13	from sqlalchemy.ext.asyncio import AsyncSession
+    14	from sqlalchemy.orm import selectinload
+    15	
+    16	from . import crypto
+    17	from .chat_context_types import _is_remote
+    18	from .mem_config import (
+    19	    _build_mem_cfg,
+    20	    _default_chat_model,
+    21	    _default_embed_model,
+    22	    llm_cfg_of,
+    23	    model_usable,
+    24	)
+    25	from .models import Agent, ModelConfig
+    26	
+    27	
+    28	async def _pinned_model_cfg(db: AsyncSession, pins: dict | None, name: str) -> dict | None:
+    29	    """pin이 head와 다를 때만 이력 payload로 model_cfg 구성(스펙 370) — 369 경계 그대로
+    30	    저작 내용(model_id·params·provider_id)은 pin, 연결처 비밀(base_url·api_key)은 라이브 provider."""
+    31	    from .block_versions import resolve_pinned
+    32	    from .models import Provider as _Provider
+    33	
+    34	    payload = await resolve_pinned(db, pins, "model", name)
+    35	    if payload is None:
+    36	        return None
+    37	    prov = None
+    38	    if payload.get("provider_id"):
+    39	        try:
+    40	            prov = await db.get(_Provider, uuid.UUID(str(payload["provider_id"])))
+    41	        except ValueError:
+    42	            prov = None
+    43	    if prov is None or not prov.base_url or not payload.get("model_id"):
+    44	        return None  # 불완전 pin — head 폴백(정직 degrade)
+    45	    # 능력은 스냅샷하지 않는다(스펙 408) — 서버 능력은 **라이브 사실**이라 pin과 무관하게 현재
+    46	    # 등록 행에서 읽는다(구버전 pin이라도 지금 서버가 스트리밍을 껐으면 지금 사실을 따라야 함).
+    47	    live = await _registry_chat_model(db, name)
+    48	    caps = dict(live.capabilities or {}) if live is not None else {}
+    49	    return {
+    50	        "base_url": prov.base_url,
+    51	        "api_key": crypto.decrypt(prov.api_key),
+    52	        "model_id": payload["model_id"],
+    53	        "params": dict(payload.get("params") or {}),
+    54	        "capabilities": caps,
+    55	    }
+    56	
+    57	
+    58	async def _registry_chat_model(db: AsyncSession, name: str) -> ModelConfig | None:
+    59	    """레지스트리 chat 모델 단건 조회(name, kind=chat, provider 상속) — 해석 3경로 공유 조회."""
+    60	    return (
+    61	        await db.execute(
+    62	            select(ModelConfig)
+    63	            .where(ModelConfig.name == name, ModelConfig.kind == "chat")
+    64	            .options(selectinload(ModelConfig.provider))
+    65	        )
+    66	    ).scalar_one_or_none()
+    67	
+    68	
+    69	async def _default_chat_registry(db: AsyncSession) -> ModelConfig | None:
+    70	    """기본(is_default) chat 모델 조회 — 저장 설정 미지정/미등록의 graceful 폴백 대상."""
+    71	    return (
+    72	        (
+    73	            await db.execute(
+    74	                select(ModelConfig)
+    75	                .where(ModelConfig.kind == "chat", ModelConfig.is_default.is_(True))
+    76	                .options(selectinload(ModelConfig.provider))
+    77	            )
+    78	        )
+    79	        .scalars()
+    80	        .first()
+    81	    )
+    82	
+    83	
+    84	def _model_cfg_from_row(m: ModelConfig) -> dict:
+    85	    """모델 행 → model_cfg dict — 불완전(provider base_url/model_id 부재)은 400(명확한 안내)."""
+    86	    base_url = m.provider.base_url if m.provider else ""
+    87	    if not base_url or not m.model_id:
+    88	        raise HTTPException(
+    89	            status_code=400,
+    90	            detail=f"모델 '{m.name}' 설정이 불완전합니다 (provider base_url/model_id 필요).",
+    91	        )
+    92	    # 등록 없음·설정 불완전이 각각 다른 에러 메시지라 model_usable로 접지 않음 — dict만 정본화.
+    93	    return {**llm_cfg_of(m), "params": dict(m.params or {})}
+    94	
+    95	
+    96	async def _chat_model_cfg(db: AsyncSession, name: str, pins: dict | None = None) -> dict | None:
+    97	    """레지스트리 chat 모델(name→provider 상속) 해석 — pin 우선(스펙 370), 미존재/불완전이면 None."""
+    98	    pinned = await _pinned_model_cfg(db, pins, name)
+    99	    if pinned is not None:
+   100	        return pinned
+   101	    m = await _registry_chat_model(db, name)
+   102	    if model_usable(m):
+   103	        return {**llm_cfg_of(m), "params": dict(m.params or {})}
+   104	    return None
+   105	
+   106	
+   107	async def _resolve_node_models(
+   108	    db: AsyncSession, nodes: list, default_cfg: dict | None, pins: dict | None = None
+   109	) -> list[dict]:
+   110	    """노드형(스펙 259) 노드별 모델을 레지스트리에서 미리 해석해 `model_cfg`를 심는다(085 U2 — impl은
+   111	    DB 미접촉). 에이전트 모델 해석과 **동일 조회**(`ModelConfig.name==name, kind=="chat"`, provider
+   112	    상속) — 드리프트 0. 미지정/미존재 이름은 `default_cfg`(에이전트 기본 chat 모델)로 폴백. 같은 모델
+   113	    이름은 1회만 조회해 재사용(N 노드 M 중복 모델 → distinct 쿼리). 순수 데이터 반환(잡 노드는 통과 —
+   114	    정규화는 impl의 normalize_nodes가)."""
+   115	    resolved: list[dict] = []
+   116	    cache: dict[str, dict | None] = {}
+   117	    for node in nodes:
+   118	        if not isinstance(node, dict):
+   119	            continue
+   120	        name = node.get("model")
+   121	        cfg = None
+   122	        if isinstance(name, str) and name.strip():
+   123	            if name not in cache:
+   124	                cache[name] = await _chat_model_cfg(db, name, pins)
+   125	            cfg = cache[name]
+   126	        # 심은 model_cfg는 해석된 노드 모델(없으면 에이전트 기본으로 폴백 — impl의 _model_from_node).
+   127	        resolved.append({**node, "model_cfg": cfg or default_cfg})
+   128	    return resolved
+   129	
+   130	
+   131	# 에이전트 층 모델 설정 오버라이드 화이트리스트(스펙 408 캐스케이드: 모델 params 기본 →
+   132	# 에이전트 config.modelParams → 세션 오버라이드). 능력(capabilities)은 층에 없다 — 사실은 불가침.
+   133	# temperature는 제외 — 기존 AgentConfig.temperature(스펙 077)가 이미 에이전트 층 정본(이중 거처 금지).
+   134	MODEL_PARAM_OVERRIDE_KEYS = ("enable_thinking", "stream")
+   135	
+   136	
+   137	def _apply_agent_model_params(model_cfg: dict, cfg: dict) -> dict:
+   138	    """모델 params 위에 에이전트 modelParams(화이트리스트만)를 덮는다 — 미명시 키는 상속."""
+   139	    agent_mp = cfg.get("modelParams") or {}
+   140	    if not isinstance(agent_mp, dict) or not agent_mp:
+   141	        return model_cfg
+   142	    merged = dict(model_cfg.get("params") or {})
+   143	    for k in MODEL_PARAM_OVERRIDE_KEYS:
+   144	        if k in agent_mp and agent_mp[k] is not None:
+   145	            merged[k] = agent_mp[k]
+   146	    return {**model_cfg, "params": merged}
+   147	
+   148	
+   149	async def _resolve_model(
+   150	    db: AsyncSession, cfg: dict, overrides: dict | None, pins: dict | None = None
+   151	) -> dict:
+   152	    """chat 모델을 레지스트리에서만 해석(env 안 봄) — 반환 model_cfg dict(연결처는 provider 상속, 스펙 035).
+   153	
+   154	    에이전트가 고른 이름 → 없으면 기본(is_default) chat 모델 → 그것도 없으면 명확히 400.
+   155	    명시 오버라이드 모델이 미등록이면 **시끄럽게 거절**(스펙 290 — learning 092: 조용한 폴백은
+   156	    호출자가 다른 모델로 실행된 걸 모른 채 지나간다). 저장 설정의 미지정·미등록은 기존 기본 폴백
+   157	    유지(graceful — 범위 밖, 백로그)."""
+   158	    model_name = cfg.get("model")
+   159	    if model_name:
+   160	        pinned = await _pinned_model_cfg(db, pins, model_name)  # pin 우선(스펙 370)
+   161	        if pinned is not None:
+   162	            return _apply_agent_model_params(pinned, cfg)
+   163	    m = await _registry_chat_model(db, model_name) if model_name else None
+   164	    if m is None:
+   165	        # 거절은 **실명을 댄** 오버라이드에만(스펙 401) — 모델 미지정 에이전트(model_name=None)에
+   166	        # model 키 없는(또는 null) 오버라이드가 오면 None==None으로 오폭하던 것을 실명 요구로 봉합.
+   167	        # 미선언은 기본 폴백(learning 092: 선언-but-broken만 거절).
+   168	        if overrides and overrides.get("model") and overrides.get("model") == model_name:
+   169	            raise HTTPException(
+   170	                status_code=400,
+   171	                detail=f"오버라이드 모델 '{model_name}'이(가) 등록돼 있지 않습니다 — 모델 이름을 확인하세요.",
+   172	            )
+   173	        m = await _default_chat_registry(db)
+   174	    if m is None:
+   175	        raise HTTPException(
+   176	            status_code=400,
+   177	            detail="등록된 채팅 모델이 없습니다 — 모델을 먼저 등록하세요.",
+   178	        )
+   179	    return _apply_agent_model_params(_model_cfg_from_row(m), cfg)
+   180	
+   181	
+   182	async def _resolve_mem_cfg(db: AsyncSession, model_cfg: dict | None) -> dict | None:
+   183	    """mem0용 모델 설정(레지스트리) — llm=해석된 chat 모델, embedder=기본 embedding 모델.
+   184	
+   185	    임베딩 모델이 없으면 None → 메모리 비활성(graceful)."""
+   186	    if not model_cfg:
+   187	        return None
+   188	    emb = (
+   189	        (
+   190	            await db.execute(
+   191	                select(ModelConfig)
+   192	                .where(ModelConfig.kind == "embedding", ModelConfig.is_default.is_(True))
+   193	                .options(selectinload(ModelConfig.provider))
+   194	            )
+   195	        )
+   196	        .scalars()
+   197	        .first()
+   198	    )
+   199	    if emb is None or emb.provider is None:
+   200	        return None
+   201	    return {
+   202	        "llm": {
+   203	            "base_url": model_cfg["base_url"],
+   204	            "api_key": model_cfg["api_key"],
+   205	            "model_id": model_cfg["model_id"],
+   206	        },
+   207	        "embedder": llm_cfg_of(emb),
+   208	    }
+   209	
+   210	
+   211	async def resolve_agent_mem_cfg(db: AsyncSession, agent: Agent) -> dict | None:
+   212	    """에이전트의 mem0 설정(레지스트리 chat llm + 기본 embedding)을 해석. 없으면 None.
+   213	
+   214	    관리자 메모리 CRUD(agents.py 스펙 029)가 _load_context와 같은 규칙으로 mem_cfg를 얻는 단일
+   215	    경로. 코드·외부 에이전트는 비로컬(원격/A2A)이라 로컬 mem0가 없다 → None.
+   216	    """
+   217	    if _is_remote(agent.source):
+   218	        return None
+   219	    cfg = dict(agent.config or {})
+   220	    model_name = cfg.get("model")
+   221	    m = await _registry_chat_model(db, model_name) if model_name else None
+   222	    if m is None:
+   223	        m = await _default_chat_model(db)
+   224	    return _build_mem_cfg(m, await _default_embed_model(db))
+     1	"""mem0 mem_cfg 해석기 — 레지스트리 모델 → mem0 설정(llm+embedder dict). 스펙 039.
+     2	
+     3	chat.py에서 추출한 경량 모듈. `ModelConfig`·`crypto`만 의존하고 langgraph/fastapi를 끌지 않는다 →
+     4	격리 배치 서비스(`api.batch`, 스펙 038)가 chat.py(=`from agent.main import build_agent`)를 임포트하지
+     5	않고도 유저 메모리 mem_cfg를 해석할 수 있다. chat.py·memory_routes.py가 여기서 re-import한다.
+     6	
+     7	mem_cfg 구조·축 규칙은 memory.py 모듈 docstring 참고. 지배 스펙: 008(레지스트리), 020(스코프), 039.
+     8	"""
+     9	
+    10	from typing import TypeGuard
+    11	
+    12	from sqlalchemy import select
+    13	from sqlalchemy.ext.asyncio import AsyncSession
+    14	from sqlalchemy.orm import selectinload
+    15	
+    16	from . import crypto
+    17	from .models import ModelConfig
+    18	
+    19	
+    20	def model_usable(cm: ModelConfig | None) -> TypeGuard[ModelConfig]:
+    21	    """기본 chat/embedding 모델이 실사용 가능한가 — provider·base_url·model_id 완비(정본, 스펙 300).
+    22	    TypeGuard: positive 분기(`if model_usable(cm):`)서 mypy가 cm을 ModelConfig로 narrow(연결 dict 조립부).
+    23	    값-유효성 체크라 TypeIs는 불건전(빈 base_url 모델도 False) — positive만 narrow하는 TypeGuard가 건전."""
+    24	    return (
+    25	        cm is not None
+    26	        and cm.provider is not None
+    27	        and bool(cm.provider.base_url)
+    28	        and bool(cm.model_id)
+    29	    )
+    30	
+    31	
+    32	def llm_cfg_of(cm: ModelConfig) -> dict:
+    33	    """ModelConfig → LLM 연결 cfg(정본, 스펙 300). **api_key 평문 복호화** — API 응답에 넣지 말 것
+    34	    (serializers 마스킹과 반대 목적, 런타임 ChatOpenAI 구성용). `model_usable`로 검증 후 호출."""
+    35	    assert cm.provider is not None  # model_usable 검증 후 호출 전제(provider 보장)
+    36	    return {
+    37	        "base_url": cm.provider.base_url,
+    38	        "api_key": crypto.decrypt(cm.provider.api_key),
+    39	        "model_id": cm.model_id,
+    40	        # 능력 선언 동봉(스펙 408) — 실행부(agent/model.py)가 streaming 능력에 맞춰 클라이언트 구성.
+    41	        "capabilities": dict(cm.capabilities or {}),
+    42	    }
+    43	
+    44	
+    45	def _build_mem_cfg(chat_m: ModelConfig | None, emb_m: ModelConfig | None) -> dict | None:
+    46	    """레지스트리 chat+embedding 모델 → mem0 mem_cfg(llm+embedder dict, 복호화 포함).
+    47	    연결처는 각 모델의 provider에서 상속(스펙 035). 어느 쪽이라도 provider base_url/model_id가
+    48	    없으면 None. get_all/update/delete는 embedder만 쓰지만 mem0 인스턴스화에 llm 자리가 필요하다
+    49	    (스펙 030 공유 빌더). 호출 측은 provider 관계를 eager-load해야 한다."""
+    50	    if model_usable(chat_m) and model_usable(emb_m):
+    51	        return {"llm": llm_cfg_of(chat_m), "embedder": llm_cfg_of(emb_m)}
+    52	    return None
+    53	
+    54	
+    55	async def _default_chat_model(db: AsyncSession) -> ModelConfig | None:
+    56	    return (
+    57	        (
+    58	            await db.execute(
+    59	                select(ModelConfig)
+    60	                .where(ModelConfig.kind == "chat", ModelConfig.is_default.is_(True))
+    61	                .options(selectinload(ModelConfig.provider))
+    62	            )
+    63	        )
+    64	        .scalars()
+    65	        .first()
+    66	    )
+    67	
+    68	
+    69	async def _default_embed_model(db: AsyncSession) -> ModelConfig | None:
+    70	    return (
+    71	        (
+    72	            await db.execute(
+    73	                select(ModelConfig)
+    74	                .where(ModelConfig.kind == "embedding", ModelConfig.is_default.is_(True))
+    75	                .options(selectinload(ModelConfig.provider))
+    76	            )
+    77	        )
+    78	        .scalars()
+    79	        .first()
+    80	    )
+    81	
+    82	
+    83	async def default_mem_cfg(db: AsyncSession) -> dict | None:
+    84	    """특정 에이전트에 안 묶인 mem0 설정 — 기본 chat + 기본 embedding. 유저 메모리
+    85	    관리(스펙 030)·통합(스펙 039)용. 공유 pgvector·user_id 키라 기본 설정으로 조회·교정이 가능하다."""
+    86	    return _build_mem_cfg(await _default_chat_model(db), await _default_embed_model(db))
+   130	        trace["toolDiag"] = {
+   131	            "bound": [getattr(tl, "name", "?") for tl in turn.tools][:20],
+   132	            "called": len(turn.calls_sink),
+   133	        }
+   134	    # 전송 프롬프트(스펙 205): 콜백 실측(마지막 모델 호출 — 커스텀 impl의 계획·도구 안내 포함)
+   135	    # 우선, 콜백 미발화면 기존 재구성(131) 폴백. 출처를 표기해 UI가 정직하게 라벨링.
+   136	    if capture.calls:
+   137	        trace["sentMessages"] = _format_sent_measured(capture.calls[-1])
+   138	        trace["modelCalls"] = len(capture.calls)
+   139	        trace["sentMessagesSource"] = "measured"
+   140	    else:
+   141	        trace["sentMessages"] = sent_messages  # 전송 프롬프트 전문(스펙 131, 메시지당 2000자 캡)
+   142	        trace["sentMessagesSource"] = "reconstructed"
+   143	
+   144	
+   145	def _annotate_context_sources(
+   146	    trace: dict,
+   147	    ctx: ChatContext,
+   148	    turn: "ChatTurnRuntime",
+   149	    *,
+   150	    user_text: str,
+   151	    history_restore: dict | None,
+   152	) -> None:
+   153	    """맥락 출처 주석 — 오버라이드(134)·재구성 실측(289)·브로커(130)·RAG(037)·메모리(079/268/270)."""
+   154	    ov_trace = _overrides_trace(ctx.overrides, ctx.overrides_nodes_status)
+   155	    if ov_trace:
+   156	        # 이 턴에 적용된 오버라이드(스펙 134) — 세션에 설정 다른 턴이 섞여도 턴별 구분 가능.
+   157	        trace["overrides"] = ov_trace
+   158	    if history_restore:
+   159	        # 히스토리 서버 재구성 실측(스펙 289 P1) — 몇 개를 몇 ms에 이어붙였나(캐시 재론의 근거 데이터).
+   160	        trace["historyRestore"] = history_restore
+   161	    if ctx.attachments_trace:
+   162	        # 파일첨부(스펙 404) — 무엇이 주입됐나(파일명·글자수·마스킹 프리뷰). 미첨부 턴은 필드 없음.
+   163	        trace["attachments"] = ctx.attachments_trace
+   164	    # 응답 방식(스펙 408) — 단건(비스트리밍)일 때만 표기(스트리밍 기본은 무배지). 유효식은
+   165	    # 실행부(model.py)와 동일: 능력 AND 사용값.
+   166	    _mc = ctx.model_cfg or {}
+   167	    _caps = _mc.get("capabilities") or {}
+   168	    _mp = _mc.get("params") or {}
+   169	    if not (_caps.get("streaming", True) and _mp.get("stream", True)):
+   170	        trace["responseMode"] = "single"
+   171	    if turn.broker.invocations:
+   172	        # 브로커 호출 상세(스펙 130) — 조율형의 RAG 검색이 인스펙터에 "N건·최고 유사도"로 보이게.
+   173	        # 위임 없던 턴은 필드 자체가 없음(무회귀).
+   174	        trace["brokerCalls"] = _broker_calls_trace(turn.broker.invocations)
+   175	    if ctx.rag_collections:
+   176	        # 구성된 RAG 컬렉션 — 호출 안 해도 인스펙터에 노출(실제 호출은 trace["mcp"]의 server="rag").
+   177	        trace["ragCollections"] = [c["name"] for c in ctx.rag_collections]
+   178	    if ctx.rag_unresolved:
+   179	        # 요청됐으나 해석 실패한 이름 — 도구가 조용히 비는 footgun을 인스펙터에 드러냄(타자검증 F).
+   180	        trace["ragUnresolved"] = ctx.rag_unresolved
+   181	    # 회상 쿼리 표시=원발화(스펙 407) — 실제 검색 쿼리와 표시가 일치해야 한다.
+   182	    _annotate_memory_observations(
+   183	        trace, turn, user_text=user_text if ctx.memory_user_text is None else ctx.memory_user_text
+   184	    )
+   185	
+   186	
+   187	def _annotate_memory_observations(trace: dict, turn: "ChatTurnRuntime", *, user_text: str) -> None:
+   188	    """메모리 관측 주석 — 회상 스코프/쿼리(079)·노드별 회상(268 P2)·단기 기억 창(270)."""
+   189	    if turn.used_memory:
+   190	        # None이 아닌 회상 축만 — {"user_id","run_id","agent_id"} 부분집합 (Inspector가 축별 렌더).
+   191	        trace["memoryScope"] = {k: v for k, v in turn.recall_scope.items() if v}
+   192	        # 회상에 쓴 쿼리(=user_text)를 에코 — 0건 회상이어도 "조회 행위"를 인스펙터에 남긴다(스펙 079).
+   193	        # 표시 전용·길이상한(방금 그 유저가 보낸 텍스트라 경계 이동 없음).
+   194	        trace["memoryQuery"] = user_text[:300]
+   195	    if turn.memory_recalls:
+     1	"""모델 구성 정본(스펙 295) — 주입된 model_cfg로 ChatOpenAI를 만드는 유일한 곳.
+     2	
+     3	이전엔 route·orchestrate·plan_execute·artifact·pipeline·main 6곳이 같은 구성 블록을 복제했다
+     4	(도크스트링이 "동일 규칙"이라 상호참조로 자백). 차이 지점(cfg 출처·미설정 처리·기본 temperature·
+     5	에러 문구)만 인자로 뽑아 하나로 합친다. env·DB 미접촉 — 모델은 레지스트리 해석본(cfg)만 쓴다.
+     6	"""
+     7	
+     8	from __future__ import annotations
+     9	
+    10	import asyncio
+    11	import hashlib
+    12	from typing import Literal, overload
+    13	
+    14	from langchain_openai import ChatOpenAI
+    15	
+    16	_MISSING_MSG = "모델 설정이 필요합니다 (base_url/model_id) — 모델을 등록하세요."
+    17	
+    18	# 프로바이더별 클라이언트 풀(스펙 371 D2) — 프로세스-로컬, 상한 초과 시 최고령 축출.
+    19	_CLIENT_POOL: dict[tuple, ChatOpenAI] = {}
+    20	_CLIENT_POOL_MAX = 64
+    21	
+    22	
+    23	# on_missing="raise"(기본)면 None 불가 → 호출부가 model을 바로 쓴다. "none"이면 None 가능(artifact).
+    24	@overload
+    25	def build_chat_openai(
+    26	    cfg: dict | None,
+    27	    params: dict | None = ...,
+    28	    *,
+    29	    default_temperature: float = ...,
+    30	    on_missing: Literal["raise"] = ...,
+    31	    error_label: str = ...,
+    32	) -> ChatOpenAI: ...
+    33	@overload
+    34	def build_chat_openai(
+    35	    cfg: dict | None,
+    36	    params: dict | None = ...,
+    37	    *,
+    38	    default_temperature: float = ...,
+    39	    on_missing: Literal["none"],
+    40	    error_label: str = ...,
+    41	) -> ChatOpenAI | None: ...
+    42	def build_chat_openai(
+    43	    cfg: dict | None,
+    44	    params: dict | None = None,
+    45	    *,
+    46	    default_temperature: float = 0.7,
+    47	    on_missing: str = "raise",
+    48	    error_label: str = _MISSING_MSG,
+    49	) -> ChatOpenAI | None:
+    50	    """model_cfg → ChatOpenAI. base_url/model_id 없으면 `on_missing`: "raise"(기본)면 명확히 실패,
+    51	    "none"이면 None 반환(모델 없이도 도는 경로용 — artifact ask-only). temperature 우선순위:
+    52	    호출자 params > 모델 등록 params > `default_temperature`."""
+    53	    cfg = cfg or {}
+    54	    base_url = cfg.get("base_url") or ""
+    55	    model_id = cfg.get("model_id") or ""
+    56	    if not base_url or not model_id:
+    57	        if on_missing == "none":
+    58	            return None
+    59	        raise RuntimeError(error_label)
+    60	    cfg_params = cfg.get("params") or {}
+    61	    params = params or {}
+    62	    temperature = params.get("temperature", cfg_params.get("temperature", default_temperature))
+    63	    # thinking 사용값 캐스케이드(스펙 408): 호출자 params(세션) > cfg params(모델·에이전트 병합).
+    64	    enable_thinking = params.get("enable_thinking", cfg_params.get("enable_thinking", False))
+    65	    # 스트리밍 유효식(스펙 408, 2층): 능력(capabilities.streaming — 사실, 협상 불가) AND
+    66	    # 사용값(stream, 기본 켬 — 층별로 끌 수 있음). 능력 없으면 비스트리밍 안전 실행:
+    67	    # LangChain이 astream을 ainvoke로 접어 완성문을 1회 yield(SSE 계약·호출부 무변경).
+    68	    caps = cfg.get("capabilities") or {}
+    69	    stream_effective = bool(caps.get("streaming", True)) and bool(
+    70	        params.get("stream", cfg_params.get("stream", True))
+    71	    )
+    72	    api_key = cfg.get("api_key") or "sk-noauth"
+    73	    # 클라이언트 풀(스펙 371 D2) — 같은 연결·모델·파라미터면 인스턴스 재사용(ChatOpenAI는 호출간
+    74	    # 무상태·async-safe). 목적은 생성 비용(~0.1ms)이 아니라 **커넥션 재사용**(실 프로바이더 TLS
+    75	    # 핸드셰이크 — mock 루프백 사각지대). 키에 api_key 지문 포함 → 로테이션=새 인스턴스.
+    76	    # 루프별 격리 — httpx async 클라이언트는 자기 이벤트 루프에 묶인다. 서버는 루프 하나라 늘
+    77	    # 적중하고, 루프를 새로 여는 컨텍스트(in-process 테스트의 asyncio.run 반복)는 루프마다 새
+    78	    # 인스턴스(죽은 루프의 엔트리는 LRU가 축출). 루프 밖(동기)이면 풀 미사용.
+    79	    try:
+    80	        loop_id = id(asyncio.get_running_loop())
+    81	    except RuntimeError:
+    82	        loop_id = None
+    83	    key = (
+    84	        loop_id,
+    85	        base_url,
+    86	        hashlib.sha256(api_key.encode()).hexdigest()[:8],
+    87	        model_id,
+    88	        temperature,
+    89	        enable_thinking,
+    90	        stream_effective,  # 스트리밍 모드가 다르면 다른 클라이언트(풀 키 분리 — 스펙 408)
+    91	    )
+    92	    pooled = _CLIENT_POOL.get(key) if loop_id is not None else None
+    93	    if pooled is not None:
+    94	        return pooled
+    95	    client = ChatOpenAI(
+    96	        base_url=base_url,
+    97	        api_key=api_key,
+    98	        model=model_id,
+    99	        temperature=temperature,
+   100	        # 능력 없음/사용 끔 → astream이 ainvoke로 접혀 완성문 1회 yield(비스트리밍 안전 실행).
+   101	        disable_streaming=not stream_effective,
+   102	        extra_body={"chat_template_kwargs": {"enable_thinking": enable_thinking}},
+   103	    )
+   104	    if loop_id is not None:
+   105	        if len(_CLIENT_POOL) >= _CLIENT_POOL_MAX:
+   106	            _CLIENT_POOL.pop(next(iter(_CLIENT_POOL)))  # 최고령 축출(삽입순)
+   107	        _CLIENT_POOL[key] = client
+   108	    return client
+   210	    p = await get_or_404(session, Provider, body.provider_id, detail="provider not found")
+   211	    return await _probe(p.base_url, crypto.decrypt(p.api_key), body.model_id, body.kind)
+   212	
+   213	
+   214	@router.post("/{model_id}/test", response_model=ModelProbeResult)
+   215	async def test_saved_model(
+   216	    model_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+   217	) -> ModelProbeResult:
+   218	    """저장된 모델로 연결 테스트(provider 자격증명 복호화)."""
+   219	    m = await _get_with_provider(session, model_id)
+   220	    if m is None:
+   221	        raise HTTPException(status_code=404, detail="not found")
+   222	    return await _probe(m.provider.base_url, crypto.decrypt(m.provider.api_key), m.model_id, m.kind)
+   223	
+   224	
+   225	async def _require_provider(session: AsyncSession, provider_id: uuid.UUID) -> None:
+   226	    if await session.get(Provider, provider_id) is None:
+   227	        raise HTTPException(
+   228	            status_code=400, detail="provider not found — provider를 먼저 등록하세요."
+   229	        )
+   230	
+   231	
+   232	@router.post("", response_model=ModelOut, status_code=201, dependencies=[_manage])
+   233	async def create_model(body: ModelIn, session: AsyncSession = Depends(get_session)) -> ModelOut:
+   234	    await _require_provider(session, body.provider_id)
+   235	    if body.is_default:
+   236	        await _clear_other_defaults(session, body.kind)
+   237	    m = ModelConfig(
+   238	        name=body.name,
+   239	        provider_id=body.provider_id,
+   240	        model_id=body.model_id,
+   241	        kind=body.kind,
+   242	        is_default=body.is_default,
+   243	        params=body.params,
+   244	        capabilities=body.capabilities,  # 능력 선언(스펙 408)
+   245	        meta=body.meta,
+   246	    )
+   247	    session.add(m)
+   248	    await _commit_or_409(session, "동시 변경 충돌 또는 중복 — 다시 시도하세요.")
+   249	    await session.refresh(m)
+   250	    await record_block_version(session, "model", m)  # v1 이력(스펙 369)
+   251	    await session.commit()
+   252	    reloaded = await _get_with_provider(session, m.id)
+   253	    assert reloaded is not None  # 방금 커밋한 행의 재로드 — 동시 삭제 레이스 외엔 불가
+   254	    return model_to_out(reloaded)
+   255	
+   256	
+   257	@router.get("/{model_id}", response_model=ModelOut)
+   258	async def get_model(model_id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> ModelOut:
+   259	    m = await _get_with_provider(session, model_id)
+   260	    if m is None:
+   261	        raise HTTPException(status_code=404, detail="not found")
+   262	    return model_to_out(m)
+   263	
+   264	
+   265	@router.put("/{model_id}", response_model=ModelOut, dependencies=[_manage])
+   266	async def update_model(
+   267	    model_id: uuid.UUID, body: ModelIn, session: AsyncSession = Depends(get_session)
+   268	) -> ModelOut:
+   269	    m = await get_or_404(session, ModelConfig, model_id)
+   270	    await _require_provider(session, body.provider_id)
+   271	    m.name = body.name
+   272	    m.provider_id = body.provider_id
+   273	    m.model_id = body.model_id
+   274	    m.kind = body.kind
+   275	    if body.is_default:
+   276	        await _clear_other_defaults(session, body.kind, exclude_id=m.id)
+   277	    m.is_default = body.is_default
+   278	    m.params = body.params
+   279	    m.capabilities = body.capabilities  # 능력 선언(스펙 408)
+   280	    m.meta = body.meta
+   281	    # is_default·meta는 payload 제외(스펙 369 §2) — 운영-only 변경은 버전 무증가.
+   282	    await record_block_version(session, "model", m)
+   283	    await _commit_or_409(session, "동시 변경 충돌 또는 중복 — 다시 시도하세요.")
+   284	    reloaded = await _get_with_provider(session, m.id)
+   285	    assert reloaded is not None  # 방금 커밋한 행의 재로드 — 동시 삭제 레이스 외엔 불가
+   286	    return model_to_out(reloaded)
+   287	
+   288	
+   289	@router.put("/{model_id}/default", response_model=ModelOut, dependencies=[_manage])
+   290	async def set_default_model(
+   291	    model_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+   292	) -> ModelOut:
+   293	    """이 모델을 그 kind(chat/embedding)의 기본으로 지정 — 같은 kind의 기존 기본은 자동 해제
+   294	    (스펙 150, 실사용 버그 #1: 등록 모달에만 기본 스위치가 있어 삭제 후 재등록으로만 전환 가능했다).
+   295	    전용 액션인 이유: 프론트가 부분 데이터로 full PUT을 재구성하면 params/meta 유실 위험."""
+   296	    m = await get_or_404(session, ModelConfig, model_id)
+   297	    if m.kind not in ("chat", "embedding"):
+   298	        # 레거시/수동 행 방어(codex 150) — 런타임은 chat/embedding 기본만 읽으므로 그 외 kind의
+   299	        # "기본 지정 성공"은 아무 효과 없는 거짓 성공이 된다.
+   300	        raise HTTPException(
+   301	            status_code=400,
+   302	            detail=f"kind={m.kind!r}는 기본 지정 대상이 아닙니다(chat/embedding만).",
+   303	        )
+   304	    await _clear_other_defaults(session, m.kind, exclude_id=m.id)
+   305	    m.is_default = True
+     1	"""블록 버전 관문(스펙 369) — append-only 단조 불변 버전의 단일 진입점.
+     2	
+     3	5종 블록(prompt·memory-type·mcp-server·model·provider)의 모든 콘텐츠 변경 경로가
+     4	`record_block_version`을 경유한다(PUT·재탐색 동기화·생성). 잡별 삽입 금지 — 미경유 mutate가
+     5	남으면 그 경로만 버전 없이 동작이 바뀐다(스펙 369 C6 전수 대장으로 확인).
+     6	
+     7	경계(스펙 369 §2): payload = 동작을 결정하는 저작 내용만. 운영 상태(status·published·
+     8	is_default·meta)·비밀(api_key·auth)은 head 전용 — 이력에 비밀 잔존 금지, 운영 변경은 버전 무증가.
+     9	payload 정의는 이 모듈이 단일 출처(마이그레이션 SQL로 중복 정의하지 않는다 — drift 방지).
+    10	"""
+    11	
+    12	import uuid
+    13	from typing import Any
+    14	
+    15	from fastapi import HTTPException
+    16	from sqlalchemy import delete as sa_delete
+    17	from sqlalchemy import func, select
+    18	from sqlalchemy.exc import IntegrityError
+    19	from sqlalchemy.ext.asyncio import AsyncSession
+    20	
+    21	from .models import BlockVersion, McpServer, MemoryType, ModelConfig, Prompt, Provider
+    22	
+    23	
+    24	def _prompt_payload(o: Prompt) -> dict:
+    25	    return {"name": o.name, "description": o.description, "tone": o.tone, "body": o.body}
+    26	
+    27	
+    28	def _memory_type_payload(o: MemoryType) -> dict:
+    29	    return {"key": o.key, "name": o.name, "scope": o.scope, "body": o.body}
+    30	
+    31	
+    32	def _mcp_payload(o: McpServer) -> dict:
+    33	    # status(라이브 헬스)·published(서빙 토글)·auth(비밀)·owner_id(소유)는 제외.
+    34	    return {
+    35	        "name": o.name,
+    36	        "description": o.description,
+    37	        "source": o.source,
+    38	        "transport": o.transport,
+    39	        "url": o.url,
+    40	        "endpoint": o.endpoint,
+    41	        "tools": o.tools,
+    42	        "enabled_tools": o.enabled_tools,
+    43	        "tools_meta": o.tools_meta,
+    44	    }
+    45	
+    46	
+    47	def _model_payload(o: ModelConfig) -> dict:
+    48	    # is_default(포인터)·meta(카탈로그 캐시)는 제외.
+    49	    return {
+    50	        "name": o.name,
+    51	        "provider_id": str(o.provider_id),
+    52	        "model_id": o.model_id,
+    53	        "kind": o.kind,
+    54	        "params": o.params,
+    55	    }
+    56	
+    57	
+    58	def _provider_payload(o: Provider) -> dict:
+    59	    # api_key(비밀) 제외 — 키 로테이션은 운영 행위(버전 무증가, 이력에 비밀 잔존 금지).
+    60	    return {
+    61	        "name": o.name,
+    62	        "protocol": o.protocol,
+    63	        "base_url": o.base_url,
+    64	        "kind": o.kind,
+    65	        "description": o.description,
+    66	    }
+    67	
+    68	
+    69	# type[Any]: 5종 블록 모델(Prompt/MemoryType/McpServer/ModelConfig/Provider)의 공통 프로토콜이
+    70	# 없어 폴리모픽 접근(.id·.version)은 동적 — bare type는 mypy가 attr-defined로 거부한다.
+    71	BLOCK_KINDS: dict[str, tuple[type[Any], Any]] = {
+    72	    "prompt": (Prompt, _prompt_payload),
+    73	    "memory-type": (MemoryType, _memory_type_payload),
+    74	    "mcp-server": (McpServer, _mcp_payload),
+    75	    "model": (ModelConfig, _model_payload),
+    76	    "provider": (Provider, _provider_payload),
+    77	}
+    78	
+    79	
+    80	def payload_for(kind: str, row: Any) -> dict:
+    81	    return BLOCK_KINDS[kind][1](row)
+    82	
+    83	
+    84	async def _latest(session: AsyncSession, kind: str, block_pk: uuid.UUID) -> BlockVersion | None:
+    85	    return await session.scalar(
+    86	        select(BlockVersion)
+    87	        .where(BlockVersion.kind == kind, BlockVersion.block_pk == block_pk)
+    88	        .order_by(BlockVersion.version.desc())
+    89	        .limit(1)
+    90	    )
+    91	
+    92	
+    93	async def record_block_version(session: AsyncSession, kind: str, row: Any) -> bool:
+    94	    """콘텐츠 변경 후·commit 전에 호출 — payload가 직전 버전과 다르면 head.version+1 + 이력 append.
+    95	
+    96	    동일 payload(운영-only 변경·무변경 저장)는 no-op(버전 무증가). 이력이 아예 없으면 v1 기록
+    97	    (신규 생성·백필). 동시 편집은 UNIQUE(kind,block_pk,version)가 commit에서 막는다 → 409는
+    98	    호출부의 commit_or_409 몫. 반환: 버전이 올랐는가."""
+    99	    payload = payload_for(kind, row)
+   100	    last = await _latest(session, kind, row.id)
+   101	    if last is None:
+   102	        row.version = row.version or 1
+   103	        session.add(BlockVersion(kind=kind, block_pk=row.id, version=row.version, payload=payload))
+   104	        return True
+   105	    if last.payload == payload:
+   106	        return False  # 저작 내용 동일 — 운영 변경/무변경 저장은 버전 무증가(스펙 369 C4)
+   107	    row.version = last.version + 1
+   108	    session.add(BlockVersion(kind=kind, block_pk=row.id, version=row.version, payload=payload))
+   109	    return True
+   110	
+   111	
+   112	async def delete_block_history(session: AsyncSession, kind: str, block_pk: uuid.UUID) -> None:
+   113	    """블록 삭제와 같은 트랜잭션에서 이력 정리(폴리모픽이라 FK cascade 불가)."""
+   114	    await session.execute(
+   115	        sa_delete(BlockVersion).where(BlockVersion.kind == kind, BlockVersion.block_pk == block_pk)
+   116	    )
+   117	
+   118	
+   119	async def ensure_v1_rows(session: AsyncSession) -> int:
+   120	    """이력 없는 블록에 v1 백필 + 고아 이력 청소(멱등) — 부트·시드 공용. 기존 DB 이관과 처녀
+   121	    빌드가 같은 불변식(블록 행 수 == 이력 보유 블록 수, 고아 0)에 도달한다. 고아 = 라우트 밖
+   122	    삭제 경로(테스트 ORM 정리 등)가 남긴 head 없는 이력 — 폴리모픽이라 FK cascade가 없어
+   123	    부트가 걷는다(스펙 371 실측: -8 고아가 불변식을 음수로 깼다). 반환: 백필한 블록 수."""
+   124	    created = 0
+   125	    for kind, (model_cls, _) in BLOCK_KINDS.items():
+   126	        # 고아 청소 — head가 사라진 block_pk의 이력 제거.
+   127	        head_ids = select(model_cls.id)
+   128	        await session.execute(
+   129	            sa_delete(BlockVersion).where(
+   130	                BlockVersion.kind == kind, BlockVersion.block_pk.not_in(head_ids)
+   131	            )
+   132	        )
+   133	    for kind, (model_cls, to_payload) in BLOCK_KINDS.items():
+   134	        have = {
+   135	            pk
+   136	            for (pk,) in (
+   137	                await session.execute(
+   138	                    select(BlockVersion.block_pk).where(BlockVersion.kind == kind).distinct()
+   139	                )
+   140	            ).all()
+   141	        }
+   142	        for row in (await session.execute(select(model_cls))).scalars():
+   143	            if row.id in have:
+   144	                continue
+   145	            row.version = row.version or 1
+   146	            session.add(
+   147	                BlockVersion(
+   148	                    kind=kind, block_pk=row.id, version=row.version, payload=to_payload(row)
+   149	                )
+   150	            )
+   151	            created += 1
+   152	    await session.commit()  # 백필 + 고아 청소 반영(둘 다 멱등)
+   153	    return created
+   154	
+   155	
+   156	async def commit_or_409(session: AsyncSession, detail: str) -> None:
+   157	    """커밋하되 유니크 충돌(이름 중복·버전 레이스)은 409로 정직 변환."""
+   158	    try:
+   159	        await session.commit()
+   160	    except IntegrityError as e:
+   161	        await session.rollback()
+   162	        raise HTTPException(status_code=409, detail=detail) from e
+   163	
+   164	
+   165	async def count_missing_history(session: AsyncSession) -> int:
+   166	    """검증용(C2) — 이력 없는 블록 수(0이어야 불변식 성립)."""
+   167	    missing = 0
+   168	    for kind, (model_cls, _) in BLOCK_KINDS.items():
+   169	        total = await session.scalar(select(func.count()).select_from(model_cls))
+   170	        with_hist = await session.scalar(
+   171	            select(func.count(BlockVersion.block_pk.distinct())).where(BlockVersion.kind == kind)
+   172	        )
+   173	        missing += (total or 0) - (with_hist or 0)
+   174	    return missing
+   175	
+   176	
+   177	# ----------------------------- 에이전트 pins (스펙 370) -----------------------------
+   178	def _cfg_block_names(cfg: dict) -> list[tuple[str, str]]:
+   179	    """에이전트 config가 참조하는 (kind, name) 목록 — freeze 대상의 단일 출처.
+   180	
+     1	"""models.registry — 도메인 테이블(스펙 379 분할·verbatim 이관)."""
+     2	
+     3	import uuid
+     4	
+     5	from sqlalchemy import (
+     6	    Boolean,
+     7	    ForeignKey,
+     8	    Index,
+     9	    Integer,
+    10	    String,
+    11	    text,
+    12	)
+    13	from sqlalchemy.dialects.postgresql import JSONB
+    14	from sqlalchemy.orm import Mapped, mapped_column, relationship
+    15	
+    16	from ..audit import AuditMixin
+    17	from .base import Base, _pk
+    18	
+    19	
+    20	class Provider(AuditMixin, Base):
+    21	    """LLM provider = 엔드포인트 + 자격증명 (스펙 035). 모델 1:N로 매달림.
+    22	
+    23	    provider 1회 등록 → 하위 모델 다수가 base_url/api_key를 공유(중복 제거).
+    24	    `protocol`은 와이어 포맷(openai-compatible 등)으로, 모델의 `kind`(chat/embedding)와 별개 축.
+    25	    """
+    26	
+    27	    __tablename__ = "providers"
+    28	    id: Mapped[uuid.UUID] = _pk()
+    29	    name: Mapped[str] = mapped_column(String(120), unique=True)  # 표시·참조용 이름
+    30	    protocol: Mapped[str] = mapped_column(String(40), default="openai-compatible")
+    31	    base_url: Mapped[str] = mapped_column(String(400), default="")
+    32	    api_key: Mapped[str | None] = mapped_column(String(400), default=None)  # 암호화 저장
+    33	    # 표시·배지용(스펙 047 #6) — local=실서버, mock=내장 테스트목, remote=외부. 라벨 혼란 해소.
+    34	    kind: Mapped[str] = mapped_column(String(20), default="remote", server_default="remote")
+    35	    description: Mapped[str] = mapped_column(
+    36	        String(400), default="", server_default=""
+    37	    )  # 한 줄 설명
+    38	    version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")  # 스펙 369
+    39	
+    40	    models: Mapped[list["ModelConfig"]] = relationship(back_populates="provider")
+    41	
+    42	
+    43	class ModelConfig(AuditMixin, Base):
+    44	    """LLM/임베딩 모델 설정 레지스트리. 에이전트가 이름으로 골라 실행에 사용.
+    45	
+    46	    연결처(base_url/api_key)는 자신이 매달린 `Provider`에서 상속한다(스펙 035).
+    47	    """
+    48	
+    49	    __tablename__ = "models"
+    50	    id: Mapped[uuid.UUID] = _pk()
+    51	    name: Mapped[str] = mapped_column(String(120), unique=True)  # 표시·참조용 이름
+    52	    # provider 삭제 시 매달린 모델이 있으면 차단(RESTRICT) — 실수로 모델 고아화 방지.
+    53	    provider_id: Mapped[uuid.UUID] = mapped_column(
+    54	        ForeignKey("providers.id", ondelete="RESTRICT"), nullable=False
+    55	    )
+    56	    model_id: Mapped[str] = mapped_column(String(200), default="")  # API에 보내는 모델 id
+    57	    kind: Mapped[str] = mapped_column(String(20), default="chat")  # chat | embedding
+    58	    is_default: Mapped[bool] = mapped_column(Boolean, default=False)
+    59	    # kind당 기본 1개 DB 불변식(스펙 150 — 동시 지정 레이스 봉인). alembic(a1b2c3d4e5f7)과 정합 —
+    60	    # metadata에도 같은 인덱스를 선언해 autogenerate diff 0 유지.
+    61	    __table_args__ = (
+    62	        Index(
+    63	            "uq_models_default_per_kind", "kind", unique=True, postgresql_where=text("is_default")
+    64	        ),
+    65	    )
+    66	    params: Mapped[dict] = mapped_column(JSONB, default=dict)  # temperature 등(런타임 파라미터)
+    67	    # 능력 선언(스펙 408, 2층 원칙의 능력 층 — 오버라이드 불가): 서빙 서버가 할 수 있는 것의 사실
+    68	    # 기록. streaming=false면 비스트리밍 안전 실행, vision은 C안 게이트 선반영, thinking=모드 보유.
+    69	    capabilities: Mapped[dict] = mapped_column(
+    70	        JSONB,
+    71	        default=lambda: {"streaming": True, "thinking": False, "vision": False},
+    72	        server_default='{"streaming": true, "thinking": false, "vision": false}',
+    73	    )
+    74	    # models.dev 카탈로그 파생 메타(스펙 047 #7) — context·modalities·cost·capabilities. params와 분리.
+    75	    meta: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    76	    version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")  # 스펙 369
+    77	
+    78	    provider: Mapped["Provider"] = relationship(back_populates="models")
+     1	"""model capabilities spec 408
+     2	
+     3	Revision ID: 9c13f807b6c2
+     4	Revises: 7218f9ea87d7
+     5	Create Date: 2026-07-19 22:54:23.286009
+     6	
+     7	"""
+     8	from typing import Sequence, Union
+     9	
+    10	from alembic import op
+    11	import sqlalchemy as sa
+    12	from sqlalchemy.dialects import postgresql
+    13	
+    14	
+    15	# revision identifiers, used by Alembic.
+    16	revision: str = '9c13f807b6c2'
+    17	down_revision: Union[str, Sequence[str], None] = '7218f9ea87d7'
+    18	branch_labels: Union[str, Sequence[str], None] = None
+    19	depends_on: Union[str, Sequence[str], None] = None
+    20	
+    21	
+    22	def upgrade() -> None:
+    23	    # 모델 능력 선언(스펙 408) — 2층 원칙의 능력 층. 기존 행은 스트리밍 지원으로 간주(현행 동작 보존:
+    24	    # 지금까지 전부 스트리밍 호출로 동작해 왔으므로 true가 사실 기록이다).
+    25	    op.add_column(
+    26	        "models",
+    27	        sa.Column(
+    28	            "capabilities",
+    29	            postgresql.JSONB(astext_type=sa.Text()),
+    30	            nullable=False,
+    31	            server_default=sa.text('\'{"streaming": true, "thinking": false, "vision": false}\'::jsonb'),
+    32	        ),
+    33	    )
+    34	
+    35	
+    36	def downgrade() -> None:
+    37	    op.drop_column("models", "capabilities")
+
+exec
+/bin/zsh -lc "nl -ba packages/agent/src/agent/model.py | sed -n '1,180p'; rg -n \"build_chat_openai\\(|model_cfg|node_models|nodes.*model_cfg|_model_from_node|enable_thinking|stream=\" packages/agent/src packages/api/src/api --glob '*.py'; rg -n \"_resolve_model\\(|_resolve_node_models\\(|_resolve_mem_cfg\\(|_build_mem_cfg\\(|llm_cfg_of\\(\" packages/api/src/api packages/agent/src --glob '*.py'" in /Users/anthony/Repository/github/loveqoo/my-agents
+ succeeded in 0ms:
+     1	"""모델 구성 정본(스펙 295) — 주입된 model_cfg로 ChatOpenAI를 만드는 유일한 곳.
+     2	
+     3	이전엔 route·orchestrate·plan_execute·artifact·pipeline·main 6곳이 같은 구성 블록을 복제했다
+     4	(도크스트링이 "동일 규칙"이라 상호참조로 자백). 차이 지점(cfg 출처·미설정 처리·기본 temperature·
+     5	에러 문구)만 인자로 뽑아 하나로 합친다. env·DB 미접촉 — 모델은 레지스트리 해석본(cfg)만 쓴다.
+     6	"""
+     7	
+     8	from __future__ import annotations
+     9	
+    10	import asyncio
+    11	import hashlib
+    12	from typing import Literal, overload
+    13	
+    14	from langchain_openai import ChatOpenAI
+    15	
+    16	_MISSING_MSG = "모델 설정이 필요합니다 (base_url/model_id) — 모델을 등록하세요."
+    17	
+    18	# 프로바이더별 클라이언트 풀(스펙 371 D2) — 프로세스-로컬, 상한 초과 시 최고령 축출.
+    19	_CLIENT_POOL: dict[tuple, ChatOpenAI] = {}
+    20	_CLIENT_POOL_MAX = 64
+    21	
+    22	
+    23	# on_missing="raise"(기본)면 None 불가 → 호출부가 model을 바로 쓴다. "none"이면 None 가능(artifact).
+    24	@overload
+    25	def build_chat_openai(
+    26	    cfg: dict | None,
+    27	    params: dict | None = ...,
+    28	    *,
+    29	    default_temperature: float = ...,
+    30	    on_missing: Literal["raise"] = ...,
+    31	    error_label: str = ...,
+    32	) -> ChatOpenAI: ...
+    33	@overload
+    34	def build_chat_openai(
+    35	    cfg: dict | None,
+    36	    params: dict | None = ...,
+    37	    *,
+    38	    default_temperature: float = ...,
+    39	    on_missing: Literal["none"],
+    40	    error_label: str = ...,
+    41	) -> ChatOpenAI | None: ...
+    42	def build_chat_openai(
+    43	    cfg: dict | None,
+    44	    params: dict | None = None,
+    45	    *,
+    46	    default_temperature: float = 0.7,
+    47	    on_missing: str = "raise",
+    48	    error_label: str = _MISSING_MSG,
+    49	) -> ChatOpenAI | None:
+    50	    """model_cfg → ChatOpenAI. base_url/model_id 없으면 `on_missing`: "raise"(기본)면 명확히 실패,
+    51	    "none"이면 None 반환(모델 없이도 도는 경로용 — artifact ask-only). temperature 우선순위:
+    52	    호출자 params > 모델 등록 params > `default_temperature`."""
+    53	    cfg = cfg or {}
+    54	    base_url = cfg.get("base_url") or ""
+    55	    model_id = cfg.get("model_id") or ""
+    56	    if not base_url or not model_id:
+    57	        if on_missing == "none":
+    58	            return None
+    59	        raise RuntimeError(error_label)
+    60	    cfg_params = cfg.get("params") or {}
+    61	    params = params or {}
+    62	    temperature = params.get("temperature", cfg_params.get("temperature", default_temperature))
+    63	    # thinking 사용값 캐스케이드(스펙 408): 호출자 params(세션) > cfg params(모델·에이전트 병합).
+    64	    enable_thinking = params.get("enable_thinking", cfg_params.get("enable_thinking", False))
+    65	    # 스트리밍 유효식(스펙 408, 2층): 능력(capabilities.streaming — 사실, 협상 불가) AND
+    66	    # 사용값(stream, 기본 켬 — 층별로 끌 수 있음). 능력 없으면 비스트리밍 안전 실행:
+    67	    # LangChain이 astream을 ainvoke로 접어 완성문을 1회 yield(SSE 계약·호출부 무변경).
+    68	    caps = cfg.get("capabilities") or {}
+    69	    stream_effective = bool(caps.get("streaming", True)) and bool(
+    70	        params.get("stream", cfg_params.get("stream", True))
+    71	    )
+    72	    api_key = cfg.get("api_key") or "sk-noauth"
+    73	    # 클라이언트 풀(스펙 371 D2) — 같은 연결·모델·파라미터면 인스턴스 재사용(ChatOpenAI는 호출간
+    74	    # 무상태·async-safe). 목적은 생성 비용(~0.1ms)이 아니라 **커넥션 재사용**(실 프로바이더 TLS
+    75	    # 핸드셰이크 — mock 루프백 사각지대). 키에 api_key 지문 포함 → 로테이션=새 인스턴스.
+    76	    # 루프별 격리 — httpx async 클라이언트는 자기 이벤트 루프에 묶인다. 서버는 루프 하나라 늘
+    77	    # 적중하고, 루프를 새로 여는 컨텍스트(in-process 테스트의 asyncio.run 반복)는 루프마다 새
+    78	    # 인스턴스(죽은 루프의 엔트리는 LRU가 축출). 루프 밖(동기)이면 풀 미사용.
+    79	    try:
+    80	        loop_id = id(asyncio.get_running_loop())
+    81	    except RuntimeError:
+    82	        loop_id = None
+    83	    key = (
+    84	        loop_id,
+    85	        base_url,
+    86	        hashlib.sha256(api_key.encode()).hexdigest()[:8],
+    87	        model_id,
+    88	        temperature,
+    89	        enable_thinking,
+    90	        stream_effective,  # 스트리밍 모드가 다르면 다른 클라이언트(풀 키 분리 — 스펙 408)
+    91	    )
+    92	    pooled = _CLIENT_POOL.get(key) if loop_id is not None else None
+    93	    if pooled is not None:
+    94	        return pooled
+    95	    client = ChatOpenAI(
+    96	        base_url=base_url,
+    97	        api_key=api_key,
+    98	        model=model_id,
+    99	        temperature=temperature,
+   100	        # 능력 없음/사용 끔 → astream이 ainvoke로 접혀 완성문 1회 yield(비스트리밍 안전 실행).
+   101	        disable_streaming=not stream_effective,
+   102	        extra_body={"chat_template_kwargs": {"enable_thinking": enable_thinking}},
+   103	    )
+   104	    if loop_id is not None:
+   105	        if len(_CLIENT_POOL) >= _CLIENT_POOL_MAX:
+   106	            _CLIENT_POOL.pop(next(iter(_CLIENT_POOL)))  # 최고령 축출(삽입순)
+   107	        _CLIENT_POOL[key] = client
+   108	    return client
+packages/api/src/api/chat_graph_build.py:126:    mc = ctx.model_cfg or {}
+packages/agent/src/agent/flows/pipeline.py:10:(085 §보안경계). **주입만 읽는다**(085 U2): 노드 모델은 플랫폼이 미리 해석해 `node["model_cfg"]`로 주입,
+packages/agent/src/agent/flows/pipeline.py:47:def _model_from_node(node: dict, ctx: AgentBuildContext) -> ChatOpenAI:
+packages/agent/src/agent/flows/pipeline.py:48:    """노드별 모델 어댑터(스펙 295) — pipeline은 노드 `model_cfg` 우선·기본 폴백만 정하고, 실제
+packages/agent/src/agent/flows/pipeline.py:51:    return build_chat_openai(
+packages/agent/src/agent/flows/pipeline.py:52:        node.get("model_cfg") or ctx.model_cfg,
+packages/agent/src/agent/flows/pipeline.py:202:    {impl, name, model_cfg}만 통과시킨다(그 외 키는 build_step이 원본 node_cfg로 받아야 하므로
+packages/agent/src/agent/flows/pipeline.py:221:                "model_cfg": n.get("model_cfg") if isinstance(n.get("model_cfg"), dict) else None,
+packages/agent/src/agent/flows/pipeline.py:279:            # 최소 동작). 기본 모델도 없으면 build 시점에 명확히 실패(_model_from_node→build_chat_openai).
+packages/agent/src/agent/flows/pipeline.py:284:                    "model_cfg": None,
+packages/agent/src/agent/flows/pipeline.py:324:            model = _model_from_node(node, ctx)
+packages/agent/src/agent/flows/orchestrate.py:221:        model = build_chat_openai(ctx.model_cfg, ctx.params)
+packages/agent/src/agent/flows/route.py:9:`answer_b`(부연·정리 모드). 두 분기 모두 주입된 model_cfg로 실제 모델 호출, END로 수렴.
+packages/agent/src/agent/flows/route.py:51:        model = build_chat_openai(ctx.model_cfg, ctx.params)
+packages/agent/src/agent/flows/artifact.py:346:        model = build_chat_openai(
+packages/agent/src/agent/flows/artifact.py:347:            ctx.model_cfg, ctx.params, default_temperature=0.2, on_missing="none"
+packages/agent/src/agent/main.py:26:    model_cfg: dict | None = None,
+packages/agent/src/agent/main.py:31:    **모델은 항상 등록된 설정(model_cfg)에서 온다 — env는 보지 않는다.**
+packages/agent/src/agent/main.py:32:    model_cfg = {base_url, api_key, model_id, params}. 호출자(API)가 모델 레지스트리에서
+packages/agent/src/agent/main.py:38:    # 모델은 항상 등록 설정(model_cfg)에서 — env 미조회, 키 없으면 무인증 로컬. 정본=model.build_chat_openai.
+packages/agent/src/agent/main.py:39:    model = build_chat_openai(model_cfg, params)
+packages/agent/src/agent/main.py:67:    model_cfg = {
+packages/agent/src/agent/main.py:73:    agent = build_agent(model_cfg=model_cfg)
+packages/agent/src/agent/examples/plan_execute.py:9:`execute`(주입된 model_cfg로 실제 모델 호출, 토큰 스트림). 추적 인스펙터엔 [plan, execute]가
+packages/agent/src/agent/examples/plan_execute.py:55:        model = build_chat_openai(ctx.model_cfg, ctx.params)
+packages/agent/src/agent/model.py:1:"""모델 구성 정본(스펙 295) — 주입된 model_cfg로 ChatOpenAI를 만드는 유일한 곳.
+packages/agent/src/agent/model.py:25:def build_chat_openai(
+packages/agent/src/agent/model.py:34:def build_chat_openai(
+packages/agent/src/agent/model.py:42:def build_chat_openai(
+packages/agent/src/agent/model.py:50:    """model_cfg → ChatOpenAI. base_url/model_id 없으면 `on_missing`: "raise"(기본)면 명확히 실패,
+packages/agent/src/agent/model.py:64:    enable_thinking = params.get("enable_thinking", cfg_params.get("enable_thinking", False))
+packages/agent/src/agent/model.py:89:        enable_thinking,
+packages/agent/src/agent/model.py:102:        extra_body={"chat_template_kwargs": {"enable_thinking": enable_thinking}},
+packages/agent/src/agent/runtime.py:61:    (prompt=오버라이드 병합 후 system_prompt, model_cfg=레지스트리 해석 후). 에이전트는 이 ctx만
+packages/agent/src/agent/runtime.py:65:    model_cfg: dict | None
+packages/agent/src/agent/runtime.py:172:            ctx.prompt, ctx.params, ctx.tools, ctx.model_cfg, checkpointer=ctx.checkpointer
+packages/api/src/api/eval_runner.py:108:        model_cfg=ctx.model_cfg,
+packages/api/src/api/eval_runner.py:185:    if impl is None or ctx.model_cfg is None:
+packages/api/src/api/chat_a2a_serve.py:253:    if impl is None or ctx.model_cfg is None:
+packages/api/src/api/chat_a2a_serve.py:265:        model_cfg=ctx.model_cfg,
+packages/api/src/api/chat_context_loader.py:14:from .chat_context_models import _resolve_mem_cfg, _resolve_model, _resolve_node_models
+packages/api/src/api/chat_context_loader.py:45:    model_cfg: dict | None,
+packages/api/src/api/chat_context_loader.py:53:    return await _resolve_node_models(db, nodes, model_cfg, pins)
+packages/api/src/api/chat_context_loader.py:118:        model_cfg = await _resolve_model(db, cfg, overrides, pins) if not remote else None
+packages/api/src/api/chat_context_loader.py:119:        nodes_resolved = await _resolve_nodes_for_ctx(db, nodes, model_cfg, remote, pins)
+packages/api/src/api/chat_context_loader.py:120:        mem_cfg = await _resolve_mem_cfg(db, model_cfg)
+packages/api/src/api/chat_context_loader.py:156:            model_cfg=model_cfg,
+packages/api/src/api/chat_approval.py:201:    if impl is None or ctx.model_cfg is None:
+packages/api/src/api/chat_approval.py:334:        model_cfg=ctx.model_cfg,
+packages/api/src/api/chat_trace.py:166:    _mc = ctx.model_cfg or {}
+packages/api/src/api/chat_context_types.py:25:    채우므로 런타임 값은 dict 시절과 1:1(동작 불변). 소비처는 `ctx.model_cfg`처럼 속성 접근하며 mypy가
+packages/api/src/api/chat_context_types.py:62:    model_cfg: dict | None = None  # 원격은 None(로컬 모델 불요)
+packages/api/src/api/chat_turn_runtime.py:156:                model_cfg=build_ctx.model_cfg,
+packages/api/src/api/chat_turn_runtime.py:248:        model_cfg=ctx.model_cfg,
+packages/api/src/api/chat_context_models.py:4:행→dict 변환(_model_cfg_from_row) 추출로 분해. **의도 비대칭 보존**(codex 자문·스펙 290):
+packages/api/src/api/chat_context_models.py:28:async def _pinned_model_cfg(db: AsyncSession, pins: dict | None, name: str) -> dict | None:
+packages/api/src/api/chat_context_models.py:29:    """pin이 head와 다를 때만 이력 payload로 model_cfg 구성(스펙 370) — 369 경계 그대로
+packages/api/src/api/chat_context_models.py:84:def _model_cfg_from_row(m: ModelConfig) -> dict:
+packages/api/src/api/chat_context_models.py:85:    """모델 행 → model_cfg dict — 불완전(provider base_url/model_id 부재)은 400(명확한 안내)."""
+packages/api/src/api/chat_context_models.py:96:async def _chat_model_cfg(db: AsyncSession, name: str, pins: dict | None = None) -> dict | None:
+packages/api/src/api/chat_context_models.py:98:    pinned = await _pinned_model_cfg(db, pins, name)
+packages/api/src/api/chat_context_models.py:107:async def _resolve_node_models(
+packages/api/src/api/chat_context_models.py:110:    """노드형(스펙 259) 노드별 모델을 레지스트리에서 미리 해석해 `model_cfg`를 심는다(085 U2 — impl은
+packages/api/src/api/chat_context_models.py:124:                cache[name] = await _chat_model_cfg(db, name, pins)
+packages/api/src/api/chat_context_models.py:126:        # 심은 model_cfg는 해석된 노드 모델(없으면 에이전트 기본으로 폴백 — impl의 _model_from_node).
+packages/api/src/api/chat_context_models.py:127:        resolved.append({**node, "model_cfg": cfg or default_cfg})
+packages/api/src/api/chat_context_models.py:134:MODEL_PARAM_OVERRIDE_KEYS = ("enable_thinking", "stream")
+packages/api/src/api/chat_context_models.py:137:def _apply_agent_model_params(model_cfg: dict, cfg: dict) -> dict:
+packages/api/src/api/chat_context_models.py:141:        return model_cfg
+packages/api/src/api/chat_context_models.py:142:    merged = dict(model_cfg.get("params") or {})
+packages/api/src/api/chat_context_models.py:146:    return {**model_cfg, "params": merged}
+packages/api/src/api/chat_context_models.py:152:    """chat 모델을 레지스트리에서만 해석(env 안 봄) — 반환 model_cfg dict(연결처는 provider 상속, 스펙 035).
+packages/api/src/api/chat_context_models.py:160:        pinned = await _pinned_model_cfg(db, pins, model_name)  # pin 우선(스펙 370)
+packages/api/src/api/chat_context_models.py:179:    return _apply_agent_model_params(_model_cfg_from_row(m), cfg)
+packages/api/src/api/chat_context_models.py:182:async def _resolve_mem_cfg(db: AsyncSession, model_cfg: dict | None) -> dict | None:
+packages/api/src/api/chat_context_models.py:186:    if not model_cfg:
+packages/api/src/api/chat_context_models.py:203:            "base_url": model_cfg["base_url"],
+packages/api/src/api/chat_context_models.py:204:            "api_key": model_cfg["api_key"],
+packages/api/src/api/chat_context_models.py:205:            "model_id": model_cfg["model_id"],
+packages/api/src/api/chat_context.py:25:    _chat_model_cfg,
+packages/api/src/api/chat_context.py:26:    _pinned_model_cfg,
+packages/api/src/api/chat_context.py:29:    _resolve_node_models,
+packages/api/src/api/chat.py:80:    _resolve_node_models,
+packages/api/src/api/chat.py:350:            hint = _model_error_hint(exc, ctx.model_cfg)
+packages/api/src/api/chat_sse_errors.py:43:def _model_error_hint(exc: Exception, model_cfg: dict | None) -> str | None:
+packages/api/src/api/chat_sse_errors.py:47:    if not model_cfg:
+packages/api/src/api/chat_sse_errors.py:52:    base_url = model_cfg.get("base_url", "")
+packages/api/src/api/schemas/agents.py:20:    # 모델 설정 오버라이드(스펙 408 캐스케이드) — 화이트리스트 키(enable_thinking·stream)만 실효.
+packages/api/src/api/schemas/agents.py:197:        return node  # model_cfg 등 화이트리스트 밖 키는 여기서 드롭(저장 안 됨 → 에코 0)
+packages/api/src/api/schemas/agents.py:204:        (model_cfg 등 임의 키 저장·에코 차단 = 저장-비밀 풋건 봉인, codex P3) + 필드별 상한(무한
+packages/api/src/api/mem_config.py:32:def llm_cfg_of(cm: ModelConfig) -> dict:
+packages/api/src/api/mem_config.py:45:def _build_mem_cfg(chat_m: ModelConfig | None, emb_m: ModelConfig | None) -> dict | None:
+packages/api/src/api/mem_config.py:51:        return {"llm": llm_cfg_of(chat_m), "embedder": llm_cfg_of(emb_m)}
+packages/api/src/api/mem_config.py:86:    return _build_mem_cfg(await _default_chat_model(db), await _default_embed_model(db))
+packages/api/src/api/eval_execution.py:54:    return llm_cfg_of(_cm) if model_usable(_cm) else None
+packages/api/src/api/chat_context_loader.py:53:    return await _resolve_node_models(db, nodes, model_cfg, pins)
+packages/api/src/api/chat_context_loader.py:118:        model_cfg = await _resolve_model(db, cfg, overrides, pins) if not remote else None
+packages/api/src/api/chat_context_loader.py:120:        mem_cfg = await _resolve_mem_cfg(db, model_cfg)
+packages/api/src/api/eval_guards.py:110:    return llm_cfg_of(cm), None
+packages/api/src/api/chat_context_models.py:3:_resolve_model(구 CC 12)은 레지스트리 조회(_registry_chat_model·_default_chat_registry)와
+packages/api/src/api/chat_context_models.py:93:    return {**llm_cfg_of(m), "params": dict(m.params or {})}
+packages/api/src/api/chat_context_models.py:103:        return {**llm_cfg_of(m), "params": dict(m.params or {})}
+packages/api/src/api/chat_context_models.py:107:async def _resolve_node_models(
+packages/api/src/api/chat_context_models.py:149:async def _resolve_model(
+packages/api/src/api/chat_context_models.py:182:async def _resolve_mem_cfg(db: AsyncSession, model_cfg: dict | None) -> dict | None:
+packages/api/src/api/chat_context_models.py:207:        "embedder": llm_cfg_of(emb),
+packages/api/src/api/chat_context_models.py:224:    return _build_mem_cfg(m, await _default_embed_model(db))
+
+exec
+/bin/zsh -lc "nl -ba packages/agent/src/agent/flows/pipeline.py | sed -n '35,65p;300,340p'; nl -ba packages/api/src/api/chat_context_loader.py | sed -n '35,165p'; nl -ba packages/api/src/api/eval_execution.py | sed -n '1,100p'; nl -ba packages/api/src/api/eval_runner.py | sed -n '90,125p;170,215p'; nl -ba packages/api/src/api/eval_guards.py | sed -n '80,125p'; nl -ba packages/api/src/api/chat_a2a_serve.py | sed -n '240,280p'; nl -ba packages/api/src/api/chat_turn_runtime.py | sed -n '135,175p;230,260p'; nl -ba packages/api/src/api/chat_graph_build.py | sed -n '110,145p'; nl -ba packages/api/src/api/schemas/agents.py | sed -n '1,42p;270,315p'; rg -n \"stream|enable_thinking|modelParams|ALLOWED|override\" packages/api/src/api/chat_context_overrides.py packages/api/src/api/schemas/chat.py packages/api/src/api/schemas --glob '*.py'" in /Users/anthony/Repository/github/loveqoo/my-agents
+ exited 2 in 0ms:
+    35	from ..runtime import AgentBuildContext, AgentConfigError, AgentManifest
+    36	from ..toolbox import fence_wrap
+    37	
+    38	if TYPE_CHECKING:
+    39	    from langchain_core.messages import BaseMessage
+    40	    from langchain_core.tools import BaseTool
+    41	    from langchain_openai import ChatOpenAI
+    42	    from langgraph.graph.state import CompiledStateGraph
+    43	
+    44	log = logging.getLogger(__name__)
+    45	
+    46	
+    47	def _model_from_node(node: dict, ctx: AgentBuildContext) -> ChatOpenAI:
+    48	    """노드별 모델 어댑터(스펙 295) — pipeline은 노드 `model_cfg` 우선·기본 폴백만 정하고, 실제
+    49	    ChatOpenAI 구성은 정본 `build_chat_openai`에 위임(중복 제거). 노드별 가짜 모델을 꽂는 테스트가
+    50	    이 지점을 몽키패치하므로 얇은 어댑터로 시임을 보존한다(verify_260/261/268/270)."""
+    51	    return build_chat_openai(
+    52	        node.get("model_cfg") or ctx.model_cfg,
+    53	        ctx.params,
+    54	        error_label="노드 모델 설정이 필요합니다 (base_url/model_id) — 모델을 등록하세요.",
+    55	    )
+    56	
+    57	
+    58	class _State(TypedDict):
+    59	    messages: Annotated[list, add_messages]
+    60	
+    61	
+    62	def _coerce_json(text: object, fields: list) -> dict | None:
+    63	    """관대 JSON 추출·파싱·필수키 검사(스펙 261, 순수 — 단위 검증 가능). 코드펜스·전후 산문에 감싸여도
+    64	    첫 `{`~마지막 `}` 슬라이스로 시도하고, 안 되면 전체 문자열로 재시도. dict 아님·파싱 실패·필수키
+    65	    누락이면 None(형식 위반을 조용히 통과시키지 않음)."""
+   300	
+   301	        def _resolve_tool(name: str) -> BaseTool | None:
+   302	            if name in by_name:
+   303	                return by_name[name]
+   304	            cands = by_suffix.get(name) or []
+   305	            return cands[0] if len(cands) == 1 else None
+   306	
+   307	        ids = _unique_node_ids(nodes)
+   308	        g = StateGraph(_State)
+   309	
+   310	        def _make_step(nid: str, node: dict) -> tuple[Callable[[_State], Awaitable[dict]], list]:
+   311	            # 코드 노드(스펙 317) — 신뢰 레지스트리에서 해석해 스텝을 코드가 만든다. 미등록이면
+   312	            # AgentConfigError(default 만회·조용한 스킵 금지 — 089 패턴: 배포에서 코드가 빠졌는데
+   313	            # 폴백하면 설정 실수를 마스킹). 도구 루프 없음(코드가 ctx.tools에서 직접 고름 — 085 U2).
+   314	            impl_key = node.get("impl")
+   315	            if isinstance(impl_key, str) and impl_key.strip():
+   316	                from ..nodes import (
+   317	                    get_node_impl,  # 지연 import(모듈 순환 회피 — nodes는 pipeline을 모름)
+   318	                )
+   319	
+   320	                node_impl = get_node_impl(impl_key)
+   321	                if node_impl is None:
+   322	                    raise AgentConfigError(impl_key)
+   323	                return node_impl.build_step(dict(node), ctx), []
+   324	            model = _model_from_node(node, ctx)
+   325	            node_tools = [
+   326	                t for t in (_resolve_tool(name) for name in node["tools"]) if t is not None
+   327	            ]
+   328	            bound = model.bind_tools(node_tools) if node_tools else model
+   329	            prompt = node["prompt"]
+   330	            clean = node.get("context") == "clean"
+   331	            fmt = node.get("format") or "text"
+   332	            fields = node.get("fields") or []
+   333	            node_mem = node.get("memories") or []
+   334	            mem_mode = node.get("memoryQuery") or "user"
+   335	            node_hd = node.get(
+   336	                "historyDepth"
+   337	            )  # 단기 기억 창(스펙 270) — None=에이전트 상속(프록시 기본값)
+   338	
+   339	            async def _history_block(reentry: bool) -> list:
+   340	                # 단기 기억(스펙 270) — 이전 대화 슬라이스를 프롬프트 앞에 주입. clean은 대화 격리(결정 가),
+    35	    "memories",
+    36	    "capabilities",
+    37	    "tools",
+    38	    "vectorTables",
+    39	}
+    40	
+    41	
+    42	async def _resolve_nodes_for_ctx(
+    43	    db: AsyncSession,
+    44	    nodes: object,
+    45	    model_cfg: dict | None,
+    46	    remote: bool,
+    47	    pins: dict | None = None,
+    48	) -> list[dict] | None:
+    49	    """노드형(스펙 259)이면 노드별 모델을 **플랫폼이 미리 해석**해 심는다(085 U2: build_graph는 DB
+    50	    미접촉). 로컬(ui) 경로에서만 의미 — 비노드형/원격은 None."""
+    51	    if remote or not isinstance(nodes, list):
+    52	        return None
+    53	    return await _resolve_node_models(db, nodes, model_cfg, pins)
+    54	
+    55	
+    56	async def _prepare_cfg(
+    57	    db: AsyncSession, agent: Agent, version: str | None, overrides: dict | None
+    58	) -> tuple[dict, str, str | None, str | None, dict | None]:
+    59	    """cfg 준비 단계(스펙 394 분해) — 버전 스냅샷·노드 ref 해석·오버라이드 병합·풀 재파생.
+    60	    반환 (cfg, prompt, pinned_version, nodes_status, applied_overrides). 순서는 모듈 docstring ①~④."""
+    61	    cfg = dict(agent.config or {})
+    62	    # (스펙 211) 구 113 P0의 저장본/override 권한 분리(stored_mcps 포착)는 사용=공용 전환으로 소멸.
+    63	    cfg, prompt, pinned_version = await _resolve_version_and_prompt(db, agent, cfg, version)
+    64	    # 노드 참조 해석(스펙 316) — ref 항목을 등록 노드 config 사본으로 치환. **오버라이드 병합
+    65	    # 전에**(해석→병합): 세션 패치는 해석된 유효 노드 위에 얹는다. 미해결 참조는 422로 명확히
+    66	    # 실패(반쪽 파이프라인 조용히 실행 금지 — 089 패턴). 핀 버전 미리보기(version=) 스냅샷의
+    67	    # 참조도 여기서 함께 해석된다(_resolve_version_and_prompt 뒤 단일 지점).
+    68	    if not _is_remote(agent.source) and isinstance(cfg.get("nodes"), list):
+    69	        cfg["nodes"] = await resolve_node_refs(db, cfg["nodes"])
+    70	    cfg, prompt, nodes_status, applied_overrides = _apply_overrides(
+    71	        cfg, prompt, overrides, agent, _OVERRIDE_ALLOWED
+    72	    )
+    73	    # 노드형 풀 서버 파생(스펙 289 P2) — 로드 시 무조건 재파생: 폼 밖 입구(API 직생성·구저장·
+    74	    # 오버라이드)로 풀이 비었거나 낡았어도 노드 참조대로 도구·문서·기억이 빌드된다(learning 151).
+    75	    # 저장 시 파생(agents.py)과 같은 규칙이라 폼 저장분엔 무변화(멱등).
+    76	    if not _is_remote(agent.source):
+    77	        await derive_pipeline_pool(cfg)
+    78	    return cfg, prompt, pinned_version, nodes_status, applied_overrides
+    79	
+    80	
+    81	async def _load_context(
+    82	    agent_id: uuid.UUID,
+    83	    session_str_id: str | None,
+    84	    overrides: dict | None = None,
+    85	    own: str | None = None,
+    86	    version: str | None = None,
+    87	) -> ChatContext:
+    88	    """에이전트 구성 + MCP 활성 툴 + 세션(생성/지속)을 한 번에 준비.
+    89	
+    90	    overrides(스펙 025): Playground Proxy의 세션 한정 설정 덮어쓰기. **web 에이전트에만** 적용하고
+    91	    화이트리스트 키만 받는다(저장된 에이전트는 불변). 코드 에이전트는 원격 실행이라 미적용(bypass).
+    92	
+    93	    own(스펙 068): resume 소유자 스코프. 비-admin이면 `str(principal.id)`, admin/머신·내부 호출은
+    94	    None. `own is not None`이면 resume 바인딩이 `Session.user_id == own`을 요구해, *타인/NULL/추측*
+    95	    session_id는 매칭 실패 → 새 세션 발급(067 읽기 게이트와 동일 판정 — 열거 오라클·소유권 탈취 봉인).
+    96	    """
+    97	    # 세션 id 위생(스펙 290 적대): Postgres text는 NUL(0x00)을 저장·조회할 수 없어, 오염된 id가
+    98	    # WHERE에 닿으면 asyncpg가 DBAPIError(500)로 샌다. NUL 포함 id는 애초에 저장 행과 매칭 불가라
+    99	    # 새 세션으로 fold하는 것이 계약("200+새 세션 발급")과 일치한다 — resume 자체를 건너뛴다.
+   100	    # (다른 특수문자·긴 길이는 파라미터 바인딩이 안전 처리하므로 그대로 통과시켜 매칭 실패에 맡긴다.)
+   101	    if session_str_id and "\x00" in session_str_id:
+   102	        session_str_id = None
+   103	    async with SessionLocal() as db:
+   104	        agent = await get_or_404(db, Agent, agent_id, detail="agent not found")
+   105	        cfg, prompt, pinned_version, nodes_status, applied_overrides = await _prepare_cfg(
+   106	            db, agent, version, overrides
+   107	        )
+   108	        remote = _is_remote(agent.source)
+   109	        # 실행 버전(스펙 242) — pinned=지정 버전(미리보기), exec=실제 실행 버전(지정 없으면 활성).
+   110	        # trace.agentVersion 기록·HIL 게이트(pinned는 승인 재개가 서빙 config로 돌아 drift) 근거.
+   111	        exec_version = pinned_version or agent.active_version
+   112	        prompt_name, prompt_id = await _resolve_prompt_provenance(
+   113	            db, cfg, applied_overrides, remote
+   114	        )
+   115	        pins = await _resolve_exec_pins(db, agent.id, exec_version, remote)
+   116	        # 코드·외부 에이전트는 비로컬(원격/A2A) 실행이라 로컬 모델이 필요 없다(건너뜀 = None).
+   117	        nodes = cfg.get("nodes")  # 노드형 파이프라인 노드 명세(스펙 259) — 아래서 노드별 모델 해석
+   118	        model_cfg = await _resolve_model(db, cfg, overrides, pins) if not remote else None
+   119	        nodes_resolved = await _resolve_nodes_for_ctx(db, nodes, model_cfg, remote, pins)
+   120	        mem_cfg = await _resolve_mem_cfg(db, model_cfg)
+   121	        mcp_servers, tool_names = await _resolve_mcp_servers(db, cfg, pins)
+   122	        rag_collections, rag_unresolved = await _resolve_rag(db, cfg, remote)
+   123	        session = await _resolve_session(db, agent, session_str_id, own)
+   124	        return ChatContext(
+   125	            prompt=prompt,
+   126	            ext_agent_id=agent.agent_id,
+   127	            agent_name=agent.name,
+   128	            agent_pk=agent.id,
+   129	            source=agent.source,
+   130	            impl=cfg.get("impl"),
+   131	            artifact_spec=cfg.get("artifactSpec"),
+   132	            nodes=nodes,
+   133	            overrides_nodes_status=nodes_status,
+   134	            # 원본 오버라이드 — in-process 커스텀이 화이트리스트 밖 키도 읽게 전달(스펙 085
+   135	            # AgentBuildContext.overrides). 원격은 None(로컬 설정 주입 무의미, bypass 보존).
+   136	            overrides=applied_overrides,
+   137	            endpoint=agent.endpoint,
+   138	            token=agent.token,
+   139	            card=cfg.get("card"),
+   140	            memories=cfg.get("memories", []),
+   141	            capabilities=_filter_capabilities(cfg),
+   142	            # 도구 승인 오버라이드(스펙 177 P2) — 요청 오버라이드 허용키엔 불포함(요청으로 승인 완화
+   143	            # 우회 금지, config-only). 완화 권한은 저장 시 admin 게이트로 강제.
+   144	            tool_policy=cfg.get("toolPolicy") or {},
+   145	            # 에이전트가 명시한 temperature만 전달(없으면 None) → 모델 등록 params가 적용되게.
+   146	            temperature=cfg.get("temperature"),
+   147	            history_depth=cfg.get("historyDepth", 20),
+   148	            persist_history=cfg.get("persistHistory", True),
+   149	            # 비영속(1회성) 모드(스펙 235) — true면 DB 적재 전면 스킵(persistHistory의 상위집합).
+   150	            ephemeral=bool(cfg.get("ephemeral", False)),
+   151	            pinned_version=pinned_version,
+   152	            exec_version=exec_version,
+   153	            prompt_name=prompt_name,
+   154	            prompt_id=prompt_id,
+   155	            pins=pins,
+   156	            model_cfg=model_cfg,
+   157	            nodes_resolved=nodes_resolved,
+   158	            mem_cfg=mem_cfg,
+   159	            mcp_servers=mcp_servers,
+   160	            tool_names=tool_names,
+   161	            rag_collections=rag_collections,
+   162	            rag_unresolved=rag_unresolved,
+   163	            # 컬렉션별 최소 유사도 맵(스펙 191 v2). downstream이 범위·컬렉션 재검증하므로 raw 통과({}=무필터).
+   164	            rag_min_scores=cfg.get("ragMinScores") or {},
+   165	            session_pk=session["session_pk"],
+     1	"""평가 실행 코어(배경 러너) — eval_runs.py에서 분할(스펙 399 P6).
+     2	
+     3	상태 commit 순서 동결(codex 399): running(생성 시) → case_results insert → ok/error+finished_at
+     4	commit. _execute_run(구 B10)은 케이스 로딩(_load_harness_cases)·judge 해석(_resolve_judge_llm)·
+     5	결과 영속(_persist_report)·오류 박제(_mark_run_error) 추출로 분해. 파사드는 eval_runs.py(재수출).
+     6	"""
+     7	
+     8	import uuid
+     9	from datetime import UTC, datetime
+    10	
+    11	from sqlalchemy import select
+    12	
+    13	from .db import SessionLocal
+    14	from .eval_harness import EvalCase as HarnessCase
+    15	from .eval_harness import build_asserts, run_eval
+    16	from .eval_runner import eval_run_agent
+    17	from .models import EvalCase, EvalCaseResult, EvalRun, User
+    18	
+    19	
+    20	async def _load_harness_cases(dataset_id: uuid.UUID) -> list[HarnessCase]:
+    21	    """문제집 케이스 → 하네스 케이스(순서 보존). 스펙 195: 성적표 식별자(case_name)에 **질문**을
+    22	    넣는다 — DB name은 내부 해시라 성적표에 뜨면 유저가 못 알아본다. 표시 상한 200자."""
+    23	    async with SessionLocal() as s:
+    24	        rows = (
+    25	            (
+    26	                await s.execute(
+    27	                    select(EvalCase)
+    28	                    .where(EvalCase.dataset_id == dataset_id)
+    29	                    .order_by(EvalCase.order_idx, EvalCase.created_at)
+    30	                )
+    31	            )
+    32	            .scalars()
+    33	            .all()
+    34	        )
+    35	        return [
+    36	            HarnessCase(
+    37	                name=(c.input or c.name)[:200],
+    38	                input=c.input,
+    39	                asserts=build_asserts(c.asserts),
+    40	                meta={"raw_asserts": c.asserts},
+    41	            )
+    42	            for c in rows
+    43	        ]
+    44	
+    45	
+    46	async def _resolve_judge_llm() -> dict | None:
+    47	    """LLM-judge 심판 모델(스펙 139) — 기본 chat 모델(is_default)만 직접 해석. default_mem_cfg는
+    48	    embedding까지 요구해 embedding 미설정이 judge를 인질로 잡는다(codex 139 #3) → chat만 본다.
+    49	    미설정이면 judge 전부 실패(fail-closed) — run_llm_judge가 사유를 남긴다."""
+    50	    from .mem_config import _default_chat_model, llm_cfg_of, model_usable
+    51	
+    52	    async with SessionLocal() as s:
+    53	        _cm = await _default_chat_model(s)
+    54	    return llm_cfg_of(_cm) if model_usable(_cm) else None
+    55	
+    56	
+    57	async def _persist_report(run_id: uuid.UUID, report) -> None:  # noqa: ANN001 — EvalReport(하네스 타입)
+    58	    """성적 영속 — case_results insert 후 run을 ok로 종결(+finished_at). 순서 동결(codex 399)."""
+    59	    async with SessionLocal() as s:
+    60	        run = await s.get(EvalRun, run_id)
+    61	        if run is None:
+    62	            return
+    63	        for result in report.results:
+    64	            s.add(
+    65	                EvalCaseResult(
+    66	                    run_id=run_id,
+    67	                    case_name=result.name,
+    68	                    case_passed=result.passed,
+    69	                    details=[list(d) for d in result.details],
+    70	                    obs=result.obs,
+    71	                )
+    72	            )
+    73	        run.status = "ok"
+    74	        run.score = report.score
+    75	        run.passed = report.passed
+    76	        run.total = report.total
+    77	        run.summary = {"summary": report.summary()}
+    78	        run.finished_at = datetime.now(UTC)
+    79	        await s.commit()
+    80	
+    81	
+    82	async def _mark_run_error(run_id: uuid.UUID, exc: Exception) -> None:
+    83	    """실행 실패 박제 — status=error+사유(캡)+finished_at. 박제 실패는 삼킴(배경 태스크 크래시 금지)."""
+    84	    try:
+    85	        async with SessionLocal() as s:
+    86	            run = await s.get(EvalRun, run_id)
+    87	            if run is not None:
+    88	                run.status = "error"
+    89	                run.error = str(exc)[:1000]
+    90	                run.finished_at = datetime.now(UTC)
+    91	                await s.commit()
+    92	    except Exception:
+    93	        pass
+    94	
+    95	
+    96	async def _execute_run(
+    97	    run_id: uuid.UUID,
+    98	    dataset_id: uuid.UUID,
+    99	    agent_pk,  # noqa: ANN001 — uuid.UUID | None이나 None은 rag 분기 전용: 주석 시 eval_run_agent(UUID) 호출이 mypy arg-type(스펙 292 P1 보고)
+   100	    principal: User | str,
+    90	    # 브로커 주입(조율형 위임 채점) — 실행 주체(principal)의 RBAC로 스코프(chat 경로와 동일 술어).
+    91	    # 스펙 256 v2(깊이 N): 호출 체인에 자기 자신을 덧붙여 하위 브로커에 관통 — 체인 내 재방문만
+    92	    # 차단(순환 0), 새 에이전트로는 계속 하강 가능.
+    93	    chain = tuple(delegation_chain) + ((ctx.ext_agent_id,) if ctx.ext_agent_id else ())
+    94	    broker = build_broker(
+    95	        principal,
+    96	        ctx.capabilities,
+    97	        ctx.tool_policy,
+    98	        delegation_chain=chain,
+    99	        delegation_budget=delegation_budget,
+   100	    )
+   101	    # 노드 에이전트-호출 도구(스펙 318) — 평가도 실제 파이프라인(위임 포함)을 태운다(317 입구 정합).
+   102	    # pipeline만·broker가 이미 스코프(권한 상승 0).
+   103	    if ctx.impl == "pipeline":
+   104	        tools.extend(runtime.build_agent_tools(broker, await broker.agent_capabilities()))
+   105	    run_params = {} if ctx.temperature is None else {"temperature": ctx.temperature}
+   106	    build_ctx = AgentBuildContext(
+   107	        prompt=prompt_prompt,
+   108	        model_cfg=ctx.model_cfg,
+   109	        tools=tools,
+   110	        checkpointer=None,  # HIL cap은 fail-closed(interrupt→예외→error 관측)
+   111	        params=run_params,
+   112	        memories=mem_hits,
+   113	        broker=broker,
+   114	        # impl_config — 노코드 impl 설정 통로(codex 317 P1: eval 입구 누락 봉합). 이게 없으면 노드형/
+   115	        # 산출물형 평가가 **기본 단일 노드로 조용히 퇴화**해 실제 서빙과 다른 것을 채점했고, 미등록
+   116	        # 코드 노드도 설정 오류 대신 폴백 실행됐다. 채팅·A2A 서빙·승인 재개와 동일 주입(네 번째 입구).
+   117	        impl_config=(
+   118	            {"nodes": ctx.nodes_resolved} if ctx.nodes_resolved is not None else ctx.artifact_spec
+   119	        ),
+   120	    )
+   121	    return impl.build_graph(build_ctx), broker
+   122	
+   123	
+   124	async def _stream_observed(
+   125	    graph: Any, messages: list[dict], cfg: dict
+   170	    try:
+   171	        ctx = await _load_context(
+   172	            agent_pk, None, overrides, version=version
+   173	        )  # 버전 지정 평가(스펙 242)
+   174	    except Exception as exc:
+   175	        return {
+   176	            "output": "",
+   177	            "trace_nodes": [],
+   178	            "error": True,
+   179	            "detail": f"컨텍스트 로드 실패: {exc}",
+   180	        }
+   181	    try:
+   182	        impl = resolve_agent_runtime(ctx)
+   183	    except AgentConfigError as exc:
+   184	        return {"output": "", "trace_nodes": [], "error": True, "detail": f"런타임 미해결: {exc}"}
+   185	    if impl is None or ctx.model_cfg is None:
+   186	        return {
+   187	            "output": "",
+   188	            "trace_nodes": [],
+   189	            "error": True,
+   190	            "detail": "로컬(ui) 에이전트가 아니거나 채팅 모델이 없습니다(평가는 로컬 에이전트만)",
+   191	        }
+   192	
+   193	    used_memory, mem_hits, prompt_prompt = await _recall_memory(ctx, user_text)
+   194	
+   195	    calls_sink: list[dict] = []
+   196	    try:
+   197	        graph, broker = await _build_eval_graph(
+   198	            ctx,
+   199	            impl,
+   200	            prompt_prompt,
+   201	            mem_hits,
+   202	            calls_sink,
+   203	            principal,
+   204	            delegation_chain,
+   205	            delegation_budget,
+   206	        )
+   207	    except AgentConfigError as exc:
+   208	        # 그래프 조립 시점 설정 실패(스펙 317 — 코드 노드 impl 미등록 등)도 error obs로 접는다
+   209	        # (하네스 계약 — 케이스 error 채점, 전체 평가는 계속. 조용한 폴백 채점 금지).
+   210	        return {
+   211	            "output": "",
+   212	            "trace_nodes": [],
+   213	            "error": True,
+   214	            "detail": f"그래프 조립 실패: {exc}",
+   215	        }
+    80	    if not active:
+    81	        return
+    82	    mine = (
+    83	        await session.execute(
+    84	            select(func.count(EvalDataset.id)).where(
+    85	                EvalDataset.owner_id == owner_of(user), EvalDataset.id.in_(active)
+    86	            )
+    87	        )
+    88	    ).scalar_one()
+    89	    if mine >= _MEMBER_MAX_CONCURRENT_JOBS:
+    90	        raise HTTPException(
+    91	            status_code=429,
+    92	            detail=f"동시 생성·출제 한도({_MEMBER_MAX_CONCURRENT_JOBS})에 도달했습니다 — 진행 중 작업이 끝나면 다시 시도하세요",
+    93	        )
+    94	
+    95	
+    96	async def _helper_llm(session: AsyncSession) -> tuple[dict | None, str | None]:
+    97	    """도우미 LLM 해석 — (llm_cfg, 불가 사유). 기본 chat이 실모델일 때만(사용자 원칙)."""
+    98	    from .eval_suggest import is_mock_llm
+    99	    from .mem_config import _default_chat_model, llm_cfg_of, model_usable
+   100	
+   101	    cm = await _default_chat_model(session)
+   102	    if not model_usable(cm):
+   103	        return None, "기본 chat 모델이 없습니다 — 프로바이더·모델에서 기본 모델을 지정하세요"
+   104	    assert cm is not None and cm.provider is not None  # model_usable 보장(negative narrow 없음)
+   105	    if is_mock_llm(cm.provider.base_url, cm.model_id):
+   106	        return (
+   107	            None,
+   108	            "기본 chat 모델이 mock입니다 — 실모델을 기본으로 지정하면 도우미가 활성화됩니다",
+   109	        )
+   110	    return llm_cfg_of(cm), None
+   240	    return tools, calls_sink
+   241	
+   242	
+   243	def _resolve_serve_impl(ctx: ChatContext) -> CustomAgent:
+   244	    """서빙 적격 검사(스펙 089) — impl 해석·모델 존재를 **실행 전 즉시** 판정(codex 392 P3:
+   245	    도구 빌드·기억 회상보다 먼저 — 옛 stream_local_reply의 관측 순서 보존). 실패는 ValueError
+   246	    (라우터가 4xx — 089-F1: 구체 impl 키는 서버 로그만, 응답은 일반 문구)."""
+   247	    try:
+   248	        impl = resolve_agent_runtime(ctx)
+   249	    except AgentConfigError as e:
+   250	        # 선언한 in-process 구현 미해결(스펙 089) — 노출 서빙 거부(default 만회 없음).
+   251	        log.warning("A2A 노출 거부: 미해결 impl %r (agent %s)", str(e), ctx.ext_agent_id)
+   252	        raise ValueError("에이전트 설정 실패: 런타임 구현 미해결(A2A 노출 불가)") from e
+   253	    if impl is None or ctx.model_cfg is None:
+   254	        raise ValueError("로컬(ui) 에이전트가 아니거나 채팅 모델이 없습니다(A2A 노출 불가)")
+   255	    return impl
+   256	
+   257	
+   258	def _build_serve_graph(
+   259	    ctx: ChatContext, impl: CustomAgent, serve_prompt: str, tools: list, ckpt: object
+   260	) -> "CompiledStateGraph":
+   261	    """서빙 그래프 조립 — AgentBuildContext 구성·build_graph. 조립 시점 설정 실패도 ValueError."""
+   262	    run_params = {} if ctx.temperature is None else {"temperature": ctx.temperature}
+   263	    build_ctx = AgentBuildContext(
+   264	        prompt=serve_prompt,
+   265	        model_cfg=ctx.model_cfg,
+   266	        tools=tools,
+   267	        checkpointer=ckpt,
+   268	        params=run_params,
+   269	        overrides=ctx.overrides,
+   270	        # impl_config — 노코드 impl 설정 통로(codex P2 후속: A2A 서빙이 이 세 번째 입구를 빠뜨려 노드형/
+   271	        # 산출물형 에이전트가 A2A 노출 시 기본 단일 노드로 퇴화하던 버그). 메인 채팅·승인 재개와 동일 주입.
+   272	        impl_config=(
+   273	            {"nodes": ctx.nodes_resolved} if ctx.nodes_resolved is not None else ctx.artifact_spec
+   274	        ),
+   275	        # 단기 기억 창(스펙 270): A2A 서빙은 세션 대화를 messages로 직접 재구성해 주입(스펙 388 P1)하므로
+   276	        # history_window 프록시 미주입(None).
+   277	    )
+   278	    try:
+   279	        return impl.build_graph(build_ctx)
+   280	    except AgentConfigError as e:
+   135	    return tools, t_mcp, time.perf_counter()
+   136	
+   137	
+   138	def _graph_for_turn(
+   139	    fp: str | None, cached: dict | None, impl: CustomAgent, build_ctx: AgentBuildContext
+   140	) -> tuple[Any, str]:
+   141	    """그래프 획득 3분기(스펙 396 분해) — 반환 (graph, seed_hint).
+   142	
+   143	    ① 캐시 적중: 그대로 재사용. ② 지문 적격 미스: promptless 빌드(스펙 371 D3 — 시스템 프롬프트는
+   144	    seed 선두 SystemMessage로, 스파이크 실증) 후 캐시 저장(+최고령 축출). discovery 힌트는 도구
+   145	    집합의 함수라 캐시 엔트리에 동봉. ③ 비적격(fp=None): 종전 그대로 직접 빌드."""
+   146	    if cached is not None:
+   147	        return cached["graph"], cached["hint"]
+   148	    if fp is not None:
+   149	        from agent.toolbox import DISCOVERY_HINT, effective_tools
+   150	
+   151	        _, _discovery = effective_tools(build_ctx.tools)
+   152	        seed_hint = f"\n\n# 도구 안내\n{DISCOVERY_HINT}" if _discovery else ""
+   153	        graph = impl.build_graph(
+   154	            AgentBuildContext(
+   155	                prompt="",
+   156	                model_cfg=build_ctx.model_cfg,
+   157	                tools=build_ctx.tools,
+   158	                checkpointer=build_ctx.checkpointer,
+   159	                params=build_ctx.params,
+   160	                memories=build_ctx.memories,
+   161	                overrides=build_ctx.overrides,
+   162	                broker=build_ctx.broker,
+   163	                memory_recall=build_ctx.memory_recall,
+   164	                history_window=build_ctx.history_window,
+   165	                impl_config=build_ctx.impl_config,
+   166	            )
+   167	        )
+   168	        graph_cache_stats["misses"] += 1
+   169	        if len(_GRAPH_CACHE) >= _GRAPH_CACHE_MAX:
+   170	            _GRAPH_CACHE.pop(next(iter(_GRAPH_CACHE)))  # 최고령 축출(삽입순)
+   171	        _GRAPH_CACHE[fp] = {"graph": graph, "tools": build_ctx.tools, "hint": seed_hint}
+   172	        return graph, seed_hint
+   173	    return impl.build_graph(build_ctx), ""
+   174	
+   175	
+   230	    # broker를 쓰는 flow(예: orchestrate)만 소비하고, 안 쓰면 무해(deny-by-default).
+   231	    # 스펙 256 v2: 루트 실행도 자기 id로 체인 시작 — 하위 어디서도 루트 재호출(순환) 불가.
+   232	    broker = build_broker(
+   233	        principal,
+   234	        ctx.capabilities,
+   235	        ctx.tool_policy,
+   236	        ctx.rag_min_scores,
+   237	        delegation_chain=((ctx.ext_agent_id,) if ctx.ext_agent_id else ()),
+   238	        delegation_budget={"n": 0},
+   239	    )
+   240	    # 노드 에이전트-호출 도구(스펙 318) — 노드형 노드가 `agent__{id}`로 다른 에이전트에 위임. broker
+   241	    # 경유라 재귀 가드·HIL·격리 승계(runtime.build_agent_tools). pipeline만(비노드형은 broker.discover
+   242	    # 경로라 도구 풀에 얹지 않는다 — 행위 보존). 후보=broker가 이미 스코프(권한 상승 0).
+   243	    if ctx.impl == "pipeline":
+   244	        tools.extend(runtime.build_agent_tools(broker, await broker.agent_capabilities()))
+   245	    _t_broker = time.perf_counter()
+   246	    build_ctx = AgentBuildContext(
+   247	        prompt=prompt_prompt,
+   248	        model_cfg=ctx.model_cfg,
+   249	        tools=tools,
+   250	        checkpointer=ckpt,
+   251	        params=run_params,
+   252	        memories=mem_hits,
+   253	        overrides=ctx.overrides,
+   254	        broker=broker,
+   255	        memory_recall=mem_proxy,  # 노드별 캐싱 회상 프록시(스펙 268 P2) — 비노드형은 None(무회귀)
+   256	        history_window=hist_proxy,  # 단기 기억 창 프록시(스펙 270) — 비노드형은 None(에이전트 _window 경로 유지)
+   257	        # impl_config — 노코드 impl용 설정 통로. 노드형(259)=해석된 노드, 산출물형(190)=필드 명세.
+   258	        # 에이전트당 impl 하나라 상호배타(둘 중 해당하는 것만 실림, 그 외 impl은 무시).
+   259	        impl_config=(
+   260	            {"nodes": ctx.nodes_resolved} if ctx.nodes_resolved is not None else ctx.artifact_spec
+   110	            }
+   111	        )
+   112	        return text
+   113	
+   114	
+   115	def _graph_fingerprint(ctx: ChatContext) -> str | None:
+   116	    """캐시 적격(단순형 default)이면 빌드 결정 요소의 지문, 아니면 None(새 인스턴스 경로).
+   117	
+   118	    지문 = 모델 정체(연결·model_id·params·temperature) + MCP 도구 집합(이름·**블록 버전**·auth 지문 —
+   119	    369 불변성으로 버전이 콘텐츠를 유일하게 가리킴) + 도구 필터 + 승인 정책 + RAG 배선 + 체크포인터
+   120	    유무. 비밀은 sha256 지문으로만(평문 키 저장 금지). 노드형/조율형/산출물형은 per-turn 재료(브로커·
+   121	    프록시)가 그래프에 얽혀 제외(후속). 캐시 딕셔너리는 chat.py(_GRAPH_CACHE) — 이 함수는 순수."""
+   122	    if ctx.nodes_resolved is not None or ctx.artifact_spec is not None:
+   123	        return None
+   124	    if (ctx.impl or "default") != "default":
+   125	        return None
+   126	    mc = ctx.model_cfg or {}
+   127	    if not mc:
+   128	        return None
+   129	
+   130	    def _fp(text: str) -> str:
+   131	        return hashlib.sha256((text or "").encode()).hexdigest()[:12]
+   132	
+   133	    blob = {
+   134	        "model": [
+   135	            mc.get("base_url"),
+   136	            _fp(mc.get("api_key") or ""),
+   137	            mc.get("model_id"),
+   138	            json.dumps(mc.get("params") or {}, sort_keys=True),
+   139	            ctx.temperature,
+   140	        ],
+   141	        "mcp": sorted(
+   142	            [s["name"], s.get("version") or 0, _fp(s.get("auth_token") or "")]
+   143	            for s in ctx.mcp_servers or []
+   144	        ),
+   145	        "tool_filter": sorted(ctx.tool_names or []),
+     1	"""schemas.agents — 007 도메인 스키마(스펙 378 분할).
+     2	
+     3	원본 schemas.py에서 verbatim 이관."""
+     4	
+     5	import uuid
+     6	from typing import Any
+     7	
+     8	from pydantic import BaseModel, Field, field_validator
+     9	
+    10	from .base import AuditOut
+    11	
+    12	
+    13	# ----------------------------- 에이전트 -----------------------------
+    14	class AgentConfig(BaseModel):
+    15	    model: str = "mock-llm"  # 미지정 시 기본 모델(스펙 059)
+    16	    prompt: str = ""  # 프롬프트 이름(블록 참조)
+    17	    temperature: float | None = (
+    18	        None  # 에이전트 영속 온도(스펙 077). None=자동(모델 등록 params 적용)
+    19	    )
+    20	    # 모델 설정 오버라이드(스펙 408 캐스케이드) — 화이트리스트 키(enable_thinking·stream)만 실효.
+    21	    # temperature는 위 기존 필드가 에이전트 층 정본(이중 거처 금지). 미명시 키=모델 기본 상속.
+    22	    modelParams: dict[str, Any] = Field(default_factory=dict)
+    23	    memories: list[str] = Field(default_factory=list)
+    24	    vectorTables: list[str] = Field(default_factory=list)
+    25	    mcps: list[str] = Field(default_factory=list)
+    26	    # 직접형 도구 단위 배선(스펙 276) — 런타임명(`server__tool`) 목록. **mcps(서버 목록)가 서버 배선의
+    27	    # 진실원**이고 tools는 그 위의 노출 필터: 서버별로 이 목록에 항목이 있으면 그 도구만, 없으면 전체
+    28	    # (구저장 빈 목록=지금과 동일=무회귀). model_dump 드롭 방지 위해 스키마 필드 필수(learning 101 동형).
+    29	    tools: list[str] = Field(default_factory=list)
+    30	    # 능력 브로커 allowlist(스펙 100 §69·101) — 오케스트레이터가 서브스텝 위임할 수 있는 능력 id.
+    31	    # 규약: bare=agent cap, `mcp:<server>`=서버 전체, `mcp:<server>/<tool>`=툴 단위. 없으면 []=deny-by-
+    32	    # default. 실제 인가는 요청 시 RBAC와 교집합(build_broker). UI 편집은 Phase 2-d로 이연(스펙 101).
+    33	    capabilities: list[str] = Field(default_factory=list)
+    34	    # 도구 승인 오버라이드(스펙 177 P2) — cap_id(`mcp:{server}/{tool}`)→{approval:{required?, approver?}}.
+    35	    # 도구 기본 정책(tools_meta)을 에이전트별로 강화(끔→켬)·완화(켬→끔)·승인자 변경. 리졸버가 덮어씀
+    36	    # (runtime.resolve_tool_approval). **완화는 저장 시 admin 게이트**(agents CRUD) — 스키마는 구조만 강제.
+    37	    toolPolicy: dict[str, Any] = Field(default_factory=dict)
+    38	    historyDepth: int = 20
+    39	    persistHistory: bool = (
+    40	        True  # 대화를 DB에 저장할지(끄면 윈도우 모드 — 세션은 남고 메시지만 스킵)
+    41	    )
+    42	    # 비영속(1회성) 모드(스펙 235) — true면 DB 적재 전면 스킵(세션 행·카운터·메시지·commit·메모리 전부
+   270	    config: dict[str, Any] = Field(default_factory=dict)
+   271	    createdAt: str | None = None
+   272	
+   273	
+   274	class AgentOut(AuditOut):
+   275	    id: uuid.UUID
+   276	    agentId: str
+   277	    name: str  # 식별 이름(규칙, 스펙 148)
+   278	    description: str | None = None  # 설명(자유 표기, 스펙 210) — 표시는 name 단독
+   279	    source: str
+   280	    model: str
+   281	    prompt: str  # 프롬프트 이름(블록 참조, UI 표시용)
+   282	    temperature: float | None = None  # 에이전트 영속 온도(스펙 077). None=자동(모델 등록값)
+   283	    modelParams: dict[str, Any] = Field(
+   284	        default_factory=dict
+   285	    )  # 모델 설정 오버라이드(스펙 408 — 폼 재로드용)
+   286	    systemPrompt: str = ""  # 해석된 시스템 프롬프트 본문(런타임이 쓰는 것 = 저장 시점 스냅샷)
+   287	    # 오픈 버전 pins 중 블록 head가 더 새 버전인 항목(스펙 370 §4 채택 배지) — 단건 GET만 계산.
+   288	    stalePins: list[dict[str, Any]] = Field(default_factory=list)
+   289	    historyDepth: int
+   290	    persistHistory: bool = True
+   291	    ephemeral: bool = False
+   292	    suggestedPrompts: list[str] = Field(default_factory=list)  # 플그 추천 명령어(스펙 238)
+   293	    impl: str | None = None  # in-process 커스텀 런타임 키(스펙 085) — 폼 재로드/라운드트립 보존용
+   294	    # 공통 인터페이스 준수 분류(스펙 089) — 파생값(저장 안 함). conforming=준수(default/적합 impl),
+   295	    # non_conforming=A2A 원격(정당한 다른 종류), config_error=impl 선언했으나 미해결(설정 실패).
+   296	    conformance: str = "conforming"
+   297	    memories: list[str] = Field(default_factory=list)
+   298	    vectorTables: list[str] = Field(default_factory=list)
+   299	    mcps: list[str] = Field(default_factory=list)
+   300	    tools: list[str] = Field(
+   301	        default_factory=list
+   302	    )  # 직접형 도구 단위 배선(스펙 276, 폼 재로드/왕복 보존)
+   303	    capabilities: list[str] = Field(
+   304	        default_factory=list
+   305	    )  # 능력 브로커 allowlist(스펙 106, 폼 재로드용)
+   306	    toolPolicy: dict[str, Any] = Field(
+   307	        default_factory=dict
+   308	    )  # 도구 승인 오버라이드(스펙 177 P2, 폼 재로드용)
+   309	    artifactSpec: dict[str, Any] | None = (
+   310	        None  # 노코드 산출물형 필드 명세(스펙 190, 폼 재로드/라운드트립 보존)
+   311	    )
+   312	    nodes: list[dict[str, Any]] | None = (
+   313	        None  # 노드형 파이프라인 노드 명세(스펙 259, 폼 재로드/라운드트립 보존)
+   314	    )
+   315	    # 노드 참조 해석 결과(스펙 316, 파생·읽기 전용 — 단건 조회만 계산). 오버라이드 패널이 참조
+rg: packages/api/src/api/schemas/chat.py: No such file or directory (os error 2)
+packages/api/src/api/chat_context_overrides.py:3:_merge_node_overrides(구 CC 12)는 노드별 병합(_merge_one_node) 추출로 분해.
+packages/api/src/api/chat_context_overrides.py:51:def _merge_node_overrides(saved: list, ov: object) -> tuple[list, str]:
+packages/api/src/api/chat_context_overrides.py:82:def _apply_overrides(
+packages/api/src/api/chat_context_overrides.py:83:    cfg: dict, prompt: str, overrides: dict | None, agent: Agent, allowed: set
+packages/api/src/api/chat_context_overrides.py:96:    in-process 커스텀 에이전트가 화이트리스트 밖 키도 읽게 ctx["overrides"]로 전달(스펙 085)."""
+packages/api/src/api/chat_context_overrides.py:97:    if not overrides or _is_remote(agent.source):
+packages/api/src/api/chat_context_overrides.py:99:    cfg.update({k: v for k, v in overrides.items() if k in allowed})
+packages/api/src/api/chat_context_overrides.py:100:    if "historyDepth" in overrides:
+packages/api/src/api/chat_context_overrides.py:104:    sp = overrides.get("systemPrompt")
+packages/api/src/api/chat_context_overrides.py:108:    if overrides.get("nodes") is not None:
+packages/api/src/api/chat_context_overrides.py:110:            cfg["nodes"], nodes_status = _merge_node_overrides(cfg["nodes"], overrides["nodes"])
+packages/api/src/api/chat_context_overrides.py:113:    return cfg, prompt, nodes_status, overrides
+packages/api/src/api/schemas/agents.py:20:    # 모델 설정 오버라이드(스펙 408 캐스케이드) — 화이트리스트 키(enable_thinking·stream)만 실효.
+packages/api/src/api/schemas/agents.py:22:    modelParams: dict[str, Any] = Field(default_factory=dict)
+packages/api/src/api/schemas/agents.py:283:    modelParams: dict[str, Any] = Field(
+packages/api/src/api/schemas/registry.py:69:        default_factory=lambda: {"streaming": True, "thinking": False, "vision": False}
+packages/api/src/api/schemas/registry.py:86:        default_factory=lambda: {"streaming": True, "thinking": False, "vision": False}
+packages/api/src/api/schemas/sessions.py:115:    overrides: dict | None = None
+
+exec
+/bin/zsh -lc "nl -ba packages/api/src/api/chat_context_loader.py | sed -n '1,42p'; nl -ba packages/api/src/api/chat_context_overrides.py | sed -n '78,118p'; nl -ba packages/api/src/api/chat_trace.py | sed -n '1,45p'; rg -n \"responseMode|modelParams|capabilities.*streaming|stream_effective|9c13f807b6c2\" tests packages/admin docs/spec .dev/spec --glob '"'!**/node_modules/**'"' 2>/dev/null" in /Users/anthony/Repository/github/loveqoo/my-agents
+ exited 2 in 0ms:
+     1	"""_load_context 오케스트레이터 — chat_context.py에서 분할(스펙 394 P6).
+     2	
+     3	컨텍스트 계층의 **순서 계약**이 이 파일에 드러난다(codex 자문 — 순서 변경=동작 변경):
+     4	① 버전 스냅샷 → ② 노드 ref 해석(오버라이드 **전** — 세션 패치는 해석된 유효 노드 위에) →
+     5	③ 오버라이드 병합 → ④ 풀 재파생(모델/MCP/RAG 해석 **전**) → ⑤ exec_version 확정 **후** pins →
+     6	⑥ 모델 → 노드 모델 → mem → MCP → RAG → 세션. 파사드는 chat_context.py(재수출 계약).
+     7	"""
+     8	
+     9	import uuid
+    10	
+    11	from sqlalchemy.ext.asyncio import AsyncSession
+    12	
+    13	from .chat_context_mcp import _resolve_mcp_servers
+    14	from .chat_context_models import _resolve_mem_cfg, _resolve_model, _resolve_node_models
+    15	from .chat_context_overrides import _apply_overrides, _filter_capabilities
+    16	from .chat_context_pool import derive_pipeline_pool
+    17	from .chat_context_rag import _resolve_rag
+    18	from .chat_context_sessions import _resolve_session
+    19	from .chat_context_types import ChatContext, _is_remote
+    20	from .chat_context_versions import (
+    21	    _resolve_exec_pins,
+    22	    _resolve_prompt_provenance,
+    23	    _resolve_version_and_prompt,
+    24	)
+    25	from .db import SessionLocal, get_or_404
+    26	from .models import Agent
+    27	from .node_templates import resolve_node_refs
+    28	
+    29	# 세션 오버라이드 화이트리스트(스펙 025/122/276/287 — 각 키 근거는 _apply_overrides docstring).
+    30	_OVERRIDE_ALLOWED = {
+    31	    "model",
+    32	    "temperature",
+    33	    "historyDepth",
+    34	    "mcps",
+    35	    "memories",
+    36	    "capabilities",
+    37	    "tools",
+    38	    "vectorTables",
+    39	}
+    40	
+    41	
+    42	async def _resolve_nodes_for_ctx(
+    78	    except (TypeError, ValueError):
+    79	        cfg["historyDepth"] = (agent.config or {}).get("historyDepth", 20)
+    80	
+    81	
+    82	def _apply_overrides(
+    83	    cfg: dict, prompt: str, overrides: dict | None, agent: Agent, allowed: set
+    84	) -> tuple[dict, str, str | None, dict | None]:
+    85	    """web 한정 세션 오버라이드 병합(스펙 025) — 화이트리스트 키만, 저장 에이전트는 불변.
+    86	
+    87	    코드·외부(원격) 에이전트는 미적용(bypass 보존 — 026 read-only 취급). 모델은 여전히
+    88	    cfg["model"] 이름으로 레지스트리에서만 해석 → [012] 단일 소스 불변식 유지.
+    89	    - capabilities(스펙 122): 브로커가 build_broker(principal=호출자)로 호출자 RBAC 게이트
+    90	      (_permitted = allowlist ∩ RBAC)하므로 주입분도 안전(confused-deputy 무관).
+    91	    - tools(스펙 276): 직접형 도구 단위 배선 — 노출 축소/서버별 필터라 완화 아님.
+    92	    - vectorTables(스펙 287): 노드형 문서 풀 파생의 실효 축 — RAG 읽기(사용=공용 정책 211).
+    93	    - nodes(스펙 287): 구조 불변 강제 merge(allowed와 분리 — 통짜 교체가 아니라 저장 노드 위
+    94	      필드 merge, 추가/삭제=범위 밖). 미적용 사유(mismatch)는 트레이스가 표면화.
+    95	    반환 (cfg, prompt, nodes_status, passthrough) — passthrough=적용된 원본 오버라이드(미적용=None):
+    96	    in-process 커스텀 에이전트가 화이트리스트 밖 키도 읽게 ctx["overrides"]로 전달(스펙 085)."""
+    97	    if not overrides or _is_remote(agent.source):
+    98	        return cfg, prompt, None, None
+    99	    cfg.update({k: v for k, v in overrides.items() if k in allowed})
+   100	    if "historyDepth" in overrides:
+   101	        _coerce_history_depth(cfg, agent)
+   102	    # systemPrompt는 비어있지 않을 때만 prompt를 덮어쓴다 — 빈/공백 문자열로
+   103	    # 저장된 프롬프트를 지우지 않도록(백엔드 자체 가드, 클라이언트 신뢰 안 함. codex P1).
+   104	    sp = overrides.get("systemPrompt")
+   105	    if isinstance(sp, str) and sp.strip():
+   106	        prompt = sp
+   107	    nodes_status: str | None = None
+   108	    if overrides.get("nodes") is not None:
+   109	        if isinstance(cfg.get("nodes"), list):
+   110	            cfg["nodes"], nodes_status = _merge_node_overrides(cfg["nodes"], overrides["nodes"])
+   111	        else:
+   112	            nodes_status = "mismatch"  # 노드형이 아닌 에이전트에 nodes를 보냄
+   113	    return cfg, prompt, nodes_status, overrides
+   114	
+   115	
+   116	def _filter_capabilities(cfg: dict) -> list:
+   117	    """능력 브로커 allowlist(스펙 100) — 오케스트레이션 허용 cap id 목록(없으면 [] = deny-by-default).
+   118	
+     1	"""트레이스 조립(오버라이드·브로커 호출 투영·종결 트레이스) — chat.py에서 분할(스펙 291 3b·386).
+     2	
+     3	파사드는 chat.py(재수출 계약) — 인스펙터가 소비하는 trace 필드의 정화·화이트리스트 단일 출처.
+     4	"""
+     5	
+     6	import uuid
+     7	from typing import TYPE_CHECKING
+     8	
+     9	from agent.runtime import CustomAgent
+    10	
+    11	from . import memory, runtime, trace_capture
+    12	
+    13	if TYPE_CHECKING:
+    14	    from .chat_turn_runtime import (
+    15	        ChatTurnRuntime,  # 순환 회피(chat_turn_runtime→chat_approval→여기)
+    16	    )
+    17	from .chat_context import ChatContext
+    18	from .chat_history import _format_sent_measured
+    19	from .db import SessionLocal
+    20	from .models import Message
+    21	
+    22	# 트레이스에 기록할 오버라이드 허용 키(스펙 134) — _load_context 병합 allowlist + systemPrompt.
+    23	_OVERRIDE_TRACE_KEYS = (
+    24	    "model",
+    25	    "temperature",
+    26	    "historyDepth",
+    27	    "mcps",
+    28	    "memories",
+    29	    "capabilities",
+    30	    "tools",
+    31	    "vectorTables",
+    32	    "systemPrompt",
+    33	)
+    34	
+    35	
+    36	def _trace_override_value(key: str, v: object) -> str | int | float | bool | list[str] | None:
+    37	    """오버라이드 값 1개를 트레이스 표시용으로 정화(131 프레임 재사용) — 기록 제외면 None.
+    38	
+    39	    문자열=비밀 마스킹+캡 300, 리스트=항목별 캡 100·개수 20, 숫자 통과. systemPrompt는
+    40	    _load_context가 **비어있지 않을 때만 적용**(빈/공백은 무시) — 트레이스도 같은 가드를 미러
+    41	    (적용 안 된 값을 "적용됨"으로 기록 금지, codex 134 #1)."""
+    42	    from .memory import _sanitize
+    43	
+    44	    if isinstance(v, str):
+    45	        if key == "systemPrompt" and not v.strip():
+docs/spec/408-model-capabilities.md:11:- **능력 층(신설, 오버라이드 불가)**: `ModelConfig.capabilities` JSONB — `{"streaming": true,
+docs/spec/408-model-capabilities.md:14:- **설정 층(사용값, 캐스케이드)**: **모델 params(기본) → 에이전트 config.modelParams(부분
+docs/spec/408-model-capabilities.md:18:- **스트리밍 유효값** = `capabilities.streaming AND 설정.stream(기본 true)` — 능력 false면 협상
+docs/spec/408-model-capabilities.md:28:- **P3 표시**: trace `responseMode: "streaming"|"single"` + 메시지 메타 **배지 "단건"**(스트리밍은
+docs/spec/408-model-capabilities.md:33:- **P5 검증**: verify_408 — ①caps.streaming=false → 정상 응답+responseMode=single ②캐스케이드
+docs/spec/archive/042-a2a-runtime-call.md:29:2. 카드 `capabilities.streaming=false`면 `message/send`(단건)로 폴백, result에서 텍스트 추출.
+tests/verify_057_connect_classification.py:164:    base_card = {"name": "X", "url": VBASE + "/_remote/a2a", "capabilities": {"streaming": True}}
+tests/verify_057_connect_classification.py:233:        {"name": big, "url": "http://h/" + big, "capabilities": {"streaming": True}}, None, True
+docs/spec/061-local-agent-a2a-exposure.md:52:       "capabilities": {"streaming": true, "pushNotifications": false},
+docs/spec/INDEX.md:411:- 408 모델 능력 관리(capabilities) — **진행**: 2층 원칙(능력=모델 선언/사용=부분집합 선택, A2A·MCP 동형) — capabilities JSONB(스트리밍·thinking·비전)+미지원 시 disable_streaming 안전 실행+responseMode 배지·단건 대기 라벨+admin 체크박스(thinking 사용 기본 가시화). [model-capabilities,two-layer-capability-usage,disable-streaming-fallback,response-mode-badge]
+tests/verify_285_resync_commit.py:55:        "capabilities": {"streaming": False},
+tests/verify_408_model_capabilities.py:7:  H2 실행: streaming=false 모델의 에이전트 채팅 → 정상 응답+trace.responseMode="single".
+tests/verify_408_model_capabilities.py:8:  H3 에이전트 층: 능력 true 모델+modelParams.stream=false → single. 기본(모두 미설정) → 필드 없음.
+tests/verify_408_model_capabilities.py:52:    c = build_chat_openai({**base, "capabilities": {"streaming": False}})
+tests/verify_408_model_capabilities.py:55:    c = build_chat_openai({**base, "capabilities": {"streaming": True}, "params": {"stream": False}})
+tests/verify_408_model_capabilities.py:75:    out = _apply_agent_model_params(mc, {"modelParams": {"enable_thinking": True, "stream": False, "evil": 1}})
+tests/verify_408_model_capabilities.py:78:        "U2a 에이전트 modelParams가 모델 params 위에 덮임",
+tests/verify_408_model_capabilities.py:83:    check(out2 is mc, "U2d modelParams 없으면 원본 그대로(무회귀)")
+tests/verify_408_model_capabilities.py:103:                "capabilities": {"streaming": False, "thinking": False, "vision": False},
+tests/verify_408_model_capabilities.py:110:            mdl.get("capabilities", {}).get("streaming") is False,
+tests/verify_408_model_capabilities.py:116:                  "capabilities": {"streaming": False, "thinking": True, "vision": False}},
+tests/verify_408_model_capabilities.py:145:                out["trace"].get("responseMode") == "single",
+tests/verify_408_model_capabilities.py:146:                f"H2a 능력 false → trace.responseMode=single (got {out['trace'].get('responseMode')})",
+tests/verify_408_model_capabilities.py:154:                    json={"name": f"{tag}-a2", "config": {"model": "mock-llm", "modelParams": {"stream": False}}},
+tests/verify_408_model_capabilities.py:160:                out2["trace"].get("responseMode") == "single",
+tests/verify_408_model_capabilities.py:161:                f"H3a 에이전트 층 stream=false → single (got {out2['trace'].get('responseMode')})",
+tests/verify_408_model_capabilities.py:167:                "responseMode" not in out3["trace"],
+tests/verify_408_model_capabilities.py:168:                f"H3b 기본(스트리밍) → responseMode 무필드(조용) (got {out3['trace'].get('responseMode')})",
+tests/verify_408_model_capabilities.py:175:                    json={"name": f"{tag}-a4", "config": {"model": f"{tag}-single", "modelParams": {"stream": True}}},
+tests/verify_408_model_capabilities.py:181:                out4["trace"].get("responseMode") == "single",
+tests/verify_408_model_capabilities.py:182:                f"H4 능력 false는 에이전트가 못 켬(불가침) (got {out4['trace'].get('responseMode')})",
+tests/verify_082_collapse.py:97:    "capabilities": {"streaming": False, "pushNotifications": False},
+tests/verify_081_live.py:45:    "capabilities": {"streaming": False, "pushNotifications": False},
+tests/verify_071_live.py:48:    "capabilities": {"streaming": False, "pushNotifications": False},
+tests/verify_063_live.py:9:  2. stale 행 주입: source=external, endpoint="127.0.0.1:PORT"(스킴 없음!), card.capabilities.streaming=false.
+tests/verify_063_live.py:105:        "capabilities": {"streaming": False},  # 단건 message/send 경로
+
+exec
+/bin/zsh -lc "nl -ba docs/spec/408-model-capabilities.md | sed -n '1,220p'; nl -ba tests/verify_408_model_capabilities.py | sed -n '1,220p'; rg -n \"nodes_resolved|responseMode|model_cfg\" packages/api/src/api/chat_trace.py packages/api/src/api/chat_turn_runtime.py packages/api/src/api/chat_approval.py tests/verify_408_model_capabilities.py" in /Users/anthony/Repository/github/loveqoo/my-agents
+ succeeded in 0ms:
+     1	# 408 — 모델 능력 관리(capabilities): 스트리밍·thinking·비전
+     2	
+     3	> 상태: **초안(승인 대기)** · 2026-07-19
+     4	> 발단: 구남님 "스트리밍 처리 여부 관리 + 대화 표시" → 논의로 확정한 2층 원칙 —
+     5	> **능력(capability)=모델이 선언하는 사실 / 사용(usage)=능력의 부분집합에서 선택**
+     6	> (A2A 카드·MCP enabled_tools와 같은 집 패턴). 실측 근거: MLX 가이드(스트리밍=능력 있음·클라가
+     7	> 켬 / thinking=모드 보유·기본을 클라가 관리 — 후자는 params.enable_thinking으로 이미 배관됨).
+     8	
+     9	## 설계(2층 + 설정 캐스케이드 — 구남님 확장 승인)
+    10	
+    11	- **능력 층(신설, 오버라이드 불가)**: `ModelConfig.capabilities` JSONB — `{"streaming": true,
+    12	  "thinking": false, "vision": false}` 기본. 서버가 자체적으로 껐다면 관리자가 사실을 기록.
+    13	  에이전트는 능력을 못 바꾼다(없는 능력을 켤 수 없음 — 부분집합 원칙).
+    14	- **설정 층(사용값, 캐스케이드)**: **모델 params(기본) → 에이전트 config.modelParams(부분
+    15	  오버라이드) → 세션 오버라이드(기존)**. 각 층은 바꿀 키만 명시, 미명시=상속.
+    16	  화이트리스트 v1: `temperature` · `enable_thinking` · `stream`(선호 — 능력 true일 때만 유효).
+    17	  현재 temperature는 모델→세션만 있고 **에이전트 층이 공백**, thinking은 모델 층만 — 그 빈 칸을 채움.
+    18	- **스트리밍 유효값** = `capabilities.streaming AND 설정.stream(기본 true)` — 능력 false면 협상
+    19	  불가 단건, true면 층별로 끌 수 있음.
+    20	
+    21	## 구현
+    22	
+    23	- **P1 스키마**: capabilities 컬럼(JSONB, server_default 스트리밍 true) — alembic 1리비전
+    24	  (한 번에 완성·단일 head·중복 0 검증 — 회고 177 규율). 스키마/serializer 노출.
+    25	- **P2 실행 대응**: model_cfg에 capabilities 동봉 → LLM 클라이언트 생성 시
+    26	  `disable_streaming=not streaming능력`(LangChain이 astream을 ainvoke로 접어 완성문 1회 yield —
+    27	  SSE 계약·클라이언트 무변경). pins/버전 경로도 같은 필드 관통.
+    28	- **P3 표시**: trace `responseMode: "streaming"|"single"` + 메시지 메타 **배지 "단건"**(스트리밍은
+    29	  무배지 — 기본이 조용) + 단건 대기 중 빈 말풍선에 "생성 중…(단건 모델 — 완성 후 표시)" 라벨.
+    30	- **P4 admin 폼 2곳**: ①모델 폼 — 능력 체크박스 3종 + 사용 기본(enable_thinking·stream)
+    31	  가시화 ②에이전트 폼 — "모델 설정 오버라이드" 섹션(화이트리스트 키, 모델 기본값을 placeholder로
+    32	  보여주고 비우면 상속 — 상속/오버라이드가 눈에 보이게).
+    33	- **P5 검증**: verify_408 — ①caps.streaming=false → 정상 응답+responseMode=single ②캐스케이드
+    34	  실측(모델 기본→에이전트 오버라이드→세션 오버라이드 3층 우선순위, temperature·enable_thinking
+    35	  각각) ③능력 불가침(에이전트가 stream 켜도 능력 false면 단건) ④마이그레이션 그래프(단일 head·
+    36	  왕복). e2e: 배지·단건 대기 라벨+에이전트 폼 오버라이드 저장/상속 표시+기존 3종 무회귀.
+    37	  make test(배타)+metrics+suite 51/51.
+    38	
+    39	## OUT
+    40	
+    41	- 화이트리스트 밖 키(max_tokens 등 — 컨텍스트 예산 계약과 함께 별도)·키별 검증 고도화.
+    42	- 비전 게이트·이미지 첨부(C안), 능력 자동 탐지(probe).
+    43	- A2A 서빙 카드의 streaming 선언 제어(현행 유지).
+    44	
+    45	## 완료 기준
+    46	
+    47	- [ ] verify_408 virgin 그린 + e2e(단건 배지·대기 라벨) + 기존 e2e 3종 무회귀.
+    48	- [ ] make test SUITE_OK(배타) + metrics-fast + suite 51/51(실모델 — 스트리밍 경로 무회귀).
+    49	- [ ] codex 스팟(능력 관통 누락 경로 — 노드형 노드 모델·버전 pin·eval).
+     1	"""verify_408 — 모델 능력(capabilities)·설정 캐스케이드(스펙 408).
+     2	
+     3	  U1 유효식 단위: build_chat_openai — 능력 false→disable_streaming, 능력 true+사용 끔→disable,
+     4	     기본→스트리밍. enable_thinking 캐스케이드(모델→에이전트 병합→세션 인자).
+     5	  U2 _apply_agent_model_params: 화이트리스트(enable_thinking·stream)만 덮고 그 외 무시·미명시 상속.
+     6	  H1 API 왕복: capabilities 저장/조회/수정(PUT — 참조 중에도 능력 편집 가능해야).
+     7	  H2 실행: streaming=false 모델의 에이전트 채팅 → 정상 응답+trace.responseMode="single".
+     8	  H3 에이전트 층: 능력 true 모델+modelParams.stream=false → single. 기본(모두 미설정) → 필드 없음.
+     9	  H4 능력 불가침: 능력 false + 에이전트 stream=true → 여전히 single.
+    10	
+    11	실행: uv run --project packages/api python tests/_throwaway_server.py tests/verify_408_model_capabilities.py
+    12	"""
+    13	
+    14	import asyncio
+    15	import json
+    16	import os
+    17	import sys
+    18	import uuid
+    19	
+    20	ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    21	sys.path.insert(0, os.path.join(ROOT, "packages", "api", "src"))
+    22	sys.path.insert(0, os.path.join(ROOT, "packages", "agent", "src"))
+    23	
+    24	import httpx  # noqa: E402
+    25	
+    26	BASE = os.environ.get("VERIFY_BASE", "http://127.0.0.1:8000")
+    27	
+    28	_fails: list[str] = []
+    29	passed = 0
+    30	
+    31	
+    32	def check(cond: bool, msg: str) -> None:
+    33	    global passed
+    34	    print(("  ok  " if cond else " FAIL ") + msg)
+    35	    if cond:
+    36	        passed += 1
+    37	    else:
+    38	        _fails.append(msg)
+    39	
+    40	
+    41	def _auth() -> dict:
+    42	    from api.auth import _token
+    43	
+    44	    return {"Authorization": f"Bearer {_token()}"}
+    45	
+    46	
+    47	def unit_checks() -> None:
+    48	    from agent.model import build_chat_openai
+    49	
+    50	    base = {"base_url": "http://x/v1", "api_key": "k", "model_id": "m"}
+    51	    # U1a 능력 false → 단건
+    52	    c = build_chat_openai({**base, "capabilities": {"streaming": False}})
+    53	    check(c.disable_streaming is True, "U1a 능력 false → disable_streaming")
+    54	    # U1b 능력 true + 사용 끔(모델 params) → 단건
+    55	    c = build_chat_openai({**base, "capabilities": {"streaming": True}, "params": {"stream": False}})
+    56	    check(c.disable_streaming is True, "U1b 능력 true+사용 끔 → disable_streaming")
+    57	    # U1c 기본 → 스트리밍
+    58	    c = build_chat_openai(base)
+    59	    check(c.disable_streaming is False, "U1c 기본 → 스트리밍")
+    60	    # U1d thinking 캐스케이드: cfg(모델·에이전트 병합) false ← 세션 인자 true가 최우선
+    61	    c = build_chat_openai({**base, "params": {"enable_thinking": False}}, {"enable_thinking": True})
+    62	    check(
+    63	        c.extra_body["chat_template_kwargs"]["enable_thinking"] is True,
+    64	        "U1d thinking: 세션 인자 > cfg params",
+    65	    )
+    66	    c = build_chat_openai({**base, "params": {"enable_thinking": True}})
+    67	    check(
+    68	        c.extra_body["chat_template_kwargs"]["enable_thinking"] is True,
+    69	        "U1e thinking: cfg params 기본",
+    70	    )
+    71	
+    72	    from api.chat_context_models import _apply_agent_model_params
+    73	
+    74	    mc = {"base_url": "b", "params": {"temperature": 0.3, "enable_thinking": False}}
+    75	    out = _apply_agent_model_params(mc, {"modelParams": {"enable_thinking": True, "stream": False, "evil": 1}})
+    76	    check(
+    77	        out["params"]["enable_thinking"] is True and out["params"]["stream"] is False,
+    78	        "U2a 에이전트 modelParams가 모델 params 위에 덮임",
+    79	    )
+    80	    check("evil" not in out["params"], "U2b 화이트리스트 밖 키 무시")
+    81	    check(out["params"]["temperature"] == 0.3, "U2c 미명시 키 상속(temperature — 기존 축 보존)")
+    82	    out2 = _apply_agent_model_params(mc, {})
+    83	    check(out2 is mc, "U2d modelParams 없으면 원본 그대로(무회귀)")
+    84	
+    85	
+    86	async def main() -> None:
+    87	    unit_checks()
+    88	    tag = f"v408-{uuid.uuid4().hex[:6]}"
+    89	    async with httpx.AsyncClient(base_url=BASE, headers=_auth(), timeout=120) as c:
+    90	        provs = (await c.get("/providers")).json()
+    91	        mock_p = next(p for p in provs if "_remote" in (p.get("base_url") or ""))
+    92	
+    93	        # H1 — capabilities 저장/조회/수정
+    94	        r = await c.post(
+    95	            "/models",
+    96	            json={
+    97	                "name": f"{tag}-single",
+    98	                "provider_id": mock_p["id"],
+    99	                "model_id": "mock-chat",
+   100	                "kind": "chat",
+   101	                "is_default": False,
+   102	                "params": {},
+   103	                "capabilities": {"streaming": False, "thinking": False, "vision": False},
+   104	                "meta": {},
+   105	            },
+   106	        )
+   107	        check(r.status_code == 201, f"H1a 모델 생성(streaming=false) 201 (got {r.status_code})")
+   108	        mdl = r.json()
+   109	        check(
+   110	            mdl.get("capabilities", {}).get("streaming") is False,
+   111	            f"H1b 능력 저장/노출 (got {mdl.get('capabilities')})",
+   112	        )
+   113	        r = await c.put(
+   114	            f"/models/{mdl['id']}",
+   115	            json={**{k: mdl[k] for k in ("name", "provider_id", "model_id", "kind", "is_default", "params", "meta")},
+   116	                  "capabilities": {"streaming": False, "thinking": True, "vision": False}},
+   117	        )
+   118	        check(
+   119	            r.status_code == 200 and r.json()["capabilities"]["thinking"] is True,
+   120	            f"H1c PUT으로 능력 편집(참조 유무 무관 경로) (got {r.status_code})",
+   121	        )
+   122	
+   123	        async def _chat_trace(aid: str) -> dict:
+   124	            sse = ""
+   125	            async with c.stream(
+   126	                "POST", f"/agents/{aid}/chat",
+   127	                json={"messages": [{"role": "user", "content": "안녕"}]},
+   128	            ) as resp:
+   129	                async for line in resp.aiter_lines():
+   130	                    sse += line + "\n"
+   131	            tr = next(
+   132	                (json.loads(ln[6:]) for ln in sse.splitlines()
+   133	                 if ln.startswith("data: ") and '"latencyMs"' in ln),
+   134	                {},
+   135	            )
+   136	            return {"sse": sse, "trace": tr}
+   137	
+   138	        made: list[str] = []
+   139	        try:
+   140	            # H2 — streaming=false 모델 → single + 정상 응답
+   141	            ag = (await c.post("/agents", json={"name": f"{tag}-a1", "config": {"model": f"{tag}-single"}})).json()
+   142	            made.append(ag["id"])
+   143	            out = await _chat_trace(ag["id"])
+   144	            check(
+   145	                out["trace"].get("responseMode") == "single",
+   146	                f"H2a 능력 false → trace.responseMode=single (got {out['trace'].get('responseMode')})",
+   147	            )
+   148	            check("data:" in out["sse"] and '"latencyMs"' in out["sse"], "H2b 단건이어도 정상 완주(SSE 계약 유지)")
+   149	
+   150	            # H3 — 능력 true 모델 + 에이전트 stream=false → single / 기본 → 필드 없음
+   151	            ag2 = (
+   152	                await c.post(
+   153	                    "/agents",
+   154	                    json={"name": f"{tag}-a2", "config": {"model": "mock-llm", "modelParams": {"stream": False}}},
+   155	                )
+   156	            ).json()
+   157	            made.append(ag2["id"])
+   158	            out2 = await _chat_trace(ag2["id"])
+   159	            check(
+   160	                out2["trace"].get("responseMode") == "single",
+   161	                f"H3a 에이전트 층 stream=false → single (got {out2['trace'].get('responseMode')})",
+   162	            )
+   163	            ag3 = (await c.post("/agents", json={"name": f"{tag}-a3", "config": {"model": "mock-llm"}})).json()
+   164	            made.append(ag3["id"])
+   165	            out3 = await _chat_trace(ag3["id"])
+   166	            check(
+   167	                "responseMode" not in out3["trace"],
+   168	                f"H3b 기본(스트리밍) → responseMode 무필드(조용) (got {out3['trace'].get('responseMode')})",
+   169	            )
+   170	
+   171	            # H4 — 능력 불가침: 능력 false 모델 + 에이전트 stream=true → 여전히 single
+   172	            ag4 = (
+   173	                await c.post(
+   174	                    "/agents",
+   175	                    json={"name": f"{tag}-a4", "config": {"model": f"{tag}-single", "modelParams": {"stream": True}}},
+   176	                )
+   177	            ).json()
+   178	            made.append(ag4["id"])
+   179	            out4 = await _chat_trace(ag4["id"])
+   180	            check(
+   181	                out4["trace"].get("responseMode") == "single",
+   182	                f"H4 능력 false는 에이전트가 못 켬(불가침) (got {out4['trace'].get('responseMode')})",
+   183	            )
+   184	        finally:
+   185	            for aid in made:
+   186	                await c.delete(f"/agents/{aid}")
+   187	            await c.delete(f"/models/{mdl['id']}")
+   188	
+   189	    print(f"\n{passed} passed, {len(_fails)} failed")
+   190	    if _fails:
+   191	        sys.exit(1)
+   192	    print("VERIFY408_OK")
+   193	
+   194	
+   195	if __name__ == "__main__":
+   196	    asyncio.run(main())
+tests/verify_408_model_capabilities.py:7:  H2 실행: streaming=false 모델의 에이전트 채팅 → 정상 응답+trace.responseMode="single".
+tests/verify_408_model_capabilities.py:145:                out["trace"].get("responseMode") == "single",
+tests/verify_408_model_capabilities.py:146:                f"H2a 능력 false → trace.responseMode=single (got {out['trace'].get('responseMode')})",
+tests/verify_408_model_capabilities.py:160:                out2["trace"].get("responseMode") == "single",
+tests/verify_408_model_capabilities.py:161:                f"H3a 에이전트 층 stream=false → single (got {out2['trace'].get('responseMode')})",
+tests/verify_408_model_capabilities.py:167:                "responseMode" not in out3["trace"],
+tests/verify_408_model_capabilities.py:168:                f"H3b 기본(스트리밍) → responseMode 무필드(조용) (got {out3['trace'].get('responseMode')})",
+tests/verify_408_model_capabilities.py:181:                out4["trace"].get("responseMode") == "single",
+tests/verify_408_model_capabilities.py:182:                f"H4 능력 false는 에이전트가 못 켬(불가침) (got {out4['trace'].get('responseMode')})",
+packages/api/src/api/chat_approval.py:201:    if impl is None or ctx.model_cfg is None:
+packages/api/src/api/chat_approval.py:258:        if used_memory and ctx.nodes_resolved is None
+packages/api/src/api/chat_approval.py:264:        if (used_memory and ctx.nodes_resolved is not None)
+packages/api/src/api/chat_approval.py:298:    if ctx.nodes_resolved is not None:
+packages/api/src/api/chat_approval.py:334:        model_cfg=ctx.model_cfg,
+packages/api/src/api/chat_approval.py:345:            {"nodes": ctx.nodes_resolved} if ctx.nodes_resolved is not None else ctx.artifact_spec
+packages/api/src/api/chat_turn_runtime.py:93:    pipeline = ctx.nodes_resolved is not None
+packages/api/src/api/chat_turn_runtime.py:156:                model_cfg=build_ctx.model_cfg,
+packages/api/src/api/chat_turn_runtime.py:197:    pipeline = ctx.nodes_resolved is not None
+packages/api/src/api/chat_turn_runtime.py:248:        model_cfg=ctx.model_cfg,
+packages/api/src/api/chat_turn_runtime.py:260:            {"nodes": ctx.nodes_resolved} if ctx.nodes_resolved is not None else ctx.artifact_spec
+packages/api/src/api/chat_trace.py:166:    _mc = ctx.model_cfg or {}
+packages/api/src/api/chat_trace.py:170:        trace["responseMode"] = "single"
+
+codex
+[단계 4 — Execution]
+호출 경로를 닫아 보니 capabilities 자체는 `_chat_model_cfg`·노드 해석·eval helper/judge·A2A 로컬 서빙까지 `llm_cfg_of` 또는 `_load_context`를 통해 관통합니다. 반면 실제 결함 후보는 세 곳으로 좁혀졌습니다: 노드별 모델의 에이전트 설정 미병합, 노드 실제 모델과 root 기반 trace 불일치, capabilities 변경이 그래프 캐시 지문에 반영되지 않는 라이브 편집 stale-cache입니다.
+exec
+/bin/zsh -lc "nl -ba packages/api/src/api/chat_graph_build.py | sed -n '115,150p'; nl -ba packages/api/src/api/chat_context_models.py | sed -n '107,180p'; nl -ba packages/api/src/api/chat_context_loader.py | sed -n '29,40p;115,122p'; nl -ba packages/agent/src/agent/flows/pipeline.py | sed -n '47,56p'; nl -ba packages/api/src/api/chat_trace.py | sed -n '164,172p'; nl -ba packages/api/src/api/block_versions.py | sed -n '47,56p;93,109p'; nl -ba packages/api/src/api/model_registry.py | sed -n '265,286p'; git status --short" in /Users/anthony/Repository/github/loveqoo/my-agents
+ succeeded in 0ms:
+   115	def _graph_fingerprint(ctx: ChatContext) -> str | None:
+   116	    """캐시 적격(단순형 default)이면 빌드 결정 요소의 지문, 아니면 None(새 인스턴스 경로).
+   117	
+   118	    지문 = 모델 정체(연결·model_id·params·temperature) + MCP 도구 집합(이름·**블록 버전**·auth 지문 —
+   119	    369 불변성으로 버전이 콘텐츠를 유일하게 가리킴) + 도구 필터 + 승인 정책 + RAG 배선 + 체크포인터
+   120	    유무. 비밀은 sha256 지문으로만(평문 키 저장 금지). 노드형/조율형/산출물형은 per-turn 재료(브로커·
+   121	    프록시)가 그래프에 얽혀 제외(후속). 캐시 딕셔너리는 chat.py(_GRAPH_CACHE) — 이 함수는 순수."""
+   122	    if ctx.nodes_resolved is not None or ctx.artifact_spec is not None:
+   123	        return None
+   124	    if (ctx.impl or "default") != "default":
+   125	        return None
+   126	    mc = ctx.model_cfg or {}
+   127	    if not mc:
+   128	        return None
+   129	
+   130	    def _fp(text: str) -> str:
+   131	        return hashlib.sha256((text or "").encode()).hexdigest()[:12]
+   132	
+   133	    blob = {
+   134	        "model": [
+   135	            mc.get("base_url"),
+   136	            _fp(mc.get("api_key") or ""),
+   137	            mc.get("model_id"),
+   138	            json.dumps(mc.get("params") or {}, sort_keys=True),
+   139	            ctx.temperature,
+   140	        ],
+   141	        "mcp": sorted(
+   142	            [s["name"], s.get("version") or 0, _fp(s.get("auth_token") or "")]
+   143	            for s in ctx.mcp_servers or []
+   144	        ),
+   145	        "tool_filter": sorted(ctx.tool_names or []),
+   146	        "policy": json.dumps(ctx.tool_policy or {}, sort_keys=True),
+   147	        "rag": _fp(json.dumps(ctx.rag_collections or [], sort_keys=True, default=str)),
+   148	        "rag_min": json.dumps(ctx.rag_min_scores or {}, sort_keys=True),
+   149	        "ckpt": not ctx.ephemeral,
+   150	    }
+   107	async def _resolve_node_models(
+   108	    db: AsyncSession, nodes: list, default_cfg: dict | None, pins: dict | None = None
+   109	) -> list[dict]:
+   110	    """노드형(스펙 259) 노드별 모델을 레지스트리에서 미리 해석해 `model_cfg`를 심는다(085 U2 — impl은
+   111	    DB 미접촉). 에이전트 모델 해석과 **동일 조회**(`ModelConfig.name==name, kind=="chat"`, provider
+   112	    상속) — 드리프트 0. 미지정/미존재 이름은 `default_cfg`(에이전트 기본 chat 모델)로 폴백. 같은 모델
+   113	    이름은 1회만 조회해 재사용(N 노드 M 중복 모델 → distinct 쿼리). 순수 데이터 반환(잡 노드는 통과 —
+   114	    정규화는 impl의 normalize_nodes가)."""
+   115	    resolved: list[dict] = []
+   116	    cache: dict[str, dict | None] = {}
+   117	    for node in nodes:
+   118	        if not isinstance(node, dict):
+   119	            continue
+   120	        name = node.get("model")
+   121	        cfg = None
+   122	        if isinstance(name, str) and name.strip():
+   123	            if name not in cache:
+   124	                cache[name] = await _chat_model_cfg(db, name, pins)
+   125	            cfg = cache[name]
+   126	        # 심은 model_cfg는 해석된 노드 모델(없으면 에이전트 기본으로 폴백 — impl의 _model_from_node).
+   127	        resolved.append({**node, "model_cfg": cfg or default_cfg})
+   128	    return resolved
+   129	
+   130	
+   131	# 에이전트 층 모델 설정 오버라이드 화이트리스트(스펙 408 캐스케이드: 모델 params 기본 →
+   132	# 에이전트 config.modelParams → 세션 오버라이드). 능력(capabilities)은 층에 없다 — 사실은 불가침.
+   133	# temperature는 제외 — 기존 AgentConfig.temperature(스펙 077)가 이미 에이전트 층 정본(이중 거처 금지).
+   134	MODEL_PARAM_OVERRIDE_KEYS = ("enable_thinking", "stream")
+   135	
+   136	
+   137	def _apply_agent_model_params(model_cfg: dict, cfg: dict) -> dict:
+   138	    """모델 params 위에 에이전트 modelParams(화이트리스트만)를 덮는다 — 미명시 키는 상속."""
+   139	    agent_mp = cfg.get("modelParams") or {}
+   140	    if not isinstance(agent_mp, dict) or not agent_mp:
+   141	        return model_cfg
+   142	    merged = dict(model_cfg.get("params") or {})
+   143	    for key in MODEL_PARAM_OVERRIDE_KEYS:
+   144	        if key in agent_mp and agent_mp[key] is not None:
+   145	            merged[key] = agent_mp[key]
+   146	    return {**model_cfg, "params": merged}
+   147	
+   148	
+   149	async def _resolve_model(
+   150	    db: AsyncSession, cfg: dict, overrides: dict | None, pins: dict | None = None
+   151	) -> dict:
+   152	    """chat 모델을 레지스트리에서만 해석(env 안 봄) — 반환 model_cfg dict(연결처는 provider 상속, 스펙 035).
+   153	
+   154	    에이전트가 고른 이름 → 없으면 기본(is_default) chat 모델 → 그것도 없으면 명확히 400.
+   155	    명시 오버라이드 모델이 미등록이면 **시끄럽게 거절**(스펙 290 — learning 092: 조용한 폴백은
+   156	    호출자가 다른 모델로 실행된 걸 모른 채 지나간다). 저장 설정의 미지정·미등록은 기존 기본 폴백
+   157	    유지(graceful — 범위 밖, 백로그)."""
+   158	    model_name = cfg.get("model")
+   159	    if model_name:
+   160	        pinned = await _pinned_model_cfg(db, pins, model_name)  # pin 우선(스펙 370)
+   161	        if pinned is not None:
+   162	            return _apply_agent_model_params(pinned, cfg)
+   163	    m = await _registry_chat_model(db, model_name) if model_name else None
+   164	    if m is None:
+   165	        # 거절은 **실명을 댄** 오버라이드에만(스펙 401) — 모델 미지정 에이전트(model_name=None)에
+   166	        # model 키 없는(또는 null) 오버라이드가 오면 None==None으로 오폭하던 것을 실명 요구로 봉합.
+   167	        # 미선언은 기본 폴백(learning 092: 선언-but-broken만 거절).
+   168	        if overrides and overrides.get("model") and overrides.get("model") == model_name:
+   169	            raise HTTPException(
+   170	                status_code=400,
+   171	                detail=f"오버라이드 모델 '{model_name}'이(가) 등록돼 있지 않습니다 — 모델 이름을 확인하세요.",
+   172	            )
+   173	        m = await _default_chat_registry(db)
+   174	    if m is None:
+   175	        raise HTTPException(
+   176	            status_code=400,
+   177	            detail="등록된 채팅 모델이 없습니다 — 모델을 먼저 등록하세요.",
+   178	        )
+   179	    return _apply_agent_model_params(_model_cfg_from_row(m), cfg)
+   180	
+    29	# 세션 오버라이드 화이트리스트(스펙 025/122/276/287 — 각 키 근거는 _apply_overrides docstring).
+    30	_OVERRIDE_ALLOWED = {
+    31	    "model",
+    32	    "temperature",
+    33	    "historyDepth",
+    34	    "mcps",
+    35	    "memories",
+    36	    "capabilities",
+    37	    "tools",
+    38	    "vectorTables",
+    39	}
+    40	
+   115	        pins = await _resolve_exec_pins(db, agent.id, exec_version, remote)
+   116	        # 코드·외부 에이전트는 비로컬(원격/A2A) 실행이라 로컬 모델이 필요 없다(건너뜀 = None).
+   117	        nodes = cfg.get("nodes")  # 노드형 파이프라인 노드 명세(스펙 259) — 아래서 노드별 모델 해석
+   118	        model_cfg = await _resolve_model(db, cfg, overrides, pins) if not remote else None
+   119	        nodes_resolved = await _resolve_nodes_for_ctx(db, nodes, model_cfg, remote, pins)
+   120	        mem_cfg = await _resolve_mem_cfg(db, model_cfg)
+   121	        mcp_servers, tool_names = await _resolve_mcp_servers(db, cfg, pins)
+   122	        rag_collections, rag_unresolved = await _resolve_rag(db, cfg, remote)
+    47	def _model_from_node(node: dict, ctx: AgentBuildContext) -> ChatOpenAI:
+    48	    """노드별 모델 어댑터(스펙 295) — pipeline은 노드 `model_cfg` 우선·기본 폴백만 정하고, 실제
+    49	    ChatOpenAI 구성은 정본 `build_chat_openai`에 위임(중복 제거). 노드별 가짜 모델을 꽂는 테스트가
+    50	    이 지점을 몽키패치하므로 얇은 어댑터로 시임을 보존한다(verify_260/261/268/270)."""
+    51	    return build_chat_openai(
+    52	        node.get("model_cfg") or ctx.model_cfg,
+    53	        ctx.params,
+    54	        error_label="노드 모델 설정이 필요합니다 (base_url/model_id) — 모델을 등록하세요.",
+    55	    )
+    56	
+   164	    # 응답 방식(스펙 408) — 단건(비스트리밍)일 때만 표기(스트리밍 기본은 무배지). 유효식은
+   165	    # 실행부(model.py)와 동일: 능력 AND 사용값.
+   166	    _mc = ctx.model_cfg or {}
+   167	    _caps = _mc.get("capabilities") or {}
+   168	    _mp = _mc.get("params") or {}
+   169	    if not (_caps.get("streaming", True) and _mp.get("stream", True)):
+   170	        trace["responseMode"] = "single"
+   171	    if turn.broker.invocations:
+   172	        # 브로커 호출 상세(스펙 130) — 조율형의 RAG 검색이 인스펙터에 "N건·최고 유사도"로 보이게.
+    47	def _model_payload(o: ModelConfig) -> dict:
+    48	    # is_default(포인터)·meta(카탈로그 캐시)는 제외.
+    49	    return {
+    50	        "name": o.name,
+    51	        "provider_id": str(o.provider_id),
+    52	        "model_id": o.model_id,
+    53	        "kind": o.kind,
+    54	        "params": o.params,
+    55	    }
+    56	
+    93	async def record_block_version(session: AsyncSession, kind: str, row: Any) -> bool:
+    94	    """콘텐츠 변경 후·commit 전에 호출 — payload가 직전 버전과 다르면 head.version+1 + 이력 append.
+    95	
+    96	    동일 payload(운영-only 변경·무변경 저장)는 no-op(버전 무증가). 이력이 아예 없으면 v1 기록
+    97	    (신규 생성·백필). 동시 편집은 UNIQUE(kind,block_pk,version)가 commit에서 막는다 → 409는
+    98	    호출부의 commit_or_409 몫. 반환: 버전이 올랐는가."""
+    99	    payload = payload_for(kind, row)
+   100	    last = await _latest(session, kind, row.id)
+   101	    if last is None:
+   102	        row.version = row.version or 1
+   103	        session.add(BlockVersion(kind=kind, block_pk=row.id, version=row.version, payload=payload))
+   104	        return True
+   105	    if last.payload == payload:
+   106	        return False  # 저작 내용 동일 — 운영 변경/무변경 저장은 버전 무증가(스펙 369 C4)
+   107	    row.version = last.version + 1
+   108	    session.add(BlockVersion(kind=kind, block_pk=row.id, version=row.version, payload=payload))
+   109	    return True
+   265	@router.put("/{model_id}", response_model=ModelOut, dependencies=[_manage])
+   266	async def update_model(
+   267	    model_id: uuid.UUID, body: ModelIn, session: AsyncSession = Depends(get_session)
+   268	) -> ModelOut:
+   269	    m = await get_or_404(session, ModelConfig, model_id)
+   270	    await _require_provider(session, body.provider_id)
+   271	    m.name = body.name
+   272	    m.provider_id = body.provider_id
+   273	    m.model_id = body.model_id
+   274	    m.kind = body.kind
+   275	    if body.is_default:
+   276	        await _clear_other_defaults(session, body.kind, exclude_id=m.id)
+   277	    m.is_default = body.is_default
+   278	    m.params = body.params
+   279	    m.capabilities = body.capabilities  # 능력 선언(스펙 408)
+   280	    m.meta = body.meta
+   281	    # is_default·meta는 payload 제외(스펙 369 §2) — 운영-only 변경은 버전 무증가.
+   282	    await record_block_version(session, "model", m)
+   283	    await _commit_or_409(session, "동시 변경 충돌 또는 중복 — 다시 시도하세요.")
+   284	    reloaded = await _get_with_provider(session, m.id)
+   285	    assert reloaded is not None  # 방금 커밋한 행의 재로드 — 동시 삭제 레이스 외엔 불가
+   286	    return model_to_out(reloaded)
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-87RlKejc' (errno=Operation not permitted)
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-5mLcTcEN' (errno=Operation not permitted)
+ M admin/src/admin/mockData.ts
+ M admin/src/admin/views/AgentsView.tsx
+ M admin/src/admin/views/ProviderModelView.tsx
+ M admin/src/admin/views/agents/AgentForm.tsx
+ M admin/src/admin/views/agents/types.ts
+ M admin/src/api.ts
+ M admin/src/playground/DebugChat.tsx
+ M admin/src/playground/agentData.ts
+ M docs/spec/INDEX.md
+ M packages/agent/src/agent/model.py
+ M packages/api/src/api/chat_context_models.py
+ M packages/api/src/api/chat_trace.py
+ M packages/api/src/api/mem_config.py
+ M packages/api/src/api/model_registry.py
+ M packages/api/src/api/models/registry.py
+ M packages/api/src/api/schemas/agents.py
+ M packages/api/src/api/schemas/registry.py
+ M packages/api/src/api/serializers.py
+?? .dev/reviews/408-capabilities/
+?? docs/spec/408-model-capabilities.md
+?? packages/api/alembic/versions/9c13f807b6c2_model_capabilities_spec_408.py
+?? tests/browser/verify-408-single-badge.mjs
+?? tests/verify_408_model_capabilities.py
+
+codex
+[단계 5 — Verification]
+정적 대조 결과, 기본/일반 경로만 보는 `verify_408`은 모두 놓치는 여집합입니다: 캐시 적중 후 능력 변경, 명시 모델을 가진 pipeline 노드, root와 node의 응답 모드가 다른 턴, 세션의 thinking/stream 오버라이드. 실행 테스트는 기존 서버를 임의 기동하지 않았고 현재 파일시스템이 읽기 전용이라 수행하지 않았습니다. 작업 트리는 이미 스펙 408 변경으로 dirty이며 저는 수정하지 않았습니다.
+codex
+[단계 6 — Compounding]
+
+## P1
+
+- **capabilities 변경 후 기본 에이전트가 기존 그래프 캐시를 계속 사용합니다.** 모델 능력은 라이브 사실이라 버전을 올리지 않지만, 그래프 지문에는 `capabilities`가 없습니다. 따라서 `streaming: true → false` PUT 뒤에도 이미 캐시된 `ChatOpenAI(disable_streaming=False)`가 재사용될 수 있습니다. 참조 중 편집은 현재 안전하지 않습니다. [`chat_graph_build.py:115`](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat_graph_build.py:115), [`model_registry.py:265`](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/model_registry.py:265), [`block_versions.py:47`](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/block_versions.py:47)
+
+- **명시 모델을 쓰는 pipeline 노드에는 에이전트 `modelParams`가 적용되지 않습니다.** `_resolve_model()`만 병합하고 `_chat_model_cfg()` 결과는 그대로 노드에 주입합니다. 실행 시 `ctx.params`에는 temperature만 있으므로 노드의 `stream`·`enable_thinking`은 모델 기본값으로 돌아갑니다. `modelParams`가 에이전트 층이라는 스펙 계약상 정직한 경계가 아니라 관통 누락입니다. [`chat_context_models.py:107`](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat_context_models.py:107), [`chat_context_models.py:149`](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat_context_models.py:149), [`pipeline.py:47`](/Users/anthony/Repository/github/loveqoo/my-agents/packages/agent/src/agent/flows/pipeline.py:47)
+
+- **명시된 3층 캐스케이드의 세션 층이 구현되지 않았습니다.** 세션 허용목록에는 `stream`, `enable_thinking`, `modelParams`가 없습니다. 따라서 `build_chat_openai()`가 지원하는 “호출자 params 우선” 경로에 세션 값이 도달할 방법이 없습니다. 스펙과 `verify_408` 설명의 3층 검증도 실제 테스트에는 없습니다. [`chat_context_loader.py:29`](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat_context_loader.py:29), [`model.py:60`](/Users/anthony/Repository/github/loveqoo/my-agents/packages/agent/src/agent/model.py:60), [`verify_408_model_capabilities.py:47`](/Users/anthony/Repository/github/loveqoo/my-agents/tests/verify_408_model_capabilities.py:47)
+
+## P2
+
+- **pipeline trace가 실제 응답 모드를 거짓 표시할 수 있습니다.** 실행은 `node.model_cfg`를 우선하지만 trace는 항상 `ctx.model_cfg`만 계산합니다. root=streaming/node=single이면 단건 배지가 누락되고, 반대면 실제 스트리밍인데 단건 배지가 붙습니다. 여러 노드가 서로 다른 모드인 경우 턴 단위 단일 `responseMode` 자체도 정의가 필요합니다. [`pipeline.py:47`](/Users/anthony/Repository/github/loveqoo/my-agents/packages/agent/src/agent/flows/pipeline.py:47), [`chat_trace.py:164`](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat_trace.py:164)
+
+## 확인함
+
+- `_chat_model_cfg`, `_resolve_node_models`, eval judge/helper는 `llm_cfg_of()`를 거쳐 capabilities가 포함됩니다.
+- mem0는 해당 cfg로 스트리밍하지 않으므로 capabilities를 소비하지 않는 것이 문제는 아닙니다.
+- 로컬 A2A 서빙과 커스텀 impl은 `_load_context()`의 `ctx.model_cfg`를 공유합니다. 커스텀 impl이 정본 `build_chat_openai()`를 사용한다는 계약 아래 관통됩니다.
+- capabilities를 블록 버전 payload에서 제외한 것은 “라이브 사실, pin 비대상” 원칙과 정합합니다. 문제는 버전 무증가 자체가 아니라 캐시 무효화 축도 함께 마련하지 않은 점입니다.
+- 마이그레이션의 기존 행 `streaming=true` 백필과 pin에서 라이브 capabilities 재주입은 의도와 일치합니다.
+
+권장 추가 검증은 `능력 PUT 후 동일 에이전트 재호출`, `pipeline root/node 모드 교차 2종`, `노드 명시 모델 + agent modelParams`, `세션 stream/thinking 우선순위` 네 가지입니다. 읽기 전용 리뷰라 회고·코드·커밋은 만들지 않았습니다.
+hook: Stop
+hook: Stop Completed
+tokens used
+82,771
+[단계 6 — Compounding]
+
+## P1
+
+- **capabilities 변경 후 기본 에이전트가 기존 그래프 캐시를 계속 사용합니다.** 모델 능력은 라이브 사실이라 버전을 올리지 않지만, 그래프 지문에는 `capabilities`가 없습니다. 따라서 `streaming: true → false` PUT 뒤에도 이미 캐시된 `ChatOpenAI(disable_streaming=False)`가 재사용될 수 있습니다. 참조 중 편집은 현재 안전하지 않습니다. [`chat_graph_build.py:115`](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat_graph_build.py:115), [`model_registry.py:265`](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/model_registry.py:265), [`block_versions.py:47`](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/block_versions.py:47)
+
+- **명시 모델을 쓰는 pipeline 노드에는 에이전트 `modelParams`가 적용되지 않습니다.** `_resolve_model()`만 병합하고 `_chat_model_cfg()` 결과는 그대로 노드에 주입합니다. 실행 시 `ctx.params`에는 temperature만 있으므로 노드의 `stream`·`enable_thinking`은 모델 기본값으로 돌아갑니다. `modelParams`가 에이전트 층이라는 스펙 계약상 정직한 경계가 아니라 관통 누락입니다. [`chat_context_models.py:107`](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat_context_models.py:107), [`chat_context_models.py:149`](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat_context_models.py:149), [`pipeline.py:47`](/Users/anthony/Repository/github/loveqoo/my-agents/packages/agent/src/agent/flows/pipeline.py:47)
+
+- **명시된 3층 캐스케이드의 세션 층이 구현되지 않았습니다.** 세션 허용목록에는 `stream`, `enable_thinking`, `modelParams`가 없습니다. 따라서 `build_chat_openai()`가 지원하는 “호출자 params 우선” 경로에 세션 값이 도달할 방법이 없습니다. 스펙과 `verify_408` 설명의 3층 검증도 실제 테스트에는 없습니다. [`chat_context_loader.py:29`](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat_context_loader.py:29), [`model.py:60`](/Users/anthony/Repository/github/loveqoo/my-agents/packages/agent/src/agent/model.py:60), [`verify_408_model_capabilities.py:47`](/Users/anthony/Repository/github/loveqoo/my-agents/tests/verify_408_model_capabilities.py:47)
+
+## P2
+
+- **pipeline trace가 실제 응답 모드를 거짓 표시할 수 있습니다.** 실행은 `node.model_cfg`를 우선하지만 trace는 항상 `ctx.model_cfg`만 계산합니다. root=streaming/node=single이면 단건 배지가 누락되고, 반대면 실제 스트리밍인데 단건 배지가 붙습니다. 여러 노드가 서로 다른 모드인 경우 턴 단위 단일 `responseMode` 자체도 정의가 필요합니다. [`pipeline.py:47`](/Users/anthony/Repository/github/loveqoo/my-agents/packages/agent/src/agent/flows/pipeline.py:47), [`chat_trace.py:164`](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat_trace.py:164)
+
+## 확인함
+
+- `_chat_model_cfg`, `_resolve_node_models`, eval judge/helper는 `llm_cfg_of()`를 거쳐 capabilities가 포함됩니다.
+- mem0는 해당 cfg로 스트리밍하지 않으므로 capabilities를 소비하지 않는 것이 문제는 아닙니다.
+- 로컬 A2A 서빙과 커스텀 impl은 `_load_context()`의 `ctx.model_cfg`를 공유합니다. 커스텀 impl이 정본 `build_chat_openai()`를 사용한다는 계약 아래 관통됩니다.
+- capabilities를 블록 버전 payload에서 제외한 것은 “라이브 사실, pin 비대상” 원칙과 정합합니다. 문제는 버전 무증가 자체가 아니라 캐시 무효화 축도 함께 마련하지 않은 점입니다.
+- 마이그레이션의 기존 행 `streaming=true` 백필과 pin에서 라이브 capabilities 재주입은 의도와 일치합니다.
+
+권장 추가 검증은 `능력 PUT 후 동일 에이전트 재호출`, `pipeline root/node 모드 교차 2종`, `노드 명시 모델 + agent modelParams`, `세션 stream/thinking 우선순위` 네 가지입니다. 읽기 전용 리뷰라 회고·코드·커밋은 만들지 않았습니다.

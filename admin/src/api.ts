@@ -644,11 +644,13 @@ export interface Model extends Audit {
   kind: 'chat' | 'embedding'
   is_default: boolean
   params: Record<string, unknown>
+  capabilities?: Record<string, boolean> // 능력 선언(스펙 408) — streaming·thinking·vision
   meta: Record<string, unknown> // models.dev 카탈로그 파생(context·modalities·cost·caps) — 스펙 047 #7
 }
 export const listModels = (kind?: 'chat' | 'embedding') =>
   j<Model[]>(`/models${kind ? `?kind=${kind}` : ''}`)
 export const createModel = (body: unknown) => post('/models', body) as Promise<Model>
+export const updateModel = (id: string, body: unknown) => put(`/models/${id}`, body) as Promise<Model> // 능력·설정 편집(스펙 408)
 /** 기본 모델 지정(스펙 150) — 같은 kind의 기존 기본은 서버가 자동 해제. */
 export const setDefaultModel = (id: string) => put(`/models/${id}/default`, {}) as Promise<Model>
 export const deleteModel = (id: string) => del(`/models/${id}`)

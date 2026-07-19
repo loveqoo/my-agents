@@ -18,6 +18,7 @@ export interface AgentConfig {
   model?: string
   prompt?: string
   temperature?: number | null // 에이전트 영속 온도(스펙 077). null=자동(모델 등록값)
+  modelParams?: Record<string, boolean> // 모델 설정 오버라이드(스펙 408) — enable_thinking·stream
   memories?: string[]
   historyDepth?: number
   persistHistory?: boolean
@@ -162,6 +163,7 @@ export interface Agent extends Audit {
   status: 'online' | 'idle' | 'offline'
   prompt: string
   temperature?: number | null // 에이전트 영속 온도(스펙 077). null/미지정=자동(모델 등록값)
+  modelParams?: Record<string, boolean> // 모델 설정 오버라이드(스펙 408) — enable_thinking·stream
   memories: string[]
   historyDepth: number
   persistHistory?: boolean

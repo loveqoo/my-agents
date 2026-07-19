@@ -22,6 +22,7 @@ export function blankForm(blocks: Record<string, BlockCategory>, models: Model[]
     model: models.find((m) => m.kind === 'chat')?.name ?? '',
     prompt: blocks.prompt?.items?.[0]?.name ?? '',
     temperature: null,
+    modelParams: {},
     memories: [],
     historyDepth: 20,
     persistHistory: true,
@@ -904,6 +905,50 @@ export function AgentForm({
                       {form.temperature == null ? '자동 — 모델 등록 기본값을 사용합니다.' : '에이전트에 저장됩니다(세션마다 동일).'}
                       {/* 노드형도 소비(pipeline.py:79 — ctx.params가 노드 모델 params보다 우선). 적용 범위 명시. */}
                       {isPipeline ? ' 모든 노드의 모델에 적용됩니다.' : ''}
+                    </span>
+                  </Field>
+                  {/* 모델 설정 오버라이드(스펙 408 캐스케이드) — 상속(키 없음)/켬/끔 3상. 능력이 아니라
+                      사용값: 모델이 못 하는 걸 켤 수는 없다(스트리밍은 능력 AND 사용으로 실행부가 판정). */}
+                  <Field label="Thinking 모드">
+                    <Select
+                      size="small"
+                      style={{ width: 200 }}
+                      value={form.modelParams.enable_thinking === undefined ? 'inherit' : form.modelParams.enable_thinking ? 'on' : 'off'}
+                      onChange={(v) => {
+                        const mp = { ...form.modelParams }
+                        if (v === 'inherit') delete mp.enable_thinking
+                        else mp.enable_thinking = v === 'on'
+                        set('modelParams', mp)
+                      }}
+                      options={[
+                        { value: 'inherit', label: '모델 기본(상속)' },
+                        { value: 'on', label: '켬 — 깊은 추론' },
+                        { value: 'off', label: '끔 — 일반 응답' },
+                      ]}
+                    />
+                    <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+                      thinking 모드가 있는 모델에서만 의미가 있습니다(예: Qwen 계열).
+                    </span>
+                  </Field>
+                  <Field label="스트리밍">
+                    <Select
+                      size="small"
+                      style={{ width: 200 }}
+                      value={form.modelParams.stream === undefined ? 'inherit' : form.modelParams.stream ? 'on' : 'off'}
+                      onChange={(v) => {
+                        const mp = { ...form.modelParams }
+                        if (v === 'inherit') delete mp.stream
+                        else mp.stream = v === 'on'
+                        set('modelParams', mp)
+                      }}
+                      options={[
+                        { value: 'inherit', label: '모델 기본(상속)' },
+                        { value: 'on', label: '켬' },
+                        { value: 'off', label: '끔 — 단건 응답' },
+                      ]}
+                    />
+                    <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+                      모델이 스트리밍을 지원하지 않으면 항상 단건으로 실행됩니다(능력 우선).
                     </span>
                   </Field>
                   {/* 단기 기억(스펙 271 공용 컨트롤) — 직접형은 스텝 ②의 "기억" 구획이 소유하므로 여기선

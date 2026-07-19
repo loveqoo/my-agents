@@ -60,7 +60,15 @@ def build_chat_openai(
     cfg_params = cfg.get("params") or {}
     params = params or {}
     temperature = params.get("temperature", cfg_params.get("temperature", default_temperature))
-    enable_thinking = cfg_params.get("enable_thinking", False)
+    # thinking 사용값 캐스케이드(스펙 408): 호출자 params(세션) > cfg params(모델·에이전트 병합).
+    enable_thinking = params.get("enable_thinking", cfg_params.get("enable_thinking", False))
+    # 스트리밍 유효식(스펙 408, 2층): 능력(capabilities.streaming — 사실, 협상 불가) AND
+    # 사용값(stream, 기본 켬 — 층별로 끌 수 있음). 능력 없으면 비스트리밍 안전 실행:
+    # LangChain이 astream을 ainvoke로 접어 완성문을 1회 yield(SSE 계약·호출부 무변경).
+    caps = cfg.get("capabilities") or {}
+    stream_effective = bool(caps.get("streaming", True)) and bool(
+        params.get("stream", cfg_params.get("stream", True))
+    )
     api_key = cfg.get("api_key") or "sk-noauth"
     # 클라이언트 풀(스펙 371 D2) — 같은 연결·모델·파라미터면 인스턴스 재사용(ChatOpenAI는 호출간
     # 무상태·async-safe). 목적은 생성 비용(~0.1ms)이 아니라 **커넥션 재사용**(실 프로바이더 TLS
@@ -79,6 +87,7 @@ def build_chat_openai(
         model_id,
         temperature,
         enable_thinking,
+        stream_effective,  # 스트리밍 모드가 다르면 다른 클라이언트(풀 키 분리 — 스펙 408)
     )
     pooled = _CLIENT_POOL.get(key) if loop_id is not None else None
     if pooled is not None:
@@ -88,6 +97,8 @@ def build_chat_openai(
         api_key=api_key,
         model=model_id,
         temperature=temperature,
+        # 능력 없음/사용 끔 → astream이 ainvoke로 접혀 완성문 1회 yield(비스트리밍 안전 실행).
+        disable_streaming=not stream_effective,
         extra_body={"chat_template_kwargs": {"enable_thinking": enable_thinking}},
     )
     if loop_id is not None:

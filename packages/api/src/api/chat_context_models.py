@@ -42,11 +42,16 @@ async def _pinned_model_cfg(db: AsyncSession, pins: dict | None, name: str) -> d
             prov = None
     if prov is None or not prov.base_url or not payload.get("model_id"):
         return None  # 불완전 pin — head 폴백(정직 degrade)
+    # 능력은 스냅샷하지 않는다(스펙 408) — 서버 능력은 **라이브 사실**이라 pin과 무관하게 현재
+    # 등록 행에서 읽는다(구버전 pin이라도 지금 서버가 스트리밍을 껐으면 지금 사실을 따라야 함).
+    live = await _registry_chat_model(db, name)
+    caps = dict(live.capabilities or {}) if live is not None else {}
     return {
         "base_url": prov.base_url,
         "api_key": crypto.decrypt(prov.api_key),
         "model_id": payload["model_id"],
         "params": dict(payload.get("params") or {}),
+        "capabilities": caps,
     }
 
 
@@ -100,7 +105,11 @@ async def _chat_model_cfg(db: AsyncSession, name: str, pins: dict | None = None)
 
 
 async def _resolve_node_models(
-    db: AsyncSession, nodes: list, default_cfg: dict | None, pins: dict | None = None
+    db: AsyncSession,
+    nodes: list,
+    default_cfg: dict | None,
+    pins: dict | None = None,
+    agent_cfg: dict | None = None,
 ) -> list[dict]:
     """노드형(스펙 259) 노드별 모델을 레지스트리에서 미리 해석해 `model_cfg`를 심는다(085 U2 — impl은
     DB 미접촉). 에이전트 모델 해석과 **동일 조회**(`ModelConfig.name==name, kind=="chat"`, provider
@@ -119,8 +128,31 @@ async def _resolve_node_models(
                 cache[name] = await _chat_model_cfg(db, name, pins)
             cfg = cache[name]
         # 심은 model_cfg는 해석된 노드 모델(없으면 에이전트 기본으로 폴백 — impl의 _model_from_node).
-        resolved.append({**node, "model_cfg": cfg or default_cfg})
+        # 에이전트 층 modelParams는 노드 명시 모델에도 관통(스펙 408, codex P1② — temperature가
+        # ctx.params로 전 노드 적용되는 선례와 같은 계약. default_cfg는 _resolve_model서 기병합).
+        node_cfg = cfg or default_cfg
+        if cfg is not None and agent_cfg:
+            node_cfg = _apply_agent_model_params(cfg, agent_cfg)
+        resolved.append({**node, "model_cfg": node_cfg})
     return resolved
+
+
+# 에이전트 층 모델 설정 오버라이드 화이트리스트(스펙 408 캐스케이드: 모델 params 기본 →
+# 에이전트 config.modelParams → 세션 오버라이드). 능력(capabilities)은 층에 없다 — 사실은 불가침.
+# temperature는 제외 — 기존 AgentConfig.temperature(스펙 077)가 이미 에이전트 층 정본(이중 거처 금지).
+MODEL_PARAM_OVERRIDE_KEYS = ("enable_thinking", "stream")
+
+
+def _apply_agent_model_params(model_cfg: dict, cfg: dict) -> dict:
+    """모델 params 위에 에이전트 modelParams(화이트리스트만)를 덮는다 — 미명시 키는 상속."""
+    agent_mp = cfg.get("modelParams") or {}
+    if not isinstance(agent_mp, dict) or not agent_mp:
+        return model_cfg
+    merged = dict(model_cfg.get("params") or {})
+    for key in MODEL_PARAM_OVERRIDE_KEYS:
+        if key in agent_mp and agent_mp[key] is not None:
+            merged[key] = agent_mp[key]
+    return {**model_cfg, "params": merged}
 
 
 async def _resolve_model(
@@ -136,7 +168,7 @@ async def _resolve_model(
     if model_name:
         pinned = await _pinned_model_cfg(db, pins, model_name)  # pin 우선(스펙 370)
         if pinned is not None:
-            return pinned
+            return _apply_agent_model_params(pinned, cfg)
     m = await _registry_chat_model(db, model_name) if model_name else None
     if m is None:
         # 거절은 **실명을 댄** 오버라이드에만(스펙 401) — 모델 미지정 에이전트(model_name=None)에
@@ -153,7 +185,7 @@ async def _resolve_model(
             status_code=400,
             detail="등록된 채팅 모델이 없습니다 — 모델을 먼저 등록하세요.",
         )
-    return _model_cfg_from_row(m)
+    return _apply_agent_model_params(_model_cfg_from_row(m), cfg)
 
 
 async def _resolve_mem_cfg(db: AsyncSession, model_cfg: dict | None) -> dict | None:

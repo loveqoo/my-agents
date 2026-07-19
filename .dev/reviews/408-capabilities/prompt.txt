@@ -1,0 +1,12 @@
+스팟 적대 리뷰(스펙 408): 모델 능력(capabilities)·설정 캐스케이드를 검토해달라.
+
+구현: ①ModelConfig.capabilities JSONB(streaming/thinking/vision, 마이그레이션 9c13f807b6c2) ②llm_cfg_of가 capabilities 동봉, _pinned_model_cfg는 라이브 행에서 능력 주입(능력=라이브 사실, pin 스냅샷 비대상) ③_apply_agent_model_params — 에이전트 config.modelParams 화이트리스트(enable_thinking·stream)만 모델 params 위에 병합(temperature는 기존 AgentConfig.temperature가 정본이라 제외) ④build_chat_openai — stream_effective=능력 AND 사용값 → disable_streaming, 풀 키에 포함; enable_thinking 캐스케이드(세션 인자>병합 params) ⑤trace.responseMode="single"(단건일 때만) ⑥admin: 모델 행 능력 popover(PUT)·에이전트 폼 tri-state.
+
+적대 질문:
+1. 관통 누락 — model_cfg가 만들어지는 다른 경로에서 capabilities가 빠져 유효식이 기본(streaming)으로 오판되는 곳: _chat_model_cfg(노드 모델 해석 — 88/98행 부근 llm_cfg_of 경유라 포함?), _resolve_node_models, eval(eval_env/_execute 경로의 모델 해석), mem0 llm(_resolve_mem_cfg — 스트리밍 무관?), A2A 서빙, 커스텀 impl(085)이 model_cfg 직접 소비.
+2. 캐스케이드 정합 — 노드형: 노드별 모델에 에이전트 modelParams가 적용되나(의도: 적용돼야 하나? 노드 모델은 별도 축 — 현 구현은 _resolve_model만 병합, _chat_model_cfg는 미병합 → 노드 모델엔 에이전트 thinking/stream이 안 먹음. 이게 구멍인가 정직한 경계인가 판정). 세션 오버라이드에 stream/enable_thinking 키가 없는 것(화이트리스트 밖)의 일관성.
+3. trace 정합 — responseMode 유효식이 실행부(model.py)와 어긋날 수 있는 경로(예: 노드형은 노드 모델로 실행되는데 trace는 ctx.model_cfg 기준 — 거짓 배지?).
+4. PUT 능력 편집 — record_block_version과 능력 변경의 상호작용(능력이 payload에 들어가 버전 증가? 능력=라이브 사실이면 버전 무증가가 맞는지), 참조 중 편집의 안전성.
+
+파일: packages/api/src/api/chat_context_models.py, mem_config.py, models/registry.py, model_registry.py, chat_trace.py, packages/agent/src/agent/model.py, alembic/versions/9c13f807b6c2*.py
+결론: P1/P2/확인함.

@@ -7,6 +7,7 @@ export interface AgentFormData {
   model: string
   prompt: string
   temperature: number | null // null=자동(모델 등록값), 수동이면 0–2(스펙 077)
+  modelParams: Record<string, boolean> // 모델 설정 오버라이드(스펙 408) — 키 부재=상속
   memories: string[]
   historyDepth: number
   persistHistory: boolean

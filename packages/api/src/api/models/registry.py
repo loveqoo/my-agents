@@ -64,6 +64,13 @@ class ModelConfig(AuditMixin, Base):
         ),
     )
     params: Mapped[dict] = mapped_column(JSONB, default=dict)  # temperature 등(런타임 파라미터)
+    # 능력 선언(스펙 408, 2층 원칙의 능력 층 — 오버라이드 불가): 서빙 서버가 할 수 있는 것의 사실
+    # 기록. streaming=false면 비스트리밍 안전 실행, vision은 C안 게이트 선반영, thinking=모드 보유.
+    capabilities: Mapped[dict] = mapped_column(
+        JSONB,
+        default=lambda: {"streaming": True, "thinking": False, "vision": False},
+        server_default='{"streaming": true, "thinking": false, "vision": false}',
+    )
     # models.dev 카탈로그 파생 메타(스펙 047 #7) — context·modalities·cost·capabilities. params와 분리.
     meta: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
     version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")  # 스펙 369

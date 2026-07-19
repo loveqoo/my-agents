@@ -64,6 +64,10 @@ class ModelIn(BaseModel):
     kind: Literal["chat", "embedding"] = "chat"
     is_default: bool = False
     params: dict[str, Any] = Field(default_factory=dict)
+    # 능력 선언(스펙 408) — 2층 원칙 능력 층(오버라이드 불가 사실).
+    capabilities: dict[str, Any] = Field(
+        default_factory=lambda: {"streaming": True, "thinking": False, "vision": False}
+    )
     meta: dict[str, Any] = Field(default_factory=dict)  # models.dev 카탈로그 메타(스펙 047 #7)
 
 
@@ -78,6 +82,9 @@ class ModelOut(AuditOut):
     kind: str
     is_default: bool
     params: dict[str, Any] = Field(default_factory=dict)
+    capabilities: dict[str, Any] = Field(
+        default_factory=lambda: {"streaming": True, "thinking": False, "vision": False}
+    )  # 능력 선언(스펙 408)
     meta: dict[str, Any] = Field(
         default_factory=dict
     )  # 카탈로그 파생(context·modalities·cost·caps)

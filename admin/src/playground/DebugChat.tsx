@@ -987,6 +987,11 @@ function TraceChips({ trace, active, onClick }: { trace?: Trace; active: boolean
         )
       })()}
       <Chip icon="clock-circle" color="var(--color-text-tertiary)" label={(trace.latencyMs / 1000).toFixed(2) + 's'} />
+      {trace.responseMode === 'single' && (
+        <Tooltip title="이 모델은 단건(비스트리밍) 응답입니다 — 완성 후 한 번에 표시됩니다.">
+          <Tag style={{ marginInlineStart: 4 }}>단건</Tag>
+        </Tooltip>
+      )}
       <span style={{ fontSize: 12, color: 'var(--color-primary)', fontWeight: 500 }}>인스펙터{active ? ' ✓' : ''}</span>
       {/* 스펙 314: 이 턴의 백그라운드 자동 기억 저장이 진행 중이면 인스펙터 링크 뒤에 로딩. 완료
           이벤트(event: memory)가 오면 memorySaved가 채워지고 조용히 사라진다. */}

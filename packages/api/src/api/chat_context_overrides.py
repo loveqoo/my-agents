@@ -96,7 +96,12 @@ def _apply_overrides(
     in-process 커스텀 에이전트가 화이트리스트 밖 키도 읽게 ctx["overrides"]로 전달(스펙 085)."""
     if not overrides or _is_remote(agent.source):
         return cfg, prompt, None, None
+    # modelParams(스펙 408)는 통짜 교체가 아니라 per-key 병합 — 세션이 stream만 보내도 에이전트의
+    # enable_thinking 오버라이드가 살아남아야 3층 캐스케이드가 키 단위로 성립한다.
+    saved_mp = dict(cfg.get("modelParams") or {})
     cfg.update({k: v for k, v in overrides.items() if k in allowed})
+    if "modelParams" in overrides and isinstance(overrides["modelParams"], dict):
+        cfg["modelParams"] = {**saved_mp, **overrides["modelParams"]}
     if "historyDepth" in overrides:
         _coerce_history_depth(cfg, agent)
     # systemPrompt는 비어있지 않을 때만 prompt를 덮어쓴다 — 빈/공백 문자열로

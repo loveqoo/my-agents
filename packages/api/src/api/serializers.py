@@ -73,6 +73,7 @@ def model_to_out(m: ModelConfig) -> ModelOut:
         kind=m.kind,
         is_default=m.is_default,
         params=dict(m.params or {}),
+        capabilities=dict(m.capabilities or {}),  # 능력 선언(스펙 408)
         meta=dict(m.meta or {}),
         version=m.version,  # 스펙 369
         **audit_of(m),
@@ -115,6 +116,7 @@ def agent_to_out(a: Agent) -> AgentOut:
         model=cfg.get("model", a.model),
         prompt=cfg.get("prompt", a.prompt),
         temperature=cfg.get("temperature"),  # 에이전트 영속 온도(스펙 077, 폼 재로드용)
+        modelParams=dict(cfg.get("modelParams") or {}),  # 스펙 408 캐스케이드(폼 재로드용)
         systemPrompt=a.prompt,  # 해석된 본문(서빙용 = 오픈 버전 pin의 구체화 캐시, 스펙 370)
         historyDepth=cfg.get("historyDepth", a.history_depth),
         persistHistory=cfg.get("persistHistory", True),

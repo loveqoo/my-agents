@@ -36,6 +36,8 @@ _OVERRIDE_ALLOWED = {
     "capabilities",
     "tools",
     "vectorTables",
+    # 모델 설정 오버라이드(스펙 408 캐스케이드 3층 — 세션): per-key 병합은 _apply_overrides가 담당.
+    "modelParams",
 }
 
 
@@ -45,12 +47,13 @@ async def _resolve_nodes_for_ctx(
     model_cfg: dict | None,
     remote: bool,
     pins: dict | None = None,
+    cfg: dict | None = None,
 ) -> list[dict] | None:
     """노드형(스펙 259)이면 노드별 모델을 **플랫폼이 미리 해석**해 심는다(085 U2: build_graph는 DB
     미접촉). 로컬(ui) 경로에서만 의미 — 비노드형/원격은 None."""
     if remote or not isinstance(nodes, list):
         return None
-    return await _resolve_node_models(db, nodes, model_cfg, pins)
+    return await _resolve_node_models(db, nodes, model_cfg, pins, agent_cfg=cfg)
 
 
 async def _prepare_cfg(
@@ -116,7 +119,7 @@ async def _load_context(
         # 코드·외부 에이전트는 비로컬(원격/A2A) 실행이라 로컬 모델이 필요 없다(건너뜀 = None).
         nodes = cfg.get("nodes")  # 노드형 파이프라인 노드 명세(스펙 259) — 아래서 노드별 모델 해석
         model_cfg = await _resolve_model(db, cfg, overrides, pins) if not remote else None
-        nodes_resolved = await _resolve_nodes_for_ctx(db, nodes, model_cfg, remote, pins)
+        nodes_resolved = await _resolve_nodes_for_ctx(db, nodes, model_cfg, remote, pins, cfg=cfg)
         mem_cfg = await _resolve_mem_cfg(db, model_cfg)
         mcp_servers, tool_names = await _resolve_mcp_servers(db, cfg, pins)
         rag_collections, rag_unresolved = await _resolve_rag(db, cfg, remote)

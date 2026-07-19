@@ -17,6 +17,9 @@ class AgentConfig(BaseModel):
     temperature: float | None = (
         None  # 에이전트 영속 온도(스펙 077). None=자동(모델 등록 params 적용)
     )
+    # 모델 설정 오버라이드(스펙 408 캐스케이드) — 화이트리스트 키(enable_thinking·stream)만 실효.
+    # temperature는 위 기존 필드가 에이전트 층 정본(이중 거처 금지). 미명시 키=모델 기본 상속.
+    modelParams: dict[str, Any] = Field(default_factory=dict)
     memories: list[str] = Field(default_factory=list)
     vectorTables: list[str] = Field(default_factory=list)
     mcps: list[str] = Field(default_factory=list)
@@ -277,6 +280,9 @@ class AgentOut(AuditOut):
     model: str
     prompt: str  # 프롬프트 이름(블록 참조, UI 표시용)
     temperature: float | None = None  # 에이전트 영속 온도(스펙 077). None=자동(모델 등록값)
+    modelParams: dict[str, Any] = Field(
+        default_factory=dict
+    )  # 모델 설정 오버라이드(스펙 408 — 폼 재로드용)
     systemPrompt: str = ""  # 해석된 시스템 프롬프트 본문(런타임이 쓰는 것 = 저장 시점 스냅샷)
     # 오픈 버전 pins 중 블록 head가 더 새 버전인 항목(스펙 370 §4 채택 배지) — 단건 GET만 계산.
     stalePins: list[dict[str, Any]] = Field(default_factory=list)

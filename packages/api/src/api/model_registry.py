@@ -241,6 +241,7 @@ async def create_model(body: ModelIn, session: AsyncSession = Depends(get_sessio
         kind=body.kind,
         is_default=body.is_default,
         params=body.params,
+        capabilities=body.capabilities,  # 능력 선언(스펙 408)
         meta=body.meta,
     )
     session.add(m)
@@ -275,6 +276,7 @@ async def update_model(
         await _clear_other_defaults(session, body.kind, exclude_id=m.id)
     m.is_default = body.is_default
     m.params = body.params
+    m.capabilities = body.capabilities  # 능력 선언(스펙 408)
     m.meta = body.meta
     # is_default·meta는 payload 제외(스펙 369 §2) — 운영-only 변경은 버전 무증가.
     await record_block_version(session, "model", m)

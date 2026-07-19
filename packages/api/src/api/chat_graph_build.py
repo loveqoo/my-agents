@@ -136,6 +136,9 @@ def _graph_fingerprint(ctx: ChatContext) -> str | None:
             _fp(mc.get("api_key") or ""),
             mc.get("model_id"),
             json.dumps(mc.get("params") or {}, sort_keys=True),
+            # 능력(스펙 408) — 라이브 사실이라 블록 버전이 안 오르므로 지문에 직접 포함해야
+            # 능력 PUT(예: 스트리밍 끔) 후 캐시된 클라이언트가 옛 모드로 재사용되지 않는다(codex P1①).
+            json.dumps(mc.get("capabilities") or {}, sort_keys=True),
             ctx.temperature,
         ],
         "mcp": sorted(
