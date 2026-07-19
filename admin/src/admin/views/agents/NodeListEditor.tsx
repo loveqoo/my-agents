@@ -11,6 +11,7 @@ import { ShortTermMemoryField, LongTermMemoryField } from './MemoryFields'
 import { ModelField, chatModelOptions } from './ModelFields'
 import { PromptField } from './PromptFields'
 import { ToolTree } from './ToolTree'
+import { CapabilitySettings, useCapabilityDescriptors } from './CapabilitySettings'
 
 /* 노드형 일렬 파이프라인 편집기(스펙 259) — impl=pipeline일 때 "하는 일" 자리에 뜬다.
    ArtifactSpecEditor(190) 관용구 계승: 테두리 카드 + add/remove + per-item 설정 + xxxValid 게이트.
@@ -151,7 +152,7 @@ export function NodeConfigFields({
 }: {
   value: PipelineNode
   onChange: (patch: Partial<PipelineNode>) => void
-  models: { name: string; kind: string }[]
+  models: { name: string; kind: string; capabilities?: Record<string, boolean>; params?: Record<string, unknown> }[]
   prompts: { name: string; body: string }[]
   mcpServers: { name: string; tools?: string[] }[]
   docOptions: { label: string; value: string }[]
@@ -168,6 +169,7 @@ export function NodeConfigFields({
   // 코드 노드(스펙 317)는 prompt/model도 없을 수 있다 — 같은 이유로 ?? ''.
   const tools = n.tools ?? []
   const show = (f: string) => visibleFields == null || visibleFields.includes(f)
+  const capabilityDescriptors = useCapabilityDescriptors() // 노드별 모델 설정(스펙 409)
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       {/* 프롬프트·모델·기억은 공용 컨트롤(스펙 271/274 — 라벨·옵션·가드 단일 출처). */}
@@ -188,6 +190,16 @@ export function NodeConfigFields({
           models={models}
           placeholder="이 노드가 쓸 모델 선택"
           required
+        />
+      )}
+      {/* 노드별 모델 설정 오버라이드(스펙 409) — 에이전트 층 위에 이 노드만 덮는다. 공용 컴포넌트. */}
+      {show('modelParams') && capabilityDescriptors.length > 0 && (
+        <CapabilitySettings
+          descriptors={capabilityDescriptors}
+          capabilities={models.find((m) => m.name === n.model)?.capabilities}
+          modelDefaults={models.find((m) => m.name === n.model)?.params}
+          value={n.modelParams ?? {}}
+          onChange={(mp) => onChange({ modelParams: Object.keys(mp).length ? (mp as Record<string, boolean>) : undefined })}
         />
       )}
 

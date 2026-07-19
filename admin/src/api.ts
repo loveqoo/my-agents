@@ -649,6 +649,17 @@ export interface Model extends Audit {
 }
 export const listModels = (kind?: 'chat' | 'embedding') =>
   j<Model[]>(`/models${kind ? `?kind=${kind}` : ''}`)
+/** 능력→설정 서술자(스펙 409 단일 정본) — 모델·에이전트·플그·노드 4화면이 이 목록으로 렌더.
+ *  FE에 사본을 두지 않는다(FE/BE 드리프트 0 — 백엔드 agent.capabilities가 정본). */
+export interface CapabilityDescriptor {
+  cap: string // capabilities JSONB 키(사실)
+  setting: string | null // 요청별 설정 키(usage) — null이면 능력만(요청 토글 없음, 예 vision)
+  label: string
+  default: boolean // 모델 층 설정 기본값
+  capDefault: boolean // 능력 기본값(신규 모델)
+}
+export const getCapabilityDescriptors = () =>
+  j<CapabilityDescriptor[]>('/models/capabilities/descriptors')
 export const createModel = (body: unknown) => post('/models', body) as Promise<Model>
 export const updateModel = (id: string, body: unknown) => put(`/models/${id}`, body) as Promise<Model> // 능력·설정 편집(스펙 408)
 /** 기본 모델 지정(스펙 150) — 같은 kind의 기존 기본은 서버가 자동 해제. */

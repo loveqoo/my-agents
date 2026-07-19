@@ -57,16 +57,24 @@ def unit_checks() -> None:
     # U1c 기본 → 스트리밍
     c = build_chat_openai(base)
     check(c.disable_streaming is False, "U1c 기본 → 스트리밍")
-    # U1d thinking 캐스케이드: cfg(모델·에이전트 병합) false ← 세션 인자 true가 최우선
-    c = build_chat_openai({**base, "params": {"enable_thinking": False}}, {"enable_thinking": True})
+    # U1d thinking 캐스케이드: cfg(모델·에이전트 병합) false ← 세션 인자 true가 최우선.
+    # 스펙 409: thinking도 능력 게이트라 capabilities.thinking=True를 선언해야 켤 수 있다.
+    thk = {"capabilities": {"thinking": True}}
+    c = build_chat_openai({**base, **thk, "params": {"enable_thinking": False}}, {"enable_thinking": True})
     check(
         c.extra_body["chat_template_kwargs"]["enable_thinking"] is True,
-        "U1d thinking: 세션 인자 > cfg params",
+        "U1d thinking: 세션 인자 > cfg params(능력 true)",
     )
-    c = build_chat_openai({**base, "params": {"enable_thinking": True}})
+    c = build_chat_openai({**base, **thk, "params": {"enable_thinking": True}})
     check(
         c.extra_body["chat_template_kwargs"]["enable_thinking"] is True,
-        "U1e thinking: cfg params 기본",
+        "U1e thinking: cfg params 기본(능력 true)",
+    )
+    # U1f thinking 능력 게이트(스펙 409): 능력 false면 세션이 켜도 못 켬(부분집합 불가침).
+    c = build_chat_openai({**base, "capabilities": {"thinking": False}}, {"enable_thinking": True})
+    check(
+        c.extra_body["chat_template_kwargs"]["enable_thinking"] is False,
+        "U1f thinking: 능력 false는 세션도 못 켬(게이트)",
     )
 
     from api.chat_context_models import _apply_agent_model_params

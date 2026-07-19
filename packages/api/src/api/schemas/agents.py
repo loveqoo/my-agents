@@ -7,6 +7,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
+from agent.capabilities import clean_setting_params
+
 from .base import AuditOut
 
 
@@ -20,6 +22,13 @@ class AgentConfig(BaseModel):
     # 모델 설정 오버라이드(스펙 408 캐스케이드) — 화이트리스트 키(enable_thinking·stream)만 실효.
     # temperature는 위 기존 필드가 에이전트 층 정본(이중 거처 금지). 미명시 키=모델 기본 상속.
     modelParams: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("modelParams")
+    @classmethod
+    def _clean_model_params(cls, v: Any) -> dict:
+        """저장 경계에서 화이트리스트 설정 키의 bool만 보존(스펙 409 codex P2③) — 실행부만 거르던
+        것을 저장까지 정직화(에코·버전 오염 차단). 노드·세션과 같은 공유 정리기."""
+        return clean_setting_params(v)
     memories: list[str] = Field(default_factory=list)
     vectorTables: list[str] = Field(default_factory=list)
     mcps: list[str] = Field(default_factory=list)
@@ -155,6 +164,13 @@ class AgentConfig(BaseModel):
                 node[key] = [x for x in lst if isinstance(x, str) and len(x) <= 200]
 
     @staticmethod
+    def _apply_node_model_params(n: dict[str, Any], node: dict[str, Any]) -> None:
+        """노드별 모델 설정 오버라이드(스펙 409) — 공유 정리기(화이트리스트 설정 키의 bool만)."""
+        clean = clean_setting_params(n.get("modelParams"))
+        if clean:
+            node["modelParams"] = clean
+
+    @staticmethod
     def _normalize_node_ref(n: dict[str, Any]) -> dict[str, Any]:
         """노드 라이브러리 참조 변형(스펙 316) — `{"ref": {"name", "version"}}`만 허용. 인라인 키와
         혼합 금지(참조와 직접 설정 중 어느 쪽이 진실인지 모호한 반쪽 저장 차단). version은 핀 고정
@@ -194,6 +210,7 @@ class AgentConfig(BaseModel):
         node: dict[str, Any] = {"prompt": n["prompt"]}
         AgentConfig._apply_node_scalar_fields(n, node)
         AgentConfig._apply_node_list_fields(n, node)
+        AgentConfig._apply_node_model_params(n, node)
         return node  # model_cfg 등 화이트리스트 밖 키는 여기서 드롭(저장 안 됨 → 에코 0)
 
     @field_validator("nodes")

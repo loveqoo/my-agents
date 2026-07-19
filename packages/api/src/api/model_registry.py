@@ -187,6 +187,16 @@ async def _get_with_provider(session: AsyncSession, model_id: uuid.UUID) -> Mode
     ).scalar_one_or_none()
 
 
+@router.get("/capabilities/descriptors")
+async def capability_descriptors() -> list[dict]:
+    """능력→설정 서술자 목록(스펙 409 단일 정본) — admin이 받아 모델·에이전트·플레이그라운드·노드
+    4화면을 렌더한다. FE에 목록을 사본으로 두지 않기 위한 공급 경로(FE/BE 드리프트 0). 2세그먼트라
+    `/{model_id}`와 충돌하지 않는다(FastAPI 세그먼트 매칭)."""
+    from agent.capabilities import descriptors_public
+
+    return descriptors_public()
+
+
 @router.get("", response_model=list[ModelOut])
 async def list_models(
     kind: str | None = None, session: AsyncSession = Depends(get_session)

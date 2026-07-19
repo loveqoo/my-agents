@@ -10,6 +10,8 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from agent.capabilities import clean_setting_params
+
 from .chat_context_mcp import _resolve_mcp_servers
 from .chat_context_models import _resolve_mem_cfg, _resolve_model, _resolve_node_models
 from .chat_context_overrides import _apply_overrides, _filter_capabilities
@@ -48,12 +50,14 @@ async def _resolve_nodes_for_ctx(
     remote: bool,
     pins: dict | None = None,
     cfg: dict | None = None,
+    session_mp: dict | None = None,
 ) -> list[dict] | None:
     """노드형(스펙 259)이면 노드별 모델을 **플랫폼이 미리 해석**해 심는다(085 U2: build_graph는 DB
-    미접촉). 로컬(ui) 경로에서만 의미 — 비노드형/원격은 None."""
+    미접촉). 로컬(ui) 경로에서만 의미 — 비노드형/원격은 None. session_mp=세션 modelParams(스펙 409
+    codex P1① — 노드 층 뒤에 재적용해 세션이 노드를 이기게)."""
     if remote or not isinstance(nodes, list):
         return None
-    return await _resolve_node_models(db, nodes, model_cfg, pins, agent_cfg=cfg)
+    return await _resolve_node_models(db, nodes, model_cfg, pins, agent_cfg=cfg, session_mp=session_mp)
 
 
 async def _prepare_cfg(
@@ -118,8 +122,13 @@ async def _load_context(
         pins = await _resolve_exec_pins(db, agent.id, exec_version, remote)
         # 코드·외부 에이전트는 비로컬(원격/A2A) 실행이라 로컬 모델이 필요 없다(건너뜀 = None).
         nodes = cfg.get("nodes")  # 노드형 파이프라인 노드 명세(스펙 259) — 아래서 노드별 모델 해석
+        # 세션 modelParams(스펙 409) — 노드형에서 노드 층 뒤에 재적용해 세션이 최상위가 되게(codex P1①).
+        # 화이트리스트 bool만(문자열 "false" 게이트 우회 차단 — 실행부 _as_bool와 이중 방어).
+        session_mp = clean_setting_params(overrides.get("modelParams")) if isinstance(overrides, dict) else None
         model_cfg = await _resolve_model(db, cfg, overrides, pins) if not remote else None
-        nodes_resolved = await _resolve_nodes_for_ctx(db, nodes, model_cfg, remote, pins, cfg=cfg)
+        nodes_resolved = await _resolve_nodes_for_ctx(
+            db, nodes, model_cfg, remote, pins, cfg=cfg, session_mp=session_mp
+        )
         mem_cfg = await _resolve_mem_cfg(db, model_cfg)
         mcp_servers, tool_names = await _resolve_mcp_servers(db, cfg, pins)
         rag_collections, rag_unresolved = await _resolve_rag(db, cfg, remote)

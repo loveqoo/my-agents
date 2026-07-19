@@ -4,6 +4,8 @@ _merge_node_overrides(구 CC 12)는 노드별 병합(_merge_one_node) 추출로 
 파사드는 chat_context.py(재수출 계약 — verify_317이 직접 임포트).
 """
 
+from agent.capabilities import clean_setting_params
+
 from .chat_context_types import _is_remote
 from .models import Agent
 
@@ -97,11 +99,12 @@ def _apply_overrides(
     if not overrides or _is_remote(agent.source):
         return cfg, prompt, None, None
     # modelParams(스펙 408)는 통짜 교체가 아니라 per-key 병합 — 세션이 stream만 보내도 에이전트의
-    # enable_thinking 오버라이드가 살아남아야 3층 캐스케이드가 키 단위로 성립한다.
+    # enable_thinking 오버라이드가 살아남아야 3층 캐스케이드가 키 단위로 성립한다. 세션 값도
+    # 정리기로 걸러 화이트리스트 bool만 병합(스펙 409 codex — 문자열 "false" 게이트 우회 차단).
     saved_mp = dict(cfg.get("modelParams") or {})
-    cfg.update({k: v for k, v in overrides.items() if k in allowed})
-    if "modelParams" in overrides and isinstance(overrides["modelParams"], dict):
-        cfg["modelParams"] = {**saved_mp, **overrides["modelParams"]}
+    cfg.update({k: v for k, v in overrides.items() if k in allowed and k != "modelParams"})
+    if "modelParams" in overrides:
+        cfg["modelParams"] = {**saved_mp, **clean_setting_params(overrides["modelParams"])}
     if "historyDepth" in overrides:
         _coerce_history_depth(cfg, agent)
     # systemPrompt는 비어있지 않을 때만 prompt를 덮어쓴다 — 빈/공백 문자열로

@@ -5,7 +5,9 @@
 import uuid
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from agent.capabilities import DEFAULT_CAPABILITIES, clean_capabilities
 
 from .base import AuditOut
 
@@ -66,9 +68,17 @@ class ModelIn(BaseModel):
     params: dict[str, Any] = Field(default_factory=dict)
     # 능력 선언(스펙 408) — 2층 원칙 능력 층(오버라이드 불가 사실).
     capabilities: dict[str, Any] = Field(
-        default_factory=lambda: {"streaming": True, "thinking": False, "vision": False}
+        default_factory=lambda: dict(DEFAULT_CAPABILITIES)
     )
     meta: dict[str, Any] = Field(default_factory=dict)  # models.dev 카탈로그 메타(스펙 047 #7)
+
+    @field_validator("capabilities")
+    @classmethod
+    def _clean_caps(cls, v: Any) -> dict:
+        """능력은 **진짜 bool만** 저장(스펙 409 codex P1②) — 문자열 "false"·정수 등은 드롭해
+        저장 오염 차단. 미선언 능력은 resolve_effective의 cap_default로 폴백(안전 기본).
+        `bool("false")==True`로 게이트를 우회하는 입력을 인제스션에서 봉인."""
+        return clean_capabilities(v)
 
 
 class ModelOut(AuditOut):
@@ -83,7 +93,7 @@ class ModelOut(AuditOut):
     is_default: bool
     params: dict[str, Any] = Field(default_factory=dict)
     capabilities: dict[str, Any] = Field(
-        default_factory=lambda: {"streaming": True, "thinking": False, "vision": False}
+        default_factory=lambda: dict(DEFAULT_CAPABILITIES)
     )  # 능력 선언(스펙 408)
     meta: dict[str, Any] = Field(
         default_factory=dict

@@ -13,6 +13,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from agent.capabilities import SETTING_KEYS
+
 from . import crypto
 from .chat_context_types import _is_remote
 from .mem_config import (
@@ -110,6 +112,7 @@ async def _resolve_node_models(
     default_cfg: dict | None,
     pins: dict | None = None,
     agent_cfg: dict | None = None,
+    session_mp: dict | None = None,
 ) -> list[dict]:
     """노드형(스펙 259) 노드별 모델을 레지스트리에서 미리 해석해 `model_cfg`를 심는다(085 U2 — impl은
     DB 미접촉). 에이전트 모델 해석과 **동일 조회**(`ModelConfig.name==name, kind=="chat"`, provider
@@ -128,23 +131,32 @@ async def _resolve_node_models(
                 cache[name] = await _chat_model_cfg(db, name, pins)
             cfg = cache[name]
         # 심은 model_cfg는 해석된 노드 모델(없으면 에이전트 기본으로 폴백 — impl의 _model_from_node).
-        # 에이전트 층 modelParams는 노드 명시 모델에도 관통(스펙 408, codex P1② — temperature가
-        # ctx.params로 전 노드 적용되는 선례와 같은 계약. default_cfg는 _resolve_model서 기병합).
-        node_cfg = cfg or default_cfg
+        # 캐스케이드(스펙 409): 모델 기본 → 에이전트 modelParams → **노드** → **세션**(최상위).
+        # - 노드 명시 모델(cfg): 에이전트 층 관통(codex 408 P1②) 후 노드 층을 덮는다.
+        # - 상속(default_cfg): 에이전트 층은 _resolve_model서 이미 반영 — 노드 층만 더 덮는다.
+        # - 세션 층은 **노드 뒤에** 재적용해야 이긴다(codex 409 P1①: _apply_overrides가 세션을 cfg에
+        #   미리 병합해 노드가 세션을 되덮던 버그 — 세션 modelParams를 별도로 받아 마지막에 얹는다).
+        node_cfg = cfg if cfg is not None else default_cfg
         if cfg is not None and agent_cfg:
             node_cfg = _apply_agent_model_params(cfg, agent_cfg)
+        node_mp = node.get("modelParams")
+        if node_cfg is not None and isinstance(node_mp, dict) and node_mp:
+            node_cfg = _apply_agent_model_params(node_cfg, {"modelParams": node_mp})
+        if node_cfg is not None and isinstance(session_mp, dict) and session_mp:
+            node_cfg = _apply_agent_model_params(node_cfg, {"modelParams": session_mp})
         resolved.append({**node, "model_cfg": node_cfg})
     return resolved
 
 
-# 에이전트 층 모델 설정 오버라이드 화이트리스트(스펙 408 캐스케이드: 모델 params 기본 →
-# 에이전트 config.modelParams → 세션 오버라이드). 능력(capabilities)은 층에 없다 — 사실은 불가침.
-# temperature는 제외 — 기존 AgentConfig.temperature(스펙 077)가 이미 에이전트 층 정본(이중 거처 금지).
-MODEL_PARAM_OVERRIDE_KEYS = ("enable_thinking", "stream")
+# 설정 오버라이드 화이트리스트는 서술자 목록(agent.capabilities)에서 **파생**한다(스펙 409 —
+# 하드코딩 두 곳 소멸, 설정 추가=서술자 한 줄). 캐스케이드: 모델 params 기본 → 에이전트
+# config.modelParams → 노드 modelParams(노드형) → 세션 오버라이드. 능력(capabilities)은 층에 없다
+# (사실은 불가침). temperature는 제외 — AgentConfig.temperature(스펙 077)가 이미 에이전트 층 정본.
+MODEL_PARAM_OVERRIDE_KEYS = SETTING_KEYS
 
 
 def _apply_agent_model_params(model_cfg: dict, cfg: dict) -> dict:
-    """모델 params 위에 에이전트 modelParams(화이트리스트만)를 덮는다 — 미명시 키는 상속."""
+    """모델 params 위에 에이전트/노드 modelParams(화이트리스트만)를 덮는다 — 미명시 키는 상속."""
     agent_mp = cfg.get("modelParams") or {}
     if not isinstance(agent_mp, dict) or not agent_mp:
         return model_cfg

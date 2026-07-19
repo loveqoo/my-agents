@@ -15,6 +15,7 @@ import { PromptField } from '../admin/views/agents/PromptFields'
 import { safeToolName, derivePipelinePool } from '../admin/views/agents/AgentForm'
 import { ToolTree } from '../admin/views/agents/ToolTree'
 import { NodeListEditor } from '../admin/views/agents/NodeListEditor'
+import { CapabilitySettings, useCapabilityDescriptors } from '../admin/views/agents/CapabilitySettings'
 
 export interface Overrides {
   model: string
@@ -25,6 +26,7 @@ export interface Overrides {
   memories: string[]
   capabilities: string[] // 조율형 위임 대상(cap id 목록, 스펙 122). 직접형은 항상 빈 배열.
   historyDepth: number
+  modelParams: Record<string, boolean | undefined> // 세션 층 모델 설정 오버라이드(스펙 409) — 최상위 층
   /** 노드형 노드 필드 오버라이드(스펙 287) — 구조 불변(개수·순서·이름은 서버가 저장본 유지). */
   nodes?: PipelineNode[]
 }
@@ -41,6 +43,8 @@ export function overrideDefaults(a: Agent): Overrides {
     memories: [...(a.memories ?? [])],
     capabilities: [...(a.capabilities ?? [])],
     historyDepth: a.historyDepth ?? 20,
+    modelParams: { ...(a.modelParams ?? {}) }, // 세션 베이스=에이전트 저장 설정(변경분만 전송)
+
     // 노드형(스펙 287→316) — 베이스는 **해석된 유효 노드**(resolvedNodes: 참조를 등록 config로 치환한
     // 파생, 서버도 해석→병합 순서라 인덱스 정렬 일치). resolvedNodes가 없으면(구 응답) 저장 nodes로
     // 폴백하되, 참조 항목이 남아 있으면(미해결) 편집 불가 — undefined로 두고 패널이 Alert로 안내.
@@ -78,6 +82,8 @@ export function overridePayload(
   // 조율형 위임 대상(스펙 122) — 변경 시만 전송. 안 건드리면 저장분 그대로(무회귀).
   if (!sameSet(applied.capabilities, base.capabilities)) p.capabilities = applied.capabilities
   if (applied.historyDepth !== base.historyDepth) p.historyDepth = applied.historyDepth
+  // 세션 층 모델 설정(스펙 409) — 저장분과 다르면 전송(빈 객체로 되돌려도 명시 전송해 상속 복귀 반영).
+  if (JSON.stringify(applied.modelParams) !== JSON.stringify(base.modelParams)) p.modelParams = applied.modelParams
   // 노드형(스펙 287) — 노드 필드가 바뀌면 nodes(서버가 구조 불변 merge) + 파생 풀 동봉.
   if (applied.nodes && base.nodes && JSON.stringify(applied.nodes) !== JSON.stringify(base.nodes)) {
     p.nodes = applied.nodes
@@ -248,6 +254,7 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
   // 표면(기억 회상=235, memwrite/memedit=237)은 여기서도 disabled.
   const isEphemeral = !!agent?.ephemeral
   const [draft, setDraft] = useState<Overrides | null>(null)
+  const capabilityDescriptors = useCapabilityDescriptors() // 능력→설정 서술자(스펙 409)
 
   // 열릴 때(또는 에이전트가 바뀔 때) 드래프트를 적용값 ?? 기본값으로 시드.
   // tools 구저장 하이드레이션(스펙 276): tools 빈값+mcps 있음 = 도구 단위 도입 전 — 카탈로그에서
@@ -546,6 +553,16 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
 
           {/* 세부(스펙 249: 단계가 이미 구획이라 Collapse 해제·평면 나열) — Temperature·채팅 히스토리. */}
           <TemperatureField value={draft.temperature} onChange={(v) => set('temperature', v)} />
+          {/* 세션 층 모델 설정(스펙 409) — 이 대화에서만 스트리밍/thinking을 덮는다(최상위 층). */}
+          <Field label="모델 설정">
+            <CapabilitySettings
+              descriptors={capabilityDescriptors}
+              capabilities={models.find((m) => m.name === draft.model)?.capabilities}
+              modelDefaults={models.find((m) => m.name === draft.model)?.params}
+              value={draft.modelParams}
+              onChange={(mp) => set('modelParams', mp)}
+            />
+          </Field>
           {/* 기억(스펙 273) — AgentForm 271과 같은 공용 컨트롤(MemoryFields). 단기=historyDepth,
               장기=memories(비영속 미선택-잠금은 ephemeral prop이 담당). 라벨·옵션 단일 출처=drift 0. */}
           <ShortTermMemoryField

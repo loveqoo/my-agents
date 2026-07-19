@@ -13,6 +13,8 @@ from typing import Literal, overload
 
 from langchain_openai import ChatOpenAI
 
+from .capabilities import resolve_effective
+
 _MISSING_MSG = "모델 설정이 필요합니다 (base_url/model_id) — 모델을 등록하세요."
 
 # 프로바이더별 클라이언트 풀(스펙 371 D2) — 프로세스-로컬, 상한 초과 시 최고령 축출.
@@ -60,15 +62,14 @@ def build_chat_openai(
     cfg_params = cfg.get("params") or {}
     params = params or {}
     temperature = params.get("temperature", cfg_params.get("temperature", default_temperature))
-    # thinking 사용값 캐스케이드(스펙 408): 호출자 params(세션) > cfg params(모델·에이전트 병합).
-    enable_thinking = params.get("enable_thinking", cfg_params.get("enable_thinking", False))
-    # 스트리밍 유효식(스펙 408, 2층): 능력(capabilities.streaming — 사실, 협상 불가) AND
-    # 사용값(stream, 기본 켬 — 층별로 끌 수 있음). 능력 없으면 비스트리밍 안전 실행:
-    # LangChain이 astream을 ainvoke로 접어 완성문을 1회 yield(SSE 계약·호출부 무변경).
+    # 능력→설정 유효값(스펙 409): 서술자 목록(capabilities.py) 단일 정본이 "능력 AND 설정"을 계산.
+    # 층 우선순위=호출자 params(세션) > cfg params(모델·에이전트·노드 병합). 능력 false면 어느 층도
+    # 못 켠다(부분집합 불가침) — streaming뿐 아니라 thinking도 능력 게이트(408은 thinking 미게이트였음).
+    # SDK 배선만 축별로 다르다: stream→disable_streaming, enable_thinking→extra_body(그 매핑이 유일한
+    # 축별 코드). 스트리밍 꺼짐=LangChain이 astream을 ainvoke로 접어 완성문 1회 yield(SSE 계약 유지).
     caps = cfg.get("capabilities") or {}
-    stream_effective = bool(caps.get("streaming", True)) and bool(
-        params.get("stream", cfg_params.get("stream", True))
-    )
+    stream_effective = resolve_effective("streaming", caps, params, cfg_params)
+    enable_thinking = resolve_effective("thinking", caps, params, cfg_params)
     api_key = cfg.get("api_key") or "sk-noauth"
     # 클라이언트 풀(스펙 371 D2) — 같은 연결·모델·파라미터면 인스턴스 재사용(ChatOpenAI는 호출간
     # 무상태·async-safe). 목적은 생성 비용(~0.1ms)이 아니라 **커넥션 재사용**(실 프로바이더 TLS

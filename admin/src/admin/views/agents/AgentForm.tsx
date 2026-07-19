@@ -11,6 +11,7 @@ import { validateName, NAME_HINT } from '../../naming'
 import { Field, SectionHeader } from './primitives'
 import { ArtifactSpecEditor, artifactSpecValid } from './ArtifactSpecEditor'
 import { NodeListEditor, pipelineValid } from './NodeListEditor'
+import { CapabilitySettings, useCapabilityDescriptors } from './CapabilitySettings'
 import type { AgentFormData } from './types'
 
 /* 빈 폼 기본값 — prompt는 로드된 blocks에서, model은 등록된 첫 chat 모델에서
@@ -114,6 +115,9 @@ export function AgentForm({
   onSave: (data: AgentFormData) => void
 }) {
   const [form, setForm] = useState<AgentFormData>(() => initial ? { ...initial } : blankForm(blocks, models))
+  // 능력→설정 서술자(스펙 409) + 선택 모델 — 모델 설정 오버라이드 컴포넌트가 소비.
+  const capabilityDescriptors = useCapabilityDescriptors()
+  const selectedModel = models.find((m) => m.name === form.model)
 
   useEffect(() => {
     setForm(initial ? { ...initial } : blankForm(blocks, models))
@@ -907,49 +911,16 @@ export function AgentForm({
                       {isPipeline ? ' 모든 노드의 모델에 적용됩니다.' : ''}
                     </span>
                   </Field>
-                  {/* 모델 설정 오버라이드(스펙 408 캐스케이드) — 상속(키 없음)/켬/끔 3상. 능력이 아니라
-                      사용값: 모델이 못 하는 걸 켤 수는 없다(스트리밍은 능력 AND 사용으로 실행부가 판정). */}
-                  <Field label="Thinking 모드">
-                    <Select
-                      size="small"
-                      style={{ width: 200 }}
-                      value={form.modelParams.enable_thinking === undefined ? 'inherit' : form.modelParams.enable_thinking ? 'on' : 'off'}
-                      onChange={(v) => {
-                        const mp = { ...form.modelParams }
-                        if (v === 'inherit') delete mp.enable_thinking
-                        else mp.enable_thinking = v === 'on'
-                        set('modelParams', mp)
-                      }}
-                      options={[
-                        { value: 'inherit', label: '모델 기본(상속)' },
-                        { value: 'on', label: '켬 — 깊은 추론' },
-                        { value: 'off', label: '끔 — 일반 응답' },
-                      ]}
+                  {/* 모델 설정 오버라이드(스펙 409 단일 컴포넌트) — 서술자 목록이 구동, 설정이 늘어도
+                      여기 안 고침. 상속/켬/끔 3상. 능력이 아니라 사용값(모델이 못 하는 건 못 켬). */}
+                  <Field label="모델 설정 오버라이드">
+                    <CapabilitySettings
+                      descriptors={capabilityDescriptors}
+                      capabilities={selectedModel?.capabilities}
+                      modelDefaults={selectedModel?.params}
+                      value={form.modelParams}
+                      onChange={(mp) => set('modelParams', mp as Record<string, boolean>)}
                     />
-                    <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-                      thinking 모드가 있는 모델에서만 의미가 있습니다(예: Qwen 계열).
-                    </span>
-                  </Field>
-                  <Field label="스트리밍">
-                    <Select
-                      size="small"
-                      style={{ width: 200 }}
-                      value={form.modelParams.stream === undefined ? 'inherit' : form.modelParams.stream ? 'on' : 'off'}
-                      onChange={(v) => {
-                        const mp = { ...form.modelParams }
-                        if (v === 'inherit') delete mp.stream
-                        else mp.stream = v === 'on'
-                        set('modelParams', mp)
-                      }}
-                      options={[
-                        { value: 'inherit', label: '모델 기본(상속)' },
-                        { value: 'on', label: '켬' },
-                        { value: 'off', label: '끔 — 단건 응답' },
-                      ]}
-                    />
-                    <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-                      모델이 스트리밍을 지원하지 않으면 항상 단건으로 실행됩니다(능력 우선).
-                    </span>
                   </Field>
                   {/* 단기 기억(스펙 271 공용 컨트롤) — 직접형은 스텝 ②의 "기억" 구획이 소유하므로 여기선
                       숨긴다(!isDirect). 조율형=오케스트레이터 컨텍스트, 노드형=노드 상속 원천, 산출물형=모델

@@ -5,7 +5,7 @@
      models.dev 카탈로그 메타(ctx·modalities·cost) 칩. 도달 실패 시 안내 배너. 직접 추가 폼.
    토글 ON = 모델 등록 모달(POST /models, meta 포함), OFF = DELETE /models/{id}(에이전트 참조 시 409). */
 import { useState, useEffect } from 'react'
-import { Tag, Button, Modal, Input, Select, Switch, Checkbox, Tooltip, message, Popover } from 'antd'
+import { Tag, Button, Modal, Input, Select, Switch, Checkbox, Tooltip, message, Popover, Flex, Segmented } from 'antd'
 import { Page, Panel } from '../shared'
 import { Icon } from '../icons'
 import {
@@ -31,6 +31,7 @@ import {
   updateModel,
 } from '../../api'
 import { useAsyncData, runWithToast } from '../../hooks'
+import { useCapabilityDescriptors } from './agents/CapabilitySettings'
 
 const codeStyle = { fontFamily: 'var(--font-family-code)', fontSize: 12 }
 
@@ -224,12 +225,14 @@ function ProviderModal({
 }
 
 /* ── 모델 등록 모달 (프로바이더 고정; 토글 ON·직접추가 공용) ─────────────────── */
-/* 능력·설정 편집(스펙 408) — 등록 모델 행의 소형 popover. 능력(사실: 스트리밍/thinking/비전)과
-   사용 기본(enable_thinking·stream)을 함께 편집. 참조 중 모델은 삭제가 막히므로(093) 이 편집이
-   유일한 수정 경로다. PUT은 전체 body 계약이라 행 값 그대로 되보낸다. */
+/* 능력·설정 편집(스펙 409) — 등록 모델 행의 소형 popover. 서술자 목록으로 **능력당 한 블록**을
+   렌더한다(능력 토글 + 능력 ON이고 설정 있는 축이면 그 아래 '기본값' 하나). 408이 능력·사용을 두
+   줄로 겹쳐 표시(스트리밍·thinking 두 번)하던 중복을 제거. 참조 중 모델은 삭제가 막히므로(093) 이
+   편집이 유일한 수정 경로다. PUT은 전체 body 계약이라 행 값 그대로 되보낸다. */
 function CapsEditor({ reg, onSaved }: { reg: Model; onSaved: () => void }) {
   const [busy, setBusy] = useState(false)
-  const caps = { streaming: true, thinking: false, vision: false, ...((reg.capabilities ?? {}) as Record<string, boolean>) }
+  const descriptors = useCapabilityDescriptors()
+  const savedCaps = (reg.capabilities ?? {}) as Record<string, boolean>
   const usage = reg.params ?? {}
   const save = async (capsPatch: Record<string, boolean>, usagePatch: Record<string, unknown>) => {
     setBusy(true)
@@ -238,7 +241,7 @@ function CapsEditor({ reg, onSaved }: { reg: Model; onSaved: () => void }) {
         name: reg.name, provider_id: reg.provider_id, model_id: reg.model_id,
         kind: reg.kind, is_default: reg.is_default,
         params: { ...usage, ...usagePatch },
-        capabilities: { ...caps, ...capsPatch },
+        capabilities: { ...savedCaps, ...capsPatch },
         meta: reg.meta ?? {},
       })
       onSaved()
@@ -248,26 +251,40 @@ function CapsEditor({ reg, onSaved }: { reg: Model; onSaved: () => void }) {
       setBusy(false)
     }
   }
-  const row = (label: string, checked: boolean, onChange: (v: boolean) => void, hint?: string) => (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-      <Checkbox checked={checked} disabled={busy} onChange={(e) => onChange(e.target.checked)}>{label}</Checkbox>
-      {hint ? <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>{hint}</span> : null}
-    </div>
-  )
   return (
     <Popover
       trigger="click"
       title="모델 능력·설정"
       content={
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 240 }}>
-          <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>능력 — 서버가 할 수 있는 것(사실)</div>
-          {row('스트리밍 지원', caps.streaming, (v) => void save({ streaming: v }, {}), '끄면 단건 실행')}
-          {row('thinking 모드 보유', caps.thinking, (v) => void save({ thinking: v }, {}))}
-          {row('비전(이미지) 지원', caps.vision, (v) => void save({ vision: v }, {}))}
-          <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginTop: 4 }}>사용 기본 — 요청에 보낼 기본값</div>
-          {row('thinking 켜서 호출', Boolean(usage.enable_thinking), (v) => void save({}, { enable_thinking: v }), '일반 요청은 끄기 권장')}
-          {caps.streaming ? row('스트리밍으로 호출', usage.stream !== false, (v) => void save({}, { stream: v })) : null}
-        </div>
+        <Flex vertical gap={12} style={{ minWidth: 260 }}>
+          {descriptors.map((d) => {
+            const capable = savedCaps[d.cap] === undefined ? d.capDefault : savedCaps[d.cap]
+            const usageOn = usage[d.setting ?? ''] === undefined ? d.default : Boolean(usage[d.setting ?? ''])
+            return (
+              <Flex vertical gap={4} key={d.cap}>
+                <Checkbox
+                  checked={capable}
+                  disabled={busy}
+                  onChange={(e) => void save({ [d.cap]: e.target.checked }, {})}
+                >
+                  {d.label} 지원 <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>(서버가 할 수 있는 것)</span>
+                </Checkbox>
+                {d.setting && capable && (
+                  <Flex align="center" gap={8} style={{ marginLeft: 24 }}>
+                    <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>요청 기본값</span>
+                    <Segmented
+                      size="small"
+                      disabled={busy}
+                      value={usageOn ? 'on' : 'off'}
+                      onChange={(v) => void save({}, { [d.setting as string]: v === 'on' })}
+                      options={[{ label: '켬', value: 'on' }, { label: '끔', value: 'off' }]}
+                    />
+                  </Flex>
+                )}
+              </Flex>
+            )
+          })}
+        </Flex>
       }
     >
       <Button size="small">능력·설정</Button>

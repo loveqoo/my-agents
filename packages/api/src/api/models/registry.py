@@ -13,6 +13,8 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from agent.capabilities import DEFAULT_CAPABILITIES
+
 from ..audit import AuditMixin
 from .base import Base, _pk
 
@@ -68,7 +70,8 @@ class ModelConfig(AuditMixin, Base):
     # 기록. streaming=false면 비스트리밍 안전 실행, vision은 C안 게이트 선반영, thinking=모드 보유.
     capabilities: Mapped[dict] = mapped_column(
         JSONB,
-        default=lambda: {"streaming": True, "thinking": False, "vision": False},
+        default=lambda: dict(DEFAULT_CAPABILITIES),
+        # server_default(SQL text)는 DEFAULT_CAPABILITIES 값과 정합해야 한다(마이그레이션과 동일).
         server_default='{"streaming": true, "thinking": false, "vision": false}',
     )
     # models.dev 카탈로그 파생 메타(스펙 047 #7) — context·modalities·cost·capabilities. params와 분리.

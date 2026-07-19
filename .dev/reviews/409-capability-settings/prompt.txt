@@ -1,0 +1,44 @@
+너는 적대적 코드 리뷰어다. 스펙 409(능력→설정 파생 단일화, 408 재구조화)의 변경을 비판적으로 검토하라.
+목표: "보장 목록의 여집합"을 찾아라 — 우리가 안전하다고 가정한 것들이 깨지는 구체 입력·경로.
+
+## 배경(설계 의도)
+- 2층: 능력(capability)=모델 선언 사실(불가침) / 설정(usage)=능력에서 파생하는 요청별 조정값.
+- 유효값 = 능력 AND 설정. 능력 false면 어느 층(모델·에이전트·노드·세션)에서도 못 켠다.
+- 서술자 목록(packages/agent/src/agent/capabilities.py: CAPABILITY_SETTINGS)이 단일 정본 →
+  백엔드 화이트리스트(SETTING_KEYS)·유효값 계산·노드 정규화·admin 4화면(GET /models/capabilities/descriptors)을 전부 구동.
+- 캐스케이드: 모델 params → 에이전트 config.modelParams → 노드 modelParams(노드형) → 세션 오버라이드.
+- temperature는 화이트리스트에서 제외(AgentConfig.temperature가 단일 거처).
+- 408에서 바뀐 점: thinking도 이제 능력 게이트(408은 미게이트).
+
+## 변경 파일(핵심)
+- packages/agent/src/agent/capabilities.py (신설 — 서술자 정본·resolve_effective·descriptors_public)
+- packages/agent/src/agent/model.py (build_chat_openai — resolve_effective로 stream/thinking 유효값, 풀 키)
+- packages/api/src/api/chat_context_models.py (_apply_agent_model_params·_resolve_node_models 노드 층·MODEL_PARAM_OVERRIDE_KEYS=SETTING_KEYS 파생)
+- packages/api/src/api/schemas/agents.py (_apply_node_model_params — 노드 modelParams 화이트리스트 저장)
+- packages/api/src/api/schemas/registry.py, models/registry.py (DEFAULT_CAPABILITIES 단일 출처)
+- packages/api/src/api/model_registry.py (GET /models/capabilities/descriptors)
+- admin/src/admin/views/agents/CapabilitySettings.tsx (공유 컴포넌트+useCapabilityDescriptors 훅)
+- admin/src/admin/views/agents/AgentForm.tsx, NodeListEditor.tsx, ProviderModelView.tsx, playground/OverridePanel.tsx (소비처)
+
+## 특히 파고들 것(가설)
+1. 층 우선순위 정합성: 세션 오버라이드가 정말 노드 층까지 이긴다고 볼 수 있나? 노드형에서 세션
+   overrides.modelParams가 노드별 model_cfg에 도달하나, 아니면 직접형만 도달하고 노드형은 누락되나?
+   (_resolve_node_models 경로 vs _apply_overrides 경로 대조)
+2. 노드 캐스케이드 병합 경계: 노드 명시 모델(cfg not None) + 에이전트 modelParams + 노드 modelParams가
+   순서대로 겹치는데, _apply_agent_model_params를 두 번 부르는 게 중복/역전 없이 맞나?
+3. 능력 게이트 우회: 유효값이 "능력 AND 설정"인데, capabilities dict에 키가 아예 없을 때(구 모델 행)
+   DEFAULT_CAPABILITIES 폴백이 각 층(model.py resolve_effective·pin 경로·노드 경로)에서 일관되나?
+   streaming 기본 true / thinking 기본 false 비대칭이 조용한 함정을 만들지 않나?
+4. 그래프 캐시: 노드형은 지문 None(캐시 안 함)이라 했는데, 노드 modelParams가 직접형 캐시엔 영향 없나?
+   직접형 model_cfg.params에 modelParams가 병합돼 지문에 반영되나?(_graph_fingerprint)
+5. FE/BE 드리프트: 서술자를 엔드포인트로 서빙하는데, FE가 fetch 실패(빈 배열)일 때 컴포넌트가
+   조용히 아무것도 안 그려 사용자가 "설정이 사라졌다"고 느끼지 않나? 낙관적 허용(capable=true)이
+   저장 시 백엔드 게이트와 어긋나 거짓 UI를 만들지 않나?
+6. 저장 왕복: 노드 modelParams가 _normalize_node 화이트리스트로 저장되는데, 빈 dict({})로 되돌릴 때
+   상속 복귀가 되나, 아니면 빈 dict가 저장돼 이상 상태가 되나? (에이전트 층 modelParams, 세션 층도)
+7. temperature 이중 거처: modelParams에 temperature가 섞여 들어오면(악의/실수) 어디서 걸러지나?
+
+## 제약
+- 읽기 전용. 코드 수정·커밋·회고 생성 금지. ~/.claude 등 접근 금지.
+- 응답은 P1(반드시 고쳐야)/P2(고려)/확인함(문제 없음 확인한 것)으로 분류. 파일:라인 인용.
+- 추측 말고 코드 근거로. 실행 테스트는 불필요(정적 분석).

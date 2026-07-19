@@ -1,0 +1,30 @@
+너는 적대적 코드 리뷰어다. 앞선 409 리뷰에서 네가 찾은 P1 2건·P2 3건을 우리가 고쳤다.
+이 수정들이 정말 결함을 닫았는지, 새 결함을 만들지 않았는지 검증하라(읽기 전용, 정적 분석).
+
+## 수정 요약
+- P1① 세션>노드: 세션 modelParams를 `_load_context`에서 별도로 추출(clean_setting_params)해
+  `_resolve_node_models(session_mp=...)`로 넘기고, 노드 modelParams 적용 **뒤에** 재적용.
+  [chat_context_loader.py:127], [chat_context_models.py: _resolve_node_models 마지막 블록]
+- P1② 문자열 "false" 게이트: (a) resolve_effective가 `_as_bool`로 진짜 bool만 인정
+  [capabilities.py], (b) 인제스션 정리 clean_capabilities(ModelIn validator)·clean_setting_params
+  (AgentConfig.modelParams validator·노드·세션) [schemas/registry.py, schemas/agents.py, chat_context_overrides.py]
+- P2① FE fetch 실패 재시도: 실패 시 `_inflight=null` [CapabilitySettings.tsx useCapabilityDescriptors]
+- P2② FE/BE 기본값 일치: capable 판정을 `typeof raw==='boolean' ? raw : capDefault`로 [CapabilitySettings.tsx]
+- P2③ 저장 경계: AgentConfig.modelParams validator로 화이트리스트 bool만 저장 [schemas/agents.py]
+
+## 검증할 것(회의적으로)
+1. 세션>노드 순서가 **모든 노드 경로**(명시 모델·상속 폴백)에서 성립하나? 세션이 노드를 이기되,
+   노드가 세션 미명시 키를 여전히 덮나(부분 병합)? 직접형은 영향 없나(회귀)?
+2. clean_* 드롭이 **정직한가**? 예: 사용자가 UI에서 stream을 끄려 했는데(정상 bool false) 드롭돼
+   상속으로 오인되지 않나? (bool false는 보존돼야 함 — 드롭 대상은 비-bool만)
+3. 인제스션 정리가 **모든 입구**를 덮나? models.dev 카탈로그 import·seed·직접 ORM 생성 등
+   ModelIn validator를 우회하는 저장 경로가 있나?
+4. resolve_effective `_as_bool`가 cap_default를 옳게 폴백하나? streaming(기본 true)/thinking(기본
+   false) 비대칭이 "false" 문자열에서 각각 안전한 쪽으로 가나?
+5. 세션 modelParams를 clean 후 넘기는데, 세션이 빈 dict({})가 되면 노드 재적용이 no-op이라 노드
+   값이 살아남나(상속 아님)? 의도대로인가?
+6. 새 회귀: session_mp 추가 인자가 다른 _resolve_node_models 호출부(있다면)를 깨지 않나?
+
+## 제약
+- 읽기 전용. 수정·커밋 금지. ~/.claude 접근 금지.
+- P1/P2/확인함으로 분류, 파일:라인 인용. 남은 결함이 없으면 "P1 없음"으로 명시.
