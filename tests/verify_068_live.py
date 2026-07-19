@@ -115,6 +115,7 @@ async def _chat_session_echo(
     새 id와 *구별*되던 게 열거 오라클이었다 — 068 후 비-admin엔 둘 다 새 id로 수렴해야 한다.
     """
     body = {"messages": [{"role": "user", "content": "ping"}], "sessionId": session_id}
+    echo: str | None = None
     async with client.stream("POST", f"/agents/{agent_uuid}/chat", json=body) as r:
         if r.status_code != 200:
             return f"HTTP_{r.status_code}"
@@ -124,9 +125,12 @@ async def _chat_session_echo(
                     obj = json.loads(line[6:])
                 except json.JSONDecodeError:
                     continue
-                if isinstance(obj, dict) and "session" in obj:
-                    return obj["session"]
-    return None
+                if isinstance(obj, dict) and "session" in obj and echo is None:
+                    echo = obj["session"]
+            # 첫 프레임에서 return 금지(스펙 402, deep-reasoner 근인) — early-abort가 서버 턴을
+            # 취소시켜 in-flight asyncpg/psycopg 커넥션을 오염, 공유 풀에 poison을 남겨 후속 요청의
+            # 인증 쿼리가 비결정 500. 스트림을 끝까지 소진해 턴을 정상 종료시킨다.
+    return echo
 
 
 async def _row(s, sid: str):

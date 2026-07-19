@@ -36,15 +36,9 @@ TESTS = ROOT / "tests"
 
 # 격리 목록 — 지금 드리프트(테스트/자산 노후, 코드 회귀 아님)라 그물에서 뺀다. 사유를 함께 적는다
 # (은폐 금지). **목표는 이 집합을 줄이는 것.** 고쳐서 통과하기 시작하면 여기서 지운다.
-# 스펙 400 재활 캠페인(2026-07-19): 노후 38건을 재작성해 그물 복귀(43→5). 남은 5건은 전부
-# 환경/인프라 전제(테스트 재작성으로 못 푸는 것) — 근본 해결은 별도 스펙(400 OUT).
-KNOWN_DRIFT: dict[str, str] = {
-    "verify_114_owner_display.py": "환경: owner_id=None 레거시 에이전트 전제(현 seed 없음 → next() StopIteration)",
-    "verify_143_suggest.py": "환경: '옵시디언 매니저' 시드 에이전트 전제(현 seed에 없음)",
-    "verify_068_live.py": "인프라: D6 member resume 실패 지속(초기화 후에도 재현 — 해제 시도 실측 실패, 2026-07-17). asyncpg 커넥션 수명 별도 조사 유지",
-    "verify_054_mcp_real_runtime.py": "환경: stdio transport 실 MCP 런타임 전제(T6, 서버 부재 시 실패)",
-    "verify_057_connect_classification.py": "하네스: asyncio Task가 다른 이벤트루프에 attach(테스트 이벤트루프 버그, 앱 무관)",
-}
+# 스펙 400(43→5)·402(5→0) 재활 캠페인으로 격리 전량 해소(2026-07-19). 새 드리프트는 정직한
+# 사유와 함께 여기 격리하고, 고치면 지운다(빈 dict 유지 — 그물의 정상 상태).
+KNOWN_DRIFT: dict[str, str] = {}
 
 # 러너 자신·인자 필요·특수 스크립트는 스위트에서 제외(그물 대상 아님).
 EXCLUDE = {
@@ -108,6 +102,14 @@ def run_one(
     except subprocess.TimeoutExpired:
         return f.name, "error", f"timeout({timeout}s)"
     out = r.stdout + r.stderr
+    if r.returncode != 0:
+        # 비결정 실패 디버깅용 전체 출력 보존(스펙 402 계측) — 그물이 한 줄 요약만 남기면
+        # "배터리에서만 붉은" 실패는 영영 원인을 못 잡는다. 최근 실패만 유지(이름당 1파일 덮어씀).
+        import pathlib as _pl
+
+        _fd = _pl.Path("/tmp/run_suite_fails")
+        _fd.mkdir(exist_ok=True)
+        (_fd / f"{f.name}.log").write_text(out[-20000:], errors="ignore")
     if r.returncode == 0:
         return f.name, "pass", ""
     if re.search(

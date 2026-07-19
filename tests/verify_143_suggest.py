@@ -2,10 +2,11 @@
 
   S1 mock 판별: /_remote 주소·mock 접두 → True, 실모델 → False.
   S2 게이트: rag 문제집 400·미존재 에이전트 404·count 0/11 스키마 거부.
-  S3 실 출제(옵시디언 매니저, count 4): RAG형(trace_has rag:)+역할형(llm_judge) 혼합,
-     기존 문제 보존(추가만)·order_idx 이어붙임·description 상태 박제·build_asserts 전건 통과.
-  S4 자기일관: 출제 문제집 실행 → 통과율 ≥ 1/2.
-  S5 좀비 sweep 확장: "AI 출제 중…" 잔류 → 중단 박제.
+  S3 도우미 게이트(스펙 402 재활): 기본 chat이 mock이면 도우미 불가+사유 문자열(제품 원칙 —
+     eval_guards._helper_llm)을 **단언**한다. 실모델 전체 출제 경로(구 S3/S4 — RAG형+역할형 혼합·
+     자기일관 ≥1/2)는 외부 모델 서버 가용성에 묶여 그물에 못 넣으므로 VERIFY_143_FULL=1
+     opt-in일 때만 실행(에이전트는 자기완결 생성 — 구 옵시디언 매니저 시드 전제 제거).
+  S5 좀비 sweep 확장: "AI 출제 중…" 잔류 → 중단 박제. S5' 진행 락 409.
 실행: uv run --project packages/api python tests/verify_143_suggest.py
 """
 
@@ -73,13 +74,21 @@ async def main():
             check(False, f"S2a count={bad} 거부여야")
         except ValidationError:
             check(True, f"S2a count={bad} → 스키마 거부")
+    # 자기완결 픽스처(스펙 402) — 구 옵시디언 매니저 시드 전제 제거. 게이트 축(S2b·S5')에 필요한
+    # 에이전트를 직접 만든다(RAG 배선 포함 — opt-in 전체 출제 경로에서도 재사용).
     async with async_session() as s:
-        agent = (
-            await s.execute(select(Agent).where(Agent.name == "옵시디언 매니저"))
-        ).scalar_one_or_none()
-        if agent is None:
-            check(False, "전제: 옵시디언 매니저 없음")
-            sys.exit(1)
+        agent = Agent(
+            agent_id=f"agt_{tag}",
+            name=f"{tag}-agent",
+            source="ui",
+            prompt="문서를 검색해 근거로 답하는 지식 도우미.",
+            config={"vectorTables": ["docs-kb"]},
+            active_version="v1",
+        )
+        s.add(agent)
+        await s.commit()
+        await s.refresh(agent)
+    async with async_session() as s:
         ds_rag = await ER.create_dataset(
             ER.DatasetIn(name=f"{tag}-rag", kind="rag"), session=s, user=sup
         )
@@ -99,7 +108,27 @@ async def main():
             except Exception:
                 pass
 
-    # S3 — 실 출제(직접 실행: 결정적). 기존 문제 1개 심어 보존 확인.
+    # S3 — 도우미 게이트 단언(가용성은 제품 원칙: 기본 chat이 실모델일 때만).
+    async with async_session() as s:
+        llm, reason = await ER._helper_llm(s)
+    if llm is None:
+        check(
+            reason is not None and "mock" in reason,
+            f"S3-gate 기본 chat=mock → 도우미 불가+사유 명시 (got {reason!r})",
+        )
+    else:
+        check(True, "S3-gate 기본 chat=실모델 → 도우미 가용")
+    if llm is None or not os.environ.get("VERIFY_143_FULL"):
+        # 전체 출제 경로는 실모델(외부 서버 가용) 전제 — opt-in에서만. 게이트·락·sweep 축으로 종료.
+        print("  (skip) S3/S4 전체 출제 경로 — 실모델+VERIFY_143_FULL=1 에서만 실행")
+        await _lock_and_sweep(tag, sup, agent)
+        await _cleanup_agent(agent.id)
+        print(f"\n{passed} passed, {len(_fails)} failed")
+        if _fails:
+            sys.exit(1)
+        return
+
+    # (opt-in) 실 출제 — 기존 문제 1개 심어 보존 확인.
     async with async_session() as s:
         ds = await ER.create_dataset(
             ER.DatasetIn(name=f"{tag}-출제", description="원본 설명"), session=s, user=sup
@@ -117,9 +146,6 @@ async def main():
                 session=s,
                 user=sup,
             )
-        async with async_session() as s:
-            llm, reason = await ER._helper_llm(s)
-        check(llm is not None, f"S3a 도우미 가용 (reason={reason})")
         await ER._execute_suggestion(ds.id, agent.id, 4, llm, "원본 설명")
         async with async_session() as s:
             ds2 = await s.get(EvalDataset, ds.id)
@@ -182,6 +208,24 @@ async def main():
             except Exception:
                 pass
 
+    await _lock_and_sweep(tag, sup, agent)
+    await _cleanup_agent(agent.id)
+
+    print(f"\n{passed} passed, {len(_fails)} failed")
+    if _fails:
+        sys.exit(1)
+    return
+
+
+async def _cleanup_agent(agent_pk):
+    async with async_session() as s:
+        row = await s.get(Agent, agent_pk)
+        if row:
+            await s.delete(row)
+            await s.commit()
+
+
+async def _lock_and_sweep(tag, sup, agent):
     # S5' — 진행 락 게이트(codex 143: description 아닌 메모리 락 — PATCH 우회 불가)
     async with async_session() as s:
         ds_lock = await ER.create_dataset(ER.DatasetIn(name=f"{tag}-락"), session=s, user=sup)
@@ -223,10 +267,6 @@ async def main():
                 await ER.delete_dataset(zid, session=s, user=sup)
             except Exception:
                 pass
-
-    print(f"\n{passed} passed, {len(_fails)} failed")
-    if _fails:
-        sys.exit(1)
 
 
 if __name__ == "__main__":

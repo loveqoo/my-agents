@@ -111,16 +111,27 @@ async def integration_checks() -> None:
             # alice 시점 목록: 자기 것 can_manage=true, NULL·타인=false
             _as(alice)
             lst = (await c.get("/agents")).json()
-            mine = next(a for a in lst if a["id"] == aid)
-            legrow = next(a for a in lst if a["owner_id"] is None)
-            check(mine["can_manage"] is True, "H2 alice: 자기 에이전트 can_manage=True")
-            check(legrow["can_manage"] is False, "H2 alice: NULL-owned can_manage=False")
+            mine = next((a for a in lst if a["id"] == aid), None)
+            legrow = next((a for a in lst if a["owner_id"] is None), None)
+            check(mine is not None and mine["can_manage"] is True, "H2 alice: 자기 에이전트 can_manage=True")
+            check(
+                legrow is not None and legrow["can_manage"] is False,
+                "H2 alice: NULL-owned can_manage=False",
+            )
 
-            # bob 시점: alice 것 can_manage=false
+            # bob 시점(스펙 147 가시성 — 구 기대 "타인 것 can_manage=false"는 노후): alice의
+            # private 에이전트는 목록에 아예 안 보인다. public(무소유)은 보이되 관리 불가.
             _as(bob)
             lst_b = (await c.get("/agents")).json()
-            mine_b = next(a for a in lst_b if a["id"] == aid)
-            check(mine_b["can_manage"] is False, "H3 bob: 타인(alice) 에이전트 can_manage=False")
+            check(
+                all(a["id"] != aid for a in lst_b),
+                "H3 bob: 타인 private 에이전트 비가시(스펙 147)",
+            )
+            leg_b = next((a for a in lst_b if a["id"] == str(made[1])), None)
+            check(
+                leg_b is not None and leg_b["can_manage"] is False,
+                "H3b bob: public(무소유)은 보이되 can_manage=False",
+            )
 
             # superuser 시점: 전부 true
             _as(admin)

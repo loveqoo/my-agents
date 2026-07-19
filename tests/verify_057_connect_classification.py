@@ -42,7 +42,16 @@ net_guard._set_allowed_hosts_for_test(["127.0.0.1"])
 VBASE = os.environ.get("VERIFY_BASE", "http://127.0.0.1:8000")  # 스펙 390: 격리 서버 주입
 SDK_URL = VBASE + "/_remote/sdk"
 WEATHER_URL = VBASE + "/_remote"
-A2A_ENDPOINT = VBASE + "/_remote/a2a"
+
+
+def _card_url(path: str) -> str:
+    """검증 대상 불변식은 "endpoint == 카드가 광고한 url" — 기대값을 카드에서 실측(스펙 402).
+    (모의 카드의 url 필드는 서버측 상수라 VERIFY_BASE 포트와 다를 수 있다 — 하드코딩 금지.)"""
+    import httpx
+
+    return httpx.get(
+        VBASE + path + "/.well-known/agent-card.json", timeout=10
+    ).json()["url"]
 
 _fails: list[str] = []
 _created_ids: list = []  # 정리용 DB pk
@@ -100,7 +109,7 @@ async def main() -> None:
         out.prompt == "정확한 기술 번역가 (SDK)", f"C2 prompt가 manifest와 일치 (실제={out.prompt})"
     )
     check("용어집 일관성 유지" in (out.memories or []), "C2 memories가 manifest에서 채워짐")
-    check(out.endpoint == A2A_ENDPOINT, f"C2 endpoint=카드 url (실제={out.endpoint})")
+    check(out.endpoint == _card_url("/_remote/sdk"), f"C2 endpoint=카드 url (실제={out.endpoint})")
     check(
         out.repo == "acme/doc-translator" and out.commit == "f3a91c2",
         f"C2 repo/commit가 deploy에서 (실제={out.repo}/{out.commit})",
@@ -117,7 +126,7 @@ async def main() -> None:
     check(out.source == "external", f"C3 plain 카드 → source='external' (실제={out.source})")
     check(out.model == "" and out.prompt == "", "C3 로컬 모델/프롬프트 미해석(빈값)")
     check(not out.mcps and not out.memories, "C3 로컬 mcps/memories 빔(불투명)")
-    check(out.endpoint == A2A_ENDPOINT, f"C3 endpoint=카드 url (실제={out.endpoint})")
+    check(out.endpoint == _card_url("/_remote"), f"C3 endpoint=카드 url (실제={out.endpoint})")
     check(not out.versions, "C3 external은 버전 없음")
 
     # ── C4. 적대 입력 → 400 ────────────────────────────────────────────────
@@ -141,17 +150,18 @@ async def main() -> None:
         raised = exc.status_code == 400
     check(raised, "C4 카드 아닌 JSON url → HTTPException 400")
 
-    # ── C5. 런타임 무회귀(정적) ────────────────────────────────────────────
+    # ── C5. 런타임 무회귀(정적) — 현 계약(스펙 085·396): 원격 판별은 resolve_agent_runtime이
+    # 담당(impl None=원격 불투명), chat()의 전송 분기는 _a2a_stream 하나(code·external 공용).
     check(not hasattr(chat, "_remote_stream"), "C5 _remote_stream 삭제됨(자체 SSE 폐기)")
     src = inspect.getsource(chat.chat)
     check(
-        'ctx["source"] in ("code", "external")' in src,
-        "C5 chat 라우팅이 code·external 둘 다 한 분기(_a2a_stream)로",
+        src.count("_a2a_stream(") == 1 and "impl is None" in src,
+        "C5 chat 전송 분기=_a2a_stream 단일(impl None=원격 — code·external 공용)",
     )
     check("_remote_stream(" not in src, "C5 chat()에 _remote_stream 호출 잔재 없음")
 
     # ── C6. 빌더 하드닝(적대리뷰 057 F3/F4) — 네트워크 없이 빌더 직접 호출 ──────
-    base_card = {"name": "X", "url": A2A_ENDPOINT, "capabilities": {"streaming": True}}
+    base_card = {"name": "X", "url": VBASE + "/_remote/a2a", "capabilities": {"streaming": True}}
     # F3: 거대/잡 문자열이 bounded 컬럼 상한으로 절단(commit 500 방지).
     big = "z" * 500
     ext_big = {
@@ -174,10 +184,10 @@ async def main() -> None:
     a = _build_code_agent_from_card(
         base_card, {"manifest": {}, "deploy": {"commit": "c1", "versions": []}}, None, True
     )
-    actives = [v for v in a.versions if v.status == "active"]
+    # 스펙 370: status 폐기 — 불변식은 "active_version이 가리키면 그 버전 행이 실재".
     check(
-        len(actives) == 1 and a.active_version == actives[0].version == "c1",
-        f"C6 versions=[]+commit → active 1개 합성·일치(실제 av={a.active_version}, actives={[v.version for v in actives]})",
+        a.active_version == "c1" and any(v.version == "c1" for v in a.versions),
+        f"C6 versions=[]+commit → 포인터=c1·행 실재(실제 av={a.active_version}, vers={[v.version for v in a.versions]})",
     )
     # F4: archived만 + commit 없음 → active_version None, active row 없음(불변식: 가리키면 실재).
     a = _build_code_agent_from_card(
@@ -187,8 +197,8 @@ async def main() -> None:
         True,
     )
     check(
-        a.active_version is None and not [v for v in a.versions if v.status == "active"],
-        f"C6 archived만·commit없음 → active_version None·active row 없음(실제 av={a.active_version})",
+        a.active_version is None,
+        f"C6 archived만·commit없음 → 포인터 None(실제 av={a.active_version})",
     )
     # F4: archived만 + commit 있음 → commit으로 active 합성, active_version=commit.
     a = _build_code_agent_from_card(
@@ -201,9 +211,8 @@ async def main() -> None:
         True,
     )
     check(
-        a.active_version == "c2"
-        and any(v.status == "active" and v.version == "c2" for v in a.versions),
-        f"C6 archived만+commit → active_version 실재 보장(실제 av={a.active_version})",
+        a.active_version == "c2" and any(v.version == "c2" for v in a.versions),
+        f"C6 archived만+commit → 포인터=c2·행 실재(실제 av={a.active_version})",
     )
     # F4: 잡 versions(비dict·version 없음) 무시, 안 터짐.
     a = _build_code_agent_from_card(
@@ -237,9 +246,9 @@ async def main() -> None:
     req2 = a2a_client._jsonrpc_request("hi", streaming=True)
     check("contextId" not in req2["params"]["message"], "C7 context_id 없으면 contextId 키 없음")
     a2a_src = inspect.getsource(chat._a2a_stream)
+    # ctx는 dict → 데이터클래스로 진화(스펙 396 분할) — 속성 접근으로 현행화.
     check(
-        'context_id=ctx.get("session_id")' in a2a_src
-        or "context_id=ctx.get('session_id')" in a2a_src,
+        "context_id=ctx.session_id" in a2a_src,
         "C7 _a2a_stream이 세션 id를 contextId로 전달",
     )
 
@@ -251,8 +260,6 @@ async def main() -> None:
     )
     check("follow_redirects=True" not in fc_src, "C8 fetch_card에 follow_redirects=True 잔재 없음")
 
-    await _cleanup()
-
     print()
     if _fails:
         print(f"FAILED {len(_fails)}건:")
@@ -262,12 +269,14 @@ async def main() -> None:
     print("ALL PASS — VERIFY057_OK")
 
 
-if __name__ == "__main__":
+async def _run() -> None:
+    # 정리는 **같은 이벤트루프**의 finally에서 — 예외 후 별도 asyncio.run(_cleanup())은 첫 루프에
+    # 묶인 engine/Task를 새 루프에서 만져 "Task attached to a different loop"를 낳는다(구 하네스 버그).
     try:
-        asyncio.run(main())
-    except Exception:
-        # 예외 나도 생성 픽스처는 정리 시도.
-        try:
-            asyncio.run(_cleanup())
-        finally:
-            raise
+        await main()
+    finally:
+        await _cleanup()
+
+
+if __name__ == "__main__":
+    asyncio.run(_run())

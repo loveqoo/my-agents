@@ -37,10 +37,15 @@ def check(cond: bool, msg: str) -> None:
         _fails.append(msg)
 
 
+# mock MCP 주소는 실행 중인 서버(VERIFY_BASE)에서 유도 — MOCK_MCP_URL 상수는 :8000 고정이라
+# throwaway(임시 포트) 실행이 dev 서버에 몰래 의존하게 된다(스펙 402 자립화).
+_MOCK_URL = os.environ.get("VERIFY_BASE", "http://127.0.0.1:8000") + "/_remote/mcp/"
+
+
 def _srv(name=None, url=None, transport="http", enabled=None):
     return {
         "name": name or mock_mcp.MOCK_MCP_SERVER_NAME,
-        "url": url if url is not None else mock_mcp.MOCK_MCP_URL,
+        "url": url if url is not None else _MOCK_URL,
         "transport": transport,
         "enabled_tools": enabled or [],
         "auth_token": None,
@@ -112,7 +117,11 @@ async def t5_graceful_down():
 
 async def t6_transport_gate():
     sink: list[dict] = []
-    tools = await runtime.build_mcp_tools([_srv(transport="stdio")], sink)
+    # 이름 분리(스펙 402): 도구 스펙 캐시(스펙 371) 키가 (name, version, auth)라 transport를 안 본다 —
+    # PRE가 같은 이름을 http로 캐시하면 stdio 픽스처가 캐시 적중해 transport 관문(mcp_connection)을
+    # 우회한다(관문 자체는 정상 — 검사 지점과 캐시 지점의 어긋남). 프로덕션 실재성(편집=version
+    # 범프로 키 회전)은 codex 402 검토 포인트. 여기선 미캐시 이름으로 관문 축만 격리 검증.
+    tools = await runtime.build_mcp_tools([_srv(name="v054rt-stdio-gate", transport="stdio")], sink)
     check(len(tools) == 0, "T6: stdio transport 서버는 제외(유예) — 0 도구")
 
 
