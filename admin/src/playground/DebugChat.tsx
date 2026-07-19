@@ -13,7 +13,7 @@ import {
   dedupeConsecutive,
   type HistState,
 } from './inputHistory'
-import { Avatar, Button, Tag, Grid, Tooltip, Select, Input, Dropdown, Card, Spin } from 'antd'
+import { Avatar, Button, Tag, Grid, Tooltip, Select, Input, Dropdown, Card, Spin, Modal } from 'antd'
 import { Icon } from '../admin/icons'
 import { fmtTime } from '../admin/format'
 import { MessageContent } from './MessageContent'
@@ -1061,6 +1061,10 @@ export function DebugChat({
   const senderRef = useRef<GetRef<typeof Sender>>(null)
   const fileRef = useRef<HTMLInputElement>(null) // 파일첨부(스펙 404) — 클립 버튼이 여는 숨은 입력
   const attachModeRef = useRef<'stuff' | 'knowledge'>('stuff') // 클립 드롭다운 선택(스펙 405)
+  // 드래그&드롭 첨부(스펙 406) — 오버레이 깊이 카운터(자식 dragleave 깜빡임 방지)+선택 모달.
+  const [dragDepth, setDragDepth] = useState(0)
+  const [dropFiles, setDropFiles] = useState<File[] | null>(null)
+  const hasFiles = (e: React.DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes('Files')
   const histRef = useRef<HistState>(INITIAL_HIST)
   // 재호출마다 ++ 하는 단조 카운터. caret 이동 effect의 의존을 draft가 아니라 이걸로 둬야,
   // 재호출 값이 현재 입력과 *우연히 같을 때*(예: 최신 입력이 이미 입력창에 있음)도 발화한다
@@ -1180,7 +1184,57 @@ export function DebugChat({
 
       {/* 헤더 아래 영역(스펙 248 후속17) — 오버라이드 서랍이 U 손잡이 바로 아래서 내려오도록
           position: relative 컨테이너가 스크롤·입력 영역을 감싼다(드로어 getContainer=false). */}
-      <div style={{ position: 'relative', overflow: 'hidden', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+      <div
+        style={{ position: 'relative', overflow: 'hidden', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}
+        onDragEnter={(e) => { if (hasFiles(e) && !a2aMode) { e.preventDefault(); setDragDepth((d) => d + 1) } }}
+        onDragOver={(e) => { if (hasFiles(e) && !a2aMode) e.preventDefault() }}
+        onDragLeave={(e) => { if (hasFiles(e) && !a2aMode) { e.preventDefault(); setDragDepth((d) => Math.max(0, d - 1)) } }}
+        onDrop={(e) => {
+          if (!hasFiles(e) || a2aMode) return
+          e.preventDefault()
+          setDragDepth(0)
+          const files = Array.from(e.dataTransfer.files)
+          if (files.length > 0) setDropFiles(files) // 선택 모달로 — 캡·다중 규칙은 기존 흐름 소유(스펙 406)
+        }}
+      >
+        {dragDepth > 0 && (
+          <div
+            style={{
+              position: 'absolute', inset: 8, zIndex: 30, pointerEvents: 'none',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              border: '2px dashed var(--color-primary)', borderRadius: 12,
+              background: 'color-mix(in srgb, var(--color-primary) 8%, transparent)',
+              fontSize: 15, color: 'var(--color-primary)', fontWeight: 600,
+            }}
+          >
+            📎 여기에 놓아 첨부 — 이번 대화만 또는 지식으로 저장
+          </div>
+        )}
+        <Modal
+          open={!!dropFiles}
+          onCancel={() => setDropFiles(null)}
+          footer={null}
+          title="첨부 방식 선택"
+          width={380}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingTop: 4 }}>
+            <div style={{ fontSize: 13, color: 'var(--color-text-secondary)', marginBottom: 4 }}>
+              📎 {dropFiles?.map((f) => f.name).join(' · ')}
+            </div>
+            <Button
+              size="large"
+              onClick={() => { const fs = dropFiles ?? []; setDropFiles(null); onAttachFiles?.(fs) }}
+            >
+              이번 대화만 첨부
+            </Button>
+            <Button
+              size="large"
+              onClick={() => { const fs = dropFiles ?? []; setDropFiles(null); onAttachKnowledge?.(fs) }}
+            >
+              지식으로 저장 (RAG)
+            </Button>
+          </div>
+        </Modal>
         {/* overflow: hidden 필수 — 인라인 드로어(getContainer=false)는 닫힐 때 위로 밀려 숨는데,
             클리핑이 없으면 밀려난 서랍이 헤더 위로 비쳐 보인다(사용자 실기기 캡처로 발견). */}
         {overridePanel}
