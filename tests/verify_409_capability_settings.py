@@ -77,7 +77,9 @@ async def unit_checks() -> None:
         {"prompt": "A", "modelParams": {"stream": False}},  # 노드가 에이전트 위 stream만 덮음
         {"prompt": "B"},  # 미명시 → 상속
     ]
-    resolved = await _resolve_node_models(None, nodes, default_cfg, None, agent_cfg=None)
+    # 스펙 420: node 층은 layer_applies("node", impl)로 게이팅 — impl="pipeline"일 때만 적용된다.
+    # 프로덕션 호출(_resolve_nodes_for_ctx)은 항상 agent_cfg=cfg(impl 포함)를 넘기므로 그대로 재현.
+    resolved = await _resolve_node_models(None, nodes, default_cfg, None, agent_cfg={"impl": "pipeline"})
     a_params = resolved[0]["model_cfg"]["params"]
     b_params = resolved[1]["model_cfg"]["params"]
     check(a_params.get("stream") is False, f"U3a 노드A stream=off(노드가 덮음) (got {a_params.get('stream')})")
