@@ -38,11 +38,22 @@ def _trace_from_sse(text: str) -> dict | None:
     return None
 
 
+_chat_errors: dict[str, int] = {}
+
+
 async def _chat_build_ms(cli: httpx.AsyncClient, aid: str, msg: str) -> dict | None:
-    r = await cli.post(f"/agents/{aid}/chat", json={"messages": [{"role": "user", "content": msg}]})
-    r.raise_for_status()
-    tr = _trace_from_sse(r.text)
-    return (tr or {}).get("buildMs")
+    """한 턴 채팅 → buildMs. 개별 실패(500 등)는 통계 측정을 멈추지 않게 None으로 삼키되 카운트
+    (동시성서 깨지는 유형 자체가 발견 대상 — 스펙 420 후속)."""
+    try:
+        r = await cli.post(f"/agents/{aid}/chat", json={"messages": [{"role": "user", "content": msg}]})
+        if r.status_code >= 400:
+            _chat_errors[str(r.status_code)] = _chat_errors.get(str(r.status_code), 0) + 1
+            return None
+        tr = _trace_from_sse(r.text)
+        return (tr or {}).get("buildMs")
+    except (httpx.HTTPError, json.JSONDecodeError) as e:
+        _chat_errors[type(e).__name__] = _chat_errors.get(type(e).__name__, 0) + 1
+        return None
 
 
 def _pct(xs: list[float], p: float) -> float:
@@ -79,12 +90,78 @@ async def measure_cell(
     return samples
 
 
+async def _make_agent(cli: httpx.AsyncClient, name: str, config: dict) -> str:
+    """에이전트 생성+활성화 → id. (perf 측정용 공용 — MCP 축·impl 축 공유)."""
+    cr = await cli.post("/agents", json={"name": name, "config": config})
+    cr.raise_for_status()
+    j = cr.json()
+    ver = next(
+        (v for v in j.get("versions", []) if v.get("status") == "draft"),
+        (j.get("versions") or [{}])[0],
+    )
+    (await cli.post(f"/agents/{j['id']}/activate", json={"version": ver.get("version")})).raise_for_status()
+    return j["id"]
+
+
+def _impl_configs(delegate_agent_id: str) -> dict[str, dict]:
+    """impl 축(스펙 420 후속 조사) — 캐시 제외 유형의 graph 빌드 비용을 default와 대조. mcps=[]로
+    MCP 축을 격리(그 비용은 별도 버전키 캐시라 여기선 순수 compile+래핑 CPU만 본다). default=베이스라인."""
+    m = "mock-llm"
+
+    def node(i: int) -> dict:
+        return {"name": f"n{i}", "model": m, "prompt": "짧게 한 문장으로 답하세요.", "tools": []}
+
+    return {
+        "default": {"model": m, "prompt": "", "mcps": []},
+        "pipeline-3": {"model": m, "impl": "pipeline", "nodes": [node(i) for i in range(3)]},
+        "pipeline-8": {"model": m, "impl": "pipeline", "nodes": [node(i) for i in range(8)]},
+        "orchestrate": {"model": m, "impl": "orchestrate", "capabilities": [delegate_agent_id]},
+        "route": {"model": m, "impl": "route"},
+        "plan_execute": {"model": m, "impl": "plan_execute"},
+        "artifact_form": {"model": m, "impl": "artifact_form",
+                          "artifactSpec": {"fields": [{"key": "a", "label": "A"}, {"key": "b", "label": "B"}]}},
+    }
+
+
+async def _measure_impl_axis(cli: httpx.AsyncClient, tag: str) -> None:
+    """impl 유형별 graph 빌드 비용 표(스펙 420 후속) — 전제 '실시간 빌드=비싸다' 검증."""
+    delegate = await _make_agent(cli, f"perf420-delegate-{tag}", {"model": "mock-llm", "prompt": "", "mcps": []})
+    made: dict[str, str] = {}
+    try:
+        for key, cfg in _impl_configs(delegate).items():
+            # 이름 규칙(스펙 148) — 밑줄 금지라 키의 `_`를 `-`로(config 키는 유지).
+            made[key] = await _make_agent(cli, f"perf420-{key.replace('_', '-')}-{tag}", cfg)
+        rows: list[tuple[str, dict[str, list[float]]]] = []
+        for key in made:
+            for conc in (1, CONC):
+                label = f"{key} × {'순차' if conc == 1 else f'동시{conc}'}"
+                print(f"  측정 중(impl): {label} …", flush=True)
+                rows.append((label, await measure_cell(cli, made[key], conc)))
+        print("\n=== impl 유형별 빌드 비용 (스펙 420 후속 — graph/total p50/p95 ms · n=표본) ===")
+        print(f"{'셀':<24}{'graph':>16}{'total':>16}{'n':>5}")
+        for label, samples in rows:
+            g = f"{_pct(samples['graph'], 50):>7.1f}/{_pct(samples['graph'], 95):<6.1f}"
+            t = f"{_pct(samples['total'], 50):>7.1f}/{_pct(samples['total'], 95):<6.1f}"
+            print(f"{label:<24}{g:>16}{t:>16}{len(samples['total']):>5}")
+        if _chat_errors:
+            print(f"\n채팅 실패(동시성 취약 신호): {_chat_errors}")
+    finally:
+        await cli.delete(f"/agents/{delegate}")
+        for aid in made.values():
+            await cli.delete(f"/agents/{aid}")
+
+
 async def main() -> None:
     tag = uuid.uuid4().hex[:6]
+    impl_only = os.environ.get("IMPL_ONLY") == "1"
     async with httpx.AsyncClient(base_url=BASE, timeout=180.0) as cli:
         r = await cli.post("/auth/login", data={"username": EMAIL, "password": PASSWORD})
         if r.status_code >= 400 or "agentauth" not in cli.cookies:
             raise SystemExit(f"로그인 실패({r.status_code}) — 서버 8000 확인")
+
+        if impl_only:  # 스펙 420 후속 — impl 축만(빠른 재실행)
+            await _measure_impl_axis(cli, tag)
+            return
 
         agents: dict[int, str] = {}
         try:
