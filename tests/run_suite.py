@@ -31,6 +31,9 @@ import re
 import subprocess
 import sys
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))  # tests/ — _dbharness import(스펙 414)
+from _dbharness import fresh_db
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 TESTS = ROOT / "tests"
 
@@ -78,7 +81,10 @@ def collect() -> dict[str, list[pathlib.Path]]:
 
 
 def run_one(
-    f: pathlib.Path, isolate: bool = False, isolate_server: bool = False
+    f: pathlib.Path,
+    isolate: bool = False,
+    isolate_server: bool = False,
+    env: dict | None = None,
 ) -> tuple[str, str, str]:
     """(name, verdict, detail). verdict ∈ pass|fail|error.
 
@@ -98,7 +104,8 @@ def run_one(
         cmd = ["uv", "run", "python", str(TESTS / "_throwaway_db.py"), str(f)]
         timeout = 180  # virgin DB 부트스트랩(CREATE DATABASE+alembic+seed) 비용 포함
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        # env(스펙 414): db 그룹은 run당 virgin DB의 DATABASE_URL 주입(dev DB 무접촉). None이면 상속.
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=env)
     except subprocess.TimeoutExpired:
         return f.name, "error", f"timeout({timeout}s)"
     out = r.stdout + r.stderr
@@ -159,13 +166,21 @@ def main() -> None:
         workers = 6 if c == "unit" else 1
         isolate = c == "asgi"  # 스펙 385: asgi 층은 스크립트마다 virgin DB(_throwaway_db.py)
         iso_srv = c == "http"  # 스펙 390: http 층은 스크립트마다 virgin DB+전용 서버
-        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
-            results = list(
-                ex.map(
-                    lambda f, _i=isolate, _s=iso_srv: run_one(f, isolate=_i, isolate_server=_s),
-                    files,
+        if c == "db":
+            # 스펙 414: db 그룹 전체를 **run당 virgin DB 1개**로 격리(dev DB 잔재·동시활동·상호오염
+            # 차단). 부트스트랩(alembic+seed) 1회 상각 후 전 db 테스트가 그 DB를 DATABASE_URL로 공유.
+            # _throwaway_db.py 마커 테스트(파괴적 downgrade 등)는 run_one이 여전히 자기 per-test DB로.
+            print("  [db] run당 virgin DB 격리 — dev DB 무접촉(스펙 414)")
+            with fresh_db(label="run") as (_run_url, run_env):
+                results = [run_one(f, env=run_env) for f in files]
+        else:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
+                results = list(
+                    ex.map(
+                        lambda f, _i=isolate, _s=iso_srv: run_one(f, isolate=_i, isolate_server=_s),
+                        files,
+                    )
                 )
-            )
         for name, verdict, detail in sorted(results):
             totals[verdict] += 1
             drift = name in KNOWN_DRIFT

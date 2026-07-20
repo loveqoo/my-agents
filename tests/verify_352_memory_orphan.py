@@ -29,6 +29,8 @@ from sqlalchemy import text  # noqa: E402
 
 from api.batch.jobs import cleanup_memories  # noqa: E402
 from api.memory import reclaim  # noqa: E402
+from api.memory.mem0_backend import _EMBED_DIMS  # noqa: E402  (테이블 확보 시 앱 차원과 일치)
+from api.models import User  # noqa: E402  (live 유저 자가 확보 — virgin DB엔 유저 0행)
 from api.db import SessionLocal  # noqa: E402
 
 MARK = f"v352-{uuid.uuid4().hex[:6]}"
@@ -77,6 +79,28 @@ async def _plant(tag: str, payload: dict) -> None:
         await s.commit()
 
 
+async def _ensure_live_user() -> None:
+    """live 유저 1행 확보 — virgin DB(스펙 414)엔 유저가 0행이라 `_alive()`의 scalar_one이 터진다.
+    prod엔 부트스트랩 어드민(seed_admin)이 있어 우연히 통과했다. 살아있는 소유자로 쓸 실제 행이면
+    되므로(orphan 판정은 user_id 존재 여부만 봄) 없을 때만 하나 심는다."""
+    async with SessionLocal() as s:
+        existing = (
+            await s.execute(text('select id from "user" limit 1'))
+        ).scalar_one_or_none()
+        if existing is not None:
+            return
+        s.add(
+            User(
+                email=f"{MARK}-live@example.com",
+                hashed_password="x",
+                is_active=True,
+                is_superuser=False,
+                is_verified=True,
+            )
+        )
+        await s.commit()
+
+
 async def _alive() -> tuple[str, str, str]:
     """살아있는 유저·세션·에이전트를 DB에서 하나씩 집는다(합성 아님 — 실제 소유자여야 의미가 있다)."""
     async with SessionLocal() as s:
@@ -98,6 +122,20 @@ async def _left(tag: str) -> int:
         ).scalar_one()
 
 
+async def _ensure_table() -> None:
+    """mem0_memories 확보 — prod는 mem0가 첫 사용 시 lazy 생성하지만 virgin DB(스펙 414 하네스)엔
+    없다. mem0 pgvector 스키마(id/vector/payload) 그대로, 차원은 앱 `_EMBED_DIMS`로 맞춰 심는다
+    (검색이 아니라 payload 회수 판정만 하므로 hnsw 인덱스는 불필요)."""
+    async with SessionLocal() as s:
+        await s.execute(
+            text(
+                f"create table if not exists mem0_memories "
+                f"(id uuid primary key, vector vector({_EMBED_DIMS}), payload jsonb)"
+            )
+        )
+        await s.commit()
+
+
 async def _wipe() -> None:
     async with SessionLocal() as s:
         await s.execute(
@@ -107,6 +145,8 @@ async def _wipe() -> None:
 
 
 async def main() -> None:
+    await _ensure_table()
+    await _ensure_live_user()
     await _wipe()
     live_user, live_session, live_agent = await _alive()
     dead = str(uuid.uuid4())  # user 테이블에 없는 uuid

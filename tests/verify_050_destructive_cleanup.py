@@ -82,6 +82,30 @@ async def _make_user(local: str, *, is_super: bool = False) -> uuidlib.UUID:
         return u.id
 
 
+async def _ensure_user_email(email: str, *, is_super: bool = False) -> None:
+    """정확한 이메일로 유저 확보(멱등) — keep-list(admin@/alice@example.com)처럼 U_DOMAIN 밖 이메일용.
+    virgin DB엔 부트스트랩 어드민이 없어(스펙 414 하네스가 노출) B1의 '패턴 일치하나 keep-list라 제외'
+    산술이 성립하려면 이 둘을 스스로 심어야 한다. 이미 있으면(dev DB 재실행) no-op — 우리가 안 만든
+    행은 정리도 안 한다."""
+    async with SessionLocal() as s:
+        existing = (
+            await s.execute(select(User.id).where(User.email == email))
+        ).scalar_one_or_none()
+        if existing is not None:
+            return
+        u = User(
+            email=email,
+            hashed_password="x",
+            is_active=True,
+            is_superuser=is_super,
+            is_verified=True,
+        )
+        s.add(u)
+        await s.commit()
+        await s.refresh(u)
+        _created_user_ids.append(u.id)
+
+
 async def _agent_exists(agent_pk: uuidlib.UUID) -> bool:
     async with SessionLocal() as s:
         return (await s.get(Agent, agent_pk)) is not None
@@ -250,6 +274,9 @@ async def section_b() -> None:
 
     # --- B1: keep-list 보호(브로드 패턴 dry-run, admin@/alice@ 제외) ---
     # admin@example.com·alice@example.com은 패턴 일치해도 후보에서 빠져야 한다.
+    # virgin DB엔 이 둘이 없으므로 스스로 심는다(멱등) — 있어야 matched>would_delete 제외분이 생긴다.
+    await _ensure_user_email("admin@example.com")
+    await _ensure_user_email("alice@example.com")
     await _cfg_set_pattern("%@example.com")
     r_keep = await cleanup_test_users(dry_run=True)
     if r_keep.get("status") == "dry_run":
