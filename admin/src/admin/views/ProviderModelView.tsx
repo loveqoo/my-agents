@@ -5,7 +5,7 @@
      models.dev 카탈로그 메타(ctx·modalities·cost) 칩. 도달 실패 시 안내 배너. 직접 추가 폼.
    토글 ON = 모델 등록 모달(POST /models, meta 포함), OFF = DELETE /models/{id}(에이전트 참조 시 409). */
 import { useState, useEffect } from 'react'
-import { Tag, Button, Modal, Input, Select, Switch, Checkbox, Tooltip, message, Popover, Flex, Segmented, InputNumber } from 'antd'
+import { Tag, Button, Modal, Input, Select, Switch, Checkbox, Tooltip, message, Popover, Flex, Segmented, Typography, Collapse } from 'antd'
 import { Page, Panel } from '../shared'
 import { Icon } from '../icons'
 import {
@@ -31,7 +31,9 @@ import {
   updateModel,
 } from '../../api'
 import { useAsyncData, runWithToast } from '../../hooks'
-import { useCapabilityDescriptors } from './agents/CapabilitySettings'
+import { useCapabilityDescriptors, ParamNumberField } from './agents/CapabilitySettings'
+
+const { Text } = Typography
 
 const codeStyle = { fontFamily: 'var(--font-family-code)', fontSize: 12 }
 
@@ -251,67 +253,99 @@ function CapsEditor({ reg, onSaved }: { reg: Model; onSaved: () => void }) {
       setBusy(false)
     }
   }
+  const basicParams = descriptors.params.filter((p) => !p.advanced)
+  const advancedParams = descriptors.params.filter((p) => p.advanced)
+
+  const renderParam = (p: (typeof descriptors.params)[number]) => {
+    const capFact = p.cap ? descriptors.capabilities.find((c) => c.cap === p.cap) : undefined
+    const capable = !p.cap || (savedCaps[p.cap] === undefined ? (capFact?.capDefault ?? true) : savedCaps[p.cap])
+    if (p.kind === 'bool') {
+      // 능력이 꺼진 축은 기본값을 정할 의미가 없다(부분집합 불가침) — 능력 ON일 때만 노출.
+      if (!capable) return null
+      const usageOn = usage[p.key] === undefined ? Boolean(p.default) : Boolean(usage[p.key])
+      return (
+        <Flex align="center" gap={8} key={p.key}>
+          <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)', minWidth: 90 }}>{p.label} 기본값</span>
+          <Segmented
+            size="small"
+            disabled={busy}
+            value={usageOn ? 'on' : 'off'}
+            onChange={(v) => void save({}, { [p.key]: v === 'on' })}
+            options={[{ label: '켬', value: 'on' }, { label: '끔', value: 'off' }]}
+          />
+        </Flex>
+      )
+    }
+    const usageNum = typeof usage[p.key] === 'number' ? (usage[p.key] as number) : undefined
+    return (
+      <ParamNumberField
+        key={p.key}
+        label={`${p.label} 기본값`}
+        min={p.min}
+        max={p.max}
+        step={p.step}
+        isInt={p.isInt}
+        value={usageNum}
+        placeholder={String(p.default)}
+        disabled={busy}
+        onChange={(v) => void save({}, { [p.key]: v ?? p.default })}
+      />
+    )
+  }
+
   return (
     <Popover
       trigger="click"
       title="모델 능력·설정"
       content={
-        <Flex vertical gap={16} style={{ minWidth: 260 }}>
-          {/* 능력(스펙 411) — 서버가 할 수 있는 것 자체. capabilities 사실 목록으로 렌더. */}
-          <Flex vertical gap={4}>
-            {descriptors.capabilities.map((d) => {
-              const capable = savedCaps[d.cap] === undefined ? d.capDefault : savedCaps[d.cap]
-              return (
-                <Checkbox
-                  key={d.cap}
-                  checked={capable}
-                  disabled={busy}
-                  onChange={(e) => void save({ [d.cap]: e.target.checked }, {})}
-                >
-                  {d.label} 지원 <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>(서버가 할 수 있는 것)</span>
-                </Checkbox>
-              )
-            })}
-          </Flex>
-          {/* 파라미터 기본값(스펙 411 N-확장) — bool은 능력 ON일 때만, number는 항상 편집 가능. */}
-          <Flex vertical gap={10}>
-            {descriptors.params.map((p) => {
-              const capFact = p.cap ? descriptors.capabilities.find((c) => c.cap === p.cap) : undefined
-              const capable = !p.cap || (savedCaps[p.cap] === undefined ? (capFact?.capDefault ?? true) : savedCaps[p.cap])
-              if (p.kind === 'bool') {
-                if (!capable) return null
-                const usageOn = usage[p.key] === undefined ? Boolean(p.default) : Boolean(usage[p.key])
+        <Flex vertical gap={16} style={{ minWidth: 280 }}>
+          {/* ① 능력 선언 블록(스펙 412) — 서버가 할 수 있는 사실. 파라미터와 시각언어를 분리:
+              Switch(관리자 선언) + 켜지면 Tag로 확정 표시. capabilities 사실 목록으로 렌더. */}
+          <Flex vertical gap={6}>
+            <Text style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>서버가 할 수 있는 것</Text>
+            <Flex gap={12} wrap>
+              {descriptors.capabilities.map((d) => {
+                const capable = savedCaps[d.cap] === undefined ? d.capDefault : savedCaps[d.cap]
                 return (
-                  <Flex align="center" gap={8} key={p.key}>
-                    <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)', minWidth: 90 }}>{p.label} 기본값</span>
-                    <Segmented
+                  <Flex align="center" gap={6} key={d.cap}>
+                    <Switch
                       size="small"
+                      checked={capable}
                       disabled={busy}
-                      value={usageOn ? 'on' : 'off'}
-                      onChange={(v) => void save({}, { [p.key]: v === 'on' })}
-                      options={[{ label: '켬', value: 'on' }, { label: '끔', value: 'off' }]}
+                      onChange={(checked) => void save({ [d.cap]: checked }, {})}
                     />
+                    {capable ? (
+                      <Tag color="blue" style={{ marginInlineEnd: 0 }}>{d.label}</Tag>
+                    ) : (
+                      <Text type="secondary" style={{ fontSize: 12 }}>{d.label}</Text>
+                    )}
                   </Flex>
                 )
-              }
-              const usageNum = typeof usage[p.key] === 'number' ? (usage[p.key] as number) : Number(p.default)
-              return (
-                <Flex align="center" gap={8} key={p.key}>
-                  <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)', minWidth: 90 }}>{p.label} 기본값</span>
-                  <InputNumber
-                    size="small"
-                    style={{ width: 120 }}
-                    disabled={busy}
-                    min={p.min ?? undefined}
-                    max={p.max ?? undefined}
-                    step={p.step ?? undefined}
-                    precision={p.isInt ? 0 : undefined}
-                    value={usageNum}
-                    onChange={(v) => void save({}, { [p.key]: v ?? p.default })}
-                  />
-                </Flex>
-              )
-            })}
+              })}
+            </Flex>
+          </Flex>
+          {/* ② 파라미터 기본값 블록(스펙 412) — 요청마다 조정하는 값. 능력과 다른 시각언어(카드형이
+              아닌 필드 나열)로 인지 경계를 준다. bool은 N-확장, number는 공유 ParamNumberField. */}
+          <Flex vertical gap={10}>
+            <Text style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>요청 파라미터 기본값</Text>
+            {basicParams.map((p) => renderParam(p))}
+            {advancedParams.length ? (
+              <Collapse
+                ghost
+                size="small"
+                items={[
+                  {
+                    key: 'advanced',
+                    label: '고급',
+                    children: (
+                      <Flex vertical gap={10}>
+                        {advancedParams.map((p) => renderParam(p))}
+                      </Flex>
+                    ),
+                  },
+                ]}
+              />
+            ) : null}
           </Flex>
         </Flex>
       }

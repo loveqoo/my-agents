@@ -657,6 +657,7 @@ export interface CapabilityFact { cap: string; label: string; capDefault: boolea
 export interface ParamDescriptor {
   key: string; kind: 'bool' | 'number'; label: string; default: number | boolean
   wire: string; cap: string | null; min: number | null; max: number | null; step: number | null; isInt: boolean
+  advanced: boolean // UI 고급 접기 축(스펙 412) — true면 Collapse 안(top_p·repetition_penalty 등).
 }
 export interface ModelDescriptors { capabilities: CapabilityFact[]; params: ParamDescriptor[] }
 export const getCapabilityDescriptors = () => j<ModelDescriptors>('/models/capabilities/descriptors')

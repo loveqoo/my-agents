@@ -57,6 +57,7 @@ class ParamDescriptor:
     maximum: float | None = None
     step: float | None = None
     is_int: bool = False
+    advanced: bool = False  # UI 고급 접기 축(스펙 412) — 핵심 파라미터는 펼치고 나머지는 Collapse.
 
 
 # 정본 목록 — 여기에 한 줄 = 4화면+백엔드 전체 반영. 구남님 승인(411): temperature 흡수(077 은퇴),
@@ -65,9 +66,10 @@ PARAMS: tuple[ParamDescriptor, ...] = (
     ParamDescriptor("stream", "bool", "스트리밍", True, "disable_streaming", cap="streaming"),
     ParamDescriptor("enable_thinking", "bool", "Thinking 모드", False, "extra_body", cap="thinking"),
     ParamDescriptor("temperature", "number", "Temperature", 0.7, "top", minimum=0.0, maximum=2.0, step=0.1),
-    ParamDescriptor("top_p", "number", "Top P", 1.0, "top", minimum=0.0, maximum=1.0, step=0.05),
     ParamDescriptor("max_tokens", "number", "최대 토큰", 0, "top", minimum=0, maximum=32768, step=1, is_int=True),
-    ParamDescriptor("repetition_penalty", "number", "반복 패널티", 1.0, "extra_body", minimum=0.5, maximum=2.0, step=0.05),
+    # 고급(스펙 412 — 기본 화면서 접힘): top_p·repetition_penalty는 세밀 튜닝 축.
+    ParamDescriptor("top_p", "number", "Top P", 1.0, "top", minimum=0.0, maximum=1.0, step=0.05, advanced=True),
+    ParamDescriptor("repetition_penalty", "number", "반복 패널티", 1.0, "extra_body", minimum=0.5, maximum=2.0, step=0.05, advanced=True),
 )
 
 _BY_KEY: dict[str, ParamDescriptor] = {p.key: p for p in PARAMS}
@@ -188,6 +190,7 @@ def descriptors_public() -> list[dict]:
                 "max": p.maximum,
                 "step": p.step,
                 "isInt": p.is_int,
+                "advanced": p.advanced,
             }
             for p in PARAMS
         ],
