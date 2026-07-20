@@ -80,7 +80,10 @@ export function overridePayload(
   if (!sameSet(applied.capabilities, base.capabilities)) p.capabilities = applied.capabilities
   if (applied.historyDepth !== base.historyDepth) p.historyDepth = applied.historyDepth
   // 세션 층 모델 설정(스펙 409) — 저장분과 다르면 전송(빈 객체로 되돌려도 명시 전송해 상속 복귀 반영).
-  if (JSON.stringify(applied.modelParams) !== JSON.stringify(base.modelParams)) p.modelParams = applied.modelParams
+  // 노드형(applied.nodes 존재)은 모델 설정을 노드가 소유하므로 세션 공통 modelParams를 전송 안 함
+  // (스펙 419 — UI서 숨겼고 계약에서도 세션층이 노드를 되덮는 걸 차단, retrospect 238).
+  if (!applied.nodes && JSON.stringify(applied.modelParams) !== JSON.stringify(base.modelParams))
+    p.modelParams = applied.modelParams
   // 노드형(스펙 287) — 노드 필드가 바뀌면 nodes(서버가 구조 불변 merge) + 파생 풀 동봉.
   if (applied.nodes && base.nodes && JSON.stringify(applied.nodes) !== JSON.stringify(base.nodes)) {
     p.nodes = applied.nodes
@@ -469,24 +472,16 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
           </>)}
 
           {step === 1 && isPipeline && (
-            /* 노드형 세부(스펙 287) — 단기 기억(노드 "상속" 원천값, 스펙 270) + 세션 모델 설정(스펙 411
-               codex P1: 세션 최상위 modelParams가 모든 노드에 적용 — 캐스케이드 4층 계약의 세션 층을
-               UI로 복원). 노드별 저장 설정은 1단계 노드 편집, 여기는 이 대화 한정 전 노드 공통 오버라이드. */
+            /* 노드형 세부(스펙 287/419) — 단기 기억(노드 "상속" 원천값, 스펙 270)만. 모델 설정은
+               **노드가 소유**(1단계 노드 편집, per-node)로 일원화 — 세션 공통 modelParams는 숨긴다
+               (스펙 419: 417과 같은 규칙. per-node 위를 덮는 세션층이 UI에 또 있으면 "모델 설정 두
+               군데"로 혼란, 구남님 지적). 세션 modelParams는 buildOverridePayload가 노드형이면 미전송. */
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <ShortTermMemoryField
                 value={draft.historyDepth}
                 onChange={(v) => set('historyDepth', v ?? 0)}
                 hint="노드의 단기 기억이 '상속'일 때 쓰이는 기본값입니다."
               />
-              <Field label="모델 설정(이 대화 · 전 노드 공통)">
-                <CapabilitySettings
-                  descriptors={capabilityDescriptors}
-                  capabilities={models.find((m) => m.name === draft.model)?.capabilities}
-                  modelDefaults={models.find((m) => m.name === draft.model)?.params}
-                  value={draft.modelParams}
-                  onChange={(mp) => set('modelParams', mp)}
-                />
-              </Field>
             </div>
           )}
           {step === 1 && !isPipeline && (
