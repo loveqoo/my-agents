@@ -16,11 +16,11 @@ from .base import AuditOut
 class AgentConfig(BaseModel):
     model: str = "mock-llm"  # 미지정 시 기본 모델(스펙 059)
     prompt: str = ""  # 프롬프트 이름(블록 참조)
-    temperature: float | None = (
-        None  # 에이전트 영속 온도(스펙 077). None=자동(모델 등록 params 적용)
-    )
-    # 모델 설정 오버라이드(스펙 408 캐스케이드) — 화이트리스트 키(enable_thinking·stream)만 실효.
-    # temperature는 위 기존 필드가 에이전트 층 정본(이중 거처 금지). 미명시 키=모델 기본 상속.
+    # temperature는 **은퇴**(스펙 411 흡수) — modelParams.temperature가 정본. 이 필드는 옛 저장분 read
+    # 하위호환 자리만(로더 _fold_temperature가 modelParams로 이관, serializer는 modelParams로 접어 노출).
+    temperature: float | None = None
+    # 모델 파라미터 오버라이드(스펙 408→411 캐스케이드) — 화이트리스트 키(stream·enable_thinking·
+    # temperature·top_p·max_tokens·repetition_penalty)만 실효. 미명시 키=모델 기본 상속. temperature 통합 거처.
     modelParams: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("modelParams")

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Select, Input, Switch, Slider, Tooltip, Collapse, Alert, Modal, Segmented, Button, Tag, Steps, Checkbox } from 'antd'
+import { Select, Input, Switch, Slider, Collapse, Alert, Modal, Segmented, Button, Tag, Steps, Checkbox } from 'antd'
 import { isOrchestratorImpl, isNodeRef, type BlockCategory, type ToolPolicy, type Agent, type PipelineNode, type PipelineNodeRef } from '../../mockData'
 import { DelegationGraph } from '../../DelegationGraph'
 import { listAgentImpls, type Model, type Collection, type ImplMeta } from '../../../api'
@@ -882,44 +882,17 @@ export function AgentForm({
                   </span>
                   {/* 스펙 235: 경계 구분 — 모델 동작 / 저장·영속(폼 표준 SectionHeader로 일관). */}
                   <SectionHeader>모델 동작</SectionHeader>
-                  {/* 온도(스펙 077) — 자동(끔)=모델 등록 기본값, 수동=0–2 저장. 플그 오버라이드와 대칭. */}
-                  <Field label="Temperature">
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                      <Tooltip title="끄면 모델 등록 기본값(자동)">
-                        <Switch
-                          size="small"
-                          checked={form.temperature != null}
-                          onChange={(on) => set('temperature', on ? 0.7 : null)}
-                        />
-                      </Tooltip>
-                      <Slider
-                        min={0}
-                        max={2}
-                        step={0.1}
-                        disabled={form.temperature == null}
-                        value={form.temperature ?? 0.7}
-                        onChange={(v) => set('temperature', v)}
-                        style={{ flex: 1 }}
-                      />
-                      <span style={{ width: 32, textAlign: 'right', fontFamily: 'var(--font-family-code)', fontSize: 13 }}>
-                        {form.temperature == null ? '—' : form.temperature.toFixed(1)}
-                      </span>
-                    </div>
-                    <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-                      {form.temperature == null ? '자동 — 모델 등록 기본값을 사용합니다.' : '에이전트에 저장됩니다(세션마다 동일).'}
-                      {/* 노드형도 소비(pipeline.py:79 — ctx.params가 노드 모델 params보다 우선). 적용 범위 명시. */}
-                      {isPipeline ? ' 모든 노드의 모델에 적용됩니다.' : ''}
-                    </span>
-                  </Field>
-                  {/* 모델 설정 오버라이드(스펙 409 단일 컴포넌트) — 서술자 목록이 구동, 설정이 늘어도
-                      여기 안 고침. 상속/켬/끔 3상. 능력이 아니라 사용값(모델이 못 하는 건 못 켬). */}
+                  {/* 모델 설정 오버라이드(스펙 409·411 단일 컴포넌트) — 서술자 목록이 구동, 설정이 늘어도
+                      여기 안 고침. bool=상속/켬/끔 3상(능력이 아니라 사용값 — 모델이 못 하는 건 못 켬),
+                      number=상속/값. temperature(스펙 077 전용 Slider 은퇴)도 이제 params 안에 포함돼
+                      여기서 함께 편집된다. */}
                   <Field label="모델 설정 오버라이드">
                     <CapabilitySettings
                       descriptors={capabilityDescriptors}
                       capabilities={selectedModel?.capabilities}
                       modelDefaults={selectedModel?.params}
                       value={form.modelParams}
-                      onChange={(mp) => set('modelParams', mp as Record<string, boolean>)}
+                      onChange={(mp) => set('modelParams', mp as Record<string, boolean | number>)}
                     />
                   </Field>
                   {/* 단기 기억(스펙 271 공용 컨트롤) — 직접형은 스텝 ②의 "기억" 구획이 소유하므로 여기선

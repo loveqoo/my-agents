@@ -1,0 +1,27 @@
+너는 적대적 코드 리뷰어다. 스펙 411(모델 튜닝 파라미터 N-확장 단일화)을 비판적으로 검토하라. "보장 목록의 여집합"을 찾아라.
+
+## 설계 의도
+- 서술자(agent/capabilities.py PARAMS) 하나가 백엔드 화이트리스트·유효값·유효성·admin 4화면을 구동.
+- 파라미터: stream·enable_thinking(bool, 능력 게이트)·temperature·top_p·max_tokens·repetition_penalty(number).
+- wire별 배선: top=ChatOpenAI kwargs(temperature/top_p/max_tokens), extra_body=비표준(enable_thinking/repetition_penalty), disable_streaming(stream).
+- 캐스케이드: 모델 params → 에이전트 modelParams → 노드 modelParams → 세션 오버라이드. 화이트리스트=PARAM_KEYS.
+- **temperature 흡수(스펙 077 은퇴)**: AgentConfig.temperature 특례 → modelParams.temperature. _fold_temperature가 레거시 config.temperature를 로드 시 modelParams로 이관. _OVERRIDE_ALLOWED에 "temperature" 하위호환 유지(fold가 흡수).
+
+## 변경 파일
+- packages/agent/src/agent/capabilities.py (ParamDescriptor·PARAMS·resolve_number·clean_model_params·descriptors_public {capabilities,params})
+- packages/agent/src/agent/model.py (build_chat_openai wire별 배선·풀 키·resolve_number)
+- packages/api/src/api/chat_context_loader.py (_fold_temperature·ctx.temperature=modelParams서 파생·_OVERRIDE_ALLOWED)
+- packages/api/src/api/model_registry.py (descriptors 엔드포인트 dict 반환)
+- admin/src/api.ts·CapabilitySettings.tsx·ProviderModelView.tsx·OverridePanel.tsx·AgentForm.tsx·NodeListEditor.tsx·mockData.ts·types.ts (UI 일반화·TemperatureField 은퇴)
+
+## 특히 파고들 것
+1. **temperature 흡수 무손실**: 기존 저장 에이전트(config.temperature=0.5, modelParams 없음)가 로드 시 정확히 0.5로 실행되나? _fold_temperature의 setdefault가 세션 오버라이드(overrides.temperature 레거시 경로)와 충돌해 세션값을 잃진 않나? _apply_overrides→_fold_temperature 순서상 세션 temperature가 modelParams로 제대로 가나?
+2. **이중 거처 잔존**: temperature가 AgentConfig.temperature(스키마 필드)와 modelParams 둘 다에 살 수 있나? 저장/직렬화/폼 재로드에서 어느 쪽이 이기나? ctx.temperature=modelParams서 파생으로 바꿨는데 trace/그래프 지문/run_params(chat_turn_runtime·chat_approval·chat_a2a_serve)와 정합하나?
+3. **number 클램프·게이트 우회**: clean_model_params/resolve_number의 범위 클램프가 저장·실행 양쪽에 걸리나? 문자열·bool을 number로 오인하나? max_tokens=0(미설정=서버 기본) 처리가 실제 요청에서 max_tokens를 안 보내나?
+4. **wire 배선 정확**: repetition_penalty가 정말 extra_body로, top_p가 top-level로 가나? extra_body에 chat_template_kwargs와 repetition_penalty가 공존하나(덮어쓰기 없이)? 풀 키가 모든 파라미터를 반영해 캐시 오염 없나?
+5. **FE/BE 정합**: FE가 number를 undefined(상속)로 지우는 것과 BE clean_model_params(키 없음=상속)가 일치하나? descriptors {capabilities,params} 새 형태를 FE가 다 소비하나(옛 list 잔재)?
+6. **회귀**: temperature를 쓰는 기존 경로(artifact·a2a·turn runtime run_params)가 여전히 동작하나?
+
+## 제약
+- 읽기 전용. 수정·커밋 금지. ~/.claude 접근 금지.
+- P1/P2/확인함 분류, 파일:라인 인용. 없으면 "P1 없음" 명시.

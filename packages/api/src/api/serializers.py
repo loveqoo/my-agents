@@ -107,6 +107,12 @@ def _iso(dt: datetime | None) -> str | None:
 
 def agent_to_out(a: Agent) -> AgentOut:
     cfg = dict(a.config or {})
+    # temperature 단일 거처(스펙 411 codex P2) — 레거시 config.temperature를 modelParams로 접어 폼이
+    # 한 곳(modelParams)에서 로드하게 한다(폼의 파라미터 편집기는 modelParams만 본다). 이중 노출 소멸.
+    _mp = dict(cfg.get("modelParams") or {})
+    _legacy_temp = cfg.get("temperature")
+    if isinstance(_legacy_temp, (int, float)) and not isinstance(_legacy_temp, bool):
+        _mp.setdefault("temperature", float(_legacy_temp))
     return AgentOut(
         id=a.id,
         agentId=a.agent_id,
@@ -115,8 +121,8 @@ def agent_to_out(a: Agent) -> AgentOut:
         source=a.source,
         model=cfg.get("model", a.model),
         prompt=cfg.get("prompt", a.prompt),
-        temperature=cfg.get("temperature"),  # 에이전트 영속 온도(스펙 077, 폼 재로드용)
-        modelParams=dict(cfg.get("modelParams") or {}),  # 스펙 408 캐스케이드(폼 재로드용)
+        temperature=None,  # 은퇴(스펙 411 흡수) — temperature는 modelParams가 정본. 필드는 하위호환 자리만.
+        modelParams=_mp,  # temperature 포함 통합 파라미터(폼 재로드용 — 단일 거처)
         systemPrompt=a.prompt,  # 해석된 본문(서빙용 = 오픈 버전 pin의 구체화 캐시, 스펙 370)
         historyDepth=cfg.get("historyDepth", a.history_depth),
         persistHistory=cfg.get("persistHistory", True),

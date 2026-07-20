@@ -4,7 +4,7 @@
    리셋되고 이후 턴이 그 설정대로 실행된다.
    code 에이전트: 원격 실행이라 오버라이드 미적용 — read-only 안내만. */
 import { useEffect, useState } from 'react'
-import { Drawer, Slider, Switch, Button, Alert, Tag, Tooltip, Steps, Grid } from 'antd'
+import { Drawer, Button, Alert, Tag, Steps, Grid } from 'antd'
 import { isOrchestratorImpl, isNodeRef, type Agent, type BlockCategory, type PipelineNode } from '../admin/mockData'
 import type { Collection, Model } from '../api'
 import { PickerGroups, type PickerGroup } from '../PickerGroups'
@@ -19,14 +19,13 @@ import { CapabilitySettings, useCapabilityDescriptors } from '../admin/views/age
 
 export interface Overrides {
   model: string
-  temperature: number | null // null = 자동(모델 등록 params 적용)
   systemPrompt: string
   mcps: string[]
   tools: string[] // 도구 단위 배선(스펙 276) — 런타임명 목록. mcps는 서버 합집합 파생.
   memories: string[]
   capabilities: string[] // 조율형 위임 대상(cap id 목록, 스펙 122). 직접형은 항상 빈 배열.
   historyDepth: number
-  modelParams: Record<string, boolean | undefined> // 세션 층 모델 설정 오버라이드(스펙 409) — 최상위 층
+  modelParams: Record<string, boolean | number | undefined> // 세션 층 모델 설정 오버라이드(스펙 409·411) — 최상위 층. temperature 등 숫자 파라미터도 포함(411).
   /** 노드형 노드 필드 오버라이드(스펙 287) — 구조 불변(개수·순서·이름은 서버가 저장본 유지). */
   nodes?: PipelineNode[]
 }
@@ -36,7 +35,6 @@ export interface Overrides {
 export function overrideDefaults(a: Agent): Overrides {
   return {
     model: a.model ?? '',
-    temperature: null,
     systemPrompt: a.systemPrompt ?? '',
     mcps: [...(a.mcps ?? [])],
     tools: [...(a.tools ?? [])],
@@ -72,7 +70,6 @@ export function overridePayload(
 ): Record<string, unknown> {
   const p: Record<string, unknown> = {}
   if (applied.model && applied.model !== base.model) p.model = applied.model
-  if (applied.temperature != null && applied.temperature !== base.temperature) p.temperature = applied.temperature
   // 빈 systemPrompt로 prompt를 지우지 않도록 — 비어있지 않고 달라진 경우만.
   if (applied.systemPrompt.trim() && applied.systemPrompt !== base.systemPrompt) p.systemPrompt = applied.systemPrompt
   if (!sameSet(applied.mcps, base.mcps)) p.mcps = applied.mcps
@@ -95,36 +92,6 @@ export function overridePayload(
     }
   }
   return p
-}
-
-/* Temperature 컨트롤(스펙 077) — 직접형·노드형 세부가 공유(287 후속: 노드형도 소비 실측으로 복귀).
-   null=자동(모델 등록 params), 켜면 0–2 수동. */
-function TemperatureField({ value, onChange, hint }: { value: number | null; onChange: (v: number | null) => void; hint?: string }) {
-  return (
-    <Field
-      group
-      label="Temperature"
-      hint={hint ?? (value == null ? '자동 — 모델 등록 기본값을 사용합니다.' : undefined)}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <Tooltip title="끄면 모델 등록 기본값(자동)">
-          <Switch size="small" checked={value != null} onChange={(on) => onChange(on ? 0.7 : null)} />
-        </Tooltip>
-        <Slider
-          min={0}
-          max={2}
-          step={0.1}
-          disabled={value == null}
-          value={value ?? 0.7}
-          onChange={(v) => onChange(typeof v === 'number' ? v : 0.7)}
-          style={{ flex: 1 }}
-        />
-        <span style={{ width: 32, textAlign: 'right', fontFamily: 'var(--font-family-code)', fontSize: 13 }}>
-          {value == null ? '—' : value.toFixed(1)}
-        </span>
-      </div>
-    </Field>
-  )
 }
 
 /* group=false(기본): 단일 컨트롤용 <label> — 라벨 클릭이 그 컨트롤로 포커스 이동(UX). group=true:
@@ -502,25 +469,24 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
           </>)}
 
           {step === 1 && isPipeline && (
-            /* 노드형 세부(스펙 287) — 에이전트-레벨에서 노드형 런타임이 실제로 쓰는 것만(108):
-               단기 기억(노드 "상속" 선택의 원천값, 스펙 270)과 Temperature. 모델·프롬프트·도구·
-               장기 기억은 노드가 소유(1단계). Temperature는 실측상 노드형도 소비(pipeline.py:79 —
-               ctx.params가 노드 모델 params보다 우선, 모든 노드에 적용)라 복귀(2026-07-10 사용자 결정). */
+            /* 노드형 세부(스펙 287) — 단기 기억(노드 "상속" 원천값, 스펙 270) + 세션 모델 설정(스펙 411
+               codex P1: 세션 최상위 modelParams가 모든 노드에 적용 — 캐스케이드 4층 계약의 세션 층을
+               UI로 복원). 노드별 저장 설정은 1단계 노드 편집, 여기는 이 대화 한정 전 노드 공통 오버라이드. */
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              <TemperatureField
-                value={draft.temperature}
-                onChange={(v) => set('temperature', v)}
-                hint={
-                  draft.temperature == null
-                    ? '자동 — 각 노드 모델의 등록 기본값을 사용합니다. 켜면 모든 노드의 모델에 적용됩니다.'
-                    : '모든 노드의 모델에 적용됩니다.'
-                }
-              />
               <ShortTermMemoryField
                 value={draft.historyDepth}
                 onChange={(v) => set('historyDepth', v ?? 0)}
                 hint="노드의 단기 기억이 '상속'일 때 쓰이는 기본값입니다."
               />
+              <Field label="모델 설정(이 대화 · 전 노드 공통)">
+                <CapabilitySettings
+                  descriptors={capabilityDescriptors}
+                  capabilities={models.find((m) => m.name === draft.model)?.capabilities}
+                  modelDefaults={models.find((m) => m.name === draft.model)?.params}
+                  value={draft.modelParams}
+                  onChange={(mp) => set('modelParams', mp)}
+                />
+              </Field>
             </div>
           )}
           {step === 1 && !isPipeline && (
@@ -551,9 +517,8 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
           ) : null}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
-          {/* 세부(스펙 249: 단계가 이미 구획이라 Collapse 해제·평면 나열) — Temperature·채팅 히스토리. */}
-          <TemperatureField value={draft.temperature} onChange={(v) => set('temperature', v)} />
-          {/* 세션 층 모델 설정(스펙 409) — 이 대화에서만 스트리밍/thinking을 덮는다(최상위 층). */}
+          {/* 세부(스펙 249: 단계가 이미 구획이라 Collapse 해제·평면 나열) — 모델 설정(Temperature 포함)·채팅 히스토리. */}
+          {/* 세션 층 모델 설정(스펙 409·411) — 이 대화에서만 스트리밍/thinking/temperature 등을 덮는다(최상위 층). */}
           <Field label="모델 설정">
             <CapabilitySettings
               descriptors={capabilityDescriptors}

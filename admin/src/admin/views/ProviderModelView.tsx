@@ -5,7 +5,7 @@
      models.dev 카탈로그 메타(ctx·modalities·cost) 칩. 도달 실패 시 안내 배너. 직접 추가 폼.
    토글 ON = 모델 등록 모달(POST /models, meta 포함), OFF = DELETE /models/{id}(에이전트 참조 시 409). */
 import { useState, useEffect } from 'react'
-import { Tag, Button, Modal, Input, Select, Switch, Checkbox, Tooltip, message, Popover, Flex, Segmented } from 'antd'
+import { Tag, Button, Modal, Input, Select, Switch, Checkbox, Tooltip, message, Popover, Flex, Segmented, InputNumber } from 'antd'
 import { Page, Panel } from '../shared'
 import { Icon } from '../icons'
 import {
@@ -256,34 +256,63 @@ function CapsEditor({ reg, onSaved }: { reg: Model; onSaved: () => void }) {
       trigger="click"
       title="모델 능력·설정"
       content={
-        <Flex vertical gap={12} style={{ minWidth: 260 }}>
-          {descriptors.map((d) => {
-            const capable = savedCaps[d.cap] === undefined ? d.capDefault : savedCaps[d.cap]
-            const usageOn = usage[d.setting ?? ''] === undefined ? d.default : Boolean(usage[d.setting ?? ''])
-            return (
-              <Flex vertical gap={4} key={d.cap}>
+        <Flex vertical gap={16} style={{ minWidth: 260 }}>
+          {/* 능력(스펙 411) — 서버가 할 수 있는 것 자체. capabilities 사실 목록으로 렌더. */}
+          <Flex vertical gap={4}>
+            {descriptors.capabilities.map((d) => {
+              const capable = savedCaps[d.cap] === undefined ? d.capDefault : savedCaps[d.cap]
+              return (
                 <Checkbox
+                  key={d.cap}
                   checked={capable}
                   disabled={busy}
                   onChange={(e) => void save({ [d.cap]: e.target.checked }, {})}
                 >
                   {d.label} 지원 <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>(서버가 할 수 있는 것)</span>
                 </Checkbox>
-                {d.setting && capable && (
-                  <Flex align="center" gap={8} style={{ marginLeft: 24 }}>
-                    <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>요청 기본값</span>
+              )
+            })}
+          </Flex>
+          {/* 파라미터 기본값(스펙 411 N-확장) — bool은 능력 ON일 때만, number는 항상 편집 가능. */}
+          <Flex vertical gap={10}>
+            {descriptors.params.map((p) => {
+              const capFact = p.cap ? descriptors.capabilities.find((c) => c.cap === p.cap) : undefined
+              const capable = !p.cap || (savedCaps[p.cap] === undefined ? (capFact?.capDefault ?? true) : savedCaps[p.cap])
+              if (p.kind === 'bool') {
+                if (!capable) return null
+                const usageOn = usage[p.key] === undefined ? Boolean(p.default) : Boolean(usage[p.key])
+                return (
+                  <Flex align="center" gap={8} key={p.key}>
+                    <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)', minWidth: 90 }}>{p.label} 기본값</span>
                     <Segmented
                       size="small"
                       disabled={busy}
                       value={usageOn ? 'on' : 'off'}
-                      onChange={(v) => void save({}, { [d.setting as string]: v === 'on' })}
+                      onChange={(v) => void save({}, { [p.key]: v === 'on' })}
                       options={[{ label: '켬', value: 'on' }, { label: '끔', value: 'off' }]}
                     />
                   </Flex>
-                )}
-              </Flex>
-            )
-          })}
+                )
+              }
+              const usageNum = typeof usage[p.key] === 'number' ? (usage[p.key] as number) : Number(p.default)
+              return (
+                <Flex align="center" gap={8} key={p.key}>
+                  <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)', minWidth: 90 }}>{p.label} 기본값</span>
+                  <InputNumber
+                    size="small"
+                    style={{ width: 120 }}
+                    disabled={busy}
+                    min={p.min ?? undefined}
+                    max={p.max ?? undefined}
+                    step={p.step ?? undefined}
+                    precision={p.isInt ? 0 : undefined}
+                    value={usageNum}
+                    onChange={(v) => void save({}, { [p.key]: v ?? p.default })}
+                  />
+                </Flex>
+              )
+            })}
+          </Flex>
         </Flex>
       }
     >

@@ -9,11 +9,12 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 from typing import Literal, overload
 
 from langchain_openai import ChatOpenAI
 
-from .capabilities import resolve_effective
+from .capabilities import PARAMS, resolve_effective, resolve_number
 from .reasoning_chat import ReasoningChatOpenAI
 
 _MISSING_MSG = "모델 설정이 필요합니다 (base_url/model_id) — 모델을 등록하세요."
@@ -62,15 +63,43 @@ def build_chat_openai(
         raise RuntimeError(error_label)
     cfg_params = cfg.get("params") or {}
     params = params or {}
-    temperature = params.get("temperature", cfg_params.get("temperature", default_temperature))
-    # 능력→설정 유효값(스펙 409): 서술자 목록(capabilities.py) 단일 정본이 "능력 AND 설정"을 계산.
-    # 층 우선순위=호출자 params(세션) > cfg params(모델·에이전트·노드 병합). 능력 false면 어느 층도
-    # 못 켠다(부분집합 불가침) — streaming뿐 아니라 thinking도 능력 게이트(408은 thinking 미게이트였음).
-    # SDK 배선만 축별로 다르다: stream→disable_streaming, enable_thinking→extra_body(그 매핑이 유일한
-    # 축별 코드). 스트리밍 꺼짐=LangChain이 astream을 ainvoke로 접어 완성문 1회 yield(SSE 계약 유지).
     caps = cfg.get("capabilities") or {}
-    stream_effective = resolve_effective("streaming", caps, params, cfg_params)
-    enable_thinking = resolve_effective("thinking", caps, params, cfg_params)
+    # 파라미터 유효값을 서술자(capabilities.py PARAMS)로 해석·배선(스펙 411 — temperature·top_p·
+    # max_tokens·repetition_penalty·stream·enable_thinking 단일 메커니즘). 층 우선순위=호출자 params
+    # (세션) > cfg_params(모델·에이전트·노드 병합). bool은 능력 AND 설정(게이트), number는 범위 클램프.
+    # wire별 배선이 유일한 축별 코드: top=ChatOpenAI 직접 kwargs, extra_body=비표준, disable_streaming.
+    top_kwargs: dict = {}
+    chat_template_kwargs: dict = {}
+    extra_body: dict = {}
+    disable_streaming = False
+    for p in PARAMS:
+        if p.kind == "bool":
+            eff = resolve_effective(p.key, caps, params, cfg_params)
+            if p.wire == "disable_streaming":
+                disable_streaming = not eff
+            elif p.wire == "extra_body":
+                chat_template_kwargs[p.key] = eff
+        else:  # number
+            if p.key == "temperature":
+                # temperature는 미명시 시 caller default_temperature 존중(기존 계약 — 스펙 077 흡수).
+                num = resolve_number("temperature", params, cfg_params)
+                explicit = any(
+                    isinstance(lay.get("temperature"), (int, float)) and not isinstance(lay.get("temperature"), bool)
+                    for lay in (params, cfg_params)
+                )
+                num = num if explicit else default_temperature
+            else:
+                num = resolve_number(p.key, params, cfg_params)
+            if p.key == "max_tokens" and (num is None or num <= 0):
+                continue  # 0/미설정=서버 기본(안 보냄)
+            if num is None:
+                continue
+            if p.wire == "top":
+                top_kwargs[p.key] = num
+            elif p.wire == "extra_body":
+                extra_body[p.key] = num
+    if chat_template_kwargs:
+        extra_body["chat_template_kwargs"] = chat_template_kwargs
     api_key = cfg.get("api_key") or "sk-noauth"
     # 클라이언트 풀(스펙 371 D2) — 같은 연결·모델·파라미터면 인스턴스 재사용(ChatOpenAI는 호출간
     # 무상태·async-safe). 목적은 생성 비용(~0.1ms)이 아니라 **커넥션 재사용**(실 프로바이더 TLS
@@ -82,28 +111,30 @@ def build_chat_openai(
         loop_id = id(asyncio.get_running_loop())
     except RuntimeError:
         loop_id = None
+    # 풀 키에 해석된 모든 파라미터 반영(스펙 411) — 값이 다르면 다른 클라이언트(캐시 오염 방지).
     key = (
         loop_id,
         base_url,
         hashlib.sha256(api_key.encode()).hexdigest()[:8],
         model_id,
-        temperature,
-        enable_thinking,
-        stream_effective,  # 스트리밍 모드가 다르면 다른 클라이언트(풀 키 분리 — 스펙 408)
+        json.dumps(top_kwargs, sort_keys=True),
+        json.dumps(extra_body, sort_keys=True),
+        disable_streaming,
     )
     pooled = _CLIENT_POOL.get(key) if loop_id is not None else None
     if pooled is not None:
         return pooled
     # ReasoningChatOpenAI(스펙 410): base가 버리는 reasoning_content를 additional_kwargs로 되살린다
     # (사고 없는 모델·응답엔 무영향 — 항상 써도 안전). 사고 과정 표시(410 P2/P3)가 이를 소비.
+    # top_kwargs=temperature/top_p/max_tokens(표준 인자), extra_body=enable_thinking/repetition_penalty(비표준).
     client = ReasoningChatOpenAI(
         base_url=base_url,
         api_key=api_key,
         model=model_id,
-        temperature=temperature,
         # 능력 없음/사용 끔 → astream이 ainvoke로 접혀 완성문 1회 yield(비스트리밍 안전 실행).
-        disable_streaming=not stream_effective,
-        extra_body={"chat_template_kwargs": {"enable_thinking": enable_thinking}},
+        disable_streaming=disable_streaming,
+        extra_body=extra_body,
+        **top_kwargs,
     )
     if loop_id is not None:
         if len(_CLIENT_POOL) >= _CLIENT_POOL_MAX:

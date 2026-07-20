@@ -31,14 +31,16 @@ from .node_templates import resolve_node_refs
 # 세션 오버라이드 화이트리스트(스펙 025/122/276/287 — 각 키 근거는 _apply_overrides docstring).
 _OVERRIDE_ALLOWED = {
     "model",
-    "temperature",
+    # temperature 세션 오버라이드는 modelParams.temperature로 통일(스펙 411 흡수) — 별도 "temperature"
+    # 특례 키 은퇴. (codex P1: 옛 키를 남기면 저장 modelParams.temperature가 세션값을 setdefault로
+    # 이겨 "세션 최상위" 위반. FE도 modelParams로 보내므로 제거.)
     "historyDepth",
     "mcps",
     "memories",
     "capabilities",
     "tools",
     "vectorTables",
-    # 모델 설정 오버라이드(스펙 408 캐스케이드 3층 — 세션): per-key 병합은 _apply_overrides가 담당.
+    # 모델 파라미터 오버라이드(스펙 408→411 캐스케이드 3층 — 세션): per-key 병합은 _apply_overrides가 담당.
     "modelParams",
 }
 
@@ -60,6 +62,21 @@ async def _resolve_nodes_for_ctx(
     return await _resolve_node_models(db, nodes, model_cfg, pins, agent_cfg=cfg, session_mp=session_mp)
 
 
+def _fold_temperature(cfg: dict) -> None:
+    """레거시 temperature 흡수(스펙 411) — 옛 저장 config의 `temperature`(스펙 077 특례)를 통합
+    파라미터 축 `modelParams.temperature`로 이관한다. modelParams에 이미 있으면(신규 저장분) 무변화.
+    None(자동=모델 기본)은 이관 안 함(미설정 의미 보존). 세션 오버라이드 temperature도 _apply_overrides가
+    modelParams로 넣으므로 여기서 legacy 키만 흡수. temperature가 다른 파라미터와 한 메커니즘이 된다."""
+    temp = cfg.get("temperature")
+    if isinstance(temp, (int, float)) and not isinstance(temp, bool):
+        mp = cfg.get("modelParams")
+        if not isinstance(mp, dict):
+            mp = {}
+            cfg["modelParams"] = mp
+        mp.setdefault("temperature", float(temp))
+    cfg.pop("temperature", None)  # 특례 키 은퇴(이관 후 제거 — 이중 거처 방지)
+
+
 async def _prepare_cfg(
     db: AsyncSession, agent: Agent, version: str | None, overrides: dict | None
 ) -> tuple[dict, str, str | None, str | None, dict | None]:
@@ -77,6 +94,7 @@ async def _prepare_cfg(
     cfg, prompt, nodes_status, applied_overrides = _apply_overrides(
         cfg, prompt, overrides, agent, _OVERRIDE_ALLOWED
     )
+    _fold_temperature(cfg)  # 레거시 temperature → modelParams 이관(스펙 411 흡수)
     # 노드형 풀 서버 파생(스펙 289 P2) — 로드 시 무조건 재파생: 폼 밖 입구(API 직생성·구저장·
     # 오버라이드)로 풀이 비었거나 낡았어도 노드 참조대로 도구·문서·기억이 빌드된다(learning 151).
     # 저장 시 파생(agents.py)과 같은 규칙이라 폼 저장분엔 무변화(멱등).
@@ -154,8 +172,9 @@ async def _load_context(
             # 도구 승인 오버라이드(스펙 177 P2) — 요청 오버라이드 허용키엔 불포함(요청으로 승인 완화
             # 우회 금지, config-only). 완화 권한은 저장 시 admin 게이트로 강제.
             tool_policy=cfg.get("toolPolicy") or {},
-            # 에이전트가 명시한 temperature만 전달(없으면 None) → 모델 등록 params가 적용되게.
-            temperature=cfg.get("temperature"),
+            # temperature는 통합 파라미터 축(modelParams)에서 파생(스펙 411 흡수) → trace/지문 연속성.
+            # 미명시=None(모델 등록 params 적용). 실행 배선은 build_chat_openai가 modelParams로 직접 해석.
+            temperature=(cfg.get("modelParams") or {}).get("temperature"),
             history_depth=cfg.get("historyDepth", 20),
             persist_history=cfg.get("persistHistory", True),
             # 비영속(1회성) 모드(스펙 235) — true면 DB 적재 전면 스킵(persistHistory의 상위집합).

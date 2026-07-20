@@ -53,12 +53,13 @@ async def unit_checks() -> None:
     check(tuple(MODEL_PARAM_OVERRIDE_KEYS) == tuple(SETTING_KEYS), "U1a 화이트리스트=SETTING_KEYS 파생")
     check("stream" in SETTING_KEYS and "enable_thinking" in SETTING_KEYS, "U1b 설정 키 목록 존재")
     # U1c 노드 정규화가 화이트리스트만 보존(evil/temperature 드롭 — 설정 아님).
+    # 스펙 411: temperature도 이제 유효 파라미터(number) — 보존. evil(미지 키)만 드롭.
     cfg = AgentConfig(
         nodes=[{"prompt": "p", "modelParams": {"stream": False, "enable_thinking": True, "evil": 1, "temperature": 0.9}}]
     )
     check(
-        cfg.nodes[0].get("modelParams") == {"stream": False, "enable_thinking": True},
-        f"U1c 노드 modelParams 화이트리스트만 (got {cfg.nodes[0].get('modelParams')})",
+        cfg.nodes[0].get("modelParams") == {"stream": False, "enable_thinking": True, "temperature": 0.9},
+        f"U1c 노드 modelParams 화이트리스트만(temperature 보존·evil 드롭) (got {cfg.nodes[0].get('modelParams')})",
     )
 
     # U2 유효값 게이트 — 능력 AND 설정. 능력 false면 어느 층도 못 켬.
@@ -114,16 +115,15 @@ async def main() -> None:
 
     tag = f"v409-{uuid.uuid4().hex[:6]}"
     async with httpx.AsyncClient(base_url=BASE, headers=_auth(), timeout=120) as c:
-        # H1 서술자 엔드포인트 = 정본
+        # H1 서술자 엔드포인트 = 정본(스펙 411: {capabilities, params} dict 형태)
         r = await c.get("/models/capabilities/descriptors")
         check(r.status_code == 200, f"H1a 서술자 200 (got {r.status_code})")
         descs = r.json()
-        caps = {d["cap"] for d in descs}
+        caps = {d["cap"] for d in descs.get("capabilities", [])}
         check({"streaming", "thinking", "vision"} <= caps, f"H1b 능력 3종 노출 (got {caps})")
-        tunable = {d["setting"] for d in descs if d["setting"]}
-        check(tunable == set(SETTING_KEYS), f"H1c 튜닝 설정=SETTING_KEYS 파리티 (got {tunable})")
-        vis = next(d for d in descs if d["cap"] == "vision")
-        check(vis["setting"] is None, "H1d vision은 능력만(setting=None)")
+        param_keys = {p["key"] for p in descs.get("params", [])}
+        check({"stream", "enable_thinking"} <= param_keys, f"H1c 파라미터에 설정 키 존재 (got {param_keys})")
+        check("vision" not in param_keys, "H1d vision은 능력만(params에 없음)")
 
         # H2 노드별 오버라이드 저장/로드 왕복
         ag = (

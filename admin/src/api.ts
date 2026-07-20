@@ -649,17 +649,17 @@ export interface Model extends Audit {
 }
 export const listModels = (kind?: 'chat' | 'embedding') =>
   j<Model[]>(`/models${kind ? `?kind=${kind}` : ''}`)
-/** 능력→설정 서술자(스펙 409 단일 정본) — 모델·에이전트·플그·노드 4화면이 이 목록으로 렌더.
- *  FE에 사본을 두지 않는다(FE/BE 드리프트 0 — 백엔드 agent.capabilities가 정본). */
-export interface CapabilityDescriptor {
-  cap: string // capabilities JSONB 키(사실)
-  setting: string | null // 요청별 설정 키(usage) — null이면 능력만(요청 토글 없음, 예 vision)
-  label: string
-  default: boolean // 모델 층 설정 기본값
-  capDefault: boolean // 능력 기본값(신규 모델)
+/** 능력→설정 서술자(스펙 409·411 단일 정본) — 모델·에이전트·플그·노드 4화면이 이 목록으로 렌더.
+ *  FE에 사본을 두지 않는다(FE/BE 드리프트 0 — 백엔드 agent.capabilities가 정본).
+ *  스펙 411: 능력 사실(capabilities)과 파라미터(params, bool|number)를 분리 — params는 N-확장
+ *  (temperature 등 숫자 파라미터도 여기 담긴다, kind로 렌더 분기). */
+export interface CapabilityFact { cap: string; label: string; capDefault: boolean }
+export interface ParamDescriptor {
+  key: string; kind: 'bool' | 'number'; label: string; default: number | boolean
+  wire: string; cap: string | null; min: number | null; max: number | null; step: number | null; isInt: boolean
 }
-export const getCapabilityDescriptors = () =>
-  j<CapabilityDescriptor[]>('/models/capabilities/descriptors')
+export interface ModelDescriptors { capabilities: CapabilityFact[]; params: ParamDescriptor[] }
+export const getCapabilityDescriptors = () => j<ModelDescriptors>('/models/capabilities/descriptors')
 export const createModel = (body: unknown) => post('/models', body) as Promise<Model>
 export const updateModel = (id: string, body: unknown) => put(`/models/${id}`, body) as Promise<Model> // 능력·설정 편집(스펙 408)
 /** 기본 모델 지정(스펙 150) — 같은 kind의 기존 기본은 서버가 자동 해제. */

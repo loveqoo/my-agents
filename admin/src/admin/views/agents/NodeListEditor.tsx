@@ -192,14 +192,14 @@ export function NodeConfigFields({
           required
         />
       )}
-      {/* 노드별 모델 설정 오버라이드(스펙 409) — 에이전트 층 위에 이 노드만 덮는다. 공용 컴포넌트. */}
-      {show('modelParams') && capabilityDescriptors.length > 0 && (
+      {/* 노드별 모델 설정 오버라이드(스펙 409·411) — 에이전트 층 위에 이 노드만 덮는다. 공용 컴포넌트. */}
+      {show('modelParams') && capabilityDescriptors.params.length > 0 && (
         <CapabilitySettings
           descriptors={capabilityDescriptors}
           capabilities={models.find((m) => m.name === n.model)?.capabilities}
           modelDefaults={models.find((m) => m.name === n.model)?.params}
           value={n.modelParams ?? {}}
-          onChange={(mp) => onChange({ modelParams: Object.keys(mp).length ? (mp as Record<string, boolean>) : undefined })}
+          onChange={(mp) => onChange({ modelParams: Object.keys(mp).length ? (mp as Record<string, boolean | number>) : undefined })}
         />
       )}
 
