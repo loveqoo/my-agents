@@ -119,6 +119,8 @@ export interface MemorySaved {
 export type ChatMsg = {
   role: 'me' | 'ai'
   text: string
+  // 사고 과정(reasoning_content, 스펙 410) — 본문(text)과 분리. 있으면 답변 위 접이식 Think 패널로 렌더.
+  reasoning?: string
   trace?: Trace
   artifact?: { kind: string; data: Record<string, unknown>; raw?: string | null }
   // 스펙 209 P1.5: 저장된 assistant 메시지 id + 현재 사용자 피드백(👍/👎). id 있는 ai 메시지에만

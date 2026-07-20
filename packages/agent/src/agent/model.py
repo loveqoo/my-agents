@@ -14,6 +14,7 @@ from typing import Literal, overload
 from langchain_openai import ChatOpenAI
 
 from .capabilities import resolve_effective
+from .reasoning_chat import ReasoningChatOpenAI
 
 _MISSING_MSG = "모델 설정이 필요합니다 (base_url/model_id) — 모델을 등록하세요."
 
@@ -93,7 +94,9 @@ def build_chat_openai(
     pooled = _CLIENT_POOL.get(key) if loop_id is not None else None
     if pooled is not None:
         return pooled
-    client = ChatOpenAI(
+    # ReasoningChatOpenAI(스펙 410): base가 버리는 reasoning_content를 additional_kwargs로 되살린다
+    # (사고 없는 모델·응답엔 무영향 — 항상 써도 안전). 사고 과정 표시(410 P2/P3)가 이를 소비.
+    client = ReasoningChatOpenAI(
         base_url=base_url,
         api_key=api_key,
         model=model_id,

@@ -119,6 +119,7 @@ from .chat_sse_frames import (  # noqa: F401
     _ingest_update,
     _interrupt_frames,
     _pending_approval_trace,
+    _stream_reasoning,
     _stream_text,
 )
 from .chat_trace import (  # noqa: F401
@@ -330,6 +331,11 @@ async def chat(
             ):
                 if stream_mode == "messages":
                     msg_chunk, _meta = chunk
+                    # 사고 과정(스펙 410) — 본문과 분리된 side channel. acc(영속·메모리)엔 안 넣고
+                    # 별도 프레임으로만(축 분리). 사고 없는 응답이면 빈 문자열이라 프레임 없음.
+                    reasoning = _stream_reasoning(msg_chunk)
+                    if reasoning:
+                        yield f"data: {json.dumps({'reasoning': reasoning}, ensure_ascii=False)}\n\n"
                     text = _stream_text(msg_chunk)
                     if text:
                         acc.append(text)

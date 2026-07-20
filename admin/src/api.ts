@@ -807,6 +807,9 @@ export interface ChatArtifact {
 
 export interface ChatCallbacks {
   onToken: (t: string) => void
+  // 사고 과정(reasoning_content, 스펙 410) — 본문과 분리된 side channel. 단건 응답은 완성 후 1회,
+  // 스트리밍 사고 서버가 붙으면 델타로 다회(누적). 본문(onToken)과 별개로 Think 패널에 렌더.
+  onReasoning?: (t: string) => void
   onSession?: (sessionId: string) => void
   onTrace?: (trace: Record<string, unknown>) => void
   // 위험 도구가 그래프를 멈춰 승인 대기 프레임({text, approval, approver})이 오면 승인 id를 넘긴다(179).
@@ -846,6 +849,9 @@ function handleFrame(frame: string, cb: ChatCallbacks): boolean {
     else if (typeof parsed.text === 'string') cb.onToken(parsed.text)
     else if (typeof parsed.session === 'string') cb.onSession?.(parsed.session)
     else if (typeof parsed.error === 'string') cb.onToken(`\n[오류] ${parsed.error}`)
+    // 사고 과정(스펙 410) — 독립 if(else-if 아님, codex 410 P2): 복합 프레임에서 reasoning이
+    // text/session을 가리지 않도록. 현 서버는 별도 프레임이나 파서 계약(승인처럼 복합 허용)과 대칭.
+    if (typeof parsed.reasoning === 'string') cb.onReasoning?.(parsed.reasoning)
     // 승인 대기 프레임은 text와 approval을 함께 실어 온다 — text는 위에서 토큰으로 표시하고,
     // approval id는 별도로 표면화(else-if 아님)해 요청자 폴링을 트리거한다(스펙 179).
     if (typeof parsed.approval === 'string')

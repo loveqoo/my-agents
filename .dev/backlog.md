@@ -6,6 +6,9 @@
 > 규칙이 아니라 종이 한 장 — 새 작업 정해지면 여기서 옮기고, 끝나면 완료로 내린다.
 
 ## 후보
+- ✅**사고 과정 표시 = 스펙 410 완료**(2026-07-20, 회고 338): thinking 응답의 사고를 접이식 Think 패널에 실시간 스트리밍. 근본원인=rapid-mlx `--reasoning-parser qwen3` 미설정(구남님이 적용)—코드는 맞았음. ReasoningChatOpenAI 서브클래스(langchain base가 reasoning 버림)·분리 SSE 채널·관문정화(<think> 영속 0 불변식). **핵심교훈**: 조사>직접프로브(25프로브 오진, 구남님 조언이 전환점)·인프라를 코드보다 먼저 의심. codex P1(관문정화)+P2 반영. verify_410 14/14+e2e. **OUT**: reasoning 길이캡·ThoughtChain(노드형).
+- [ ] **모델 튜닝 파라미터 N-확장 단일화(스펙 411 후보, 2026-07-20 구남님 요청)**: 409가 stream/thinking 2개만·temperature는 별도 특례라 3중 불균일. 모델마다 튜닝 메타값(temperature·repetition_penalty·top_p·max_tokens 등)을 서술자로 선언→모델 폼 기본값·에이전트/노드/세션 오버라이드·ChatOpenAI 관통을 하나로. 지금 build_chat_openai는 temperature만 명시배선(나머지 model.params에 있어도 미전달). CapabilitySettings를 숫자/enum까지 일반화. temperature 흡수 여부 결정 필요(스펙 077 깊은 배선).
+- [ ] **그물 fresh-DB-per-run 격리 하네스(재확인 2026-07-20)**: make test가 매 실행 다른 db층 테스트를 red(137/140/141 → 124/130/131/158 등 비결정). 원인=공유 dev DB(프로브·e2e 잔재+실모델 랭킹 비결정 verify_124는 커밋상태서도 실패). 근본=격리 하네스. 당장 규율=그물 전 dev DB 정리·서버 정지.
 - [ ] **첨부 후속 경화(스펙 404 OUT — codex 잔여, 2026-07-19)**: ①HTTP body limit·업로드 rate limit(인프라/ASGI 층 — pre-parse 메모리 DoS는 앱 캡으로 못 막음) ②턴 전체 컨텍스트 예산 계약(첨부 총합 9만자+히스토리+메시지 — 모델별 예산 처리) ③첨부 턴 부수효과 도구 승인 강제 검토(nonce 펜스는 구조 위조만 차단 — 모델 차원 간접 인젝션의 남은 축). 근거=.dev/reviews/404-file-attach/codex.out.
 - [ ] **suite 진행 노출(구남님 제안, 2026-07-19)**: 장시간 스위트가 밖에서 안 보임 — 1차 조치=호출 습관(tail 캡처 금지, 전체 로그 파일로 흘려 tail -f 가능하게, 이번 세션부터 적용). 2차 후보=run.py가 진행 파일(예 /tmp/suite-progress.json: 완료 n/51·현재 키·경과)을 갱신하거나 heartbeat 줄 주기 출력 — 소형.
 - [ ] **배터리-한정 3인조 플레이크 관찰(137runner·140·141, 2026-07-19)**: make test-all에서만 간헐 red. **유력 근인 확보(404 중 계측 수확)**: db층=라이브 dev DB 공유 — 그물 실행 중 동시 활동(브라우저 채팅·dev 서버 배경 잡)이 카운트 단언(137runner C3a "세션 오염 0" 등)을 오염. 근본=격리 하네스(백로그 대형)와 합류, 당장 규율=그물 실행은 배타 구간(메모리 등재). 원인 미상 — 스펙 402에서 run_suite에 실패 전문 보존 계측(/tmp/run_suite_fails/) 장착, **다음 재발 시 실물 로그로 근인 추적**(추측 수선 금지 — observe-before-remedy). 재발 없으면 종결.

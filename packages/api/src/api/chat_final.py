@@ -19,6 +19,7 @@ from agent.runtime import CustomAgent
 from . import memory, trace_capture
 from .chat_context import ChatContext
 from .chat_persist import _mid_frame, _persist
+from .chat_sse_frames import strip_reasoning_blocks
 from .chat_trace import _final_trace, _finalize_memory_trace, _summarize_saved
 from .chat_turn_runtime import ChatTurnRuntime
 
@@ -147,7 +148,9 @@ async def _final_frames(
     # 턴은 invocations가 비어 무영향(무회귀).
     for inv in turn.broker.invocations:
         observed.append({"node": inv["node"], "ms": inv.get("ms", 0)})
-    full = "".join(acc)
+    # 영속 본문 정화(스펙 410 P1) — reasoning 파서 없는 서버가 <think>를 content에 인라인해도
+    # 영속·메모리·trace에 사고가 안 남게(축 분리 불변식은 서버 종류와 무관하게 성립해야 한다).
+    full = strip_reasoning_blocks("".join(acc))
     total_ms = int((time.perf_counter() - t0) * 1000)
     # 오류 턴은 영속/메모리 저장하지 않는다 (부분/실패 응답 오염 방지).
     will_add_memory = (not errored) and turn.used_memory and bool(full)

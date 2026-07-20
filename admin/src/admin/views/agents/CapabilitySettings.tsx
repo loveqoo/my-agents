@@ -103,6 +103,13 @@ export function CapabilitySettings({
           </Flex>
         )
       })}
+      {/* 안내(스펙 410) — 사고 과정은 모델 서버가 reasoning 파서를 지원할 때 스트리밍으로 표시된다
+          (예: rapid-mlx `--reasoning-parser qwen3`, vLLM `--reasoning-parser`). thinking 설정이 있을 때만 노출. */}
+      {tunable.some((d) => d.cap === 'thinking') ? (
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          Thinking을 켜면 모델의 사고 과정이 대화에 접이식 패널로 표시됩니다(서버가 reasoning 파서를 지원할 때).
+        </Text>
+      ) : null}
     </Flex>
   )
 }

@@ -6,6 +6,7 @@
 """
 
 import json
+import re
 import secrets
 import time
 from collections.abc import AsyncIterator
@@ -28,6 +29,38 @@ def _stream_text(msg_chunk: BaseMessage) -> str:
     if runtime.is_tool_message(msg_chunk):
         return ""
     return runtime._content_text(getattr(msg_chunk, "content", ""))
+
+
+_THINK_BLOCK_RE = re.compile(r"<think>.*?</think>\s*", re.DOTALL | re.IGNORECASE)
+
+
+def strip_reasoning_blocks(text: str) -> str:
+    """본문에서 `<think>...</think>` 사고 블록을 제거(스펙 410 축 분리 **불변식** — reasoning 영속 0).
+
+    reasoning 파서를 안 켠 서버가 사고를 content에 인라인해도(또는 provider가 사고를 본문에 중복
+    반환해도) **영속·메모리·trace 본문엔 사고가 안 남게** 하는 관문 정화(스펙 407 gate-cleanse-at-
+    chokepoint 동형). 표시(스트리밍 acc)는 이미 흘렀고, 이 정화는 `full`(영속 본문)에만 적용해 불변식을
+    서버 종류와 무관하게 보장한다(파서 켠 서버는 content에 <think>가 없어 무변화 — codex 410 P1)."""
+    if not text or "<think" not in text:
+        return text
+    text = _THINK_BLOCK_RE.sub("", text)
+    # 미종결 <think>(닫는 태그 없이 스트림 절단) — 그 이후 전부 배제(반쪽 사고 영속 방지).
+    idx = text.find("<think>")
+    if idx != -1:
+        text = text[:idx]
+    return text
+
+
+def _stream_reasoning(msg_chunk: BaseMessage) -> str:
+    """messages 청크의 사고 과정(reasoning_content, 스펙 410) — **본문(content)과 분리된 side channel**.
+    ReasoningChatOpenAI가 additional_kwargs["reasoning_content"]로 실은 값. 답변도 기억도 아니라 과정이라
+    `acc`(영속·메모리·trace 본문)에 **안 적립**하고 별도 SSE 프레임으로만 흘린다(축 분리 — 스펙 407 동형).
+    도구 메시지 등은 제외. 현 서버는 단건에서 1회, 스트리밍 사고 서버가 붙으면 델타 다회(클라 누적)."""
+    if runtime.is_tool_message(msg_chunk):
+        return ""
+    ak = getattr(msg_chunk, "additional_kwargs", None) or {}
+    rc = ak.get("reasoning_content")
+    return rc if isinstance(rc, str) and rc else ""
 
 
 def _ingest_update(

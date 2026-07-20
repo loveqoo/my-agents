@@ -1,0 +1,24 @@
+너는 적대적 코드 리뷰어다. 스펙 410(사고 과정 표시)의 변경을 비판적으로 검토하라. "보장 목록의 여집합"을 찾아라.
+
+## 설계 의도
+- 모델 서버(reasoning 파서 켜짐)가 사고를 `delta.reasoning_content`로 스트리밍하면, 우리가 잡아 본문과 **분리된 SSE 프레임**으로 흘리고 UI가 접이식 Think 패널에 렌더한다.
+- **축 분리(핵심 불변식)**: reasoning은 표시 전용 side channel — **영속·메모리·trace 본문에 절대 안 들어간다**(답변도 기억도 아니라 과정). 스펙 407(첨부-메모리 분리)과 동형.
+
+## 변경 파일
+- packages/agent/src/agent/reasoning_chat.py (신설 — ReasoningChatOpenAI: _create_chat_result·_convert_chunk_to_generation_chunk override로 reasoning_content 추출, _reasoning_of는 reasoning_content/reasoning/thinking 필드명 허용)
+- packages/agent/src/agent/model.py (build_chat_openai가 ReasoningChatOpenAI 사용)
+- packages/api/src/api/chat_sse_frames.py (_stream_reasoning — msg_chunk.additional_kwargs.reasoning_content 추출, acc 미적립)
+- packages/api/src/api/chat.py (스트림 루프: _stream_reasoning → data:{"reasoning":...} 프레임, _stream_text → acc.append + data:{"text":...})
+- admin/src/api.ts (ChatCallbacks.onReasoning, handleFrame이 parsed.reasoning 분기)
+- admin/src/playground/agentData.ts (ChatMsg.reasoning), Playground.tsx (onReasoning 누적), DebugChat.tsx (Think 패널 렌더)
+
+## 특히 파고들 것
+1. **축 분리 누수**: reasoning이 acc(본문 누적 → 영속·메모리·토큰)로 새는 경로가 있나? _stream_reasoning과 _stream_text가 같은 msg_chunk를 보는데, reasoning_content가 content에도 섞여 acc에 들어가진 않나? (서버 파서가 사고를 content에서 뗐다는 전제가 깨지면?)
+2. **서브클래스 회귀**: ReasoningChatOpenAI가 reasoning 없는 일반 모델·응답에 무해한가? _create_chat_result/_convert_chunk override가 tool_calls·structured output·refusal 등 기존 경로를 깨지 않나? zip(strict=False) 경계?
+3. **필드명 관대화 부작용**: reasoning_content/reasoning/thinking 중 하나라도 있으면 잡는데, content를 reasoning으로 오인하는 경우는? 빈 문자열·비-str 값 처리?
+4. **프레임 계약**: data:{"reasoning":...}가 기존 SSE 소비자(A2A serve, 산출물형, 승인 프레임)와 충돌하나? handleFrame의 else-if 순서상 reasoning 프레임이 text/session/error를 가리거나 그 반대?
+5. **FE 누적**: onReasoning이 스트리밍 델타를 누적하는데, 재요청·에러·중단 시 이전 reasoning이 남거나 섞이나? 세션 리로드 시 reasoning은 영속 안 되는데(의도) UI가 그걸 잘 처리하나?
+
+## 제약
+- 읽기 전용. 수정·커밋 금지. ~/.claude 접근 금지.
+- P1(반드시 수정)/P2(고려)/확인함으로 분류, 파일:라인 인용. 없으면 "P1 없음" 명시.

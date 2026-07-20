@@ -507,6 +507,8 @@ export function Playground({
         apiMessages,
         {
           onToken: (t) => appendToLastAi((prev) => ({ ...prev, text: prev.text + t })),
+          // 사고 과정(스펙 410) — 본문과 별개로 누적(단건 1회·스트리밍 사고 서버면 델타 다회).
+          onReasoning: (t) => appendToLastAi((prev) => ({ ...prev, reasoning: (prev.reasoning ?? '') + t })),
           onSession: (sid) => setSessions((s) => ({ ...s, [id]: sid })),
           // 승인 대기 프레임(스펙 179) — 이 턴의 승인 id를 잡아 폴링 시작(아래 useEffect).
           onApproval: (apid, approver) => setPendingApproval({ id: apid, convoId: id, approver }),
