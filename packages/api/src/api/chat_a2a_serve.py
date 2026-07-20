@@ -221,10 +221,18 @@ async def _build_serve_tools(ctx: ChatContext, agent_id: uuid.UUID) -> tuple[lis
     """서빙 도구 조립(061) — MCP+노드형 RAG(스펙 268 P1, 세 입구 정합). 반환 (tools, calls_sink).
 
     노드 에이전트-호출(스펙 318)은 서빙 정직한 경계(OUT): broker를 안 만든다(위임 실행 주체
-    principal 부재). 노드가 agent 도구를 참조하면 조용히 미바인딩되므로 감지 시 경고 표면화."""
+    principal 부재). 노드가 agent 도구를 참조하면 조용히 미바인딩되므로 감지 시 경고 표면화.
+
+    첨부 유래 턴(스펙 415 P4 — codex): 서빙은 이번 턴 첨부를 안 받지만 **영속 대화의 펜스 마커가
+    재생**되면(악성 첨부를 로컬 채팅서 심고 A2A로 재생) 승인 없이 도구가 실행된다 → ctx.attachment_
+    context가 참이면 정책 없는 MCP 도구도 승인 강제(force_approval)."""
     calls_sink: list[dict] = []
     tools = await runtime.build_mcp_tools(
-        ctx.mcp_servers, calls_sink, ctx.tool_policy, ctx.tool_names
+        ctx.mcp_servers,
+        calls_sink,
+        ctx.tool_policy,
+        ctx.tool_names,
+        force_approval=ctx.attachment_context,
     )
     tools.extend(_rag_tools_for(ctx, calls_sink))
     if any(
@@ -319,6 +327,14 @@ async def prepare_serve_turn(
     if ctx.session_pending:
         ctx.session_pending["channel"] = "a2a"
     impl = _resolve_serve_impl(ctx)  # 적격 검사 먼저 — 도구·회상 부수효과 전에(codex 392 P3)
+    # 첨부 유래 컨텍스트 판정(스펙 415 P4 — codex)을 **도구 빌드 전에**. 서빙은 이번 턴 첨부를
+    # 안 받으므로 오직 영속 대화의 재생 마커로 판정한다(메인 채팅과 동일 판정식). 도구 빌드가
+    # 대화 재구성보다 먼저라 여기서 대화를 한 번 로드해 마커를 본다(_assemble가 다시 로드하지만
+    # 읽기량 상수라 부담 경미 — 순서 뒤집기보다 명확).
+    messages = await _assemble_serve_messages(ctx, user_text)
+    ctx.attachment_context = any(
+        "⟦첨부 " in (m.get("content") or "") for m in messages
+    )
     tools, _calls_sink = await _build_serve_tools(
         ctx, agent_id
     )  # 싱크는 서빙 미노출(트레이스 없음)
@@ -328,7 +344,6 @@ async def prepare_serve_turn(
     ckpt = None if ctx.ephemeral else checkpointer.get_checkpointer()
     thread_id = "a2a-" + uuid.uuid4().hex
     graph = _build_serve_graph(ctx, impl, serve_prompt, tools, ckpt)
-    messages = await _assemble_serve_messages(ctx, user_text)
     # 관측(스펙 118) + 체크포인터 thread 바인딩(스펙 388 P2).
     cfg = dict(observability.with_trace(None, name="a2a-serve-local") or {})
     if ckpt is not None:

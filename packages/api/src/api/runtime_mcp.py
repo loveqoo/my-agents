@@ -121,6 +121,7 @@ def _wrap_mcp_tool(
     """
     permission = approval["permission"] if approval else None
     approver = (approval.get("approver") or "admin") if approval else "admin"
+    forced = (approval.get("forced") if approval else None) or None  # 스펙 415 P4 — 첨부 턴 강제 표식
 
     # 도구 실패를 이 래퍼의 단일 except로 모은다(스펙 320). langchain-mcp-adapters는 MCP
     # `isError=True`를 ToolException(_MCPToolExecutionError)으로 만든 뒤 tool.handle_tool_error로
@@ -186,7 +187,12 @@ def _wrap_mcp_tool(
                 "args": _redact_args(
                     kwargs
                 ),  # 스펙 087: Approval.args(DB 영속)·ApprovalsView로 새기 전 마스킹
-                "summary": f"{server}.{rt.name} 실행 — {'본인' if approver == 'self' else '관리자'} 승인 필요",
+                "summary": (
+                    f"{server}.{rt.name} 실행 — "
+                    + ("첨부 문서가 있는 대화라 " if forced == "attachment" else "")
+                    + f"{'본인' if approver == 'self' else '관리자'} 승인 필요"
+                ),
+                **({"forced": forced} if forced else {}),  # 스펙 415 P4 — 감사·UI 표식
             }
         )
         approved = isinstance(decision, dict) and decision.get("decision") == "approve"
@@ -326,6 +332,18 @@ async def _prepare_connections(servers: list[dict]) -> tuple[dict[str, dict], di
     return connections, meta
 
 
+def forced_attachment_approval(action: str) -> dict:
+    """첨부 유래 턴 강제 승인 payload(스펙 415 P4) — 정책 없는 부수효과 도구에 합성한다.
+
+    간접 인젝션(첨부 속 숨은 지시)이 도구를 실행시키는 경로를 사람 확인으로 봉합 — 공격자는
+    첨부이지 요청자가 아니므로 approver=self(세션 소유자 본인)가 방어로 충분하다."""
+    return {
+        "permission": action,
+        "approver": "self",
+        "forced": "attachment",  # 표시·감사용 — 승인 UI가 "첨부 턴 강제"임을 알 수 있게
+    }
+
+
 def _tools_from_raw(
     name: str,
     s: dict,
@@ -333,6 +351,7 @@ def _tools_from_raw(
     calls_sink: list[dict],
     tool_policy: dict | None,
     selected_tools: list[str] | None,
+    force_approval: bool = False,
 ) -> list[StructuredTool]:
     """서버 하나의 raw 도구를 필터(enabled·selected)·승인 해석·래핑해 반환(스펙 397 분해)."""
     enabled = set(s.get("enabled_tools") or [])
@@ -345,6 +364,10 @@ def _tools_from_raw(
             continue  # 에이전트가 고른 도구 밖 — 노출 안 함(스펙 276 도구 단위 배선)
         # 스펙 177 단일 리졸버 — 도구 기본(tools_meta) ◁덮음◁ 에이전트 오버라이드(tool_policy).
         appr = resolve_tool_approval(name, rt.name, s.get("tools_meta"), tool_policy)
+        # 첨부 유래 턴(스펙 415 P4): 정책 없는 MCP 도구도 승인 강제 — MCP는 부수효과를 알 수 없어
+        # 보수적으로 전부(읽기 전용 면제는 자체 분류가 있는 브로커 축에서만).
+        if appr is None and force_approval:
+            appr = forced_attachment_approval(f"mcp.{name}.{rt.name}")
         tools.append(_wrap_mcp_tool(name, rt, calls_sink, appr))
     return tools
 
@@ -354,8 +377,11 @@ async def build_mcp_tools(
     calls_sink: list[dict],
     tool_policy: dict | None = None,
     selected_tools: list[str] | None = None,
+    force_approval: bool = False,
 ) -> list[StructuredTool]:
     """등록 MCP 서버에 **실제로 연결**(MultiServerMCPClient)해 활성 도구를 LangChain 툴로 만든다.
+
+    force_approval(스펙 415 P4): 첨부 유래 턴이면 참 — 정책 없는 도구도 승인 강제(간접 인젝션 봉합).
 
     `servers`: `_load_context`가 해석한 dict 리스트
       `{name, url, transport, enabled_tools, auth_token(복호화|None)}`.
@@ -376,7 +402,11 @@ async def build_mcp_tools(
             continue
         if raw_tools is None:
             continue
-        tools.extend(_tools_from_raw(name, s, raw_tools, calls_sink, tool_policy, selected_tools))
+        tools.extend(
+            _tools_from_raw(
+                name, s, raw_tools, calls_sink, tool_policy, selected_tools, force_approval
+            )
+        )
     return tools
 
 

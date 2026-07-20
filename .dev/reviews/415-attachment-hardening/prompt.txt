@@ -1,0 +1,40 @@
+역할: 적대적 보안 리뷰어. 스펙 415(첨부 후속 경화)의 구현을 공격자 관점에서 검증하라.
+"보장 목록의 여집합"을 찾아라 — 우리가 확인한 것 말고, 우회 가능한 구멍을 짚어라.
+
+변경 요약(스펙 404의 codex 잔여 3축 봉합):
+1. P1 전역 body limit: packages/api/src/api/body_limit.py (신규 ASGI 미들웨어, main.py 조립).
+   기본 2MB, /chat/attachments 6MB, /collections/*/documents* 는 rag.limits.MAX_UPLOAD_BYTES+1MB.
+   Content-Length 선검사 + raw receive 누적 실측(초과 시 disconnect 접기 + send측 413 재작성 —
+   FastAPI가 body 파싱 예외를 400으로 삼켜서 예외 전파 방식은 불가였음).
+2. P2 턴 예산: schemas/sessions.py — messages ≤200, content ≤150k(구조 캡), chat.py 입구에서
+   현재 턴(마지막 user) 5만자 강제.
+3. P3 rate limit: chat_attachments.py — per-principal 인메모리 슬라이딩 윈도(분당 10회) 429.
+4. P4 첨부 유래 턴 승인 강제: chat.py가 conversation 확정 후 ctx.attachment_context 판정
+   (이번 턴 첨부 or 대화에 "⟦첨부 " 마커 — 주입본 영속 재생 구멍 포함).
+   - 그래프-tools: runtime_mcp.build_mcp_tools(force_approval) — 정책 없는 MCP 도구에
+     forced_attachment_approval(approver=self) 합성. 캐시는 chat_graph_build 지문에 attach 포함.
+   - 브로커: broker/core.py PolicyScopedBroker(force_approval) — _gate에서 MCP/AGENT kind만
+     payload 합성(RAG·메모리 읽기 면제, 메모리 쓰기는 이미 항상 승인).
+   - 재개: chat_approval.py _create_approval이 args에 _attachment_context 스탬프,
+     _rebuild_resume_graph가 복원해 재개 후 후속 도구도 강제 유지.
+
+검증된 것(verify_415 22/22, throwaway server): 3MB JSON 413(CL+chunked 실측), 업로드 6MB 경계,
+201개/150k/50k 422, 429, 지문 분리, _gate 합성(MCP·agent만), Approval 스탬프, 펜스 마커 영속.
+
+공격 각도(이것 말고도 스스로 찾아라):
+- body limit: SSE/streaming 응답 경로 오작동? multipart 경계? 다른 대용량 라우트 누락? http/2?
+  rewriting_send가 앱 응답 상태를 잘못 덮는 경우? disconnect 접기가 앱을 영원히 대기시키는 경우?
+- rate limit: principal 키 위조? 머신 토큰 공유 키? 메모리 무한 증가? 동시성(asyncio 단일 스레드)?
+- P4: 강제를 우회하는 도구 실행 경로가 남았나? (eval_runner, A2A 서빙, 노드형 agent-call 도구,
+  blocks_mcp 시험 실행, resume의 pipeline build_agent_tools 등 전수 열거하라)
+  "⟦첨부 " 마커 판정을 회피하는 방법? (strip_attachment_blocks 정화 경로가 마커를 지운 뒤 영속?)
+  approver=self가 약한 고리인가? 레거시 Approval(스탬프 없음) 재개 시 우회?
+- 스키마: form/attachments/messages 밖의 무제한 필드? overrides dict 크기?
+
+파일: body_limit.py, main.py, schemas/sessions.py, chat.py(252-310), chat_attachments.py,
+chat_context_types.py, runtime_mcp.py(_tools_from_raw·forced_attachment_approval·_wrap_mcp_tool),
+broker/core.py(_gate·build_broker), chat_approval.py(_create_approval·_rebuild_resume_graph·
+_build_resume_broker), chat_graph_build.py(_graph_fingerprint), tests/verify_415_attachment_hardening.py
+
+출력: P1(실구멍, 공격 시나리오 포함)/P2(경계 약점)/확인함(안전 확인 목록). 파일:라인 인용.
+읽기 전용 — 수정 금지.

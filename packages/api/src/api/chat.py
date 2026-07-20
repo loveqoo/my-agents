@@ -254,6 +254,17 @@ async def chat(
     # user_text·conversation·영속·히스토리 재구성이 전부 같은(주입된) 본문을 본다.
     # 단, 메모리 축(회상·자동 저장)은 **주입 전 원발화**만 봐야 한다(스펙 407) — 캡처해 ctx로.
     ctx.memory_user_text = body.messages[-1].content if body.messages else ""
+    # 현재 턴 유저 입력 상한(스펙 415 P2, 승인값 5만자) — 스키마 15만자는 클라 관리 모드의 주입
+    # 영속본 echo를 수용하는 구조 캡이고, **새로 치는 입력**의 가시 한계는 여기서 강제한다.
+    # codex 415 P2: **마지막 user 메시지**로 검사한다(끝에 assistant를 붙여 마지막 위치 검사를
+    # 우회하던 구멍). 펜스 마커를 담은 메시지는 주입 echo(재생)라 면제(스키마 15만자가 관할).
+    _last_user = next(
+        (m.content for m in reversed(body.messages) if m.role == "user"), None
+    )
+    if _last_user is not None and "⟦첨부 " not in _last_user and len(_last_user) > 50_000:
+        raise HTTPException(
+            status_code=422, detail="메시지가 너무 깁니다 — 한 번에 5만자까지 보낼 수 있습니다."
+        )
     if body.attachments:
         if _is_remote(ctx.source):
             raise HTTPException(
@@ -285,6 +296,12 @@ async def chat(
         )
 
     conversation, history_restore = await _prepare_conversation(ctx, body)
+    # 첨부 유래 컨텍스트 판정(스펙 415 P4) — 이번 턴 첨부 **또는** 대화에 첨부 펜스 존재(주입본이
+    # 영속돼 히스토리로 재생되므로 "이번 턴만" 보면 다음 턴부터 강제가 풀리는 재생 구멍). 판정은
+    # conversation(서버 재구성 포함) 확정 직후 한 번 — 그래프 빌드·브로커가 이 플래그를 소비한다.
+    ctx.attachment_context = bool(body.attachments) or any(
+        "⟦첨부 " in (m.get("content") or "") for m in conversation
+    )
     try:
         turn = await _build_turn_runtime(ctx, impl, principal, user_id, user_text, conversation)
     except AgentConfigError as e:

@@ -106,6 +106,13 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(title="Agent Service", lifespan=lifespan)
 
+# 전역 body 상한(스펙 415 P1) — pre-parse 메모리 DoS 차단(2MB, 업로드 라우트만 6MB).
+# CORS **앞에** 등록해야 CORS가 바깥층이 된다(Starlette은 나중 add_middleware가 바깥) —
+# 413 응답에도 CORS 헤더가 붙어 브라우저 fetch가 사유를 읽을 수 있다.
+from .body_limit import BodyLimitMiddleware  # noqa: E402
+
+app.add_middleware(BodyLimitMiddleware)
+
 # CORS 허용 오리진 — 기본은 로컬 개발만. Tailscale 등 추가 오리진은
 # EXTRA_CORS_ORIGINS(쉼표 구분) 환경변수로만 연다(소스에 머신별 IP 비하드코딩).
 # "*" 지정 시 전체 허용 — 노출 경계는 `tailscale serve`/바인딩이 보장하므로,

@@ -45,6 +45,9 @@ class ChatContext:
     attachments_trace: list | None = (
         None  # 파일첨부 메타(스펙 404) — 인스펙터 표면화용(chat()이 주입 시 세팅)
     )
+    # 첨부 유래 컨텍스트(스펙 415 P4) — 이번 턴 첨부 or 대화에 첨부 펜스 존재. 참이면 승인 정책
+    # 없는 부수효과 도구(MCP·에이전트 위임)도 승인 강제(간접 인젝션의 부수효과 실행 경로 봉합).
+    attachment_context: bool = False
     # 메모리 축 원발화(스펙 407): 첨부 주입 전의 유저 발화. 회상 쿼리·자동 기억 저장은 이걸 쓴다 —
     # 문서는 지식(RAG) 축이지 기억 축이 아니다(주입본이 기억을 오염시키던 버그의 봉합).
     memory_user_text: str | None = None

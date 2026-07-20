@@ -80,8 +80,12 @@ class ResolveIn(BaseModel):
 
 # ----------------------------- 채팅 -----------------------------
 class ChatMessage(BaseModel):
+    """content 상한 15만자(스펙 415 P2) = **구조 DoS 캡** — 클라 관리 모드(플레이그라운드 세션
+    복원)가 서버의 첨부 주입 영속본(최대 3×3만+유저 5만+펜스≈14만자)을 그대로 되보내는 걸 수용.
+    **현재 턴 유저 입력의 가시 한계는 5만자**(승인값) — chat.py 입구가 마지막 user 메시지에 강제."""
+
     role: Literal["user", "assistant"]
-    content: str
+    content: str = Field(max_length=150_000)
 
 
 class ChatAttachment(BaseModel):
@@ -98,12 +102,14 @@ class ChatFormSubmission(BaseModel):
     """산출물형 폼 제출(스펙 188 P2) — 대기 중 폼 프레임(formId)에 대한 값. 서버가 pending의
     필드 명세로 검증(값∈후보) 후 Command(resume={"type":"form",...})로 그래프를 재개한다."""
 
-    formId: str
-    values: dict
+    formId: str = Field(max_length=200)  # 스펙 415 P2 — 문자열 필드 상한(전역 2MB의 이중 그물)
+    values: dict  # 구조/깊이는 전역 2MB body limit이 관할(스펙 415 P1)
 
 
 class ChatRequest(BaseModel):
-    messages: list[ChatMessage]
+    # 턴 예산 계약(스펙 415 P2, 승인값): messages ≤200개 — 초과 대화는 sessionId+새 메시지 1개
+    # 계약(스펙 289 서버 재구성)으로 이관하면 무제한(서버가 depth 상한으로 절단).
+    messages: list[ChatMessage] = Field(max_length=200)
     sessionId: str | None = None  # 이어서 대화할 세션(없으면 새로 생성)
     # mem0 user 축 정체성(스펙 032→387): 쿠키 유저는 인증 주체에서 도출(임의 지정 금지 — 422).
     # **머신 토큰 호출만** userId 지정 가능(owner 전권의 위임 — 외부 시스템이 자기 유저를 대신).
@@ -119,4 +125,6 @@ class ChatRequest(BaseModel):
     attachments: list[ChatAttachment] | None = Field(default=None, max_length=3)
     # 버전 지정 실행(스펙 242) — 지정하면 그 AgentVersion의 config로 실행(초안 미리보기·버전별 테스트).
     # 내부(관리 API) 전용 축: A2A·공개 서빙 경로는 이 필드가 없어 활성 버전만 나간다(외부 경계 공짜).
-    version: str | None = None
+    version: str | None = Field(default=None, max_length=80)  # 스펙 415 P2 — 문자열 상한
+    # overrides·form.values dict의 구조/깊이 상한은 전역 2MB body limit(스펙 415 P1)이 관할한다 —
+    # 개별 스키마 캡 대신 raw 크기 한 곳에서(커스텀 impl로 흐르는 overrides도 그 상한 안).

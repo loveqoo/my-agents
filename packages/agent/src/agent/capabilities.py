@@ -168,7 +168,7 @@ def clean_capabilities(caps: object) -> dict:
     return {c: caps[c] for c in CAPABILITIES if isinstance(caps.get(c), bool)}
 
 
-def descriptors_public() -> list[dict]:
+def descriptors_public() -> dict:
     """admin 공급용 서술자(GET /model-capabilities/descriptors) — FE가 이걸 받아 4화면을 렌더.
 
     FE/BE 드리프트 0(사본 금지). capabilities(사실 축)와 params(튜닝 축)를 함께 실어 FE가 모델 폼의

@@ -84,7 +84,12 @@ async def _create_approval(
                     "approver"
                 ),  # 스펙 177 P2 — MCP 도구만 값 有, 그 외 None→Casbin 폴백
                 action=payload.get("action", ""),
-                args=payload.get("args", {}),
+                # 첨부 유래 턴 표식(스펙 415 P4) — 재개가 원 턴의 강제 승인 컨텍스트를 복원하는 근거.
+                # 세션 스캔으론 불완전(현재 턴 메시지는 재개 시점에 미영속)이라 생성 시점에 스탬프.
+                args={
+                    **payload.get("args", {}),
+                    **({"_attachment_context": True} if ctx.attachment_context else {}),
+                },
                 summary=payload.get("summary", ""),
                 checkpoint=thread_id,
                 # 위상 정체 스냅샷(스펙 171) — 재개 시 impl이 바뀌었으면 stale checkpoint에
@@ -104,6 +109,7 @@ async def _build_resume_broker(
     *,
     delegation_chain: tuple = (),
     delegation_budget: dict | None = None,
+    force_approval: bool = False,  # 첨부 유래 턴 복원(스펙 415 P4)
 ) -> PolicyScopedBroker:
     """재개용 스코프 브로커 — 원 요청자(user_id)의 RBAC를 재구성해 request-time 게이트를 그대로 복원.
 
@@ -148,7 +154,9 @@ async def _build_resume_broker(
             delegation_budget=delegation_budget,
         )
     )
-    return PolicyScopedBroker(capabilities, rbac_allows, providers, tool_policy=tool_policy)
+    return PolicyScopedBroker(
+        capabilities, rbac_allows, providers, tool_policy=tool_policy, force_approval=force_approval
+    )
 
 
 def _impl_drifted(snap_impl: str | None, cur_impl: str | None) -> bool:
@@ -285,8 +293,23 @@ async def _rebuild_resume_graph(
     축은 재개 사이 불변. superuser 우회도 원 요청과 동일 보존."""
 
     calls_sink: list[dict] = []
+    # 첨부 유래 턴 복원(스펙 415 P4) — 원 턴이 스탬프한 표식(_create_approval의 args)을 읽는다.
+    # 재개 후 같은 턴의 **다음** 부수효과 도구도 강제가 유지돼야 한다(안 하면 첫 승인만 게이트되고
+    # 후속 도구가 우회). 레거시 행(415 배포 전 pending — 표식 없음, codex 415 P1②) 보강: 세션
+    # 영속 대화에 첨부 펜스 마커가 있으면 강제 복원한다(선행 턴 마커 포착). **유한 잔여**: 첫
+    # 첨부 턴 자체의 주입 메시지는 interrupt 시점에 아직 미영속(체크포인트만 보유)이라 이 스캔이
+    # 못 본다 — 배포 시점 pending 행 한정의 작은 구멍(신규 행은 스탬프로 완전 복원).
+    attach_ctx = bool((approval.args or {}).get("_attachment_context"))
+    if not attach_ctx:
+        _prior = await _load_session_conversation(approval.session_id, approval.agent_pk)
+        attach_ctx = any("⟦첨부 " in (m.get("content") or "") for m in _prior)
+    ctx.attachment_context = ctx.attachment_context or attach_ctx
     tools = await runtime.build_mcp_tools(
-        ctx.mcp_servers, calls_sink, ctx.tool_policy, ctx.tool_names
+        ctx.mcp_servers,
+        calls_sink,
+        ctx.tool_policy,
+        ctx.tool_names,
+        force_approval=ctx.attachment_context,
     )
     # 채팅 자가기록 도구 제거됨(스펙 051) — agent_id 메모리는 어드민 저작 전용. 회상(recall_scope)은 유지.
     # 노드형 컬렉션별 도구 포함(스펙 268 P1 — 세 입구 정합, learning 149).
@@ -319,6 +342,7 @@ async def _rebuild_resume_graph(
         # 게이트가 원 턴과 동일하게 성립(codex 256 [P2]). 없으면 루트 재방문이 허용돼 불변식이 깨진다.
         delegation_chain=((ctx.ext_agent_id,) if ctx.ext_agent_id else ()),
         delegation_budget={"n": 0},  # 재개 턴도 자체 예산(너비 폭주 상한, codex [P2])
+        force_approval=ctx.attachment_context,  # 스펙 415 P4 — 재개 브로커도 원 턴 강제 복원
     )
     # 노드 에이전트-호출 도구(스펙 318) — 재개 후 다음 노드도 위임 가능(입구 정합). pipeline만.
     if ctx.impl == "pipeline":

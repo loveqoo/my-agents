@@ -150,5 +150,8 @@ def _graph_fingerprint(ctx: ChatContext) -> str | None:
         "rag": _fp(json.dumps(ctx.rag_collections or [], sort_keys=True, default=str)),
         "rag_min": json.dumps(ctx.rag_min_scores or {}, sort_keys=True),
         "ckpt": not ctx.ephemeral,
+        # 첨부 유래 턴(스펙 415 P4) — 강제 승인이 도구 래핑에 구워지므로 강제/비강제 그래프를 분리
+        # 캐시해야 한다(없으면 비첨부 턴의 캐시가 첨부 턴에 재사용돼 강제가 조용히 우회).
+        "attach": ctx.attachment_context,
     }
     return hashlib.sha256(json.dumps(blob, sort_keys=True, default=str).encode()).hexdigest()

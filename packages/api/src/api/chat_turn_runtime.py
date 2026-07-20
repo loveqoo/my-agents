@@ -125,7 +125,13 @@ async def _turn_tools(
         now = time.perf_counter()
         return cached["tools"], now, now
     tools = await runtime.build_mcp_tools(
-        ctx.mcp_servers, calls_sink, ctx.tool_policy, ctx.tool_names
+        ctx.mcp_servers,
+        calls_sink,
+        ctx.tool_policy,
+        ctx.tool_names,
+        # 첨부 유래 턴(스펙 415 P4) — 정책 없는 도구도 승인 강제. 캐시 적중 경로는 지문에
+        # attachment_context가 포함돼(chat_graph_build) 강제/비강제 그래프가 분리 캐시된다.
+        force_approval=ctx.attachment_context,
     )
     t_mcp = time.perf_counter()
     # 채팅 자가기록 도구는 제거됨(스펙 051) — agent_id 메모리는 어드민 저작 전용. 회상은 유지.
@@ -236,6 +242,7 @@ async def _build_turn_runtime(
         ctx.rag_min_scores,
         delegation_chain=((ctx.ext_agent_id,) if ctx.ext_agent_id else ()),
         delegation_budget={"n": 0},
+        force_approval=ctx.attachment_context,  # 스펙 415 P4 — 첨부 유래 턴 부수효과 cap 승인 강제
     )
     # 노드 에이전트-호출 도구(스펙 318) — 노드형 노드가 `agent__{id}`로 다른 에이전트에 위임. broker
     # 경유라 재귀 가드·HIL·격리 승계(runtime.build_agent_tools). pipeline만(비노드형은 broker.discover

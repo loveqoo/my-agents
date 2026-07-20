@@ -81,6 +81,7 @@ class PolicyScopedBroker:
         *,
         tool_policy: dict
         | None = None,  # config.toolPolicy(스펙 177 P2) — McpProvider 승인 오버라이드
+        force_approval: bool = False,  # 첨부 유래 턴(스펙 415 P4) — 정책 없는 부수효과 cap도 승인 강제
     ) -> None:
         # 스펙 294: 브로커는 `_CapabilityProvider` 추상에만 의존한다 — provider를 **주입받고** 구체를
         # 모른다(생성 배선은 composition.build_providers 단일 출처). anti-leak(user_id)·delegation·
@@ -88,6 +89,7 @@ class PolicyScopedBroker:
         self._allow: set[str] = set(allowlist or [])
         self._rbac_allows = rbac_allows
         self._tool_policy = tool_policy
+        self._force_approval = force_approval
         self._providers: list[_CapabilityProvider] = providers
         self._by_kind = {p.kind: p for p in providers}
         # 관측(설계결정 7) — invoke 이력. broker.invoke가 invisible하지 않음을 보증(호출별 노드 프레임).
@@ -179,6 +181,24 @@ class PolicyScopedBroker:
         interrupt는 재개 시 delegate 재실행에도 이 지점 이전 부수효과 0 = 전송 1회(멱등, 체크리스트 §7).
         거부면 거부 결과를, 승인·무승인 cap(payload None)이면 None(전송 진행)을 돌린다."""
         payload = provider.approval_for(row, cap_id, args, self._tool_policy)
+        # 첨부 유래 턴(스펙 415 P4): 정책 없는 **부수효과** cap도 승인 강제. 대상=MCP(부수효과 미상 —
+        # 보수적 전부)·에이전트 위임(하위가 무엇이든 할 수 있음). RAG·메모리 읽기는 approval_for가
+        # 늘 None인 읽기 전용이라 면제, 메모리 쓰기/수정은 이미 항상 non-None(무영향).
+        if payload is None and self._force_approval and _kind_of(cap_id) in (
+            CAP_KIND_MCP,
+            CAP_KIND_AGENT,
+        ):
+            from ..runtime import _redact_args
+            from ..runtime_mcp import forced_attachment_approval
+
+            # 마스킹된 인자를 실어 "정보에 근거한 승인"을 성립시킨다(codex 415 P1③ — args:{}는
+            # 승인자가 무엇을 승인하는지 못 봄). _redact_args로 비밀만 가리고 구조는 노출한다.
+            payload = {
+                **forced_attachment_approval(cap_id),
+                "action": cap_id,
+                "args": _redact_args(args if isinstance(args, dict) else {"text": args}),
+                "summary": "첨부 문서가 있는 대화라 본인 승인 필요 — " + cap_id,
+            }
         if payload is None:
             return None
         from langgraph.types import interrupt  # 지연 임포트(그래프 밖 호출 시 부담 0)
@@ -265,6 +285,7 @@ def build_broker(
     rag_min_scores: dict | None = None,
     delegation_chain: tuple = (),
     delegation_budget: dict | None = None,
+    force_approval: bool = False,
 ) -> PolicyScopedBroker:
     """chat.py 배선용 — principal(유저/머신)에서 RBAC 판정 클로저를 만들어 스코프된 브로커 구성.
 
@@ -296,4 +317,6 @@ def build_broker(
             rag_min_scores=rag_min_scores,
         )
     )
-    return PolicyScopedBroker(allowlist, rbac_allows, providers, tool_policy=tool_policy)
+    return PolicyScopedBroker(
+        allowlist, rbac_allows, providers, tool_policy=tool_policy, force_approval=force_approval
+    )

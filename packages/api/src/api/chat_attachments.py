@@ -11,16 +11,20 @@ user 메시지 앞에 **경계 블록**으로 주입한다. 주입된 최종 메
 """
 
 import asyncio
+import collections
 import io
 import logging
 import re
 import secrets
+import time
 
-from fastapi import APIRouter, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from . import rag_ingest
+from .auth import current_principal
 from .memory import _sanitize
+from .models import User
 from .schemas import ChatRequest
 
 log = logging.getLogger("api.chat_attachments")
@@ -142,6 +146,34 @@ def _extract_sync(filename: str, content_type: str | None, data: bytes) -> str:
         ) from exc
 
 
+# 업로드 rate limit(스펙 415 P3, 승인값 분당 10회/유저) — PDF 파싱은 CPU 유계 작업이라 반복 요청이
+# 워커를 점유할 수 있다(codex 404 P1②). 인메모리 슬라이딩 윈도(단일 인스턴스 전제 — 개인 플랫폼,
+# k8s 멀티 인스턴스는 백로그 별항). 키=인증 주체(유저 id | 머신 토큰 문자열).
+RATE_LIMIT_N = 10
+RATE_WINDOW_S = 60.0
+_rate: dict[str, collections.deque] = {}
+
+
+def _rate_check(key: str) -> None:
+    """윈도 내 호출 수 검사 — 초과 시 429. 오래된 타임스탬프는 그 자리에서 청소(무한 증가 방지)."""
+    now = time.monotonic()
+    # 전체 키 스윕(codex 415 P2 — dict 무한 성장 차단): 창 벗어난 타임스탬프를 모든 키에서 비우고
+    # 빈 키를 삭제한다. 업로드는 저빈도(분당 10회 상한)라 O(전체 키) 스윕이 무해하다.
+    for k in list(_rate):
+        d = _rate[k]
+        while d and now - d[0] > RATE_WINDOW_S:
+            d.popleft()
+        if not d and k != key:
+            del _rate[k]
+    dq = _rate.setdefault(key, collections.deque())
+    if len(dq) >= RATE_LIMIT_N:
+        raise HTTPException(
+            status_code=429,
+            detail=f"업로드가 너무 잦습니다 — 분당 {RATE_LIMIT_N}회까지 가능합니다. 잠시 후 다시 시도하세요.",
+        )
+    dq.append(now)
+
+
 class AttachmentOut(BaseModel):
     filename: str
     text: str  # 추출 전문(캡 적용) — 클라이언트가 ChatRequest.attachments로 되보낸다
@@ -150,12 +182,15 @@ class AttachmentOut(BaseModel):
 
 
 @router.post("/attachments", response_model=AttachmentOut)
-async def extract_attachment(file: UploadFile) -> AttachmentOut:
+async def extract_attachment(
+    file: UploadFile, principal: User | str = Depends(current_principal)
+) -> AttachmentOut:
     """파일 → 평문 추출(무상태). txt/md/텍스트류=UTF-8, pdf=pypdf — 이미지 PDF·바이너리는 400.
 
     raw 캡은 **읽으면서 누적**으로 검사한다(learning: .content 위 카운트는 막은 척 —
     Content-Length 신뢰 금지, 5MB 초과 시점에 즉시 413).
     """
+    _rate_check(str(principal.id) if isinstance(principal, User) else str(principal))
     data = bytearray()
     while chunk := await file.read(64 * 1024):
         data += chunk
