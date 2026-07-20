@@ -266,7 +266,10 @@ def _resolve_serve_impl(ctx: ChatContext) -> CustomAgent:
 def _build_serve_graph(
     ctx: ChatContext, impl: CustomAgent, serve_prompt: str, tools: list, ckpt: object
 ) -> "CompiledStateGraph":
-    """서빙 그래프 조립 — AgentBuildContext 구성·build_graph. 조립 시점 설정 실패도 ValueError."""
+    """서빙 그래프 조립 — AgentBuildContext 구성·build_graph. 조립 시점 설정 실패도 ValueError.
+
+    스펙 421 — 서빙은 그래프를 캐시하지 않으므로 serve_prompt를 그대로 **굽는다**(prompt 주입). cacheable
+    impl(route·plan)의 노드는 이중 모드라 주입된 프롬프트가 있으면 그걸 쓴다(캐시 경로만 promptless+seed)."""
     run_params = {} if ctx.temperature is None else {"temperature": ctx.temperature}
     build_ctx = AgentBuildContext(
         prompt=serve_prompt,

@@ -213,7 +213,7 @@ async def _build_turn_runtime(
     calls_sink: list[dict] = []
     # 그래프 팩토리(스펙 371 D3) — 지문 적격이면 캐시 조회. 적중 시 도구 빌드·컴파일 전부 생략
     # (도구는 config sink라 공유 안전 — 트레이스는 per-turn calls_sink로 분리).
-    fp = _graph_fingerprint(ctx)
+    fp = _graph_fingerprint(ctx, impl)
     cached = _GRAPH_CACHE.get(fp) if fp else None
     tools, _t_mcp, _t_rag = await _turn_tools(ctx, cached, calls_sink)
     # 회상된 기억은 prompt(시스템 프롬프트)에 합친다. 별도 system 메시지로 주입하면

@@ -352,7 +352,7 @@ async def _rebuild_resume_graph(
     # 스펙 371 D3 정합: 원 턴이 promptless 그래프(캐시 적격)였다면 재개 그래프도 promptless로 —
     # 체크포인트 상태에 이미 선두 SystemMessage가 있어, 여기서 prompt를 구우면 system이 이중이 된다.
 
-    _promptless = _graph_fingerprint(ctx) is not None
+    _promptless = _graph_fingerprint(ctx, impl) is not None
     build_ctx = AgentBuildContext(
         prompt="" if _promptless else prompt_prompt,
         model_cfg=ctx.model_cfg,

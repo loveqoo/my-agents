@@ -25,7 +25,7 @@ from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 
 from ..model import build_chat_openai
-from ..runtime import AgentBuildContext, AgentManifest
+from ..runtime import AgentBuildContext, AgentManifest, split_seed_prompt
 
 if TYPE_CHECKING:
     from langgraph.graph.state import CompiledStateGraph
@@ -49,11 +49,15 @@ class PlanExecuteAgent:
             ),  # 202부터 ctx.tools(mcp+rag)·prompt(회상) 소비
             description="2노드(plan→execute) 예제 커스텀 에이전트 — 인터페이스 누수 측정용",
             supports_hil=False,  # 위험 도구 게이트 없음(순수 2노드) — 정직하게 표기
+            cacheable=True,  # 스펙 421 — promptless(프롬프트+회상은 seed로) → 버전 캐시
         )
 
     def build_graph(self, ctx: AgentBuildContext) -> CompiledStateGraph:
         model = build_chat_openai(ctx.model_cfg, ctx.params)
-        prompt = ctx.prompt  # 오버라이드 병합 후 주입된 프롬프트(주입 단일 출처)
+        # 스펙 421 이중 모드 — 주입 프롬프트가 있으면 굽고(직접 빌드: eval·a2a·비캐시), 비었으면("")
+        # 캐시 관문이 promptless로 넘긴 것이라 매 턴 seed 선두에서 프롬프트+회상을 읽는다(누출은 비캐시
+        # 굽기 경로만·캐시 그래프는 기억-무관). 프롬프트 주입이 기본 안전동작(새 경로가 seed 잊어도 무유실).
+        baked = ctx.prompt
         # 플랫폼 주입 도구(config.mcps 유래, HIL/트레이스 래핑 포함) — 하이브리드 게이트(스펙 203):
         # 임계 이하 직접 바인딩, 초과면 검색 창구(search_tools·call_tool)로 컨텍스트 보호.
         from ..toolbox import effective_tools
@@ -92,10 +96,13 @@ class PlanExecuteAgent:
                     for t in tools
                 )
                 tool_hint = f"\n\n# 사용 가능한 도구 — 계획상 필요할 때만 호출\n{lines}"
-            sys = SystemMessage(
-                content=f"{prompt}\n\n# 작업 계획\n{state['plan']}\n위 계획에 따라 답하세요.{tool_hint}"
+            base, rest = (
+                (baked, state["messages"]) if baked else split_seed_prompt(state["messages"])
             )
-            resp = await bound.ainvoke([sys, *state["messages"]])
+            sys = SystemMessage(
+                content=f"{base}\n\n# 작업 계획\n{state['plan']}\n위 계획에 따라 답하세요.{tool_hint}"
+            )
+            resp = await bound.ainvoke([sys, *rest])
             return {"messages": [resp]}
 
         def _route(state: _State) -> str:

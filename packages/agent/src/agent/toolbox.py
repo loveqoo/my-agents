@@ -15,7 +15,9 @@ import os
 from collections.abc import Mapping
 from typing import Any
 
+from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
+from langgraph.errors import GraphBubbleUp
 
 # 임계(기본 10) — 이하면 직접 바인딩(무회귀), 초과면 검색 창구. FE 미러: AgentForm 도구 안내 문구.
 DISCOVER_THRESHOLD = int(os.environ.get("TOOLS_DISCOVER_THRESHOLD", "10"))
@@ -100,12 +102,15 @@ def _meta_tools(tools: list) -> list:
         )
 
     @tool
-    async def call_tool(name: str, arguments: str = "{}") -> str:
+    async def call_tool(name: str, arguments: str = "{}", config: RunnableConfig = None) -> str:
         """search_tools로 찾은 도구를 이름으로 호출한다. arguments는 그 도구의 인자 JSON 객체 문자열
         (예: '{"query": "장영실"}').
 
         주의: 인자명을 `args`로 하면 LangChain 예약어와 충돌해 스키마가 `v__args`로 둔갑 —
-        모델이 스키마대로 호출하면 실제 함수와 어긋나 실패한다(스펙 203 live서 실측). `arguments` 고정."""
+        모델이 스키마대로 호출하면 실제 함수와 어긋나 실패한다(스펙 203 live서 실측). `arguments` 고정.
+        `config`는 LangChain 주입 인자(모델 스키마 비노출) — 원 도구에 **그대로 전달**해야 그 도구가
+        이번 턴의 config sink(트레이스)를 읽는다. 미전달 시 캐시된 그래프에서 빌드-시점(첫 턴) closure
+        sink에 기록돼 턴 간 오귀속(스펙 421 codex)."""
         t = by_name.get(name)
         if t is None:
             near = [x.name for x in _rank(tools, name)[:3]]
@@ -122,7 +127,14 @@ def _meta_tools(tools: list) -> list:
             )
         try:
             # 래핑된 원 도구를 그대로 호출 — HIL interrupt·트레이스가 이 안에서 그대로 발화한다.
-            result = await t.ainvoke(parsed)
+            # config를 전달해 원 도구가 **이번 턴의** config sink를 읽게 한다(캐시 그래프 turn-간 sink
+            # 오귀속 차단, 스펙 421). config=None이면 원 도구는 closure fallback(비캐시 경로 무회귀).
+            result = await t.ainvoke(parsed, config)
+        except GraphBubbleUp:
+            # HIL interrupt 등 langgraph 제어흐름은 삼키면 안 된다 — 삼키면 위험 도구 승인 흐름이 평범한
+            # 도구 오류로 둔갑해 그래프가 안 멈추고 승인이 영영 안 뜬다(discovery 모드서 조용히 실패,
+            # 스펙 421 codex). 그래프로 그대로 전파해 __interrupt__/재개 계약을 보존.
+            raise
         except Exception as exc:
             return json.dumps({"error": f"도구 실행 실패: {str(exc)[:200]}"}, ensure_ascii=False)
         return (

@@ -18,7 +18,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 
 from ..model import build_chat_openai
-from ..runtime import AgentBuildContext, AgentManifest
+from ..runtime import AgentBuildContext, AgentManifest, split_seed_prompt
 from ..toolbox import last_user_text
 
 if TYPE_CHECKING:
@@ -45,11 +45,19 @@ class RouteAgent:
             name="route",
             description="분기 라우터(classify→answer_a/answer_b) — 조건분기 예제 커스텀 에이전트",
             supports_hil=False,  # 위험 도구 게이트·interrupt 없음(순수 분기) — 정직하게 표기
+            cacheable=True,  # 스펙 421 — promptless(프롬프트+회상은 seed로) → 버전 캐시
         )
 
     def build_graph(self, ctx: AgentBuildContext) -> CompiledStateGraph:
         model = build_chat_openai(ctx.model_cfg, ctx.params)
-        prompt = ctx.prompt  # 오버라이드 병합 후 주입된 프롬프트(주입 단일 출처)
+        # 스펙 421 이중 모드 — 주입 프롬프트가 있으면(직접 빌드: eval·a2a·비캐시 경로) **그걸 굽고**,
+        # 비었으면("") 캐시 관문이 promptless로 넘긴 것이니 **매 턴 seed 선두**에서 프롬프트+회상을 읽는다.
+        # 프롬프트를 넘기는 게 기본 안전동작이라 새 invoke 경로가 seed를 잊어도 유실 없음 — promptless는
+        # 캐시 관문(_graph_for_turn) 한 곳만. 회상기억을 그래프에 굽는 유일 경로는 비캐시라 누출 0.
+        baked = ctx.prompt
+
+        def _base_rest(state: _State) -> tuple[str, list]:
+            return (baked, state["messages"]) if baked else split_seed_prompt(state["messages"])
 
         def classify(state: _State) -> dict:
             # 결정적 — 모델 호출 없음. 노드 발화가 updates 스트림→추적 타임라인에 남는다.
@@ -59,15 +67,17 @@ class RouteAgent:
             return "answer_a" if state["route"] == "a" else "answer_b"
 
         async def answer_a(state: _State) -> dict:
-            sys = SystemMessage(content=f"{prompt}\n\n# 모드\n질문에 직접·간결하게 답하세요.")
-            resp = await model.ainvoke([sys, *state["messages"]])
+            base, rest = _base_rest(state)
+            sys = SystemMessage(content=f"{base}\n\n# 모드\n질문에 직접·간결하게 답하세요.")
+            resp = await model.ainvoke([sys, *rest])
             return {"messages": [resp]}
 
         async def answer_b(state: _State) -> dict:
+            base, rest = _base_rest(state)
             sys = SystemMessage(
-                content=f"{prompt}\n\n# 모드\n입력을 정리하고 필요한 부연을 덧붙여 답하세요."
+                content=f"{base}\n\n# 모드\n입력을 정리하고 필요한 부연을 덧붙여 답하세요."
             )
-            resp = await model.ainvoke([sys, *state["messages"]])
+            resp = await model.ainvoke([sys, *rest])
             return {"messages": [resp]}
 
         g = StateGraph(_State)

@@ -166,7 +166,11 @@ def _e4_unit() -> None:
     c1 = ChatContext(**base)
     c2 = ChatContext(**base)
     c2.attachment_context = True
-    f1, f2 = _graph_fingerprint(c1), _graph_fingerprint(c2)
+    # 스펙 421 — 지문은 cacheable impl에서만 산출(promptless 캐시 적격). default(cacheable)로 판정.
+    from agent.runtime import DefaultUiAgent
+
+    _impl = DefaultUiAgent()
+    f1, f2 = _graph_fingerprint(c1, _impl), _graph_fingerprint(c2, _impl)
     check(
         f1 is not None and f2 is not None and f1 != f2,
         "E4b 그래프 지문이 attachment_context로 갈라짐(캐시 분리)",

@@ -22,6 +22,22 @@ if TYPE_CHECKING:
     from langgraph.graph.state import CompiledStateGraph
 
 
+def split_seed_prompt(messages: list) -> tuple[str, list]:
+    """이중 모드(스펙 421)의 노드가 **프롬프트가 그래프에 안 구워졌을 때** 매 턴 시스템 프롬프트+회상을
+    얻는 통로 — 반환 (seed 본문, 나머지 메시지).
+
+    `cacheable` impl(route·plan_execute)은 캐시 관문(_graph_for_turn)에서만 **promptless로 빌드**
+    (prompt="")되고, 그때 시스템 프롬프트(+회상기억)가 **seed 선두 SystemMessage로** 매 턴 실린다
+    (371 D3). 그래야 캐시된 그래프가 유저/턴 상태를 안 담아 누출이 구조적으로 불가능. 노드는 주입
+    프롬프트가 비었을 때만 이 헬퍼로 선두 seed를 떼어 자기 모드/계획과 합쳐 **단일 system**을 만든다.
+    프롬프트가 주입된 직접-빌드 경로(eval·a2a·비캐시)에선 노드가 그 프롬프트를 굽고 이 헬퍼를 안 쓴다.
+    seed가 없으면 ("", messages).
+    """
+    if messages and getattr(messages[0], "type", None) == "system":
+        return (messages[0].content or ""), messages[1:]
+    return "", messages
+
+
 class AgentConfigError(Exception):
     """에이전트 설정 실패(스펙 089) — `config["impl"]`을 *선언*했는데 신뢰 레지스트리에서
     미해결(미등록 또는 Protocol 미구현)일 때 발생. 핵심: 이걸 `DefaultUiAgent`로 *만회·폴백*하지
@@ -136,6 +152,13 @@ class AgentManifest:
     # "artifactSpec". None=미선언(폼은 전부 노출 — 현행 무회귀). 선언하면 편집 폼이 안 읽는 표면을
     # 숨기고, 저장된 연결이 있으면 "무시됩니다" 경고("설정=동작" 정직화 — 201 후속2 함정의 구조 해법).
     consumes: tuple[str, ...] | None = None
+    # 버전 캐시 적격(스펙 421) — 이 impl의 그래프가 **per-turn 재료(회상기억·broker·프록시)를 굽지
+    # 않아** 버전-고정 구조만 담는가. True면 플랫폼이 그래프를 **promptless로 빌드**(prompt="")해
+    # 버전 지문으로 `_GRAPH_CACHE`에 상각한다 — 시스템 프롬프트+회상기억은 매 턴 **seed 선두
+    # SystemMessage로** 탄다(371 D3). 그래서 캐시된 그래프가 유저/턴 상태를 담을 수 없어 누출이
+    # 구조적으로 불가능. 굽는 impl(broker 얽힘 등)은 False(매 요청 새 빌드 — 후속 단계서 config
+    # 이관 후 편입). 기본 False(신규 impl은 안전하게 비캐시 — 명시 opt-in).
+    cacheable: bool = False
 
 
 @runtime_checkable
@@ -165,6 +188,7 @@ class DefaultUiAgent:
             name="default-ui",
             consumes=("mcps", "vectorTables", "memories"),  # ReAct: 도구(mcp+rag)·회상 전부 소비
             description="기본 ReAct 에이전트(create_agent) — UI 빌더로 만든 로컬 에이전트",
+            cacheable=True,  # 스펙 371 D3/421 — promptless 빌드+seed로 버전 캐시(회상기억은 매 턴 seed)
         )
 
     def build_graph(self, ctx: AgentBuildContext) -> CompiledStateGraph:

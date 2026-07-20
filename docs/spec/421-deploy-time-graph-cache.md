@@ -42,31 +42,67 @@ CPU 26ms). 단일 이벤트 루프라 이 CPU는 그 시간 동안 **다른 모�
 담을 수 없어** 누출이 *구조적으로 불가능*하고(조심이 아니라 불가능, [[design-for-amnesiac-future-actor]]),
 인가는 **매 요청 라이브**로 정확하다.
 
-**두 갈래로 분류** — 그래프에 든 것을:
-- **버전-고정**(모든 유저 공통·불변): 그래프 위상·노드 함수·프롬프트 seed·MCP/RAG 도구(버전키
-  `_TOOL_SPEC_CACHE`) → **캐시된 그래프에 박음**.
-- **요청-스코프**(유저·세션·턴마다 다름): broker(유저 principal×**라이브 RBAC** — 얼리면 회수된 권한이
-  통하는 보안 구멍, [[gate-on-intent-value-not-mutable-baseline]])·`_MemoryRecallProxy`(세션)·
-  `_HistoryWindowProxy`(턴)·attachment_context → **RunnableConfig로 주입**. broker는 만드는 게 싸므로
-  (368 broker 단계 ≈ 0) 요청마다 새로 만들어 넣는다(캐시 불요·라이브 정확).
+**분류 기준(구남님 정정) — "가변이냐"가 아니라 "같은 버전 안에서 요청마다 다르냐"**:
+- **버전이 정하는 값**(같은 버전이면 A·B 모든 요청 동일): 그래프 위상·노드 함수·**프롬프트**·모델·
+  MCP/RAG 도구 → **캐시 키(지문+버전)에 넣고 그래프에 박음**. 프롬프트는 버전 고정이라 런타임 주입
+  대상이 아니라 **키 입력**이다(플레이그라운드 오버라이드만 예외 — 지문에 프롬프트 해시 넣으면 자동:
+  배포 버전 적중·오버라이드 재빌드).
+- **같은 버전인데 요청마다 다른 값**: broker(같은 버전을 **유저 A·B가 다른 권한**으로 호출 — principal×
+  라이브 RBAC, 얼리면 회수 권한 통하는 구멍 [[gate-on-intent-value-not-mutable-baseline]])·`_MemoryRecall
+  Proxy`(세션)·`_HistoryWindowProxy`(턴)·attachment_context → **RunnableConfig로 주입**. broker는 만드는
+  게 싸므로(368 broker 단계 ≈ 0) 요청마다 새로.
 
 **캐시 키** = 스펙 367 버전(배포=오픈 확정 불변) + 기존 지문 축 승계(모델 능력 라이브 사실·
 attachment_context 등 — 하나라도 빠지면 조용한 우회, retrospect 336).
 
-**단계(요청-스코프 재료 config 이관 개수 순)**:
-- **P1 route·plan_execute**: 요청-스코프 재료 **0**(model+prompt[+version-stable tools]만). 지문만 확장하면
-  즉시 캐시 편입 — 371 D3와 거의 동형. 착수 첫 타자(위험 최소).
-- **P2 orchestrate·artifact_form**: broker 1개만 config 이관 후 캐시 편입.
+**정정(2026-07-20 — 초기 조사 오류)**: "P1 route/plan = 요청-스코프 재료 0"은 **틀렸다**. route.consumes=
+("memories") → 매 턴 회상 → `prompt_prompt = ctx.prompt + 회상기억`(chat_turn_runtime:226) → route가
+이 기억-포함 프롬프트를 노드 클로저에 **굽는다**(route.py:51). 즉 route/plan도 **요청-스코프 재료(회상
+기억)를 굽고** 있어 그대로 캐시하면 broker와 **같은 부류의 누출**(유저 A 사적 기억 → 공유 캐시 → 유저 B,
+턴 사이 stale). default가 promptless인 이유가 이것 — 아무것도 안 굽고 기억-포함 프롬프트를 **매 턴 seed
+선두 메시지로** 태워 캐시 그래프를 기억-무관으로 유지.
+
+**따라서 통일 불변식**: *어떤 impl도 per-turn 재료(회상기억·broker·프록시·창·첨부)를 그래프에 굽지
+않는다.* 전부 **매 호출 주입**(promptless seed 또는 RunnableConfig)한다. 그러면 그래프는 버전-고정만
+얼려 캐시 안전. 작업은 균일하게 "per-turn 재료를 그래프 밖으로 → 캐시 편입".
+
+**단계(그래프에서 빼낼 per-turn 재료 수 순)**:
+- **P1 route·plan_execute**: per-turn 재료 = **회상기억 1개**. default와 동일하게 **promptless화**(기억+
+  프롬프트를 seed로) → 캐시 편입. default 메커니즘 재사용. 위험: route는 raw `model.ainvoke([sys, *msgs])`라
+  promptless면 [mode_sys, seed_sys, ...] 두 system 메시지 — 프로바이더 수용 여부 **테스트로 확인**.
+- **P2 orchestrate·artifact_form**: per-turn 재료 = broker 1개 → config 이관 후 편입.
 - **P3 pipeline**: broker + 회상/창 프록시 + broker 유래 agent tools 전부 config 이관 후 편입.
-각 단계: config 이관 → 캐시 편입 → measure_build_cpu 재실행(순빌드 CPU ~0 확인) → codex 적대(요청-
-스코프 재료가 캐시로 공유 안 됨: "여집합") → 다음.
+각 단계: per-turn 재료 축출 → 캐시 편입 → measure_build_cpu 재실행(순빌드 CPU ~0) → codex 적대(per-turn
+재료가 캐시로 공유 안 됨·기억/권한 누출 "여집합") → 다음.
+
+## P1 완료(route·plan_execute) — 2026-07-21
+
+**설계 정착(이중 모드)**: 순수-promptless는 *모든* invoke 경로가 seed를 넣어야 해서, 새 경로가 잊으면
+프롬프트가 조용히 유실(codex가 eval_runner에서 실증). 그래서 노드를 **이중 모드**로:
+`base = ctx.prompt if ctx.prompt else split_seed_prompt(state)`. 프롬프트를 넘기는 게 **기본 안전동작**
+(직접-빌드 경로=eval·a2a·비캐시가 그걸 굽는다), promptless는 **캐시 관문(_graph_for_turn) 한 곳만**
+prompt="" 전달 → 노드가 매 턴 seed에서 읽음. 회상기억을 그래프에 굽는 유일 경로는 비캐시라 누출 0.
+([[design-for-amnesiac-future-actor]] — 기억 0인 미래 코더가 프롬프트를 넘겨도 자동으로 옳음.)
+
+**codex 적대 2라운드**:
+- R1: ①eval_runner 등 비-seed 입구가 프롬프트 유실(순수-promptless 결함) → **이중 모드**로 봉합.
+  ②plan_execute discovery `call_tool`이 config 미전달 → 캐시 그래프가 빌드-시점 closure sink에 turn-간
+  오귀속 → `call_tool(config)` 주입+전달로 봉합.
+- R2: 두 결함 해소 확인. 선재 결함 발견 — discovery `call_tool`의 `except Exception`이 `GraphInterrupt`
+  (HIL)를 삼켜 승인 흐름이 조용히 죽음 → `except GraphBubbleUp: raise`로 봉합(제어흐름 전파 보존).
+
+**검증**: verify_421(단위 U1~U3 + http P1~P3) — 이중 모드 baked/seed·call_tool 이번 턴 sink·HIL 전파·
+캐시 적중(buildMs.graph 0)·**P3 격리**(B가 A 캐시 그래프 공유해도 각자 프롬프트만, 누출 0). 회귀 네트
+92/0/0. verify_371/099/085/154/203/041 무회귀.
 
 ## 완료 기준(CPU 축)
-- [ ] measure_build_cpu 재실행 — 편입 유형의 순빌드 CPU/요청이 **~0ms**(default 수준)로 상각.
-- [ ] **RBAC 누출 codex 적대 통과**(P2/P3 — 유저별 broker·프록시가 캐시로 공유 안 됨: "보장 목록의
-      여집합"). attachment_context 강제·stale 회상·prompt-provenance 등 지문 축 누락 0.
-- [ ] make test·suite(실모델)·verify_408/410/411 무회귀(캐시 무효화 축 정확).
-- [ ] 단계마다 측정→검증 후 다음(P1→P2→P3), 각 단계 codex.
+- [x] **P1** route·plan_execute: 2턴째 buildMs.graph=0.0ms(매 요청 재빌드→버전당 1회 상각, verify_421).
+- [x] **P1 격리 codex 통과**: 프롬프트/회상이 캐시 그래프에 안 담김(promptless+이중모드) — P3 대칭 격리
+      실증. codex 2라운드 봉합(이중모드·call_tool config·HIL 전파).
+- [x] **P1 무회귀**: make test 92/0/0 · verify_371/099/085/154/203/041.
+- [ ] **P2** orchestrate·artifact_form: broker config 이관 후 편입.
+- [ ] **P3** pipeline: broker+프록시+agent tools config 이관 후 편입.
+- [ ] 단계마다 측정→검증 후 다음, 각 단계 codex.
 
 ## OUT
 - 동시성 500 다발(부수 발견) — 별건 조사(백로그).

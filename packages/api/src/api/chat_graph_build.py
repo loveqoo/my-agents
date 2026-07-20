@@ -112,16 +112,22 @@ class _MemoryRecallProxy:
         return text
 
 
-def _graph_fingerprint(ctx: ChatContext) -> str | None:
-    """캐시 적격(단순형 default)이면 빌드 결정 요소의 지문, 아니면 None(새 인스턴스 경로).
+def _graph_fingerprint(ctx: ChatContext, impl: CustomAgent | None = None) -> str | None:
+    """캐시 적격(impl.cacheable)이면 빌드 결정 요소의 지문, 아니면 None(새 인스턴스 경로).
 
-    지문 = 모델 정체(연결·model_id·params·temperature) + MCP 도구 집합(이름·**블록 버전**·auth 지문 —
-    369 불변성으로 버전이 콘텐츠를 유일하게 가리킴) + 도구 필터 + 승인 정책 + RAG 배선 + 체크포인터
-    유무. 비밀은 sha256 지문으로만(평문 키 저장 금지). 노드형/조율형/산출물형은 per-turn 재료(브로커·
-    프록시)가 그래프에 얽혀 제외(후속). 캐시 딕셔너리는 chat.py(_GRAPH_CACHE) — 이 함수는 순수."""
+    지문 = **impl 키**(위상 구분) + 모델 정체(연결·model_id·params·temperature) + MCP 도구 집합(이름·
+    **블록 버전**·auth 지문 — 369 불변성으로 버전이 콘텐츠를 유일하게 가리킴) + 도구 필터 + 승인 정책 +
+    RAG 배선 + 체크포인터 유무. 비밀은 sha256 지문으로만(평문 키 저장 금지).
+
+    적격 판정은 **impl이 선언한 `cacheable`**(스펙 421) — 그래프가 per-turn 재료(회상기억·broker·
+    프록시)를 굽지 않아 promptless 빌드로 버전 캐시 안전한 impl만 True(default·route·plan_execute).
+    프롬프트는 지문 축이 **아니다** — cacheable impl은 promptless라 시스템 프롬프트+회상이 매 턴 seed로
+    타므로 그래프가 프롬프트-무관(같은 impl·모델이면 프롬프트 달라도 그래프 공유). 노드형(nodes_resolved)·
+    산출물형(artifact_spec)은 런타임 신호로도 조기 배제(방어). 캐시 딕셔너리는 chat_turn_runtime
+    (_GRAPH_CACHE) — 이 함수는 순수."""
     if ctx.nodes_resolved is not None or ctx.artifact_spec is not None:
         return None
-    if (ctx.impl or "default") != "default":
+    if impl is None or not impl.describe().cacheable:
         return None
     mc = ctx.model_cfg or {}
     if not mc:
@@ -131,6 +137,9 @@ def _graph_fingerprint(ctx: ChatContext) -> str | None:
         return hashlib.sha256((text or "").encode()).hexdigest()[:12]
 
     blob = {
+        # impl 키(스펙 421) — route·plan_execute·default가 각기 다른 위상. 없으면 같은 모델의
+        # 서로 다른 impl 그래프가 한 지문에 충돌해 재사용된다.
+        "impl": ctx.impl or "default",
         "model": [
             mc.get("base_url"),
             _fp(mc.get("api_key") or ""),
