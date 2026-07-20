@@ -1,8 +1,9 @@
 # 421 — 배포후 그래프 캐시(캐시 제외 유형의 요청당 빌드 CPU 상각)
 
-> 상태: **초안(조사 완료·승인 대기)** · 2026-07-20 · 발단: 구남님 "실시간 그래프를 빌드하는 에이전트
-> 유형을 파악하여, 배포 이후에는 빌드/캐시된 에이전트를 제공." 판정축 교정: "응답시간이 아니라 **CPU가
-> 매 요청 빌드하며 튀는 게 문제**"([[cpu-axis-not-latency]]).
+> 상태: **완료(P1+P2+P3 — 6유형 중 artifact 제외 전부 편입)** · 2026-07-20~21 · 발단: 구남님 "실시간
+> 그래프를 빌드하는 에이전트 유형을 파악하여, 배포 이후에는 빌드/캐시된 에이전트를 제공." 판정축 교정:
+> "응답시간이 아니라 **CPU가 매 요청 빌드하며 튀는 게 문제**"([[cpu-axis-not-latency]]).
+> 최종 실측: **전 유형 graph 빌드 0.00ms**(route 0.7·orchestrate 1.6·pipeline-8 5.1 → 전부 버전당 1회).
 
 ## 조사 결과
 
@@ -100,7 +101,10 @@ prompt="" 전달 → 노드가 매 턴 seed에서 읽음. 회상기억을 그래
 - [x] **P1 격리 codex 통과**: 프롬프트/회상이 캐시 그래프에 안 담김(promptless+이중모드) — P3 대칭 격리
       실증. codex 2라운드 봉합(이중모드·call_tool config·HIL 전파).
 - [x] **P1 무회귀**: make test 92/0/0 · verify_371/099/085/154/203/041.
-- [ ] **P2** orchestrate·artifact_form: broker config 이관 후 편입(유일 잔여 — graph 1.6ms/req).
+- [x] **P2** orchestrate(+ranked): 프롬프트=이중 모드 seed(P1 동형)·broker=config-우선(P3 동형) —
+      능력은 도구로 안 굽고 discover가 호출 시점 발견이라 caps 지문 축 불필요. graph 1.6→0.00ms.
+      **artifact_form은 제외 유지**(정직한 경계): interrupt 리플레이·thread 스텝 캐시 기계가 얽혀
+      복잡 대비 이득 미측정(폼 흐름은 빌드 빈도도 낮음) — 지문 artifact_spec 배제 유지.
 - [x] **P3** pipeline: graph 빌드 2.3/5.1→**0.00ms**(nodes/caps 지문 축+프록시·broker config 주입).
       codex 1건(caps rename 축) 봉합, verify_421 U4~6+P4~5·배터리 10종·그물 92/0/0.
 - [x] 단계마다 측정→검증 후 다음, 각 단계 codex.
@@ -149,6 +153,24 @@ brokerCalls t1=t2=1). HIL 수동 프로브: 캐시 적중 턴에도 interrupt·�
 CPU/req 차이는 노드 수만큼의 mock 자기-호출 프레임워크 비용(캐시 무관 — learning 398 아티팩트, 실배포
 는 외부 모델 async I/O). orchestrate만 1.6ms 재빌드 잔존(P2). pipeline-8 4워커 버스트 20→22/30 소폭
 개선 — 잔존은 자기-호출 증폭(30req×8노드=240 self-call, mock 한계)이지 빌드 아님(정직 기록, 백로그).
+
+## P2 완료(orchestrate·orchestrate_ranked) — 2026-07-21
+
+P1(프롬프트 seed 이중 모드)+P3(broker config-우선) 메커니즘 조합만으로 편입 — **graph 1.6→0.00ms**
+(전 유형 0 달성). 능력은 도구로 굽지 않고 `broker.discover`가 호출 시점 발견이라 caps 지문 축 불필요
+(라이브 정확). delegate에 broker 미주입 정직 가드 추가. **artifact_form은 제외 확정**(interrupt 리플레이·
+thread 스텝 캐시 기계 — 복잡 대비 이득 미측정, 정직한 경계).
+
+**codex 적대(P2 라운드)**: 보장 1·2·4·5 유지 판정. **P1 1건** — 배포 경계 레거시 승인 재개: 구 버전
+(굽던 시절) 체크포인트엔 seed가 없는데 새 코드가 지문 기준 promptless로 재빌드 → 프롬프트·회상 유실.
+**구조 봉합**(불변식: *재개 그래프의 모양은 지문(코드의 추측)이 아니라 체크포인트의 실제 상태가 결정*):
+`_resume_state_has_seed`가 선두 seed 유무를 실물로 판독해 promptless를 결정(레거시=굽기·신규=promptless
+— 배포 경계 구분 자체가 소멸, default의 371 시절 레거시 구멍도 함께 닫힘). 판독 불가만 종전 지문 폴백.
+synthesize는 seed를 **항상 걷고** `baked or seed` — 어느 조합이든 단일 system 불변식. 수리 중 F821
+(thread_id 스코프)로 verify_101 H7 재개 500 → approval.checkpoint로 교정, 전 배터리 재검증.
+
+**검증**: verify_421 U7(재개 seed 판정 4분기)+P6(orchestrate 캐시 적중·seed→synthesize 도달) 추가,
+verify_100/101/102/115/116/117(위임·HIL 재개 왕복·협업)·041 전부 통과, 그물 92/0/0 ×2.
 
 ## OUT
 - 동시성 500 다발(부수 발견) — 별건 조사(백로그).

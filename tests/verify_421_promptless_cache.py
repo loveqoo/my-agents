@@ -236,6 +236,30 @@ def _units() -> None:
         "U6 pipeline fp 산출·코드 노드 제외·nodes/caps-id/caps-rename 축 전부 분리",
     )
 
+    # U7 — 재개 promptless는 체크포인트 **상태 실물**(선두 seed)로 판정(스펙 421 P2 codex P1: 배포 경계
+    # 레거시 체크포인트에 seed가 없는데 지문 기준으로 promptless 재빌드 → 프롬프트·회상 유실 봉합)
+    from api.chat_approval import _resume_state_has_seed
+
+    class _Ck:
+        def __init__(self, cp: object) -> None:
+            self._cp = cp
+
+        async def aget(self, _cfg: dict) -> object:
+            if isinstance(self._cp, Exception):
+                raise self._cp
+            return self._cp
+
+    seeded = {"channel_values": {"messages": [SystemMessage(content="s"), HumanMessage(content="u")]}}
+    legacy = {"channel_values": {"messages": [HumanMessage(content="u")]}}
+    r_seed = asyncio.run(_resume_state_has_seed(_Ck(seeded), "t"))
+    r_leg = asyncio.run(_resume_state_has_seed(_Ck(legacy), "t"))
+    r_none = asyncio.run(_resume_state_has_seed(_Ck(None), "t"))
+    r_err = asyncio.run(_resume_state_has_seed(_Ck(RuntimeError("x")), "t"))
+    check(
+        r_seed is True and r_leg is False and r_none is None and r_err is None,
+        f"U7 재개 seed 판정=상태 실물(seed→promptless·레거시→굽기·판독불가→폴백) (got {r_seed},{r_leg},{r_none},{r_err})",
+    )
+
 
 def main() -> None:
     _units()
@@ -376,6 +400,19 @@ def main() -> None:
         check(
             bool(bc1) and bool(bc2),
             f"P5 캐시 前/後 턴 모두 위임 실행(config broker 주입) (t1={len(bc1)} t2={len(bc2)})",
+        )
+
+        # P6 — orchestrate 캐시 편입(스펙 421 P2): 2턴째 캐시 적중 + 프롬프트가 seed로 synthesize 도달
+        orch_body = f"ORCH421-{tag} 종합 지침."
+        o_id = mk_agent(f"v421-orch-{tag}", orch_body, "orchestrate")
+        chat(o_id, "오케스트레이터 워밍업")
+        to2 = chat(o_id, "질문에 답해줘")
+        bo2 = (to2 or {}).get("buildMs") or {}
+        check(bo2.get("graph", 99) <= 0.5, f"P6 orchestrate 2턴째 graph ≤0.5ms(캐시 적중) (got {bo2.get('graph')})")
+        smo = _sysmsgs(to2)
+        check(
+            any(orch_body in (m.get("content") or "") for m in smo),
+            "P6 orchestrate system에 프롬프트 본문(seed → synthesize 도달)",
         )
     finally:
         for aid in made:

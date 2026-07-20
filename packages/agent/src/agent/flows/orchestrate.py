@@ -29,11 +29,12 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Annotated, Any, TypedDict, final
 
 from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 
 from ..model import build_chat_openai
-from ..runtime import AgentBuildContext, AgentManifest, Capability
+from ..runtime import AgentBuildContext, AgentManifest, Capability, split_seed_prompt
 from ..toolbox import fence_wrap, last_user_text
 
 if TYPE_CHECKING:
@@ -208,6 +209,10 @@ class OrchestrationAgentBase(ABC):
             description=self.DESCRIPTION,
             supports_hil=True,
             consumes=("capabilities", "memories"),
+            # 스펙 421 P2 — 그래프는 버전-고정(위상·모델·전략)만 얼림. per-turn 재료(프롬프트+회상=seed,
+            # broker=config 주입)는 이중 모드로 매 호출 공급 → 버전 지문 캐시 안전. 능력 집합은 도구로
+            # 굽지 않고 broker.discover가 **호출 시점** 발견하므로 caps 지문 축도 불필요(라이브 정확).
+            cacheable=True,
         )  # 스펙 206
 
     @abstractmethod
@@ -219,18 +224,26 @@ class OrchestrationAgentBase(ABC):
     @final
     def build_graph(self, ctx: AgentBuildContext) -> CompiledStateGraph:
         model = build_chat_openai(ctx.model_cfg, ctx.params)
-        prompt = ctx.prompt  # 오버라이드 병합 후 주입된 프롬프트(주입 단일 출처)
-        broker = ctx.broker  # 정책으로 미리 스코프된 핸들(None이면 deny-by-default)
+        # 스펙 421 P2 이중 모드 — 주입 프롬프트가 있으면 굽고(직접 빌드=eval·a2a·resume), 비면("")
+        # 캐시 관문이 promptless로 지은 것이라 synthesize가 매 턴 seed 선두에서 읽는다(P1 route/plan
+        # 동형). broker도 config-우선(캐시 그래프: 이번 턴 principal 주입 → 인가 라이브)·클로저 폴백
+        # (직접 빌드) — 캐시 빌드는 클로저가 None(스트립)이라 turn-A broker 잔존 자체가 불가.
+        baked = ctx.prompt
+        closure_broker = ctx.broker  # 정책으로 미리 스코프된 핸들(None이면 deny-by-default)
+
+        def _broker_of(config: RunnableConfig) -> Any:
+            return ((config or {}).get("configurable") or {}).get("broker") or closure_broker
 
         def analyze(state: _State) -> dict:
             # 결정적 — 모델 호출 없음. 노드 발화가 updates→추적 타임라인에 남는다.
             return {"query": extract_query(last_user_text(state))}
 
-        async def plan(state: _State) -> dict:
+        async def plan(state: _State, config: RunnableConfig = None) -> dict:
             """위임 대상을 **어떤 invoke·interrupt 이전에** 확정·커밋한다(스펙 116, codex 116 [P1] 봉합).
             discover/select는 부수효과·interrupt가 없으므로 이 노드는 항상 완주해 pending을 체크포인트에
             남긴다 → 뒤이어 첫 cap이 interrupt해도 재개 시 **재-discover되지 않는다**(재개 전 카탈로그·정책이
             바뀌어 승인 대상이 뒤바뀌는 위험 차단)."""
+            broker = _broker_of(config)
             if broker is None:
                 # deny-by-default(발견 공집합) — 사유도 표면화(스펙 289 P3).
                 return {"pending": [], "delegationNote": "위임 후보 0 — 능력 미부여(브로커 없음)"}
@@ -256,14 +269,22 @@ class OrchestrationAgentBase(ABC):
                 "delegationNote": note,
             }
 
-        async def delegate(state: _State) -> dict:
+        async def delegate(state: _State, config: RunnableConfig = None) -> dict:
             """plan이 확정한 pending을 **cap 하나씩 자기 노드 실행**으로 소비(스펙 116 — 재개 멱등). 매 턴
             pending 앞 하나를 invoke하고 결과를 done에 커밋한 뒤 자기 자신으로 루프한다. 승인-게이트 cap이
             interrupt하면 LangGraph가 이 노드를 재실행하지만, **선행 cap 결과는 이미 done에 커밋**돼
             재호출되지 않는다(앞선 read-only cap의 중복 읽기 제거, codex 102 [P1] 봉합). 그 cap 자체는
             재실행되나 interrupt-before-sideeffect로 부수효과는 정확히 1회(스펙 101)."""
+            broker = _broker_of(config)
             pending = state.get("pending") or []
             if pending:
+                if broker is None:
+                    # 캐시 그래프에 broker 미주입(비정상 경로) — 위임을 조용히 재개하지 않고 정직 표기.
+                    return {
+                        "pending": [],
+                        "delegated": _fold_done(state.get("done") or []),
+                        "delegationNote": "위임 중단 — 브로커 미연결(주입 누락)",
+                    }
                 cap = pending[0]
                 # gated cap이면 여기서 interrupt(재개 시 이 cap만 재호출; done의 선행 cap은 보존).
                 res = await broker.invoke(cap["id"], {"text": state["query"]})
@@ -282,7 +303,11 @@ class OrchestrationAgentBase(ABC):
 
         async def synthesize(state: _State) -> dict:
             # 위임 결과(untrusted)는 system이 아닌 **데이터 채널**로 격리해 주입(순수함수 조립).
-            msgs = build_synthesis_messages(prompt, state.get("delegated") or "", state["messages"])
+            # 이중 모드(스펙 421 P2): 프롬프트는 굽힌 것(직접 빌드) 우선, 아니면 매 턴 seed(캐시 경로).
+            # seed는 **항상 걷는다** — 굽힌 그래프가 seed 있는 상태를 재생(재개 폴백 등)해도 system이
+            # 이중이 되지 않게(어느 조합이든 단일 system 불변식).
+            seed, rest = split_seed_prompt(state["messages"])
+            msgs = build_synthesis_messages(baked or seed, state.get("delegated") or "", rest)
             resp = await model.ainvoke(msgs)
             return {"messages": [resp]}
 

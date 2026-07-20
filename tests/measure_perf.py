@@ -34,7 +34,7 @@ K = int(os.environ.get("PERF_TURNS", "60"))  # 유형별 순차 요청 수
 BURST = int(os.environ.get("BURST", "30"))  # 동시 버스트 총 요청 수
 WARMUP = 3
 
-CACHED = {"default", "route", "plan_execute", "pipeline-3", "pipeline-8"}  # 421 P1+P3(잔여=P2 orchestrate)
+CACHED = {"default", "route", "plan_execute", "orchestrate", "pipeline-3", "pipeline-8"}  # 421 완주(artifact 제외)
 
 
 def _find_pid() -> int:

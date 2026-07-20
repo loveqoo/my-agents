@@ -275,6 +275,22 @@ async def _resume_memory_inputs(
     return used_memory, mem_hits, mem_proxy, resume_recalls
 
 
+async def _resume_state_has_seed(ckpt: "AsyncPostgresSaver", thread_id: str) -> bool | None:
+    """재개 체크포인트의 messages 선두가 seed SystemMessage인가(스펙 421 P2) — True/False, 판독 불가 None.
+
+    재개 그래프의 promptless 여부를 **상태 실물**로 판정하는 근거(위 _rebuild_resume_graph 주석).
+    체크포인트 없음·판독 예외는 None(호출측이 종전 지문 기준으로 폴백 — 최소 변화)."""
+    try:
+        cp = await ckpt.aget({"configurable": {"thread_id": thread_id}})
+        if cp is None:
+            return None
+        msgs = (cp.get("channel_values") or {}).get("messages") or []
+        return bool(msgs) and getattr(msgs[0], "type", None) == "system"
+    except Exception:
+        log.warning("재개 체크포인트 판독 실패(thread=%s) — 지문 기준 폴백", thread_id)
+        return None
+
+
 async def _rebuild_resume_graph(
     ctx: ChatContext,
     impl: CustomAgent,
@@ -349,10 +365,15 @@ async def _rebuild_resume_graph(
         tools.extend(
             runtime.build_agent_tools(resume_broker, await resume_broker.agent_capabilities())
         )
-    # 스펙 371 D3 정합: 원 턴이 promptless 그래프(캐시 적격)였다면 재개 그래프도 promptless로 —
-    # 체크포인트 상태에 이미 선두 SystemMessage가 있어, 여기서 prompt를 구우면 system이 이중이 된다.
-
-    _promptless = _graph_fingerprint(ctx, impl) is not None
+    # 스펙 371 D3 정합 → 421 P2 교정: 재개 그래프의 promptless 여부는 지문(현재 코드의 추측)이 아니라
+    # **체크포인트의 실제 상태**(선두 seed SystemMessage 유무)가 결정한다. 지문 기준은 배포 경계에서
+    # 어긋난다 — 구 버전(굽던 시절)의 승인 체크포인트에는 seed가 없는데 새 코드 지문은 "캐시 적격"이라
+    # promptless로 지어 프롬프트·회상이 유실됐다(codex 421 P2 P1). 상태 기준이면 레거시/신규 구분이
+    # 소멸: seed 있음=promptless(굽으면 system 이중), seed 없음=굽기(원 턴과 동형). 판독 실패만 종전
+    # 지문 기준 폴백(최소 변화).
+    _promptless = await _resume_state_has_seed(ckpt, approval.checkpoint or "")
+    if _promptless is None:
+        _promptless = _graph_fingerprint(ctx, impl) is not None
     build_ctx = AgentBuildContext(
         prompt="" if _promptless else prompt_prompt,
         model_cfg=ctx.model_cfg,
