@@ -11,9 +11,10 @@ from sqlalchemy import (
     UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
 from ..audit import AuditMixin
+from ..model_param_layers import strip_disallowed_agent_config
 from .base import Base, _pk
 
 
@@ -73,6 +74,14 @@ class Agent(AuditMixin, Base):
         order_by="AgentVersion.created_at.desc()",
     )
 
+    @validates("config")
+    def _validate_config(self, _key: str, value: dict) -> dict:
+        """config **ORM 속성 대입** 관문(스펙 420) — 노드형의 유효하지 않은 층 modelParams 제거.
+        정상 라우트(create·clone·activate·adopt·resync)는 cfg를 마지막에 대입해 이 관문을 지난다.
+        Core update/bulk/raw SQL은 우회하나 현재 그런 config 쓰기가 없고 런타임 관문이 방어(정확한
+        범위는 strip_disallowed_agent_config docstring)."""
+        return strip_disallowed_agent_config(value)
+
 
 class AgentVersion(AuditMixin, Base):
     """에이전트 불변 단조 버전(스펙 370 — 구 draft/active/archived 상태기계 폐기).
@@ -94,6 +103,12 @@ class AgentVersion(AuditMixin, Base):
     config: Mapped[dict] = mapped_column(JSONB, default=dict)
 
     agent: Mapped[Agent] = relationship(back_populates="versions")
+
+    @validates("config")
+    def _validate_config(self, _key: str, value: dict) -> dict:
+        """버전 config ORM 속성 대입 관문(스펙 420) — Agent.config와 동일. adopt/activate가 과거 버전
+        config를 복사·대입해도 여기서 노드형 불법 modelParams가 제거된다(대입이라 @validates 발화)."""
+        return strip_disallowed_agent_config(value)
 
 
 # ----------------------------- 세션/메시지 -----------------------------

@@ -1,0 +1,37 @@
+역할: 적대적 코드 리뷰어(재검). 스펙 420 1차 리뷰 P1 2건·P2 3건에 대한 봉합을 검증하라. 봉합이
+진짜인지, 새 회귀·잔존 우회가 없는지 "여집합"을 다시 짚어라.
+
+1차 P1 봉합:
+- P1② temperature 병렬 통로: chat_context_loader의 ctx.temperature 파생을 `layer_applies("agent",
+  cfg.get("impl"))`로 게이팅 — 노드형이면 None(4입구 run_params가 다 None). packages/api/src/api/
+  chat_context_loader.py 의 ChatContext(temperature=...) 부분.
+- P1① update 순서 역전: agents/crud_routes.py 에 `_strip_pipeline_model_params(cfg)` 추가, update는
+  `_preserve_impl` **뒤**에, create는 model_dump 뒤에 호출(최종 impl 확정 후 노드형 modelParams 비움).
+
+1차 P2 봉합:
+- P2① node 층 미게이팅: `_resolve_node_models`의 node 적용에 `layer_applies("node", _impl)` 추가.
+- P2②③(FE/BE 수동복제·NodeListEditor 하드코딩)은 크로스언어 한계로 수용 — verify_420이 BE 계약 핀,
+  FE는 modelParamLayerApplies로 상호 주석 참조. (이번 재검 대상 아님, 판단만 확인.)
+
+검증됨: verify_420 18/18(정책·쓰기경계+strip헬퍼·해석 관문 양경로·**ctx.temperature 노드형 None
+agent+session, 비노드형 유지**·strip 헬퍼 노드형/비노드형), verify_410 14/14, verify_411 24/24,
+ruff/mypy clean.
+
+재검 공격 각도:
+- temperature 봉인 완전한가? ctx.temperature 말고 temperature가 노드에 도달하는 **또 다른** 통로
+  (AgentBuildContext.params 외, node model_cfg 경유, build_chat_openai 다른 인자, pipeline _model_from_node의
+  params 전달)? 노드형에서 노드 자기 modelParams.temperature(node 층)는 여전히 정상 적용되나(무회귀)?
+- layer_applies("agent") 게이트가 ctx.temperature에 맞나? session temperature는 _apply_overrides가
+  cfg.modelParams에 병합한 뒤라 같은 게이트로 잡히나? orchestrate_ranked/artifact_form/None은 여전히
+  temperature 받나(non-pipeline이므로 받아야)?
+- _strip_pipeline_model_params: create/update 양쪽 다 커버? clone/복제 경로(crud_routes 다른 라우트)나
+  batch/seed 경로로 노드형 modelParams가 저장되는 우회로 잔존? impl이 pipeline인데 놓치거나, 아닌데 strip?
+- node 층 게이트: 비노드형인데 nodes 있는 config에서 node params가 안 새나(_resolve_node_models는 노드형
+  전용 호출이지만)? 게이트 추가로 정상 노드형 노드 params가 막히진 않나(무회귀)?
+- 새 회귀: 비노드형(직접·조율·산출물) temperature/modelParams 캐스케이드 전부 정상? pin 경로?
+
+파일: chat_context_loader.py, chat_context_models.py(_resolve_model·_resolve_node_models), agents/crud_routes.py
+(_strip_pipeline_model_params·create·update), schemas/agents.py, model_param_layers.py,
+tests/verify_420_model_param_layers.py.
+
+출력: 남은 P1(있으면)/P2/봉합확인. 파일:라인. 읽기 전용.

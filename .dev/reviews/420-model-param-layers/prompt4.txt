@@ -1,0 +1,33 @@
+역할: 적대적 코드 리뷰어(최종). 스펙 420이 라우트별 strip 뿌리기(codex가 clone·activate·adopt 반복
+지적)를 **ORM @validates 단일 관문**으로 대체했다. 이 재설계가 진짜 원천 차단인지, 새 회귀·구멍 없나.
+
+재설계:
+- Agent.config·AgentVersion.config에 `@validates("config")` → `strip_disallowed_agent_config(value)`
+  (model_param_layers.py). 노드형(impl=="pipeline")이면 modelParams={} 사본 반환. config가 DB에 저장되는
+  **모든 경로**(create·update·clone·activate·adopt·프롬프트채택·직접 ORM add·미래 신설)가 이 ORM 컬럼
+  대입을 지나므로 우회 불가.
+- 제거: 라우트별 _strip_pipeline_model_params 호출(4곳)·guards 헬퍼·AgentConfig pydantic model_validator
+  (전부 redundant — ORM 관문이 단일 출처).
+- 유지: 런타임 관문(_resolve_model·_resolve_node_models·ctx.temperature 게이트) — 선재 dirty 행(마이그레이션
+  이전 저장분, ORM 우회 raw SQL) 안전 처리.
+- verify_420 22/22: ORM add로 노드형 modelParams 넣어도 저장본 비움·노드 보존·node 층 양성·레거시 raw
+  주입 후 ctx.temperature None·비노드형 무회귀.
+
+최종 공격 각도:
+- @validates가 정말 모든 저장 경로에 걸리나? SQLAlchemy @validates는 attribute set에 발화 — 생성자
+  (Agent(config=...))·대입(agent.config=...) 둘 다? bulk insert·session.execute(insert())·core update·
+  raw SQL은 @validates를 우회(이건 의도 — 마이그레이션/DBA 경로, 런타임이 방어)? 그 우회가 실 라우트에
+  쓰이나?
+- @validates가 사본 반환인데 입력 dict를 공유·후속 변이하는 코드가 있나(반환값≠저장값 되는)? adopt가
+  scratch.config=cfg 후 cfg를 또 만지나?
+- 순환 import: models/agents.py가 model_param_layers import — model_param_layers는 순수(무 import)라
+  안전한가? 다른 순환?
+- 회귀: 비노드형 create/update/clone/activate/adopt가 modelParams·temperature 정상 저장·해석? pydantic
+  model_validator 제거로 다른 검증(clean_setting_params field_validator)은 유지되나?
+- node 층·session 층·agent 층 전체 캐스케이드가 비노드형에서 무회귀?
+- @validates가 config=None이나 비-dict를 받으면(방어)? default=dict인데 명시 None 대입 경로?
+
+파일: model_param_layers.py, models/agents.py(@validates), schemas/agents.py, agents/guards.py, agents/
+crud_routes.py, agents/version_routes.py(adopt/activate), chat_context_loader.py, chat_context_models.py,
+tests/verify_420_model_param_layers.py.
+출력: 남은 P1(있으면)/P2/최종 봉합확인. 읽기 전용.

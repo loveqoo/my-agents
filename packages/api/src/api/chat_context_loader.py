@@ -25,6 +25,7 @@ from .chat_context_versions import (
     _resolve_version_and_prompt,
 )
 from .db import SessionLocal, get_or_404
+from .model_param_layers import layer_applies
 from .models import Agent
 from .node_templates import resolve_node_refs
 
@@ -174,7 +175,14 @@ async def _load_context(
             tool_policy=cfg.get("toolPolicy") or {},
             # temperature는 통합 파라미터 축(modelParams)에서 파생(스펙 411 흡수) → trace/지문 연속성.
             # 미명시=None(모델 등록 params 적용). 실행 배선은 build_chat_openai가 modelParams로 직접 해석.
-            temperature=(cfg.get("modelParams") or {}).get("temperature"),
+            # **노드형은 None**(스펙 420 P1② codex): ctx.temperature는 agent/session 층 값인데, 이게
+            # run_params로 4입구(chat/resume/serve/eval)+노드에 흘러 노드 파라미터를 덮는 **병렬 통로**다.
+            # modelParams 캐스케이드만 막으면 이 통로로 샌다 — 같은 정책(agent 층=non-pipeline만)으로 봉인.
+            temperature=(
+                (cfg.get("modelParams") or {}).get("temperature")
+                if layer_applies("agent", cfg.get("impl"))
+                else None
+            ),
             history_depth=cfg.get("historyDepth", 20),
             persist_history=cfg.get("persistHistory", True),
             # 비영속(1회성) 모드(스펙 235) — true면 DB 적재 전면 스킵(persistHistory의 상위집합).

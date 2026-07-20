@@ -1,0 +1,47 @@
+역할: 적대적 코드 리뷰어. 스펙 420(모델 파라미터 캐스케이드 층 정책 단일화)을 공격자·회귀 관점에서 검증하라.
+"보장 목록의 여집합"을 찾아라 — 우리가 확인한 것 말고 놓친 구멍/회귀를.
+
+배경(반복 실수를 구조로 원천 차단): 노드형(pipeline) 에이전트에서 모델 파라미터(modelParams)가 에이전트층·
+세션층으로 노드에 새어 UI에 중복 표시되던 문제(스펙 417·419가 표면마다 인라인으로 땜질, 2연타 실수).
+근본=캐스케이드 4층(model-default→agent→node→session)의 "어느 층이 어느 유형에 유효한가" 매트릭스가
+각 표면·BE에 복붙. 420은 이걸 정책 한 곳으로 뽑고 관문에 박아 재발을 구조적으로 불가능하게.
+
+변경:
+1. 정책 단일화(FE/BE 대칭):
+   - FE: admin/src/admin/views/agents/CapabilitySettings.tsx `modelParamLayerApplies(layer, agentImpl)`.
+   - BE: packages/api/src/api/model_param_layers.py `layer_applies(layer, impl)`.
+   - 규칙: model-default=항상 · node=pipeline만 · agent/session=non-pipeline만.
+2. FE 유일한 문: `ModelParamsField`(정책 판정 후 null 또는 렌더) 신설. raw `CapabilitySettings`는 모듈
+   내부화(export 제거) — 표면(AgentForm·OverridePanel·NodeListEditor)은 ModelParamsField만 사용.
+   ProviderModelView(model-default층)는 자체 렌더(ParamNumberField), 항상 표시라 무영향.
+3. BE 관문 강제(모든 호출자 커버 — chat/resume/serve/eval):
+   - chat_context_models.py `_resolve_model`: agent 층 적용을 `layer_applies("agent", cfg.impl)`일 때만
+     (_fold). 노드형이면 default_cfg가 깨끗 → 노드 폴백(경로 B) 봉인.
+   - `_resolve_node_models`: 명시 agent 적용(line 140)은 `layer_applies("agent")`, session(line 145)은
+     `layer_applies("session")`일 때만. impl은 agent_cfg.get("impl").
+4. 쓰기 경계: schemas/agents.py AgentConfig `@model_validator` — 노드형이면 modelParams={} (illegal
+   state 표현 불가, FE finalizeForm 417의 BE 짝).
+
+검증됨: verify_420 13/13(정책 매트릭스·쓰기경계 strip/보존·해석 관문 노드형 agent·session 미적용 both
+경로·비노드형 무회귀), verify_410 14/14, verify_411 24/24, SHOT417/419 브라우저, tsc0.
+
+공격 각도(이것 말고도 스스로 찾아라):
+- 캐스케이드 회귀: 비노드형(직접·조율·산출물)에서 agent·session 층이 여전히 정확히 적용되나? temperature
+  특례(스펙 411 흡수), pin 경로(_pinned_model_cfg via _fold), 오버라이드 미등록 모델 400 경로 무회귀?
+- 관문 누락: agent 층을 적용하는 다른 경로가 있나(_apply_agent_model_params 호출 전수)? resume(chat_approval)
+  ·A2A serving(chat_a2a_serve)·eval(eval_runner)이 _resolve_model/_resolve_node_models를 거치나, 아니면
+  자체로 modelParams를 적용해 정책을 우회하나?
+- 세션 층: 비노드형 세션 오버라이드(_apply_overrides/chat_context_overrides)는 이 변경과 무관하게
+  적용되나(session_mp는 _resolve_node_models에만)? 노드형 세션 우회 경로 잔존?
+- impl 판정: cfg.get("impl")가 항상 정확한가? impl이 없거나(레거시 config) None이면? orchestrate_ranked
+  등 pipeline 아닌 impl이 agent/session층을 정상 받나(non-pipeline이므로 받아야)?
+- FE 유일한 문: raw CapabilitySettings가 정말 안 나가나(export)? ModelParamsField 우회로? node 층이
+  agentImpl='pipeline' 하드코딩인데 다른 문맥서 오용 가능?
+- 쓰기 경계: model_validator가 노드형 아닌데 strip하거나(오탐), 노드형인데 놓치는(impl 없는 pipeline
+  config, nodes만 있고 impl 미설정?) 경우? 읽기 경로는 validator 안 타는데 런타임 관문이 다 막나?
+
+파일: model_param_layers.py, chat_context_models.py(_resolve_model·_resolve_node_models·_apply_agent_model_params),
+schemas/agents.py(AgentConfig model_validator), chat_context_loader.py(호출부), CapabilitySettings.tsx,
+AgentForm.tsx·OverridePanel.tsx·NodeListEditor.tsx(표면), tests/verify_420_model_param_layers.py.
+
+출력: P1(실회귀/우회 구멍, 시나리오 포함)/P2(경계 약점)/확인함(안전 확인). 파일:라인 인용. 읽기 전용.

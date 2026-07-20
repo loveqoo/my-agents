@@ -11,7 +11,7 @@ import { ShortTermMemoryField, LongTermMemoryField } from './MemoryFields'
 import { ModelField, chatModelOptions } from './ModelFields'
 import { PromptField } from './PromptFields'
 import { ToolTree } from './ToolTree'
-import { CapabilitySettings, useCapabilityDescriptors } from './CapabilitySettings'
+import { ModelParamsField, useCapabilityDescriptors } from './CapabilitySettings'
 
 /* 노드형 일렬 파이프라인 편집기(스펙 259) — impl=pipeline일 때 "하는 일" 자리에 뜬다.
    ArtifactSpecEditor(190) 관용구 계승: 테두리 카드 + add/remove + per-item 설정 + xxxValid 게이트.
@@ -192,9 +192,12 @@ export function NodeConfigFields({
           required
         />
       )}
-      {/* 노드별 모델 설정 오버라이드(스펙 409·411) — 에이전트 층 위에 이 노드만 덮는다. 공용 컴포넌트. */}
+      {/* 노드별 모델 설정 오버라이드(node 층, 스펙 409·411·420) — ModelParamsField 유일한 문.
+          노드 층은 노드형 문맥에서만 렌더되므로 agentImpl='pipeline'(정책상 항상 표시). */}
       {show('modelParams') && capabilityDescriptors.params.length > 0 && (
-        <CapabilitySettings
+        <ModelParamsField
+          layer="node"
+          agentImpl="pipeline"
           descriptors={capabilityDescriptors}
           capabilities={models.find((m) => m.name === n.model)?.capabilities}
           modelDefaults={models.find((m) => m.name === n.model)?.params}

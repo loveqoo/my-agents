@@ -1,0 +1,21 @@
+역할: 적대적 코드 리뷰어(최종 확인). 스펙 420의 2차 재검서 남았던 2건 봉합을 검증하라. 새 회귀 없나.
+
+2차 잔존 봉합:
+- P1 clone·activate 쓰기 우회: `_strip_pipeline_model_params`를 agents/guards.py로 이관(공유 홈).
+  이제 **4개 config 쓰기 경계 모두** 이 한 함수를 거친다: create(crud_routes.py:250)·update(crud_routes.py:375,
+  _preserve_impl 뒤)·clone(crud_routes.py:310)·activate(version_routes.py:63). 노드형이면 modelParams={}.
+- P2 검증 여집합: verify_420에 node 층 **양성** assertion 추가(노드 자기 modelParams.temperature=0.42가
+  실제 model_cfg.params에 실림). 이제 21/21.
+
+최종 확인 각도:
+- config가 DB에 저장되는 **또 다른** 입구가 있나(4곳 외 — batch/seed/eval/remote 등록, import)? 노드형
+  modelParams를 저장하는 우회로가 정말 없나?
+- guards.py로 이관하며 순환 import·누락 없나? 4곳 호출 시점이 각각 최종 impl 확정 후인가(update는
+  _preserve_impl 뒤 확인, clone/activate는 raw 복사 직후 impl이 이미 있음)?
+- clone/activate strip이 정상 노드형 노드(nodes[].modelParams)는 안 건드리나(agent층 modelParams만 비움)?
+- 새 회귀: create/update/clone/activate가 비노드형 modelParams·temperature를 정상 보존?
+- verify_420 21건이 계약을 실제로 핀하나, 아니면 항상 초록인 가짜가 있나?
+
+파일: agents/guards.py(_strip_pipeline_model_params), agents/crud_routes.py, agents/version_routes.py,
+chat_context_loader.py, chat_context_models.py, model_param_layers.py, tests/verify_420_model_param_layers.py.
+출력: 남은 P1(있으면)/P2/최종 봉합확인. 읽기 전용.

@@ -11,7 +11,7 @@ import { validateName, NAME_HINT } from '../../naming'
 import { Field, SectionHeader } from './primitives'
 import { ArtifactSpecEditor, artifactSpecValid } from './ArtifactSpecEditor'
 import { NodeListEditor, pipelineValid } from './NodeListEditor'
-import { CapabilitySettings, useCapabilityDescriptors } from './CapabilitySettings'
+import { ModelParamsField, useCapabilityDescriptors } from './CapabilitySettings'
 import type { AgentFormData } from './types'
 
 /* 빈 폼 기본값 — prompt는 로드된 blocks에서, model은 등록된 첫 chat 모델에서
@@ -884,24 +884,19 @@ export function AgentForm({
                   </span>
                   {/* 스펙 235: 경계 구분 — 모델 동작 / 저장·영속(폼 표준 SectionHeader로 일관). */}
                   <SectionHeader>모델 동작</SectionHeader>
-                  {/* 모델 설정 오버라이드(스펙 409·411 단일 컴포넌트) — 서술자 목록이 구동, 설정이 늘어도
-                      여기 안 고침. bool=상속/켬/끔 3상(능력이 아니라 사용값 — 모델이 못 하는 건 못 켬),
-                      number=상속/값. temperature(스펙 077 전용 Slider 은퇴)도 이제 params 안에 포함돼
-                      여기서 함께 편집된다. **노드형은 숨긴다**(스펙 417): 에이전트-레벨 모델 *선택*을
-                      이미 숨겼는데(566행 isPipeline?null) 그 짝인 파라미터만 노출하면 "선택 못 하는
-                      모델의 파라미터"가 돼 혼란 — 모델·파라미터 둘 다 노드가 소유(NodeListEditor).
-                      form.modelParams는 finalizeForm에서 비워 캐스케이드 조용한 적용도 차단(retrospect 238). */}
-                  {!isPipeline && (
-                    <Field label="모델 설정 오버라이드">
-                      <CapabilitySettings
-                        descriptors={capabilityDescriptors}
-                        capabilities={selectedModel?.capabilities}
-                        modelDefaults={selectedModel?.params}
-                        value={form.modelParams}
-                        onChange={(mp) => set('modelParams', mp as Record<string, boolean | number>)}
-                      />
-                    </Field>
-                  )}
+                  {/* 모델 설정 오버라이드(agent 층, 스펙 420) — ModelParamsField가 유일한 문. 노드형 숨김은
+                      layer='agent' 정책이 알아서(인라인 !isPipeline 제거). form.modelParams는 finalizeForm이
+                      노드형에 비워 캐스케이드 조용한 적용도 차단(retrospect 238). */}
+                  <ModelParamsField
+                    layer="agent"
+                    agentImpl={form.impl}
+                    label="모델 설정 오버라이드"
+                    descriptors={capabilityDescriptors}
+                    capabilities={selectedModel?.capabilities}
+                    modelDefaults={selectedModel?.params}
+                    value={form.modelParams}
+                    onChange={(mp) => set('modelParams', mp as Record<string, boolean | number>)}
+                  />
                   {/* 단기 기억(스펙 271 공용 컨트롤) — 직접형은 스텝 ②의 "기억" 구획이 소유하므로 여기선
                       숨긴다(!isDirect). 조율형=오케스트레이터 컨텍스트, 노드형=노드 상속 원천, 산출물형=모델
                       컨텍스트로 각각 세부에 유지. 단기는 **요청에 담긴 대화를 자르는 실행 창**이라 비영속에도

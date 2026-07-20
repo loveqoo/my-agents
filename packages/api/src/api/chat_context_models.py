@@ -24,6 +24,7 @@ from .mem_config import (
     llm_cfg_of,
     model_usable,
 )
+from .model_param_layers import layer_applies
 from .models import Agent, ModelConfig
 
 
@@ -131,18 +132,22 @@ async def _resolve_node_models(
                 cache[name] = await _chat_model_cfg(db, name, pins)
             cfg = cache[name]
         # 심은 model_cfg는 해석된 노드 모델(없으면 에이전트 기본으로 폴백 — impl의 _model_from_node).
-        # 캐스케이드(스펙 409): 모델 기본 → 에이전트 modelParams → **노드** → **세션**(최상위).
-        # - 노드 명시 모델(cfg): 에이전트 층 관통(codex 408 P1②) 후 노드 층을 덮는다.
-        # - 상속(default_cfg): 에이전트 층은 _resolve_model서 이미 반영 — 노드 층만 더 덮는다.
-        # - 세션 층은 **노드 뒤에** 재적용해야 이긴다(codex 409 P1①: _apply_overrides가 세션을 cfg에
-        #   미리 병합해 노드가 세션을 되덮던 버그 — 세션 modelParams를 별도로 받아 마지막에 얹는다).
+        # 캐스케이드 층(스펙 420 정책): 노드형은 **노드 층만** 유효 — agent·session 층은 layer_applies가
+        # False라 적용 안 함(노드가 모델 파라미터 소유, 스펙 417·419). _resolve_model도 같은 정책이라
+        # default_cfg(폴백)에도 agent 층이 안 실린다 → agent 층이 노드로 새는 두 경로 다 봉인.
+        _impl = (agent_cfg or {}).get("impl")
         node_cfg = cfg if cfg is not None else default_cfg
-        if cfg is not None and agent_cfg:
+        if cfg is not None and agent_cfg and layer_applies("agent", _impl):
             node_cfg = _apply_agent_model_params(cfg, agent_cfg)
-        node_mp = node.get("modelParams")
-        if node_cfg is not None and isinstance(node_mp, dict) and node_mp:
+        node_mp = node.get("modelParams")  # node 층 — layer_applies로 명시(비노드형+nodes 레거시 방어)
+        if node_cfg is not None and isinstance(node_mp, dict) and node_mp and layer_applies("node", _impl):
             node_cfg = _apply_agent_model_params(node_cfg, {"modelParams": node_mp})
-        if node_cfg is not None and isinstance(session_mp, dict) and session_mp:
+        if (
+            node_cfg is not None
+            and isinstance(session_mp, dict)
+            and session_mp
+            and layer_applies("session", _impl)
+        ):
             node_cfg = _apply_agent_model_params(node_cfg, {"modelParams": session_mp})
         resolved.append({**node, "model_cfg": node_cfg})
     return resolved
@@ -176,11 +181,18 @@ async def _resolve_model(
     명시 오버라이드 모델이 미등록이면 **시끄럽게 거절**(스펙 290 — learning 092: 조용한 폴백은
     호출자가 다른 모델로 실행된 걸 모른 채 지나간다). 저장 설정의 미지정·미등록은 기존 기본 폴백
     유지(graceful — 범위 밖, 백로그)."""
+    # agent 층 적용은 정책이 허용할 때만(스펙 420) — 노드형은 layer_applies("agent")=False라 agent
+    # modelParams를 안 굽는다. 그래야 노드 폴백용 default_cfg가 깨끗해 agent 층이 노드로 안 샌다.
+    _agent_layer = layer_applies("agent", cfg.get("impl"))
+
+    def _fold(model_cfg: dict) -> dict:
+        return _apply_agent_model_params(model_cfg, cfg) if _agent_layer else model_cfg
+
     model_name = cfg.get("model")
     if model_name:
         pinned = await _pinned_model_cfg(db, pins, model_name)  # pin 우선(스펙 370)
         if pinned is not None:
-            return _apply_agent_model_params(pinned, cfg)
+            return _fold(pinned)
     m = await _registry_chat_model(db, model_name) if model_name else None
     if m is None:
         # 거절은 **실명을 댄** 오버라이드에만(스펙 401) — 모델 미지정 에이전트(model_name=None)에
@@ -197,7 +209,7 @@ async def _resolve_model(
             status_code=400,
             detail="등록된 채팅 모델이 없습니다 — 모델을 먼저 등록하세요.",
         )
-    return _apply_agent_model_params(_model_cfg_from_row(m), cfg)
+    return _fold(_model_cfg_from_row(m))
 
 
 async def _resolve_mem_cfg(db: AsyncSession, model_cfg: dict | None) -> dict | None:

@@ -15,7 +15,7 @@ import { PromptField } from '../admin/views/agents/PromptFields'
 import { safeToolName, derivePipelinePool } from '../admin/views/agents/AgentForm'
 import { ToolTree } from '../admin/views/agents/ToolTree'
 import { NodeListEditor } from '../admin/views/agents/NodeListEditor'
-import { CapabilitySettings, useCapabilityDescriptors } from '../admin/views/agents/CapabilitySettings'
+import { ModelParamsField, useCapabilityDescriptors } from '../admin/views/agents/CapabilitySettings'
 
 export interface Overrides {
   model: string
@@ -512,17 +512,19 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
           ) : null}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
-          {/* 세부(스펙 249: 단계가 이미 구획이라 Collapse 해제·평면 나열) — 모델 설정(Temperature 포함)·채팅 히스토리. */}
-          {/* 세션 층 모델 설정(스펙 409·411) — 이 대화에서만 스트리밍/thinking/temperature 등을 덮는다(최상위 층). */}
-          <Field label="모델 설정">
-            <CapabilitySettings
-              descriptors={capabilityDescriptors}
-              capabilities={models.find((m) => m.name === draft.model)?.capabilities}
-              modelDefaults={models.find((m) => m.name === draft.model)?.params}
-              value={draft.modelParams}
-              onChange={(mp) => set('modelParams', mp)}
-            />
-          </Field>
+          {/* 세션 층 모델 설정(session 층, 스펙 409·411·420) — ModelParamsField 유일한 문. 노드형은
+              layer='session' 정책이 숨긴다(이 블록은 !isPipeline 분기라 항상 표시되지만, 정책이 이중 그물).
+              세션 modelParams는 buildOverridePayload가 노드형이면 미전송(스펙 419). */}
+          <ModelParamsField
+            layer="session"
+            agentImpl={agent?.impl}
+            label="모델 설정"
+            descriptors={capabilityDescriptors}
+            capabilities={models.find((m) => m.name === draft.model)?.capabilities}
+            modelDefaults={models.find((m) => m.name === draft.model)?.params}
+            value={draft.modelParams}
+            onChange={(mp) => set('modelParams', mp)}
+          />
           {/* 기억(스펙 273) — AgentForm 271과 같은 공용 컨트롤(MemoryFields). 단기=historyDepth,
               장기=memories(비영속 미선택-잠금은 ephemeral prop이 담당). 라벨·옵션 단일 출처=drift 0. */}
           <ShortTermMemoryField

@@ -29,6 +29,11 @@ class AgentConfig(BaseModel):
         """저장 경계에서 화이트리스트 설정 키의 bool만 보존(스펙 409 codex P2③) — 실행부만 거르던
         것을 저장까지 정직화(에코·버전 오염 차단). 노드·세션과 같은 공유 정리기."""
         return clean_setting_params(v)
+
+    # 노드형 agent 층 modelParams 제거는 여기(파싱 시점)가 아니라 **Agent/AgentVersion.config ORM
+    # @validates**가 강제한다(스펙 420) — config가 저장되는 모든 경로가 지나는 단일 관문. 파싱-시점
+    # 판정은 update의 impl-복원 순서 역전을 못 잡고, clone/adopt처럼 AgentConfig를 안 거치는 raw 복사
+    # 경로를 놓친다. ORM 관문 한 곳이 이 모든 입구를 덮는다.
     memories: list[str] = Field(default_factory=list)
     vectorTables: list[str] = Field(default_factory=list)
     mcps: list[str] = Field(default_factory=list)

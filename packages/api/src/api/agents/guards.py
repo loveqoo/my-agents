@@ -75,3 +75,8 @@ def _enforce_ephemeral_boundary(config: dict) -> None:
             status_code=422,
             detail=f"비영속(1회성) 에이전트에는 기억 저장·수정 능력을 연결할 수 없습니다(DB에 기록하는 도구): {', '.join(bad[:5])}",
         )
+
+
+# 노드형 modelParams strip은 라우트가 아니라 **Agent/AgentVersion.config ORM @validates**가 강제한다
+# (스펙 420 — 모든 저장 경로가 지나는 단일 관문). 라우트별 strip 헬퍼는 입구를 빠뜨리는 안티패턴이라
+# 제거했다(codex가 clone·activate·adopt를 반복 지적). 정책·순수 함수는 model_param_layers.py.

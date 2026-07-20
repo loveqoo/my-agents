@@ -150,7 +150,54 @@ function matchPreset(value: ModelParams): string {
   return '직접'
 }
 
-export function CapabilitySettings({
+/** 모델 파라미터 캐스케이드 층(스펙 420) — modelParams가 적용되는 4층. 정책의 판정 대상. */
+export type ModelParamLayer = 'model-default' | 'agent' | 'node' | 'session'
+
+/** 층 × 에이전트 유형 매트릭스(스펙 420 단일 진실) — 이 층이 그 유형에서 유효/편집 가능한가.
+ *  **여기가 유일한 판정처**다. 표면(ModelParamsField)·BE(model_param_layers.py의 형제)가 이걸 따른다.
+ *  규칙: model-default=항상 · node=노드형만 · agent·session=노드형이 **아닐** 때만(노드가 모델 파라미터
+ *  를 소유하므로 에이전트·세션 층은 노드형에서 노드로 새면 중복/혼란, 스펙 417·419·420). */
+export function modelParamLayerApplies(layer: ModelParamLayer, agentImpl: string | undefined): boolean {
+  const isPipeline = agentImpl === 'pipeline'
+  switch (layer) {
+    case 'model-default':
+      return true
+    case 'node':
+      return isPipeline
+    case 'agent':
+    case 'session':
+      return !isPipeline
+  }
+}
+
+/** 모델 파라미터 오버라이드 **유일한 문**(스펙 420) — 표면은 raw CapabilitySettings를 직접 못 쓴다
+ *  (이 파일 밖으로 안 나감). layer×agentImpl 정책이 false면 null(표면은 판단 안 함) — 그래서 새 표면을
+ *  짜는 "기억 0" 코더가 손에 쥐는 유일한 도구가 이거라, 노드형 숨김이 공짜로 딸려온다
+ *  ([[design-for-amnesiac-future-actor]]). node 층은 노드형 문맥에서만 렌더되므로 agentImpl='pipeline'. */
+export function ModelParamsField(props: {
+  layer: ModelParamLayer
+  agentImpl: string | undefined
+  label?: string // 라벨을 이 컴포넌트가 소유 — 정책이 숨기면 라벨+컨트롤이 **원자적으로** 함께 사라진다
+  descriptors: ModelDescriptors
+  capabilities: Record<string, boolean> | undefined
+  value: ModelParams
+  onChange: (next: ModelParams) => void
+  modelDefaults?: Record<string, unknown>
+  size?: 'small' | 'middle'
+}) {
+  if (!modelParamLayerApplies(props.layer, props.agentImpl)) return null
+  const { layer: _l, agentImpl: _a, label, ...capsProps } = props
+  const control = <CapabilitySettings {...capsProps} />
+  if (!label) return control
+  return (
+    <Flex vertical gap={6}>
+      <Text style={{ fontSize: 13, fontWeight: 600 }}>{label}</Text>
+      {control}
+    </Flex>
+  )
+}
+
+function CapabilitySettings({
   descriptors,
   capabilities,
   value,
