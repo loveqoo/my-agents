@@ -112,47 +112,42 @@ class _MemoryRecallProxy:
         return text
 
 
-def _graph_fingerprint(
-    ctx: ChatContext,
-    impl: CustomAgent | None = None,
-    agent_caps: list | None = None,
-) -> str | None:
-    """캐시 적격(impl.cacheable)이면 빌드 결정 요소의 지문, 아니면 None(새 인스턴스 경로).
+def _fp(text: str) -> str:
+    """짧은 sha256 지문(12자) — 비밀·대형 JSON을 평문 대신 축약해 blob에 싣는다."""
+    return hashlib.sha256((text or "").encode()).hexdigest()[:12]
 
-    지문 = **impl 키**(위상 구분) + 모델 정체(연결·model_id·params·temperature) + MCP 도구 집합(이름·
-    **블록 버전**·auth 지문 — 369 불변성으로 버전이 콘텐츠를 유일하게 가리킴) + 도구 필터 + 승인 정책 +
-    RAG 배선 + 체크포인터 유무 + (노드형) **nodes 해시·위임 가능 집합**. 비밀은 sha256 지문으로만.
 
-    적격 판정은 **impl이 선언한 `cacheable`**(스펙 421) — 그래프가 per-turn 재료(회상기억·broker·
-    프록시)를 굽지 않는 impl만 True(default·route·plan_execute·pipeline). 프롬프트는 지문 축이
-    **아니다** — cacheable impl은 promptless라 프롬프트+회상이 매 턴 seed/프록시로 탄다.
+def _cache_eligible(ctx: ChatContext, impl: CustomAgent | None) -> bool:
+    """버전 그래프 캐시 적격 판정(스펙 421) — 순수.
+
+    적격 = **impl이 선언한 `cacheable`**(그래프가 per-turn 재료(회상기억·broker·프록시)를 굽지 않는
+    impl만 True: default·route·plan_execute·pipeline·orchestrate) + 모델 존재. 배제 셋:
+    - 산출물형(artifact_spec) — interrupt 리플레이·스텝 캐시 기계(정직한 경계).
+    - **코드 노드(impl 키) 포함 파이프라인** — build_step이 ctx 전체를 받아 per-turn 재료를 임의
+      포획할 수 있어 캐시 계약을 보증 못 함(직접 빌드 유지)."""
+    if ctx.artifact_spec is not None:
+        return False
+    if impl is None or not impl.describe().cacheable:
+        return False
+    if ctx.nodes_resolved is not None and any(
+        isinstance(n, dict) and n.get("impl") for n in ctx.nodes_resolved
+    ):
+        return False  # 코드 노드 — 캐시 계약 밖
+    return bool(ctx.model_cfg)
+
+
+def _fingerprint_blob(ctx: ChatContext, agent_caps: list | None) -> dict:
+    """빌드 결정 요소의 지문 blob(스펙 421) — 순수. 축 하나가 빠지면 그 축이 다른 두 그래프가
+    한 키에 충돌해 조용히 재사용된다(retrospect 336 부류) — 축 추가·삭제는 스펙으로.
 
     노드형 축(스펙 421 P3):
     - `nodes` = nodes_resolved 정규 JSON 해시 — 노드 프롬프트·모델(라이브 능력 포함, _resolve_node_models
       가 매 턴 레지스트리에서 해석)·도구 참조·형식·depth 전부 포괄. 오버라이드도 자동 분리.
     - `agent_caps` = 위임 가능 집합(allowlist∩라이브RBAC)의 **(id, name, hook) 정렬 삼중** — RBAC이
-      다른 유저는 다른 그래프(위상=바인딩된 위임 도구가 다름). id만 넣으면 대상 이름/후크 변경 시
-      캐시된 도구 설명(label·hook)이 낡은 채 모델에 노출된다(codex P3 P2 — 라이브 사실이라 버전이
-      안 오름). 주입 broker가 호출 시점 재검사하므로 인가는 이중 방어.
-    - **코드 노드(impl 키) 포함 파이프라인은 제외**(fp=None) — build_step이 ctx 전체를 받아 per-turn
-      재료를 임의 포획할 수 있어 캐시 계약을 보증 못 함(정직한 경계, 직접 빌드 유지).
-    산출물형(artifact_spec)은 조기 배제. 캐시 딕셔너리는 chat_turn_runtime(_GRAPH_CACHE) — 이 함수는 순수."""
-    if ctx.artifact_spec is not None:
-        return None
-    if impl is None or not impl.describe().cacheable:
-        return None
-    if ctx.nodes_resolved is not None and any(
-        isinstance(n, dict) and n.get("impl") for n in ctx.nodes_resolved
-    ):
-        return None  # 코드 노드 — 캐시 계약 밖(위 docstring)
+      다른 유저는 다른 그래프. id만 넣으면 대상 rename/후크 변경 시 캐시된 도구 설명이 낡은 채 모델에
+      노출된다(codex P3 P2 — 라이브 사실이라 버전이 안 오름). 주입 broker가 호출 시점 재검사(이중 방어)."""
     mc = ctx.model_cfg or {}
-    if not mc:
-        return None
-
-    def _fp(text: str) -> str:
-        return hashlib.sha256((text or "").encode()).hexdigest()[:12]
-
-    blob = {
+    return {
         # impl 키(스펙 421) — route·plan_execute·default가 각기 다른 위상. 없으면 같은 모델의
         # 서로 다른 impl 그래프가 한 지문에 충돌해 재사용된다.
         "impl": ctx.impl or "default",
@@ -178,7 +173,7 @@ def _graph_fingerprint(
         # 첨부 유래 턴(스펙 415 P4) — 강제 승인이 도구 래핑에 구워지므로 강제/비강제 그래프를 분리
         # 캐시해야 한다(없으면 비첨부 턴의 캐시가 첨부 턴에 재사용돼 강제가 조용히 우회).
         "attach": ctx.attachment_context,
-        # 노드형 축(스펙 421 P3, 위 docstring) — 비노드형은 None/[]라 기존 지문과 무충돌.
+        # 노드형 축(스펙 421 P3, docstring) — 비노드형은 None/[]라 기존 지문과 무충돌.
         "nodes": (
             _fp(json.dumps(ctx.nodes_resolved, sort_keys=True, default=str))
             if ctx.nodes_resolved is not None
@@ -186,4 +181,20 @@ def _graph_fingerprint(
         ),
         "agent_caps": sorted(agent_caps or []),
     }
+
+
+def _graph_fingerprint(
+    ctx: ChatContext,
+    impl: CustomAgent | None = None,
+    agent_caps: list | None = None,
+) -> str | None:
+    """캐시 적격(_cache_eligible)이면 빌드 결정 요소의 지문(_fingerprint_blob), 아니면 None(새 인스턴스).
+
+    지문 = impl 키 + 모델 정체 + MCP 집합(369 버전 불변성) + 도구 필터 + 정책 + RAG + 체크포인터 유무 +
+    (노드형) nodes 해시·위임 집합. **프롬프트는 축이 아니다** — cacheable impl은 promptless라 프롬프트+
+    회상이 매 턴 seed/프록시로 탄다. 비밀은 sha256 지문으로만. 캐시 딕셔너리는 chat_turn_runtime
+    (_GRAPH_CACHE) — 이 함수는 순수(스펙 416 패턴: 게이트·blob 추출, 이 래퍼가 공개 계약)."""
+    if not _cache_eligible(ctx, impl):
+        return None
+    blob = _fingerprint_blob(ctx, agent_caps)
     return hashlib.sha256(json.dumps(blob, sort_keys=True, default=str).encode()).hexdigest()
