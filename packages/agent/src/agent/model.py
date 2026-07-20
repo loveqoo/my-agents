@@ -24,6 +24,81 @@ _CLIENT_POOL: dict[tuple, ChatOpenAI] = {}
 _CLIENT_POOL_MAX = 64
 
 
+def _resolve_wire_params(
+    caps: dict, params: dict, cfg_params: dict, default_temperature: float
+) -> tuple[dict, dict, bool]:
+    """PARAMS 서술자(스펙 411)로 유효값을 해석·wire 배선 → (top_kwargs, extra_body, disable_streaming).
+
+    build_chat_openai에서 추출(스펙 416 — CC 분해). 층 우선순위=호출자 params(세션) > cfg_params
+    (모델·에이전트·노드 병합). bool=능력 AND 설정(게이트), number=범위 클램프. wire별 배선이 유일한
+    축별 코드: top=ChatOpenAI 직접 kwargs, extra_body=비표준, disable_streaming.
+    """
+    top_kwargs: dict = {}
+    chat_template_kwargs: dict = {}
+    extra_body: dict = {}
+    disable_streaming = False
+    for p in PARAMS:
+        if p.kind == "bool":
+            eff = resolve_effective(p.key, caps, params, cfg_params)
+            if p.wire == "disable_streaming":
+                disable_streaming = not eff
+            elif p.wire == "extra_body":
+                chat_template_kwargs[p.key] = eff
+            continue
+        # number
+        if p.key == "temperature":
+            # temperature는 미명시 시 caller default_temperature 존중(기존 계약 — 스펙 077 흡수).
+            num = resolve_number("temperature", params, cfg_params)
+            explicit = any(
+                isinstance(lay.get("temperature"), (int, float))
+                and not isinstance(lay.get("temperature"), bool)
+                for lay in (params, cfg_params)
+            )
+            num = num if explicit else default_temperature
+        else:
+            num = resolve_number(p.key, params, cfg_params)
+        if p.key == "max_tokens" and (num is None or num <= 0):
+            continue  # 0/미설정=서버 기본(안 보냄)
+        if num is None:
+            continue
+        if p.wire == "top":
+            top_kwargs[p.key] = num
+        elif p.wire == "extra_body":
+            extra_body[p.key] = num
+    if chat_template_kwargs:
+        extra_body["chat_template_kwargs"] = chat_template_kwargs
+    return top_kwargs, extra_body, disable_streaming
+
+
+def _pool_key(
+    loop_id: int | None,
+    base_url: str,
+    api_key: str,
+    model_id: str,
+    top_kwargs: dict,
+    extra_body: dict,
+    disable_streaming: bool,
+) -> tuple:
+    """클라이언트 풀 키(스펙 371 D2) — 해석된 모든 파라미터 반영(스펙 411, 값 다르면 다른 클라이언트).
+    api_key는 지문으로만(평문 저장 금지). loop_id 포함 — httpx async 클라는 자기 이벤트 루프에 묶인다."""
+    return (
+        loop_id,
+        base_url,
+        hashlib.sha256(api_key.encode()).hexdigest()[:8],
+        model_id,
+        json.dumps(top_kwargs, sort_keys=True),
+        json.dumps(extra_body, sort_keys=True),
+        disable_streaming,
+    )
+
+
+def _pool_remember(key: tuple, client: ChatOpenAI) -> None:
+    """LRU 저장(삽입순 최고령 축출, 상한 _CLIENT_POOL_MAX). loop_id None(동기)은 호출부가 미저장."""
+    if len(_CLIENT_POOL) >= _CLIENT_POOL_MAX:
+        _CLIENT_POOL.pop(next(iter(_CLIENT_POOL)))
+    _CLIENT_POOL[key] = client
+
+
 # on_missing="raise"(기본)면 None 불가 → 호출부가 model을 바로 쓴다. "none"이면 None 가능(artifact).
 @overload
 def build_chat_openai(
@@ -61,68 +136,23 @@ def build_chat_openai(
         if on_missing == "none":
             return None
         raise RuntimeError(error_label)
-    cfg_params = cfg.get("params") or {}
-    params = params or {}
-    caps = cfg.get("capabilities") or {}
-    # 파라미터 유효값을 서술자(capabilities.py PARAMS)로 해석·배선(스펙 411 — temperature·top_p·
-    # max_tokens·repetition_penalty·stream·enable_thinking 단일 메커니즘). 층 우선순위=호출자 params
-    # (세션) > cfg_params(모델·에이전트·노드 병합). bool은 능력 AND 설정(게이트), number는 범위 클램프.
-    # wire별 배선이 유일한 축별 코드: top=ChatOpenAI 직접 kwargs, extra_body=비표준, disable_streaming.
-    top_kwargs: dict = {}
-    chat_template_kwargs: dict = {}
-    extra_body: dict = {}
-    disable_streaming = False
-    for p in PARAMS:
-        if p.kind == "bool":
-            eff = resolve_effective(p.key, caps, params, cfg_params)
-            if p.wire == "disable_streaming":
-                disable_streaming = not eff
-            elif p.wire == "extra_body":
-                chat_template_kwargs[p.key] = eff
-        else:  # number
-            if p.key == "temperature":
-                # temperature는 미명시 시 caller default_temperature 존중(기존 계약 — 스펙 077 흡수).
-                num = resolve_number("temperature", params, cfg_params)
-                explicit = any(
-                    isinstance(lay.get("temperature"), (int, float)) and not isinstance(lay.get("temperature"), bool)
-                    for lay in (params, cfg_params)
-                )
-                num = num if explicit else default_temperature
-            else:
-                num = resolve_number(p.key, params, cfg_params)
-            if p.key == "max_tokens" and (num is None or num <= 0):
-                continue  # 0/미설정=서버 기본(안 보냄)
-            if num is None:
-                continue
-            if p.wire == "top":
-                top_kwargs[p.key] = num
-            elif p.wire == "extra_body":
-                extra_body[p.key] = num
-    if chat_template_kwargs:
-        extra_body["chat_template_kwargs"] = chat_template_kwargs
+    # 파라미터 유효값 해석·wire 배선(스펙 411 — temperature·top_p·max_tokens·repetition_penalty·
+    # stream·enable_thinking 단일 메커니즘). 상세 규칙은 _resolve_wire_params(스펙 416 추출).
+    top_kwargs, extra_body, disable_streaming = _resolve_wire_params(
+        cfg.get("capabilities") or {}, params or {}, cfg.get("params") or {}, default_temperature
+    )
     api_key = cfg.get("api_key") or "sk-noauth"
     # 클라이언트 풀(스펙 371 D2) — 같은 연결·모델·파라미터면 인스턴스 재사용(ChatOpenAI는 호출간
     # 무상태·async-safe). 목적은 생성 비용(~0.1ms)이 아니라 **커넥션 재사용**(실 프로바이더 TLS
-    # 핸드셰이크 — mock 루프백 사각지대). 키에 api_key 지문 포함 → 로테이션=새 인스턴스.
-    # 루프별 격리 — httpx async 클라이언트는 자기 이벤트 루프에 묶인다. 서버는 루프 하나라 늘
-    # 적중하고, 루프를 새로 여는 컨텍스트(in-process 테스트의 asyncio.run 반복)는 루프마다 새
-    # 인스턴스(죽은 루프의 엔트리는 LRU가 축출). 루프 밖(동기)이면 풀 미사용.
+    # 핸드셰이크 — mock 루프백 사각지대). 루프별 격리 — httpx async 클라는 자기 이벤트 루프에 묶인다.
+    # 서버는 루프 하나라 늘 적중, asyncio.run 반복(in-proc 테스트)은 루프마다 새 인스턴스(죽은 루프
+    # 엔트리는 LRU 축출). 루프 밖(동기)이면 풀 미사용.
     try:
         loop_id = id(asyncio.get_running_loop())
     except RuntimeError:
         loop_id = None
-    # 풀 키에 해석된 모든 파라미터 반영(스펙 411) — 값이 다르면 다른 클라이언트(캐시 오염 방지).
-    key = (
-        loop_id,
-        base_url,
-        hashlib.sha256(api_key.encode()).hexdigest()[:8],
-        model_id,
-        json.dumps(top_kwargs, sort_keys=True),
-        json.dumps(extra_body, sort_keys=True),
-        disable_streaming,
-    )
-    pooled = _CLIENT_POOL.get(key) if loop_id is not None else None
-    if pooled is not None:
+    key = _pool_key(loop_id, base_url, api_key, model_id, top_kwargs, extra_body, disable_streaming)
+    if loop_id is not None and (pooled := _CLIENT_POOL.get(key)) is not None:
         return pooled
     # ReasoningChatOpenAI(스펙 410): base가 버리는 reasoning_content를 additional_kwargs로 되살린다
     # (사고 없는 모델·응답엔 무영향 — 항상 써도 안전). 사고 과정 표시(410 P2/P3)가 이를 소비.
@@ -137,7 +167,5 @@ def build_chat_openai(
         **top_kwargs,
     )
     if loop_id is not None:
-        if len(_CLIENT_POOL) >= _CLIENT_POOL_MAX:
-            _CLIENT_POOL.pop(next(iter(_CLIENT_POOL)))  # 최고령 축출(삽입순)
-        _CLIENT_POOL[key] = client
+        _pool_remember(key, client)
     return client
