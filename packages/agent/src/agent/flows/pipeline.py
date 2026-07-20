@@ -270,6 +270,11 @@ class LinearPipelineAgent:
             consumes=("nodes", "mcps", "vectorTables", "memories"),
             description="노드를 순서대로 실행하는 파이프라인 에이전트(노코드, 스펙 259)",
             supports_hil=True,
+            # 스펙 421 P3 — 그래프는 버전-고정(노드 프롬프트·모델·도구·위상)만 얼리고, per-turn 재료
+            # (회상/창 프록시·broker)는 RunnableConfig로 매 호출 주입 → 버전 지문 캐시 안전.
+            cacheable=True,
+            # 에이전트 프롬프트 미소비(노드가 각자 프롬프트 소유) — 캐시 경로도 seed 생략.
+            seed_prompt=False,
         )
 
     def build_graph(self, ctx: AgentBuildContext) -> CompiledStateGraph:
@@ -336,27 +341,28 @@ class LinearPipelineAgent:
                 "historyDepth"
             )  # 단기 기억 창(스펙 270) — None=에이전트 상속(프록시 기본값)
 
-            async def _history_block(reentry: bool) -> list:
+            async def _history_block(reentry: bool, hw: object) -> list:
                 # 단기 기억(스펙 270) — 이전 대화 슬라이스를 프롬프트 앞에 주입. clean은 대화 격리(결정 가),
-                # 프록시 없으면(비노드형) 빈 리스트. 재진입(도구 루프)에도 주입해 대화가 루프 내내 보이게
-                # (무회귀 — 오늘은 시드된 대화가 도구 루프 내내 보임), 단 기록은 첫 진입만(트레이스 스팸 방지).
-                if clean or ctx.history_window is None:
+                # 프록시 없으면(비노드형·캐시 빌드) 빈 리스트. 재진입(도구 루프)에도 주입해 대화가 루프 내내
+                # 보이게(무회귀), 단 기록은 첫 진입만(트레이스 스팸 방지). 프록시는 _step이 config-우선으로
+                # 해석해 넘긴다(스펙 421 P3 — 캐시 그래프는 per-turn 프록시를 클로저에 안 담음).
+                if clean or hw is None:
                     return []
                 try:
-                    return await ctx.history_window(node_hd, node=nid, record=not reentry)
+                    return await hw(node_hd, node=nid, record=not reentry)  # type: ignore[operator]
                 except Exception:
                     log.warning("노드 단기 기억 실패(node=%s) — 대화 없이 진행", nid)
                     return []
 
-            async def _recall_block(msgs: list, reentry: bool) -> str:
+            async def _recall_block(msgs: list, reentry: bool, mr: object) -> str:
                 # 노드별 회상(스펙 268 P2) — 첫 진입에만(재진입=도구 루프 중간, 자체 문맥 보유).
                 # 프록시(플랫폼 주입·스코프 고정)를 키워드로 호출 — user=사용자 입력(캐시 공유),
                 # input=이 노드가 받은 마지막 메시지(개별 키워드). 실패는 노드를 죽이지 않음(graceful).
-                if reentry or not node_mem or ctx.memory_recall is None:
+                if reentry or not node_mem or mr is None:
                     return ""
                 q = None if mem_mode == "user" else (_text_of(msgs[-1]) if msgs else None)
                 try:
-                    text = await ctx.memory_recall(q, node=nid)
+                    text = await mr(q, node=nid)  # type: ignore[operator]
                 except Exception:
                     log.warning("노드 회상 실패(node=%s) — 회상 없이 진행", nid)
                     return ""
@@ -395,7 +401,14 @@ class LinearPipelineAgent:
                 log.warning("노드형 JSON 강제 실패 — 원문 통과(형식 미충족). fields=%s", fields)
                 return resp
 
-            async def _step(state: _State) -> dict:
+            async def _step(state: _State, config: RunnableConfig = None) -> dict:
+                # 스펙 421 P3 이중 모드 — per-turn 프록시(회상·창)는 **config 우선**(캐시 그래프: 매 턴
+                # 주입), 없으면 ctx 클로저 폴백(직접 빌드: eval·a2a·resume — 종전 동작). 캐시 관문은
+                # 프록시를 None으로 스트립해 빌드하므로, 주입을 잊은 미래 경로는 turn-A 데이터 누출이
+                # 아니라 "회상/창 없음"으로 조용히 안전(fail-safe).
+                _c = (config or {}).get("configurable") or {}
+                mr = _c.get("memory_recall") or ctx.memory_recall
+                hw = _c.get("history_window") or ctx.history_window
                 msgs = state["messages"]
                 # clean 첫 진입(스펙 260): 쌓인 대화를 걷어내고 앞 결과만 새 입력으로 격리. 재진입
                 # (도구 루프 뒤 = 마지막이 ToolMessage)은 격리 buffer 위에서 정상 누적(carry 경로).
@@ -410,7 +423,7 @@ class LinearPipelineAgent:
                     content=sys_content
                     + _TOOL_FENCE_GUARD
                     + (_CAP_NUDGE if capped else "")
-                    + await _recall_block(msgs, reentry)
+                    + await _recall_block(msgs, reentry, mr)
                 )
                 if clean and not reentry:
                     prev_text = _text_of(msgs[-1]) if msgs else ""
@@ -423,7 +436,7 @@ class LinearPipelineAgent:
                     return {"messages": [*removals, human, resp]}
                 # 단기 기억(스펙 270) — 이전 대화 슬라이스를 sys와 누적 msgs 사이에 주입([sys, 대화, 입력…]).
                 # 슬라이스는 상태에 누적 안 함(노드마다 자기 depth로 새로 주입) — carry/clean은 턴내 흐름만 관장.
-                history = await _history_block(reentry)
+                history = await _history_block(reentry, hw)
                 resp = _force_final_if_capped(
                     await _finalize(await active.ainvoke([sys, *history, *msgs])), capped
                 )

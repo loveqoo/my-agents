@@ -140,6 +140,102 @@ def _units() -> None:
         propagated = True
     check(propagated, "U3 call_tool이 GraphInterrupt(HIL)를 전파(삼키지 않음)")
 
+    # ---- P3(pipeline) 단위 — 프록시 이중 모드·broker 주입·지문 게이팅(스펙 421 P3) ----
+    import uuid as _uuid
+    from types import SimpleNamespace
+
+    import agent.flows.pipeline as pl
+    from api.chat_context_types import ChatContext
+    from api.chat_graph_build import _graph_fingerprint
+    from api.runtime_agent_tools import build_agent_tools
+
+    # U4 — 회상 프록시: 스트립 빌드(ctx 프록시 None) 그래프가 config 주입 프록시를 쓰고, 미주입은 생략
+    pseen: list = []
+
+    class _PM:
+        async def ainvoke(self, msgs: list) -> AIMessage:
+            pseen.clear()
+            pseen.extend(msgs)
+            return AIMessage(content="ok")
+
+    pl.build_chat_openai = lambda *_a, **_k: _PM()  # type: ignore[assignment]
+    node_cfg = {"name": "n0", "prompt": "NP", "tools": [], "memories": ["user"], "memoryQuery": "user"}
+    stripped = pl.LinearPipelineAgent().build_graph(
+        AgentBuildContext(
+            prompt="", model_cfg={"model_id": "x"}, impl_config={"nodes": [node_cfg]}, memory_recall=None
+        )
+    )
+    recall_calls: list = []
+
+    async def _fake_recall(q: object = None, node: str = "") -> str:
+        recall_calls.append((q, node))
+        return "RECALLED_FACT"
+
+    asyncio.run(
+        stripped.ainvoke(
+            {"messages": [HumanMessage(content="q?")]},
+            config={"configurable": {"memory_recall": _fake_recall}},
+        )
+    )
+    check(
+        bool(recall_calls) and "RECALLED_FACT" in pseen[0].content,
+        f"U4a 캐시(스트립) 그래프가 config 주입 회상을 사용 (calls={len(recall_calls)})",
+    )
+    recall_calls.clear()
+    asyncio.run(stripped.ainvoke({"messages": [HumanMessage(content="q?")]}))
+    check(
+        not recall_calls and "RECALLED_FACT" not in pseen[0].content,
+        "U4b 주입 없으면 회상 생략(fail-safe — turn-A 데이터 폴백 없음)",
+    )
+    baked_g = pl.LinearPipelineAgent().build_graph(
+        AgentBuildContext(
+            prompt="", model_cfg={"model_id": "x"}, impl_config={"nodes": [node_cfg]},
+            memory_recall=_fake_recall,
+        )
+    )
+    asyncio.run(baked_g.ainvoke({"messages": [HumanMessage(content="q?")]}))
+    check(bool(recall_calls), "U4c 직접 빌드는 ctx 클로저 폴백(종전 동작 — eval·resume)")
+
+    # U5 — agent 도구 broker 이중 모드: 스텁(broker=None)은 config 주입 시만 위임, 미주입=정직 실패
+    cap = SimpleNamespace(id="a1", name="위임봇", hook="")
+    stub = build_agent_tools(None, [cap])[0]
+    fb_calls: list = []
+
+    class _FB:
+        async def invoke(self, cap_id: str, _args: dict) -> object:
+            fb_calls.append(cap_id)
+            return SimpleNamespace(text="DELEGATED", error=None)
+
+    out_inj = asyncio.run(
+        stub.ainvoke({"text": "hi"}, config={"configurable": {"broker": _FB()}})
+    )
+    check(out_inj == "DELEGATED" and fb_calls == ["a1"], f"U5a 스텁 도구가 config broker로 위임 (got {out_inj!r})")
+    out_none = asyncio.run(stub.ainvoke({"text": "hi"}))
+    check("호출 불가" in out_none, f"U5b broker 미주입=정직 실패(누출 불가) (got {out_none!r})")
+
+    # U6 — 지문 게이팅: pipeline fp 산출·코드 노드 제외·nodes/caps 축 분리
+    base = {"agent_pk": _uuid.uuid4(), "model_cfg": {"base_url": "x", "model_id": "m", "api_key": ""}}
+    c1 = ChatContext(**base)
+    c1.nodes_resolved = [{"name": "n0", "prompt": "p", "tools": []}]
+    c1.impl = "pipeline"
+    f1 = _graph_fingerprint(c1, pl.LinearPipelineAgent(), agent_caps=[["a", "이름", "후크"]])
+    c2 = ChatContext(**base)
+    c2.nodes_resolved = [{"name": "n0", "impl": "code_x", "tools": []}]
+    c2.impl = "pipeline"
+    c3 = ChatContext(**base)
+    c3.nodes_resolved = [{"name": "n0", "prompt": "OTHER", "tools": []}]
+    c3.impl = "pipeline"
+    f3 = _graph_fingerprint(c3, pl.LinearPipelineAgent(), agent_caps=[["a", "이름", "후크"]])
+    f4 = _graph_fingerprint(c1, pl.LinearPipelineAgent(), agent_caps=[["b", "이름", "후크"]])
+    # 위임 대상 rename/후크 변경도 다른 키(codex P3 P2 — 도구 설명이 굽히므로 라이브 사실이 축)
+    f5 = _graph_fingerprint(c1, pl.LinearPipelineAgent(), agent_caps=[["a", "새이름", "후크"]])
+    check(
+        bool(f1)
+        and _graph_fingerprint(c2, pl.LinearPipelineAgent()) is None
+        and len({f1, f3, f4, f5}) == 4,
+        "U6 pipeline fp 산출·코드 노드 제외·nodes/caps-id/caps-rename 축 전부 분리",
+    )
+
 
 def main() -> None:
     _units()
@@ -213,6 +309,74 @@ def main() -> None:
         sma = _sysmsgs(ta)
         ca = sma[0].get("content", "") if sma else ""
         check(a_body in ca and b_body not in ca, "P3 A의 system에 A 프롬프트만(대칭 격리)")
+
+        # P4 — pipeline 캐시 적중(스펙 421 P3): 2턴째 graph 빌드 0 + 에이전트 프롬프트 미주입
+        agent_marker = f"AGENT_LEVEL_PROMPT_{tag}"
+        cli.post(
+            "/prompts", json={"name": f"v421-pp-{tag}", "tone": "t", "body": agent_marker}
+        ).raise_for_status()
+        pnodes = [
+            {"name": "요약", "model": "mock-llm", "prompt": "한 줄로 요약.", "tools": []},
+            {"name": "답변", "model": "mock-llm", "prompt": "요약에 근거해 답.", "tools": []},
+        ]
+        pp = cli.post(
+            "/agents",
+            json={
+                "name": f"v421-pipe-{tag}",
+                "config": {
+                    "model": "mock-llm",
+                    "impl": "pipeline",
+                    "prompt": f"v421-pp-{tag}",
+                    "nodes": pnodes,
+                },
+            },
+        ).json()
+        pid = pp["id"]
+        made.append(pid)
+        cli.post(f"/agents/{pid}/activate", json={"version": "v1"}).raise_for_status()
+        chat(pid, "워밍업")  # miss(빌드+캐시)
+        tp2 = chat(pid, "파이프라인 두 번째")
+        bp2 = (tp2 or {}).get("buildMs") or {}
+        check(bp2.get("graph", 99) <= 0.5, f"P4 pipeline 2턴째 graph ≤0.5ms(캐시 적중) (got {bp2.get('graph')})")
+        _all_sent = json.dumps((tp2 or {}).get("sentMessages") or [], ensure_ascii=False)
+        check(
+            agent_marker not in _all_sent,
+            "P4 에이전트 프롬프트가 노드 스트림에 안 낌(seed_prompt=False — 노드가 프롬프트 소유)",
+        )
+
+        # P5 — 캐시 적중 그래프에서 위임(agent 도구): config 주입 broker로 매 턴 동작.
+        # 위임 도구 참조·mock 트리거는 **agentId(agt_…) 형식**(uuid 아님 — verify_318 H2 관례).
+        del_pk = mk_agent(f"v421-del-{tag}", "위임 대상. 짧게 답하라.", "route")
+        del_id = cli.get(f"/agents/{del_pk}").json().get("agentId") or del_pk
+        dnodes = [
+            {
+                "name": "위임",
+                "model": "mock-llm",
+                "prompt": "반드시 위임 도구를 호출해 결과를 전하라.",
+                "tools": [f"agent__{del_id}"],
+            }
+        ]
+        dp = cli.post(
+            "/agents",
+            json={
+                "name": f"v421-deleg-{tag}",
+                "config": {"model": "mock-llm", "impl": "pipeline", "nodes": dnodes},
+            },
+        ).json()
+        dpid = dp["id"]
+        made.append(dpid)
+        cli.post(f"/agents/{dpid}/activate", json={"version": "v1"}).raise_for_status()
+        # mock-llm은 유저 문장에 대상 agent_id가 언급되면 위임 도구를 호출(verify_318 H2 패턴).
+        t1d = chat(dpid, f"{del_id} 에게 위임해줘")  # miss — 스텁 도구로 빌드
+        t2d = chat(dpid, f"{del_id} 에게 위임해줘 (두 번째)")  # hit — 캐시 그래프 + 이번 턴 broker 주입
+        b2d = (t2d or {}).get("buildMs") or {}
+        bc1 = (t1d or {}).get("brokerCalls") or []
+        bc2 = (t2d or {}).get("brokerCalls") or []
+        check(b2d.get("graph", 99) <= 0.5, f"P5 위임 pipeline 2턴째 캐시 적중 (got {b2d.get('graph')})")
+        check(
+            bool(bc1) and bool(bc2),
+            f"P5 캐시 前/後 턴 모두 위임 실행(config broker 주입) (t1={len(bc1)} t2={len(bc2)})",
+        )
     finally:
         for aid in made:
             cli.delete(f"/agents/{aid}")

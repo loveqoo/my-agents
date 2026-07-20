@@ -60,6 +60,10 @@ class ChatTurnRuntime:
     prompt_in_messages: bool  # 스펙 371 D3 — promptless 그래프면 시스템 프롬프트를 seed 선두로
     seed_system: str
     build_ms: dict = field(default_factory=dict)
+    # 스펙 421 P3 — per-turn 프록시(회상·창). 캐시된 pipeline 그래프는 이걸 클로저에 안 담으므로
+    # chat.py가 _turn_config로 **매 호출 주입**한다(broker 필드와 함께 configurable로).
+    memory_recall_proxy: Any = None
+    history_window_proxy: Any = None
 
 
 async def _memory_inputs(
@@ -156,6 +160,9 @@ def _graph_for_turn(
 
         _, _discovery = effective_tools(build_ctx.tools)
         seed_hint = f"\n\n# 도구 안내\n{DISCOVERY_HINT}" if _discovery else ""
+        # 스펙 421 P3 — 캐시 빌드는 per-turn 재료를 **전부 스트립**(prompt=""·broker/프록시=None).
+        # 캐시된 그래프가 유저/턴 상태를 물리적으로 못 담게 하는 관문 — broker·회상·창은 _turn_config가
+        # 매 호출 configurable로 주입하고, 노드/도구가 config-우선으로 읽는다(이중 모드).
         graph = impl.build_graph(
             AgentBuildContext(
                 prompt="",
@@ -165,9 +172,9 @@ def _graph_for_turn(
                 params=build_ctx.params,
                 memories=build_ctx.memories,
                 overrides=build_ctx.overrides,
-                broker=build_ctx.broker,
-                memory_recall=build_ctx.memory_recall,
-                history_window=build_ctx.history_window,
+                broker=None,
+                memory_recall=None,
+                history_window=None,
                 impl_config=build_ctx.impl_config,
             )
         )
@@ -211,9 +218,28 @@ async def _build_turn_runtime(
         else None
     )
     calls_sink: list[dict] = []
+    # 능력 브로커(스펙 100) — 정책(에이전트 allowlist ∩ 유저 RBAC)으로 **미리 스코프**해 주입.
+    # 스펙 421 P3: 지문 계산 **앞으로 호이스트** — 위임 가능 집합(allowlist∩라이브RBAC)이 pipeline
+    # 지문 축이라 broker가 먼저 필요(빌드 비용 ≈0, 368 실측 — buildMs.broker 버킷이 mcp 쪽으로 약간
+    # 이동하는 관측 드리프트만 있음). 스펙 256 v2: 루트 실행도 자기 id로 체인 시작.
+    broker = build_broker(
+        principal,
+        ctx.capabilities,
+        ctx.tool_policy,
+        ctx.rag_min_scores,
+        delegation_chain=((ctx.ext_agent_id,) if ctx.ext_agent_id else ()),
+        delegation_budget={"n": 0},
+        force_approval=ctx.attachment_context,  # 스펙 415 P4 — 첨부 유래 턴 부수효과 cap 승인 강제
+    )
+    # 위임 가능 agent cap(스펙 318) — pipeline만. 지문 축 + 도구 빌드에 재사용(매 턴 1회 조회, 종전 동일).
+    agent_caps = await broker.agent_capabilities() if ctx.impl == "pipeline" else []
     # 그래프 팩토리(스펙 371 D3) — 지문 적격이면 캐시 조회. 적중 시 도구 빌드·컴파일 전부 생략
     # (도구는 config sink라 공유 안전 — 트레이스는 per-turn calls_sink로 분리).
-    fp = _graph_fingerprint(ctx, impl)
+    # 지문 축은 (id, name, hook) 삼중(스펙 421 P3 codex P2) — 이름/후크는 라이브 사실(버전 안 오름)인데
+    # 도구 설명(label·hook)에 구워지므로, 변경 시 다른 키로 재빌드해야 낡은 설명이 모델에 안 남는다.
+    fp = _graph_fingerprint(
+        ctx, impl, agent_caps=[[c.id, c.name or "", c.hook or ""] for c in agent_caps]
+    )
     cached = _GRAPH_CACHE.get(fp) if fp else None
     tools, _t_mcp, _t_rag = await _turn_tools(ctx, cached, calls_sink)
     # 회상된 기억은 prompt(시스템 프롬프트)에 합친다. 별도 system 메시지로 주입하면
@@ -231,24 +257,15 @@ async def _build_turn_runtime(
     # 없어도 interrupt 자체는 발생한다 — 승인 경로의 DB 쓰기는 _approval_frames의 ephemeral 게이트가
     # 막는다(여기만으론 불충분).
     ckpt = None if ctx.ephemeral else checkpointer.get_checkpointer()
-    # 능력 브로커(스펙 100) — 정책(에이전트 allowlist ∩ 유저 RBAC)으로 **미리 스코프**해 주입.
-    # 로컬(ui) 실행 경로에만 준다: 원격 통째 프록시(_a2a_stream)는 broker 미주입(bypass 보존).
-    # broker를 쓰는 flow(예: orchestrate)만 소비하고, 안 쓰면 무해(deny-by-default).
-    # 스펙 256 v2: 루트 실행도 자기 id로 체인 시작 — 하위 어디서도 루트 재호출(순환) 불가.
-    broker = build_broker(
-        principal,
-        ctx.capabilities,
-        ctx.tool_policy,
-        ctx.rag_min_scores,
-        delegation_chain=((ctx.ext_agent_id,) if ctx.ext_agent_id else ()),
-        delegation_budget={"n": 0},
-        force_approval=ctx.attachment_context,  # 스펙 415 P4 — 첨부 유래 턴 부수효과 cap 승인 강제
-    )
+    # (broker는 지문 계산 앞으로 호이스트됨 — 스펙 421 P3, 위 calls_sink 직후.)
     # 노드 에이전트-호출 도구(스펙 318) — 노드형 노드가 `agent__{id}`로 다른 에이전트에 위임. broker
     # 경유라 재귀 가드·HIL·격리 승계(runtime.build_agent_tools). pipeline만(비노드형은 broker.discover
     # 경로라 도구 풀에 얹지 않는다 — 행위 보존). 후보=broker가 이미 스코프(권한 상승 0).
-    if ctx.impl == "pipeline":
-        tools.extend(runtime.build_agent_tools(broker, await broker.agent_capabilities()))
+    # 스펙 421 P3: 캐시 적격 빌드(fp 유)는 **broker=None 스텁** — 위임 브로커는 _turn_config가 매 호출
+    # 주입(클로저 폴백이 turn-A broker가 되는 길 자체를 제거, fail-closed). 비적격(코드 노드 등)은
+    # 실 브로커 클로저(종전). 캐시 적중 시엔 그래프가 이미 도구를 품어 스킵.
+    if ctx.impl == "pipeline" and cached is None:
+        tools.extend(runtime.build_agent_tools(None if fp is not None else broker, agent_caps))
     _t_broker = time.perf_counter()
     build_ctx = AgentBuildContext(
         prompt=prompt_prompt,
@@ -284,8 +301,14 @@ async def _build_turn_runtime(
         memory_recalls=memory_recalls,
         history_windows=history_windows,
         # 스펙 371 D3 — promptless 그래프면 시스템 프롬프트(+discovery 힌트)를 seed 선두 메시지로.
-        prompt_in_messages=fp is not None,
-        seed_system=(prompt_prompt + seed_hint) if fp is not None else prompt_prompt,
+        # 스펙 421 P3: seed_prompt=False인 impl(pipeline — 에이전트 프롬프트 미소비)은 캐시 경로라도
+        # seed를 안 넣는다(노드 대화 스트림에 무관한 프롬프트가 끼는 오염 방지, 종전 동작 보존).
+        prompt_in_messages=(fp is not None and impl.describe().seed_prompt),
+        seed_system=(
+            (prompt_prompt + seed_hint)
+            if (fp is not None and impl.describe().seed_prompt)
+            else prompt_prompt
+        ),
         build_ms={
             "memory": _ms(_t0, _t_mem),
             "mcp": _ms(_t_mem, _t_mcp),
@@ -294,6 +317,9 @@ async def _build_turn_runtime(
             "graph": _ms(_t_broker, _t_graph),
             "total": _ms(_t0, _t_graph),
         },
+        # 스펙 421 P3 — chat.py가 _turn_config로 매 호출 주입(캐시 그래프의 config-우선 소비처).
+        memory_recall_proxy=mem_proxy,
+        history_window_proxy=hist_proxy,
     )
 
 
@@ -342,14 +368,27 @@ def _turn_config(
     user_id: str | None,
     capture: trace_capture.TraceCaptureHandler,
     calls_sink: list[dict] | None = None,
+    broker: Any = None,
+    memory_recall: Any = None,
+    history_window: Any = None,
 ) -> dict:
     """LangGraph 실행 config — 관측 콜백(스펙 118)·실측 캡처(스펙 205)·per-turn 트레이스 sink(스펙 371).
 
     mcp_calls_sink: 캐시된 그래프의 도구(_wrap_mcp_tool·build_rag_tool)가 호출 시점에 읽는 이 턴의
-    기록 리스트 — 그래프를 턴끼리 공유해도 트레이스가 안 섞인다(구성→호출 인자 이동)."""
+    기록 리스트 — 그래프를 턴끼리 공유해도 트레이스가 안 섞인다(구성→호출 인자 이동).
+    broker·memory_recall·history_window(스펙 421 P3): 캐시된 pipeline 그래프의 per-turn 재료 —
+    그래프는 스트립 빌드라 이 주입이 유일한 공급로(노드·agent 도구가 config-우선으로 읽음).
+    미주입이면 위임=정직한 실패·회상/창=생략(fail-safe, turn-간 누출 불가)."""
     config: dict[str, Any] = {"configurable": {"thread_id": thread_id}}
     if calls_sink is not None:
         config["configurable"]["mcp_calls_sink"] = calls_sink
+    for _k, _v in (
+        ("broker", broker),
+        ("memory_recall", memory_recall),
+        ("history_window", history_window),
+    ):
+        if _v is not None:
+            config["configurable"][_k] = _v
     # 관측(스펙 118→328) — OTEL이 설정됐을 때만 콜백 부착(미설정=무동작). 핵심 채팅 경로 무영향.
     # 비영속(스펙 235): 외부 관측 기록도 스킵(고트래픽·기록 무의미 계약 — 앱 DB 밖이라도 적재 안 함).
     if not ctx.ephemeral:

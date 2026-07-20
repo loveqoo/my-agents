@@ -112,23 +112,39 @@ class _MemoryRecallProxy:
         return text
 
 
-def _graph_fingerprint(ctx: ChatContext, impl: CustomAgent | None = None) -> str | None:
+def _graph_fingerprint(
+    ctx: ChatContext,
+    impl: CustomAgent | None = None,
+    agent_caps: list | None = None,
+) -> str | None:
     """캐시 적격(impl.cacheable)이면 빌드 결정 요소의 지문, 아니면 None(새 인스턴스 경로).
 
     지문 = **impl 키**(위상 구분) + 모델 정체(연결·model_id·params·temperature) + MCP 도구 집합(이름·
     **블록 버전**·auth 지문 — 369 불변성으로 버전이 콘텐츠를 유일하게 가리킴) + 도구 필터 + 승인 정책 +
-    RAG 배선 + 체크포인터 유무. 비밀은 sha256 지문으로만(평문 키 저장 금지).
+    RAG 배선 + 체크포인터 유무 + (노드형) **nodes 해시·위임 가능 집합**. 비밀은 sha256 지문으로만.
 
     적격 판정은 **impl이 선언한 `cacheable`**(스펙 421) — 그래프가 per-turn 재료(회상기억·broker·
-    프록시)를 굽지 않아 promptless 빌드로 버전 캐시 안전한 impl만 True(default·route·plan_execute).
-    프롬프트는 지문 축이 **아니다** — cacheable impl은 promptless라 시스템 프롬프트+회상이 매 턴 seed로
-    타므로 그래프가 프롬프트-무관(같은 impl·모델이면 프롬프트 달라도 그래프 공유). 노드형(nodes_resolved)·
-    산출물형(artifact_spec)은 런타임 신호로도 조기 배제(방어). 캐시 딕셔너리는 chat_turn_runtime
-    (_GRAPH_CACHE) — 이 함수는 순수."""
-    if ctx.nodes_resolved is not None or ctx.artifact_spec is not None:
+    프록시)를 굽지 않는 impl만 True(default·route·plan_execute·pipeline). 프롬프트는 지문 축이
+    **아니다** — cacheable impl은 promptless라 프롬프트+회상이 매 턴 seed/프록시로 탄다.
+
+    노드형 축(스펙 421 P3):
+    - `nodes` = nodes_resolved 정규 JSON 해시 — 노드 프롬프트·모델(라이브 능력 포함, _resolve_node_models
+      가 매 턴 레지스트리에서 해석)·도구 참조·형식·depth 전부 포괄. 오버라이드도 자동 분리.
+    - `agent_caps` = 위임 가능 집합(allowlist∩라이브RBAC)의 **(id, name, hook) 정렬 삼중** — RBAC이
+      다른 유저는 다른 그래프(위상=바인딩된 위임 도구가 다름). id만 넣으면 대상 이름/후크 변경 시
+      캐시된 도구 설명(label·hook)이 낡은 채 모델에 노출된다(codex P3 P2 — 라이브 사실이라 버전이
+      안 오름). 주입 broker가 호출 시점 재검사하므로 인가는 이중 방어.
+    - **코드 노드(impl 키) 포함 파이프라인은 제외**(fp=None) — build_step이 ctx 전체를 받아 per-turn
+      재료를 임의 포획할 수 있어 캐시 계약을 보증 못 함(정직한 경계, 직접 빌드 유지).
+    산출물형(artifact_spec)은 조기 배제. 캐시 딕셔너리는 chat_turn_runtime(_GRAPH_CACHE) — 이 함수는 순수."""
+    if ctx.artifact_spec is not None:
         return None
     if impl is None or not impl.describe().cacheable:
         return None
+    if ctx.nodes_resolved is not None and any(
+        isinstance(n, dict) and n.get("impl") for n in ctx.nodes_resolved
+    ):
+        return None  # 코드 노드 — 캐시 계약 밖(위 docstring)
     mc = ctx.model_cfg or {}
     if not mc:
         return None
@@ -162,5 +178,12 @@ def _graph_fingerprint(ctx: ChatContext, impl: CustomAgent | None = None) -> str
         # 첨부 유래 턴(스펙 415 P4) — 강제 승인이 도구 래핑에 구워지므로 강제/비강제 그래프를 분리
         # 캐시해야 한다(없으면 비첨부 턴의 캐시가 첨부 턴에 재사용돼 강제가 조용히 우회).
         "attach": ctx.attachment_context,
+        # 노드형 축(스펙 421 P3, 위 docstring) — 비노드형은 None/[]라 기존 지문과 무충돌.
+        "nodes": (
+            _fp(json.dumps(ctx.nodes_resolved, sort_keys=True, default=str))
+            if ctx.nodes_resolved is not None
+            else None
+        ),
+        "agent_caps": sorted(agent_caps or []),
     }
     return hashlib.sha256(json.dumps(blob, sort_keys=True, default=str).encode()).hexdigest()

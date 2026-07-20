@@ -311,7 +311,17 @@ async def chat(
     graph = turn.graph
     thread_id, graph_input, pending_artifact = _resolve_graph_entry(ctx, body, user_text)
     capture = trace_capture.TraceCaptureHandler()
-    config = _turn_config(ctx, thread_id, user_id, capture, calls_sink=turn.calls_sink)
+    config = _turn_config(
+        ctx,
+        thread_id,
+        user_id,
+        capture,
+        calls_sink=turn.calls_sink,
+        # 스펙 421 P3 — 캐시된 pipeline 그래프의 per-turn 재료(broker·회상·창)를 매 호출 주입.
+        broker=turn.broker,
+        memory_recall=turn.memory_recall_proxy,
+        history_window=turn.history_window_proxy,
+    )
     messages, sent_messages, seed_messages = _seed_and_sent(
         conversation,
         ctx,

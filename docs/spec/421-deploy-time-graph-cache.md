@@ -100,9 +100,55 @@ prompt="" 전달 → 노드가 매 턴 seed에서 읽음. 회상기억을 그래
 - [x] **P1 격리 codex 통과**: 프롬프트/회상이 캐시 그래프에 안 담김(promptless+이중모드) — P3 대칭 격리
       실증. codex 2라운드 봉합(이중모드·call_tool config·HIL 전파).
 - [x] **P1 무회귀**: make test 92/0/0 · verify_371/099/085/154/203/041.
-- [ ] **P2** orchestrate·artifact_form: broker config 이관 후 편입.
-- [ ] **P3** pipeline: broker+프록시+agent tools config 이관 후 편입.
-- [ ] 단계마다 측정→검증 후 다음, 각 단계 codex.
+- [ ] **P2** orchestrate·artifact_form: broker config 이관 후 편입(유일 잔여 — graph 1.6ms/req).
+- [x] **P3** pipeline: graph 빌드 2.3/5.1→**0.00ms**(nodes/caps 지문 축+프록시·broker config 주입).
+      codex 1건(caps rename 축) 봉합, verify_421 U4~6+P4~5·배터리 10종·그물 92/0/0.
+- [x] 단계마다 측정→검증 후 다음, 각 단계 codex.
+
+## P3 설계(pipeline) — 2026-07-21 착수
+
+**조사 확정**: MCP·RAG 도구는 이미 config-sink(371 D3 — `_sink_from(config, closure)`)라 캐시 안전.
+pipeline이 굽는 per-turn 재료는 셋: ① `ctx.memory_recall`(_MemoryRecallProxy — 유저 스코프·턴 기록)
+② `ctx.history_window`(_HistoryWindowProxy — 턴 대화) ③ **agent tools**(`agent__*` — broker를 클로저에
+굽고, 집합 자체가 allowlist∩라이브RBAC=유저 의존). 노드 프롬프트·모델·도구참조·형식은 전부
+nodes 설정(버전+오버라이드) = 버전-고정. **broker.invoke는 호출 시점마다 `_permitted`(allowlist∩RBAC)
+재검사** — broker만 주입하면 인가는 라이브로 정확.
+
+**설계(P1 이중 모드 패턴 승계 — 전부 config-first, ctx-fallback)**:
+1. **프록시 주입**: `_step(state, config)`로 노드가 RunnableConfig를 받고, 회상/창 프록시를
+   `config["configurable"]` 우선·`ctx` 폴백으로 해석. **캐시 관문 빌드는 프록시를 None으로 스트립** —
+   주입을 잊은 미래 경로는 turn-A 데이터 누출이 아니라 "회상 없음"으로 조용히 안전(fail-safe).
+2. **agent tools broker 주입**: `_delegate(text, config)` — broker를 config 우선·클로저 폴백. **캐시
+   관문에 넣는 빌드는 broker=None 스텁**(클로저 폴백이 turn-A broker가 되는 길 자체를 제거 —
+   주입 없이 호출되면 정직한 실패, [[design-for-amnesiac-future-actor]]). 직접 빌드(eval·resume)는
+   실 broker 클로저(종전 동작).
+3. **지문 확장**: pipeline manifest `cacheable=True` + 새 `seed_prompt=False`(pipeline은 에이전트
+   프롬프트 미소비 — seed 선두 system을 넣으면 오히려 오염이라 캐시 경로에서도 seed 생략).
+   축 추가: `nodes`=_fp(nodes_resolved 정규 JSON — 노드 프롬프트·모델(라이브 능력 포함)·도구·형식·
+   depth 전부 포괄, 오버라이드 자동 분리) + `agent_caps`=위임 가능 집합 정렬 id(allowlist∩라이브RBAC —
+   RBAC 다른 유저는 다른 그래프, 같아도 주입 broker가 재검사=이중 방어. caps는 매 턴 이미 조회라 비용 0).
+   **코드 노드(impl 키) 포함 파이프라인은 캐시 제외**(build_step이 ctx 전체를 받아 임의 포획 가능 —
+   정직한 경계, fp=None).
+4. **호출부**: `_turn_config`에 memory_recall/history_window/broker 주입(기존 mcp_calls_sink와 같은
+   관문). broker 빌드를 지문 계산 앞으로 호이스트(caps가 지문 축이므로 — build_broker는 368 실측 ≈0).
+
+## P3 완료(pipeline) — 2026-07-21
+
+설계대로 구현. **codex 적대(P3 라운드)**: 핵심 보장 전부 유지 판정(캐시 그래프에 turn-A 클로저 잔존 0·
+코드 노드 제외 견고·모든 실행 경로 주입 정합·seed 게이팅·HIL 재개·MCP/RAG sink). **P2 1건** — 위임
+대상 rename/후크 변경이 캐시 무효화 안 됨(지문에 cap id만, 도구 설명에 name/hook이 굽힘 — 라이브
+사실이라 버전 안 오름) → 축을 **(id, name, hook) 삼중**으로 봉합(caps는 매 턴 이미 조회라 비용 0).
+
+**검증**: verify_421 확장 — U4(프록시: config 주입 사용·미주입=생략 fail-safe·직접 빌드 폴백)·U5(스텁
+도구: config broker 위임·미주입=정직 실패)·U6(fp 산출·코드 노드 제외·nodes/caps-id/caps-rename 축 분리)
++ P4(pipeline 2턴째 graph 0.0ms·에이전트 프롬프트 미주입)·P5(캐시 적중 그래프서 위임 매 턴 동작,
+brokerCalls t1=t2=1). HIL 수동 프로브: 캐시 적중 턴에도 interrupt·승인 생성 정상. 파이프라인 배터리
+(259·260·261·265·268·270·315·317·318·319)·041·371·099·085·154 전부 통과, 그물 92/0/0.
+
+**측정**(measure_perf 재실행): pipeline-3·8 **graph 빌드 2.3/5.1 → 0.00ms**(버전당 1회 상각). 남은
+CPU/req 차이는 노드 수만큼의 mock 자기-호출 프레임워크 비용(캐시 무관 — learning 398 아티팩트, 실배포
+는 외부 모델 async I/O). orchestrate만 1.6ms 재빌드 잔존(P2). pipeline-8 4워커 버스트 20→22/30 소폭
+개선 — 잔존은 자기-호출 증폭(30req×8노드=240 self-call, mock 한계)이지 빌드 아님(정직 기록, 백로그).
 
 ## OUT
 - 동시성 500 다발(부수 발견) — 별건 조사(백로그).

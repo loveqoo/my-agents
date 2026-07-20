@@ -159,6 +159,11 @@ class AgentManifest:
     # 구조적으로 불가능. 굽는 impl(broker 얽힘 등)은 False(매 요청 새 빌드 — 후속 단계서 config
     # 이관 후 편입). 기본 False(신규 impl은 안전하게 비캐시 — 명시 opt-in).
     cacheable: bool = False
+    # 캐시 경로에서 시스템 프롬프트(+회상)를 seed 선두 SystemMessage로 실을지(스펙 421 P3).
+    # True(기본)=에이전트 프롬프트를 소비하는 impl(default·route·plan_execute) — promptless 빌드라
+    # 매 턴 seed로 타야 함. False=프롬프트를 아예 안 쓰는 impl(pipeline — 노드가 각자 프롬프트 소유):
+    # seed를 넣으면 노드 대화 스트림에 무관한 에이전트 프롬프트가 끼는 오염이라 생략.
+    seed_prompt: bool = True
 
 
 @runtime_checkable
