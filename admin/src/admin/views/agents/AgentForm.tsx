@@ -432,7 +432,9 @@ export function AgentForm({
     // 풀 파생은 derivePipelinePool 단일 출처(스펙 287 — 오버라이드 페이로드와 공유, 회고 261).
     const pool = derivePipelinePool(form.nodes, blocks.mcp?.items ?? [], collections)
     // 노드형은 도구를 노드가 소유 — 에이전트-레벨 tools는 비워 풀 필터 오염 방지(스펙 276).
-    return { ...base, ...pool, tools: [] }
+    // 모델 파라미터도 노드가 소유(스펙 417) — 에이전트-레벨 modelParams를 비워 숨긴 값이 캐스케이드로
+    // 전 노드에 조용히 적용되는 걸 막는다(retrospect 238). 레거시 저장분도 다음 저장서 청소된다.
+    return { ...base, ...pool, tools: [], modelParams: {} }
   }
   // 식별 이름 규칙(스펙 148) — 서버 400의 프론트 힌트. 빈 값은 입력 전이라 조용히(제출만 막음).
   const nameErr = form.name.trim() ? validateName(form.name.trim()) : null
@@ -885,16 +887,21 @@ export function AgentForm({
                   {/* 모델 설정 오버라이드(스펙 409·411 단일 컴포넌트) — 서술자 목록이 구동, 설정이 늘어도
                       여기 안 고침. bool=상속/켬/끔 3상(능력이 아니라 사용값 — 모델이 못 하는 건 못 켬),
                       number=상속/값. temperature(스펙 077 전용 Slider 은퇴)도 이제 params 안에 포함돼
-                      여기서 함께 편집된다. */}
-                  <Field label="모델 설정 오버라이드">
-                    <CapabilitySettings
-                      descriptors={capabilityDescriptors}
-                      capabilities={selectedModel?.capabilities}
-                      modelDefaults={selectedModel?.params}
-                      value={form.modelParams}
-                      onChange={(mp) => set('modelParams', mp as Record<string, boolean | number>)}
-                    />
-                  </Field>
+                      여기서 함께 편집된다. **노드형은 숨긴다**(스펙 417): 에이전트-레벨 모델 *선택*을
+                      이미 숨겼는데(566행 isPipeline?null) 그 짝인 파라미터만 노출하면 "선택 못 하는
+                      모델의 파라미터"가 돼 혼란 — 모델·파라미터 둘 다 노드가 소유(NodeListEditor).
+                      form.modelParams는 finalizeForm에서 비워 캐스케이드 조용한 적용도 차단(retrospect 238). */}
+                  {!isPipeline && (
+                    <Field label="모델 설정 오버라이드">
+                      <CapabilitySettings
+                        descriptors={capabilityDescriptors}
+                        capabilities={selectedModel?.capabilities}
+                        modelDefaults={selectedModel?.params}
+                        value={form.modelParams}
+                        onChange={(mp) => set('modelParams', mp as Record<string, boolean | number>)}
+                      />
+                    </Field>
+                  )}
                   {/* 단기 기억(스펙 271 공용 컨트롤) — 직접형은 스텝 ②의 "기억" 구획이 소유하므로 여기선
                       숨긴다(!isDirect). 조율형=오케스트레이터 컨텍스트, 노드형=노드 상속 원천, 산출물형=모델
                       컨텍스트로 각각 세부에 유지. 단기는 **요청에 담긴 대화를 자르는 실행 창**이라 비영속에도
