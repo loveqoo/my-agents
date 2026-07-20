@@ -382,9 +382,11 @@ async def main() -> None:
         f"R11b 끝난 턴은 여전히 폐기(보존이 만능이 되지 않게) (got {r_done!r})",
     )
 
-    # 관문 호출부가 실제로 paused를 넘기는가(코드 스캔 — 넘기지 않으면 위 보장은 죽은 코드)
+    # 관문 호출부가 실제로 paused를 넘기는가(코드 스캔 — 넘기지 않으면 위 보장은 죽은 코드).
+    # 스펙 403서 SSE finally 관문이 release_thread→shielded_release(취소-보호 래퍼, paused 그대로
+    # release_thread에 전달)로 개명 — 노후 문자열 현행화(보장 자체는 R11/R11b가 검증).
     check(
-        "release_thread(thread_id,paused=bool(interrupts))" in chat_code.replace(" ", ""),
+        "shielded_release(thread_id,paused=bool(interrupts))" in chat_code.replace(" ", ""),
         "R11c chat.py 관문이 paused=bool(interrupts)를 실제로 전달",
     )
 
