@@ -3,7 +3,7 @@
    turn is selectable (drives the Inspector) and shows trace chips. Data is real:
    agents come from the backend, turns/traces come from the streaming chat API. */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Bubble, Sender, Prompts, Think } from '@ant-design/x'
+import { Bubble, Sender, Prompts, Think, ThoughtChain } from '@ant-design/x'
 import type { GetRef } from 'antd'
 import {
   INITIAL_HIST,
@@ -1283,16 +1283,27 @@ export function DebugChat({
                     ) : null
                   return (
                     <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      {/* 사고 과정(스펙 410) — 답변 위 접이식 패널(@ant-design/x Think). 본문과 분리된
-                          축이라 reasoning이 있을 때만 뜬다(단건 thinking 응답). 기본 접힘=답변이 주인공. */}
-                      {m.reasoning ? (
+                      {/* 사고 과정(스펙 410·413) — 답변 위 접이식. 노드형(2스텝+)은 노드별 ThoughtChain,
+                          직접형(1스텝)은 단일 Think. 본문과 분리된 축이라 사고 있을 때만 뜬다(기본 접힘). */}
+                      {(m.reasoningSteps?.length ?? 0) >= 2 ? (
+                        <ThoughtChain
+                          items={(m.reasoningSteps ?? []).map((s, si) => ({
+                            key: String(si),
+                            title: s.node || `노드 ${si + 1}`,
+                            collapsible: true,
+                            // 마지막 스텝이 스트리밍 중이면 blink(현재 사고 중인 노드).
+                            blink: isStreaming && si === (m.reasoningSteps?.length ?? 0) - 1,
+                            content: <MessageContent text={s.text} streaming={isStreaming} />,
+                          }))}
+                        />
+                      ) : m.reasoningSteps?.length ? (
                         <Think
                           title="사고 과정"
                           loading={isStreaming && !m.text}
                           blink={isStreaming}
                           defaultExpanded={false}
                         >
-                          <MessageContent text={m.reasoning} streaming={isStreaming} />
+                          <MessageContent text={m.reasoningSteps[0].text} streaming={isStreaming} />
                         </Think>
                       ) : null}
                       <Bubble

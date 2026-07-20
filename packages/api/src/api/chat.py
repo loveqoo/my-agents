@@ -333,9 +333,13 @@ async def chat(
                     msg_chunk, _meta = chunk
                     # 사고 과정(스펙 410) — 본문과 분리된 side channel. acc(영속·메모리)엔 안 넣고
                     # 별도 프레임으로만(축 분리). 사고 없는 응답이면 빈 문자열이라 프레임 없음.
+                    # 노드 태그(스펙 413) — 노드형은 노드마다 사고가 나므로 어느 노드인지 실어(langgraph_node)
+                    # FE가 노드별 ThoughtChain으로 가른다. 직접형은 단일 노드라 태그가 하나(단일 Think 유지).
                     reasoning = _stream_reasoning(msg_chunk)
                     if reasoning:
-                        yield f"data: {json.dumps({'reasoning': reasoning}, ensure_ascii=False)}\n\n"
+                        _node = _meta.get("langgraph_node") if isinstance(_meta, dict) else None
+                        _frame = {"reasoning": reasoning, "node": _node} if _node else {"reasoning": reasoning}
+                        yield f"data: {json.dumps(_frame, ensure_ascii=False)}\n\n"
                     text = _stream_text(msg_chunk)
                     if text:
                         acc.append(text)

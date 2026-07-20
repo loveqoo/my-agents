@@ -507,8 +507,17 @@ export function Playground({
         apiMessages,
         {
           onToken: (t) => appendToLastAi((prev) => ({ ...prev, text: prev.text + t })),
-          // 사고 과정(스펙 410) — 본문과 별개로 누적(단건 1회·스트리밍 사고 서버면 델타 다회).
-          onReasoning: (t) => appendToLastAi((prev) => ({ ...prev, reasoning: (prev.reasoning ?? '') + t })),
+          // 사고 과정(스펙 410·413) — 본문과 별개로 **노드별** 누적. 노드가 순차 실행돼 델타가
+          // 노드별로 몰려 오므로, 마지막 스텝이 같은 노드면 이어붙이고 아니면 새 스텝(순서 보존).
+          onReasoning: (t, node) =>
+            appendToLastAi((prev) => {
+              const steps = [...(prev.reasoningSteps ?? [])]
+              const key = node ?? ''
+              const last = steps[steps.length - 1]
+              if (last && last.node === key) steps[steps.length - 1] = { node: key, text: last.text + t }
+              else steps.push({ node: key, text: t })
+              return { ...prev, reasoningSteps: steps }
+            }),
           onSession: (sid) => setSessions((s) => ({ ...s, [id]: sid })),
           // 승인 대기 프레임(스펙 179) — 이 턴의 승인 id를 잡아 폴링 시작(아래 useEffect).
           onApproval: (apid, approver) => setPendingApproval({ id: apid, convoId: id, approver }),
