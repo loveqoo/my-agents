@@ -231,7 +231,7 @@ function ProviderModal({
    렌더한다(능력 토글 + 능력 ON이고 설정 있는 축이면 그 아래 '기본값' 하나). 408이 능력·사용을 두
    줄로 겹쳐 표시(스트리밍·thinking 두 번)하던 중복을 제거. 참조 중 모델은 삭제가 막히므로(093) 이
    편집이 유일한 수정 경로다. PUT은 전체 body 계약이라 행 값 그대로 되보낸다. */
-function CapsEditor({ reg, onSaved }: { reg: Model; onSaved: () => void }) {
+function CapsEditor({ reg, onSaved }: { reg: Model; onSaved: (updated: Model) => void }) {
   const [busy, setBusy] = useState(false)
   const descriptors = useCapabilityDescriptors()
   const savedCaps = (reg.capabilities ?? {}) as Record<string, boolean>
@@ -239,14 +239,16 @@ function CapsEditor({ reg, onSaved }: { reg: Model; onSaved: () => void }) {
   const save = async (capsPatch: Record<string, boolean>, usagePatch: Record<string, unknown>) => {
     setBusy(true)
     try {
-      await updateModel(reg.id, {
+      // PUT 응답(갱신된 Model)으로 그 모델만 제자리 갱신(스펙 418) — 전체 재조회(refresh)를 부르면
+      // useAsyncData가 loading→undefined로 뒤집혀 뷰가 리마운트돼 팝오버가 닫힌다("새로고침").
+      const updated = await updateModel(reg.id, {
         name: reg.name, provider_id: reg.provider_id, model_id: reg.model_id,
         kind: reg.kind, is_default: reg.is_default,
         params: { ...usage, ...usagePatch },
         capabilities: { ...savedCaps, ...capsPatch },
         meta: reg.meta ?? {},
       })
-      onSaved()
+      onSaved(updated)
     } catch (e) {
       message.error(e instanceof Error ? e.message : String(e))
     } finally {
@@ -867,7 +869,12 @@ export default function ProviderModelView() {
                                     기본으로 지정
                                   </Button>
                                 )}
-                                <CapsEditor reg={reg} onSaved={refresh} />
+                                <CapsEditor
+                                  reg={reg}
+                                  onSaved={(updated) =>
+                                    setRegModels((prev) => prev.map((m) => (m.id === updated.id ? updated : m)))
+                                  }
+                                />
                               </>
                             )
                           })()}
