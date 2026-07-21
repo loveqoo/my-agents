@@ -43,7 +43,12 @@ def _resolve_wire_params(
             if p.wire == "disable_streaming":
                 disable_streaming = not eff
             elif p.wire == "extra_body":
+                # 이중 배선(스펙 425) — 서버 관례가 갈린다: vLLM계=chat_template_kwargs, rapid-mlx
+                # (현행)=root 키만 인식(실측: root enable_thinking=reasoning_content 발화, chat_
+                # template_kwargs=무시). 미지원 필드는 서버가 무시하므로 둘 다 실어 양쪽 호환.
+                # 단일 chat_template_kwargs 배선(411)은 rapid-mlx서 라이브 thinking을 조용히 껐다.
                 chat_template_kwargs[p.key] = eff
+                extra_body[p.key] = eff
             continue
         # number
         if p.key == "temperature":
