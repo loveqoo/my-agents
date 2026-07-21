@@ -7,7 +7,7 @@
      U3 배치 > 실행 이력 탭도 같은 왕복(스펙 351 — api.ts에 필드가 빠져 있던 곳).
    실행: node tests/browser/verify-352-memory-ui.mjs   (api 8000 + vite 5173 필요)
 */
-import { chromium } from '/Users/anthony/.npm/_npx/9833c18b2d85bc59/node_modules/playwright/index.mjs'
+import { chromium } from '~/.npm/_npx/9833c18b2d85bc59/node_modules/playwright/index.mjs'
 
 const BASE = 'http://127.0.0.1:5173'
 const fails = []

@@ -9,7 +9,7 @@ const chromium = _pw.chromium ?? _pw.default?.chromium
 const URL = 'http://127.0.0.1:5173'
 const API = 'http://127.0.0.1:8000'
 const _fx = (await import('./_fixture.mjs')).provisionSuper()
-const OUT = process.env.OUT ?? '/private/tmp/claude-501/-Users-anthony-Repository-github-{{GITHUB_ORG}}-my-agents/0f419f54-5016-4410-97ef-deab94d7cbcb/scratchpad'
+const OUT = process.env.OUT ?? 'tests/browser/out-tmp'
 
 const fails = []
 const ok = (c, m) => { console.log((c ? '  ok  ' : ' FAIL ') + m); if (!c) fails.push(m) }

@@ -2,7 +2,7 @@ Reading additional input from stdin...
 2026-07-19T07:58:14.455441Z ERROR codex_models_manager::cache: failed to load models cache: missing field `supports_reasoning_summaries` at line 88 column 5
 OpenAI Codex v0.144.6
 --------
-workdir: /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+workdir: .
 model: gpt-5.6-sol
 provider: openai
 approval: never
@@ -39,15 +39,15 @@ codex
 [단계 1 — Scaffolding]
 요청 범위를 지정된 6개 파일과 스펙 403/346의 관련 근거로 고정해 읽기 전용 적대 리뷰를 진행하겠습니다. 코드는 수정하지 않고, 실제 호출·취소·정리 경로를 닫힌 집합으로 측정해 P1/P2/확인함으로 판정하겠습니다.
 exec
-/bin/zsh -lc "sed -n '1,240p' /Users/anthony/.agents/skills/review/SKILL.md && rg -n \"403|346|SSE|checkpoint|retention|abort|shield|CancelledError\" /Users/anthony/.codex/memories/MEMORY.md .dev/learning/INDEX.md .dev/retrospect/INDEX.md .dev/troubleshooting/INDEX.md 2>/dev/null | head -160" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "sed -n '1,240p' ~/.agents/skills/review/SKILL.md && rg -n \"403|346|SSE|checkpoint|retention|abort|shield|CancelledError\" ~/.codex/memories/MEMORY.md .dev/learning/INDEX.md .dev/retrospect/INDEX.md .dev/troubleshooting/INDEX.md 2>/dev/null | head -160" in .
  exited 1 in 0ms:
-sed: /Users/anthony/.agents/skills/review/SKILL.md: No such file or directory
+sed: ~/.agents/skills/review/SKILL.md: No such file or directory
 
 codex
 [단계 2 — Context]
 리뷰 스킬의 실제 경로가 카탈로그의 하위 디렉터리 구조와 달라 첫 조회가 실패했습니다. 올바른 경로를 확인해 스킬 전문과 관련 인덱스·스펙을 읽고, 각 적대 질문에 적용할 검증 기준을 고정하겠습니다.
 exec
-/bin/zsh -lc "sed -n '1,260p' /Users/anthony/.agents/skills/gstack/review/SKILL.md; rg -n \"403|346|SSE|checkpoint|retention|abort|shield|CancelledError\" /Users/anthony/.codex/memories/MEMORY.md .dev/learning/INDEX.md .dev/retrospect/INDEX.md .dev/troubleshooting/INDEX.md 2>/dev/null | head -200; rg --files .dev docs | rg '("'^|/)(403|346)|403|346'"'" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "sed -n '1,260p' ~/.agents/skills/gstack/review/SKILL.md; rg -n \"403|346|SSE|checkpoint|retention|abort|shield|CancelledError\" ~/.codex/memories/MEMORY.md .dev/learning/INDEX.md .dev/retrospect/INDEX.md .dev/troubleshooting/INDEX.md 2>/dev/null | head -200; rg --files .dev docs | rg '("'^|/)(403|346)|403|346'"'" in .
  succeeded in 0ms:
 ---
 name: review
@@ -309,11 +309,11 @@ Then run `touch ~/.gstack/.first-loop-tip-shown 2>/dev/null || true`.
 
 Skip this section if `ACTIVATED` and `FIRST_LOOP_SHOWN` are both `yes`.
 
-/Users/anthony/.codex/memories/MEMORY.md:187:scope: Product-building patterns in `/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents` spanning minimal agent slices, API/SSE work, admin UI iteration, node override behavior, and effect-based verification expectations.
-/Users/anthony/.codex/memories/MEMORY.md:200:## Task 2: Persona registry and chat SSE API, success
-/Users/anthony/.codex/memories/MEMORY.md:208:- docs/spec/002-persona-registry-and-chat.md, packages/api/src/api/chat.py, packages/api/src/api/schemas.py, SSE, JSON framing, Postgres, 127.0.0.1:5432
-/Users/anthony/.codex/memories/MEMORY.md:253:- For the chat API, SSE should use safe framing such as JSON or other line-safe payloads, and long-lived streams should not hold request-scoped DB sessions open after DB access is no longer needed [Task 2]
-/Users/anthony/.codex/memories/MEMORY.md:265:- Symptom: SSE/chat logic is fragile or unsafe. Cause: raw token text was streamed directly and validation stayed loose. Fix: use safe framing and typed schema validation, and close DB sessions before streaming when possible [Task 2]
+~/.codex/memories/MEMORY.md:187:scope: Product-building patterns in `.` spanning minimal agent slices, API/SSE work, admin UI iteration, node override behavior, and effect-based verification expectations.
+~/.codex/memories/MEMORY.md:200:## Task 2: Persona registry and chat SSE API, success
+~/.codex/memories/MEMORY.md:208:- docs/spec/002-persona-registry-and-chat.md, packages/api/src/api/chat.py, packages/api/src/api/schemas.py, SSE, JSON framing, Postgres, 127.0.0.1:5432
+~/.codex/memories/MEMORY.md:253:- For the chat API, SSE should use safe framing such as JSON or other line-safe payloads, and long-lived streams should not hold request-scoped DB sessions open after DB access is no longer needed [Task 2]
+~/.codex/memories/MEMORY.md:265:- Symptom: SSE/chat logic is fragile or unsafe. Cause: raw token text was streamed directly and validation stayed loose. Fix: use safe framing and typed schema validation, and close DB sessions before streaming when possible [Task 2]
 .dev/learning/INDEX.md:42:- 037 파괴적 노브엔 바닥을 깔아라 (경계값이 곧 delete-all) — retention=0 같은 "없음처럼 보이는 경계값"이 최대 파괴로 매핑될 때 [adversarial,destructive,boundary]
 .dev/learning/INDEX.md:73:- 068 컬렉션을 스코핑해도 항목 엔드포인트(/{id})는 안 스코핑된다: 404-vs-403 열거 오라클 — 403이 존재를 누설해 id추측으로 숨긴 행을 캐냄; 볼 수 없는 행은 404로 접어 경로 일관 [enumeration-oracle,list-vs-item-scoping,404-vs-403,existence-disclosure,rbac,multi-tenant,authorization,adversarial]
 .dev/learning/INDEX.md:123:- 119 평가/신호 도구의 대죄는 "조용한 초록" — 거짓 초록이 신호 없음보다 나쁨(빈 asserts 자동통과·숨은실행실패·scorer예외); 모든 경로가 fail-closed, 결정수치는 행위·구조 신호를 하한으로 [signal-tool-fail-closed,silent-green-worse-than-no-signal,empty-condition-must-fail,scorer-exception-is-assert-fail-not-abort,discrimination-measured-intentional-fail-case,deterministic-behavior-signal-not-llm-text,determinism-is-autonomy-prerequisite,dataset-times-runfn-adapter]
@@ -335,7 +335,7 @@ docs/spec/346-checkpoint-retention.md
 .dev/reviews/403-sse-abort/prompt.txt
 
 exec
-/bin/zsh -lc "sed -n '261,999p' /Users/anthony/.agents/skills/gstack/review/SKILL.md; sed -n '1,220p' phase2_workspace_diff.md 2>/dev/null; sed -n '180,270p' /Users/anthony/.codex/memories/MEMORY.md; sed -n '1,260p' docs/spec/403-sse-abort-pool-poison.md; sed -n '1,260p' docs/spec/346-checkpoint-retention.md; sed -n '1,240p' .dev/retrospect/318-* 2>/dev/null; git status --short; git diff -- packages/api/src/api/chat.py packages/api/src/api/db.py packages/api/src/api/checkpointer.py packages/api/src/api/checkpoint_retention.py packages/api/src/api/chat_a2a_serve.py packages/api/src/api/background.py" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "sed -n '261,999p' ~/.agents/skills/gstack/review/SKILL.md; sed -n '1,220p' phase2_workspace_diff.md 2>/dev/null; sed -n '180,270p' ~/.codex/memories/MEMORY.md; sed -n '1,260p' docs/spec/403-sse-abort-pool-poison.md; sed -n '1,260p' docs/spec/346-checkpoint-retention.md; sed -n '1,240p' .dev/retrospect/318-* 2>/dev/null; git status --short; git diff -- packages/api/src/api/chat.py packages/api/src/api/db.py packages/api/src/api/checkpointer.py packages/api/src/api/checkpoint_retention.py packages/api/src/api/chat_a2a_serve.py packages/api/src/api/background.py" in .
  succeeded in 0ms:
 If `HAS_ROUTING` is `no` AND `ROUTING_DECLINED` is `false` AND `PROACTIVE_PROMPTED` is `yes`:
 Check if a AGENTS.md file exists in the project root. If it does not exist, create it.
@@ -1083,14 +1083,14 @@ Plan: {plan file path}
 
 # Task Group: my-agents product build / admin UI / verification style
 
-scope: Product-building patterns in `/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents` spanning minimal agent slices, API/SSE work, admin UI iteration, node override behavior, and effect-based verification expectations.
-applies_to: cwd=/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents; reuse_rule=safe for similar feature work in this repo, but verify current libraries and test harnesses before reusing exact implementation details
+scope: Product-building patterns in `.` spanning minimal agent slices, API/SSE work, admin UI iteration, node override behavior, and effect-based verification expectations.
+applies_to: cwd=.; reuse_rule=safe for similar feature work in this repo, but verify current libraries and test harnesses before reusing exact implementation details
 
 ## Task 1: Minimal hardcoded agent and local MLX verification, success
 
 ### rollout_summary_files
 
-- rollout_summaries/2026-07-12T03-44-54-Tx0C-my_agents_multi_loop_setup_ui_design_overrides.md (cwd=/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents, rollout_path=/Users/anthony/.codex/sessions/2026/07/12/rollout-2026-07-12T12-44-54-019f546d-90fb-75c3-bf53-5df6ad69df32.jsonl, updated_at=2026-07-12T03:44:54+00:00, thread_id=019f546d-90fb-75c3-bf53-5df6ad69df32, covers minimal slice, `uv`, and local MLX behavior)
+- rollout_summaries/2026-07-12T03-44-54-Tx0C-my_agents_multi_loop_setup_ui_design_overrides.md (cwd=., rollout_path=~/.codex/sessions/2026/07/12/rollout-2026-07-12T12-44-54-019f546d-90fb-75c3-bf53-5df6ad69df32.jsonl, updated_at=2026-07-12T03:44:54+00:00, thread_id=019f546d-90fb-75c3-bf53-5df6ad69df32, covers minimal slice, `uv`, and local MLX behavior)
 
 ### keywords
 
@@ -1100,7 +1100,7 @@ applies_to: cwd=/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents; reuse
 
 ### rollout_summary_files
 
-- rollout_summaries/2026-07-12T03-44-54-Tx0C-my_agents_multi_loop_setup_ui_design_overrides.md (cwd=/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents, rollout_path=/Users/anthony/.codex/sessions/2026/07/12/rollout-2026-07-12T12-44-54-019f546d-90fb-75c3-bf53-5df6ad69df32.jsonl, updated_at=2026-07-12T03:44:54+00:00, thread_id=019f546d-90fb-75c3-bf53-5df6ad69df32, API draft/spec and codex review findings)
+- rollout_summaries/2026-07-12T03-44-54-Tx0C-my_agents_multi_loop_setup_ui_design_overrides.md (cwd=., rollout_path=~/.codex/sessions/2026/07/12/rollout-2026-07-12T12-44-54-019f546d-90fb-75c3-bf53-5df6ad69df32.jsonl, updated_at=2026-07-12T03:44:54+00:00, thread_id=019f546d-90fb-75c3-bf53-5df6ad69df32, API draft/spec and codex review findings)
 
 ### keywords
 
@@ -1110,7 +1110,7 @@ applies_to: cwd=/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents; reuse
 
 ### rollout_summary_files
 
-- rollout_summaries/2026-07-12T03-44-54-Tx0C-my_agents_multi_loop_setup_ui_design_overrides.md (cwd=/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents, rollout_path=/Users/anthony/.codex/sessions/2026/07/12/rollout-2026-07-12T12-44-54-019f546d-90fb-75c3-bf53-5df6ad69df32.jsonl, updated_at=2026-07-12T03:44:54+00:00, thread_id=019f546d-90fb-75c3-bf53-5df6ad69df32, contains UI structure and design iteration preferences)
+- rollout_summaries/2026-07-12T03-44-54-Tx0C-my_agents_multi_loop_setup_ui_design_overrides.md (cwd=., rollout_path=~/.codex/sessions/2026/07/12/rollout-2026-07-12T12-44-54-019f546d-90fb-75c3-bf53-5df6ad69df32.jsonl, updated_at=2026-07-12T03:44:54+00:00, thread_id=019f546d-90fb-75c3-bf53-5df6ad69df32, contains UI structure and design iteration preferences)
 
 ### keywords
 
@@ -1120,7 +1120,7 @@ applies_to: cwd=/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents; reuse
 
 ### rollout_summary_files
 
-- rollout_summaries/2026-07-12T03-44-54-Tx0C-my_agents_multi_loop_setup_ui_design_overrides.md (cwd=/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents, rollout_path=/Users/anthony/.codex/sessions/2026/07/12/rollout-2026-07-12T12-44-54-019f546d-90fb-75c3-bf53-5df6ad69df32.jsonl, updated_at=2026-07-12T03:44:54+00:00, thread_id=019f546d-90fb-75c3-bf53-5df6ad69df32, effect-based API and browser verification for node overrides)
+- rollout_summaries/2026-07-12T03-44-54-Tx0C-my_agents_multi_loop_setup_ui_design_overrides.md (cwd=., rollout_path=~/.codex/sessions/2026/07/12/rollout-2026-07-12T12-44-54-019f546d-90fb-75c3-bf53-5df6ad69df32.jsonl, updated_at=2026-07-12T03:44:54+00:00, thread_id=019f546d-90fb-75c3-bf53-5df6ad69df32, effect-based API and browser verification for node overrides)
 
 ### keywords
 
@@ -1130,7 +1130,7 @@ applies_to: cwd=/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents; reuse
 
 ### rollout_summary_files
 
-- rollout_summaries/2026-07-12T03-44-54-Tx0C-my_agents_multi_loop_setup_ui_design_overrides.md (cwd=/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents, rollout_path=/Users/anthony/.codex/sessions/2026/07/12/rollout-2026-07-12T12-44-54-019f546d-90fb-75c3-bf53-5df6ad69df32.jsonl, updated_at=2026-07-12T03:44:54+00:00, thread_id=019f546d-90fb-75c3-bf53-5df6ad69df32, captures wording/legend cleanup preferences)
+- rollout_summaries/2026-07-12T03-44-54-Tx0C-my_agents_multi_loop_setup_ui_design_overrides.md (cwd=., rollout_path=~/.codex/sessions/2026/07/12/rollout-2026-07-12T12-44-54-019f546d-90fb-75c3-bf53-5df6ad69df32.jsonl, updated_at=2026-07-12T03:44:54+00:00, thread_id=019f546d-90fb-75c3-bf53-5df6ad69df32, captures wording/legend cleanup preferences)
 
 ### keywords
 
@@ -1460,7 +1460,7 @@ index a2f1405..8d7ad7c 100644
  
 
 exec
-/bin/zsh -lc "rg -n '"'^## |''^### |''^Step |''^# '"' /Users/anthony/.agents/skills/gstack/review/SKILL.md; nl -ba packages/api/src/api/chat.py | sed -n '320,430p'; nl -ba packages/api/src/api/checkpoint_retention.py | sed -n '1,300p'; nl -ba packages/api/src/api/checkpointer.py | sed -n '1,180p'; nl -ba packages/api/src/api/db.py | sed -n '1,110p'" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "rg -n '"'^## |''^### |''^Step |''^# '"' ~/.agents/skills/gstack/review/SKILL.md; nl -ba packages/api/src/api/chat.py | sed -n '320,430p'; nl -ba packages/api/src/api/checkpoint_retention.py | sed -n '1,300p'; nl -ba packages/api/src/api/checkpointer.py | sed -n '1,180p'; nl -ba packages/api/src/api/db.py | sed -n '1,110p'" in .
  succeeded in 0ms:
 26:## When to invoke this skill
 33:## Preamble (run first)
@@ -2087,7 +2087,7 @@ codex
 [단계 3 — Planning]
 참고 자산: 스펙 346의 `paused=bool(interrupts)` 폐기 관문, 회고 318의 “핀 부재를 삭제 허가로 읽지 말 것”, 회고 330의 SSE early-abort 재현, 기존 SSE 장수명 연결 회고를 적용합니다. 완료 조건은 (1) 세 종료 경로의 판정·완주 여부, (2) 두 풀 검사의 검출 한계, (3) 저장소 내 abort 가능한 스트리밍 응답 전수 목록을 파일:줄로 증명하는 것입니다. 리뷰 스킬은 변경 diff 중심의 critical/adversarial pass로 사용하되, 요청이 읽기 전용이므로 fix-first·기록·커밋 단계는 적용하지 않습니다.
 exec
-/bin/zsh -lc "rg -n \"StreamingResponse|EventSourceResponse|text/event-stream|async def .*stream|async for|finally:|CancelledError|asyncio\\.shield|ensure_future|create_task|release_thread|stream_local_reply\" packages/api/src/api packages/api/src  --glob '*.py'; nl -ba packages/api/src/api/chat_a2a_serve.py | sed -n '1,360p'; nl -ba packages/api/src/api/background.py | sed -n '1,360p'; rg -n \"StreamingResponse|text/event-stream|stream_local_reply|event_stream\" packages/api/src/api --glob '*.py'" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "rg -n \"StreamingResponse|EventSourceResponse|text/event-stream|async def .*stream|async for|finally:|CancelledError|asyncio\\.shield|ensure_future|create_task|release_thread|stream_local_reply\" packages/api/src/api packages/api/src  --glob '*.py'; nl -ba packages/api/src/api/chat_a2a_serve.py | sed -n '1,360p'; nl -ba packages/api/src/api/background.py | sed -n '1,360p'; rg -n \"StreamingResponse|text/event-stream|stream_local_reply|event_stream\" packages/api/src/api --glob '*.py'" in .
  succeeded in 0ms:
 packages/api/src/api/main.py:75:    # 좀비 평가 런 정리(스펙 137, codex #1) — create_task는 재시작을 못 넘기므로 부팅 시 running은
 packages/api/src/api/main.py:75:    # 좀비 평가 런 정리(스펙 137, codex #1) — create_task는 재시작을 못 넘기므로 부팅 시 running은
@@ -2685,7 +2685,7 @@ packages/api/src/api/mock_remote.py:488:    return StreamingResponse(event_strea
 packages/api/src/api/a2a_client.py:218:        "POST", endpoint, json=body, headers={**headers, "Accept": "text/event-stream"}
 
 exec
-/bin/zsh -lc "nl -ba packages/api/src/api/chat_a2a_serve.py | sed -n '40,155p'; nl -ba packages/api/src/api/a2a_server.py | sed -n '360,515p'; nl -ba packages/api/src/api/events.py | sed -n '1,120p'; nl -ba packages/api/src/api/eval_runner.py | sed -n '1,220p'; rg -n \"stream_events\\(|publish\\(|event_stream|StreamingResponse\" packages/api/src/api/eval*.py packages/api/src/api --glob '*.py' | head -240; rg -n \"adelete_thread|release_thread|thread_id.*a2a|a2a-\" packages/api/src/api tests --glob '*.py' | head -240" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "nl -ba packages/api/src/api/chat_a2a_serve.py | sed -n '40,155p'; nl -ba packages/api/src/api/a2a_server.py | sed -n '360,515p'; nl -ba packages/api/src/api/events.py | sed -n '1,120p'; nl -ba packages/api/src/api/eval_runner.py | sed -n '1,220p'; rg -n \"stream_events\\(|publish\\(|event_stream|StreamingResponse\" packages/api/src/api/eval*.py packages/api/src/api --glob '*.py' | head -240; rg -n \"adelete_thread|release_thread|thread_id.*a2a|a2a-\" packages/api/src/api tests --glob '*.py' | head -240" in .
  succeeded in 0ms:
     40	@dataclass(frozen=True)
     41	class ServeCompleted:
@@ -3341,7 +3341,7 @@ print('pre_ping dialect source:')
 from sqlalchemy.engine.default import DefaultDialect
 print(inspect.getsource(DefaultDialect._do_ping_w_event))
 PY
-sed -n '1,160p' tests/verify_403_sse_abort.py; nl -ba packages/api/src/api/chat_final.py | sed -n '70,135p'; rg -n \"def check_connection|class AsyncConnectionPool\" .venv/lib/python*/site-packages/psycopg_pool 2>/dev/null; rg -n \"pre_ping|_do_ping_w_event|_invalidate_time\" .venv/lib/python*/site-packages/sqlalchemy/pool .venv/lib/python*/site-packages/sqlalchemy/engine 2>/dev/null | head -100" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+sed -n '1,160p' tests/verify_403_sse_abort.py; nl -ba packages/api/src/api/chat_final.py | sed -n '70,135p'; rg -n \"def check_connection|class AsyncConnectionPool\" .venv/lib/python*/site-packages/psycopg_pool 2>/dev/null; rg -n \"pre_ping|_do_ping_w_event|_invalidate_time\" .venv/lib/python*/site-packages/sqlalchemy/pool .venv/lib/python*/site-packages/sqlalchemy/engine 2>/dev/null | head -100" in .
  succeeded in 0ms:
 zsh:1: can't create temp file for here document: operation not permitted
 sed: tests/verify_403_sse_abort.py: No such file or directory
@@ -3350,10 +3350,10 @@ zsh:14: no matches found: .venv/lib/python*/site-packages/psycopg_pool
 zsh:14: no matches found: .venv/lib/python*/site-packages/sqlalchemy/pool
 
 exec
-/bin/zsh -lc "uv run --project packages/api python -c 'import inspect,sqlalchemy,psycopg_pool; from psycopg_pool import AsyncConnectionPool; from sqlalchemy.engine.default import DefaultDialect; print(\"sqlalchemy\",sqlalchemy.__version__); print(\"psycopg_pool\",psycopg_pool.__version__); print(inspect.getsource(AsyncConnectionPool.check_connection)); print(inspect.getsource(DefaultDialect._do_ping_w_event))'; sed -n '1,180p' tests/verify_403_sse_abort.py; nl -ba packages/api/src/api/chat_final.py | sed -n '70,140p'; find packages/api -path '*site-packages/psycopg_pool*' -o -path '*site-packages/sqlalchemy/pool*' | head -30" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "uv run --project packages/api python -c 'import inspect,sqlalchemy,psycopg_pool; from psycopg_pool import AsyncConnectionPool; from sqlalchemy.engine.default import DefaultDialect; print(\"sqlalchemy\",sqlalchemy.__version__); print(\"psycopg_pool\",psycopg_pool.__version__); print(inspect.getsource(AsyncConnectionPool.check_connection)); print(inspect.getsource(DefaultDialect._do_ping_w_event))'; sed -n '1,180p' tests/verify_403_sse_abort.py; nl -ba packages/api/src/api/chat_final.py | sed -n '70,140p'; find packages/api -path '*site-packages/psycopg_pool*' -o -path '*site-packages/sqlalchemy/pool*' | head -30" in .
  succeeded in 0ms:
-error: Failed to initialize cache at `/Users/anthony/.cache/uv`
-  Caused by: failed to open file `/Users/anthony/.cache/uv/sdists-v9/.git`: Operation not permitted (os error 1)
+error: Failed to initialize cache at `~/.cache/uv`
+  Caused by: failed to open file `~/.cache/uv/sdists-v9/.git`: Operation not permitted (os error 1)
 """verify_403 — SSE 이탈 커넥션 풀 오염 봉합(스펙 403) 공격형 회귀.
 
 402의 068 조사에서 실측된 실구멍의 방어를 공격으로 검증한다:
@@ -3572,14 +3572,14 @@ if __name__ == "__main__":
 
 2026-07-19T07:59:21.957039Z ERROR codex_models_manager::manager: failed to renew cache TTL: missing field `supports_reasoning_summaries` at line 88 column 5
 exec
-/bin/zsh -lc "find . -maxdepth 4 -type f -path '*/bin/python*' -print; find /Users/anthony/Library/Caches/uv /Users/anthony/.cache/uv -type f \\( -path '*/psycopg_pool/pool_async.py' -o -path '*/sqlalchemy/pool/base.py' -o -path '*/sqlalchemy/engine/default.py' \\) 2>/dev/null | head -30; rg -n \"psycopg-pool|sqlalchemy\" packages/api/pyproject.toml uv.lock | head -60" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "find . -maxdepth 4 -type f -path '*/bin/python*' -print; find ~/Library/Caches/uv ~/.cache/uv -type f \\( -path '*/psycopg_pool/pool_async.py' -o -path '*/sqlalchemy/pool/base.py' -o -path '*/sqlalchemy/engine/default.py' \\) 2>/dev/null | head -30; rg -n \"psycopg-pool|sqlalchemy\" packages/api/pyproject.toml uv.lock | head -60" in .
 2026-07-19T07:59:28.052172Z ERROR codex_models_manager::manager: failed to renew cache TTL: missing field `supports_reasoning_summaries` at line 88 column 5
  succeeded in 453ms:
-/Users/anthony/.cache/uv/archive-v0/RNU_Yzepq0aZC6h1/psycopg_pool/pool_async.py
-/Users/anthony/.cache/uv/archive-v0/VsZBbTPOQfKd2hrx/lib/python3.12/site-packages/sqlalchemy/engine/default.py
-/Users/anthony/.cache/uv/archive-v0/VsZBbTPOQfKd2hrx/lib/python3.12/site-packages/sqlalchemy/pool/base.py
-/Users/anthony/.cache/uv/archive-v0/yQY4CuAREbNpJpZN/sqlalchemy/engine/default.py
-/Users/anthony/.cache/uv/archive-v0/yQY4CuAREbNpJpZN/sqlalchemy/pool/base.py
+~/.cache/uv/archive-v0/RNU_Yzepq0aZC6h1/psycopg_pool/pool_async.py
+~/.cache/uv/archive-v0/VsZBbTPOQfKd2hrx/lib/python3.12/site-packages/sqlalchemy/engine/default.py
+~/.cache/uv/archive-v0/VsZBbTPOQfKd2hrx/lib/python3.12/site-packages/sqlalchemy/pool/base.py
+~/.cache/uv/archive-v0/yQY4CuAREbNpJpZN/sqlalchemy/engine/default.py
+~/.cache/uv/archive-v0/yQY4CuAREbNpJpZN/sqlalchemy/pool/base.py
 packages/api/pyproject.toml:9:    "sqlalchemy[asyncio]>=2.0",
 packages/api/pyproject.toml:23:    "fastapi-users[sqlalchemy]>=15.0.2",
 packages/api/pyproject.toml:25:    "casbin-async-sqlalchemy-adapter>=1.4",
@@ -3637,7 +3637,7 @@ uv.lock:2268:    { url = "https://files.pythonhosted.org/packages/6a/c6/673e618e
 uv.lock:2269:    { url = "https://files.pythonhosted.org/packages/e2/22/dbf013a12ec759e54a34a119e9e217435b3f71b2dd5c61a7ade0a25dae87/sqlalchemy-2.0.51-py3-none-any.whl", hash = "sha256:bb024d8b621d0be75f4f44ecc7c950450026e76d66dc8f791bb5331d7fed59d5", size = 1944334, upload-time = "2026-06-15T16:09:22.418Z" },
 
 exec
-/bin/zsh -lc "rg -n -A18 -B5 \"async def check_connection\" /Users/anthony/.cache/uv/archive-v0/RNU_Yzepq0aZC6h1/psycopg_pool/pool_async.py; rg -n -A45 -B10 \"def _do_ping_w_event|def do_ping\" /Users/anthony/.cache/uv/archive-v0/VsZBbTPOQfKd2hrx/lib/python3.12/site-packages/sqlalchemy/engine/default.py; rg -n -A70 -B15 \"_pre_ping\" /Users/anthony/.cache/uv/archive-v0/VsZBbTPOQfKd2hrx/lib/python3.12/site-packages/sqlalchemy/pool/base.py | head -130; sed -n '1678,1715p' uv.lock; rg -n \"name = \\\"psycopg\\\"|version =\" uv.lock | tail -30" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "rg -n -A18 -B5 \"async def check_connection\" ~/.cache/uv/archive-v0/RNU_Yzepq0aZC6h1/psycopg_pool/pool_async.py; rg -n -A45 -B10 \"def _do_ping_w_event|def do_ping\" ~/.cache/uv/archive-v0/VsZBbTPOQfKd2hrx/lib/python3.12/site-packages/sqlalchemy/engine/default.py; rg -n -A70 -B15 \"_pre_ping\" ~/.cache/uv/archive-v0/VsZBbTPOQfKd2hrx/lib/python3.12/site-packages/sqlalchemy/pool/base.py | head -130; sed -n '1678,1715p' uv.lock; rg -n \"name = \\\"psycopg\\\"|version =\" uv.lock | tail -30" in .
  succeeded in 0ms:
 609-                self.run_task(AddConnection(self))
 610-            else:
@@ -3943,7 +3943,7 @@ bcrypt = [
 
 2026-07-19T07:59:32.931620Z ERROR codex_models_manager::manager: failed to renew cache TTL: missing field `supports_reasoning_summaries` at line 88 column 5
 exec
-/bin/zsh -lc "sed -n '614,650p' /Users/anthony/.cache/uv/archive-v0/RNU_Yzepq0aZC6h1/psycopg_pool/pool_async.py; sed -n '1290,1365p' /Users/anthony/.cache/uv/archive-v0/VsZBbTPOQfKd2hrx/lib/python3.12/site-packages/sqlalchemy/pool/base.py; nl -ba docs/spec/403-sse-abort-pool-poison.md | sed -n '1,180p'; nl -ba docs/spec/346-checkpoint-retention.md | sed -n '55,145p'; nl -ba /Users/anthony/.codex/memories/MEMORY.md | sed -n '187,266p'" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "sed -n '614,650p' ~/.cache/uv/archive-v0/RNU_Yzepq0aZC6h1/psycopg_pool/pool_async.py; sed -n '1290,1365p' ~/.cache/uv/archive-v0/VsZBbTPOQfKd2hrx/lib/python3.12/site-packages/sqlalchemy/pool/base.py; nl -ba docs/spec/403-sse-abort-pool-poison.md | sed -n '1,180p'; nl -ba docs/spec/346-checkpoint-retention.md | sed -n '55,145p'; nl -ba ~/.codex/memories/MEMORY.md | sed -n '187,266p'" in .
  succeeded in 0ms:
     async def check_connection(conn: ACT) -> None:
         """
@@ -4165,14 +4165,14 @@ exec
    125	- `thread_id`를 세션-안정으로 전환(히스토리 전달 방식 재설계 필요) — 별 스펙.
    126	- 멀티 레플리카에서의 스윕 lease + `_PENDING_ARTIFACT` 공유(백로그 k8s P1 ③·P2와 합류).
    127	- `ts` 없는 스레드의 자동 회수(지금은 `unknown_age`로 노출만 — 현 라이브러리는 항상 ts를 박는다).
-   187	scope: Product-building patterns in `/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents` spanning minimal agent slices, API/SSE work, admin UI iteration, node override behavior, and effect-based verification expectations.
-   188	applies_to: cwd=/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents; reuse_rule=safe for similar feature work in this repo, but verify current libraries and test harnesses before reusing exact implementation details
+   187	scope: Product-building patterns in `.` spanning minimal agent slices, API/SSE work, admin UI iteration, node override behavior, and effect-based verification expectations.
+   188	applies_to: cwd=.; reuse_rule=safe for similar feature work in this repo, but verify current libraries and test harnesses before reusing exact implementation details
    189	
    190	## Task 1: Minimal hardcoded agent and local MLX verification, success
    191	
    192	### rollout_summary_files
    193	
-   194	- rollout_summaries/2026-07-12T03-44-54-Tx0C-my_agents_multi_loop_setup_ui_design_overrides.md (cwd=/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents, rollout_path=/Users/anthony/.codex/sessions/2026/07/12/rollout-2026-07-12T12-44-54-019f546d-90fb-75c3-bf53-5df6ad69df32.jsonl, updated_at=2026-07-12T03:44:54+00:00, thread_id=019f546d-90fb-75c3-bf53-5df6ad69df32, covers minimal slice, `uv`, and local MLX behavior)
+   194	- rollout_summaries/2026-07-12T03-44-54-Tx0C-my_agents_multi_loop_setup_ui_design_overrides.md (cwd=., rollout_path=~/.codex/sessions/2026/07/12/rollout-2026-07-12T12-44-54-019f546d-90fb-75c3-bf53-5df6ad69df32.jsonl, updated_at=2026-07-12T03:44:54+00:00, thread_id=019f546d-90fb-75c3-bf53-5df6ad69df32, covers minimal slice, `uv`, and local MLX behavior)
    195	
    196	### keywords
    197	
@@ -4182,7 +4182,7 @@ exec
    201	
    202	### rollout_summary_files
    203	
-   204	- rollout_summaries/2026-07-12T03-44-54-Tx0C-my_agents_multi_loop_setup_ui_design_overrides.md (cwd=/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents, rollout_path=/Users/anthony/.codex/sessions/2026/07/12/rollout-2026-07-12T12-44-54-019f546d-90fb-75c3-bf53-5df6ad69df32.jsonl, updated_at=2026-07-12T03:44:54+00:00, thread_id=019f546d-90fb-75c3-bf53-5df6ad69df32, API draft/spec and codex review findings)
+   204	- rollout_summaries/2026-07-12T03-44-54-Tx0C-my_agents_multi_loop_setup_ui_design_overrides.md (cwd=., rollout_path=~/.codex/sessions/2026/07/12/rollout-2026-07-12T12-44-54-019f546d-90fb-75c3-bf53-5df6ad69df32.jsonl, updated_at=2026-07-12T03:44:54+00:00, thread_id=019f546d-90fb-75c3-bf53-5df6ad69df32, API draft/spec and codex review findings)
    205	
    206	### keywords
    207	
@@ -4192,7 +4192,7 @@ exec
    211	
    212	### rollout_summary_files
    213	
-   214	- rollout_summaries/2026-07-12T03-44-54-Tx0C-my_agents_multi_loop_setup_ui_design_overrides.md (cwd=/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents, rollout_path=/Users/anthony/.codex/sessions/2026/07/12/rollout-2026-07-12T12-44-54-019f546d-90fb-75c3-bf53-5df6ad69df32.jsonl, updated_at=2026-07-12T03:44:54+00:00, thread_id=019f546d-90fb-75c3-bf53-5df6ad69df32, contains UI structure and design iteration preferences)
+   214	- rollout_summaries/2026-07-12T03-44-54-Tx0C-my_agents_multi_loop_setup_ui_design_overrides.md (cwd=., rollout_path=~/.codex/sessions/2026/07/12/rollout-2026-07-12T12-44-54-019f546d-90fb-75c3-bf53-5df6ad69df32.jsonl, updated_at=2026-07-12T03:44:54+00:00, thread_id=019f546d-90fb-75c3-bf53-5df6ad69df32, contains UI structure and design iteration preferences)
    215	
    216	### keywords
    217	
@@ -4202,7 +4202,7 @@ exec
    221	
    222	### rollout_summary_files
    223	
-   224	- rollout_summaries/2026-07-12T03-44-54-Tx0C-my_agents_multi_loop_setup_ui_design_overrides.md (cwd=/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents, rollout_path=/Users/anthony/.codex/sessions/2026/07/12/rollout-2026-07-12T12-44-54-019f546d-90fb-75c3-bf53-5df6ad69df32.jsonl, updated_at=2026-07-12T03:44:54+00:00, thread_id=019f546d-90fb-75c3-bf53-5df6ad69df32, effect-based API and browser verification for node overrides)
+   224	- rollout_summaries/2026-07-12T03-44-54-Tx0C-my_agents_multi_loop_setup_ui_design_overrides.md (cwd=., rollout_path=~/.codex/sessions/2026/07/12/rollout-2026-07-12T12-44-54-019f546d-90fb-75c3-bf53-5df6ad69df32.jsonl, updated_at=2026-07-12T03:44:54+00:00, thread_id=019f546d-90fb-75c3-bf53-5df6ad69df32, effect-based API and browser verification for node overrides)
    225	
    226	### keywords
    227	
@@ -4212,7 +4212,7 @@ exec
    231	
    232	### rollout_summary_files
    233	
-   234	- rollout_summaries/2026-07-12T03-44-54-Tx0C-my_agents_multi_loop_setup_ui_design_overrides.md (cwd=/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents, rollout_path=/Users/anthony/.codex/sessions/2026/07/12/rollout-2026-07-12T12-44-54-019f546d-90fb-75c3-bf53-5df6ad69df32.jsonl, updated_at=2026-07-12T03:44:54+00:00, thread_id=019f546d-90fb-75c3-bf53-5df6ad69df32, captures wording/legend cleanup preferences)
+   234	- rollout_summaries/2026-07-12T03-44-54-Tx0C-my_agents_multi_loop_setup_ui_design_overrides.md (cwd=., rollout_path=~/.codex/sessions/2026/07/12/rollout-2026-07-12T12-44-54-019f546d-90fb-75c3-bf53-5df6ad69df32.jsonl, updated_at=2026-07-12T03:44:54+00:00, thread_id=019f546d-90fb-75c3-bf53-5df6ad69df32, captures wording/legend cleanup preferences)
    235	
    236	### keywords
    237	
@@ -4248,7 +4248,7 @@ exec
 
 2026-07-19T07:59:37.367684Z ERROR codex_models_manager::manager: failed to renew cache TTL: missing field `supports_reasoning_summaries` at line 88 column 5
 exec
-/bin/zsh -lc 'rg -n -A90 -B20 "async def _return_connection|transaction_status|reset" /Users/anthony/.cache/uv/archive-v0/RNU_Yzepq0aZC6h1/psycopg_pool/pool_async.py | head -220; rg -n "async def putconn|_return_connection" /Users/anthony/.cache/uv/archive-v0/RNU_Yzepq0aZC6h1/psycopg_pool/pool_async.py; rg -n "pool_reset_on_return|reset_on_return|rollback" packages/api/src/api/db.py packages/api/src/api/checkpointer.py' in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc 'rg -n -A90 -B20 "async def _return_connection|transaction_status|reset" ~/.cache/uv/archive-v0/RNU_Yzepq0aZC6h1/psycopg_pool/pool_async.py | head -220; rg -n "async def putconn|_return_connection" ~/.cache/uv/archive-v0/RNU_Yzepq0aZC6h1/psycopg_pool/pool_async.py; rg -n "pool_reset_on_return|reset_on_return|rollback" packages/api/src/api/db.py packages/api/src/api/checkpointer.py' in .
  exited 1 in 0ms:
 40-    CLIENT_EXCEPTIONS = Exception
 41-
@@ -4478,7 +4478,7 @@ exec
 2026-07-19T07:59:43.895737Z ERROR codex_models_manager::manager: failed to renew cache TTL: missing field `supports_reasoning_summaries` at line 88 column 5
 2026-07-19T07:59:43.944439Z ERROR codex_models_manager::manager: failed to renew cache TTL: missing field `supports_reasoning_summaries` at line 88 column 5
 exec
-/bin/zsh -lc "sed -n '770,850p' /Users/anthony/.cache/uv/archive-v0/RNU_Yzepq0aZC6h1/psycopg_pool/pool_async.py; sed -n '250,375p' /Users/anthony/.cache/uv/archive-v0/RNU_Yzepq0aZC6h1/psycopg_pool/pool_async.py" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "sed -n '770,850p' ~/.cache/uv/archive-v0/RNU_Yzepq0aZC6h1/psycopg_pool/pool_async.py; sed -n '250,375p' ~/.cache/uv/archive-v0/RNU_Yzepq0aZC6h1/psycopg_pool/pool_async.py" in .
  succeeded in 0ms:
         await self._add_to_pool(conn)
         if growing:
@@ -4691,7 +4691,7 @@ exec
 2026-07-19T07:59:48.334339Z ERROR codex_models_manager::manager: failed to renew cache TTL: missing field `supports_reasoning_summaries` at line 88 column 5
 2026-07-19T07:59:50.820926Z ERROR codex_models_manager::manager: failed to renew cache TTL: missing field `supports_reasoning_summaries` at line 88 column 5
 exec
-/bin/zsh -lc "rg -n -A70 -B5 \"async def _reset_connection\" /Users/anthony/.cache/uv/archive-v0/RNU_Yzepq0aZC6h1/psycopg_pool/pool_async.py; nl -ba packages/api/src/api/a2a_server.py | sed -n '443,502p'; nl -ba packages/api/src/api/chat_a2a_serve.py | sed -n '99,140p'; nl -ba packages/api/src/api/eval_runner.py | sed -n '100,155p'; nl -ba packages/api/src/api/events.py | sed -n '51,82p'" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "rg -n -A70 -B5 \"async def _reset_connection\" ~/.cache/uv/archive-v0/RNU_Yzepq0aZC6h1/psycopg_pool/pool_async.py; nl -ba packages/api/src/api/a2a_server.py | sed -n '443,502p'; nl -ba packages/api/src/api/chat_a2a_serve.py | sed -n '99,140p'; nl -ba packages/api/src/api/eval_runner.py | sed -n '100,155p'; nl -ba packages/api/src/api/events.py | sed -n '51,82p'" in .
  succeeded in 0ms:
 857-                # If we have been asked to wait for pool init, notify the
 858-                # waiter if the pool is full.
@@ -4970,7 +4970,7 @@ codex
 
 1. 취소 시 cleanup이 실제로는 고아 태스크가 됨
 
-[chat.py:395](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat.py:395)의 흐름은 외곽 태스크가 취소되면 다음처럼 동작합니다.
+[chat.py:395](packages/api/src/api/chat.py:395)의 흐름은 외곽 태스크가 취소되면 다음처럼 동작합니다.
 
 ```text
 await shield(cleanup)
@@ -4982,18 +4982,18 @@ await shield(cleanup)
 
 즉 스펙 403의 “내부 정리는 완주” 주석과 달리, 이 코드는 **완주를 기다리지 않습니다**. `cleanup` 강참조도 함수 종료와 함께 사라져 asyncio의 weak-reference 경고 대상이며, 워커 종료 시 미완료 상태로 취소될 수 있습니다.
 
-특히 외곽 태스크가 이미 취소된 상태에서 finally에 진입하면 `ensure_future()`는 만들어지지만 첫 `await shield()`가 즉시 취소되어 가장 쉽게 고아가 됩니다. 현재 [verify_403_sse_abort.py:64](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/tests/verify_403_sse_abort.py:64)는 문자열 배선만 검사하고, cleanup 완료 여부나 체크포인트 잔여를 단언하지 않아 이 결함을 잡지 못합니다.
+특히 외곽 태스크가 이미 취소된 상태에서 finally에 진입하면 `ensure_future()`는 만들어지지만 첫 `await shield()`가 즉시 취소되어 가장 쉽게 고아가 됩니다. 현재 [verify_403_sse_abort.py:64](tests/verify_403_sse_abort.py:64)는 문자열 배선만 검사하고, cleanup 완료 여부나 체크포인트 잔여를 단언하지 않아 이 결함을 잡지 못합니다.
 
 정상·에러 경로에서는 기존처럼 `release_thread()`를 끝까지 기다리므로 스펙 346의 판정은 같습니다. **클라이언트 이탈 경로에서만 판정 함수가 시작되지만 완주 보장이 사라집니다.**
 
 2. 로컬 A2A 서빙에 폐기 관문 자체가 없음
 
-[chat_a2a_serve.py:109](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_a2a_serve.py:109)는 체크포인터와 `durability="exit"`를 사용하고, [chat_a2a_serve.py:321](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_a2a_serve.py:321)에서 턴별 `a2a-*` thread를 생성합니다. 그런데 `LocalServeTurn.chunks()`에는 `finally/release_thread`가 없습니다.
+[chat_a2a_serve.py:109](packages/api/src/api/chat_a2a_serve.py:109)는 체크포인터와 `durability="exit"`를 사용하고, [chat_a2a_serve.py:321](packages/api/src/api/chat_a2a_serve.py:321)에서 턴별 `a2a-*` thread를 생성합니다. 그런데 `LocalServeTurn.chunks()`에는 `finally/release_thread`가 없습니다.
 
 영향 경로:
 
-- 비스트리밍 `message/send`: [a2a_server.py:443](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/a2a_server.py:443)
-- SSE `message/stream`: [a2a_server.py:454](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/a2a_server.py:454)
+- 비스트리밍 `message/send`: [a2a_server.py:443](packages/api/src/api/a2a_server.py:443)
+- SSE `message/stream`: [a2a_server.py:454](packages/api/src/api/a2a_server.py:454)
 
 따라서 정상·에러·클라이언트 abort 모두 완료된 체크포인트가 TTL까지 잔류하고, SSE abort 중 체크포인터 작업 취소도 chat과 같은 오염 후보입니다. 스펙 346의 “A2A는 `checkpointer=None`” 전제는 현재 코드와 달라졌습니다.
 
@@ -5040,8 +5040,8 @@ await shield(cleanup)
 ## 같은 부류 전수 목록
 
 - **미봉합:** 로컬 A2A `message/stream` 및 `message/send` — 체크포인터 사용하지만 폐기 관문 없음.
-- **해당 없음:** eval runner는 [eval_runner.py:110](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/eval_runner.py:110)에서 `checkpointer=None`.
-- **해당 없음:** 이벤트 SSE는 [events.py:74](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/events.py:74)의 동기 `set.discard`만 수행해 await 취소 창이나 DB 풀이 없음.
+- **해당 없음:** eval runner는 [eval_runner.py:110](packages/api/src/api/eval_runner.py:110)에서 `checkpointer=None`.
+- **해당 없음:** 이벤트 SSE는 [events.py:74](packages/api/src/api/events.py:74)의 동기 `set.discard`만 수행해 await 취소 창이나 DB 풀이 없음.
 - `background.py`의 태스크 레지스트리는 강참조와 예외 표면화를 제공하지만, 현재 chat cleanup은 이를 사용하지 않습니다.
 
 읽기 전용 리뷰로 파일 수정·테스트 실행은 하지 않았습니다. 현재 환경에서는 `uv` 캐시 초기화도 read-only 권한에 막혀 라이브 재실행은 불가능했습니다.
@@ -5061,7 +5061,7 @@ tokens used
 
 1. 취소 시 cleanup이 실제로는 고아 태스크가 됨
 
-[chat.py:395](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat.py:395)의 흐름은 외곽 태스크가 취소되면 다음처럼 동작합니다.
+[chat.py:395](packages/api/src/api/chat.py:395)의 흐름은 외곽 태스크가 취소되면 다음처럼 동작합니다.
 
 ```text
 await shield(cleanup)
@@ -5073,18 +5073,18 @@ await shield(cleanup)
 
 즉 스펙 403의 “내부 정리는 완주” 주석과 달리, 이 코드는 **완주를 기다리지 않습니다**. `cleanup` 강참조도 함수 종료와 함께 사라져 asyncio의 weak-reference 경고 대상이며, 워커 종료 시 미완료 상태로 취소될 수 있습니다.
 
-특히 외곽 태스크가 이미 취소된 상태에서 finally에 진입하면 `ensure_future()`는 만들어지지만 첫 `await shield()`가 즉시 취소되어 가장 쉽게 고아가 됩니다. 현재 [verify_403_sse_abort.py:64](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/tests/verify_403_sse_abort.py:64)는 문자열 배선만 검사하고, cleanup 완료 여부나 체크포인트 잔여를 단언하지 않아 이 결함을 잡지 못합니다.
+특히 외곽 태스크가 이미 취소된 상태에서 finally에 진입하면 `ensure_future()`는 만들어지지만 첫 `await shield()`가 즉시 취소되어 가장 쉽게 고아가 됩니다. 현재 [verify_403_sse_abort.py:64](tests/verify_403_sse_abort.py:64)는 문자열 배선만 검사하고, cleanup 완료 여부나 체크포인트 잔여를 단언하지 않아 이 결함을 잡지 못합니다.
 
 정상·에러 경로에서는 기존처럼 `release_thread()`를 끝까지 기다리므로 스펙 346의 판정은 같습니다. **클라이언트 이탈 경로에서만 판정 함수가 시작되지만 완주 보장이 사라집니다.**
 
 2. 로컬 A2A 서빙에 폐기 관문 자체가 없음
 
-[chat_a2a_serve.py:109](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_a2a_serve.py:109)는 체크포인터와 `durability="exit"`를 사용하고, [chat_a2a_serve.py:321](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_a2a_serve.py:321)에서 턴별 `a2a-*` thread를 생성합니다. 그런데 `LocalServeTurn.chunks()`에는 `finally/release_thread`가 없습니다.
+[chat_a2a_serve.py:109](packages/api/src/api/chat_a2a_serve.py:109)는 체크포인터와 `durability="exit"`를 사용하고, [chat_a2a_serve.py:321](packages/api/src/api/chat_a2a_serve.py:321)에서 턴별 `a2a-*` thread를 생성합니다. 그런데 `LocalServeTurn.chunks()`에는 `finally/release_thread`가 없습니다.
 
 영향 경로:
 
-- 비스트리밍 `message/send`: [a2a_server.py:443](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/a2a_server.py:443)
-- SSE `message/stream`: [a2a_server.py:454](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/a2a_server.py:454)
+- 비스트리밍 `message/send`: [a2a_server.py:443](packages/api/src/api/a2a_server.py:443)
+- SSE `message/stream`: [a2a_server.py:454](packages/api/src/api/a2a_server.py:454)
 
 따라서 정상·에러·클라이언트 abort 모두 완료된 체크포인트가 TTL까지 잔류하고, SSE abort 중 체크포인터 작업 취소도 chat과 같은 오염 후보입니다. 스펙 346의 “A2A는 `checkpointer=None`” 전제는 현재 코드와 달라졌습니다.
 
@@ -5131,8 +5131,8 @@ await shield(cleanup)
 ## 같은 부류 전수 목록
 
 - **미봉합:** 로컬 A2A `message/stream` 및 `message/send` — 체크포인터 사용하지만 폐기 관문 없음.
-- **해당 없음:** eval runner는 [eval_runner.py:110](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/eval_runner.py:110)에서 `checkpointer=None`.
-- **해당 없음:** 이벤트 SSE는 [events.py:74](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/events.py:74)의 동기 `set.discard`만 수행해 await 취소 창이나 DB 풀이 없음.
+- **해당 없음:** eval runner는 [eval_runner.py:110](packages/api/src/api/eval_runner.py:110)에서 `checkpointer=None`.
+- **해당 없음:** 이벤트 SSE는 [events.py:74](packages/api/src/api/events.py:74)의 동기 `set.discard`만 수행해 await 취소 창이나 DB 풀이 없음.
 - `background.py`의 태스크 레지스트리는 강참조와 예외 표면화를 제공하지만, 현재 chat cleanup은 이를 사용하지 않습니다.
 
 읽기 전용 리뷰로 파일 수정·테스트 실행은 하지 않았습니다. 현재 환경에서는 `uv` 캐시 초기화도 read-only 권한에 막혀 라이브 재실행은 불가능했습니다.

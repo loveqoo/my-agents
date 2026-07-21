@@ -2,7 +2,7 @@ Reading additional input from stdin...
 2026-07-20T02:34:15.588172Z ERROR codex_models_manager::cache: failed to load models cache: missing field `supports_reasoning_summaries` at line 88 column 5
 OpenAI Codex v0.144.6
 --------
-workdir: /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+workdir: .
 model: gpt-5.6-sol
 provider: openai
 approval: never
@@ -50,7 +50,7 @@ codex
 [단계 2 — Context]
 참고 자산: 기존 read-only 리뷰의 직접 소비자 추적·rename/update 분리·검증 환경과 코드 결함 분리 원칙을 적용합니다. 코드 리뷰 실수를 줄이기 위해 `karpathy-guidelines` 스킬도 사용하며, 그 지침에 따라 가정과 검증 가능한 근거를 분리하겠습니다.
 exec
-/bin/zsh -lc "sed -n '1,240p' /Users/anthony/.codex/plugins/cache/karpathy-skills/andrej-karpathy-skills/1.0.0/skills/karpathy-guidelines/SKILL.md && rg -n \"411|model tuning|튜닝|ParamDescriptor|_fold_temperature\" /Users/anthony/.codex/memories/MEMORY.md .dev docs packages admin --glob '"'!node_modules'"'" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "sed -n '1,240p' ~/.codex/plugins/cache/karpathy-skills/andrej-karpathy-skills/1.0.0/skills/karpathy-guidelines/SKILL.md && rg -n \"411|model tuning|튜닝|ParamDescriptor|_fold_temperature\" ~/.codex/memories/MEMORY.md .dev docs packages admin --glob '"'!node_modules'"'" in .
  succeeded in 0ms:
 ---
 name: karpathy-guidelines
@@ -166,7 +166,7 @@ codex
 [단계 3 — Planning]
 완료 조건은 (1) temperature의 저장→오버라이드→실행 우선순위 증명, (2) PARAM_KEYS 생산자·소비자와 모든 temperature 소비자 계수, (3) number 경계·wire·풀 키·FE 삭제 의미 확인, (4) 각 발견을 재현 가능한 파일:라인 근거로 P1/P2/확인함 분류하는 것입니다. 수정·커밋·회고 작성은 읽기 전용 제약 때문에 생략합니다.
 exec
-/bin/zsh -lc 'git status --short && git diff --stat && git diff -- packages/agent/src/agent/capabilities.py packages/agent/src/agent/model.py packages/api/src/api/chat_context_loader.py packages/api/src/api/model_registry.py admin/src/api.ts admin/src/components/CapabilitySettings.tsx admin/src/admin/views/ProviderModelView.tsx admin/src/playground/OverridePanel.tsx admin/src/admin/AgentForm.tsx admin/src/admin/NodeListEditor.tsx admin/src/admin/mockData.ts admin/src/types.ts' in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc 'git status --short && git diff --stat && git diff -- packages/agent/src/agent/capabilities.py packages/agent/src/agent/model.py packages/api/src/api/chat_context_loader.py packages/api/src/api/model_registry.py admin/src/api.ts admin/src/components/CapabilitySettings.tsx admin/src/admin/views/ProviderModelView.tsx admin/src/playground/OverridePanel.tsx admin/src/admin/AgentForm.tsx admin/src/admin/NodeListEditor.tsx admin/src/admin/mockData.ts admin/src/types.ts' in .
  succeeded in 0ms:
 git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
 git: error: couldn't create cache file '/tmp/xcrun_db-L6mLX8Hb' (errno=Operation not permitted)
@@ -936,7 +936,7 @@ codex
 [단계 4 — Execution]
 첫 번째 고위험 후보가 보입니다. `_apply_overrides`가 레거시 세션 `temperature`를 별도 키에 쓴 뒤 `_fold_temperature`가 `modelParams.setdefault`를 사용하므로, 저장된 `modelParams.temperature`가 있으면 더 높은 우선순위의 세션값이 흡수되지 않을 가능성이 있습니다. 이제 실제 병합 함수와 실행 소비자를 따라 확정하겠습니다.
 exec
-/bin/zsh -lc "rg -n \"def _apply_overrides|temperature|modelParams|clean_model_params|PARAM_KEYS|descriptors_public|getCapabilityDescriptors|CapabilityDescriptor|ModelDescriptors|run_params|ctx\\.temperature|\\.temperature\" packages/api/src packages/agent/src admin/src tests --glob '"'!**/dist/**'"' --glob '"'!**/data/**'"' --glob '"'!**/*.snap'"'" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "rg -n \"def _apply_overrides|temperature|modelParams|clean_model_params|PARAM_KEYS|descriptors_public|getCapabilityDescriptors|CapabilityDescriptor|ModelDescriptors|run_params|ctx\\.temperature|\\.temperature\" packages/api/src packages/agent/src admin/src tests --glob '"'!**/dist/**'"' --glob '"'!**/data/**'"' --glob '"'!**/*.snap'"'" in .
  succeeded in 0ms:
 admin/src/api.ts:655: *  (temperature 등 숫자 파라미터도 여기 담긴다, kind로 렌더 분기). */
 admin/src/api.ts:661:export interface ModelDescriptors { capabilities: CapabilityFact[]; params: ParamDescriptor[] }
@@ -1177,7 +1177,7 @@ tests/browser/verify-410-thinking.mjs:46:        modelParams: { enable_thinking:
 tests/browser/verify-287-node-override-drawer.mjs:110:  check(ov?.temperature === 0.7, `③ temperature 오버라이드 동봉 (got ${JSON.stringify(ov?.temperature)})`)
 
 exec
-/bin/zsh -lc "nl -ba packages/api/src/api/chat_context_overrides.py | sed -n '80,115p'; nl -ba packages/api/src/api/chat_context_loader.py | sed -n '60,155p'; nl -ba packages/api/src/api/schemas/agents.py | sed -n '1,38p;285,310p'; nl -ba packages/api/src/api/chat_context_models.py | sed -n '125,170p'; nl -ba packages/api/src/api/serializers.py | sed -n '108,124p'; nl -ba admin/src/admin/views/AgentsView.tsx | sed -n '55,75p;155,175p;670,686p'; nl -ba admin/src/admin/views/agents/AgentForm.tsx | sed -n '15,32p;880,902p;1028,1045p'" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "nl -ba packages/api/src/api/chat_context_overrides.py | sed -n '80,115p'; nl -ba packages/api/src/api/chat_context_loader.py | sed -n '60,155p'; nl -ba packages/api/src/api/schemas/agents.py | sed -n '1,38p;285,310p'; nl -ba packages/api/src/api/chat_context_models.py | sed -n '125,170p'; nl -ba packages/api/src/api/serializers.py | sed -n '108,124p'; nl -ba admin/src/admin/views/AgentsView.tsx | sed -n '55,75p;155,175p;670,686p'; nl -ba admin/src/admin/views/agents/AgentForm.tsx | sed -n '15,32p;880,902p;1028,1045p'" in .
  succeeded in 0ms:
     80	    except (TypeError, ValueError):
     81	        cfg["historyDepth"] = (agent.config or {}).get("historyDepth", 20)
@@ -1558,7 +1558,7 @@ exec
   1045	                const tpCount = Object.keys(form.toolPolicy || {}).length
 
 exec
-/bin/zsh -lc "nl -ba packages/agent/src/agent/capabilities.py | sed -n '20,180p'; nl -ba packages/agent/src/agent/model.py | sed -n '45,145p'; nl -ba admin/src/admin/views/agents/CapabilitySettings.tsx | sed -n '1,180p'; nl -ba admin/src/playground/OverridePanel.tsx | sed -n '30,90p;465,530p'; nl -ba packages/api/src/api/chat_graph_build.py | sed -n '108,148p'; nl -ba packages/api/src/api/chat_turn_runtime.py | sed -n '212,258p'; nl -ba packages/api/src/api/chat_approval.py | sed -n '304,342p'; nl -ba packages/api/src/api/chat_a2a_serve.py | sed -n '254,272p'" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "nl -ba packages/agent/src/agent/capabilities.py | sed -n '20,180p'; nl -ba packages/agent/src/agent/model.py | sed -n '45,145p'; nl -ba admin/src/admin/views/agents/CapabilitySettings.tsx | sed -n '1,180p'; nl -ba admin/src/playground/OverridePanel.tsx | sed -n '30,90p;465,530p'; nl -ba packages/api/src/api/chat_graph_build.py | sed -n '108,148p'; nl -ba packages/api/src/api/chat_turn_runtime.py | sed -n '212,258p'; nl -ba packages/api/src/api/chat_approval.py | sed -n '304,342p'; nl -ba packages/api/src/api/chat_a2a_serve.py | sed -n '254,272p'" in .
  succeeded in 0ms:
     20	
     21	# ----------------------------- 능력 사실 -----------------------------
@@ -2275,7 +2275,7 @@ codex
 [단계 5 — Verification]
 정적 추적에서 두 번째 계약 파손이 확인됩니다. 스키마·직렬화·폼 저장은 여전히 `temperature`와 `modelParams.temperature`를 동시에 허용하고, 노드형 플레이그라운드는 “세션 최상위 modelParams” UI를 아예 숨깁니다. 추가로 기존 검증 자산이 새 화이트리스트와 충돌하는지 결정적 검증을 실행하겠습니다. 파일은 쓰지 않도록 bytecode 생성을 끕니다.
 exec
-/bin/zsh -lc "if [ -x .venv/bin/python ]; then PYTHONDONTWRITEBYTECODE=1 .venv/bin/python tests/verify_411_model_params.py; PYTHONDONTWRITEBYTECODE=1 .venv/bin/python tests/verify_409_capability_settings.py; else echo '.venv/bin/python 없음'; fi" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "if [ -x .venv/bin/python ]; then PYTHONDONTWRITEBYTECODE=1 .venv/bin/python tests/verify_411_model_params.py; PYTHONDONTWRITEBYTECODE=1 .venv/bin/python tests/verify_409_capability_settings.py; else echo '.venv/bin/python 없음'; fi" in .
  exited 1 in 1441ms:
   ok  U1a PARAM_KEYS 6종 (got ('stream', 'enable_thinking', 'temperature', 'top_p', 'max_tokens', 'repetition_penalty'))
   ok  U1b descriptors {capabilities,params} (got ['capabilities', 'params'])
@@ -2314,100 +2314,100 @@ exec
   ok  U5b 비-bool/미지 설정 드롭
   ok  U5c 문자열 능력('false')은 thinking 못 켬(bool('false')==True 함정 봉인)
 Traceback (most recent call last):
-  File "/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/.venv/lib/python3.12/site-packages/httpx/_transports/default.py", line 101, in map_httpcore_exceptions
+  File ".venv/lib/python3.12/site-packages/httpx/_transports/default.py", line 101, in map_httpcore_exceptions
     yield
-  File "/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/.venv/lib/python3.12/site-packages/httpx/_transports/default.py", line 394, in handle_async_request
+  File ".venv/lib/python3.12/site-packages/httpx/_transports/default.py", line 394, in handle_async_request
     resp = await self._pool.handle_async_request(req)
            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/.venv/lib/python3.12/site-packages/httpcore/_async/connection_pool.py", line 256, in handle_async_request
+  File ".venv/lib/python3.12/site-packages/httpcore/_async/connection_pool.py", line 256, in handle_async_request
     raise exc from None
-  File "/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/.venv/lib/python3.12/site-packages/httpcore/_async/connection_pool.py", line 236, in handle_async_request
+  File ".venv/lib/python3.12/site-packages/httpcore/_async/connection_pool.py", line 236, in handle_async_request
     response = await connection.handle_async_request(
                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/.venv/lib/python3.12/site-packages/httpcore/_async/connection.py", line 101, in handle_async_request
+  File ".venv/lib/python3.12/site-packages/httpcore/_async/connection.py", line 101, in handle_async_request
     raise exc
-  File "/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/.venv/lib/python3.12/site-packages/httpcore/_async/connection.py", line 78, in handle_async_request
+  File ".venv/lib/python3.12/site-packages/httpcore/_async/connection.py", line 78, in handle_async_request
     stream = await self._connect(request)
              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/.venv/lib/python3.12/site-packages/httpcore/_async/connection.py", line 124, in _connect
+  File ".venv/lib/python3.12/site-packages/httpcore/_async/connection.py", line 124, in _connect
     stream = await self._network_backend.connect_tcp(**kwargs)
              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/.venv/lib/python3.12/site-packages/httpcore/_backends/auto.py", line 31, in connect_tcp
+  File ".venv/lib/python3.12/site-packages/httpcore/_backends/auto.py", line 31, in connect_tcp
     return await self._backend.connect_tcp(
            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/.venv/lib/python3.12/site-packages/httpcore/_backends/anyio.py", line 113, in connect_tcp
+  File ".venv/lib/python3.12/site-packages/httpcore/_backends/anyio.py", line 113, in connect_tcp
     with map_exceptions(exc_map):
          ^^^^^^^^^^^^^^^^^^^^^^^
-  File "/Users/anthony/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/contextlib.py", line 158, in __exit__
+  File "~/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/contextlib.py", line 158, in __exit__
     self.gen.throw(value)
-  File "/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/.venv/lib/python3.12/site-packages/httpcore/_exceptions.py", line 14, in map_exceptions
+  File ".venv/lib/python3.12/site-packages/httpcore/_exceptions.py", line 14, in map_exceptions
     raise to_exc(exc) from exc
 httpcore.ConnectError: All connection attempts failed
 
 The above exception was the direct cause of the following exception:
 
 Traceback (most recent call last):
-  File "/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/tests/verify_409_capability_settings.py", line 160, in <module>
+  File "tests/verify_409_capability_settings.py", line 160, in <module>
     asyncio.run(main())
-  File "/Users/anthony/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/asyncio/runners.py", line 195, in run
+  File "~/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/asyncio/runners.py", line 195, in run
     return runner.run(main)
            ^^^^^^^^^^^^^^^^
-  File "/Users/anthony/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/asyncio/runners.py", line 118, in run
+  File "~/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/asyncio/runners.py", line 118, in run
     return self._loop.run_until_complete(task)
            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/Users/anthony/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/asyncio/base_events.py", line 691, in run_until_complete
+  File "~/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/asyncio/base_events.py", line 691, in run_until_complete
     return future.result()
            ^^^^^^^^^^^^^^^
-  File "/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/tests/verify_409_capability_settings.py", line 118, in main
+  File "tests/verify_409_capability_settings.py", line 118, in main
     r = await c.get("/models/capabilities/descriptors")
         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/.venv/lib/python3.12/site-packages/httpx/_client.py", line 1768, in get
+  File ".venv/lib/python3.12/site-packages/httpx/_client.py", line 1768, in get
     return await self.request(
            ^^^^^^^^^^^^^^^^^^^
-  File "/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/.venv/lib/python3.12/site-packages/httpx/_client.py", line 1540, in request
+  File ".venv/lib/python3.12/site-packages/httpx/_client.py", line 1540, in request
     return await self.send(request, auth=auth, follow_redirects=follow_redirects)
            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/.venv/lib/python3.12/site-packages/httpx/_client.py", line 1629, in send
+  File ".venv/lib/python3.12/site-packages/httpx/_client.py", line 1629, in send
     response = await self._send_handling_auth(
                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/.venv/lib/python3.12/site-packages/httpx/_client.py", line 1657, in _send_handling_auth
+  File ".venv/lib/python3.12/site-packages/httpx/_client.py", line 1657, in _send_handling_auth
     response = await self._send_handling_redirects(
                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/.venv/lib/python3.12/site-packages/httpx/_client.py", line 1694, in _send_handling_redirects
+  File ".venv/lib/python3.12/site-packages/httpx/_client.py", line 1694, in _send_handling_redirects
     response = await self._send_single_request(request)
                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/.venv/lib/python3.12/site-packages/httpx/_client.py", line 1730, in _send_single_request
+  File ".venv/lib/python3.12/site-packages/httpx/_client.py", line 1730, in _send_single_request
     response = await transport.handle_async_request(request)
                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/.venv/lib/python3.12/site-packages/httpx/_transports/default.py", line 393, in handle_async_request
+  File ".venv/lib/python3.12/site-packages/httpx/_transports/default.py", line 393, in handle_async_request
     with map_httpcore_exceptions():
          ^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/Users/anthony/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/contextlib.py", line 158, in __exit__
+  File "~/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/contextlib.py", line 158, in __exit__
     self.gen.throw(value)
-  File "/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/.venv/lib/python3.12/site-packages/httpx/_transports/default.py", line 118, in map_httpcore_exceptions
+  File ".venv/lib/python3.12/site-packages/httpx/_transports/default.py", line 118, in map_httpcore_exceptions
     raise mapped_exc(message) from exc
 httpx.ConnectError: All connection attempts failed
 
 exec
-/bin/zsh -lc "PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -c 'from api.chat_context_overrides import _apply_overrides; from api.chat_context_loader import _fold_temperature; A=type(\"A\",(),{\"source\":\"ui\",\"config\":{}}); cfg={\"modelParams\":{\"temperature\":0.9}}; out,*_= _apply_overrides(cfg,\"\",{\"temperature\":0.2},A(),{\"temperature\",\"modelParams\"}); _fold_temperature(out); print(out)'" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -c 'from api.chat_context_overrides import _apply_overrides; from api.chat_context_loader import _fold_temperature; A=type(\"A\",(),{\"source\":\"ui\",\"config\":{}}); cfg={\"modelParams\":{\"temperature\":0.9}}; out,*_= _apply_overrides(cfg,\"\",{\"temperature\":0.2},A(),{\"temperature\",\"modelParams\"}); _fold_temperature(out); print(out)'" in .
  succeeded in 627ms:
 {'modelParams': {'temperature': 0.9}}
 
 exec
-/bin/zsh -lc "rg -n \"chat_stream|served MCP|read-only|direct consumer|rename\" /Users/anthony/.codex/memories/MEMORY.md | head -20; nl -ba tests/verify_411_model_params.py | sed -n '95,108p'; nl -ba tests/verify_409_capability_settings.py | sed -n '50,64p;110,124p'; nl -ba admin/src/api.ts | sed -n '649,664p'; nl -ba packages/api/src/api/model_registry.py | sed -n '188,200p'; nl -ba admin/src/admin/views/agents/CapabilitySettings.tsx | sed -n '90,166p'" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "rg -n \"chat_stream|served MCP|read-only|direct consumer|rename\" ~/.codex/memories/MEMORY.md | head -20; nl -ba tests/verify_411_model_params.py | sed -n '95,108p'; nl -ba tests/verify_409_capability_settings.py | sed -n '50,64p;110,124p'; nl -ba admin/src/api.ts | sed -n '649,664p'; nl -ba packages/api/src/api/model_registry.py | sed -n '188,200p'; nl -ba admin/src/admin/views/agents/CapabilitySettings.tsx | sed -n '90,166p'" in .
  succeeded in 0ms:
 1:# Task Group: my-agents packages/api read-only refactor reviews
 6:## Task 1: chat_stream structural review and refactor design, success
-10:- rollout_summaries/2026-07-15T06-18-37-yqWj-served_mcp_ssrf_review_and_chat_stream_refactor.md (cwd=/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents, rollout_path=/Users/anthony/.codex/sessions/2026/07/15/rollout-2026-07-15T15-18-37-019f646d-5fe2-76e0-8046-4d07452fce57.jsonl, updated_at=2026-07-18T12:10:14+00:00, thread_id=019f646d-5fe2-76e0-8046-4d07452fce57, consumer-traced review of `chat_stream.py` and staged split guidance)
+10:- rollout_summaries/2026-07-15T06-18-37-yqWj-served_mcp_ssrf_review_and_chat_stream_refactor.md (cwd=., rollout_path=~/.codex/sessions/2026/07/15/rollout-2026-07-15T15-18-37-019f646d-5fe2-76e0-8046-4d07452fce57.jsonl, updated_at=2026-07-18T12:10:14+00:00, thread_id=019f646d-5fe2-76e0-8046-4d07452fce57, consumer-traced review of `chat_stream.py` and staged split guidance)
 14:- chat_stream.py, stream_local_reply, _serve_chunks, out-param state, async iterator, a2a_server.py, chat_approval.py, GeneratorExit, SSE, A2A
-20:- rollout_summaries/2026-07-18T12-33-38-SbgL-codex_review_chat_stream_refactor_sandbox_failure.md (cwd=/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents, rollout_path=/Users/anthony/.codex/sessions/2026/07/18/rollout-2026-07-18T21-33-38-019f7537-ca38-76f3-8c6b-97711cf40b8b.jsonl, updated_at=2026-07-18T12:35:27+00:00, thread_id=019f7537-ca38-76f3-8c6b-97711cf40b8b, review tool never produced findings because `codex exec` failed during app-server init)
+20:- rollout_summaries/2026-07-18T12-33-38-SbgL-codex_review_chat_stream_refactor_sandbox_failure.md (cwd=., rollout_path=~/.codex/sessions/2026/07/18/rollout-2026-07-18T21-33-38-019f7537-ca38-76f3-8c6b-97711cf40b8b.jsonl, updated_at=2026-07-18T12:35:27+00:00, thread_id=019f7537-ca38-76f3-8c6b-97711cf40b8b, review tool never produced findings because `codex exec` failed during app-server init)
 24:- codex exec, Operation not permitted, app-server client, read-only, here document, chat_a2a_proxy.py, chat_a2a_serve.py, chat_graph_build.py, chat_sse_errors.py, verify_061_a2a_exposure.py
 38:- when the user said "read-only로 동작하라 — 파일을 수정하지 말 것" and "파일 수정 금지" -> keep similar repo-review work audit-only and do not drift into edits [Task 1][Task 2][Task 3]
 46:- `packages/api/src/api/chat_stream.py` mixed four concerns even after being split from `chat.py`: config-error SSE, model-hinting, remote A2A proxying, and local A2A serving; the highest-risk contract is `stream_local_reply()` returning `(context_id, async_iterator, state_dict)` with the mutable `state` filled only after stream exhaustion [Task 1]
 61:# Task Group: my-agents packages/api SSRF / served MCP security review
-63:scope: Read-only adversarial security-review patterns for `/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents` around SSRF boundaries, served MCP exemptions, and model/seed/route/call-site tracing.
+63:scope: Read-only adversarial security-review patterns for `.` around SSRF boundaries, served MCP exemptions, and model/seed/route/call-site tracing.
 66:## Task 1: SSRF exception review for self-served MCP endpoints, success
-70:- rollout_summaries/2026-07-15T06-18-37-yqWj-served_mcp_ssrf_review_and_chat_stream_refactor.md (cwd=/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents, rollout_path=/Users/anthony/.codex/sessions/2026/07/15/rollout-2026-07-15T15-18-37-019f646d-5fe2-76e0-8046-4d07452fce57.jsonl, updated_at=2026-07-18T12:10:14+00:00, thread_id=019f646d-5fe2-76e0-8046-4d07452fce57, no P0 SSRF bypass found; rename path remained a bounded hardening gap rather than an exploit)
+70:- rollout_summaries/2026-07-15T06-18-37-yqWj-served_mcp_ssrf_review_and_chat_stream_refactor.md (cwd=., rollout_path=~/.codex/sessions/2026/07/15/rollout-2026-07-15T15-18-37-019f646d-5fe2-76e0-8046-4d07452fce57.jsonl, updated_at=2026-07-18T12:10:14+00:00, thread_id=019f646d-5fe2-76e0-8046-4d07452fce57, no P0 SSRF bypass found; rename path remained a bounded hardening gap rather than an exploit)
 79:- when the user said: "This is a read-only security review. Do not modify any files." -> default to non-editing audit mode for similar review tasks unless they explicitly change scope [Task 1]
 85:- `packages/api/src/api/served_mcp.py:234-275` plus `packages/api/src/api/main.py:143-150` show served MCP mounts are gated by `_is_served(name)` and only expose code-defined FastMCP apps, not an arbitrary proxy path [Task 1]
 93:- Do not assume a reserved-name policy is fully enforced just because create blocks it; in this area `packages/api/src/api/blocks.py:362-388` blocks creation of reserved served names, but `packages/api/src/api/blocks.py:622-663` rename/update does not repeat the same reserved-name check [Task 1]
@@ -2573,7 +2573,7 @@ codex
 
 1. 레거시 세션 `temperature`가 저장된 `modelParams.temperature`에 패배합니다.
 
-`_apply_overrides`는 레거시 세션값을 `cfg.temperature`에 기록하지만, 기존 `modelParams`는 유지합니다([chat_context_overrides.py:104](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_overrides.py:104), [chat_context_overrides.py:105](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_overrides.py:105)). 직후 `_fold_temperature`는 `setdefault`를 쓰므로 기존 값이 있으면 세션값을 버립니다([chat_context_loader.py:70](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_loader.py:70), [chat_context_loader.py:76](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_loader.py:76)).
+`_apply_overrides`는 레거시 세션값을 `cfg.temperature`에 기록하지만, 기존 `modelParams`는 유지합니다([chat_context_overrides.py:104](packages/api/src/api/chat_context_overrides.py:104), [chat_context_overrides.py:105](packages/api/src/api/chat_context_overrides.py:105)). 직후 `_fold_temperature`는 `setdefault`를 쓰므로 기존 값이 있으면 세션값을 버립니다([chat_context_loader.py:70](packages/api/src/api/chat_context_loader.py:70), [chat_context_loader.py:76](packages/api/src/api/chat_context_loader.py:76)).
 
 재현:
 
@@ -2583,11 +2583,11 @@ codex
 결과: {'modelParams': {'temperature': 0.9}}
 ```
 
-따라서 설계의 “세션 오버라이드가 최상위”와 “레거시 경로 무손실”을 동시에 위반합니다. 새 검증은 오버라이드 병합 순서를 거치지 않고 `_fold_temperature`만 독립 호출해서 이 결함을 놓칩니다([verify_411_model_params.py:98](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/tests/verify_411_model_params.py:98), [verify_411_model_params.py:101](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/tests/verify_411_model_params.py:101)).
+따라서 설계의 “세션 오버라이드가 최상위”와 “레거시 경로 무손실”을 동시에 위반합니다. 새 검증은 오버라이드 병합 순서를 거치지 않고 `_fold_temperature`만 독립 호출해서 이 결함을 놓칩니다([verify_411_model_params.py:98](tests/verify_411_model_params.py:98), [verify_411_model_params.py:101](tests/verify_411_model_params.py:101)).
 
 2. 노드형 플레이그라운드에서 세션 최상위 `modelParams` 표면이 사라졌습니다.
 
-백엔드는 명시적으로 `모델 → 에이전트 → 노드 → 세션` 순서를 구현합니다([chat_context_models.py:133](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_models.py:133), [chat_context_models.py:145](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_models.py:145)). 하지만 FE는 pipeline이면 세션 `CapabilitySettings`를 렌더하지 않고, 코드 주석도 미제공을 인정합니다([OverridePanel.tsx:471](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/admin/src/playground/OverridePanel.tsx:471), [OverridePanel.tsx:475](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/admin/src/playground/OverridePanel.tsx:475), [OverridePanel.tsx:484](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/admin/src/playground/OverridePanel.tsx:484)).
+백엔드는 명시적으로 `모델 → 에이전트 → 노드 → 세션` 순서를 구현합니다([chat_context_models.py:133](packages/api/src/api/chat_context_models.py:133), [chat_context_models.py:145](packages/api/src/api/chat_context_models.py:145)). 하지만 FE는 pipeline이면 세션 `CapabilitySettings`를 렌더하지 않고, 코드 주석도 미제공을 인정합니다([OverridePanel.tsx:471](admin/src/playground/OverridePanel.tsx:471), [OverridePanel.tsx:475](admin/src/playground/OverridePanel.tsx:475), [OverridePanel.tsx:484](admin/src/playground/OverridePanel.tsx:484)).
 
 기존에는 모든 노드에 적용되는 세션 temperature를 제공했습니다. 이제 사용자는 노드별 저장 설정만 수정할 수 있어 세션 한정 실험과 캐스케이드 4층 계약이 UI에서 회귀했습니다.
 
@@ -2595,35 +2595,35 @@ codex
 
 1. temperature 이중 거처가 저장·직렬화·폼에 그대로 남았습니다.
 
-`AgentConfig.temperature`와 `modelParams`가 동시에 허용됩니다([agents.py:19](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/schemas/agents.py:19), [agents.py:24](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/schemas/agents.py:24)). 심지어 주석은 여전히 temperature가 구 필드의 정본이라고 주장합니다([agents.py:22](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/schemas/agents.py:22)).
+`AgentConfig.temperature`와 `modelParams`가 동시에 허용됩니다([agents.py:19](packages/api/src/api/schemas/agents.py:19), [agents.py:24](packages/api/src/api/schemas/agents.py:24)). 심지어 주석은 여전히 temperature가 구 필드의 정본이라고 주장합니다([agents.py:22](packages/api/src/api/schemas/agents.py:22)).
 
-직렬화도 양쪽을 모두 반환하고([serializers.py:118](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/serializers.py:118)), 폼 저장도 두 필드를 함께 전송합니다([AgentsView.tsx:163](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/admin/src/admin/views/AgentsView.tsx:163), [AgentsView.tsx:166](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/admin/src/admin/views/AgentsView.tsx:166)). 반면 temperature 전용 편집기는 없어졌고 숨은 `form.temperature`는 요약에 계속 표시됩니다([AgentForm.tsx:887](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/admin/src/admin/views/agents/AgentForm.tsx:887), [AgentForm.tsx:1039](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/admin/src/admin/views/agents/AgentForm.tsx:1039)).
+직렬화도 양쪽을 모두 반환하고([serializers.py:118](packages/api/src/api/serializers.py:118)), 폼 저장도 두 필드를 함께 전송합니다([AgentsView.tsx:163](admin/src/admin/views/AgentsView.tsx:163), [AgentsView.tsx:166](admin/src/admin/views/AgentsView.tsx:166)). 반면 temperature 전용 편집기는 없어졌고 숨은 `form.temperature`는 요약에 계속 표시됩니다([AgentForm.tsx:887](admin/src/admin/views/agents/AgentForm.tsx:887), [AgentForm.tsx:1039](admin/src/admin/views/agents/AgentForm.tsx:1039)).
 
 런타임 로드에서만 `modelParams` 우선으로 접을 뿐 DB 저장 형태는 단일화되지 않았습니다. “어느 쪽이 이기나?”의 현재 답은 실행 시 `modelParams`, API 에코·폼 요약에서는 양쪽 노출입니다.
 
 2. 기존 검증 자산이 새 계약에 맞춰 갱신되지 않았습니다.
 
-`verify_409`는 아직 temperature가 modelParams에서 제거되어야 한다고 단언하며([verify_409_capability_settings.py:55](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/tests/verify_409_capability_settings.py:55)), 실제 실행 결과 실패했습니다.
+`verify_409`는 아직 temperature가 modelParams에서 제거되어야 한다고 단언하며([verify_409_capability_settings.py:55](tests/verify_409_capability_settings.py:55)), 실제 실행 결과 실패했습니다.
 
 ```text
 FAIL U1c ... got {'stream': False, 'enable_thinking': True, 'temperature': 0.9}
 ```
 
-같은 검증의 엔드포인트 부분도 옛 list 응답을 전제로 순회합니다([verify_409_capability_settings.py:120](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/tests/verify_409_capability_settings.py:120)). 새 응답은 `{capabilities, params}` dict이므로 서버가 있더라도 해당 검증은 깨집니다. 회귀 검증 집합이 현재 계약과 모순됩니다.
+같은 검증의 엔드포인트 부분도 옛 list 응답을 전제로 순회합니다([verify_409_capability_settings.py:120](tests/verify_409_capability_settings.py:120)). 새 응답은 `{capabilities, params}` dict이므로 서버가 있더라도 해당 검증은 깨집니다. 회귀 검증 집합이 현재 계약과 모순됩니다.
 
 3. number 검증이 유한수 여부를 확인하지 않습니다.
 
-`resolve_number`와 `clean_model_params`는 모든 Python `int/float`를 허용하고 곧바로 clamp·정수 변환합니다([capabilities.py:113](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/agent/src/agent/capabilities.py:113), [capabilities.py:139](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/agent/src/agent/capabilities.py:139), [capabilities.py:145](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/agent/src/agent/capabilities.py:145)). `NaN`/`Infinity` 같은 비유한 값에 대한 명시적 거부가 없습니다. 특히 `max_tokens`의 `int(...)` 변환은 비유한 값에서 예외 경로가 됩니다. 저장·실행 양쪽이 공유 정리기를 쓰는 장점은 있지만, 공유된 사각지대이기도 합니다.
+`resolve_number`와 `clean_model_params`는 모든 Python `int/float`를 허용하고 곧바로 clamp·정수 변환합니다([capabilities.py:113](packages/agent/src/agent/capabilities.py:113), [capabilities.py:139](packages/agent/src/agent/capabilities.py:139), [capabilities.py:145](packages/agent/src/agent/capabilities.py:145)). `NaN`/`Infinity` 같은 비유한 값에 대한 명시적 거부가 없습니다. 특히 `max_tokens`의 `int(...)` 변환은 비유한 값에서 예외 경로가 됩니다. 저장·실행 양쪽이 공유 정리기를 쓰는 장점은 있지만, 공유된 사각지대이기도 합니다.
 
 ## 확인함
 
 - 기존 `config.temperature=0.5`, `modelParams` 없음은 로드 시 `modelParams.temperature=0.5`로 이관되어 실행됩니다.
-- bool은 number로 오인하지 않습니다. 두 함수 모두 `not isinstance(value, bool)`을 확인합니다([capabilities.py:114](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/agent/src/agent/capabilities.py:114), [capabilities.py:139](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/agent/src/agent/capabilities.py:139)).
-- `max_tokens=0`은 요청에서 생략됩니다([model.py:93](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/agent/src/agent/model.py:93)).
-- `top_p`와 `max_tokens`는 top-level, `repetition_penalty`는 `extra_body`, `enable_thinking`은 `extra_body.chat_template_kwargs`로 공존합니다([model.py:97](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/agent/src/agent/model.py:97), [model.py:99](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/agent/src/agent/model.py:99), [model.py:101](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/agent/src/agent/model.py:101)).
-- 풀 키에는 해석된 top kwargs, extra body, streaming 상태가 모두 들어갑니다([model.py:115](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/agent/src/agent/model.py:115)).
-- FE number 삭제는 실제 키 삭제이고 BE의 “키 없음=상속”과 일치합니다([CapabilitySettings.tsx:141](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/admin/src/admin/views/agents/CapabilitySettings.tsx:141)).
-- FE API 타입과 엔드포인트는 새 `{capabilities,params}` 형태로 맞춰졌습니다([api.ts:661](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/admin/src/api.ts:661), [model_registry.py:190](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/model_registry.py:190)).
+- bool은 number로 오인하지 않습니다. 두 함수 모두 `not isinstance(value, bool)`을 확인합니다([capabilities.py:114](packages/agent/src/agent/capabilities.py:114), [capabilities.py:139](packages/agent/src/agent/capabilities.py:139)).
+- `max_tokens=0`은 요청에서 생략됩니다([model.py:93](packages/agent/src/agent/model.py:93)).
+- `top_p`와 `max_tokens`는 top-level, `repetition_penalty`는 `extra_body`, `enable_thinking`은 `extra_body.chat_template_kwargs`로 공존합니다([model.py:97](packages/agent/src/agent/model.py:97), [model.py:99](packages/agent/src/agent/model.py:99), [model.py:101](packages/agent/src/agent/model.py:101)).
+- 풀 키에는 해석된 top kwargs, extra body, streaming 상태가 모두 들어갑니다([model.py:115](packages/agent/src/agent/model.py:115)).
+- FE number 삭제는 실제 키 삭제이고 BE의 “키 없음=상속”과 일치합니다([CapabilitySettings.tsx:141](admin/src/admin/views/agents/CapabilitySettings.tsx:141)).
+- FE API 타입과 엔드포인트는 새 `{capabilities,params}` 형태로 맞춰졌습니다([api.ts:661](admin/src/api.ts:661), [model_registry.py:190](packages/api/src/api/model_registry.py:190)).
 - `ctx.temperature`를 통한 turn runtime·approval·A2A run params 전달은 유지됩니다. 다만 이는 temperature만 별도 복제하는 잔존 경로라 완전한 “단일화” 증거는 아닙니다.
 - `verify_411`: 단위 18개 통과, 서버 의존 H1은 샌드박스 네트워크 제한으로 실패했습니다. `uv run`은 캐시 쓰기 권한 때문에 실행 불가하여 `.venv/bin/python`으로 실행했습니다.
 
@@ -2640,7 +2640,7 @@ tokens used
 
 1. 레거시 세션 `temperature`가 저장된 `modelParams.temperature`에 패배합니다.
 
-`_apply_overrides`는 레거시 세션값을 `cfg.temperature`에 기록하지만, 기존 `modelParams`는 유지합니다([chat_context_overrides.py:104](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_overrides.py:104), [chat_context_overrides.py:105](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_overrides.py:105)). 직후 `_fold_temperature`는 `setdefault`를 쓰므로 기존 값이 있으면 세션값을 버립니다([chat_context_loader.py:70](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_loader.py:70), [chat_context_loader.py:76](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_loader.py:76)).
+`_apply_overrides`는 레거시 세션값을 `cfg.temperature`에 기록하지만, 기존 `modelParams`는 유지합니다([chat_context_overrides.py:104](packages/api/src/api/chat_context_overrides.py:104), [chat_context_overrides.py:105](packages/api/src/api/chat_context_overrides.py:105)). 직후 `_fold_temperature`는 `setdefault`를 쓰므로 기존 값이 있으면 세션값을 버립니다([chat_context_loader.py:70](packages/api/src/api/chat_context_loader.py:70), [chat_context_loader.py:76](packages/api/src/api/chat_context_loader.py:76)).
 
 재현:
 
@@ -2650,11 +2650,11 @@ tokens used
 결과: {'modelParams': {'temperature': 0.9}}
 ```
 
-따라서 설계의 “세션 오버라이드가 최상위”와 “레거시 경로 무손실”을 동시에 위반합니다. 새 검증은 오버라이드 병합 순서를 거치지 않고 `_fold_temperature`만 독립 호출해서 이 결함을 놓칩니다([verify_411_model_params.py:98](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/tests/verify_411_model_params.py:98), [verify_411_model_params.py:101](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/tests/verify_411_model_params.py:101)).
+따라서 설계의 “세션 오버라이드가 최상위”와 “레거시 경로 무손실”을 동시에 위반합니다. 새 검증은 오버라이드 병합 순서를 거치지 않고 `_fold_temperature`만 독립 호출해서 이 결함을 놓칩니다([verify_411_model_params.py:98](tests/verify_411_model_params.py:98), [verify_411_model_params.py:101](tests/verify_411_model_params.py:101)).
 
 2. 노드형 플레이그라운드에서 세션 최상위 `modelParams` 표면이 사라졌습니다.
 
-백엔드는 명시적으로 `모델 → 에이전트 → 노드 → 세션` 순서를 구현합니다([chat_context_models.py:133](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_models.py:133), [chat_context_models.py:145](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_models.py:145)). 하지만 FE는 pipeline이면 세션 `CapabilitySettings`를 렌더하지 않고, 코드 주석도 미제공을 인정합니다([OverridePanel.tsx:471](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/admin/src/playground/OverridePanel.tsx:471), [OverridePanel.tsx:475](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/admin/src/playground/OverridePanel.tsx:475), [OverridePanel.tsx:484](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/admin/src/playground/OverridePanel.tsx:484)).
+백엔드는 명시적으로 `모델 → 에이전트 → 노드 → 세션` 순서를 구현합니다([chat_context_models.py:133](packages/api/src/api/chat_context_models.py:133), [chat_context_models.py:145](packages/api/src/api/chat_context_models.py:145)). 하지만 FE는 pipeline이면 세션 `CapabilitySettings`를 렌더하지 않고, 코드 주석도 미제공을 인정합니다([OverridePanel.tsx:471](admin/src/playground/OverridePanel.tsx:471), [OverridePanel.tsx:475](admin/src/playground/OverridePanel.tsx:475), [OverridePanel.tsx:484](admin/src/playground/OverridePanel.tsx:484)).
 
 기존에는 모든 노드에 적용되는 세션 temperature를 제공했습니다. 이제 사용자는 노드별 저장 설정만 수정할 수 있어 세션 한정 실험과 캐스케이드 4층 계약이 UI에서 회귀했습니다.
 
@@ -2662,35 +2662,35 @@ tokens used
 
 1. temperature 이중 거처가 저장·직렬화·폼에 그대로 남았습니다.
 
-`AgentConfig.temperature`와 `modelParams`가 동시에 허용됩니다([agents.py:19](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/schemas/agents.py:19), [agents.py:24](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/schemas/agents.py:24)). 심지어 주석은 여전히 temperature가 구 필드의 정본이라고 주장합니다([agents.py:22](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/schemas/agents.py:22)).
+`AgentConfig.temperature`와 `modelParams`가 동시에 허용됩니다([agents.py:19](packages/api/src/api/schemas/agents.py:19), [agents.py:24](packages/api/src/api/schemas/agents.py:24)). 심지어 주석은 여전히 temperature가 구 필드의 정본이라고 주장합니다([agents.py:22](packages/api/src/api/schemas/agents.py:22)).
 
-직렬화도 양쪽을 모두 반환하고([serializers.py:118](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/serializers.py:118)), 폼 저장도 두 필드를 함께 전송합니다([AgentsView.tsx:163](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/admin/src/admin/views/AgentsView.tsx:163), [AgentsView.tsx:166](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/admin/src/admin/views/AgentsView.tsx:166)). 반면 temperature 전용 편집기는 없어졌고 숨은 `form.temperature`는 요약에 계속 표시됩니다([AgentForm.tsx:887](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/admin/src/admin/views/agents/AgentForm.tsx:887), [AgentForm.tsx:1039](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/admin/src/admin/views/agents/AgentForm.tsx:1039)).
+직렬화도 양쪽을 모두 반환하고([serializers.py:118](packages/api/src/api/serializers.py:118)), 폼 저장도 두 필드를 함께 전송합니다([AgentsView.tsx:163](admin/src/admin/views/AgentsView.tsx:163), [AgentsView.tsx:166](admin/src/admin/views/AgentsView.tsx:166)). 반면 temperature 전용 편집기는 없어졌고 숨은 `form.temperature`는 요약에 계속 표시됩니다([AgentForm.tsx:887](admin/src/admin/views/agents/AgentForm.tsx:887), [AgentForm.tsx:1039](admin/src/admin/views/agents/AgentForm.tsx:1039)).
 
 런타임 로드에서만 `modelParams` 우선으로 접을 뿐 DB 저장 형태는 단일화되지 않았습니다. “어느 쪽이 이기나?”의 현재 답은 실행 시 `modelParams`, API 에코·폼 요약에서는 양쪽 노출입니다.
 
 2. 기존 검증 자산이 새 계약에 맞춰 갱신되지 않았습니다.
 
-`verify_409`는 아직 temperature가 modelParams에서 제거되어야 한다고 단언하며([verify_409_capability_settings.py:55](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/tests/verify_409_capability_settings.py:55)), 실제 실행 결과 실패했습니다.
+`verify_409`는 아직 temperature가 modelParams에서 제거되어야 한다고 단언하며([verify_409_capability_settings.py:55](tests/verify_409_capability_settings.py:55)), 실제 실행 결과 실패했습니다.
 
 ```text
 FAIL U1c ... got {'stream': False, 'enable_thinking': True, 'temperature': 0.9}
 ```
 
-같은 검증의 엔드포인트 부분도 옛 list 응답을 전제로 순회합니다([verify_409_capability_settings.py:120](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/tests/verify_409_capability_settings.py:120)). 새 응답은 `{capabilities, params}` dict이므로 서버가 있더라도 해당 검증은 깨집니다. 회귀 검증 집합이 현재 계약과 모순됩니다.
+같은 검증의 엔드포인트 부분도 옛 list 응답을 전제로 순회합니다([verify_409_capability_settings.py:120](tests/verify_409_capability_settings.py:120)). 새 응답은 `{capabilities, params}` dict이므로 서버가 있더라도 해당 검증은 깨집니다. 회귀 검증 집합이 현재 계약과 모순됩니다.
 
 3. number 검증이 유한수 여부를 확인하지 않습니다.
 
-`resolve_number`와 `clean_model_params`는 모든 Python `int/float`를 허용하고 곧바로 clamp·정수 변환합니다([capabilities.py:113](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/agent/src/agent/capabilities.py:113), [capabilities.py:139](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/agent/src/agent/capabilities.py:139), [capabilities.py:145](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/agent/src/agent/capabilities.py:145)). `NaN`/`Infinity` 같은 비유한 값에 대한 명시적 거부가 없습니다. 특히 `max_tokens`의 `int(...)` 변환은 비유한 값에서 예외 경로가 됩니다. 저장·실행 양쪽이 공유 정리기를 쓰는 장점은 있지만, 공유된 사각지대이기도 합니다.
+`resolve_number`와 `clean_model_params`는 모든 Python `int/float`를 허용하고 곧바로 clamp·정수 변환합니다([capabilities.py:113](packages/agent/src/agent/capabilities.py:113), [capabilities.py:139](packages/agent/src/agent/capabilities.py:139), [capabilities.py:145](packages/agent/src/agent/capabilities.py:145)). `NaN`/`Infinity` 같은 비유한 값에 대한 명시적 거부가 없습니다. 특히 `max_tokens`의 `int(...)` 변환은 비유한 값에서 예외 경로가 됩니다. 저장·실행 양쪽이 공유 정리기를 쓰는 장점은 있지만, 공유된 사각지대이기도 합니다.
 
 ## 확인함
 
 - 기존 `config.temperature=0.5`, `modelParams` 없음은 로드 시 `modelParams.temperature=0.5`로 이관되어 실행됩니다.
-- bool은 number로 오인하지 않습니다. 두 함수 모두 `not isinstance(value, bool)`을 확인합니다([capabilities.py:114](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/agent/src/agent/capabilities.py:114), [capabilities.py:139](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/agent/src/agent/capabilities.py:139)).
-- `max_tokens=0`은 요청에서 생략됩니다([model.py:93](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/agent/src/agent/model.py:93)).
-- `top_p`와 `max_tokens`는 top-level, `repetition_penalty`는 `extra_body`, `enable_thinking`은 `extra_body.chat_template_kwargs`로 공존합니다([model.py:97](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/agent/src/agent/model.py:97), [model.py:99](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/agent/src/agent/model.py:99), [model.py:101](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/agent/src/agent/model.py:101)).
-- 풀 키에는 해석된 top kwargs, extra body, streaming 상태가 모두 들어갑니다([model.py:115](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/agent/src/agent/model.py:115)).
-- FE number 삭제는 실제 키 삭제이고 BE의 “키 없음=상속”과 일치합니다([CapabilitySettings.tsx:141](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/admin/src/admin/views/agents/CapabilitySettings.tsx:141)).
-- FE API 타입과 엔드포인트는 새 `{capabilities,params}` 형태로 맞춰졌습니다([api.ts:661](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/admin/src/api.ts:661), [model_registry.py:190](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/model_registry.py:190)).
+- bool은 number로 오인하지 않습니다. 두 함수 모두 `not isinstance(value, bool)`을 확인합니다([capabilities.py:114](packages/agent/src/agent/capabilities.py:114), [capabilities.py:139](packages/agent/src/agent/capabilities.py:139)).
+- `max_tokens=0`은 요청에서 생략됩니다([model.py:93](packages/agent/src/agent/model.py:93)).
+- `top_p`와 `max_tokens`는 top-level, `repetition_penalty`는 `extra_body`, `enable_thinking`은 `extra_body.chat_template_kwargs`로 공존합니다([model.py:97](packages/agent/src/agent/model.py:97), [model.py:99](packages/agent/src/agent/model.py:99), [model.py:101](packages/agent/src/agent/model.py:101)).
+- 풀 키에는 해석된 top kwargs, extra body, streaming 상태가 모두 들어갑니다([model.py:115](packages/agent/src/agent/model.py:115)).
+- FE number 삭제는 실제 키 삭제이고 BE의 “키 없음=상속”과 일치합니다([CapabilitySettings.tsx:141](admin/src/admin/views/agents/CapabilitySettings.tsx:141)).
+- FE API 타입과 엔드포인트는 새 `{capabilities,params}` 형태로 맞춰졌습니다([api.ts:661](admin/src/api.ts:661), [model_registry.py:190](packages/api/src/api/model_registry.py:190)).
 - `ctx.temperature`를 통한 turn runtime·approval·A2A run params 전달은 유지됩니다. 다만 이는 temperature만 별도 복제하는 잔존 경로라 완전한 “단일화” 증거는 아닙니다.
 - `verify_411`: 단위 18개 통과, 서버 의존 H1은 샌드박스 네트워크 제한으로 실패했습니다. `uv run`은 캐시 쓰기 권한 때문에 실행 불가하여 `.venv/bin/python`으로 실행했습니다.
 

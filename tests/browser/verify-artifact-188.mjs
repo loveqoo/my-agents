@@ -9,7 +9,7 @@ const API = 'http://127.0.0.1:8000'
 const _fx = (await import('./_fixture.mjs')).provisionSuper()
 const EMAIL = _fx.email
 const PASSWORD = _fx.password
-const OUT = process.env.OUT ?? '/private/tmp/claude-501/-Users-anthony-Repository-github-{{GITHUB_ORG}}-my-agents/0f419f54-5016-4410-97ef-deab94d7cbcb/scratchpad'
+const OUT = process.env.OUT ?? 'tests/browser/out-tmp'
 const NAME = `slotfill-${Date.now().toString(36)}`
 
 const fails = []

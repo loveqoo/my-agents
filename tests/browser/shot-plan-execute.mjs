@@ -3,7 +3,7 @@
    선택 → 메시지 전송 → 응답의 노드 타임라인([plan, execute])을 인스펙터로 캡처.
 
    실행:
-     PLAYWRIGHT_DIR=/Users/anthony/.npm/_npx/<hash>/node_modules/playwright \
+     PLAYWRIGHT_DIR=~/.npm/_npx/<hash>/node_modules/playwright \
      node tests/browser/shot-plan-execute.mjs /tmp/plan-execute-shot.png */
 const pwDir = process.env.PLAYWRIGHT_DIR
 const _pw = await import(pwDir ? `${pwDir}/index.js` : 'playwright')

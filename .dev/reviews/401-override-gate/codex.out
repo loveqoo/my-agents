@@ -1,7 +1,7 @@
 Reading additional input from stdin...
 OpenAI Codex v0.144.6
 --------
-workdir: /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+workdir: .
 model: gpt-5.5
 provider: openai
 approval: never
@@ -32,11 +32,11 @@ hook: SessionStart Completed
 codex
 [단계 2 — Context] 스펙 401 적대 리뷰라서 먼저 저장소의 관련 자산 후크와 세 파일의 실제 구현을 확인하겠습니다. 읽기 전용으로 진행하고, 결론은 요청한 P1/P2/확인함 형식으로만 좁혀서 내겠습니다.
 exec
-/bin/zsh -lc "sed -n '1,260p' packages/api/src/api/chat_context_overrides.py" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "sed -n '1,260p' packages/api/src/api/chat_context_overrides.py" in .
 exec
-/bin/zsh -lc "sed -n '1,320p' packages/api/src/api/chat_context_loader.py" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "sed -n '1,320p' packages/api/src/api/chat_context_loader.py" in .
 exec
-/bin/zsh -lc "sed -n '1,260p' packages/api/src/api/chat_context_models.py" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "sed -n '1,260p' packages/api/src/api/chat_context_models.py" in .
  succeeded in 0ms:
 """세션 오버라이드·노드 병합 — chat_context.py에서 분할(스펙 394 P1).
 
@@ -542,10 +542,10 @@ async def resolve_agent_mem_cfg(db: AsyncSession, agent: Agent) -> dict | None:
     return _build_mem_cfg(m, await _default_embed_model(db))
 
 exec
-/bin/zsh -lc "rg -n \"401|290|override|model|chat_context\" .dev AGENTS.md CLAUDE.md packages/api -g 'INDEX.md' -g '*.md'" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "rg -n \"401|290|override|model|chat_context\" .dev AGENTS.md CLAUDE.md packages/api -g 'INDEX.md' -g '*.md'" in .
  succeeded in 0ms:
 .dev/reviews/395-batch-jobs/codex-consult.md:6:`packages/api/src/api/batch/jobs.py`는 지금 당장 `batch/jobs/` 서브패키지로 바꾸기보다, 이 저장소의 최근 선례처럼 `batch/jobs.py`를 파사드로 남기고 `batch/jobs_*.py` 평면 형제 모듈로 나누는 쪽이 맞습니다. 이미 `blocks_*.py`, `chat_context_*.py`, `chat_*`가 같은 방식이고, 현재 소비자는 `from api.batch.jobs import ...`를 많이 핀합니다.
-.dev/reviews/395-batch-jobs/codex-consult.md:13:3. `consolidate_user_memories`는 후보 조회, threshold/mem_cfg 해석, dry-run preview, per-user saga, 집계 summary를 한 함수가 조율합니다: [jobs.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/batch/jobs.py:358). 이미 `_consolidate_one_user`가 있지만, snapshot commit → mem0 add → 원본 delete의 외부 저장소 saga 경계가 내부에 숨습니다: [jobs.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/batch/jobs.py:290). `MemoryConsolidationPlanner`, `MemoryConsolidationExecutor`, `MemorySnapshotRepository`, `MemoryBackendAdapter`로 나누는 게 맞습니다.
+.dev/reviews/395-batch-jobs/codex-consult.md:13:3. `consolidate_user_memories`는 후보 조회, threshold/mem_cfg 해석, dry-run preview, per-user saga, 집계 summary를 한 함수가 조율합니다: [jobs.py](packages/api/src/api/batch/jobs.py:358). 이미 `_consolidate_one_user`가 있지만, snapshot commit → mem0 add → 원본 delete의 외부 저장소 saga 경계가 내부에 숨습니다: [jobs.py](packages/api/src/api/batch/jobs.py:290). `MemoryConsolidationPlanner`, `MemoryConsolidationExecutor`, `MemorySnapshotRepository`, `MemoryBackendAdapter`로 나누는 게 맞습니다.
 .dev/reviews/399-eval-runs/codex-consult.md:23:- `eval_admission.py`: `_resolve_run_target`, `_admission_check`, `_assert_run_admission`, `_validate_compare_models`, `_resolve_pinned_version`. HTTP 예외를 유지하되 “판정”과 “반응”은 분리.
 .dev/retrospect/153-rag-embedding-prominent-default.md:7:임베딩 라벨에 빨강 "(생성 후 변경 불가)". `useEffect`에서 `models.find(m=>m.is_default)` 프리셀렉트
 .dev/retrospect/019-playground-honest-model-badge.md:3:스펙: [028](../../docs/spec/028-playground-honest-model-badge.md)
@@ -558,13 +558,13 @@ exec
 .dev/retrospect/193-inspector-honesty.md:6:배지 메시지 인덱스→질문 순번. 실모델 검증 7/7: system 401자(계획·도구 안내 포함)·도구 왕복 6메시지·
 .dev/reviews/394-chat-context/codex-consult.md:1:# codex 자문 원문 — chat_context.py 리팩터 (2026-07-18, 스펙 394 입력)
 .dev/reviews/394-chat-context/codex-consult.md:6:`chat_context.py`는 “나쁜 god file”이라기보다 실행 컨텍스트의 여러 안정화 패치가 한 파일에 누적된 상태입니다. 그래서 1차 리팩터는 새 개념을 크게 만들기보다, `chat_context.py` 경로를 보존한 얇은 파사드/타입 허브로 두고 리졸버 가족을 평면 형제 모듈로 이동하는 게 맞습니다.
-.dev/reviews/394-chat-context/codex-consult.md:8:`ChatContextBuilder`는 지금 시점에는 과합니다. 374 당시 제안은 dict ctx를 typed DTO로 바꾸기 전의 문제의식인데, 현재는 [ChatContext](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context.py:40)가 이미 단일 DTO이고 [_load_context](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context.py:768)가 한 번에 생성합니다. 필요한 것은 fluent/mutable builder가 아니라, 순서가 보이는 얇은 오케스트레이터와 작은 결과 DTO입니다.
-.dev/reviews/394-chat-context/codex-consult.md:11:1. [_load_context](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context.py:700)가 컨텍스트 계층 전체의 순서 계약을 암묵 지역변수로 들고 있습니다. 버전 해석, 노드 ref 해석, override, pool 재파생, exec pins, 모델/MCP/RAG/session 해석이 한 함수에 직렬 결합되어 있어 순서를 바꾸는 리팩터가 곧 동작 변경입니다.
-.dev/reviews/394-chat-context/codex-consult.md:13:2. [_resolve_mcp_servers](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context.py:497)가 C급 중 가장 위험합니다. DB row 조회, pin overlay, auth 복호화, effective version, runtime dict projection, tool filter 정책을 한 함수가 처리합니다. `McpServerProjection.from_row(row, pinned, pins)`와 `resolve_tool_filter(cfg)`로 분리해야 합니다.
-.dev/reviews/394-chat-context/codex-consult.md:15:3. [derive_pipeline_pool](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context.py:250)는 순수 파생처럼 보이지만 DB 세션을 열고, node ref 해석과 MCP/Collection catalog scan 후 `cfg`를 mutate합니다. `PipelinePoolDeriver.derive(nodes, catalog)` 순수 함수와 `derive_pipeline_pool(cfg)` 호환 wrapper로 갈라야 합니다.
-.dev/reviews/394-chat-context/codex-consult.md:17:4. [_resolve_model](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context.py:413), [_chat_model_cfg](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context.py:124), [resolve_agent_mem_cfg](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context.py:283)가 같은 model/pin/provider 해석 규칙을 조금씩 다르게 들고 있습니다. `ModelConfigResolver`가 맞지만, “오버라이드 모델 미존재는 400, 저장 모델 미존재는 default fallback” 차이는 반드시 API로 표현해야 합니다.
-.dev/reviews/394-chat-context/codex-consult.md:19:5. [_merge_node_overrides](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context.py:196)는 순수 함수라 좋은 편이지만, public test가 [api.chat_context 직접 임포트](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/tests/verify_317_code_node.py:91)를 핀합니다. 내부 이동은 가능하되 `_NODE_OVERRIDE_FIELDS`, `_node_patch_fields`, `_merge_node_overrides`는 `chat_context.py`에서 계속 재수출해야 합니다.
-.dev/reviews/394-chat-context/codex-consult.md:22:- `chat_context.py`: `ChatContext`, `_is_remote`, `_load_context` public facade, 기존 테스트/소비자용 재수출 유지. [chat.py 재수출](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat.py:73)도 그대로.
+.dev/reviews/394-chat-context/codex-consult.md:8:`ChatContextBuilder`는 지금 시점에는 과합니다. 374 당시 제안은 dict ctx를 typed DTO로 바꾸기 전의 문제의식인데, 현재는 [ChatContext](packages/api/src/api/chat_context.py:40)가 이미 단일 DTO이고 [_load_context](packages/api/src/api/chat_context.py:768)가 한 번에 생성합니다. 필요한 것은 fluent/mutable builder가 아니라, 순서가 보이는 얇은 오케스트레이터와 작은 결과 DTO입니다.
+.dev/reviews/394-chat-context/codex-consult.md:11:1. [_load_context](packages/api/src/api/chat_context.py:700)가 컨텍스트 계층 전체의 순서 계약을 암묵 지역변수로 들고 있습니다. 버전 해석, 노드 ref 해석, override, pool 재파생, exec pins, 모델/MCP/RAG/session 해석이 한 함수에 직렬 결합되어 있어 순서를 바꾸는 리팩터가 곧 동작 변경입니다.
+.dev/reviews/394-chat-context/codex-consult.md:13:2. [_resolve_mcp_servers](packages/api/src/api/chat_context.py:497)가 C급 중 가장 위험합니다. DB row 조회, pin overlay, auth 복호화, effective version, runtime dict projection, tool filter 정책을 한 함수가 처리합니다. `McpServerProjection.from_row(row, pinned, pins)`와 `resolve_tool_filter(cfg)`로 분리해야 합니다.
+.dev/reviews/394-chat-context/codex-consult.md:15:3. [derive_pipeline_pool](packages/api/src/api/chat_context.py:250)는 순수 파생처럼 보이지만 DB 세션을 열고, node ref 해석과 MCP/Collection catalog scan 후 `cfg`를 mutate합니다. `PipelinePoolDeriver.derive(nodes, catalog)` 순수 함수와 `derive_pipeline_pool(cfg)` 호환 wrapper로 갈라야 합니다.
+.dev/reviews/394-chat-context/codex-consult.md:17:4. [_resolve_model](packages/api/src/api/chat_context.py:413), [_chat_model_cfg](packages/api/src/api/chat_context.py:124), [resolve_agent_mem_cfg](packages/api/src/api/chat_context.py:283)가 같은 model/pin/provider 해석 규칙을 조금씩 다르게 들고 있습니다. `ModelConfigResolver`가 맞지만, “오버라이드 모델 미존재는 400, 저장 모델 미존재는 default fallback” 차이는 반드시 API로 표현해야 합니다.
+.dev/reviews/394-chat-context/codex-consult.md:19:5. [_merge_node_overrides](packages/api/src/api/chat_context.py:196)는 순수 함수라 좋은 편이지만, public test가 [api.chat_context 직접 임포트](tests/verify_317_code_node.py:91)를 핀합니다. 내부 이동은 가능하되 `_NODE_OVERRIDE_FIELDS`, `_node_patch_fields`, `_merge_node_overrides`는 `chat_context.py`에서 계속 재수출해야 합니다.
+.dev/reviews/394-chat-context/codex-consult.md:22:- `chat_context.py`: `ChatContext`, `_is_remote`, `_load_context` public facade, 기존 테스트/소비자용 재수출 유지. [chat.py 재수출](packages/api/src/api/chat.py:73)도 그대로.
 .dev/reviews/394-chat-context/codex-consult.md:23:- `chat_context_loader.py`: 실제 `_load_context_impl`와 `assemble_chat_context(...)`. 순서가 드러나는 함수형 오케스트레이터.
 .dev/reviews/394-chat-context/codex-consult.md:24:- `chat_context_versions.py`: `_resolve_version_and_prompt`, `_resolve_exec_pins`, `_resolve_prompt_provenance`.
 .dev/reviews/394-chat-context/codex-consult.md:25:- `chat_context_models.py`: `_pinned_model_cfg`, `_chat_model_cfg`, `_resolve_model`, `_resolve_mem_cfg`, `resolve_agent_mem_cfg`, `_resolve_node_models`.
@@ -573,13 +573,13 @@ exec
 .dev/reviews/394-chat-context/codex-consult.md:28:- `chat_context_rag.py`: RAG collection projection/resolve.
 .dev/reviews/394-chat-context/codex-consult.md:29:- `chat_context_pipeline_pool.py`: pure pool derivation + DB wrapper `derive_pipeline_pool`.
 .dev/reviews/394-chat-context/codex-consult.md:30:- `chat_context_sessions.py`: `_resolve_session`.
-.dev/reviews/394-chat-context/codex-consult.md:32:`ChatContext`는 당분간 `chat_context.py`에 남기는 편이 낫습니다. 소비자가 [chat_graph_build](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_graph_build.py:17), [chat_approval](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_approval.py:27), history/persist/trace/A2A 계열에서 직접 가져갑니다. 타입만 다른 파일로 옮겨 재수출하면 가능은 하지만 첫 단계 이득이 작고 표면 회귀만 늘어납니다.
-.dev/reviews/394-chat-context/codex-consult.md:35:- 노드 ref는 override 전에 해석됩니다: [_load_context](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context.py:727). 이 순서가 바뀌면 세션 patch가 ref 원본에 먹거나, 미해결 ref 실패 시점이 바뀝니다.
-.dev/reviews/394-chat-context/codex-consult.md:36:- pool 재파생은 override 뒤, model/MCP/RAG 해석 전입니다: [751-766](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context.py:751). API 생성/구저장/오버라이드 복구 계약입니다.
-.dev/reviews/394-chat-context/codex-consult.md:37:- `exec_version = pinned_version or agent.active_version` 뒤에 pins를 읽습니다: [753-759](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context.py:753). 승인 재개와 trace의 버전 승계에 영향.
-.dev/reviews/394-chat-context/codex-consult.md:38:- session ownership `own`은 타인/NULL/추측 session을 새 session으로 접습니다: [_resolve_session](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context.py:610), [chat.py 호출부](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat.py:1001).
-.dev/reviews/394-chat-context/codex-consult.md:40:- 그래프 캐시 지문은 `model_cfg`, `mcp_servers`의 `name/version/auth`, `tool_names`, `tool_policy`, `rag_collections`, `rag_min_scores`, `ephemeral`을 소비합니다: [_graph_fingerprint](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_graph_build.py:110). projection dict의 필드명/값 의미 변경 금지입니다.
-.dev/reviews/394-chat-context/codex-consult.md:41:- runtime 조립은 `ctx.mcp_servers`, `ctx.tool_names`, `ctx.rag_min_scores`, `ctx.model_cfg`를 직접 씁니다: [_build_turn_runtime](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat.py:264). “동일 데이터, 다른 타입”도 downstream 변환 비용이 생기면 위험합니다.
+.dev/reviews/394-chat-context/codex-consult.md:32:`ChatContext`는 당분간 `chat_context.py`에 남기는 편이 낫습니다. 소비자가 [chat_graph_build](packages/api/src/api/chat_graph_build.py:17), [chat_approval](packages/api/src/api/chat_approval.py:27), history/persist/trace/A2A 계열에서 직접 가져갑니다. 타입만 다른 파일로 옮겨 재수출하면 가능은 하지만 첫 단계 이득이 작고 표면 회귀만 늘어납니다.
+.dev/reviews/394-chat-context/codex-consult.md:35:- 노드 ref는 override 전에 해석됩니다: [_load_context](packages/api/src/api/chat_context.py:727). 이 순서가 바뀌면 세션 patch가 ref 원본에 먹거나, 미해결 ref 실패 시점이 바뀝니다.
+.dev/reviews/394-chat-context/codex-consult.md:36:- pool 재파생은 override 뒤, model/MCP/RAG 해석 전입니다: [751-766](packages/api/src/api/chat_context.py:751). API 생성/구저장/오버라이드 복구 계약입니다.
+.dev/reviews/394-chat-context/codex-consult.md:37:- `exec_version = pinned_version or agent.active_version` 뒤에 pins를 읽습니다: [753-759](packages/api/src/api/chat_context.py:753). 승인 재개와 trace의 버전 승계에 영향.
+.dev/reviews/394-chat-context/codex-consult.md:38:- session ownership `own`은 타인/NULL/추측 session을 새 session으로 접습니다: [_resolve_session](packages/api/src/api/chat_context.py:610), [chat.py 호출부](packages/api/src/api/chat.py:1001).
+.dev/reviews/394-chat-context/codex-consult.md:40:- 그래프 캐시 지문은 `model_cfg`, `mcp_servers`의 `name/version/auth`, `tool_names`, `tool_policy`, `rag_collections`, `rag_min_scores`, `ephemeral`을 소비합니다: [_graph_fingerprint](packages/api/src/api/chat_graph_build.py:110). projection dict의 필드명/값 의미 변경 금지입니다.
+.dev/reviews/394-chat-context/codex-consult.md:41:- runtime 조립은 `ctx.mcp_servers`, `ctx.tool_names`, `ctx.rag_min_scores`, `ctx.model_cfg`를 직접 씁니다: [_build_turn_runtime](packages/api/src/api/chat.py:264). “동일 데이터, 다른 타입”도 downstream 변환 비용이 생기면 위험합니다.
 .dev/reviews/394-chat-context/codex-consult.md:44:1. 순수 함수/상수 이동: node override 가족을 `chat_context_overrides.py`로 옮기고 `chat_context.py` 재수출 유지. `verify_317_code_node.py`가 즉시 표면을 잡습니다.
 .dev/reviews/394-chat-context/codex-consult.md:46:3. model resolver 이동. 이때 override-missing 400 vs stored default fallback 테스트를 먼저 핀해야 합니다.
 .dev/reviews/394-chat-context/codex-consult.md:49:6. 마지막에 `_load_context`를 `chat_context_loader.py`로 옮기고 `chat_context.py`는 facade가 되게 합니다. 전후 `rg "from .*chat_context import"`와 직접 verify 전판이 필요합니다.
@@ -596,7 +596,7 @@ exec
 .dev/retrospect/150-remove-collection-visibility.md:25:- **접근 개방은 정적+라이브 둘 다로 검증**: deep-reasoner(관리 게이트 4개 온전·익명 401·잔여 0) +
 .dev/retrospect/150-remove-collection-visibility.md:26:  verify_172(비소유자 사용 200·관리 404·익명 401·publish 제거). 개방 변경일수록 "무엇이 안 열렸나"를 실측.
 .dev/reviews/393-blocks/codex-consult.md:29:트레이드오프: `blocks.py` 파사드는 당분간 F401 재수출이 지저분하지만, `from api import blocks as BL` 테스트들과 `from api.blocks import _tools_meta_from_details`를 즉시 살릴 수 있습니다. 패키지화는 장기적으로 이름 공간이 예쁘지만, 지금은 `api.blocks` 모듈 파일과 패키지명이 충돌해 import 리스크가 큽니다.
-.dev/reviews/393-blocks/codex-consult.md:38:- 블록 버저닝은 `record_block_version` + commit 충돌 409 흐름을 유지해야 합니다. unique race는 [BlockVersion 제약](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/models/blocks.py:42)과 [record_block_version](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/block_versions.py:93)에 걸려 있습니다.
+.dev/reviews/393-blocks/codex-consult.md:38:- 블록 버저닝은 `record_block_version` + commit 충돌 409 흐름을 유지해야 합니다. unique race는 [BlockVersion 제약](packages/api/src/api/models/blocks.py:42)과 [record_block_version](packages/api/src/api/block_versions.py:93)에 걸려 있습니다.
 .dev/retrospect/018-admin-same-origin-api-proxy.md:30:- 검증을 **서버측 `/api` 프록시 curl(200/401)**로 끝냈다 — 무인증 401이 "vite SPA가 아니라 진짜
 .dev/troubleshooting/005-tailscale-expose-dev-servers.md:45:- 소형 401(42B)·인증 200(9KB)·**Vite 모듈 178KB** 모두 serve 경유 정상.
 .dev/retrospect/069-custom-agent-runtime-interface-in-process-sdk.md:25:핵심 패턴 하나로 묶인다: **새 필드(`impl`, `overrides`)를 인터페이스에 더했는데 일부 입구만 그걸
@@ -609,11 +609,11 @@ exec
 .dev/retrospect/049-local-agent-a2a-exposure.md:37:   401로 깨진다. 그래서 `a2a_server.router`는 **무인증 마운트**(mock_remote와 동일 패턴), 카드는
 .dev/retrospect/049-local-agent-a2a-exposure.md:61:  노출 ON→공개 카드 200(절대 url `/a2a`로 끝·x-my-agents 없음)→무인증 POST→401→connect 실 왕복
 .dev/retrospect/017-external-agent-a2a-card-registration.md:21:  확장 + 외부 채팅 분기 하나로 끝. 외부도 code처럼 `model_cfg=None`/`mem_cfg=None`을 타서
-.dev/reviews/393-blocks/subagent-analysis.md:19:5. `/blocks` 집계는 별도 read-model인데 CRUD 파일 안에 손조립 dict로 있습니다 [blocks.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/blocks.py:862). 특히 MCP는 `enabledTools`, `toolsMeta`, `served_url`, `can_manage`처럼 REST DTO와 다른 표면을 만듭니다 [blocks.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/blocks.py:928). 리팩터 중 필드명 실수 가능성이 큽니다.
+.dev/reviews/393-blocks/subagent-analysis.md:19:5. `/blocks` 집계는 별도 read-model인데 CRUD 파일 안에 손조립 dict로 있습니다 [blocks.py](packages/api/src/api/blocks.py:862). 특히 MCP는 `enabledTools`, `toolsMeta`, `served_url`, `can_manage`처럼 REST DTO와 다른 표면을 만듭니다 [blocks.py](packages/api/src/api/blocks.py:928). 리팩터 중 필드명 실수 가능성이 큽니다.
 .dev/retrospect/061-session-storage-composite-index-explain-seal.md:8:  (models.py `__table_args__` + alembic `f2a3b4c5d6e7`). `session_id` 단독 unique는 전역 uniqueness용
 .dev/learning/071-index-itself-bloats-recompress-periodically.md:18:  크기만 회수). 103KB→53KB(48%↓), 평균 585→290자/줄.
-.dev/reviews/397-runtime/codex-consult.md:10:2. [resolve_tool_approval](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/runtime.py:57)는 정책 정본인데 `tools_meta` 기본값, 레거시 `_APPROVAL_ACTIONS`, `tool_policy` override, approver normalize가 한 블록입니다. `_base_approval_from_meta_or_legacy`, `_apply_approval_override`, `_normalize_approval`로 쪼개면 우선순위가 드러납니다. 단 공개 표면은 `runtime.resolve_tool_approval` 그대로.
-.dev/reviews/397-runtime/codex-consult.md:26:- 승인 우선순위: [tools_meta 기본 > legacy fallback > tool_policy override](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/runtime.py:75)를 절대 바꾸면 안 됩니다. 브로커도 [같은 리졸버](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/broker/providers/mcp.py:254)를 씁니다.
+.dev/reviews/397-runtime/codex-consult.md:10:2. [resolve_tool_approval](packages/api/src/api/runtime.py:57)는 정책 정본인데 `tools_meta` 기본값, 레거시 `_APPROVAL_ACTIONS`, `tool_policy` override, approver normalize가 한 블록입니다. `_base_approval_from_meta_or_legacy`, `_apply_approval_override`, `_normalize_approval`로 쪼개면 우선순위가 드러납니다. 단 공개 표면은 `runtime.resolve_tool_approval` 그대로.
+.dev/reviews/397-runtime/codex-consult.md:26:- 승인 우선순위: [tools_meta 기본 > legacy fallback > tool_policy override](packages/api/src/api/runtime.py:75)를 절대 바꾸면 안 됩니다. 브로커도 [같은 리졸버](packages/api/src/api/broker/providers/mcp.py:254)를 씁니다.
 .dev/retrospect/026-rag-ingest.md:8:  교체. embedding_model FK는 RESTRICT(차원 정합 보장), doc/chunk는 CASCADE. HNSW cosine 인덱스(037용).
 .dev/retrospect/094-runtime-tool-wiring-authz.md:20:- **codex가 두 번째 confused deputy를 잡음**: 작성자 권한 게이트를 override 주입이 우회(P0) — 호출자가
 .dev/retrospect/094-runtime-tool-wiring-authz.md:21:  `overrides.mcps`로 남의 MCP를 작성자 권한에 태움. "저장본=작성자·주입분=호출자"로 분리 봉합(113 ②).
@@ -931,9 +931,9 @@ exec
 codex
 [단계 4 — Execution] 참고 자산: 092 broken config refuse loud → 선언된 깨진 모델은 조용히 폴백하지 않음, 088 새 인터페이스 필드는 모든 입구 배선 확인, 113 override 주입은 저장본과 분리해 봄. 이제 실제 라인 기준으로 `_resolve_model` 소비 경로와 오버라이드 병합 순서를 닫힌 집합으로 세겠습니다.
 exec
-/bin/zsh -lc "nl -ba packages/api/src/api/chat_context_models.py | sed -n '1,220p'" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "nl -ba packages/api/src/api/chat_context_models.py | sed -n '1,220p'" in .
 exec
-/bin/zsh -lc "nl -ba packages/api/src/api/chat_context_loader.py | sed -n '1,240p'" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "nl -ba packages/api/src/api/chat_context_loader.py | sed -n '1,240p'" in .
  succeeded in 0ms:
      1	"""_load_context 오케스트레이터 — chat_context.py에서 분할(스펙 394 P6).
      2	
@@ -1308,7 +1308,7 @@ exec
    201	    return _build_mem_cfg(m, await _default_embed_model(db))
 
 exec
-/bin/zsh -lc "nl -ba packages/api/src/api/chat_context_overrides.py | sed -n '1,180p'" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "nl -ba packages/api/src/api/chat_context_overrides.py | sed -n '1,180p'" in .
  succeeded in 0ms:
      1	"""세션 오버라이드·노드 병합 — chat_context.py에서 분할(스펙 394 P1).
      2	
@@ -1441,7 +1441,7 @@ exec
    129	    ]
 
 exec
-/bin/zsh -lc "rg -n \"_resolve_model\\(|_prepare_cfg\\(|_apply_overrides\\(|_load_context\\(\" packages/api/src tests -g '*.py'" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "rg -n \"_resolve_model\\(|_prepare_cfg\\(|_apply_overrides\\(|_load_context\\(\" packages/api/src tests -g '*.py'" in .
  succeeded in 0ms:
 packages/api/src/api/chat_context_overrides.py:82:def _apply_overrides(
 tests/verify_122_orchestrator_override_capabilities.py:74:    ctx = await chat._load_context(
@@ -1474,7 +1474,7 @@ packages/api/src/api/eval_suggest.py:174:    ctx = await _load_context(agent_pk,
 codex
 [단계 5 — Verification] `_resolve_model` 직접 호출은 `_load_context` 내부 한 곳뿐이고, `_apply_overrides`도 `_prepare_cfg` 한 곳뿐입니다. 남은 우회 여부는 `_load_context` 호출자들이 overrides를 어떤 형태로 넘기는지 확인해 판정하겠습니다.
 exec
-/bin/zsh -lc "nl -ba packages/api/src/api/chat.py | sed -n '220,280p'" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "nl -ba packages/api/src/api/chat.py | sed -n '220,280p'" in .
  succeeded in 0ms:
    220	    보존) ② **body가 정확히 user 메시지 1개**. codex 289 #1~#3으로 조인 규칙: "assistant 부재"만
    221	    보면 빈 배열·user-only 누적 클라·assistant 위조가 샌다 — "새 턴 1개"가 계약 그 자체.
@@ -1539,7 +1539,7 @@ exec
    280	    graph = turn.graph
 
 exec
-/bin/zsh -lc "nl -ba packages/api/src/api/chat_approval.py | sed -n '180,205p'" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "nl -ba packages/api/src/api/chat_approval.py | sed -n '180,205p'" in .
  succeeded in 0ms:
    180	    (approval은 이미 결재됨·세션 무파손·approved-but-not-executed=안전방향). 다중 HIL impl 출하 중
    181	    (DefaultUiAgent·orchestrate·orchestrate_ranked)이라 이 스왑은 실제 도달 가능(deep-reasoner 적대
@@ -1569,7 +1569,7 @@ exec
    205	        log.warning(
 
 exec
-/bin/zsh -lc "nl -ba packages/api/src/api/eval_runner.py | sed -n '150,190p'" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "nl -ba packages/api/src/api/eval_runner.py | sed -n '150,190p'" in .
  succeeded in 0ms:
    150	        error = True
    151	        detail = str(exc)[:500]
@@ -1614,7 +1614,7 @@ exec
    190	            "detail": "로컬(ui) 에이전트가 아니거나 채팅 모델이 없습니다(평가는 로컬 에이전트만)",
 
 exec
-/bin/zsh -lc "nl -ba packages/api/src/api/chat_a2a_serve.py | sed -n '295,320p'" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "nl -ba packages/api/src/api/chat_a2a_serve.py | sed -n '295,320p'" in .
  succeeded in 0ms:
    295	) -> LocalServeTurn:
    296	    """로컬(ui) 에이전트의 A2A 서빙 턴을 조립 — 반환 LocalServeTurn(Command).
@@ -1644,7 +1644,7 @@ exec
    320	    ckpt = None if ctx.ephemeral else checkpointer.get_checkpointer()
 
 exec
-/bin/zsh -lc "nl -ba tests/verify_122_orchestrator_override_capabilities.py | sed -n '110,135p'" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "nl -ba tests/verify_122_orchestrator_override_capabilities.py | sed -n '110,135p'" in .
  succeeded in 0ms:
    110	            active_version="v1",
    111	        )
@@ -1680,12 +1680,12 @@ codex
 없음.
 
 **P2**
-- 빈 문자열 `{"model": ""}`은 이번 변경으로 기존 400에서 기본 모델 폴백으로 바뀝니다. [chat_context_overrides.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_overrides.py:99)가 `cfg["model"]`을 `""`로 덮고, [chat_context_models.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_models.py:135)의 `model_name`이 falsey라 레지스트리 조회를 건너뛴 뒤, [145](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_models.py:145)의 `overrides.get("model")`도 falsey라 거절하지 않습니다. “실명” 기준이면 P1은 아니지만, `model` 키 존재 자체를 명시 오버라이드로 본다면 계약 완화입니다. 보수적으로는 `model in overrides and isinstance(v, str) and v.strip()` 같은 판정으로 의도를 명확히 하는 편이 낫습니다.
+- 빈 문자열 `{"model": ""}`은 이번 변경으로 기존 400에서 기본 모델 폴백으로 바뀝니다. [chat_context_overrides.py](packages/api/src/api/chat_context_overrides.py:99)가 `cfg["model"]`을 `""`로 덮고, [chat_context_models.py](packages/api/src/api/chat_context_models.py:135)의 `model_name`이 falsey라 레지스트리 조회를 건너뛴 뒤, [145](packages/api/src/api/chat_context_models.py:145)의 `overrides.get("model")`도 falsey라 거절하지 않습니다. “실명” 기준이면 P1은 아니지만, `model` 키 존재 자체를 명시 오버라이드로 본다면 계약 완화입니다. 보수적으로는 `model in overrides and isinstance(v, str) and v.strip()` 같은 판정으로 의도를 명확히 하는 편이 낫습니다.
 - `0`, `False` 같은 falsey 비문자 값도 같은 이유로 기본 폴백됩니다. 정상 클라이언트 표면이면 낮은 위험이지만, 서버 경계만 보면 빈 문자열과 같은 계열입니다.
 
 **확인함**
-- 일반 명시 미등록 이름: 유지됩니다. `cfg.update` 이후 `cfg["model"] == overrides["model"]`가 되고, 비어 있지 않은 값이면 [145](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_models.py:145)에서 400입니다.
-- `model` 키 없음 / `{"model": None}`: 의도대로 기본 모델 폴백입니다. 기존 회귀 테스트도 이 케이스를 이미 핀하고 있습니다: [verify_122_orchestrator_override_capabilities.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/tests/verify_122_orchestrator_override_capabilities.py:118).
+- 일반 명시 미등록 이름: 유지됩니다. `cfg.update` 이후 `cfg["model"] == overrides["model"]`가 되고, 비어 있지 않은 값이면 [145](packages/api/src/api/chat_context_models.py:145)에서 400입니다.
+- `model` 키 없음 / `{"model": None}`: 의도대로 기본 모델 폴백입니다. 기존 회귀 테스트도 이 케이스를 이미 핀하고 있습니다: [verify_122_orchestrator_override_capabilities.py](tests/verify_122_orchestrator_override_capabilities.py:118).
 - 저장 config에 모델이 있고 오버라이드가 다른 미등록 이름인 경우: `_apply_overrides`가 저장 모델을 덮어도, 덮인 값이 비어 있지 않으면 400입니다.
 - pins 경로: `_pinned_model_cfg`가 먼저 성공하면 400이 아니라 pinned payload로 실행됩니다. 이는 “조용한 기본 폴백”은 아니고 기존 pin 우선 계약입니다. pin이 없거나 불완전하면 다시 400 경로로 내려갑니다.
 - 호출부 우회: `rg` 기준 `_resolve_model` 호출은 `_load_context` 내부 한 곳뿐입니다. overrides를 넘기는 입구는 `chat()`와 `eval_run_agent()`이고, approval/A2A/eval_suggest는 overrides 없이 호출합니다. `_apply_overrides`도 `_prepare_cfg` 한 곳에서만 호출됩니다.
@@ -1699,12 +1699,12 @@ tokens used
 없음.
 
 **P2**
-- 빈 문자열 `{"model": ""}`은 이번 변경으로 기존 400에서 기본 모델 폴백으로 바뀝니다. [chat_context_overrides.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_overrides.py:99)가 `cfg["model"]`을 `""`로 덮고, [chat_context_models.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_models.py:135)의 `model_name`이 falsey라 레지스트리 조회를 건너뛴 뒤, [145](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_models.py:145)의 `overrides.get("model")`도 falsey라 거절하지 않습니다. “실명” 기준이면 P1은 아니지만, `model` 키 존재 자체를 명시 오버라이드로 본다면 계약 완화입니다. 보수적으로는 `model in overrides and isinstance(v, str) and v.strip()` 같은 판정으로 의도를 명확히 하는 편이 낫습니다.
+- 빈 문자열 `{"model": ""}`은 이번 변경으로 기존 400에서 기본 모델 폴백으로 바뀝니다. [chat_context_overrides.py](packages/api/src/api/chat_context_overrides.py:99)가 `cfg["model"]`을 `""`로 덮고, [chat_context_models.py](packages/api/src/api/chat_context_models.py:135)의 `model_name`이 falsey라 레지스트리 조회를 건너뛴 뒤, [145](packages/api/src/api/chat_context_models.py:145)의 `overrides.get("model")`도 falsey라 거절하지 않습니다. “실명” 기준이면 P1은 아니지만, `model` 키 존재 자체를 명시 오버라이드로 본다면 계약 완화입니다. 보수적으로는 `model in overrides and isinstance(v, str) and v.strip()` 같은 판정으로 의도를 명확히 하는 편이 낫습니다.
 - `0`, `False` 같은 falsey 비문자 값도 같은 이유로 기본 폴백됩니다. 정상 클라이언트 표면이면 낮은 위험이지만, 서버 경계만 보면 빈 문자열과 같은 계열입니다.
 
 **확인함**
-- 일반 명시 미등록 이름: 유지됩니다. `cfg.update` 이후 `cfg["model"] == overrides["model"]`가 되고, 비어 있지 않은 값이면 [145](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_models.py:145)에서 400입니다.
-- `model` 키 없음 / `{"model": None}`: 의도대로 기본 모델 폴백입니다. 기존 회귀 테스트도 이 케이스를 이미 핀하고 있습니다: [verify_122_orchestrator_override_capabilities.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/tests/verify_122_orchestrator_override_capabilities.py:118).
+- 일반 명시 미등록 이름: 유지됩니다. `cfg.update` 이후 `cfg["model"] == overrides["model"]`가 되고, 비어 있지 않은 값이면 [145](packages/api/src/api/chat_context_models.py:145)에서 400입니다.
+- `model` 키 없음 / `{"model": None}`: 의도대로 기본 모델 폴백입니다. 기존 회귀 테스트도 이 케이스를 이미 핀하고 있습니다: [verify_122_orchestrator_override_capabilities.py](tests/verify_122_orchestrator_override_capabilities.py:118).
 - 저장 config에 모델이 있고 오버라이드가 다른 미등록 이름인 경우: `_apply_overrides`가 저장 모델을 덮어도, 덮인 값이 비어 있지 않으면 400입니다.
 - pins 경로: `_pinned_model_cfg`가 먼저 성공하면 400이 아니라 pinned payload로 실행됩니다. 이는 “조용한 기본 폴백”은 아니고 기존 pin 우선 계약입니다. pin이 없거나 불완전하면 다시 400 경로로 내려갑니다.
 - 호출부 우회: `rg` 기준 `_resolve_model` 호출은 `_load_context` 내부 한 곳뿐입니다. overrides를 넘기는 입구는 `chat()`와 `eval_run_agent()`이고, approval/A2A/eval_suggest는 overrides 없이 호출합니다. `_apply_overrides`도 `_prepare_cfg` 한 곳에서만 호출됩니다.

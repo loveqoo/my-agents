@@ -2,7 +2,7 @@ Reading additional input from stdin...
 2026-07-20T10:57:49.696280Z ERROR codex_models_manager::cache: failed to load models cache: missing field `supports_reasoning_summaries` at line 88 column 5
 OpenAI Codex v0.144.6
 --------
-workdir: /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+workdir: .
 model: gpt-5.6-sol
 provider: openai
 approval: never
@@ -53,7 +53,7 @@ codex
 [단계 2 — Context]
 참고 자산: 스펙 420의 단일 ORM 관문 주장과 직접 소비자·저장 경로를 코드로 닫아 확인하고, raw SQL/bulk 우회는 실제 라우트 사용 여부와 런타임 방어까지 분리 판정합니다. `review`와 `karpathy-guidelines`를 적용해 읽기 전용 최종 검토를 진행합니다.
 exec
-/bin/zsh -lc "sed -n '1,240p' /Users/anthony/.agents/skills/gstack/review/SKILL.md && sed -n '1,240p' /Users/anthony/.codex/plugins/cache/karpathy-skills/1.0.0/skills/karpathy-guidelines/SKILL.md && rg -n \"420|model_param_layers|strip_disallowed_agent_config\" /Users/anthony/.codex/memories/MEMORY.md" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "sed -n '1,240p' ~/.agents/skills/gstack/review/SKILL.md && sed -n '1,240p' ~/.codex/plugins/cache/karpathy-skills/1.0.0/skills/karpathy-guidelines/SKILL.md && rg -n \"420|model_param_layers|strip_disallowed_agent_config\" ~/.codex/memories/MEMORY.md" in .
  exited 1 in 0ms:
 ---
 name: review
@@ -295,15 +295,15 @@ Always run:
 touch ~/.gstack/.proactive-prompted
 ```
 
-sed: /Users/anthony/.codex/plugins/cache/karpathy-skills/1.0.0/skills/karpathy-guidelines/SKILL.md: No such file or directory
+sed: ~/.codex/plugins/cache/karpathy-skills/1.0.0/skills/karpathy-guidelines/SKILL.md: No such file or directory
 
 codex
 [단계 2 — Context]
 `review` 스킬의 절차가 길어 전체 지침을 이어서 확인 중입니다. 읽기 전용 제약과 충돌하는 세션 파일/텔레메트리 쓰기는 실행하지 않고, 코드 리뷰의 증거 수집·판정 규칙만 적용하겠습니다.
 exec
-/bin/zsh -lc "wc -l /Users/anthony/.agents/skills/gstack/review/SKILL.md; sed -n '241,520p' /Users/anthony/.agents/skills/gstack/review/SKILL.md; rg --files /Users/anthony/.codex/plugins/cache/karpathy-skills | rg 'karpathy-guidelines/SKILL.md"'$'"'" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "wc -l ~/.agents/skills/gstack/review/SKILL.md; sed -n '241,520p' ~/.agents/skills/gstack/review/SKILL.md; rg --files ~/.codex/plugins/cache/karpathy-skills | rg 'karpathy-guidelines/SKILL.md"'$'"'" in .
  succeeded in 0ms:
-    1852 /Users/anthony/.agents/skills/gstack/review/SKILL.md
+    1852 ~/.agents/skills/gstack/review/SKILL.md
 Skip if `PROACTIVE_PROMPTED` is `yes`.
 
 ## First-run guidance (one-time)
@@ -584,10 +584,10 @@ if [ -f "$_BRAIN_REMOTE_FILE" ] && [ ! -d "$_GSTACK_HOME/.git" ] && [ "$_BRAIN_S
   _BRAIN_NEW_URL=$(head -1 "$_BRAIN_REMOTE_FILE" 2>/dev/null | tr -d '[:space:]')
   if [ -n "$_BRAIN_NEW_URL" ]; then
     echo "ARTIFACTS_SYNC: artifacts repo detected: $_BRAIN_NEW_URL"
-/Users/anthony/.codex/plugins/cache/karpathy-skills/andrej-karpathy-skills/1.0.0/skills/karpathy-guidelines/SKILL.md
+~/.codex/plugins/cache/karpathy-skills/andrej-karpathy-skills/1.0.0/skills/karpathy-guidelines/SKILL.md
 
 exec
-/bin/zsh -lc "sed -n '521,1852p' /Users/anthony/.agents/skills/gstack/review/SKILL.md; cat /Users/anthony/.codex/plugins/cache/karpathy-skills/andrej-karpathy-skills/1.0.0/skills/karpathy-guidelines/SKILL.md" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "sed -n '521,1852p' ~/.agents/skills/gstack/review/SKILL.md; cat ~/.codex/plugins/cache/karpathy-skills/andrej-karpathy-skills/1.0.0/skills/karpathy-guidelines/SKILL.md" in .
  succeeded in 0ms:
     echo "ARTIFACTS_SYNC: run 'gstack-brain-restore' to pull your cross-machine artifacts (or 'gstack-config set artifacts_sync_mode off' to dismiss forever)"
   fi
@@ -1990,7 +1990,7 @@ For multi-step tasks, state a brief plan:
 Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
 
 exec
-/bin/zsh -lc "rg -n '"'^## Step|''^### Step|''^# Pre-Landing|''^## Output|''^## Severity|''^## Critical'"' /Users/anthony/.agents/skills/gstack/review/SKILL.md; rg -n \"420|model_param_layers|strip_disallowed_agent_config|packages/api read-only refactor reviews\" /Users/anthony/.codex/memories/MEMORY.md; rg --files .dev | rg '(INDEX\\.md"'$|420|model.param|agent.config)'"' | head -80; git status --short; git branch --show-current; git remote get-url origin" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "rg -n '"'^## Step|''^### Step|''^# Pre-Landing|''^## Output|''^## Severity|''^## Critical'"' ~/.agents/skills/gstack/review/SKILL.md; rg -n \"420|model_param_layers|strip_disallowed_agent_config|packages/api read-only refactor reviews\" ~/.codex/memories/MEMORY.md; rg --files .dev | rg '(INDEX\\.md"'$|420|model.param|agent.config)'"' | head -80; git status --short; git branch --show-current; git remote get-url origin" in .
  succeeded in 0ms:
 803:## Step 0: Detect platform and base branch
 842:# Pre-Landing PR Review
@@ -2059,18 +2059,18 @@ git: error: couldn't create cache file '/tmp/xcrun_db-z0Hz3zcG' (errno=Operation
 https://github.com/{{GITHUB_ORG}}/my-agents.git
 
 exec
-/bin/zsh -lc "sed -n '1,80p' /Users/anthony/.codex/memories/MEMORY.md; sed -n '1,240p' .dev/learning/INDEX.md; sed -n '1,240p' .dev/retrospect/INDEX.md; sed -n '1,280p' docs/spec/420-model-param-layer-policy.md; git diff -- packages/api/src/api/model_param_layers.py packages/api/src/api/models/agents.py packages/api/src/api/schemas/agents.py packages/api/src/api/agents/guards.py packages/api/src/api/agents/crud_routes.py packages/api/src/api/agents/version_routes.py packages/api/src/api/chat_context_loader.py packages/api/src/api/chat_context_models.py tests/verify_420_model_param_layers.py" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "sed -n '1,80p' ~/.codex/memories/MEMORY.md; sed -n '1,240p' .dev/learning/INDEX.md; sed -n '1,240p' .dev/retrospect/INDEX.md; sed -n '1,280p' docs/spec/420-model-param-layer-policy.md; git diff -- packages/api/src/api/model_param_layers.py packages/api/src/api/models/agents.py packages/api/src/api/schemas/agents.py packages/api/src/api/agents/guards.py packages/api/src/api/agents/crud_routes.py packages/api/src/api/agents/version_routes.py packages/api/src/api/chat_context_loader.py packages/api/src/api/chat_context_models.py tests/verify_420_model_param_layers.py" in .
  succeeded in 0ms:
 # Task Group: my-agents packages/api read-only refactor reviews
 
-scope: Read-only review patterns for `/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents` when the task is to audit or redesign `packages/api` modules without editing code, especially chat-stream splits, router refactors, and sandbox-blocked Codex review attempts.
-applies_to: cwd=/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents; reuse_rule=safe for future review/design tasks in this repo, but re-check current consumers, tests, and sandbox/tooling behavior before reusing exact file-level conclusions
+scope: Read-only review patterns for `.` when the task is to audit or redesign `packages/api` modules without editing code, especially chat-stream splits, router refactors, and sandbox-blocked Codex review attempts.
+applies_to: cwd=.; reuse_rule=safe for future review/design tasks in this repo, but re-check current consumers, tests, and sandbox/tooling behavior before reusing exact file-level conclusions
 
 ## Task 1: chat_stream structural review and refactor design, success
 
 ### rollout_summary_files
 
-- rollout_summaries/2026-07-15T06-18-37-yqWj-served_mcp_ssrf_review_and_chat_stream_refactor.md (cwd=/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents, rollout_path=/Users/anthony/.codex/sessions/2026/07/15/rollout-2026-07-15T15-18-37-019f646d-5fe2-76e0-8046-4d07452fce57.jsonl, updated_at=2026-07-18T12:10:14+00:00, thread_id=019f646d-5fe2-76e0-8046-4d07452fce57, consumer-traced review of `chat_stream.py` and staged split guidance)
+- rollout_summaries/2026-07-15T06-18-37-yqWj-served_mcp_ssrf_review_and_chat_stream_refactor.md (cwd=., rollout_path=~/.codex/sessions/2026/07/15/rollout-2026-07-15T15-18-37-019f646d-5fe2-76e0-8046-4d07452fce57.jsonl, updated_at=2026-07-18T12:10:14+00:00, thread_id=019f646d-5fe2-76e0-8046-4d07452fce57, consumer-traced review of `chat_stream.py` and staged split guidance)
 
 ### keywords
 
@@ -2080,7 +2080,7 @@ applies_to: cwd=/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents; reuse
 
 ### rollout_summary_files
 
-- rollout_summaries/2026-07-18T12-33-38-SbgL-codex_review_chat_stream_refactor_sandbox_failure.md (cwd=/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents, rollout_path=/Users/anthony/.codex/sessions/2026/07/18/rollout-2026-07-18T21-33-38-019f7537-ca38-76f3-8c6b-97711cf40b8b.jsonl, updated_at=2026-07-18T12:35:27+00:00, thread_id=019f7537-ca38-76f3-8c6b-97711cf40b8b, review tool never produced findings because `codex exec` failed during app-server init)
+- rollout_summaries/2026-07-18T12-33-38-SbgL-codex_review_chat_stream_refactor_sandbox_failure.md (cwd=., rollout_path=~/.codex/sessions/2026/07/18/rollout-2026-07-18T21-33-38-019f7537-ca38-76f3-8c6b-97711cf40b8b.jsonl, updated_at=2026-07-18T12:35:27+00:00, thread_id=019f7537-ca38-76f3-8c6b-97711cf40b8b, review tool never produced findings because `codex exec` failed during app-server init)
 
 ### keywords
 
@@ -2090,7 +2090,7 @@ applies_to: cwd=/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents; reuse
 
 ### rollout_summary_files
 
-- rollout_summaries/2026-07-18T13-12-41-peT6-blocks_router_critical_review_refactor_design.md (cwd=/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents, rollout_path=/Users/anthony/.codex/sessions/2026/07/18/rollout-2026-07-18T22-12-41-019f755b-8c41-71f1-b740-17bf6bcf0168.jsonl, updated_at=2026-07-18T13:15:12+00:00, thread_id=019f755b-8c41-71f1-b740-17bf6bcf0168, contract-preserving split plan for the blocks router facade)
+- rollout_summaries/2026-07-18T13-12-41-peT6-blocks_router_critical_review_refactor_design.md (cwd=., rollout_path=~/.codex/sessions/2026/07/18/rollout-2026-07-18T22-12-41-019f755b-8c41-71f1-b740-17bf6bcf0168.jsonl, updated_at=2026-07-18T13:15:12+00:00, thread_id=019f755b-8c41-71f1-b740-17bf6bcf0168, contract-preserving split plan for the blocks router facade)
 
 ### keywords
 
@@ -2123,14 +2123,14 @@ applies_to: cwd=/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents; reuse
 
 # Task Group: my-agents packages/api SSRF / served MCP security review
 
-scope: Read-only adversarial security-review patterns for `/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents` around SSRF boundaries, served MCP exemptions, and model/seed/route/call-site tracing.
-applies_to: cwd=/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents; reuse_rule=safe for future security reviews in this repo, but verify current route/model/seed behavior before reusing exact implementation details
+scope: Read-only adversarial security-review patterns for `.` around SSRF boundaries, served MCP exemptions, and model/seed/route/call-site tracing.
+applies_to: cwd=.; reuse_rule=safe for future security reviews in this repo, but verify current route/model/seed behavior before reusing exact implementation details
 
 ## Task 1: SSRF exception review for self-served MCP endpoints, success
 
 ### rollout_summary_files
 
-- rollout_summaries/2026-07-15T06-18-37-yqWj-served_mcp_ssrf_review_and_chat_stream_refactor.md (cwd=/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents, rollout_path=/Users/anthony/.codex/sessions/2026/07/15/rollout-2026-07-15T15-18-37-019f646d-5fe2-76e0-8046-4d07452fce57.jsonl, updated_at=2026-07-18T12:10:14+00:00, thread_id=019f646d-5fe2-76e0-8046-4d07452fce57, no P0 SSRF bypass found; rename path remained a bounded hardening gap rather than an exploit)
+- rollout_summaries/2026-07-15T06-18-37-yqWj-served_mcp_ssrf_review_and_chat_stream_refactor.md (cwd=., rollout_path=~/.codex/sessions/2026/07/15/rollout-2026-07-15T15-18-37-019f646d-5fe2-76e0-8046-4d07452fce57.jsonl, updated_at=2026-07-18T12:10:14+00:00, thread_id=019f646d-5fe2-76e0-8046-4d07452fce57, no P0 SSRF bypass found; rename path remained a bounded hardening gap rather than an exploit)
 
 ### keywords
 
@@ -2805,7 +2805,7 @@ codex
 [단계 4 — Execution]
 저장 경로의 닫힌 집합을 세고 있습니다. 핵심은 `Agent/AgentVersion` 생성·대입뿐 아니라 `update()`, `bulk_*`, `session.execute(insert/update)`, JSON 내부 in-place 변이까지 별도로 찾는 것입니다.
 exec
-/bin/zsh -lc "nl -ba packages/api/src/api/model_param_layers.py; nl -ba packages/api/src/api/models/agents.py | sed -n '1,135p'; nl -ba packages/api/src/api/schemas/agents.py | sed -n '1,180p'; rg -n \"Agent\\(|AgentVersion\\(|\\.config\\s*=|setattr\\(["'^'"\\n]*config|update\\(Agent|update\\(AgentVersion|insert\\(Agent|insert\\(AgentVersion|bulk_(save|insert|update)|__table__|config\\[["'^]]+'"\\]\\s*=|config\\.update\" packages/api/src tests --glob '*.py'" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "nl -ba packages/api/src/api/model_param_layers.py; nl -ba packages/api/src/api/models/agents.py | sed -n '1,135p'; nl -ba packages/api/src/api/schemas/agents.py | sed -n '1,180p'; rg -n \"Agent\\(|AgentVersion\\(|\\.config\\s*=|setattr\\(["'^'"\\n]*config|update\\(Agent|update\\(AgentVersion|insert\\(Agent|insert\\(AgentVersion|bulk_(save|insert|update)|__table__|config\\[["'^]]+'"\\]\\s*=|config\\.update\" packages/api/src tests --glob '*.py'" in .
  succeeded in 0ms:
      1	"""모델 파라미터 캐스케이드 층 정책(스펙 420) — FE `CapabilitySettings.tsx`의 `modelParamLayerApplies`
      2	BE 형제(대칭). modelParams가 적용되는 4층(model-default → agent → node → session) 중 **어느 층이 어느
@@ -3290,7 +3290,7 @@ tests/verify_047_integration.py:125:        agent2 = Agent(
 tests/verify_047_integration.py:135:            AgentVersion(
 
 exec
-/bin/zsh -lc "nl -ba packages/api/src/api/agents/crud_routes.py | sed -n '220,420p'; nl -ba packages/api/src/api/agents/version_routes.py | sed -n '1,210p'; nl -ba packages/api/src/api/blocks_prompts.py | sed -n '110,175p'; nl -ba packages/api/src/api/agents/card_builder.py | sed -n '35,180p'; nl -ba packages/api/src/api/agents/remote_routes.py | sed -n '35,250p'; rg -n \"session\\.execute|db\\.execute|\\.execute\\(\" packages/api/src/api --glob '*.py' | rg \"Agent|agents|agent_versions|update\\(|insert\\(\"" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "nl -ba packages/api/src/api/agents/crud_routes.py | sed -n '220,420p'; nl -ba packages/api/src/api/agents/version_routes.py | sed -n '1,210p'; nl -ba packages/api/src/api/blocks_prompts.py | sed -n '110,175p'; nl -ba packages/api/src/api/agents/card_builder.py | sed -n '35,180p'; nl -ba packages/api/src/api/agents/remote_routes.py | sed -n '35,250p'; rg -n \"session\\.execute|db\\.execute|\\.execute\\(\" packages/api/src/api --glob '*.py' | rg \"Agent|agents|agent_versions|update\\(|insert\\(\"" in .
  succeeded in 0ms:
    220	
    221	            out.stalePins = await stale_pins(session, open_row.pins)
@@ -4101,7 +4101,7 @@ packages/api/src/api/serializers.py:25:    rows = (await session.execute(select(
 packages/api/src/api/a2a_server.py:161:        sub = (await db.execute(select(Agent).where(Agent.agent_id == aid))).scalar_one_or_none()
 
 exec
-/bin/zsh -lc "nl -ba tests/verify_420_model_param_layers.py | sed -n '1,360p'; nl -ba packages/api/src/api/chat_context_models.py | sed -n '100,230p'; nl -ba packages/api/src/api/chat_context_loader.py | sed -n '145,200p'; nl -ba packages/api/src/api/agents/version_routes.py | sed -n '134,175p'; nl -ba packages/api/src/api/blocks_prompts.py | sed -n '125,165p'; rg -n \"model_validator|field_validator\\(\\\"modelParams\\\"|clean_setting_params|_strip_pipeline_model_params|strip_disallowed_agent_config\" packages/api/src tests --glob '*.py'" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "nl -ba tests/verify_420_model_param_layers.py | sed -n '1,360p'; nl -ba packages/api/src/api/chat_context_models.py | sed -n '100,230p'; nl -ba packages/api/src/api/chat_context_loader.py | sed -n '145,200p'; nl -ba packages/api/src/api/agents/version_routes.py | sed -n '134,175p'; nl -ba packages/api/src/api/blocks_prompts.py | sed -n '125,165p'; rg -n \"model_validator|field_validator\\(\\\"modelParams\\\"|clean_setting_params|_strip_pipeline_model_params|strip_disallowed_agent_config\" packages/api/src tests --glob '*.py'" in .
  succeeded in 0ms:
      1	"""verify_420 — 모델 파라미터 캐스케이드 층 정책(스펙 420) 계약 핀.
      2	
@@ -4582,7 +4582,7 @@ packages/api/src/api/models/agents.py:81:        return strip_disallowed_agent_c
 packages/api/src/api/models/agents.py:109:        return strip_disallowed_agent_config(value)
 
 exec
-/bin/zsh -lc "nl -ba packages/api/src/api/chat_context_overrides.py | sed -n '1,145p'; rg -n \"ctx\\.overrides|context\\.overrides|\\.overrides|get\\(\\\"modelParams\\\"\\)|run_params|temperature\" packages/api/src packages/agent/src --glob '*.py' | head -240; rg -n \"_resolve_node_models\\(\" packages/api/src tests --glob '*.py'; rg -n \"AgentVersion\\.config|Agent\\.config|agents\\.config|agent_versions\\.config\" packages/api/src/api --glob '*.py'" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "nl -ba packages/api/src/api/chat_context_overrides.py | sed -n '1,145p'; rg -n \"ctx\\.overrides|context\\.overrides|\\.overrides|get\\(\\\"modelParams\\\"\\)|run_params|temperature\" packages/api/src packages/agent/src --glob '*.py' | head -240; rg -n \"_resolve_node_models\\(\" packages/api/src tests --glob '*.py'; rg -n \"AgentVersion\\.config|Agent\\.config|agents\\.config|agent_versions\\.config\" packages/api/src/api --glob '*.py'" in .
  succeeded in 0ms:
      1	"""세션 오버라이드·노드 병합 — chat_context.py에서 분할(스펙 394 P1).
      2	
@@ -4828,7 +4828,7 @@ packages/api/src/api/references.py:11:참조 범위(스펙 121로 완화) = **�
 packages/api/src/api/references.py:80:    반환: [{"agent": <에이전트 이름>, "where": "active"}]. 활성 `Agent.config`만 검사해 usedBy 배지와
 
 exec
-/bin/zsh -lc "nl -ba packages/agent/src/agent/runtime.py | sed -n '35,95p'; rg -n \"overrides\" packages/agent/src/agent --glob '*.py'; nl -ba packages/api/src/api/chat_context_loader.py | sed -n '85,155p'; nl -ba packages/api/src/api/agents/helpers.py | sed -n '1,90p'; git diff --stat; git diff --numstat" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "nl -ba packages/agent/src/agent/runtime.py | sed -n '35,95p'; rg -n \"overrides\" packages/agent/src/agent --glob '*.py'; nl -ba packages/api/src/api/chat_context_loader.py | sed -n '85,155p'; nl -ba packages/api/src/api/agents/helpers.py | sed -n '1,90p'; git diff --stat; git diff --numstat" in .
  succeeded in 0ms:
     35	    in-process 인터페이스(스펙 085)의 *대상이 아니다* — 우리 런타임 밖에서 돌아 설정 주입·그래프
     36	    추적이 불가하다. **단일 술어**(스펙 089) — resolve_agent_runtime·classify_runtime·chat.py가
@@ -5086,12 +5086,12 @@ codex
 [단계 5 — Verification]
 현재까지 실제 API 저장 경로에서는 Core/bulk `Agent.config` 쓰기가 발견되지 않았고, 생성자·일반 대입은 모두 validator 대상입니다. 이제 validator 발화 자체, 공유 dict/후속 변이, 비노드 캐스케이드 양성 범위를 별도 프로브로 확인합니다.
 exec
-/bin/zsh -lc "PYTHONDONTWRITEBYTECODE=1 packages/api/.venv/bin/python -c 'from api.models import Agent, AgentVersion; src={\"impl\":\"pipeline\",\"modelParams\":{\"temperature\":.9},\"nodes\":[{\"modelParams\":{\"top_p\":.2}}]}; a=Agent(config=src); v=AgentVersion(config=src); print(a.config, v.config, a.config is src, v.config is src, a.config is v.config, a.config[\"nodes\"] is src[\"nodes\"]); src[\"modelParams\"][\"temperature\"]=.1; src[\"nodes\"][0][\"modelParams\"][\"top_p\"]=.8; print(a.config, v.config); a.config={\"impl\":\"pipeline\",\"modelParams\":{\"top_p\":.7}}; print(a.config)'" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "PYTHONDONTWRITEBYTECODE=1 packages/api/.venv/bin/python -c 'from api.models import Agent, AgentVersion; src={\"impl\":\"pipeline\",\"modelParams\":{\"temperature\":.9},\"nodes\":[{\"modelParams\":{\"top_p\":.2}}]}; a=Agent(config=src); v=AgentVersion(config=src); print(a.config, v.config, a.config is src, v.config is src, a.config is v.config, a.config[\"nodes\"] is src[\"nodes\"]); src[\"modelParams\"][\"temperature\"]=.1; src[\"nodes\"][0][\"modelParams\"][\"top_p\"]=.8; print(a.config, v.config); a.config={\"impl\":\"pipeline\",\"modelParams\":{\"top_p\":.7}}; print(a.config)'" in .
  exited 127 in 0ms:
 zsh:1: no such file or directory: packages/api/.venv/bin/python
 
 exec
-/bin/zsh -lc "ls -la | sed -n '1,80p'; ls -la .venv/bin/python* 2>/dev/null; command -v uv" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "ls -la | sed -n '1,80p'; ls -la .venv/bin/python* 2>/dev/null; command -v uv" in .
  succeeded in 0ms:
 total 1160
 drwxr-xr-x@  29 anthony  staff     928 Jul 16 15:17 .
@@ -5123,13 +5123,13 @@ drwxr-xr-x@   4 anthony  staff     128 Jun 23 11:20 packages
 drwxr-xr-x@   5 anthony  staff     160 Jul 17 21:35 scripts
 drwxr-xr-x@ 225 anthony  staff    7200 Jul 20 19:56 tests
 -rw-r--r--@   1 anthony  staff  523307 Jul 19 21:50 uv.lock
-lrwxr-xr-x@ 1 anthony  staff  84 Jun 19 02:19 .venv/bin/python -> /Users/anthony/.local/share/uv/python/cpython-3.12-macos-aarch64-none/bin/python3.12
+lrwxr-xr-x@ 1 anthony  staff  84 Jun 19 02:19 .venv/bin/python -> ~/.local/share/uv/python/cpython-3.12-macos-aarch64-none/bin/python3.12
 lrwxr-xr-x@ 1 anthony  staff   6 Jun 19 02:19 .venv/bin/python3 -> python
 lrwxr-xr-x@ 1 anthony  staff   6 Jun 19 02:19 .venv/bin/python3.12 -> python
 /opt/homebrew/bin/uv
 
 exec
-/bin/zsh -lc "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=packages/api/src:packages/agent/src .venv/bin/python -c 'from api.models import Agent, AgentVersion; src={\"impl\":\"pipeline\",\"modelParams\":{\"temperature\":.9},\"nodes\":[{\"modelParams\":{\"top_p\":.2}}]}; a=Agent(config=src); v=AgentVersion(config=src); print(a.config, v.config); print(a.config is src, v.config is src, a.config is v.config, a.config[\"nodes\"] is src[\"nodes\"]); src[\"modelParams\"][\"temperature\"]=.1; src[\"nodes\"][0][\"modelParams\"][\"top_p\"]=.8; print(a.config, v.config); a.config={\"impl\":\"pipeline\",\"modelParams\":{\"top_p\":.7}}; print(a.config)'" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=packages/api/src:packages/agent/src .venv/bin/python -c 'from api.models import Agent, AgentVersion; src={\"impl\":\"pipeline\",\"modelParams\":{\"temperature\":.9},\"nodes\":[{\"modelParams\":{\"top_p\":.2}}]}; a=Agent(config=src); v=AgentVersion(config=src); print(a.config, v.config); print(a.config is src, v.config is src, a.config is v.config, a.config[\"nodes\"] is src[\"nodes\"]); src[\"modelParams\"][\"temperature\"]=.1; src[\"nodes\"][0][\"modelParams\"][\"top_p\"]=.8; print(a.config, v.config); a.config={\"impl\":\"pipeline\",\"modelParams\":{\"top_p\":.7}}; print(a.config)'" in .
  succeeded in 249ms:
 {'impl': 'pipeline', 'modelParams': {}, 'nodes': [{'modelParams': {'top_p': 0.2}}]} {'impl': 'pipeline', 'modelParams': {}, 'nodes': [{'modelParams': {'top_p': 0.2}}]}
 False False False True
@@ -5137,11 +5137,11 @@ False False False True
 {'impl': 'pipeline', 'modelParams': {}}
 
 exec
-/bin/zsh -lc "nl -ba /Users/anthony/.codex/memories/MEMORY.md | sed -n '18,38p'; nl -ba packages/api/src/api/batch/jobs_agents.py | sed -n '1,75p'; nl -ba packages/api/src/api/agents/remote_routes.py | sed -n '218,242p'; nl -ba packages/api/src/api/agents/version_routes.py | sed -n '145,168p'; nl -ba packages/api/src/api/blocks_prompts.py | sed -n '138,154p'; nl -ba packages/api/src/api/agents/crud_routes.py | sed -n '297,330p;362,395p'" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "nl -ba ~/.codex/memories/MEMORY.md | sed -n '18,38p'; nl -ba packages/api/src/api/batch/jobs_agents.py | sed -n '1,75p'; nl -ba packages/api/src/api/agents/remote_routes.py | sed -n '218,242p'; nl -ba packages/api/src/api/agents/version_routes.py | sed -n '145,168p'; nl -ba packages/api/src/api/blocks_prompts.py | sed -n '138,154p'; nl -ba packages/api/src/api/agents/crud_routes.py | sed -n '297,330p;362,395p'" in .
  succeeded in 0ms:
     18	### rollout_summary_files
     19	
-    20	- rollout_summaries/2026-07-18T12-33-38-SbgL-codex_review_chat_stream_refactor_sandbox_failure.md (cwd=/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents, rollout_path=/Users/anthony/.codex/sessions/2026/07/18/rollout-2026-07-18T21-33-38-019f7537-ca38-76f3-8c6b-97711cf40b8b.jsonl, updated_at=2026-07-18T12:35:27+00:00, thread_id=019f7537-ca38-76f3-8c6b-97711cf40b8b, review tool never produced findings because `codex exec` failed during app-server init)
+    20	- rollout_summaries/2026-07-18T12-33-38-SbgL-codex_review_chat_stream_refactor_sandbox_failure.md (cwd=., rollout_path=~/.codex/sessions/2026/07/18/rollout-2026-07-18T21-33-38-019f7537-ca38-76f3-8c6b-97711cf40b8b.jsonl, updated_at=2026-07-18T12:35:27+00:00, thread_id=019f7537-ca38-76f3-8c6b-97711cf40b8b, review tool never produced findings because `codex exec` failed during app-server init)
     21	
     22	### keywords
     23	
@@ -5151,7 +5151,7 @@ exec
     27	
     28	### rollout_summary_files
     29	
-    30	- rollout_summaries/2026-07-18T13-12-41-peT6-blocks_router_critical_review_refactor_design.md (cwd=/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents, rollout_path=/Users/anthony/.codex/sessions/2026/07/18/rollout-2026-07-18T22-12-41-019f755b-8c41-71f1-b740-17bf6bcf0168.jsonl, updated_at=2026-07-18T13:15:12+00:00, thread_id=019f755b-8c41-71f1-b740-17bf6bcf0168, contract-preserving split plan for the blocks router facade)
+    30	- rollout_summaries/2026-07-18T13-12-41-peT6-blocks_router_critical_review_refactor_design.md (cwd=., rollout_path=~/.codex/sessions/2026/07/18/rollout-2026-07-18T22-12-41-019f755b-8c41-71f1-b740-17bf6bcf0168.jsonl, updated_at=2026-07-18T13:15:12+00:00, thread_id=019f755b-8c41-71f1-b740-17bf6bcf0168, contract-preserving split plan for the blocks router facade)
     31	
     32	### keywords
     33	
@@ -5368,21 +5368,21 @@ codex
 
 1. **“모든 DB 저장 경로·미래 신설까지 우회 불가”라는 보장은 과장입니다.**
 
-   `@validates`는 생성자와 일반 대입에는 발화하지만 Core `update/insert`, bulk, raw SQL, JSON in-place 변경에는 발화하지 않습니다. 실제 verifier도 Core update로 관문을 우회합니다: [verify_420_model_param_layers.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/tests/verify_420_model_param_layers.py:113).
+   `@validates`는 생성자와 일반 대입에는 발화하지만 Core `update/insert`, bulk, raw SQL, JSON in-place 변경에는 발화하지 않습니다. 실제 verifier도 Core update로 관문을 우회합니다: [verify_420_model_param_layers.py](tests/verify_420_model_param_layers.py:113).
 
-   현재 제품 코드에서 발견된 Core `Agent` 조작은 삭제뿐이고 config write는 없습니다: [jobs_agents.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/batch/jobs_agents.py:59). 따라서 **현재 라우트의 실 우회는 없음**입니다.
+   현재 제품 코드에서 발견된 Core `Agent` 조작은 삭제뿐이고 config write는 없습니다: [jobs_agents.py](packages/api/src/api/batch/jobs_agents.py:59). 따라서 **현재 라우트의 실 우회는 없음**입니다.
 
-   다만 [model_param_layers.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/model_param_layers.py:38), [agents.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/models/agents.py:77)의 “모든 경로·우회 불가·미래 신설” 표현은 미래 작업자가 Core update도 안전하다고 오인하게 만듭니다. 정확한 계약은 “ORM attribute assignment의 단일 관문”입니다.
+   다만 [model_param_layers.py](packages/api/src/api/model_param_layers.py:38), [agents.py](packages/api/src/api/models/agents.py:77)의 “모든 경로·우회 불가·미래 신설” 표현은 미래 작업자가 Core update도 안전하다고 오인하게 만듭니다. 정확한 계약은 “ORM attribute assignment의 단일 관문”입니다.
 
 2. **assignment 이후 in-place 변이는 validator를 다시 통과하지 않습니다.**
 
-   `agent.config["modelParams"]["temperature"] = ...`처럼 내부 dict를 바꾸면 재검증되지 않습니다. 새 객체가 flush되기 전이라면 불법 값이 그대로 저장될 수도 있습니다. 또한 strip은 얕은 사본이라 `nodes` 등 중첩 객체는 입력과 공유됩니다: [model_param_layers.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/model_param_layers.py:45).
+   `agent.config["modelParams"]["temperature"] = ...`처럼 내부 dict를 바꾸면 재검증되지 않습니다. 새 객체가 flush되기 전이라면 불법 값이 그대로 저장될 수도 있습니다. 또한 strip은 얕은 사본이라 `nodes` 등 중첩 객체는 입력과 공유됩니다: [model_param_layers.py](packages/api/src/api/model_param_layers.py:45).
 
-   다행히 조사한 실제 경로는 모두 먼저 로컬 `cfg`를 완성한 뒤 마지막에 대입하며, adopt도 대입 뒤 `cfg`를 수정하지 않습니다: [version_routes.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/agents/version_routes.py:148), [blocks_prompts.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/blocks_prompts.py:140). remote resync도 수정 후 재대입합니다: [remote_routes.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/agents/remote_routes.py:232). **현재 실 회귀는 없지만 절대적 저장 불변식은 아닙니다.**
+   다행히 조사한 실제 경로는 모두 먼저 로컬 `cfg`를 완성한 뒤 마지막에 대입하며, adopt도 대입 뒤 `cfg`를 수정하지 않습니다: [version_routes.py](packages/api/src/api/agents/version_routes.py:148), [blocks_prompts.py](packages/api/src/api/blocks_prompts.py:140). remote resync도 수정 후 재대입합니다: [remote_routes.py](packages/api/src/api/agents/remote_routes.py:232). **현재 실 회귀는 없지만 절대적 저장 불변식은 아닙니다.**
 
 3. **`None`·비-dict는 방어하지 않고 그대로 반환합니다.**
 
-   [model_param_layers.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/model_param_layers.py:43). 정상 라우트는 Pydantic `AgentConfig`를 통과하므로 문제없고, `modelParams`의 `clean_setting_params` validator도 그대로 유지됩니다: [schemas/agents.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/schemas/agents.py:26). 직접 ORM/Core 입력까지 “illegal state 표현 불가”로 정의한다면 비-dict 거부가 필요합니다.
+   [model_param_layers.py](packages/api/src/api/model_param_layers.py:43). 정상 라우트는 Pydantic `AgentConfig`를 통과하므로 문제없고, `modelParams`의 `clean_setting_params` validator도 그대로 유지됩니다: [schemas/agents.py](packages/api/src/api/schemas/agents.py:26). 직접 ORM/Core 입력까지 “illegal state 표현 불가”로 정의한다면 비-dict 거부가 필요합니다.
 
 ## 최종 봉합 확인
 
@@ -5412,21 +5412,21 @@ tokens used
 
 1. **“모든 DB 저장 경로·미래 신설까지 우회 불가”라는 보장은 과장입니다.**
 
-   `@validates`는 생성자와 일반 대입에는 발화하지만 Core `update/insert`, bulk, raw SQL, JSON in-place 변경에는 발화하지 않습니다. 실제 verifier도 Core update로 관문을 우회합니다: [verify_420_model_param_layers.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/tests/verify_420_model_param_layers.py:113).
+   `@validates`는 생성자와 일반 대입에는 발화하지만 Core `update/insert`, bulk, raw SQL, JSON in-place 변경에는 발화하지 않습니다. 실제 verifier도 Core update로 관문을 우회합니다: [verify_420_model_param_layers.py](tests/verify_420_model_param_layers.py:113).
 
-   현재 제품 코드에서 발견된 Core `Agent` 조작은 삭제뿐이고 config write는 없습니다: [jobs_agents.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/batch/jobs_agents.py:59). 따라서 **현재 라우트의 실 우회는 없음**입니다.
+   현재 제품 코드에서 발견된 Core `Agent` 조작은 삭제뿐이고 config write는 없습니다: [jobs_agents.py](packages/api/src/api/batch/jobs_agents.py:59). 따라서 **현재 라우트의 실 우회는 없음**입니다.
 
-   다만 [model_param_layers.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/model_param_layers.py:38), [agents.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/models/agents.py:77)의 “모든 경로·우회 불가·미래 신설” 표현은 미래 작업자가 Core update도 안전하다고 오인하게 만듭니다. 정확한 계약은 “ORM attribute assignment의 단일 관문”입니다.
+   다만 [model_param_layers.py](packages/api/src/api/model_param_layers.py:38), [agents.py](packages/api/src/api/models/agents.py:77)의 “모든 경로·우회 불가·미래 신설” 표현은 미래 작업자가 Core update도 안전하다고 오인하게 만듭니다. 정확한 계약은 “ORM attribute assignment의 단일 관문”입니다.
 
 2. **assignment 이후 in-place 변이는 validator를 다시 통과하지 않습니다.**
 
-   `agent.config["modelParams"]["temperature"] = ...`처럼 내부 dict를 바꾸면 재검증되지 않습니다. 새 객체가 flush되기 전이라면 불법 값이 그대로 저장될 수도 있습니다. 또한 strip은 얕은 사본이라 `nodes` 등 중첩 객체는 입력과 공유됩니다: [model_param_layers.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/model_param_layers.py:45).
+   `agent.config["modelParams"]["temperature"] = ...`처럼 내부 dict를 바꾸면 재검증되지 않습니다. 새 객체가 flush되기 전이라면 불법 값이 그대로 저장될 수도 있습니다. 또한 strip은 얕은 사본이라 `nodes` 등 중첩 객체는 입력과 공유됩니다: [model_param_layers.py](packages/api/src/api/model_param_layers.py:45).
 
-   다행히 조사한 실제 경로는 모두 먼저 로컬 `cfg`를 완성한 뒤 마지막에 대입하며, adopt도 대입 뒤 `cfg`를 수정하지 않습니다: [version_routes.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/agents/version_routes.py:148), [blocks_prompts.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/blocks_prompts.py:140). remote resync도 수정 후 재대입합니다: [remote_routes.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/agents/remote_routes.py:232). **현재 실 회귀는 없지만 절대적 저장 불변식은 아닙니다.**
+   다행히 조사한 실제 경로는 모두 먼저 로컬 `cfg`를 완성한 뒤 마지막에 대입하며, adopt도 대입 뒤 `cfg`를 수정하지 않습니다: [version_routes.py](packages/api/src/api/agents/version_routes.py:148), [blocks_prompts.py](packages/api/src/api/blocks_prompts.py:140). remote resync도 수정 후 재대입합니다: [remote_routes.py](packages/api/src/api/agents/remote_routes.py:232). **현재 실 회귀는 없지만 절대적 저장 불변식은 아닙니다.**
 
 3. **`None`·비-dict는 방어하지 않고 그대로 반환합니다.**
 
-   [model_param_layers.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/model_param_layers.py:43). 정상 라우트는 Pydantic `AgentConfig`를 통과하므로 문제없고, `modelParams`의 `clean_setting_params` validator도 그대로 유지됩니다: [schemas/agents.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/schemas/agents.py:26). 직접 ORM/Core 입력까지 “illegal state 표현 불가”로 정의한다면 비-dict 거부가 필요합니다.
+   [model_param_layers.py](packages/api/src/api/model_param_layers.py:43). 정상 라우트는 Pydantic `AgentConfig`를 통과하므로 문제없고, `modelParams`의 `clean_setting_params` validator도 그대로 유지됩니다: [schemas/agents.py](packages/api/src/api/schemas/agents.py:26). 직접 ORM/Core 입력까지 “illegal state 표현 불가”로 정의한다면 비-dict 거부가 필요합니다.
 
 ## 최종 봉합 확인
 

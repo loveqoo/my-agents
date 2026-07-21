@@ -2,7 +2,7 @@ Reading additional input from stdin...
 2026-07-20T05:55:24.997699Z ERROR codex_models_manager::cache: failed to load models cache: missing field `supports_reasoning_summaries` at line 88 column 5
 OpenAI Codex v0.144.6
 --------
-workdir: /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+workdir: .
 model: gpt-5.6-sol
 provider: openai
 approval: never
@@ -62,7 +62,7 @@ codex
 
 참고 자산: 스펙 415 및 보안 리뷰 관련 인덱스·학습을 먼저 선별하고, 기존 검증 목록의 여집합만 별도로 추적합니다.
 exec
-/bin/zsh -lc "sed -n '1,240p' /Users/anthony/.codex/plugins/cache/karpathy-skills/andrej-karpathy-skills/1.0.0/skills/karpathy-guidelines/SKILL.md && rg -n \"415|attachment|첨부|SSRF|security review|보안\" /Users/anthony/.codex/memories/MEMORY.md .dev/learning/INDEX.md .dev/retrospect/INDEX.md .dev/troubleshooting/INDEX.md 2>/dev/null" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "sed -n '1,240p' ~/.codex/plugins/cache/karpathy-skills/andrej-karpathy-skills/1.0.0/skills/karpathy-guidelines/SKILL.md && rg -n \"415|attachment|첨부|SSRF|security review|보안\" ~/.codex/memories/MEMORY.md .dev/learning/INDEX.md .dev/retrospect/INDEX.md .dev/troubleshooting/INDEX.md 2>/dev/null" in .
  exited 2 in 0ms:
 ---
 name: karpathy-guidelines
@@ -137,18 +137,18 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 .dev/learning/INDEX.md:136:- 131 의도된 가림은 계보 추적해 열고, 새 노출 표면엔 마스킹·캡·개수상한 셋 다 — 가림을 만든 스펙·적대리뷰를 찾아 그 확장 관문대로 열어야(모르고 열면 보안회귀); 마스킹은 캡 이전에 [redaction-lineage-first,expansion-gate,mask-cap-count-trio,mask-before-cap,honest-truncation,render-all-kinds,stream-persist-reload-symmetry]
 .dev/learning/INDEX.md:172:- 390 사용자 추궁 3문이 연 것: 죽은 옵션·막힌 유스케이스·조용한 no-op 부류 — 사용자 추궁이 죽은 옵션·막힌 유스케이스·조용한 no-op을 열었다: UI 질문은 코드 seed 아닌 라이브 DB까지 확인하고, "설정했는데 무동작"은 입구 양쪽(저장검증·삭제참조가드) 다 확인, 보안 일괄차단 해제는 단일 관문으로 [live-db-for-ui-questions,guard-both-entrances,chokepoint-unblock,cap-to-narrowest,type-guard-external-json] → 스펙 387
 .dev/learning/INDEX.md:174:- 392 A2A 세션 P1: 발명 아닌 배선 — 리팩터로 분할된 모듈 덕에 소유권·lazy-create 등을 import 한 줄로 상속받는다; 경계 확장은 새 보안검사 대신 기존 소유권 메커니즘에 태우고 외부 필드는 추출 즉시 타입가드 [refactor-dividend,ride-existing-ownership,assert-keys-not-exact,monkeypatch-is-consumer,downgrade-needs-audit-cols] → 스펙 388 P1
-/Users/anthony/.codex/memories/MEMORY.md:39:- when the user asked for "파일과 실제 소비자 코드를 직접 읽고 근거를 대라. 추측은 추측이라고 명시하라." -> future refactor/security reviews should stay source-trace driven, read the consumer files directly, and label inference vs verified fact [Task 1][Task 3]
-/Users/anthony/.codex/memories/MEMORY.md:61:# Task Group: my-agents packages/api SSRF / served MCP security review
-/Users/anthony/.codex/memories/MEMORY.md:63:scope: Read-only adversarial security-review patterns for `/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents` around SSRF boundaries, served MCP exemptions, and model/seed/route/call-site tracing.
-/Users/anthony/.codex/memories/MEMORY.md:64:applies_to: cwd=/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents; reuse_rule=safe for future security reviews in this repo, but verify current route/model/seed behavior before reusing exact implementation details
-/Users/anthony/.codex/memories/MEMORY.md:66:## Task 1: SSRF exception review for self-served MCP endpoints, success
-/Users/anthony/.codex/memories/MEMORY.md:70:- rollout_summaries/2026-07-15T06-18-37-yqWj-served_mcp_ssrf_review_and_chat_stream_refactor.md (cwd=/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents, rollout_path=/Users/anthony/.codex/sessions/2026/07/15/rollout-2026-07-15T15-18-37-019f646d-5fe2-76e0-8046-4d07452fce57.jsonl, updated_at=2026-07-18T12:10:14+00:00, thread_id=019f646d-5fe2-76e0-8046-4d07452fce57, no P0 SSRF bypass found; rename path remained a bounded hardening gap rather than an exploit)
-/Users/anthony/.codex/memories/MEMORY.md:74:- SSRF, MCP, served_mcp, mcp_connection, is_own_served_url, SERVED_MCP_TOOLS, McpServer, seed_if_empty, _reconcile_served_mcp, guarded_app, _is_served, exact string equality, reserved name, update_mcp_server, verify_360
-/Users/anthony/.codex/memories/MEMORY.md:78:- when asking for security review, the user required: "citing exact file:line evidence from the actual repo code" and "Follow every call site and DB model/migration/seed file needed to ground each claim in real code" -> keep similar reviews source-trace driven, closed-set, and citation-heavy rather than speculative [Task 1]
-/Users/anthony/.codex/memories/MEMORY.md:79:- when the user said: "This is a read-only security review. Do not modify any files." -> default to non-editing audit mode for similar review tasks unless they explicitly change scope [Task 1]
-/Users/anthony/.codex/memories/MEMORY.md:80:- when the user requested separate verdicts for each attack vector -> structure similar security reviews as vector-by-vector results instead of one blended conclusion [Task 1]
-/Users/anthony/.codex/memories/MEMORY.md:88:- `packages/api/src/api/blocks.py:362-388` blocks reserved served names on create, but `update_mcp_server()` does not repeat the same explicit reserved-name gate; this was the main hardening gap to remember, not a proven arbitrary-URL SSRF bypass [Task 1]
-/Users/anthony/.codex/memories/MEMORY.md:398:- `read_thread_terminal` reporting `No app terminal session is attached to this thread yet.` is a useful clue that a full console attachment has not happened yet even if pairing succeeds [Task 3]
+~/.codex/memories/MEMORY.md:39:- when the user asked for "파일과 실제 소비자 코드를 직접 읽고 근거를 대라. 추측은 추측이라고 명시하라." -> future refactor/security reviews should stay source-trace driven, read the consumer files directly, and label inference vs verified fact [Task 1][Task 3]
+~/.codex/memories/MEMORY.md:61:# Task Group: my-agents packages/api SSRF / served MCP security review
+~/.codex/memories/MEMORY.md:63:scope: Read-only adversarial security-review patterns for `.` around SSRF boundaries, served MCP exemptions, and model/seed/route/call-site tracing.
+~/.codex/memories/MEMORY.md:64:applies_to: cwd=.; reuse_rule=safe for future security reviews in this repo, but verify current route/model/seed behavior before reusing exact implementation details
+~/.codex/memories/MEMORY.md:66:## Task 1: SSRF exception review for self-served MCP endpoints, success
+~/.codex/memories/MEMORY.md:70:- rollout_summaries/2026-07-15T06-18-37-yqWj-served_mcp_ssrf_review_and_chat_stream_refactor.md (cwd=., rollout_path=~/.codex/sessions/2026/07/15/rollout-2026-07-15T15-18-37-019f646d-5fe2-76e0-8046-4d07452fce57.jsonl, updated_at=2026-07-18T12:10:14+00:00, thread_id=019f646d-5fe2-76e0-8046-4d07452fce57, no P0 SSRF bypass found; rename path remained a bounded hardening gap rather than an exploit)
+~/.codex/memories/MEMORY.md:74:- SSRF, MCP, served_mcp, mcp_connection, is_own_served_url, SERVED_MCP_TOOLS, McpServer, seed_if_empty, _reconcile_served_mcp, guarded_app, _is_served, exact string equality, reserved name, update_mcp_server, verify_360
+~/.codex/memories/MEMORY.md:78:- when asking for security review, the user required: "citing exact file:line evidence from the actual repo code" and "Follow every call site and DB model/migration/seed file needed to ground each claim in real code" -> keep similar reviews source-trace driven, closed-set, and citation-heavy rather than speculative [Task 1]
+~/.codex/memories/MEMORY.md:79:- when the user said: "This is a read-only security review. Do not modify any files." -> default to non-editing audit mode for similar review tasks unless they explicitly change scope [Task 1]
+~/.codex/memories/MEMORY.md:80:- when the user requested separate verdicts for each attack vector -> structure similar security reviews as vector-by-vector results instead of one blended conclusion [Task 1]
+~/.codex/memories/MEMORY.md:88:- `packages/api/src/api/blocks.py:362-388` blocks reserved served names on create, but `update_mcp_server()` does not repeat the same explicit reserved-name gate; this was the main hardening gap to remember, not a proven arbitrary-URL SSRF bypass [Task 1]
+~/.codex/memories/MEMORY.md:398:- `read_thread_terminal` reporting `No app terminal session is attached to this thread yet.` is a useful clue that a full console attachment has not happened yet even if pairing succeeds [Task 3]
 .dev/retrospect/INDEX.md:37:- 032 A2A 실호출 회고 — 스펙 042(P5-b·로드맵 마지막); external 안내를 실 A2A JSON-RPC 호출로·026 유예한 SSRF 빚을 net_guard로 청산(allowlist 사람 합의)할 때 [a2a,runtime,jsonrpc,ssrf,allowlist]
 .dev/retrospect/INDEX.md:49:- 044 MCP 실연결 런타임: 가짜 한 층을 실 프로토콜로 회고 — 스펙 054; _CANNED 하드코딩을 MultiServerMCPClient 실연결로, 적대리뷰가 리다이렉트-SSRF·dry-run 부정직 적발(둘 다 happy초록)·auth-at-rest [mcp,runtime,real-connection,redirect-ssrf,auth-at-rest,dry-run-honesty,verification-ladder]
 .dev/retrospect/INDEX.md:56:- 051 A2A endpoint 호출 경계 정규화 회고 — 스펙 063; 등록시점만 정규화해 stale endpoint가 호출 홉서 거부, 가드 앞 관대 정규화가 입력분포 바꿔 userinfo 둔갑 SSRF 부름 [normalize-before-guard,ssrf,userinfo-disguise,host-confusion,verification-ladder,adversarial]
@@ -165,7 +165,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 .dev/retrospect/INDEX.md:340:- 335 첨부-메모리 축 분리(스펙 407) — 텍스트 재작성 시 소비처 전 열거(메모리 축이 주입본 소비→기억 오염); or 폴백은 빈값도 폴백(None 판정으로)·모드 우회는 관문 정화로·폴백 경로에도 캡 명시(413); 실사용 발견→깨진 문자열이 테스트 픽스처로 [enumerate-text-consumers,none-not-falsy-fallback,gate-cleanse-at-chokepoint,fallback-path-needs-same-cap] → 32/32+SUITE_OK
 
 exec
-/bin/zsh -lc "rg -n \"415|첨부 후속|attachment hardening\" .dev packages/api/tests packages/api/src | head -200 && nl -ba /Users/anthony/.codex/memories/MEMORY.md | sed -n '61,90p' && rg --files packages/api/src packages/api/tests | rg '(body_limit|sessions\\.py|chat\\.py|chat_attachments|chat_context_types|runtime_mcp|broker/core|chat_approval|chat_graph_build|verify_415)'" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "rg -n \"415|첨부 후속|attachment hardening\" .dev packages/api/tests packages/api/src | head -200 && nl -ba ~/.codex/memories/MEMORY.md | sed -n '61,90p' && rg --files packages/api/src packages/api/tests | rg '(body_limit|sessions\\.py|chat\\.py|chat_attachments|chat_context_types|runtime_mcp|broker/core|chat_approval|chat_graph_build|verify_415)'" in .
  succeeded in 0ms:
 rg: packages/api/tests: No such file or directory (os error 2)
 .dev/backlog.md:14:- [ ] **첨부 후속 경화(스펙 404 OUT — codex 잔여, 2026-07-19)**: ①HTTP body limit·업로드 rate limit(인프라/ASGI 층 — pre-parse 메모리 DoS는 앱 캡으로 못 막음) ②턴 전체 컨텍스트 예산 계약(첨부 총합 9만자+히스토리+메시지 — 모델별 예산 처리) ③첨부 턴 부수효과 도구 승인 강제 검토(nonce 펜스는 구조 위조만 차단 — 모델 차원 간접 인젝션의 남은 축). 근거=.dev/reviews/404-file-attach/codex.out.
@@ -218,7 +218,7 @@ packages/api/src/api/chat.py:294:    # 첨부 유래 컨텍스트 판정(스펙 
 .dev/reviews/415-attachment-hardening/codex.out:35:검증된 것(verify_415 22/22, throwaway server): 3MB JSON 413(CL+chunked 실측), 업로드 6MB 경계,
 .dev/reviews/415-attachment-hardening/codex.out:51:_build_resume_broker), chat_graph_build.py(_graph_fingerprint), tests/verify_415_attachment_hardening.py
 .dev/reviews/415-attachment-hardening/codex.out:63:참고 자산: 스펙 415 및 보안 리뷰 관련 인덱스·학습을 먼저 선별하고, 기존 검증 목록의 여집합만 별도로 추적합니다.
-.dev/reviews/415-attachment-hardening/codex.out:65:/bin/zsh -lc "sed -n '1,240p' /Users/anthony/.codex/plugins/cache/karpathy-skills/andrej-karpathy-skills/1.0.0/skills/karpathy-guidelines/SKILL.md && rg -n \"415|attachment|첨부|SSRF|security review|보안\" /Users/anthony/.codex/memories/MEMORY.md .dev/learning/INDEX.md .dev/retrospect/INDEX.md .dev/troubleshooting/INDEX.md 2>/dev/null" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+.dev/reviews/415-attachment-hardening/codex.out:65:/bin/zsh -lc "sed -n '1,240p' ~/.codex/plugins/cache/karpathy-skills/andrej-karpathy-skills/1.0.0/skills/karpathy-guidelines/SKILL.md && rg -n \"415|attachment|첨부|SSRF|security review|보안\" ~/.codex/memories/MEMORY.md .dev/learning/INDEX.md .dev/retrospect/INDEX.md .dev/troubleshooting/INDEX.md 2>/dev/null" in .
 .dev/reviews/415-attachment-hardening/prompt.txt:1:역할: 적대적 보안 리뷰어. 스펙 415(첨부 후속 경화)의 구현을 공격자 관점에서 검증하라.
 .dev/reviews/415-attachment-hardening/prompt.txt:21:검증된 것(verify_415 22/22, throwaway server): 3MB JSON 413(CL+chunked 실측), 업로드 6MB 경계,
 .dev/reviews/415-attachment-hardening/prompt.txt:37:_build_resume_broker), chat_graph_build.py(_graph_fingerprint), tests/verify_415_attachment_hardening.py
@@ -236,14 +236,14 @@ packages/api/src/api/chat.py:294:    # 첨부 유래 컨텍스트 판정(스펙 
 .dev/design-refs/ant-design-system/project/components/core/Icon.jsx:62:  "sync": "<path d=\"M168 504.2c1-43.7 10-86.1 26.9-126 17.3-41 42.1-77.7 73.7-109.4S337 212.3 378 195c42.4-17.9 87.4-27 133.9-27s91.5 9.1 133.8 27A341.5 341.5 0 0 1 755 268.8c9.9 9.9 19.2 20.4 27.8 31.4l-60.2 47a8 8 0 0 0 3 14.1l175.7 43c5 1.2 9.9-2.6 9.9-7.7l.8-180.9c0-6.7-7.7-10.5-12.9-6.3l-56.4 44.1C765.8 155.1 646.2 92 511.8 92 282.7 92 96.3 275.6 92 503.8a8 8 0 0 0 8 8.2h60c4.4 0 7.9-3.5 8-7.8zm756 7.8h-60c-4.4 0-7.9 3.5-8 7.8-1 43.7-10 86.1-26.9 126-17.3 41-42.1 77.8-73.7 109.4A342.45 342.45 0 0 1 512.1 856a342.24 342.24 0 0 1-243.2-100.8c-9.9-9.9-19.2-20.4-27.8-31.4l60.2-47a8 8 0 0 0-3-14.1l-175.7-43c-5-1.2-9.9 2.6-9.9 7.7l-.7 181c0 6.7 7.7 10.5 12.9 6.3l56.4-44.1C258.2 868.9 377.8 932 512.2 932c229.2 0 415.5-183.7 419.8-411.8a8 8 0 0 0-8-8.2z\"></path>",
     61	# Task Group: my-agents packages/api SSRF / served MCP security review
     62	
-    63	scope: Read-only adversarial security-review patterns for `/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents` around SSRF boundaries, served MCP exemptions, and model/seed/route/call-site tracing.
-    64	applies_to: cwd=/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents; reuse_rule=safe for future security reviews in this repo, but verify current route/model/seed behavior before reusing exact implementation details
+    63	scope: Read-only adversarial security-review patterns for `.` around SSRF boundaries, served MCP exemptions, and model/seed/route/call-site tracing.
+    64	applies_to: cwd=.; reuse_rule=safe for future security reviews in this repo, but verify current route/model/seed behavior before reusing exact implementation details
     65	
     66	## Task 1: SSRF exception review for self-served MCP endpoints, success
     67	
     68	### rollout_summary_files
     69	
-    70	- rollout_summaries/2026-07-15T06-18-37-yqWj-served_mcp_ssrf_review_and_chat_stream_refactor.md (cwd=/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents, rollout_path=/Users/anthony/.codex/sessions/2026/07/15/rollout-2026-07-15T15-18-37-019f646d-5fe2-76e0-8046-4d07452fce57.jsonl, updated_at=2026-07-18T12:10:14+00:00, thread_id=019f646d-5fe2-76e0-8046-4d07452fce57, no P0 SSRF bypass found; rename path remained a bounded hardening gap rather than an exploit)
+    70	- rollout_summaries/2026-07-15T06-18-37-yqWj-served_mcp_ssrf_review_and_chat_stream_refactor.md (cwd=., rollout_path=~/.codex/sessions/2026/07/15/rollout-2026-07-15T15-18-37-019f646d-5fe2-76e0-8046-4d07452fce57.jsonl, updated_at=2026-07-18T12:10:14+00:00, thread_id=019f646d-5fe2-76e0-8046-4d07452fce57, no P0 SSRF bypass found; rename path remained a bounded hardening gap rather than an exploit)
     71	
     72	### keywords
     73	
@@ -284,7 +284,7 @@ codex
 [단계 3 — Planning]
 완료 조건은 세 가지입니다: (1) P1은 실제 우회 경로와 재현 가능한 공격 시나리오만, (2) P2는 악용 전제가 있거나 방어 심도가 부족한 경계 약점만, (3) 안전 판정은 호출부 전수 검색 근거와 함께 분리합니다. 검증은 정적 호출 그래프·스키마/라우트 열거·기존 테스트의 assertion 범위 대조로 수행하며 파일은 수정하지 않습니다.
 exec
-/bin/zsh -lc "nl -ba packages/api/src/api/body_limit.py; nl -ba packages/api/src/api/main.py | sed -n '1,210p'; nl -ba packages/api/src/api/schemas/sessions.py | sed -n '1,260p'; nl -ba packages/api/src/api/chat.py | sed -n '220,330p'; nl -ba packages/api/src/api/chat_attachments.py | sed -n '1,280p'" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "nl -ba packages/api/src/api/body_limit.py; nl -ba packages/api/src/api/main.py | sed -n '1,210p'; nl -ba packages/api/src/api/schemas/sessions.py | sed -n '1,260p'; nl -ba packages/api/src/api/chat.py | sed -n '220,330p'; nl -ba packages/api/src/api/chat_attachments.py | sed -n '1,280p'" in .
  succeeded in 0ms:
      1	"""전역 요청 body 상한 미들웨어(스펙 415 P1) — pre-parse 메모리 DoS 차단.
      2	
@@ -1136,7 +1136,7 @@ exec
 2026-07-20T05:56:04.486291Z ERROR codex_models_manager::manager: failed to renew cache TTL: missing field `supports_reasoning_summaries` at line 88 column 5
 2026-07-20T05:56:04.506027Z ERROR codex_models_manager::manager: failed to renew cache TTL: missing field `supports_reasoning_summaries` at line 88 column 5
 exec
-/bin/zsh -lc "nl -ba packages/api/src/api/schemas/sessions.py | sed -n '40,150p'; nl -ba packages/api/src/api/chat_context_types.py; nl -ba packages/api/src/api/runtime_mcp.py | sed -n '90,220p;320,430p'; nl -ba packages/api/src/api/broker/core.py | sed -n '1,260p'; nl -ba packages/api/src/api/chat_approval.py | sed -n '50,140p;260,370p'; nl -ba packages/api/src/api/chat_graph_build.py | sed -n '120,180p;300,440p'" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "nl -ba packages/api/src/api/schemas/sessions.py | sed -n '40,150p'; nl -ba packages/api/src/api/chat_context_types.py; nl -ba packages/api/src/api/runtime_mcp.py | sed -n '90,220p;320,430p'; nl -ba packages/api/src/api/broker/core.py | sed -n '1,260p'; nl -ba packages/api/src/api/chat_approval.py | sed -n '50,140p;260,370p'; nl -ba packages/api/src/api/chat_graph_build.py | sed -n '120,180p;300,440p'" in .
  succeeded in 0ms:
     40	    # 이유 상한(codex 209 F3) — 무제한이면 저장/응답 팽창. 사유는 짧은 메모라 2000자면 충분.
     41	    reason: str = Field(default="", max_length=2000)
@@ -2042,7 +2042,7 @@ exec
 2026-07-20T05:56:09.279441Z ERROR codex_models_manager::manager: failed to renew cache TTL: missing field `supports_reasoning_summaries` at line 88 column 5
 2026-07-20T05:56:15.822534Z ERROR codex_models_manager::manager: failed to renew cache TTL: missing field `supports_reasoning_summaries` at line 88 column 5
 exec
-/bin/zsh -lc "rg -n \"build_mcp_tools\\(|build_broker\\(|build_agent_tools\\(|\\.invoke\\(|ainvoke\\(\" packages/api/src/api --glob '*.py' | rg -v '(tests|\\.dev)' > /tmp/x 2>/dev/null || true; sed -n '1,260p' /tmp/x; rg -n \"ChatRequest|overrides|formId|values|version\" packages/api/src/api/chat*.py packages/api/src/api/schemas -g '*.py'; rg -n \"strip_attachment_blocks|_load_session_conversation|conversation\" packages/api/src/api/chat*.py | head -240; nl -ba tests/verify_415_attachment_hardening.py | sed -n '1,360p'" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "rg -n \"build_mcp_tools\\(|build_broker\\(|build_agent_tools\\(|\\.invoke\\(|ainvoke\\(\" packages/api/src/api --glob '*.py' | rg -v '(tests|\\.dev)' > /tmp/x 2>/dev/null || true; sed -n '1,260p' /tmp/x; rg -n \"ChatRequest|overrides|formId|values|version\" packages/api/src/api/chat*.py packages/api/src/api/schemas -g '*.py'; rg -n \"strip_attachment_blocks|_load_session_conversation|conversation\" packages/api/src/api/chat*.py | head -240; nl -ba tests/verify_415_attachment_hardening.py | sed -n '1,360p'" in .
  succeeded in 0ms:
 zsh:1: operation not permitted: /tmp/x
 sed: /tmp/x: No such file or directory
@@ -2542,7 +2542,7 @@ codex
 [단계 4 — Execution]
 현재까지 두 축이 특히 의심됩니다. 첫째, “현재 턴=마지막 user”라는 전제를 스키마가 강제하지 않아 assistant로 끝나는 메시지 배열이 5만자 관문을 비켜갈 수 있습니다. 둘째, rate-limit 키 청소는 deque 내부만 비우고 dict 엔트리는 제거하지 않아 주체 수에 비례한 영구 메모리 증가가 가능합니다. 이제 P4의 모든 실행 입구가 실제 첨부 채팅 컨텍스트와 만나는지 대조합니다.
 exec
-/bin/zsh -lc "rg -n \"build_mcp_tools\\(|build_broker\\(|build_agent_tools\\(\" packages/api/src/api --glob '*.py'; rg -n \"provider\\.invoke|\\.ainvoke\\(kwargs\\)|\\.ainvoke\\(.*config|eval_run_agent|McpProvider|AgentProvider|PolicyScopedBroker\" packages/api/src/api --glob '*.py'; nl -ba packages/api/src/api/chat_turn_runtime.py | sed -n '130,290p;360,410p'; nl -ba packages/api/src/api/chat_context_overrides.py | sed -n '80,130p'; nl -ba packages/api/src/api/chat_history.py | sed -n '80,140p'; nl -ba packages/api/src/api/auth.py | sed -n '1,180p'; nl -ba packages/api/src/api/approvals.py | sed -n '70,190p'" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "rg -n \"build_mcp_tools\\(|build_broker\\(|build_agent_tools\\(\" packages/api/src/api --glob '*.py'; rg -n \"provider\\.invoke|\\.ainvoke\\(kwargs\\)|\\.ainvoke\\(.*config|eval_run_agent|McpProvider|AgentProvider|PolicyScopedBroker\" packages/api/src/api --glob '*.py'; nl -ba packages/api/src/api/chat_turn_runtime.py | sed -n '130,290p;360,410p'; nl -ba packages/api/src/api/chat_context_overrides.py | sed -n '80,130p'; nl -ba packages/api/src/api/chat_history.py | sed -n '80,140p'; nl -ba packages/api/src/api/auth.py | sed -n '1,180p'; nl -ba packages/api/src/api/approvals.py | sed -n '70,190p'" in .
  succeeded in 0ms:
 packages/api/src/api/chat_context_overrides.py:91:    - capabilities(스펙 122): 브로커가 build_broker(principal=호출자)로 호출자 RBAC 게이트
 packages/api/src/api/eval_runner.py:85:    tools = await runtime.build_mcp_tools(
@@ -3146,7 +3146,7 @@ packages/api/src/api/broker/providers/mcp.py:92:class McpProvider:
 
 2026-07-20T05:56:59.228739Z ERROR codex_models_manager::manager: failed to renew cache TTL: missing field `supports_reasoning_summaries` at line 88 column 5
 exec
-/bin/zsh -lc "rg -n \"def _may_resolve|self_approve|approver\" packages/api/src/api/approvals.py packages/api/src/api/authz.py; nl -ba packages/api/src/api/runtime_mcp.py | sed -n '330,415p'; nl -ba packages/api/src/api/broker/core.py | sed -n '65,220p;278,330p'; nl -ba packages/api/src/api/eval_runner.py | sed -n '70,115p;150,215p'; nl -ba packages/api/src/api/chat_a2a_serve.py | sed -n '200,245p;250,310p'; nl -ba packages/api/src/api/blocks_mcp.py | sed -n '220,275p'; nl -ba packages/api/src/api/runtime_agent_tools.py | sed -n '1,100p'" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "rg -n \"def _may_resolve|self_approve|approver\" packages/api/src/api/approvals.py packages/api/src/api/authz.py; nl -ba packages/api/src/api/runtime_mcp.py | sed -n '330,415p'; nl -ba packages/api/src/api/broker/core.py | sed -n '65,220p;278,330p'; nl -ba packages/api/src/api/eval_runner.py | sed -n '70,115p;150,215p'; nl -ba packages/api/src/api/chat_a2a_serve.py | sed -n '200,245p;250,310p'; nl -ba packages/api/src/api/blocks_mcp.py | sed -n '220,275p'; nl -ba packages/api/src/api/runtime_agent_tools.py | sed -n '1,100p'" in .
  succeeded in 0ms:
 packages/api/src/api/approvals.py:24:def _may_resolve(approval: Approval, principal: Any) -> bool:  # User | "machine" 센티널 duck-typing
 packages/api/src/api/approvals.py:28:    - **approver 스탬프 有(스펙 177 P2, MCP 도구 승인)**: 진실원은 도구 정책이 박은 `approval.approver`.
@@ -3773,7 +3773,7 @@ packages/api/src/api/authz.py:144:    return get_enforcer().enforce(user_sub, pe
 
 2026-07-20T05:57:04.238634Z ERROR codex_models_manager::manager: failed to renew cache TTL: missing field `supports_reasoning_summaries` at line 88 column 5
 exec
-/bin/zsh -lc "nl -ba packages/api/src/api/chat_a2a_serve.py | sed -n '298,370p'; nl -ba packages/api/src/api/approvals.py | sed -n '20,48p'; nl -ba packages/api/src/api/chat.py | sed -n '213,265p'; nl -ba packages/api/src/api/chat_turn_runtime.py | sed -n '367,389p'; nl -ba packages/api/src/api/body_limit.py | sed -n '38,124p'; git status --short" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "nl -ba packages/api/src/api/chat_a2a_serve.py | sed -n '298,370p'; nl -ba packages/api/src/api/approvals.py | sed -n '20,48p'; nl -ba packages/api/src/api/chat.py | sed -n '213,265p'; nl -ba packages/api/src/api/chat_turn_runtime.py | sed -n '367,389p'; nl -ba packages/api/src/api/body_limit.py | sed -n '38,124p'; git status --short" in .
  succeeded in 0ms:
    298	async def prepare_serve_turn(
    299	    agent_id: uuid.UUID,
@@ -4061,11 +4061,11 @@ codex
 
 근거:
 
-- 메인 채팅만 대화 내 `"⟦첨부 "`를 검사해 `ctx.attachment_context`를 설정합니다: [chat.py:293](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat.py:293).
-- A2A 서빙은 기존 세션 대화를 실제로 복원합니다: [chat_a2a_serve.py:287](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_a2a_serve.py:287).
-- 그런데 도구를 먼저 만들면서 `force_approval`을 전달하지 않습니다: [chat_a2a_serve.py:220](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_a2a_serve.py:220).
-- 이후에야 대화를 복원합니다: [chat_a2a_serve.py:317](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_a2a_serve.py:317), [chat_a2a_serve.py:331](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_a2a_serve.py:331).
-- `build_mcp_tools()`의 기본값은 `False`이고, 강제 합성은 명시적으로 참일 때만 일어납니다: [runtime_mcp.py:375](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/runtime_mcp.py:375), [runtime_mcp.py:365](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/runtime_mcp.py:365).
+- 메인 채팅만 대화 내 `"⟦첨부 "`를 검사해 `ctx.attachment_context`를 설정합니다: [chat.py:293](packages/api/src/api/chat.py:293).
+- A2A 서빙은 기존 세션 대화를 실제로 복원합니다: [chat_a2a_serve.py:287](packages/api/src/api/chat_a2a_serve.py:287).
+- 그런데 도구를 먼저 만들면서 `force_approval`을 전달하지 않습니다: [chat_a2a_serve.py:220](packages/api/src/api/chat_a2a_serve.py:220).
+- 이후에야 대화를 복원합니다: [chat_a2a_serve.py:317](packages/api/src/api/chat_a2a_serve.py:317), [chat_a2a_serve.py:331](packages/api/src/api/chat_a2a_serve.py:331).
+- `build_mcp_tools()`의 기본값은 `False`이고, 강제 합성은 명시적으로 참일 때만 일어납니다: [runtime_mcp.py:375](packages/api/src/api/runtime_mcp.py:375), [runtime_mcp.py:365](packages/api/src/api/runtime_mcp.py:365).
 
 노드형 agent-call은 A2A 서빙에서 아예 미지원이라 이 경로의 우회 대상은 직접 MCP 도구입니다.
 
@@ -4081,9 +4081,9 @@ codex
 
 근거:
 
-- 현재 구현은 신규 Approval에만 스탬프를 씁니다: [chat_approval.py:87](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_approval.py:87).
-- 재개는 오직 `approval.args["_attachment_context"]`를 읽고, 없는 레거시 행을 의도적으로 `False` 처리합니다: [chat_approval.py:295](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_approval.py:295).
-- 그 값이 MCP와 브로커 강제 여부에 그대로 사용됩니다: [chat_approval.py:301](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_approval.py:301), [chat_approval.py:331](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_approval.py:331).
+- 현재 구현은 신규 Approval에만 스탬프를 씁니다: [chat_approval.py:87](packages/api/src/api/chat_approval.py:87).
+- 재개는 오직 `approval.args["_attachment_context"]`를 읽고, 없는 레거시 행을 의도적으로 `False` 처리합니다: [chat_approval.py:295](packages/api/src/api/chat_approval.py:295).
+- 그 값이 MCP와 브로커 강제 여부에 그대로 사용됩니다: [chat_approval.py:301](packages/api/src/api/chat_approval.py:301), [chat_approval.py:331](packages/api/src/api/chat_approval.py:331).
 
 신규 Approval 재개는 안전하지만, 배포 시점의 기존 pending 행이라는 유한한 마이그레이션 구멍이 남습니다.
 
@@ -4098,10 +4098,10 @@ codex
 
 근거:
 
-- 브로커는 `_gate(..., args)`로 실제 인자를 이미 받습니다: [broker/core.py:177](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/broker/core.py:177).
-- 하지만 강제 payload에는 의도적으로 `args: {}`만 저장합니다: [broker/core.py:187](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/broker/core.py:187).
-- 승인 뒤 실제 원본 `args`가 provider로 전달됩니다: [broker/core.py:210](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/broker/core.py:210).
-- `approver=self` 자체의 소유자 바인딩은 안전합니다: DB의 `approval.user_id`와 로그인 주체를 비교합니다: [approvals.py:37](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/approvals.py:37). 문제는 승인자가 공격 내용을 판단할 정보가 없다는 점입니다.
+- 브로커는 `_gate(..., args)`로 실제 인자를 이미 받습니다: [broker/core.py:177](packages/api/src/api/broker/core.py:177).
+- 하지만 강제 payload에는 의도적으로 `args: {}`만 저장합니다: [broker/core.py:187](packages/api/src/api/broker/core.py:187).
+- 승인 뒤 실제 원본 `args`가 provider로 전달됩니다: [broker/core.py:210](packages/api/src/api/broker/core.py:210).
+- `approver=self` 자체의 소유자 바인딩은 안전합니다: DB의 `approval.user_id`와 로그인 주체를 비교합니다: [approvals.py:37](packages/api/src/api/approvals.py:37). 문제는 승인자가 공격 내용을 판단할 정보가 없다는 점입니다.
 
 직접 MCP 래퍼는 redacted args를 보여주므로 이 약점은 브로커 경로에 국한됩니다.
 
@@ -4109,9 +4109,9 @@ codex
 
 ### 현재 턴 5만자 제한을 assistant-last 배열로 우회 가능
 
-`ChatRequest.messages`는 마지막 메시지가 user여야 한다는 불변식을 강제하지 않습니다: [schemas/sessions.py:82](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/schemas/sessions.py:82), [schemas/sessions.py:109](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/schemas/sessions.py:109).
+`ChatRequest.messages`는 마지막 메시지가 user여야 한다는 불변식을 강제하지 않습니다: [schemas/sessions.py:82](packages/api/src/api/schemas/sessions.py:82), [schemas/sessions.py:109](packages/api/src/api/schemas/sessions.py:109).
 
-5만자 검사는 마지막 항목이 user일 때만 적용됩니다: [chat.py:256](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat.py:256).
+5만자 검사는 마지막 항목이 user일 때만 적용됩니다: [chat.py:256](packages/api/src/api/chat.py:256).
 
 따라서 다음 형태는 통과합니다.
 
@@ -4124,20 +4124,20 @@ codex
 }
 ```
 
-클라이언트 관리 모드에서는 이 배열 전체가 conversation이 되고, 비노드형 그래프에는 윈도 내 메시지 전체가 전달됩니다: [chat.py:223](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat.py:223), [chat_turn_runtime.py:382](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_turn_runtime.py:382).
+클라이언트 관리 모드에서는 이 배열 전체가 conversation이 되고, 비노드형 그래프에는 윈도 내 메시지 전체가 전달됩니다: [chat.py:223](packages/api/src/api/chat.py:223), [chat_turn_runtime.py:382](packages/api/src/api/chat_turn_runtime.py:382).
 
 전역 2MB 제한 때문에 메모리 DoS 규모는 제한되지만, “현재 신규 user 입력 ≤5만자” 계약은 깨집니다.
 
 ### rate-limit 키 사전은 무한 증가 가능
 
-오래된 timestamp는 deque에서 제거하지만 빈 키 자체는 `_rate`에서 삭제하지 않습니다: [chat_attachments.py:149](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_attachments.py:149), [chat_attachments.py:157](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_attachments.py:157).
+오래된 timestamp는 deque에서 제거하지만 빈 키 자체는 `_rate`에서 삭제하지 않습니다: [chat_attachments.py:149](packages/api/src/api/chat_attachments.py:149), [chat_attachments.py:157](packages/api/src/api/chat_attachments.py:157).
 
 현재 공개 등록이 막혀 있어 일반 외부 공격자가 무제한 principal을 만들 수 있는 상태는 아니지만, 장기간 사용자 churn이나 관리 API 악용 시 principal당 dict/deque 하나가 프로세스 수명 동안 남습니다.
 
 추가 경계:
 
-- 머신 토큰 호출은 모두 `"machine"` 한 키를 공유합니다: [chat_attachments.py:178](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_attachments.py:178), [auth.py:76](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/auth.py:76). 우회가 아니라 한 머신 클라이언트가 다른 머신 업로드를 429로 막는 공유-key DoS입니다.
-- limiter는 프로세스 로컬이므로 다중 worker/replica에서는 인스턴스 수만큼 우회됩니다. 현재 단일 인스턴스 전제는 코드에 명시되어 있습니다: [chat_attachments.py:149](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_attachments.py:149).
+- 머신 토큰 호출은 모두 `"machine"` 한 키를 공유합니다: [chat_attachments.py:178](packages/api/src/api/chat_attachments.py:178), [auth.py:76](packages/api/src/api/auth.py:76). 우회가 아니라 한 머신 클라이언트가 다른 머신 업로드를 429로 막는 공유-key DoS입니다.
+- limiter는 프로세스 로컬이므로 다중 worker/replica에서는 인스턴스 수만큼 우회됩니다. 현재 단일 인스턴스 전제는 코드에 명시되어 있습니다: [chat_attachments.py:149](packages/api/src/api/chat_attachments.py:149).
 - 동기 호출 사이에는 `await`가 없어 단일 event loop 내 count 경쟁은 없습니다.
 
 ### body-limit의 ASGI 응답 재작성 상태 머신이 일반 스트리밍 앱에는 안전하지 않음
@@ -4147,32 +4147,32 @@ codex
 1. 원래 200 start가 이미 전송되고,
 2. `too_large=True`가 된 뒤 미들웨어가 두 번째 413 start를 보낼 수 있습니다.
 
-`response_started` 상태를 추적하지 않기 때문입니다: [body_limit.py:83](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/body_limit.py:83), [body_limit.py:97](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/body_limit.py:97).
+`response_started` 상태를 추적하지 않기 때문입니다: [body_limit.py:83](packages/api/src/api/body_limit.py:83), [body_limit.py:97](packages/api/src/api/body_limit.py:97).
 
 현재 FastAPI JSON/multipart 라우트는 body 파싱 후 핸들러에 진입하므로 확인된 실전 우회는 아닙니다. 다만 향후 request/response 동시 스트리밍 라우트가 추가되면 이중 start 또는 잘못된 Content-Length/body 조합이 됩니다.
 
-또한 RAG 예외 판정이 실제 라우트 구조가 아니라 부분문자열입니다. `/collections/.../documentsXYZ`도 큰 상한을 받습니다: [body_limit.py:38](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/body_limit.py:38). 현재 그런 body-consuming 라우트는 확인되지 않아 즉시 악용 가능한 구멍은 아니지만 예외 범위가 필요 이상으로 넓습니다.
+또한 RAG 예외 판정이 실제 라우트 구조가 아니라 부분문자열입니다. `/collections/.../documentsXYZ`도 큰 상한을 받습니다: [body_limit.py:38](packages/api/src/api/body_limit.py:38). 현재 그런 body-consuming 라우트는 확인되지 않아 즉시 악용 가능한 구멍은 아니지만 예외 범위가 필요 이상으로 넓습니다.
 
 ### 무제한 구조 필드
 
 다음 필드는 자체 구조/개수/중첩 제한이 없습니다.
 
-- `overrides: dict`: [schemas/sessions.py:121](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/schemas/sessions.py:121)
-- `form.values: dict`: [schemas/sessions.py:101](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/schemas/sessions.py:101)
-- `formId`, `version` 문자열: [schemas/sessions.py:105](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/schemas/sessions.py:105), [schemas/sessions.py:128](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/schemas/sessions.py:128)
+- `overrides: dict`: [schemas/sessions.py:121](packages/api/src/api/schemas/sessions.py:121)
+- `form.values: dict`: [schemas/sessions.py:101](packages/api/src/api/schemas/sessions.py:101)
+- `formId`, `version` 문자열: [schemas/sessions.py:105](packages/api/src/api/schemas/sessions.py:105), [schemas/sessions.py:128](packages/api/src/api/schemas/sessions.py:128)
 
-전역 2MB가 총 raw 크기를 제한하므로 P1 메모리 DoS는 아니지만, 깊은 JSON 파싱 비용과 커스텀 impl로 전달되는 `overrides`의 복잡도는 별도 계약이 없습니다. 특히 적용된 원본 overrides가 커스텀 에이전트에 그대로 전달됩니다: [chat_context_overrides.py:97](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_overrides.py:97), [chat_context_overrides.py:121](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_overrides.py:121).
+전역 2MB가 총 raw 크기를 제한하므로 P1 메모리 DoS는 아니지만, 깊은 JSON 파싱 비용과 커스텀 impl로 전달되는 `overrides`의 복잡도는 별도 계약이 없습니다. 특히 적용된 원본 overrides가 커스텀 에이전트에 그대로 전달됩니다: [chat_context_overrides.py:97](packages/api/src/api/chat_context_overrides.py:97), [chat_context_overrides.py:121](packages/api/src/api/chat_context_overrides.py:121).
 
 ## 확인함 — 안전 확인 목록
 
-- Content-Length 선검사와 raw chunk 누적은 HTTP/1.1 chunked 및 HTTP/2 DATA 프레임 모두 ASGI `http.request.body` 기준으로 계산하므로 프로토콜 차이로 빠지지 않습니다: [body_limit.py:68](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/body_limit.py:68), [body_limit.py:87](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/body_limit.py:87).
-- multipart 오버헤드까지 6MB 미들웨어 상한에 포함되고, 실제 파일은 엔드포인트에서 raw 5MB를 재검사합니다: [body_limit.py:26](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/body_limit.py:26), [chat_attachments.py:187](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_attachments.py:187).
-- 메인 채팅 직접 MCP, 브로커 MCP/agent, 노드형 agent-call 모두 `attachment_context`를 전달합니다: [chat_turn_runtime.py:127](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_turn_runtime.py:127), [chat_turn_runtime.py:238](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_turn_runtime.py:238), [runtime_agent_tools.py:23](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/runtime_agent_tools.py:23).
-- 신규 Approval 재개는 직접 MCP와 브로커 양쪽 모두 강제 상태를 복원합니다: [chat_approval.py:295](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_approval.py:295), [chat_approval.py:301](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_approval.py:301), [chat_approval.py:331](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_approval.py:331).
-- `strip_attachment_blocks()`는 메모리 검색 쿼리에만 적용되며 영속 conversation의 펜스를 제거하지 않습니다: [chat_graph_build.py:88](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_graph_build.py:88), [chat_attachments.py:41](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_attachments.py:41).
-- `eval_runner`와 `blocks_mcp.test-tool`은 첨부 채팅 요청을 소비하지 않는 별도 관리자/시험 입구이므로 `attachment_context` 누락 자체는 415 우회가 아닙니다: [eval_runner.py:155](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/eval_runner.py:155), [blocks_mcp.py:222](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/blocks_mcp.py:222).
-- 직접 원격 A2A 프록시 경로는 이번 턴 첨부를 명시적으로 거부합니다: [chat.py:263](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat.py:263).
-- `verify_415`는 marker가 DB에 남는지만 확인하고, 후속 메인/A2A 턴에서 실제 도구가 interrupt되는지는 확인하지 않습니다: [verify_415_attachment_hardening.py:239](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/tests/verify_415_attachment_hardening.py:239). 따라서 22/22는 위 P1들을 반증하지 않습니다.
+- Content-Length 선검사와 raw chunk 누적은 HTTP/1.1 chunked 및 HTTP/2 DATA 프레임 모두 ASGI `http.request.body` 기준으로 계산하므로 프로토콜 차이로 빠지지 않습니다: [body_limit.py:68](packages/api/src/api/body_limit.py:68), [body_limit.py:87](packages/api/src/api/body_limit.py:87).
+- multipart 오버헤드까지 6MB 미들웨어 상한에 포함되고, 실제 파일은 엔드포인트에서 raw 5MB를 재검사합니다: [body_limit.py:26](packages/api/src/api/body_limit.py:26), [chat_attachments.py:187](packages/api/src/api/chat_attachments.py:187).
+- 메인 채팅 직접 MCP, 브로커 MCP/agent, 노드형 agent-call 모두 `attachment_context`를 전달합니다: [chat_turn_runtime.py:127](packages/api/src/api/chat_turn_runtime.py:127), [chat_turn_runtime.py:238](packages/api/src/api/chat_turn_runtime.py:238), [runtime_agent_tools.py:23](packages/api/src/api/runtime_agent_tools.py:23).
+- 신규 Approval 재개는 직접 MCP와 브로커 양쪽 모두 강제 상태를 복원합니다: [chat_approval.py:295](packages/api/src/api/chat_approval.py:295), [chat_approval.py:301](packages/api/src/api/chat_approval.py:301), [chat_approval.py:331](packages/api/src/api/chat_approval.py:331).
+- `strip_attachment_blocks()`는 메모리 검색 쿼리에만 적용되며 영속 conversation의 펜스를 제거하지 않습니다: [chat_graph_build.py:88](packages/api/src/api/chat_graph_build.py:88), [chat_attachments.py:41](packages/api/src/api/chat_attachments.py:41).
+- `eval_runner`와 `blocks_mcp.test-tool`은 첨부 채팅 요청을 소비하지 않는 별도 관리자/시험 입구이므로 `attachment_context` 누락 자체는 415 우회가 아닙니다: [eval_runner.py:155](packages/api/src/api/eval_runner.py:155), [blocks_mcp.py:222](packages/api/src/api/blocks_mcp.py:222).
+- 직접 원격 A2A 프록시 경로는 이번 턴 첨부를 명시적으로 거부합니다: [chat.py:263](packages/api/src/api/chat.py:263).
+- `verify_415`는 marker가 DB에 남는지만 확인하고, 후속 메인/A2A 턴에서 실제 도구가 interrupt되는지는 확인하지 않습니다: [verify_415_attachment_hardening.py:239](tests/verify_415_attachment_hardening.py:239). 따라서 22/22는 위 P1들을 반증하지 않습니다.
 
 읽기 전용 정적 검증만 수행했으며 파일 수정·서버 실행은 하지 않았습니다. Compounding과 커밋은 수정 금지 요청 때문에 생략했습니다.
 
@@ -4199,11 +4199,11 @@ tokens used
 
 근거:
 
-- 메인 채팅만 대화 내 `"⟦첨부 "`를 검사해 `ctx.attachment_context`를 설정합니다: [chat.py:293](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat.py:293).
-- A2A 서빙은 기존 세션 대화를 실제로 복원합니다: [chat_a2a_serve.py:287](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_a2a_serve.py:287).
-- 그런데 도구를 먼저 만들면서 `force_approval`을 전달하지 않습니다: [chat_a2a_serve.py:220](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_a2a_serve.py:220).
-- 이후에야 대화를 복원합니다: [chat_a2a_serve.py:317](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_a2a_serve.py:317), [chat_a2a_serve.py:331](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_a2a_serve.py:331).
-- `build_mcp_tools()`의 기본값은 `False`이고, 강제 합성은 명시적으로 참일 때만 일어납니다: [runtime_mcp.py:375](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/runtime_mcp.py:375), [runtime_mcp.py:365](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/runtime_mcp.py:365).
+- 메인 채팅만 대화 내 `"⟦첨부 "`를 검사해 `ctx.attachment_context`를 설정합니다: [chat.py:293](packages/api/src/api/chat.py:293).
+- A2A 서빙은 기존 세션 대화를 실제로 복원합니다: [chat_a2a_serve.py:287](packages/api/src/api/chat_a2a_serve.py:287).
+- 그런데 도구를 먼저 만들면서 `force_approval`을 전달하지 않습니다: [chat_a2a_serve.py:220](packages/api/src/api/chat_a2a_serve.py:220).
+- 이후에야 대화를 복원합니다: [chat_a2a_serve.py:317](packages/api/src/api/chat_a2a_serve.py:317), [chat_a2a_serve.py:331](packages/api/src/api/chat_a2a_serve.py:331).
+- `build_mcp_tools()`의 기본값은 `False`이고, 강제 합성은 명시적으로 참일 때만 일어납니다: [runtime_mcp.py:375](packages/api/src/api/runtime_mcp.py:375), [runtime_mcp.py:365](packages/api/src/api/runtime_mcp.py:365).
 
 노드형 agent-call은 A2A 서빙에서 아예 미지원이라 이 경로의 우회 대상은 직접 MCP 도구입니다.
 
@@ -4219,9 +4219,9 @@ tokens used
 
 근거:
 
-- 현재 구현은 신규 Approval에만 스탬프를 씁니다: [chat_approval.py:87](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_approval.py:87).
-- 재개는 오직 `approval.args["_attachment_context"]`를 읽고, 없는 레거시 행을 의도적으로 `False` 처리합니다: [chat_approval.py:295](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_approval.py:295).
-- 그 값이 MCP와 브로커 강제 여부에 그대로 사용됩니다: [chat_approval.py:301](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_approval.py:301), [chat_approval.py:331](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_approval.py:331).
+- 현재 구현은 신규 Approval에만 스탬프를 씁니다: [chat_approval.py:87](packages/api/src/api/chat_approval.py:87).
+- 재개는 오직 `approval.args["_attachment_context"]`를 읽고, 없는 레거시 행을 의도적으로 `False` 처리합니다: [chat_approval.py:295](packages/api/src/api/chat_approval.py:295).
+- 그 값이 MCP와 브로커 강제 여부에 그대로 사용됩니다: [chat_approval.py:301](packages/api/src/api/chat_approval.py:301), [chat_approval.py:331](packages/api/src/api/chat_approval.py:331).
 
 신규 Approval 재개는 안전하지만, 배포 시점의 기존 pending 행이라는 유한한 마이그레이션 구멍이 남습니다.
 
@@ -4236,10 +4236,10 @@ tokens used
 
 근거:
 
-- 브로커는 `_gate(..., args)`로 실제 인자를 이미 받습니다: [broker/core.py:177](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/broker/core.py:177).
-- 하지만 강제 payload에는 의도적으로 `args: {}`만 저장합니다: [broker/core.py:187](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/broker/core.py:187).
-- 승인 뒤 실제 원본 `args`가 provider로 전달됩니다: [broker/core.py:210](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/broker/core.py:210).
-- `approver=self` 자체의 소유자 바인딩은 안전합니다: DB의 `approval.user_id`와 로그인 주체를 비교합니다: [approvals.py:37](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/approvals.py:37). 문제는 승인자가 공격 내용을 판단할 정보가 없다는 점입니다.
+- 브로커는 `_gate(..., args)`로 실제 인자를 이미 받습니다: [broker/core.py:177](packages/api/src/api/broker/core.py:177).
+- 하지만 강제 payload에는 의도적으로 `args: {}`만 저장합니다: [broker/core.py:187](packages/api/src/api/broker/core.py:187).
+- 승인 뒤 실제 원본 `args`가 provider로 전달됩니다: [broker/core.py:210](packages/api/src/api/broker/core.py:210).
+- `approver=self` 자체의 소유자 바인딩은 안전합니다: DB의 `approval.user_id`와 로그인 주체를 비교합니다: [approvals.py:37](packages/api/src/api/approvals.py:37). 문제는 승인자가 공격 내용을 판단할 정보가 없다는 점입니다.
 
 직접 MCP 래퍼는 redacted args를 보여주므로 이 약점은 브로커 경로에 국한됩니다.
 
@@ -4247,9 +4247,9 @@ tokens used
 
 ### 현재 턴 5만자 제한을 assistant-last 배열로 우회 가능
 
-`ChatRequest.messages`는 마지막 메시지가 user여야 한다는 불변식을 강제하지 않습니다: [schemas/sessions.py:82](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/schemas/sessions.py:82), [schemas/sessions.py:109](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/schemas/sessions.py:109).
+`ChatRequest.messages`는 마지막 메시지가 user여야 한다는 불변식을 강제하지 않습니다: [schemas/sessions.py:82](packages/api/src/api/schemas/sessions.py:82), [schemas/sessions.py:109](packages/api/src/api/schemas/sessions.py:109).
 
-5만자 검사는 마지막 항목이 user일 때만 적용됩니다: [chat.py:256](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat.py:256).
+5만자 검사는 마지막 항목이 user일 때만 적용됩니다: [chat.py:256](packages/api/src/api/chat.py:256).
 
 따라서 다음 형태는 통과합니다.
 
@@ -4262,20 +4262,20 @@ tokens used
 }
 ```
 
-클라이언트 관리 모드에서는 이 배열 전체가 conversation이 되고, 비노드형 그래프에는 윈도 내 메시지 전체가 전달됩니다: [chat.py:223](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat.py:223), [chat_turn_runtime.py:382](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_turn_runtime.py:382).
+클라이언트 관리 모드에서는 이 배열 전체가 conversation이 되고, 비노드형 그래프에는 윈도 내 메시지 전체가 전달됩니다: [chat.py:223](packages/api/src/api/chat.py:223), [chat_turn_runtime.py:382](packages/api/src/api/chat_turn_runtime.py:382).
 
 전역 2MB 제한 때문에 메모리 DoS 규모는 제한되지만, “현재 신규 user 입력 ≤5만자” 계약은 깨집니다.
 
 ### rate-limit 키 사전은 무한 증가 가능
 
-오래된 timestamp는 deque에서 제거하지만 빈 키 자체는 `_rate`에서 삭제하지 않습니다: [chat_attachments.py:149](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_attachments.py:149), [chat_attachments.py:157](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_attachments.py:157).
+오래된 timestamp는 deque에서 제거하지만 빈 키 자체는 `_rate`에서 삭제하지 않습니다: [chat_attachments.py:149](packages/api/src/api/chat_attachments.py:149), [chat_attachments.py:157](packages/api/src/api/chat_attachments.py:157).
 
 현재 공개 등록이 막혀 있어 일반 외부 공격자가 무제한 principal을 만들 수 있는 상태는 아니지만, 장기간 사용자 churn이나 관리 API 악용 시 principal당 dict/deque 하나가 프로세스 수명 동안 남습니다.
 
 추가 경계:
 
-- 머신 토큰 호출은 모두 `"machine"` 한 키를 공유합니다: [chat_attachments.py:178](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_attachments.py:178), [auth.py:76](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/auth.py:76). 우회가 아니라 한 머신 클라이언트가 다른 머신 업로드를 429로 막는 공유-key DoS입니다.
-- limiter는 프로세스 로컬이므로 다중 worker/replica에서는 인스턴스 수만큼 우회됩니다. 현재 단일 인스턴스 전제는 코드에 명시되어 있습니다: [chat_attachments.py:149](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_attachments.py:149).
+- 머신 토큰 호출은 모두 `"machine"` 한 키를 공유합니다: [chat_attachments.py:178](packages/api/src/api/chat_attachments.py:178), [auth.py:76](packages/api/src/api/auth.py:76). 우회가 아니라 한 머신 클라이언트가 다른 머신 업로드를 429로 막는 공유-key DoS입니다.
+- limiter는 프로세스 로컬이므로 다중 worker/replica에서는 인스턴스 수만큼 우회됩니다. 현재 단일 인스턴스 전제는 코드에 명시되어 있습니다: [chat_attachments.py:149](packages/api/src/api/chat_attachments.py:149).
 - 동기 호출 사이에는 `await`가 없어 단일 event loop 내 count 경쟁은 없습니다.
 
 ### body-limit의 ASGI 응답 재작성 상태 머신이 일반 스트리밍 앱에는 안전하지 않음
@@ -4285,32 +4285,32 @@ tokens used
 1. 원래 200 start가 이미 전송되고,
 2. `too_large=True`가 된 뒤 미들웨어가 두 번째 413 start를 보낼 수 있습니다.
 
-`response_started` 상태를 추적하지 않기 때문입니다: [body_limit.py:83](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/body_limit.py:83), [body_limit.py:97](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/body_limit.py:97).
+`response_started` 상태를 추적하지 않기 때문입니다: [body_limit.py:83](packages/api/src/api/body_limit.py:83), [body_limit.py:97](packages/api/src/api/body_limit.py:97).
 
 현재 FastAPI JSON/multipart 라우트는 body 파싱 후 핸들러에 진입하므로 확인된 실전 우회는 아닙니다. 다만 향후 request/response 동시 스트리밍 라우트가 추가되면 이중 start 또는 잘못된 Content-Length/body 조합이 됩니다.
 
-또한 RAG 예외 판정이 실제 라우트 구조가 아니라 부분문자열입니다. `/collections/.../documentsXYZ`도 큰 상한을 받습니다: [body_limit.py:38](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/body_limit.py:38). 현재 그런 body-consuming 라우트는 확인되지 않아 즉시 악용 가능한 구멍은 아니지만 예외 범위가 필요 이상으로 넓습니다.
+또한 RAG 예외 판정이 실제 라우트 구조가 아니라 부분문자열입니다. `/collections/.../documentsXYZ`도 큰 상한을 받습니다: [body_limit.py:38](packages/api/src/api/body_limit.py:38). 현재 그런 body-consuming 라우트는 확인되지 않아 즉시 악용 가능한 구멍은 아니지만 예외 범위가 필요 이상으로 넓습니다.
 
 ### 무제한 구조 필드
 
 다음 필드는 자체 구조/개수/중첩 제한이 없습니다.
 
-- `overrides: dict`: [schemas/sessions.py:121](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/schemas/sessions.py:121)
-- `form.values: dict`: [schemas/sessions.py:101](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/schemas/sessions.py:101)
-- `formId`, `version` 문자열: [schemas/sessions.py:105](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/schemas/sessions.py:105), [schemas/sessions.py:128](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/schemas/sessions.py:128)
+- `overrides: dict`: [schemas/sessions.py:121](packages/api/src/api/schemas/sessions.py:121)
+- `form.values: dict`: [schemas/sessions.py:101](packages/api/src/api/schemas/sessions.py:101)
+- `formId`, `version` 문자열: [schemas/sessions.py:105](packages/api/src/api/schemas/sessions.py:105), [schemas/sessions.py:128](packages/api/src/api/schemas/sessions.py:128)
 
-전역 2MB가 총 raw 크기를 제한하므로 P1 메모리 DoS는 아니지만, 깊은 JSON 파싱 비용과 커스텀 impl로 전달되는 `overrides`의 복잡도는 별도 계약이 없습니다. 특히 적용된 원본 overrides가 커스텀 에이전트에 그대로 전달됩니다: [chat_context_overrides.py:97](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_overrides.py:97), [chat_context_overrides.py:121](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_overrides.py:121).
+전역 2MB가 총 raw 크기를 제한하므로 P1 메모리 DoS는 아니지만, 깊은 JSON 파싱 비용과 커스텀 impl로 전달되는 `overrides`의 복잡도는 별도 계약이 없습니다. 특히 적용된 원본 overrides가 커스텀 에이전트에 그대로 전달됩니다: [chat_context_overrides.py:97](packages/api/src/api/chat_context_overrides.py:97), [chat_context_overrides.py:121](packages/api/src/api/chat_context_overrides.py:121).
 
 ## 확인함 — 안전 확인 목록
 
-- Content-Length 선검사와 raw chunk 누적은 HTTP/1.1 chunked 및 HTTP/2 DATA 프레임 모두 ASGI `http.request.body` 기준으로 계산하므로 프로토콜 차이로 빠지지 않습니다: [body_limit.py:68](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/body_limit.py:68), [body_limit.py:87](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/body_limit.py:87).
-- multipart 오버헤드까지 6MB 미들웨어 상한에 포함되고, 실제 파일은 엔드포인트에서 raw 5MB를 재검사합니다: [body_limit.py:26](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/body_limit.py:26), [chat_attachments.py:187](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_attachments.py:187).
-- 메인 채팅 직접 MCP, 브로커 MCP/agent, 노드형 agent-call 모두 `attachment_context`를 전달합니다: [chat_turn_runtime.py:127](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_turn_runtime.py:127), [chat_turn_runtime.py:238](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_turn_runtime.py:238), [runtime_agent_tools.py:23](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/runtime_agent_tools.py:23).
-- 신규 Approval 재개는 직접 MCP와 브로커 양쪽 모두 강제 상태를 복원합니다: [chat_approval.py:295](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_approval.py:295), [chat_approval.py:301](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_approval.py:301), [chat_approval.py:331](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_approval.py:331).
-- `strip_attachment_blocks()`는 메모리 검색 쿼리에만 적용되며 영속 conversation의 펜스를 제거하지 않습니다: [chat_graph_build.py:88](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_graph_build.py:88), [chat_attachments.py:41](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_attachments.py:41).
-- `eval_runner`와 `blocks_mcp.test-tool`은 첨부 채팅 요청을 소비하지 않는 별도 관리자/시험 입구이므로 `attachment_context` 누락 자체는 415 우회가 아닙니다: [eval_runner.py:155](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/eval_runner.py:155), [blocks_mcp.py:222](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/blocks_mcp.py:222).
-- 직접 원격 A2A 프록시 경로는 이번 턴 첨부를 명시적으로 거부합니다: [chat.py:263](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat.py:263).
-- `verify_415`는 marker가 DB에 남는지만 확인하고, 후속 메인/A2A 턴에서 실제 도구가 interrupt되는지는 확인하지 않습니다: [verify_415_attachment_hardening.py:239](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/tests/verify_415_attachment_hardening.py:239). 따라서 22/22는 위 P1들을 반증하지 않습니다.
+- Content-Length 선검사와 raw chunk 누적은 HTTP/1.1 chunked 및 HTTP/2 DATA 프레임 모두 ASGI `http.request.body` 기준으로 계산하므로 프로토콜 차이로 빠지지 않습니다: [body_limit.py:68](packages/api/src/api/body_limit.py:68), [body_limit.py:87](packages/api/src/api/body_limit.py:87).
+- multipart 오버헤드까지 6MB 미들웨어 상한에 포함되고, 실제 파일은 엔드포인트에서 raw 5MB를 재검사합니다: [body_limit.py:26](packages/api/src/api/body_limit.py:26), [chat_attachments.py:187](packages/api/src/api/chat_attachments.py:187).
+- 메인 채팅 직접 MCP, 브로커 MCP/agent, 노드형 agent-call 모두 `attachment_context`를 전달합니다: [chat_turn_runtime.py:127](packages/api/src/api/chat_turn_runtime.py:127), [chat_turn_runtime.py:238](packages/api/src/api/chat_turn_runtime.py:238), [runtime_agent_tools.py:23](packages/api/src/api/runtime_agent_tools.py:23).
+- 신규 Approval 재개는 직접 MCP와 브로커 양쪽 모두 강제 상태를 복원합니다: [chat_approval.py:295](packages/api/src/api/chat_approval.py:295), [chat_approval.py:301](packages/api/src/api/chat_approval.py:301), [chat_approval.py:331](packages/api/src/api/chat_approval.py:331).
+- `strip_attachment_blocks()`는 메모리 검색 쿼리에만 적용되며 영속 conversation의 펜스를 제거하지 않습니다: [chat_graph_build.py:88](packages/api/src/api/chat_graph_build.py:88), [chat_attachments.py:41](packages/api/src/api/chat_attachments.py:41).
+- `eval_runner`와 `blocks_mcp.test-tool`은 첨부 채팅 요청을 소비하지 않는 별도 관리자/시험 입구이므로 `attachment_context` 누락 자체는 415 우회가 아닙니다: [eval_runner.py:155](packages/api/src/api/eval_runner.py:155), [blocks_mcp.py:222](packages/api/src/api/blocks_mcp.py:222).
+- 직접 원격 A2A 프록시 경로는 이번 턴 첨부를 명시적으로 거부합니다: [chat.py:263](packages/api/src/api/chat.py:263).
+- `verify_415`는 marker가 DB에 남는지만 확인하고, 후속 메인/A2A 턴에서 실제 도구가 interrupt되는지는 확인하지 않습니다: [verify_415_attachment_hardening.py:239](tests/verify_415_attachment_hardening.py:239). 따라서 22/22는 위 P1들을 반증하지 않습니다.
 
 읽기 전용 정적 검증만 수행했으며 파일 수정·서버 실행은 하지 않았습니다. Compounding과 커밋은 수정 금지 요청 때문에 생략했습니다.
 

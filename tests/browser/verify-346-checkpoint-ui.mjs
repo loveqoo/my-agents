@@ -9,7 +9,7 @@
    실행: node tests/browser/verify-346-checkpoint-ui.mjs
    전제: expired 승인 1건이 DB에 심겨 있어야 한다(러너가 심고 지운다).
 */
-import { chromium } from '/Users/anthony/.npm/_npx/9833c18b2d85bc59/node_modules/playwright/index.mjs'
+import { chromium } from '~/.npm/_npx/9833c18b2d85bc59/node_modules/playwright/index.mjs'
 
 const BASE = 'http://127.0.0.1:5173'
 const fails = []

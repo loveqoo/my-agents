@@ -2,7 +2,7 @@ Reading additional input from stdin...
 2026-07-19T12:55:15.021743Z ERROR codex_models_manager::cache: failed to load models cache: missing field `supports_reasoning_summaries` at line 88 column 5
 OpenAI Codex v0.144.6
 --------
-workdir: /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+workdir: .
 model: gpt-5.6-sol
 provider: openai
 approval: never
@@ -32,82 +32,82 @@ codex
 [단계 2 — Context]
 참고 자산: 407 스펙과 관련 학습·회고 인덱스를 먼저 좁혀 읽고, 실제 생산자→소비자→재개/A2A 경로를 `rg`로 닫은 뒤 읽기 전용 적대 리뷰를 진행하겠습니다. 코드 리뷰의 변경 최소화·검증 가능성 원칙을 적용하려고 `karpathy-guidelines` 스킬도 함께 사용합니다.
 exec
-/bin/zsh -lc "sed -n '1,240p' /Users/anthony/.codex/plugins/cache/karpathy-skills/1.0.0/skills/karpathy-guidelines/SKILL.md && rg -n \"407|첨부|memory_user_text|PDF|pdfminer\" /Users/anthony/.codex/memories/MEMORY.md .dev/learning/INDEX.md .dev/retrospect/INDEX.md .dev/troubleshooting/INDEX.md 2>/dev/null" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "sed -n '1,240p' ~/.codex/plugins/cache/karpathy-skills/1.0.0/skills/karpathy-guidelines/SKILL.md && rg -n \"407|첨부|memory_user_text|PDF|pdfminer\" ~/.codex/memories/MEMORY.md .dev/learning/INDEX.md .dev/retrospect/INDEX.md .dev/troubleshooting/INDEX.md 2>/dev/null" in .
  exited 1 in 0ms:
-sed: /Users/anthony/.codex/plugins/cache/karpathy-skills/1.0.0/skills/karpathy-guidelines/SKILL.md: No such file or directory
+sed: ~/.codex/plugins/cache/karpathy-skills/1.0.0/skills/karpathy-guidelines/SKILL.md: No such file or directory
 
 codex
 [단계 2 — Context]
 표시된 스킬 경로가 현재 디스크 배치와 달라 첫 읽기가 실패했습니다. 스킬 파일의 실제 위치만 좁게 찾아 다시 읽고, 동시에 407 관련 저장소 자산을 확인하겠습니다. 이 실패는 코드 검토 결과에는 영향을 주지 않습니다.
 exec
-/bin/zsh -lc "rg --files /Users/anthony/.codex/plugins/cache/karpathy-skills /Users/anthony/.agents/skills 2>/dev/null | rg 'karpathy-guidelines/SKILL\\.md"'$|/SKILL'"\\.md"'$'"' | head -80; rg -n \"407|첨부|memory_user_text|PDF|pdfminer\" /Users/anthony/.codex/memories/MEMORY.md .dev/learning/INDEX.md .dev/retrospect/INDEX.md .dev/troubleshooting/INDEX.md 2>/dev/null" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "rg --files ~/.codex/plugins/cache/karpathy-skills ~/.agents/skills 2>/dev/null | rg 'karpathy-guidelines/SKILL\\.md"'$|/SKILL'"\\.md"'$'"' | head -80; rg -n \"407|첨부|memory_user_text|PDF|pdfminer\" ~/.codex/memories/MEMORY.md .dev/learning/INDEX.md .dev/retrospect/INDEX.md .dev/troubleshooting/INDEX.md 2>/dev/null" in .
  exited 2 in 0ms:
-/Users/anthony/.codex/plugins/cache/karpathy-skills/andrej-karpathy-skills/1.0.0/skills/karpathy-guidelines/SKILL.md
-/Users/anthony/.agents/skills/gstack/setup-deploy/SKILL.md
-/Users/anthony/.agents/skills/gstack/context-save/SKILL.md
-/Users/anthony/.agents/skills/gstack/unfreeze/SKILL.md
-/Users/anthony/.agents/skills/gstack/make-pdf/SKILL.md
-/Users/anthony/.agents/skills/gstack/document-release/SKILL.md
-/Users/anthony/.agents/skills/gstack/ios-clean/SKILL.md
-/Users/anthony/.agents/skills/gstack/guard/SKILL.md
-/Users/anthony/.agents/skills/gstack/scrape/SKILL.md
-/Users/anthony/.agents/skills/gstack/plan-eng-review/SKILL.md
-/Users/anthony/.agents/skills/gstack/context-restore/SKILL.md
-/Users/anthony/.agents/skills/gstack/spec/SKILL.md
-/Users/anthony/.agents/skills/gstack/land-and-deploy/SKILL.md
-/Users/anthony/.agents/skills/gstack/gstack-upgrade/SKILL.md
-/Users/anthony/.agents/skills/gstack/skillify/SKILL.md
-/Users/anthony/.agents/skills/gstack/office-hours/SKILL.md
-/Users/anthony/.agents/skills/gstack/health/SKILL.md
-/Users/anthony/.agents/skills/gstack/document-generate/SKILL.md
-/Users/anthony/.agents/skills/gstack/browser-skills/hackernews-frontpage/SKILL.md
-/Users/anthony/.agents/skills/gstack/codex/SKILL.md
-/Users/anthony/.agents/skills/gstack/qa/SKILL.md
-/Users/anthony/.agents/skills/gstack/ship/SKILL.md
-/Users/anthony/.agents/skills/gstack/investigate/SKILL.md
-/Users/anthony/.agents/skills/gstack/setup-gbrain/SKILL.md
-/Users/anthony/.agents/skills/gstack/diagram/SKILL.md
-/Users/anthony/.agents/skills/gstack/ios-fix/SKILL.md
-/Users/anthony/.agents/skills/gstack/qa-only/SKILL.md
-/Users/anthony/.agents/skills/gstack/SKILL.md
-/Users/anthony/.agents/skills/gstack/plan-ceo-review/SKILL.md
-/Users/anthony/.agents/skills/gstack/ios-design-review/SKILL.md
-/Users/anthony/.agents/skills/gstack/review/SKILL.md
-/Users/anthony/.agents/skills/gstack/open-gstack-browser/SKILL.md
-/Users/anthony/.agents/skills/gstack/setup-browser-cookies/SKILL.md
-/Users/anthony/.agents/skills/gstack/design-review/SKILL.md
-/Users/anthony/.agents/skills/gstack/landing-report/SKILL.md
-/Users/anthony/.agents/skills/gstack/retro/SKILL.md
-/Users/anthony/.agents/skills/gstack/sync-gbrain/SKILL.md
-/Users/anthony/.agents/skills/gstack/plan-devex-review/SKILL.md
-/Users/anthony/.agents/skills/gstack/browse/SKILL.md
-/Users/anthony/.agents/skills/gstack/devex-review/SKILL.md
-/Users/anthony/.agents/skills/gstack/benchmark-models/SKILL.md
-/Users/anthony/.agents/skills/gstack/ios-sync/SKILL.md
-/Users/anthony/.agents/skills/gstack/plan-tune/SKILL.md
-/Users/anthony/.agents/skills/gstack/design-consultation/SKILL.md
-/Users/anthony/.agents/skills/gstack/canary/SKILL.md
-/Users/anthony/.agents/skills/gstack/pair-agent/SKILL.md
-/Users/anthony/.agents/skills/gstack/plan-design-review/SKILL.md
-/Users/anthony/.agents/skills/gstack/benchmark/SKILL.md
-/Users/anthony/.agents/skills/gstack/design-html/SKILL.md
-/Users/anthony/.agents/skills/gstack/openclaw/skills/gstack-openclaw-retro/SKILL.md
-/Users/anthony/.agents/skills/gstack/careful/SKILL.md
-/Users/anthony/.agents/skills/gstack/ios-qa/SKILL.md
-/Users/anthony/.agents/skills/gstack/design-shotgun/SKILL.md
-/Users/anthony/.agents/skills/gstack/openclaw/skills/gstack-openclaw-ceo-review/SKILL.md
-/Users/anthony/.agents/skills/gstack/freeze/SKILL.md
-/Users/anthony/.agents/skills/gstack/autoplan/SKILL.md
-/Users/anthony/.agents/skills/gstack/openclaw/skills/gstack-openclaw-office-hours/SKILL.md
-/Users/anthony/.agents/skills/gstack/learn/SKILL.md
-/Users/anthony/.agents/skills/gstack/cso/SKILL.md
-/Users/anthony/.agents/skills/gstack/openclaw/skills/gstack-openclaw-investigate/SKILL.md
+~/.codex/plugins/cache/karpathy-skills/andrej-karpathy-skills/1.0.0/skills/karpathy-guidelines/SKILL.md
+~/.agents/skills/gstack/setup-deploy/SKILL.md
+~/.agents/skills/gstack/context-save/SKILL.md
+~/.agents/skills/gstack/unfreeze/SKILL.md
+~/.agents/skills/gstack/make-pdf/SKILL.md
+~/.agents/skills/gstack/document-release/SKILL.md
+~/.agents/skills/gstack/ios-clean/SKILL.md
+~/.agents/skills/gstack/guard/SKILL.md
+~/.agents/skills/gstack/scrape/SKILL.md
+~/.agents/skills/gstack/plan-eng-review/SKILL.md
+~/.agents/skills/gstack/context-restore/SKILL.md
+~/.agents/skills/gstack/spec/SKILL.md
+~/.agents/skills/gstack/land-and-deploy/SKILL.md
+~/.agents/skills/gstack/gstack-upgrade/SKILL.md
+~/.agents/skills/gstack/skillify/SKILL.md
+~/.agents/skills/gstack/office-hours/SKILL.md
+~/.agents/skills/gstack/health/SKILL.md
+~/.agents/skills/gstack/document-generate/SKILL.md
+~/.agents/skills/gstack/browser-skills/hackernews-frontpage/SKILL.md
+~/.agents/skills/gstack/codex/SKILL.md
+~/.agents/skills/gstack/qa/SKILL.md
+~/.agents/skills/gstack/ship/SKILL.md
+~/.agents/skills/gstack/investigate/SKILL.md
+~/.agents/skills/gstack/setup-gbrain/SKILL.md
+~/.agents/skills/gstack/diagram/SKILL.md
+~/.agents/skills/gstack/ios-fix/SKILL.md
+~/.agents/skills/gstack/qa-only/SKILL.md
+~/.agents/skills/gstack/SKILL.md
+~/.agents/skills/gstack/plan-ceo-review/SKILL.md
+~/.agents/skills/gstack/ios-design-review/SKILL.md
+~/.agents/skills/gstack/review/SKILL.md
+~/.agents/skills/gstack/open-gstack-browser/SKILL.md
+~/.agents/skills/gstack/setup-browser-cookies/SKILL.md
+~/.agents/skills/gstack/design-review/SKILL.md
+~/.agents/skills/gstack/landing-report/SKILL.md
+~/.agents/skills/gstack/retro/SKILL.md
+~/.agents/skills/gstack/sync-gbrain/SKILL.md
+~/.agents/skills/gstack/plan-devex-review/SKILL.md
+~/.agents/skills/gstack/browse/SKILL.md
+~/.agents/skills/gstack/devex-review/SKILL.md
+~/.agents/skills/gstack/benchmark-models/SKILL.md
+~/.agents/skills/gstack/ios-sync/SKILL.md
+~/.agents/skills/gstack/plan-tune/SKILL.md
+~/.agents/skills/gstack/design-consultation/SKILL.md
+~/.agents/skills/gstack/canary/SKILL.md
+~/.agents/skills/gstack/pair-agent/SKILL.md
+~/.agents/skills/gstack/plan-design-review/SKILL.md
+~/.agents/skills/gstack/benchmark/SKILL.md
+~/.agents/skills/gstack/design-html/SKILL.md
+~/.agents/skills/gstack/openclaw/skills/gstack-openclaw-retro/SKILL.md
+~/.agents/skills/gstack/careful/SKILL.md
+~/.agents/skills/gstack/ios-qa/SKILL.md
+~/.agents/skills/gstack/design-shotgun/SKILL.md
+~/.agents/skills/gstack/openclaw/skills/gstack-openclaw-ceo-review/SKILL.md
+~/.agents/skills/gstack/freeze/SKILL.md
+~/.agents/skills/gstack/autoplan/SKILL.md
+~/.agents/skills/gstack/openclaw/skills/gstack-openclaw-office-hours/SKILL.md
+~/.agents/skills/gstack/learn/SKILL.md
+~/.agents/skills/gstack/cso/SKILL.md
+~/.agents/skills/gstack/openclaw/skills/gstack-openclaw-investigate/SKILL.md
 .dev/retrospect/INDEX.md:337:- 332 플레이그라운드 파일첨부(스펙 404) — 무상태 2박자+nonce 펜스(codex: 고정 경계=위조 가능·pypdf=루프 점유→매직바이트+스레드+캡); 기능 검증=문서 속 토큰 정답(양 해상도); 자업자득 3연타→"그물 실행=배타 구간" 규율(402 계측 첫 수확), 적응형 가드 테스트는 기대치도 분기-적응형 [file-attach,nonce-fence,net-run-exclusive,adaptive-guard-adaptive-expectation] → verify 21/21+브라우저 3/3
 .dev/retrospect/INDEX.md:338:- 333 첨부→지식 저장(스펙 405) — 백엔드 0줄(세션 오버라이드로 370 버전 의식 회피); 오버라이드는 유형별 불균일(노드형 풀 재파생이 대체→거짓 양성, 안 되는 유형은 병합 차단+정직 안내)·수명 문구=계약(이번 세션이라 썼으면 세션 수명)·RAG 기능 증명은 "검색을 탔다"까지 [zero-backend-feature,override-not-uniform-by-agent-type,lifetime-label-is-contract,rag-proof-needs-search-evidence] → e2e 양해상도+codex P1 2 반영
 .dev/retrospect/INDEX.md:339:- 334 드래그&드롭 첨부(스펙 406) — 입구가 프롭스로 분리돼 있으면 새 입구는 라우팅만(캡 규칙 무복제·위임); 드롭 존=깊이 카운터+Files 타입 판별, e2e 드롭은 합성 DataTransfer로 결정적 [new-entrance-is-routing,drop-depth-counter,synthetic-datatransfer-e2e] → e2e 4/4 양해상도
 
 exec
-/bin/zsh -lc "sed -n '1,260p' /Users/anthony/.codex/plugins/cache/karpathy-skills/andrej-karpathy-skills/1.0.0/skills/karpathy-guidelines/SKILL.md; rg -n \"스펙 407|spec.?407|407\" .dev docs packages tests --glob '*.md' --glob '*.py' --glob '*.toml' --glob '*.lock' 2>/dev/null | head -120; git status --short; git diff -- packages/api/src/api/chat.py packages/api/src/api/chat_turn_runtime.py packages/api/src/api/chat_final.py packages/api/src/api/chat_trace.py packages/api/src/api/chat_sse_frames.py packages/api/src/api/chat_attachments.py packages/api/src/api/chat_approval.py packages/api/src/api/chat_a2a_serve.py" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "sed -n '1,260p' ~/.codex/plugins/cache/karpathy-skills/andrej-karpathy-skills/1.0.0/skills/karpathy-guidelines/SKILL.md; rg -n \"스펙 407|spec.?407|407\" .dev docs packages tests --glob '*.md' --glob '*.py' --glob '*.toml' --glob '*.lock' 2>/dev/null | head -120; git status --short; git diff -- packages/api/src/api/chat.py packages/api/src/api/chat_turn_runtime.py packages/api/src/api/chat_final.py packages/api/src/api/chat_trace.py packages/api/src/api/chat_sse_frames.py packages/api/src/api/chat_attachments.py packages/api/src/api/chat_approval.py packages/api/src/api/chat_a2a_serve.py" in .
  succeeded in 158ms:
  M docs/spec/INDEX.md
  M packages/api/pyproject.toml
@@ -304,7 +304,7 @@ codex
 [단계 3 — Planning]
 검토 계약은 세 가지입니다: (1) 메모리 검색·표시·저장의 모든 입구를 생산자/소비자 기준으로 열거, (2) 재개·빈 메시지·노드형 캐시/eval을 역방향 추적, (3) PDF 두 추출기의 페이지 상한과 동일 게이트 적용을 경계값 테스트까지 대조합니다. 결과는 요청대로 P1/P2/확인함만 보고하며 파일은 수정하지 않습니다.
 exec
-/bin/zsh -lc "sed -n '1,260p' docs/spec/407-attach-memory-separation.md; nl -ba packages/api/src/api/chat_context_types.py | sed -n '1,110p'; nl -ba packages/api/src/api/chat.py | sed -n '210,330p'; nl -ba packages/api/src/api/chat_turn_runtime.py | sed -n '1,180p'; nl -ba packages/api/src/api/chat_final.py | sed -n '1,150p'; nl -ba packages/api/src/api/chat_trace.py | sed -n '130,220p'; nl -ba packages/api/src/api/chat_sse_frames.py | sed -n '200,270p'; nl -ba packages/api/src/api/chat_approval.py | sed -n '1,280p'; nl -ba packages/api/src/api/chat_a2a_serve.py | sed -n '1,280p'" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "sed -n '1,260p' docs/spec/407-attach-memory-separation.md; nl -ba packages/api/src/api/chat_context_types.py | sed -n '1,110p'; nl -ba packages/api/src/api/chat.py | sed -n '210,330p'; nl -ba packages/api/src/api/chat_turn_runtime.py | sed -n '1,180p'; nl -ba packages/api/src/api/chat_final.py | sed -n '1,150p'; nl -ba packages/api/src/api/chat_trace.py | sed -n '130,220p'; nl -ba packages/api/src/api/chat_sse_frames.py | sed -n '200,270p'; nl -ba packages/api/src/api/chat_approval.py | sed -n '1,280p'; nl -ba packages/api/src/api/chat_a2a_serve.py | sed -n '1,280p'" in .
  succeeded in 0ms:
 # 407 — 첨부-메모리 축 분리 + 깨진 PDF 정직화(404 후속 버그)
 
@@ -1601,7 +1601,7 @@ exec
    280	    except AgentConfigError as e:
 
 exec
-/bin/zsh -lc "rg -n \"memory\\.search|memory\\.add|_spawn_memory_task|_bg_memory_add|memoryQuery|_MemoryRecallProxy|memory_user_text|resume_approval|_resume_memory_inputs|approval\\.summary\" packages/api/src/api packages/api/src/agent tests --glob '*.py'; rg -n \"class ChatRequest|messages:|field_validator|model_validator\" packages/api/src/api/schemas.py packages/api/src/api --glob '*.py' | head -160; nl -ba packages/api/src/api/chat_graph_build.py | sed -n '1,180p'; nl -ba packages/api/src/api/memory.py | sed -n '1,280p'; nl -ba packages/api/src/api/chat_approval.py | sed -n '225,520p'; nl -ba packages/api/src/api/chat_attachments.py | sed -n '1,190p'; nl -ba tests/verify_404_file_attach.py | sed -n '180,370p'; git diff -- packages/api/pyproject.toml uv.lock tests/verify_404_file_attach.py packages/api/src/api/chat_context_types.py" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "rg -n \"memory\\.search|memory\\.add|_spawn_memory_task|_bg_memory_add|memoryQuery|_MemoryRecallProxy|memory_user_text|resume_approval|_resume_memory_inputs|approval\\.summary\" packages/api/src/api packages/api/src/agent tests --glob '*.py'; rg -n \"class ChatRequest|messages:|field_validator|model_validator\" packages/api/src/api/schemas.py packages/api/src/api --glob '*.py' | head -160; nl -ba packages/api/src/api/chat_graph_build.py | sed -n '1,180p'; nl -ba packages/api/src/api/memory.py | sed -n '1,280p'; nl -ba packages/api/src/api/chat_approval.py | sed -n '225,520p'; nl -ba packages/api/src/api/chat_attachments.py | sed -n '1,190p'; nl -ba tests/verify_404_file_attach.py | sed -n '180,370p'; git diff -- packages/api/pyproject.toml uv.lock tests/verify_404_file_attach.py packages/api/src/api/chat_context_types.py" in .
  succeeded in 0ms:
 rg: packages/api/src/agent: No such file or directory (os error 2)
 packages/api/src/api/chat_graph_build.py:65:class _MemoryRecallProxy:
@@ -2698,7 +2698,7 @@ index 394a2f5..b7347a3 100644
  version = "0.4.2"
 
 exec
-/bin/zsh -lc "nl -ba packages/api/src/api/schemas/sessions.py | sed -n '80,145p'; nl -ba packages/api/src/api/chat_graph_build.py | sed -n '55,110p'; nl -ba packages/api/src/api/memory/__init__.py | sed -n '1,75p'; nl -ba packages/api/src/api/memory/__init__.py | sed -n '180,235p'; nl -ba packages/api/src/api/chat_approval.py | sed -n '370,445p'; nl -ba packages/api/src/api/chat_attachments.py | sed -n '40,120p'; nl -ba packages/api/src/api/chat_attachments.py | sed -n '179,245p'; nl -ba packages/api/src/api/eval_runner.py | sed -n '35,80p'; rg -n \"ChatRequest\\(|messages.*min_length|content.*min_length|attachments\" tests packages/api/src/api/schemas packages/api/src/api/chat_attachments.py --glob '*.py' | head -160" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "nl -ba packages/api/src/api/schemas/sessions.py | sed -n '80,145p'; nl -ba packages/api/src/api/chat_graph_build.py | sed -n '55,110p'; nl -ba packages/api/src/api/memory/__init__.py | sed -n '1,75p'; nl -ba packages/api/src/api/memory/__init__.py | sed -n '180,235p'; nl -ba packages/api/src/api/chat_approval.py | sed -n '370,445p'; nl -ba packages/api/src/api/chat_attachments.py | sed -n '40,120p'; nl -ba packages/api/src/api/chat_attachments.py | sed -n '179,245p'; nl -ba packages/api/src/api/eval_runner.py | sed -n '35,80p'; rg -n \"ChatRequest\\(|messages.*min_length|content.*min_length|attachments\" tests packages/api/src/api/schemas packages/api/src/api/chat_attachments.py --glob '*.py' | head -160" in .
  succeeded in 0ms:
     80	
     81	# ----------------------------- 채팅 -----------------------------
@@ -3201,7 +3201,7 @@ codex
 [단계 5 — Verification]
 닫힌 집합에서 핵심 반례 두 개가 드러났습니다. 빈 원발화+첨부에서는 `or user_text`가 주입본으로 되돌아가며, pypdf가 페이지 수 확인 전에 실패하면 pdfminer의 `maxpages=20`이 “거부”가 아니라 조용한 절단이 됩니다. 이제 순수 함수/몽키패치 반례와 기존 E8/E9 검증이 이를 잡는지 확인합니다.
 exec
-/bin/zsh -lc "PYTHONDONTWRITEBYTECODE=1 packages/api/.venv/bin/python -B -c 'import sys; sys.path.insert(0,\"packages/api/src\"); from api.chat_attachments import is_extract_coherent; samples={\"boundary_70\":\"A\"*70+\"Ж\"*30,\"boundary_below\":\"A\"*69+\"Ж\"*31,\"short_garble\":\"Ж\"*19,\"russian\":\"Это совершенно нормальный русский документ с обычным текстом.\",\"math_heavy\":\"정상\"*20+\"∑∫√∞≈≠≤≥\"*10}; print({k:is_extract_coherent(v) for k,v in samples.items()})'; PYTHONDONTWRITEBYTECODE=1 packages/api/.venv/bin/python -B -c 'import sys; sys.path.insert(0,\"packages/api/src\"); import api.chat_attachments as a; oldp,oldm=a._pdf_pypdf,a._pdf_pdfminer; a._pdf_pypdf=lambda data: (_ for _ in ()).throw(ValueError(\"parse\")); a._pdf_pdfminer=lambda data: \"coherent ASCII fallback text over twenty chars\"; print(\"fallback_result=\",a._extract_sync(\"x.pdf\",\"application/pdf\",b\"%PDF-fake\")); a._pdf_pypdf, a._pdf_pdfminer=oldp,oldm'; nl -ba packages/api/src/api/chat.py | sed -n '248,268p'; nl -ba packages/api/src/api/chat_turn_runtime.py | sed -n '88,110p'; nl -ba packages/api/src/api/chat_final.py | sed -n '78,104p'; nl -ba packages/api/src/api/chat_trace.py | sed -n '168,190p'; nl -ba packages/api/src/api/chat_sse_frames.py | sed -n '228,242p'; nl -ba tests/verify_404_file_attach.py | sed -n '204,305p'" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "PYTHONDONTWRITEBYTECODE=1 packages/api/.venv/bin/python -B -c 'import sys; sys.path.insert(0,\"packages/api/src\"); from api.chat_attachments import is_extract_coherent; samples={\"boundary_70\":\"A\"*70+\"Ж\"*30,\"boundary_below\":\"A\"*69+\"Ж\"*31,\"short_garble\":\"Ж\"*19,\"russian\":\"Это совершенно нормальный русский документ с обычным текстом.\",\"math_heavy\":\"정상\"*20+\"∑∫√∞≈≠≤≥\"*10}; print({k:is_extract_coherent(v) for k,v in samples.items()})'; PYTHONDONTWRITEBYTECODE=1 packages/api/.venv/bin/python -B -c 'import sys; sys.path.insert(0,\"packages/api/src\"); import api.chat_attachments as a; oldp,oldm=a._pdf_pypdf,a._pdf_pdfminer; a._pdf_pypdf=lambda data: (_ for _ in ()).throw(ValueError(\"parse\")); a._pdf_pdfminer=lambda data: \"coherent ASCII fallback text over twenty chars\"; print(\"fallback_result=\",a._extract_sync(\"x.pdf\",\"application/pdf\",b\"%PDF-fake\")); a._pdf_pypdf, a._pdf_pdfminer=oldp,oldm'; nl -ba packages/api/src/api/chat.py | sed -n '248,268p'; nl -ba packages/api/src/api/chat_turn_runtime.py | sed -n '88,110p'; nl -ba packages/api/src/api/chat_final.py | sed -n '78,104p'; nl -ba packages/api/src/api/chat_trace.py | sed -n '168,190p'; nl -ba packages/api/src/api/chat_sse_frames.py | sed -n '228,242p'; nl -ba tests/verify_404_file_attach.py | sed -n '204,305p'" in .
  succeeded in 0ms:
 zsh:1: no such file or directory: packages/api/.venv/bin/python
 zsh:1: no such file or directory: packages/api/.venv/bin/python
@@ -3418,7 +3418,7 @@ zsh:1: no such file or directory: packages/api/.venv/bin/python
    305	    if _fails:
 
 exec
-/bin/zsh -lc "rg -n \"memory_recall|memoryQuery|recall_proxy|memory_proxy|mem_proxy\" packages/api/src packages/agent src --glob '*.py' 2>/dev/null | head -240; nl -ba tests/verify_268_per_node.py | sed -n '70,145p'; nl -ba tests/verify_268_per_node.py | sed -n '235,268p'; rg -n \"memoryQuery.*input|memory_recall\" packages --glob '*.py' | head -120" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "rg -n \"memory_recall|memoryQuery|recall_proxy|memory_proxy|mem_proxy\" packages/api/src packages/agent src --glob '*.py' 2>/dev/null | head -240; nl -ba tests/verify_268_per_node.py | sed -n '70,145p'; nl -ba tests/verify_268_per_node.py | sed -n '235,268p'; rg -n \"memoryQuery.*input|memory_recall\" packages --glob '*.py' | head -120" in .
  succeeded in 0ms:
 packages/api/src/api/chat_context_overrides.py:19:    "memoryQuery",
 packages/agent/src/agent/flows/pipeline.py:185:    """허용값이면 그대로, 잡값이면 기본값 — context/format/memoryQuery 공용."""
@@ -3582,7 +3582,7 @@ packages/agent/src/agent/flows/pipeline.py:355:                if reentry or not
 packages/agent/src/agent/flows/pipeline.py:359:                    text = await ctx.memory_recall(q, node=nid)
 
 exec
-/bin/zsh -lc "nl -ba packages/agent/src/agent/flows/pipeline.py | sed -n '320,368p'; nl -ba packages/api/src/api/chat_turn_runtime.py | sed -n '225,258p'; nl -ba packages/api/src/api/eval_runner.py | sed -n '150,245p'; rg -n \"_recall_memory\\(\" packages/api/src/api/eval_runner.py" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "nl -ba packages/agent/src/agent/flows/pipeline.py | sed -n '320,368p'; nl -ba packages/api/src/api/chat_turn_runtime.py | sed -n '225,258p'; nl -ba packages/api/src/api/eval_runner.py | sed -n '150,245p'; rg -n \"_recall_memory\\(\" packages/api/src/api/eval_runner.py" in .
  succeeded in 0ms:
    320	                node_impl = get_node_impl(impl_key)
    321	                if node_impl is None:
@@ -3772,21 +3772,21 @@ codex
 P1
 
 - 빈 원발화+첨부에서 축 분리가 다시 무너집니다. `memory_user_text=""`가 정상적으로 캡처되지만, 네 소비처가 모두 `ctx.memory_user_text or user_text`를 사용하여 첨부가 주입된 `user_text`로 폴백합니다. 결과적으로 회상, 노드 프록시 기본 쿼리, 자동 저장, trace가 모두 첨부 본문을 소비합니다. `ChatMessage.content`에는 최소 길이 제약이 없어 실제 입력 가능합니다. `None` 여부로 분기해야 합니다.  
-  근거: [chat.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat.py:255), [chat_turn_runtime.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_turn_runtime.py:94), [chat_final.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_final.py:87), [sessions.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/schemas/sessions.py:82)
+  근거: [chat.py](packages/api/src/api/chat.py:255), [chat_turn_runtime.py](packages/api/src/api/chat_turn_runtime.py:94), [chat_final.py](packages/api/src/api/chat_final.py:87), [sessions.py](packages/api/src/api/schemas/sessions.py:82)
 
 - 노드형 `memoryQuery=input`은 여전히 첨부 주입본을 검색 쿼리로 사용할 수 있습니다. 프록시의 기본 쿼리만 원발화로 바뀌었고, `input` 모드는 노드가 받은 마지막 메시지를 명시 쿼리로 넘깁니다. 첫 노드 입력은 첨부가 포함된 메시지이므로 캐시 키와 실제 `memory.search` 모두 오염됩니다. 스펙 407이 “메모리 축은 원발화만”이라는 전역 계약이면 누락 입구입니다.  
-  근거: [pipeline.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/agent/src/agent/flows/pipeline.py:351), [chat_graph_build.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_graph_build.py:84)
+  근거: [pipeline.py](packages/agent/src/agent/flows/pipeline.py:351), [chat_graph_build.py](packages/api/src/api/chat_graph_build.py:84)
 
 - pypdf가 페이지 수 확인 전에 실패하면 PDF 페이지 상한을 우회합니다. 폴백의 `maxpages=20`은 20페이지 초과를 거부하지 않고 앞 20페이지만 조용히 반환합니다. 그 텍스트가 정합하면 200으로 통과하며 `truncated`도 문자 캡만 나타내므로 페이지 절단 사실이 사라집니다. pypdf 실패 경로에서도 별도 페이지 수 검증 또는 pdfminer의 21번째 페이지 탐지가 필요합니다.  
-  근거: [chat_attachments.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_attachments.py:70), [chat_attachments.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_attachments.py:79), [chat_attachments.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_attachments.py:102)
+  근거: [chat_attachments.py](packages/api/src/api/chat_attachments.py:70), [chat_attachments.py](packages/api/src/api/chat_attachments.py:79), [chat_attachments.py](packages/api/src/api/chat_attachments.py:102)
 
 P2
 
 - 휴리스틱은 정상 키릴 문서나 수식·이모지 비중이 30%를 넘는 문서를 400으로 거부합니다. 반대로 19자 이하의 완전한 오추출과 ASCII/CJK 범위 안의 의미 없는 글자는 통과합니다. 이는 “문자권 부정합 탐지” 휴리스틱의 명시적 한계로 수용할 수 있지만, 일반 PDF 지원을 표방한다면 정상 문서 오탐입니다. 지원 언어 제한을 계약/UI에 드러내거나 허용 문자권 확대가 필요합니다.  
-  근거: [chat_attachments.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_attachments.py:47), [chat_attachments.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_attachments.py:61)
+  근거: [chat_attachments.py](packages/api/src/api/chat_attachments.py:47), [chat_attachments.py](packages/api/src/api/chat_attachments.py:61)
 
 - E8b와 E9d는 실행 검증이 아니라 소스 문자열 검사라 위 P1들을 잡지 못합니다. 최소한 빈 발화+첨부의 검색/저장 입력, 노드형 `memoryQuery=input`, pypdf 실패+21페이지 폴백을 행동 테스트로 추가해야 합니다.  
-  근거: [verify_404_file_attach.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/tests/verify_404_file_attach.py:237), [verify_404_file_attach.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/tests/verify_404_file_attach.py:293)
+  근거: [verify_404_file_attach.py](tests/verify_404_file_attach.py:237), [verify_404_file_attach.py](tests/verify_404_file_attach.py:293)
 
 확인함
 
@@ -3805,21 +3805,21 @@ tokens used
 P1
 
 - 빈 원발화+첨부에서 축 분리가 다시 무너집니다. `memory_user_text=""`가 정상적으로 캡처되지만, 네 소비처가 모두 `ctx.memory_user_text or user_text`를 사용하여 첨부가 주입된 `user_text`로 폴백합니다. 결과적으로 회상, 노드 프록시 기본 쿼리, 자동 저장, trace가 모두 첨부 본문을 소비합니다. `ChatMessage.content`에는 최소 길이 제약이 없어 실제 입력 가능합니다. `None` 여부로 분기해야 합니다.  
-  근거: [chat.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat.py:255), [chat_turn_runtime.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_turn_runtime.py:94), [chat_final.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_final.py:87), [sessions.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/schemas/sessions.py:82)
+  근거: [chat.py](packages/api/src/api/chat.py:255), [chat_turn_runtime.py](packages/api/src/api/chat_turn_runtime.py:94), [chat_final.py](packages/api/src/api/chat_final.py:87), [sessions.py](packages/api/src/api/schemas/sessions.py:82)
 
 - 노드형 `memoryQuery=input`은 여전히 첨부 주입본을 검색 쿼리로 사용할 수 있습니다. 프록시의 기본 쿼리만 원발화로 바뀌었고, `input` 모드는 노드가 받은 마지막 메시지를 명시 쿼리로 넘깁니다. 첫 노드 입력은 첨부가 포함된 메시지이므로 캐시 키와 실제 `memory.search` 모두 오염됩니다. 스펙 407이 “메모리 축은 원발화만”이라는 전역 계약이면 누락 입구입니다.  
-  근거: [pipeline.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/agent/src/agent/flows/pipeline.py:351), [chat_graph_build.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_graph_build.py:84)
+  근거: [pipeline.py](packages/agent/src/agent/flows/pipeline.py:351), [chat_graph_build.py](packages/api/src/api/chat_graph_build.py:84)
 
 - pypdf가 페이지 수 확인 전에 실패하면 PDF 페이지 상한을 우회합니다. 폴백의 `maxpages=20`은 20페이지 초과를 거부하지 않고 앞 20페이지만 조용히 반환합니다. 그 텍스트가 정합하면 200으로 통과하며 `truncated`도 문자 캡만 나타내므로 페이지 절단 사실이 사라집니다. pypdf 실패 경로에서도 별도 페이지 수 검증 또는 pdfminer의 21번째 페이지 탐지가 필요합니다.  
-  근거: [chat_attachments.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_attachments.py:70), [chat_attachments.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_attachments.py:79), [chat_attachments.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_attachments.py:102)
+  근거: [chat_attachments.py](packages/api/src/api/chat_attachments.py:70), [chat_attachments.py](packages/api/src/api/chat_attachments.py:79), [chat_attachments.py](packages/api/src/api/chat_attachments.py:102)
 
 P2
 
 - 휴리스틱은 정상 키릴 문서나 수식·이모지 비중이 30%를 넘는 문서를 400으로 거부합니다. 반대로 19자 이하의 완전한 오추출과 ASCII/CJK 범위 안의 의미 없는 글자는 통과합니다. 이는 “문자권 부정합 탐지” 휴리스틱의 명시적 한계로 수용할 수 있지만, 일반 PDF 지원을 표방한다면 정상 문서 오탐입니다. 지원 언어 제한을 계약/UI에 드러내거나 허용 문자권 확대가 필요합니다.  
-  근거: [chat_attachments.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_attachments.py:47), [chat_attachments.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_attachments.py:61)
+  근거: [chat_attachments.py](packages/api/src/api/chat_attachments.py:47), [chat_attachments.py](packages/api/src/api/chat_attachments.py:61)
 
 - E8b와 E9d는 실행 검증이 아니라 소스 문자열 검사라 위 P1들을 잡지 못합니다. 최소한 빈 발화+첨부의 검색/저장 입력, 노드형 `memoryQuery=input`, pypdf 실패+21페이지 폴백을 행동 테스트로 추가해야 합니다.  
-  근거: [verify_404_file_attach.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/tests/verify_404_file_attach.py:237), [verify_404_file_attach.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/tests/verify_404_file_attach.py:293)
+  근거: [verify_404_file_attach.py](tests/verify_404_file_attach.py:237), [verify_404_file_attach.py](tests/verify_404_file_attach.py:293)
 
 확인함
 

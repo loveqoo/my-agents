@@ -8,7 +8,7 @@
      U4 A2A 카드(외부 노출)엔 감사값이 없다 — 누출 핀(고객 ID 노출 방지).
    실행: PLAYWRIGHT_DIR=... node tests/browser/verify-344-audit-ui.mjs <promptName>
 */
-import { chromium } from '/Users/anthony/.npm/_npx/9833c18b2d85bc59/node_modules/playwright/index.mjs'
+import { chromium } from '~/.npm/_npx/9833c18b2d85bc59/node_modules/playwright/index.mjs'
 
 const NAME = process.argv[2]
 const BASE = 'http://127.0.0.1:5173'

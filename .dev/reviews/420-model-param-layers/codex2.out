@@ -2,7 +2,7 @@ Reading additional input from stdin...
 2026-07-20T10:42:26.701933Z ERROR codex_models_manager::cache: failed to load models cache: missing field `supports_reasoning_summaries` at line 88 column 5
 OpenAI Codex v0.144.6
 --------
-workdir: /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+workdir: .
 model: gpt-5.6-sol
 provider: openai
 approval: never
@@ -59,7 +59,7 @@ codex
 
 참고 자산: 스펙 420 보안성 재검 → 생성·수정 외 저장 입구와 실제 런타임 소비자를 닫힌 집합으로 계수, 기존 SSRF/리팩터 리뷰 교훈 → 가드의 직접 호출부와 우회 경로를 별도 추적.
 exec
-/bin/zsh -lc "sed -n '1,240p' /Users/anthony/.codex/plugins/cache/karpathy-skills/andrej-karpathy-skills/1.0.0/skills/karpathy-guidelines/SKILL.md && rg -n \"420|model.param|temperature|pipeline\" /Users/anthony/.codex/memories/MEMORY.md | head -80 && rg --files .dev | rg 'INDEX\\.md"'$|420|model.param'"' | head -80" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "sed -n '1,240p' ~/.codex/plugins/cache/karpathy-skills/andrej-karpathy-skills/1.0.0/skills/karpathy-guidelines/SKILL.md && rg -n \"420|model.param|temperature|pipeline\" ~/.codex/memories/MEMORY.md | head -80 && rg --files .dev | rg 'INDEX\\.md"'$|420|model.param'"' | head -80" in .
  succeeded in 0ms:
 ---
 name: karpathy-guidelines
@@ -147,7 +147,7 @@ codex
 [단계 3 — Planning]
 완료 조건은 세 가지입니다: (1) 노드형 temperature의 모든 런타임 유입 통로를 역추적해 agent/session 층 차단과 node 층 보존을 확인, (2) 노드형 `modelParams`의 모든 저장 입구를 계수해 strip 우회를 확인, (3) 비노드형 캐스케이드와 node gate의 여집합 회귀를 코드·검증으로 교차 확인. 결과는 남은 P1/P2/봉합확인으로만 판정합니다.
 exec
-/bin/zsh -lc "git status --short && git diff -- packages/api/src/api/chat_context_loader.py packages/api/src/api/chat_context_models.py packages/api/src/api/agents/crud_routes.py packages/api/src/api/schemas/agents.py packages/api/src/api/model_param_layers.py tests/verify_420_model_param_layers.py && sed -n '1,220p' .dev/learning/INDEX.md && sed -n '1,220p' .dev/retrospect/INDEX.md" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "git status --short && git diff -- packages/api/src/api/chat_context_loader.py packages/api/src/api/chat_context_models.py packages/api/src/api/agents/crud_routes.py packages/api/src/api/schemas/agents.py packages/api/src/api/model_param_layers.py tests/verify_420_model_param_layers.py && sed -n '1,220p' .dev/learning/INDEX.md && sed -n '1,220p' .dev/retrospect/INDEX.md" in .
  succeeded in 0ms:
 git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
 git: error: couldn't create cache file '/tmp/xcrun_db-DhVtdqqi' (errno=Operation not permitted)
@@ -745,7 +745,7 @@ rg -n \"@router\\.(post|put|patch)|clone|copy|duplicate|batch|seed|import\" pack
 nl -ba packages/api/src/api/model_param_layers.py
 nl -ba packages/api/src/api/chat_context_loader.py | sed -n '110,210p'
 nl -ba packages/api/src/api/chat_context_models.py | sed -n '1,245p'
-nl -ba packages/api/src/api/agents/crud_routes.py | sed -n '190,430p'" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+nl -ba packages/api/src/api/agents/crud_routes.py | sed -n '190,430p'" in .
  succeeded in 0ms:
 packages/api/src/api/chat_graph_build.py:118:    지문 = 모델 정체(연결·model_id·params·temperature) + MCP 도구 집합(이름·**블록 버전**·auth 지문 —
 packages/api/src/api/chat_graph_build.py:126:    mc = ctx.model_cfg or {}
@@ -1383,7 +1383,7 @@ rg -n --glob '*.py' \"_resolve_node_models\\(|_resolve_model\\(|_apply_overrides
 rg -n --glob '*.py' \"def _model_from_node|class AgentBuildContext|build_chat_openai\" packages/api/src
 nl -ba packages/api/src/api/chat_context_overrides.py | sed -n '1,220p'
 nl -ba packages/api/src/api/chat_graph_build.py | sed -n '1,240p'
-rg -n \"ctx\\.temperature|run_params\" packages/api/src/api packages/api/src/agent" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+rg -n \"ctx\\.temperature|run_params\" packages/api/src/api packages/api/src/agent" in .
  exited 2 in 0ms:
 packages/api/src/api/eval_runner.py:134:            {"messages": messages}, config=cfg, stream_mode=["messages", "updates"]
 packages/api/src/api/seed.py:347:            config=cfg,
@@ -1763,7 +1763,7 @@ nl -ba packages/api/src/api/agents/version_routes.py | sed -n '1,190p'
 nl -ba packages/api/src/api/agents/remote_routes.py | sed -n '1,260p'
 nl -ba packages/api/src/api/agents/card_builder.py | sed -n '1,190p'
 nl -ba packages/api/src/api/seed.py | sed -n '320,540p'
-nl -ba packages/api/src/api/model_param_layers.py" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+nl -ba packages/api/src/api/model_param_layers.py" in .
  succeeded in 0ms:
 packages/api/src/api/chat_graph_build.py:118:    지문 = 모델 정체(연결·model_id·params·temperature) + MCP 도구 집합(이름·**블록 버전**·auth 지문 —
 packages/api/src/api/eval_runner.py:105:    run_params = {} if ctx.temperature is None else {"temperature": ctx.temperature}
@@ -2614,7 +2614,7 @@ exec
 rg -n \"AgentBuildContext|_model_from_node|build_chat_openai\" . --glob '*.py' --glob '"'!packages/api/src/api/data/**'"'
 nl -ba packages/api/src/api/chat_context_loader.py | sed -n '35,170p'
 nl -ba packages/api/src/api/chat_context_types.py | sed -n '1,210p'
-nl -ba tests/verify_420_model_param_layers.py | sed -n '1,420p'" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+nl -ba tests/verify_420_model_param_layers.py | sed -n '1,420p'" in .
  succeeded in 0ms:
 ./packages/api/src/api/eval_runner.py:22:from agent.runtime import AgentBuildContext, AgentConfigError, CustomAgent
 ./packages/api/src/api/eval_runner.py:106:    build_ctx = AgentBuildContext(
@@ -3170,7 +3170,7 @@ nl -ba packages/api/src/api/chat_turn_runtime.py | sed -n '215,270p'
 nl -ba packages/api/src/api/chat_approval.py | sed -n '325,370p'
 nl -ba packages/api/src/api/chat_a2a_serve.py | sed -n '260,285p'
 nl -ba packages/api/src/api/eval_runner.py | sed -n '95,120p'
-rg -n \"modelParams\" packages/api/src/api/schemas/agents.py packages/api/src/api/schemas -g '*.py' | head -100" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+rg -n \"modelParams\" packages/api/src/api/schemas/agents.py packages/api/src/api/schemas -g '*.py' | head -100" in .
  succeeded in 0ms:
     40	    from langchain_core.tools import BaseTool
     41	    from langchain_openai import ChatOpenAI
@@ -3679,7 +3679,7 @@ nl -ba packages/api/src/api/chat_context_models.py | sed -n '110,154p;175,213p'
 nl -ba packages/api/src/api/chat_context_loader.py | sed -n '81,104p;141,151p;173,190p'
 nl -ba tests/verify_420_model_param_layers.py | sed -n '64,109p;112,152p'
 nl -ba packages/api/src/api/model_param_layers.py | sed -n '18,30p'
-nl -ba /Users/anthony/.codex/memories/MEMORY.md | sed -n '130,158p'" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+nl -ba ~/.codex/memories/MEMORY.md | sed -n '130,158p'" in .
  succeeded in 0ms:
      1	"""schemas.agents — 007 도메인 스키마(스펙 378 분할).
      2	
@@ -4312,25 +4312,25 @@ codex
 ## 남은 P1
 
 - **P1 — 노드형 `modelParams` 저장 불변식이 clone·activate 경로에서 여전히 우회됩니다.**
-  - clone은 `src.config`를 raw dict로 복사한 뒤 `_strip_pipeline_model_params`나 `AgentConfig` 재검증 없이 새 Agent와 v1에 저장합니다: [crud_routes.py:298](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/agents/crud_routes.py:298), [crud_routes.py:316](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/agents/crud_routes.py:316), [crud_routes.py:328](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/agents/crud_routes.py:328).
+  - clone은 `src.config`를 raw dict로 복사한 뒤 `_strip_pipeline_model_params`나 `AgentConfig` 재검증 없이 새 Agent와 v1에 저장합니다: [crud_routes.py:298](packages/api/src/api/agents/crud_routes.py:298), [crud_routes.py:316](packages/api/src/api/agents/crud_routes.py:316), [crud_routes.py:328](packages/api/src/api/agents/crud_routes.py:328).
   - 따라서 구 DB·raw seed 등으로 남은 `{"impl":"pipeline","modelParams":...}`를 clone하면 불법 상태가 새 엔티티와 새 버전으로 재생산됩니다.
-  - activate도 과거 버전 config를 raw 복사해 head에 재저장하며 strip하지 않습니다: [version_routes.py:59](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/agents/version_routes.py:59), [version_routes.py:64](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/agents/version_routes.py:64).
+  - activate도 과거 버전 config를 raw 복사해 head에 재저장하며 strip하지 않습니다: [version_routes.py:59](packages/api/src/api/agents/version_routes.py:59), [version_routes.py:64](packages/api/src/api/agents/version_routes.py:64).
   - 런타임 gate가 해당 값을 무시하므로 즉각적인 temperature 실행 우회는 막혔지만, “illegal state 표현 불가”라는 P1① 쓰기 경계 계약은 아직 닫히지 않았습니다.
-  - create/update 자체의 순서는 올바르게 봉합됐습니다: [crud_routes.py:241](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/agents/crud_routes.py:241), [crud_routes.py:246](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/agents/crud_routes.py:246), [crud_routes.py:373](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/agents/crud_routes.py:373), [crud_routes.py:379](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/agents/crud_routes.py:379).
+  - create/update 자체의 순서는 올바르게 봉합됐습니다: [crud_routes.py:241](packages/api/src/api/agents/crud_routes.py:241), [crud_routes.py:246](packages/api/src/api/agents/crud_routes.py:246), [crud_routes.py:373](packages/api/src/api/agents/crud_routes.py:373), [crud_routes.py:379](packages/api/src/api/agents/crud_routes.py:379).
 
 ## 남은 P2
 
 - **P2 — verify_420이 node 층 양성 무회귀와 실제 저장 입구를 핀하지 않습니다.**
-  - 현재 R 검증은 agent/session 값이 노드에 없다는 음성 assertion만 있습니다: [verify_420_model_param_layers.py:125](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/tests/verify_420_model_param_layers.py:125), [verify_420_model_param_layers.py:136](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/tests/verify_420_model_param_layers.py:136).
-  - `nodes[].modelParams.temperature`가 최종 `model_cfg.params`에 남는 양성 assertion은 없습니다. 코드상 적용은 정상입니다: [chat_context_models.py:142](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_models.py:142).
-  - W 검증도 validator와 helper를 직접 호출할 뿐 create/update/clone/activate 라우트의 실제 저장 결과를 검증하지 않습니다: [verify_420_model_param_layers.py:64](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/tests/verify_420_model_param_layers.py:64).
+  - 현재 R 검증은 agent/session 값이 노드에 없다는 음성 assertion만 있습니다: [verify_420_model_param_layers.py:125](tests/verify_420_model_param_layers.py:125), [verify_420_model_param_layers.py:136](tests/verify_420_model_param_layers.py:136).
+  - `nodes[].modelParams.temperature`가 최종 `model_cfg.params`에 남는 양성 assertion은 없습니다. 코드상 적용은 정상입니다: [chat_context_models.py:142](packages/api/src/api/chat_context_models.py:142).
+  - W 검증도 validator와 helper를 직접 호출할 뿐 create/update/clone/activate 라우트의 실제 저장 결과를 검증하지 않습니다: [verify_420_model_param_layers.py:64](tests/verify_420_model_param_layers.py:64).
 
 ## 봉합 확인
 
-- **P1② temperature 병렬 통로: 봉합 확인.** `_apply_overrides` 후의 최종 `cfg.modelParams`에서 읽으므로 session temperature도 같은 gate에 걸립니다: [chat_context_loader.py:95](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_loader.py:95), [chat_context_loader.py:181](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_loader.py:181).
-- chat/resume/A2A/eval 네 입구는 모두 `ctx.temperature`로만 `AgentBuildContext.params`를 만듭니다. pipeline에서는 `None → {}`이고, `_model_from_node`는 노드별 `model_cfg`와 이 빈 params만 전달합니다: [pipeline.py:47](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/agent/src/agent/flows/pipeline.py:47).
-- **노드 자기 `modelParams.temperature`: 코드상 정상 유지.** node 층은 pipeline일 때만 `model_cfg.params`에 병합되고 `build_chat_openai`가 이를 소비합니다: [model_param_layers.py:23](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/model_param_layers.py:23), [chat_context_models.py:143](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_models.py:143), [model.py:141](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/agent/src/agent/model.py:141).
-- **비노드형 무회귀 확인.** `None`, `orchestrate_ranked`, `artifact_form` 등 pipeline 이외 impl은 agent/session 층이 적용되며 temperature가 그대로 params로 전달됩니다: [model_param_layers.py:28](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/model_param_layers.py:28), [chat_context_models.py:186](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_models.py:186).
+- **P1② temperature 병렬 통로: 봉합 확인.** `_apply_overrides` 후의 최종 `cfg.modelParams`에서 읽으므로 session temperature도 같은 gate에 걸립니다: [chat_context_loader.py:95](packages/api/src/api/chat_context_loader.py:95), [chat_context_loader.py:181](packages/api/src/api/chat_context_loader.py:181).
+- chat/resume/A2A/eval 네 입구는 모두 `ctx.temperature`로만 `AgentBuildContext.params`를 만듭니다. pipeline에서는 `None → {}`이고, `_model_from_node`는 노드별 `model_cfg`와 이 빈 params만 전달합니다: [pipeline.py:47](packages/agent/src/agent/flows/pipeline.py:47).
+- **노드 자기 `modelParams.temperature`: 코드상 정상 유지.** node 층은 pipeline일 때만 `model_cfg.params`에 병합되고 `build_chat_openai`가 이를 소비합니다: [model_param_layers.py:23](packages/api/src/api/model_param_layers.py:23), [chat_context_models.py:143](packages/api/src/api/chat_context_models.py:143), [model.py:141](packages/agent/src/agent/model.py:141).
+- **비노드형 무회귀 확인.** `None`, `orchestrate_ranked`, `artifact_form` 등 pipeline 이외 impl은 agent/session 층이 적용되며 temperature가 그대로 params로 전달됩니다: [model_param_layers.py:28](packages/api/src/api/model_param_layers.py:28), [chat_context_models.py:186](packages/api/src/api/chat_context_models.py:186).
 - **P2① node gate: 봉합 확인.** 비노드형+레거시 nodes에서는 node 층이 차단되고, pipeline에서는 허용됩니다.
 - **P2②③ 수용 판단: 타당.** BE 정책 관문은 단일 함수로 모였고 FE 수동 복제는 상호참조+계약 테스트로 관리하는 구조입니다. 다만 위 양성 node assertion을 추가해야 계약 핀이 완전해집니다.
 - seed의 현재 pipeline 데모에는 agent `modelParams`가 없어 현행 데이터 회귀는 없습니다. batch/remote 등록 경로는 pipeline config 생산자가 아닙니다.
@@ -4347,25 +4347,25 @@ tokens used
 ## 남은 P1
 
 - **P1 — 노드형 `modelParams` 저장 불변식이 clone·activate 경로에서 여전히 우회됩니다.**
-  - clone은 `src.config`를 raw dict로 복사한 뒤 `_strip_pipeline_model_params`나 `AgentConfig` 재검증 없이 새 Agent와 v1에 저장합니다: [crud_routes.py:298](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/agents/crud_routes.py:298), [crud_routes.py:316](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/agents/crud_routes.py:316), [crud_routes.py:328](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/agents/crud_routes.py:328).
+  - clone은 `src.config`를 raw dict로 복사한 뒤 `_strip_pipeline_model_params`나 `AgentConfig` 재검증 없이 새 Agent와 v1에 저장합니다: [crud_routes.py:298](packages/api/src/api/agents/crud_routes.py:298), [crud_routes.py:316](packages/api/src/api/agents/crud_routes.py:316), [crud_routes.py:328](packages/api/src/api/agents/crud_routes.py:328).
   - 따라서 구 DB·raw seed 등으로 남은 `{"impl":"pipeline","modelParams":...}`를 clone하면 불법 상태가 새 엔티티와 새 버전으로 재생산됩니다.
-  - activate도 과거 버전 config를 raw 복사해 head에 재저장하며 strip하지 않습니다: [version_routes.py:59](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/agents/version_routes.py:59), [version_routes.py:64](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/agents/version_routes.py:64).
+  - activate도 과거 버전 config를 raw 복사해 head에 재저장하며 strip하지 않습니다: [version_routes.py:59](packages/api/src/api/agents/version_routes.py:59), [version_routes.py:64](packages/api/src/api/agents/version_routes.py:64).
   - 런타임 gate가 해당 값을 무시하므로 즉각적인 temperature 실행 우회는 막혔지만, “illegal state 표현 불가”라는 P1① 쓰기 경계 계약은 아직 닫히지 않았습니다.
-  - create/update 자체의 순서는 올바르게 봉합됐습니다: [crud_routes.py:241](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/agents/crud_routes.py:241), [crud_routes.py:246](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/agents/crud_routes.py:246), [crud_routes.py:373](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/agents/crud_routes.py:373), [crud_routes.py:379](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/agents/crud_routes.py:379).
+  - create/update 자체의 순서는 올바르게 봉합됐습니다: [crud_routes.py:241](packages/api/src/api/agents/crud_routes.py:241), [crud_routes.py:246](packages/api/src/api/agents/crud_routes.py:246), [crud_routes.py:373](packages/api/src/api/agents/crud_routes.py:373), [crud_routes.py:379](packages/api/src/api/agents/crud_routes.py:379).
 
 ## 남은 P2
 
 - **P2 — verify_420이 node 층 양성 무회귀와 실제 저장 입구를 핀하지 않습니다.**
-  - 현재 R 검증은 agent/session 값이 노드에 없다는 음성 assertion만 있습니다: [verify_420_model_param_layers.py:125](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/tests/verify_420_model_param_layers.py:125), [verify_420_model_param_layers.py:136](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/tests/verify_420_model_param_layers.py:136).
-  - `nodes[].modelParams.temperature`가 최종 `model_cfg.params`에 남는 양성 assertion은 없습니다. 코드상 적용은 정상입니다: [chat_context_models.py:142](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_models.py:142).
-  - W 검증도 validator와 helper를 직접 호출할 뿐 create/update/clone/activate 라우트의 실제 저장 결과를 검증하지 않습니다: [verify_420_model_param_layers.py:64](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/tests/verify_420_model_param_layers.py:64).
+  - 현재 R 검증은 agent/session 값이 노드에 없다는 음성 assertion만 있습니다: [verify_420_model_param_layers.py:125](tests/verify_420_model_param_layers.py:125), [verify_420_model_param_layers.py:136](tests/verify_420_model_param_layers.py:136).
+  - `nodes[].modelParams.temperature`가 최종 `model_cfg.params`에 남는 양성 assertion은 없습니다. 코드상 적용은 정상입니다: [chat_context_models.py:142](packages/api/src/api/chat_context_models.py:142).
+  - W 검증도 validator와 helper를 직접 호출할 뿐 create/update/clone/activate 라우트의 실제 저장 결과를 검증하지 않습니다: [verify_420_model_param_layers.py:64](tests/verify_420_model_param_layers.py:64).
 
 ## 봉합 확인
 
-- **P1② temperature 병렬 통로: 봉합 확인.** `_apply_overrides` 후의 최종 `cfg.modelParams`에서 읽으므로 session temperature도 같은 gate에 걸립니다: [chat_context_loader.py:95](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_loader.py:95), [chat_context_loader.py:181](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_loader.py:181).
-- chat/resume/A2A/eval 네 입구는 모두 `ctx.temperature`로만 `AgentBuildContext.params`를 만듭니다. pipeline에서는 `None → {}`이고, `_model_from_node`는 노드별 `model_cfg`와 이 빈 params만 전달합니다: [pipeline.py:47](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/agent/src/agent/flows/pipeline.py:47).
-- **노드 자기 `modelParams.temperature`: 코드상 정상 유지.** node 층은 pipeline일 때만 `model_cfg.params`에 병합되고 `build_chat_openai`가 이를 소비합니다: [model_param_layers.py:23](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/model_param_layers.py:23), [chat_context_models.py:143](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_models.py:143), [model.py:141](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/agent/src/agent/model.py:141).
-- **비노드형 무회귀 확인.** `None`, `orchestrate_ranked`, `artifact_form` 등 pipeline 이외 impl은 agent/session 층이 적용되며 temperature가 그대로 params로 전달됩니다: [model_param_layers.py:28](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/model_param_layers.py:28), [chat_context_models.py:186](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_models.py:186).
+- **P1② temperature 병렬 통로: 봉합 확인.** `_apply_overrides` 후의 최종 `cfg.modelParams`에서 읽으므로 session temperature도 같은 gate에 걸립니다: [chat_context_loader.py:95](packages/api/src/api/chat_context_loader.py:95), [chat_context_loader.py:181](packages/api/src/api/chat_context_loader.py:181).
+- chat/resume/A2A/eval 네 입구는 모두 `ctx.temperature`로만 `AgentBuildContext.params`를 만듭니다. pipeline에서는 `None → {}`이고, `_model_from_node`는 노드별 `model_cfg`와 이 빈 params만 전달합니다: [pipeline.py:47](packages/agent/src/agent/flows/pipeline.py:47).
+- **노드 자기 `modelParams.temperature`: 코드상 정상 유지.** node 층은 pipeline일 때만 `model_cfg.params`에 병합되고 `build_chat_openai`가 이를 소비합니다: [model_param_layers.py:23](packages/api/src/api/model_param_layers.py:23), [chat_context_models.py:143](packages/api/src/api/chat_context_models.py:143), [model.py:141](packages/agent/src/agent/model.py:141).
+- **비노드형 무회귀 확인.** `None`, `orchestrate_ranked`, `artifact_form` 등 pipeline 이외 impl은 agent/session 층이 적용되며 temperature가 그대로 params로 전달됩니다: [model_param_layers.py:28](packages/api/src/api/model_param_layers.py:28), [chat_context_models.py:186](packages/api/src/api/chat_context_models.py:186).
 - **P2① node gate: 봉합 확인.** 비노드형+레거시 nodes에서는 node 층이 차단되고, pipeline에서는 허용됩니다.
 - **P2②③ 수용 판단: 타당.** BE 정책 관문은 단일 함수로 모였고 FE 수동 복제는 상호참조+계약 테스트로 관리하는 구조입니다. 다만 위 양성 node assertion을 추가해야 계약 핀이 완전해집니다.
 - seed의 현재 pipeline 데모에는 agent `modelParams`가 없어 현행 데이터 회귀는 없습니다. batch/remote 등록 경로는 pipeline config 생산자가 아닙니다.

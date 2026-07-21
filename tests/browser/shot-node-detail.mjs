@@ -3,7 +3,7 @@
    메시지 전송 → 인스펙터 열기 → 'LangGraph 경로' 섹션 텍스트 덤프(plan 요약 '핵심' 확인).
 
    실행:
-     PLAYWRIGHT_DIR=/Users/anthony/.npm/_npx/9833c18b2d85bc59/node_modules/playwright \
+     PLAYWRIGHT_DIR=~/.npm/_npx/9833c18b2d85bc59/node_modules/playwright \
      node tests/browser/shot-node-detail.mjs /tmp/node-detail-shot.png */
 const pwDir = process.env.PLAYWRIGHT_DIR
 const _pw = await import(pwDir ? `${pwDir}/index.js` : 'playwright')

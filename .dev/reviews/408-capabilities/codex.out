@@ -2,7 +2,7 @@ Reading additional input from stdin...
 2026-07-19T14:06:00.431675Z ERROR codex_models_manager::cache: failed to load models cache: missing field `supports_reasoning_summaries` at line 88 column 5
 OpenAI Codex v0.144.6
 --------
-workdir: /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+workdir: .
 model: gpt-5.6-sol
 provider: openai
 approval: never
@@ -32,7 +32,7 @@ codex
 [단계 1 — Scaffolding]
 요청 범위를 스펙 408의 모델 능력·설정 캐스케이드에 대한 읽기 전용 스팟 적대 리뷰로 고정합니다. 코드 리뷰 실수를 줄이기 위해 `karpathy-guidelines` 스킬을 적용하고, 저장소의 관련 학습·회고 인덱스와 실제 생산자·소비자 경로를 먼저 닫힌 집합으로 확인하겠습니다. 결론은 요청대로 `P1 / P2 / 확인함`으로만 분류하겠습니다.
 exec
-/bin/zsh -lc "sed -n '1,240p' /Users/anthony/.codex/plugins/cache/karpathy-skills/andrej-karpathy-skills/1.0.0/skills/karpathy-guidelines/SKILL.md && rg -n \"408|capabilit|modelParams|responseMode|disable_streaming|record_block_version|9c13f807b6c2\" /Users/anthony/.codex/memories/MEMORY.md .dev/learning/INDEX.md .dev/retrospect/INDEX.md .dev/troubleshooting/INDEX.md 2>/dev/null" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "sed -n '1,240p' ~/.codex/plugins/cache/karpathy-skills/andrej-karpathy-skills/1.0.0/skills/karpathy-guidelines/SKILL.md && rg -n \"408|capabilit|modelParams|responseMode|disable_streaming|record_block_version|9c13f807b6c2\" ~/.codex/memories/MEMORY.md .dev/learning/INDEX.md .dev/retrospect/INDEX.md .dev/troubleshooting/INDEX.md 2>/dev/null" in .
  exited 2 in 0ms:
 ---
 name: karpathy-guidelines
@@ -125,7 +125,7 @@ codex
 [단계 2 — Context]
 참고 자산: 086 capability 플래그의 쓰기·렌더 입구 정렬 → admin PUT의 라이브 사실 편집 경계 점검, 101 설정 지속경로 누락 → capabilities의 생산자·소비자 관통 점검, 202 계약 주입 뒤 실제 소비 검증 → `modelParams` 캐스케이드가 각 실행 경로에서 실제 적용되는지 확인. 스킬의 영향으로 구현 의도를 추측해 메우지 않고, 각 finding을 구체 호출 경로와 재현 가능한 조건에 묶겠습니다.
 exec
-/bin/zsh -lc "rg -n \"spec.?408|408-|capabilities|modelParams|responseMode|disable_streaming|record_block_version|def llm_cfg_of|def _pinned_model_cfg|def _chat_model_cfg|def _resolve_node_models|def _resolve_mem_cfg|def _apply_agent_model_params|def build_chat_openai\" packages .dev alembic --glob '"'!**/node_modules/**'"' --glob '"'!**/.venv/**'"'" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "rg -n \"spec.?408|408-|capabilities|modelParams|responseMode|disable_streaming|record_block_version|def llm_cfg_of|def _pinned_model_cfg|def _chat_model_cfg|def _resolve_node_models|def _resolve_mem_cfg|def _apply_agent_model_params|def build_chat_openai\" packages .dev alembic --glob '"'!**/node_modules/**'"' --glob '"'!**/.venv/**'"'" in .
  exited 2 in 0ms:
 rg: alembic: No such file or directory (os error 2)
 packages/api/src/api/chat_context_overrides.py:89:    - capabilities(스펙 122): 브로커가 build_broker(principal=호출자)로 호출자 RBAC 게이트
@@ -142,7 +142,7 @@ packages/api/src/api/agent_card.py:3:외부 에이전트는 자기 capabilities�
 packages/api/src/api/agent_card.py:34:    # capabilities(객체) 또는 skills(배열) 중 최소 하나는 제대로 채워져 있어야 한다.
 packages/api/src/api/agent_card.py:36:    has_caps = isinstance(card.get("capabilities"), dict) and bool(card.get("capabilities"))
 packages/api/src/api/agent_card.py:39:        raise ValueError("Agent Card에 'capabilities'(객체) 또는 'skills'(배열)가 없습니다")
-.dev/reviews/393-blocks/codex-consult.md:38:- 블록 버저닝은 `record_block_version` + commit 충돌 409 흐름을 유지해야 합니다. unique race는 [BlockVersion 제약](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/models/blocks.py:42)과 [record_block_version](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/block_versions.py:93)에 걸려 있습니다.
+.dev/reviews/393-blocks/codex-consult.md:38:- 블록 버저닝은 `record_block_version` + commit 충돌 409 흐름을 유지해야 합니다. unique race는 [BlockVersion 제약](packages/api/src/api/models/blocks.py:42)과 [record_block_version](packages/api/src/api/block_versions.py:93)에 걸려 있습니다.
 .dev/probe_042_a2a_integration.py:67:        "capabilities": {"streaming": streaming, "pushNotifications": False},
 .dev/probe_042_a2a_integration.py:174:                             "capabilities": {"streaming": True}, "skills": [{"id": "s"}]}},
 .dev/reviews/407-memory-separation/codex.out:401:    53	    capabilities: list = field(default_factory=list)
@@ -216,7 +216,7 @@ packages/api/src/api/schemas/agents.py:303:    capabilities: list[str] = Field(
 .dev/reviews/408-capabilities/codex.out:21:2. 캐스케이드 정합 — 노드형: 노드별 모델에 에이전트 modelParams가 적용되나(의도: 적용돼야 하나? 노드 모델은 별도 축 — 현 구현은 _resolve_model만 병합, _chat_model_cfg는 미병합 → 노드 모델엔 에이전트 thinking/stream이 안 먹음. 이게 구멍인가 정직한 경계인가 판정). 세션 오버라이드에 stream/enable_thinking 키가 없는 것(화이트리스트 밖)의 일관성.
 .dev/reviews/408-capabilities/codex.out:22:3. trace 정합 — responseMode 유효식이 실행부(model.py)와 어긋날 수 있는 경로(예: 노드형은 노드 모델로 실행되는데 trace는 ctx.model_cfg 기준 — 거짓 배지?).
 .dev/reviews/408-capabilities/codex.out:23:4. PUT 능력 편집 — record_block_version과 능력 변경의 상호작용(능력이 payload에 들어가 버전 증가? 능력=라이브 사실이면 버전 무증가가 맞는지), 참조 중 편집의 안전성.
-.dev/reviews/408-capabilities/codex.out:35:/bin/zsh -lc "sed -n '1,240p' /Users/anthony/.codex/plugins/cache/karpathy-skills/andrej-karpathy-skills/1.0.0/skills/karpathy-guidelines/SKILL.md && rg -n \"408|capabilit|modelParams|responseMode|disable_streaming|record_block_version|9c13f807b6c2\" /Users/anthony/.codex/memories/MEMORY.md .dev/learning/INDEX.md .dev/retrospect/INDEX.md .dev/troubleshooting/INDEX.md 2>/dev/null" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+.dev/reviews/408-capabilities/codex.out:35:/bin/zsh -lc "sed -n '1,240p' ~/.codex/plugins/cache/karpathy-skills/andrej-karpathy-skills/1.0.0/skills/karpathy-guidelines/SKILL.md && rg -n \"408|capabilit|modelParams|responseMode|disable_streaming|record_block_version|9c13f807b6c2\" ~/.codex/memories/MEMORY.md .dev/learning/INDEX.md .dev/retrospect/INDEX.md .dev/troubleshooting/INDEX.md 2>/dev/null" in .
 .dev/reviews/408-capabilities/codex.out:112:.dev/retrospect/INDEX.md:87:- 082 능력 브로커 kind 확장: MCP provider(Phase 2-a) + 서브스텝 HIL — 스펙 101; integration rung이 설정지속경로 누락+스테일 --reload split-brain을 통합검증서만 잡음 [capability-broker,mcp-provider,hil-substep,interrupt-before-sideeffect,stale-reload-split-brain,seed-bypasses-write-schema,config-capabilities-persistence,approval-policy-single-source] → learning 101
 .dev/reviews/408-capabilities/codex.out:116:.dev/retrospect/INDEX.md:92:- 087 에이전트 편집 폼에 impl + capabilities 노출 — 스펙 106; config 필드 왕복 완전성=4지점 교집합(직렬화 비대칭 누락으로 재열기 때 사라짐) [capability-broker,admin-ui,capabilities-picker,agent-impls-endpoint,config-roundtrip-4-points,asymmetric-serialize-gap,rbac-not-triggered,vite-ipv6-only] → learning 106
 .dev/reviews/408-capabilities/codex.out:117:.dev/retrospect/INDEX.md:93:- 088 능력 피커 UX: 조건부 + 접이식 — 스펙 107; 사용자 지적(RAG 늘면 폼 복잡)으로 조건부+접이식, AskUserQuestion 미리보기로 방식 즉결 [capabilities-picker-ux,user-feedback,conditional-display,accordion-by-kind,form-height-vs-catalog,pure-presentation-swap,askuserquestion-preview,antd-checkbox-check] → learning 107
@@ -297,7 +297,7 @@ packages/api/src/api/agents/guards.py:70:        for c in (config.get("capabilit
 .dev/reviews/401-override-gate/codex.out:432:async def _chat_model_cfg(db: AsyncSession, name: str, pins: dict | None = None) -> dict | None:
 .dev/reviews/401-override-gate/codex.out:443:async def _resolve_node_models(
 .dev/reviews/401-override-gate/codex.out:500:async def _resolve_mem_cfg(db: AsyncSession, model_cfg: dict | None) -> dict | None:
-.dev/reviews/401-override-gate/codex.out:599:.dev/reviews/393-blocks/codex-consult.md:38:- 블록 버저닝은 `record_block_version` + commit 충돌 409 흐름을 유지해야 합니다. unique race는 [BlockVersion 제약](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/models/blocks.py:42)과 [record_block_version](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/block_versions.py:93)에 걸려 있습니다.
+.dev/reviews/401-override-gate/codex.out:599:.dev/reviews/393-blocks/codex-consult.md:38:- 블록 버저닝은 `record_block_version` + commit 충돌 409 흐름을 유지해야 합니다. unique race는 [BlockVersion 제약](packages/api/src/api/models/blocks.py:42)과 [record_block_version](packages/api/src/api/block_versions.py:93)에 걸려 있습니다.
 .dev/reviews/401-override-gate/codex.out:636:.dev/reviews/374-backend-refactor/codex-A.md:21:[chat_context.py:189] (P2) `derive_pipeline_pool`이 노드 ref 해석, MCP 서버 스캔, 컬렉션 스캔, memories/capabilities denormalization까지 수행 → 순수 `PipelinePoolDeriver`와 DB-backed catalog loader를 분리
 .dev/reviews/401-override-gate/codex.out:677:.dev/retrospect/082-capability-broker-mcp-provider.md:35:`AgentConfig`(schemas.py) Pydantic 모델에 **`capabilities` 필드가 없어** `body.config.model_dump()`가
 .dev/reviews/401-override-gate/codex.out:783:.dev/retrospect/INDEX.md:108:- 103 조율형 오버라이드 capabilities — 스펙 122, 사용자 버그2; 108이 편집폼만 kind로 가르고 109가 직접형만 이식해 조율형 MCP가 오버라이드서 누락됐던 걸 kind-aware capGroups로 닫음 [orchestrator-override,fork-surface-propagate,single-source,browser-verify-catches-ui-gap,nul-byte-found] → learning 122
@@ -320,10 +320,10 @@ packages/api/src/api/agents/guards.py:70:        for c in (config.get("capabilit
 .dev/reviews/401-override-gate/codex.out:1451:tests/verify_122_orchestrator_override_capabilities.py:118:        ctx = await chat._load_context(bare_id, None, {"capabilities": []}, own=None)
 .dev/reviews/401-override-gate/codex.out:1452:tests/verify_122_orchestrator_override_capabilities.py:123:        ctx = await chat._load_context(bare_id, None, {"model": None}, own=None)
 .dev/reviews/401-override-gate/codex.out:1453:tests/verify_122_orchestrator_override_capabilities.py:129:            await chat._load_context(bare_id, None, {"model": "없는모델401"}, own=None)
-.dev/reviews/401-override-gate/codex.out:1647:/bin/zsh -lc "nl -ba tests/verify_122_orchestrator_override_capabilities.py | sed -n '110,135p'" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+.dev/reviews/401-override-gate/codex.out:1647:/bin/zsh -lc "nl -ba tests/verify_122_orchestrator_override_capabilities.py | sed -n '110,135p'" in .
 .dev/reviews/401-override-gate/codex.out:1657:   118	        ctx = await chat._load_context(bare_id, None, {"capabilities": []}, own=None)
-.dev/reviews/401-override-gate/codex.out:1688:- `model` 키 없음 / `{"model": None}`: 의도대로 기본 모델 폴백입니다. 기존 회귀 테스트도 이 케이스를 이미 핀하고 있습니다: [verify_122_orchestrator_override_capabilities.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/tests/verify_122_orchestrator_override_capabilities.py:118).
-.dev/reviews/401-override-gate/codex.out:1707:- `model` 키 없음 / `{"model": None}`: 의도대로 기본 모델 폴백입니다. 기존 회귀 테스트도 이 케이스를 이미 핀하고 있습니다: [verify_122_orchestrator_override_capabilities.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/tests/verify_122_orchestrator_override_capabilities.py:118).
+.dev/reviews/401-override-gate/codex.out:1688:- `model` 키 없음 / `{"model": None}`: 의도대로 기본 모델 폴백입니다. 기존 회귀 테스트도 이 케이스를 이미 핀하고 있습니다: [verify_122_orchestrator_override_capabilities.py](tests/verify_122_orchestrator_override_capabilities.py:118).
+.dev/reviews/401-override-gate/codex.out:1707:- `model` 키 없음 / `{"model": None}`: 의도대로 기본 모델 폴백입니다. 기존 회귀 테스트도 이 케이스를 이미 핀하고 있습니다: [verify_122_orchestrator_override_capabilities.py](tests/verify_122_orchestrator_override_capabilities.py:118).
 packages/agent/src/agent/flows/orchestrate.py:210:            consumes=("capabilities", "memories"),
 packages/agent/src/agent/model.py:25:def build_chat_openai(
 packages/agent/src/agent/model.py:34:def build_chat_openai(
@@ -346,8 +346,8 @@ packages/agent/src/agent/runtime.py:135:    # 이 impl이 실제로 읽는 설�
 .dev/reviews/402-quarantine/codex.out:825:tests/verify_122_orchestrator_override_capabilities.py:122:            active_version="v1",
 .dev/reviews/402-quarantine/codex.out:986:packages/api/src/api/blocks_memory_types.py:14:from .block_versions import record_block_version
 .dev/reviews/402-quarantine/codex.out:987:packages/api/src/api/blocks_memory_types.py:62:    await record_block_version(session, "memory-type", obj)  # 스펙 369 관문
-.dev/reviews/402-quarantine/codex.out:1121:.dev/reviews/393-blocks/codex-consult.md:38:- 블록 버저닝은 `record_block_version` + commit 충돌 409 흐름을 유지해야 합니다. unique race는 [BlockVersion 제약](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/models/blocks.py:42)과 [record_block_version](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/block_versions.py:93)에 걸려 있습니다.
-.dev/reviews/402-quarantine/codex.out:1426:.dev/reviews/401-override-gate/codex.out:599:.dev/reviews/393-blocks/codex-consult.md:38:- 블록 버저닝은 `record_block_version` + commit 충돌 409 흐름을 유지해야 합니다. unique race는 [BlockVersion 제약](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/models/blocks.py:42)과 [record_block_version](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/block_versions.py:93)에 걸려 있습니다.
+.dev/reviews/402-quarantine/codex.out:1121:.dev/reviews/393-blocks/codex-consult.md:38:- 블록 버저닝은 `record_block_version` + commit 충돌 409 흐름을 유지해야 합니다. unique race는 [BlockVersion 제약](packages/api/src/api/models/blocks.py:42)과 [record_block_version](packages/api/src/api/block_versions.py:93)에 걸려 있습니다.
+.dev/reviews/402-quarantine/codex.out:1426:.dev/reviews/401-override-gate/codex.out:599:.dev/reviews/393-blocks/codex-consult.md:38:- 블록 버저닝은 `record_block_version` + commit 충돌 409 흐름을 유지해야 합니다. unique race는 [BlockVersion 제약](packages/api/src/api/models/blocks.py:42)과 [record_block_version](packages/api/src/api/block_versions.py:93)에 걸려 있습니다.
 .dev/reviews/402-quarantine/codex.out:1656:packages/api/src/api/blocks_prompts.py:20:from .block_versions import delete_block_history, record_block_version
 .dev/reviews/402-quarantine/codex.out:1657:packages/api/src/api/blocks_prompts.py:45:    await record_block_version(session, "prompt", obj)  # v1 이력(스펙 369)
 .dev/reviews/402-quarantine/codex.out:1658:packages/api/src/api/blocks_prompts.py:71:    await record_block_version(session, "prompt", obj)
@@ -373,10 +373,10 @@ packages/agent/src/agent/runtime.py:135:    # 이 impl이 실제로 읽는 설�
 .dev/reviews/402-quarantine/codex.out:3867:   340	    await record_block_version(session, "mcp-server", obj)
 .dev/reviews/402-quarantine/codex.out:3917:     4	`record_block_version`을 경유한다(PUT·재탐색 동기화·생성). 잡별 삽입 금지 — 미경유 mutate가
 .dev/reviews/402-quarantine/codex.out:4006:    93	async def record_block_version(session: AsyncSession, kind: str, row: Any) -> bool:
-.dev/reviews/402-quarantine/codex.out:4176:/bin/zsh -lc 'rg -n "def record_block_version|mcp-server|transport|tools_meta|enabled_tools|url|endpoint|version" packages/api/src/api/block_versions.py packages/api/src/api/blocks_presenters.py packages/api/src/api/schemas.py packages/api/alembic/versions' in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+.dev/reviews/402-quarantine/codex.out:4176:/bin/zsh -lc 'rg -n "def record_block_version|mcp-server|transport|tools_meta|enabled_tools|url|endpoint|version" packages/api/src/api/block_versions.py packages/api/src/api/blocks_presenters.py packages/api/src/api/schemas.py packages/api/alembic/versions' in .
 .dev/reviews/402-quarantine/codex.out:4189:packages/api/src/api/block_versions.py:4:`record_block_version`을 경유한다(PUT·재탐색 동기화·생성). 잡별 삽입 금지 — 미경유 mutate가
 .dev/reviews/402-quarantine/codex.out:4199:packages/api/src/api/block_versions.py:93:async def record_block_version(session: AsyncSession, kind: str, row: Any) -> bool:
-.dev/reviews/402-quarantine/codex.out:4306:/bin/zsh -lc "rg -n \"McpServer\\(|update_mcp_server\\(|record_block_version\\(.*mcp-server|\\.version\\s*=|McpServer.*version|mcp_servers\" packages/api/src/api packages/api/alembic/versions tests/verify_*.py" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+.dev/reviews/402-quarantine/codex.out:4306:/bin/zsh -lc "rg -n \"McpServer\\(|update_mcp_server\\(|record_block_version\\(.*mcp-server|\\.version\\s*=|McpServer.*version|mcp_servers\" packages/api/src/api packages/api/alembic/versions tests/verify_*.py" in .
 .dev/reviews/402-quarantine/codex.out:4366:packages/api/src/api/blocks_mcp.py:93:    await record_block_version(session, "mcp-server", obj)  # v1 이력(스펙 369)
 .dev/reviews/402-quarantine/codex.out:4367:packages/api/src/api/blocks_mcp.py:165:    await record_block_version(session, "mcp-server", obj)
 .dev/reviews/402-quarantine/codex.out:4369:packages/api/src/api/blocks_mcp.py:340:    await record_block_version(session, "mcp-server", obj)
@@ -390,9 +390,9 @@ packages/agent/src/agent/runtime.py:135:    # 이 impl이 실제로 읽는 설�
 .dev/reviews/402-quarantine/codex.out:6779:   224	        ctx.capabilities,
 .dev/reviews/402-quarantine/codex.out:6789:   234	        tools.extend(runtime.build_agent_tools(broker, await broker.agent_capabilities()))
 .dev/reviews/402-quarantine/codex.out:6964:일반 MCP 서버 수정 경로에서는 `transport`, `url`, `endpoint` 변경이 `version`을 반드시 회전시킵니다. `update_mcp_server()`가 body 값을 row에 반영한 뒤 `record_block_version()`을 호출하고, MCP payload에는 `transport`, `url`, `endpoint`가 포함됩니다. payload가 직전 버전과 다르면 `row.version = last.version + 1`입니다. 런타임 projection도 `version`을 `server` dict에 넣고, 캐시 키는 `(name, version, auth_fp)`라 head 경로에서는 키가 바뀝니다.
-.dev/reviews/402-quarantine/codex.out:6970:- [blocks_mcp.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/blocks_mcp.py:340): 수정 후 `record_block_version(session, "mcp-server", obj)`.
+.dev/reviews/402-quarantine/codex.out:6970:- [blocks_mcp.py](packages/api/src/api/blocks_mcp.py:340): 수정 후 `record_block_version(session, "mcp-server", obj)`.
 .dev/reviews/402-quarantine/codex.out:7008:일반 MCP 서버 수정 경로에서는 `transport`, `url`, `endpoint` 변경이 `version`을 반드시 회전시킵니다. `update_mcp_server()`가 body 값을 row에 반영한 뒤 `record_block_version()`을 호출하고, MCP payload에는 `transport`, `url`, `endpoint`가 포함됩니다. payload가 직전 버전과 다르면 `row.version = last.version + 1`입니다. 런타임 projection도 `version`을 `server` dict에 넣고, 캐시 키는 `(name, version, auth_fp)`라 head 경로에서는 키가 바뀝니다.
-.dev/reviews/402-quarantine/codex.out:7014:- [blocks_mcp.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/blocks_mcp.py:340): 수정 후 `record_block_version(session, "mcp-server", obj)`.
+.dev/reviews/402-quarantine/codex.out:7014:- [blocks_mcp.py](packages/api/src/api/blocks_mcp.py:340): 수정 후 `record_block_version(session, "mcp-server", obj)`.
 .dev/learning/152-display-honesty-gate-by-consumes.md:12:   `consumes=("capabilities","memories")` — 도구·문서를 **소비하지 않는다**.
 .dev/learning/108-dont-expose-internal-architecture-as-ui.md:26:- 조율형(`orchestrate`)은 `ctx.broker`(capabilities)**만** 쓴다.
 .dev/retrospect/126-naming-rule-alias.md:28:- **capabilities 축 구조적 누락**: 조율형은 mcps가 비고 capabilities("mcp:서버/툴")로 참조 —
@@ -463,7 +463,7 @@ codex
 [단계 3 — Planning]
 완료 조건은 세 가지입니다: (1) `model_cfg` 생성·변형 지점을 전수 열거해 capabilities 유실 여부 판정, (2) 실제 실행 모델과 trace 표시 모델을 경로별 대조, (3) PUT→버전 payload→pin/live 참조의 의미를 대조. 검증은 정적 호출부 스캔과 관련 테스트/스펙 계약 대조로 수행하며, 읽기 전용 요청이라 파일 수정·회고·커밋은 생략합니다.
 exec
-/bin/zsh -lc "nl -ba packages/api/src/api/chat_context_models.py | sed -n '1,240p'; nl -ba packages/api/src/api/mem_config.py | sed -n '1,180p'; nl -ba packages/api/src/api/chat_trace.py | sed -n '130,195p'; nl -ba packages/agent/src/agent/model.py | sed -n '1,280p'; nl -ba packages/api/src/api/model_registry.py | sed -n '210,305p'; nl -ba packages/api/src/api/block_versions.py | sed -n '1,180p'; nl -ba packages/api/src/api/models/registry.py | sed -n '1,180p'; nl -ba packages/api/alembic/versions/9c13f807b6c2_model_capabilities_spec_408.py" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "nl -ba packages/api/src/api/chat_context_models.py | sed -n '1,240p'; nl -ba packages/api/src/api/mem_config.py | sed -n '1,180p'; nl -ba packages/api/src/api/chat_trace.py | sed -n '130,195p'; nl -ba packages/agent/src/agent/model.py | sed -n '1,280p'; nl -ba packages/api/src/api/model_registry.py | sed -n '210,305p'; nl -ba packages/api/src/api/block_versions.py | sed -n '1,180p'; nl -ba packages/api/src/api/models/registry.py | sed -n '1,180p'; nl -ba packages/api/alembic/versions/9c13f807b6c2_model_capabilities_spec_408.py" in .
  succeeded in 0ms:
      1	"""모델·mem0 설정 해석 — chat_context.py에서 분할(스펙 394 P3).
      2	
@@ -1342,7 +1342,7 @@ exec
     37	    op.drop_column("models", "capabilities")
 
 exec
-/bin/zsh -lc "nl -ba packages/agent/src/agent/model.py | sed -n '1,180p'; rg -n \"build_chat_openai\\(|model_cfg|node_models|nodes.*model_cfg|_model_from_node|enable_thinking|stream=\" packages/agent/src packages/api/src/api --glob '*.py'; rg -n \"_resolve_model\\(|_resolve_node_models\\(|_resolve_mem_cfg\\(|_build_mem_cfg\\(|llm_cfg_of\\(\" packages/api/src/api packages/agent/src --glob '*.py'" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "nl -ba packages/agent/src/agent/model.py | sed -n '1,180p'; rg -n \"build_chat_openai\\(|model_cfg|node_models|nodes.*model_cfg|_model_from_node|enable_thinking|stream=\" packages/agent/src packages/api/src/api --glob '*.py'; rg -n \"_resolve_model\\(|_resolve_node_models\\(|_resolve_mem_cfg\\(|_build_mem_cfg\\(|llm_cfg_of\\(\" packages/api/src/api packages/agent/src --glob '*.py'" in .
  succeeded in 0ms:
      1	"""모델 구성 정본(스펙 295) — 주입된 model_cfg로 ChatOpenAI를 만드는 유일한 곳.
      2	
@@ -1561,7 +1561,7 @@ packages/api/src/api/chat_context_models.py:207:        "embedder": llm_cfg_of(e
 packages/api/src/api/chat_context_models.py:224:    return _build_mem_cfg(m, await _default_embed_model(db))
 
 exec
-/bin/zsh -lc "nl -ba packages/agent/src/agent/flows/pipeline.py | sed -n '35,65p;300,340p'; nl -ba packages/api/src/api/chat_context_loader.py | sed -n '35,165p'; nl -ba packages/api/src/api/eval_execution.py | sed -n '1,100p'; nl -ba packages/api/src/api/eval_runner.py | sed -n '90,125p;170,215p'; nl -ba packages/api/src/api/eval_guards.py | sed -n '80,125p'; nl -ba packages/api/src/api/chat_a2a_serve.py | sed -n '240,280p'; nl -ba packages/api/src/api/chat_turn_runtime.py | sed -n '135,175p;230,260p'; nl -ba packages/api/src/api/chat_graph_build.py | sed -n '110,145p'; nl -ba packages/api/src/api/schemas/agents.py | sed -n '1,42p;270,315p'; rg -n \"stream|enable_thinking|modelParams|ALLOWED|override\" packages/api/src/api/chat_context_overrides.py packages/api/src/api/schemas/chat.py packages/api/src/api/schemas --glob '*.py'" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "nl -ba packages/agent/src/agent/flows/pipeline.py | sed -n '35,65p;300,340p'; nl -ba packages/api/src/api/chat_context_loader.py | sed -n '35,165p'; nl -ba packages/api/src/api/eval_execution.py | sed -n '1,100p'; nl -ba packages/api/src/api/eval_runner.py | sed -n '90,125p;170,215p'; nl -ba packages/api/src/api/eval_guards.py | sed -n '80,125p'; nl -ba packages/api/src/api/chat_a2a_serve.py | sed -n '240,280p'; nl -ba packages/api/src/api/chat_turn_runtime.py | sed -n '135,175p;230,260p'; nl -ba packages/api/src/api/chat_graph_build.py | sed -n '110,145p'; nl -ba packages/api/src/api/schemas/agents.py | sed -n '1,42p;270,315p'; rg -n \"stream|enable_thinking|modelParams|ALLOWED|override\" packages/api/src/api/chat_context_overrides.py packages/api/src/api/schemas/chat.py packages/api/src/api/schemas --glob '*.py'" in .
  exited 2 in 0ms:
     35	from ..runtime import AgentBuildContext, AgentConfigError, AgentManifest
     36	from ..toolbox import fence_wrap
@@ -2237,7 +2237,7 @@ packages/api/src/api/schemas/registry.py:86:        default_factory=lambda: {"st
 packages/api/src/api/schemas/sessions.py:115:    overrides: dict | None = None
 
 exec
-/bin/zsh -lc "nl -ba packages/api/src/api/chat_context_loader.py | sed -n '1,42p'; nl -ba packages/api/src/api/chat_context_overrides.py | sed -n '78,118p'; nl -ba packages/api/src/api/chat_trace.py | sed -n '1,45p'; rg -n \"responseMode|modelParams|capabilities.*streaming|stream_effective|9c13f807b6c2\" tests packages/admin docs/spec .dev/spec --glob '"'!**/node_modules/**'"' 2>/dev/null" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "nl -ba packages/api/src/api/chat_context_loader.py | sed -n '1,42p'; nl -ba packages/api/src/api/chat_context_overrides.py | sed -n '78,118p'; nl -ba packages/api/src/api/chat_trace.py | sed -n '1,45p'; rg -n \"responseMode|modelParams|capabilities.*streaming|stream_effective|9c13f807b6c2\" tests packages/admin docs/spec .dev/spec --glob '"'!**/node_modules/**'"' 2>/dev/null" in .
  exited 2 in 0ms:
      1	"""_load_context 오케스트레이터 — chat_context.py에서 분할(스펙 394 P6).
      2	
@@ -2405,7 +2405,7 @@ tests/verify_063_live.py:9:  2. stale 행 주입: source=external, endpoint="127
 tests/verify_063_live.py:105:        "capabilities": {"streaming": False},  # 단건 message/send 경로
 
 exec
-/bin/zsh -lc "nl -ba docs/spec/408-model-capabilities.md | sed -n '1,220p'; nl -ba tests/verify_408_model_capabilities.py | sed -n '1,220p'; rg -n \"nodes_resolved|responseMode|model_cfg\" packages/api/src/api/chat_trace.py packages/api/src/api/chat_turn_runtime.py packages/api/src/api/chat_approval.py tests/verify_408_model_capabilities.py" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "nl -ba docs/spec/408-model-capabilities.md | sed -n '1,220p'; nl -ba tests/verify_408_model_capabilities.py | sed -n '1,220p'; rg -n \"nodes_resolved|responseMode|model_cfg\" packages/api/src/api/chat_trace.py packages/api/src/api/chat_turn_runtime.py packages/api/src/api/chat_approval.py tests/verify_408_model_capabilities.py" in .
  succeeded in 0ms:
      1	# 408 — 모델 능력 관리(capabilities): 스트리밍·thinking·비전
      2	
@@ -2679,7 +2679,7 @@ codex
 [단계 4 — Execution]
 호출 경로를 닫아 보니 capabilities 자체는 `_chat_model_cfg`·노드 해석·eval helper/judge·A2A 로컬 서빙까지 `llm_cfg_of` 또는 `_load_context`를 통해 관통합니다. 반면 실제 결함 후보는 세 곳으로 좁혀졌습니다: 노드별 모델의 에이전트 설정 미병합, 노드 실제 모델과 root 기반 trace 불일치, capabilities 변경이 그래프 캐시 지문에 반영되지 않는 라이브 편집 stale-cache입니다.
 exec
-/bin/zsh -lc "nl -ba packages/api/src/api/chat_graph_build.py | sed -n '115,150p'; nl -ba packages/api/src/api/chat_context_models.py | sed -n '107,180p'; nl -ba packages/api/src/api/chat_context_loader.py | sed -n '29,40p;115,122p'; nl -ba packages/agent/src/agent/flows/pipeline.py | sed -n '47,56p'; nl -ba packages/api/src/api/chat_trace.py | sed -n '164,172p'; nl -ba packages/api/src/api/block_versions.py | sed -n '47,56p;93,109p'; nl -ba packages/api/src/api/model_registry.py | sed -n '265,286p'; git status --short" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+/bin/zsh -lc "nl -ba packages/api/src/api/chat_graph_build.py | sed -n '115,150p'; nl -ba packages/api/src/api/chat_context_models.py | sed -n '107,180p'; nl -ba packages/api/src/api/chat_context_loader.py | sed -n '29,40p;115,122p'; nl -ba packages/agent/src/agent/flows/pipeline.py | sed -n '47,56p'; nl -ba packages/api/src/api/chat_trace.py | sed -n '164,172p'; nl -ba packages/api/src/api/block_versions.py | sed -n '47,56p;93,109p'; nl -ba packages/api/src/api/model_registry.py | sed -n '265,286p'; git status --short" in .
  succeeded in 0ms:
    115	def _graph_fingerprint(ctx: ChatContext) -> str | None:
    116	    """캐시 적격(단순형 default)이면 빌드 결정 요소의 지문, 아니면 None(새 인스턴스 경로).
@@ -2915,15 +2915,15 @@ codex
 
 ## P1
 
-- **capabilities 변경 후 기본 에이전트가 기존 그래프 캐시를 계속 사용합니다.** 모델 능력은 라이브 사실이라 버전을 올리지 않지만, 그래프 지문에는 `capabilities`가 없습니다. 따라서 `streaming: true → false` PUT 뒤에도 이미 캐시된 `ChatOpenAI(disable_streaming=False)`가 재사용될 수 있습니다. 참조 중 편집은 현재 안전하지 않습니다. [`chat_graph_build.py:115`](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_graph_build.py:115), [`model_registry.py:265`](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/model_registry.py:265), [`block_versions.py:47`](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/block_versions.py:47)
+- **capabilities 변경 후 기본 에이전트가 기존 그래프 캐시를 계속 사용합니다.** 모델 능력은 라이브 사실이라 버전을 올리지 않지만, 그래프 지문에는 `capabilities`가 없습니다. 따라서 `streaming: true → false` PUT 뒤에도 이미 캐시된 `ChatOpenAI(disable_streaming=False)`가 재사용될 수 있습니다. 참조 중 편집은 현재 안전하지 않습니다. [`chat_graph_build.py:115`](packages/api/src/api/chat_graph_build.py:115), [`model_registry.py:265`](packages/api/src/api/model_registry.py:265), [`block_versions.py:47`](packages/api/src/api/block_versions.py:47)
 
-- **명시 모델을 쓰는 pipeline 노드에는 에이전트 `modelParams`가 적용되지 않습니다.** `_resolve_model()`만 병합하고 `_chat_model_cfg()` 결과는 그대로 노드에 주입합니다. 실행 시 `ctx.params`에는 temperature만 있으므로 노드의 `stream`·`enable_thinking`은 모델 기본값으로 돌아갑니다. `modelParams`가 에이전트 층이라는 스펙 계약상 정직한 경계가 아니라 관통 누락입니다. [`chat_context_models.py:107`](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_models.py:107), [`chat_context_models.py:149`](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_models.py:149), [`pipeline.py:47`](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/agent/src/agent/flows/pipeline.py:47)
+- **명시 모델을 쓰는 pipeline 노드에는 에이전트 `modelParams`가 적용되지 않습니다.** `_resolve_model()`만 병합하고 `_chat_model_cfg()` 결과는 그대로 노드에 주입합니다. 실행 시 `ctx.params`에는 temperature만 있으므로 노드의 `stream`·`enable_thinking`은 모델 기본값으로 돌아갑니다. `modelParams`가 에이전트 층이라는 스펙 계약상 정직한 경계가 아니라 관통 누락입니다. [`chat_context_models.py:107`](packages/api/src/api/chat_context_models.py:107), [`chat_context_models.py:149`](packages/api/src/api/chat_context_models.py:149), [`pipeline.py:47`](packages/agent/src/agent/flows/pipeline.py:47)
 
-- **명시된 3층 캐스케이드의 세션 층이 구현되지 않았습니다.** 세션 허용목록에는 `stream`, `enable_thinking`, `modelParams`가 없습니다. 따라서 `build_chat_openai()`가 지원하는 “호출자 params 우선” 경로에 세션 값이 도달할 방법이 없습니다. 스펙과 `verify_408` 설명의 3층 검증도 실제 테스트에는 없습니다. [`chat_context_loader.py:29`](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_loader.py:29), [`model.py:60`](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/agent/src/agent/model.py:60), [`verify_408_model_capabilities.py:47`](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/tests/verify_408_model_capabilities.py:47)
+- **명시된 3층 캐스케이드의 세션 층이 구현되지 않았습니다.** 세션 허용목록에는 `stream`, `enable_thinking`, `modelParams`가 없습니다. 따라서 `build_chat_openai()`가 지원하는 “호출자 params 우선” 경로에 세션 값이 도달할 방법이 없습니다. 스펙과 `verify_408` 설명의 3층 검증도 실제 테스트에는 없습니다. [`chat_context_loader.py:29`](packages/api/src/api/chat_context_loader.py:29), [`model.py:60`](packages/agent/src/agent/model.py:60), [`verify_408_model_capabilities.py:47`](tests/verify_408_model_capabilities.py:47)
 
 ## P2
 
-- **pipeline trace가 실제 응답 모드를 거짓 표시할 수 있습니다.** 실행은 `node.model_cfg`를 우선하지만 trace는 항상 `ctx.model_cfg`만 계산합니다. root=streaming/node=single이면 단건 배지가 누락되고, 반대면 실제 스트리밍인데 단건 배지가 붙습니다. 여러 노드가 서로 다른 모드인 경우 턴 단위 단일 `responseMode` 자체도 정의가 필요합니다. [`pipeline.py:47`](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/agent/src/agent/flows/pipeline.py:47), [`chat_trace.py:164`](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_trace.py:164)
+- **pipeline trace가 실제 응답 모드를 거짓 표시할 수 있습니다.** 실행은 `node.model_cfg`를 우선하지만 trace는 항상 `ctx.model_cfg`만 계산합니다. root=streaming/node=single이면 단건 배지가 누락되고, 반대면 실제 스트리밍인데 단건 배지가 붙습니다. 여러 노드가 서로 다른 모드인 경우 턴 단위 단일 `responseMode` 자체도 정의가 필요합니다. [`pipeline.py:47`](packages/agent/src/agent/flows/pipeline.py:47), [`chat_trace.py:164`](packages/api/src/api/chat_trace.py:164)
 
 ## 확인함
 
@@ -2942,15 +2942,15 @@ tokens used
 
 ## P1
 
-- **capabilities 변경 후 기본 에이전트가 기존 그래프 캐시를 계속 사용합니다.** 모델 능력은 라이브 사실이라 버전을 올리지 않지만, 그래프 지문에는 `capabilities`가 없습니다. 따라서 `streaming: true → false` PUT 뒤에도 이미 캐시된 `ChatOpenAI(disable_streaming=False)`가 재사용될 수 있습니다. 참조 중 편집은 현재 안전하지 않습니다. [`chat_graph_build.py:115`](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_graph_build.py:115), [`model_registry.py:265`](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/model_registry.py:265), [`block_versions.py:47`](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/block_versions.py:47)
+- **capabilities 변경 후 기본 에이전트가 기존 그래프 캐시를 계속 사용합니다.** 모델 능력은 라이브 사실이라 버전을 올리지 않지만, 그래프 지문에는 `capabilities`가 없습니다. 따라서 `streaming: true → false` PUT 뒤에도 이미 캐시된 `ChatOpenAI(disable_streaming=False)`가 재사용될 수 있습니다. 참조 중 편집은 현재 안전하지 않습니다. [`chat_graph_build.py:115`](packages/api/src/api/chat_graph_build.py:115), [`model_registry.py:265`](packages/api/src/api/model_registry.py:265), [`block_versions.py:47`](packages/api/src/api/block_versions.py:47)
 
-- **명시 모델을 쓰는 pipeline 노드에는 에이전트 `modelParams`가 적용되지 않습니다.** `_resolve_model()`만 병합하고 `_chat_model_cfg()` 결과는 그대로 노드에 주입합니다. 실행 시 `ctx.params`에는 temperature만 있으므로 노드의 `stream`·`enable_thinking`은 모델 기본값으로 돌아갑니다. `modelParams`가 에이전트 층이라는 스펙 계약상 정직한 경계가 아니라 관통 누락입니다. [`chat_context_models.py:107`](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_models.py:107), [`chat_context_models.py:149`](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_models.py:149), [`pipeline.py:47`](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/agent/src/agent/flows/pipeline.py:47)
+- **명시 모델을 쓰는 pipeline 노드에는 에이전트 `modelParams`가 적용되지 않습니다.** `_resolve_model()`만 병합하고 `_chat_model_cfg()` 결과는 그대로 노드에 주입합니다. 실행 시 `ctx.params`에는 temperature만 있으므로 노드의 `stream`·`enable_thinking`은 모델 기본값으로 돌아갑니다. `modelParams`가 에이전트 층이라는 스펙 계약상 정직한 경계가 아니라 관통 누락입니다. [`chat_context_models.py:107`](packages/api/src/api/chat_context_models.py:107), [`chat_context_models.py:149`](packages/api/src/api/chat_context_models.py:149), [`pipeline.py:47`](packages/agent/src/agent/flows/pipeline.py:47)
 
-- **명시된 3층 캐스케이드의 세션 층이 구현되지 않았습니다.** 세션 허용목록에는 `stream`, `enable_thinking`, `modelParams`가 없습니다. 따라서 `build_chat_openai()`가 지원하는 “호출자 params 우선” 경로에 세션 값이 도달할 방법이 없습니다. 스펙과 `verify_408` 설명의 3층 검증도 실제 테스트에는 없습니다. [`chat_context_loader.py:29`](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_loader.py:29), [`model.py:60`](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/agent/src/agent/model.py:60), [`verify_408_model_capabilities.py:47`](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/tests/verify_408_model_capabilities.py:47)
+- **명시된 3층 캐스케이드의 세션 층이 구현되지 않았습니다.** 세션 허용목록에는 `stream`, `enable_thinking`, `modelParams`가 없습니다. 따라서 `build_chat_openai()`가 지원하는 “호출자 params 우선” 경로에 세션 값이 도달할 방법이 없습니다. 스펙과 `verify_408` 설명의 3층 검증도 실제 테스트에는 없습니다. [`chat_context_loader.py:29`](packages/api/src/api/chat_context_loader.py:29), [`model.py:60`](packages/agent/src/agent/model.py:60), [`verify_408_model_capabilities.py:47`](tests/verify_408_model_capabilities.py:47)
 
 ## P2
 
-- **pipeline trace가 실제 응답 모드를 거짓 표시할 수 있습니다.** 실행은 `node.model_cfg`를 우선하지만 trace는 항상 `ctx.model_cfg`만 계산합니다. root=streaming/node=single이면 단건 배지가 누락되고, 반대면 실제 스트리밍인데 단건 배지가 붙습니다. 여러 노드가 서로 다른 모드인 경우 턴 단위 단일 `responseMode` 자체도 정의가 필요합니다. [`pipeline.py:47`](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/agent/src/agent/flows/pipeline.py:47), [`chat_trace.py:164`](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_trace.py:164)
+- **pipeline trace가 실제 응답 모드를 거짓 표시할 수 있습니다.** 실행은 `node.model_cfg`를 우선하지만 trace는 항상 `ctx.model_cfg`만 계산합니다. root=streaming/node=single이면 단건 배지가 누락되고, 반대면 실제 스트리밍인데 단건 배지가 붙습니다. 여러 노드가 서로 다른 모드인 경우 턴 단위 단일 `responseMode` 자체도 정의가 필요합니다. [`pipeline.py:47`](packages/agent/src/agent/flows/pipeline.py:47), [`chat_trace.py:164`](packages/api/src/api/chat_trace.py:164)
 
 ## 확인함
 
