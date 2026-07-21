@@ -1,12 +1,12 @@
 # my-agents
 
 에이전트를 **하드코딩하지 않고** 구조 안에서 만들고·재사용하고·A2A로 협업시키는 멀티 에이전트 플랫폼.
-페르소나·파운데이션 모델·MCP(tools)·메모리(Mem0)를 조합해 에이전트를 정의하고, 자체 MCP와
-원격 MCP를 등록해 제공·관리한다.
+프롬프트·모델·MCP 도구·메모리(mem0)·RAG 컬렉션을 조합해 에이전트를 정의하고, 버전으로 게시하며,
+위험 작업은 승인(HIL) 관문을 거친다. 자체 MCP·A2A 서빙으로 외부에도 노출한다.
 
-- **Backend(API)** — FastAPI + LangGraph. 에이전트/MCP 런타임, A2A 프로토콜.
-- **Admin SPA** — React + TypeScript + Ant Design. 에이전트·MCP·모델 관리 콘솔.
-- **DB** — PostgreSQL + pgvector (Mem0 벡터 스토어).
+- **Backend(API)** — FastAPI + LangGraph. 에이전트/MCP 런타임, A2A 프로토콜, 버전 그래프 캐시.
+- **Admin SPA** — React + TypeScript + Ant Design. 에이전트·블록·모델·승인·평가 관리 콘솔.
+- **DB** — PostgreSQL + pgvector (mem0 벡터 스토어 겸용).
 
 ## 문서
 
@@ -121,4 +121,20 @@ canned). 별도 env 설정이 필요 없고, 시드에 Mock Provider/모델(`moc
 
 ---
 
-> 이 README는 운영 시작 문서(런북) 초안이다 — `docs/`는 인간 영역이므로 검토 후 확정한다(스펙 058 G3).
+## 개발·테스트
+
+품질 게이트는 `Makefile`이 정본이다. 자주 쓰는 명령:
+
+```bash
+make test           # 회귀망 씨앗 그물(unit + db — run당 격리 DB)
+make test-all       # 전층(http 포함 — dev 서버 8000 전제)
+make suite          # 실모델 조합 스위트
+make metrics        # lint·복잡도·타입 + suite (완료 판정자)
+make e2e            # Playwright (API 8000 + Postgres 전제)
+```
+
+SDK(코드) 에이전트 개발은 [개발 가이드](./docs/dev-guide.md)를 따른다.
+
+---
+
+> 런북 검증 기준일: 2026-07-21(절차·명령을 저장소 실물과 대조).
