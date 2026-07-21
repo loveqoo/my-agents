@@ -43,12 +43,10 @@ def _resolve_wire_params(
             if p.wire == "disable_streaming":
                 disable_streaming = not eff
             elif p.wire == "extra_body":
-                # 이중 배선(스펙 425) — 서버 관례가 갈린다: vLLM계=chat_template_kwargs, rapid-mlx
-                # (현행)=root 키만 인식(실측: root enable_thinking=reasoning_content 발화, chat_
-                # template_kwargs=무시). 미지원 필드는 서버가 무시하므로 둘 다 실어 양쪽 호환.
-                # 단일 chat_template_kwargs 배선(411)은 rapid-mlx서 라이브 thinking을 조용히 껐다.
+                # 배선은 chat_template_kwargs 단일(스펙 411) — 스펙 425 소동의 교훈: 이 배선이 깨졌다는
+                # 진단은 **같은 질문을 재사용한 프로브가 서버 프롬프트 캐시 재생(reasoning 생략)에 오염**
+                # 되어 만든 오진이었다. 신선 입력 실측으로 ctk 배선 정상 확정(reasoning 500델타).
                 chat_template_kwargs[p.key] = eff
-                extra_body[p.key] = eff
             continue
         # number
         if p.key == "temperature":
