@@ -1,7 +1,7 @@
 # 411 — 모델 튜닝 파라미터 N-확장 단일화
 
 > 상태: **완료** · 2026-07-20 · verify_411 24/24 + verify_409 21/21(현행화) + 모델폼 파라미터 UI 브라우저 확인 + FE 빌드 · codex 2패스(P1×2+P2×3 반영)
-> 발단: 구남님 "모델 메타값 오버라이드가 아직 부자연스럽다. 두 개 영역만 만들고 N개로 확장 못 함.
+> 발단: 개발자 "모델 메타값 오버라이드가 아직 부자연스럽다. 두 개 영역만 만들고 N개로 확장 못 함.
 > 모델마다 튜닝 메타값(온도·반복 패널티 등)을 관리·오버라이드할 방법이 필요하다."
 > **진단**: 지금 **3중 불균일** — ① `temperature`=별도 특례(AgentConfig.temperature 필드+OverridePanel
 > TemperatureField, 스펙 077) ② `stream`·`enable_thinking`=409 modelParams(2개) ③ `repetition_penalty`·
@@ -17,7 +17,7 @@
 - `extra_body`: enable_thinking(chat_template_kwargs)·repetition_penalty(비표준 OpenAI 파라미터)
 - `top`: temperature·top_p·max_tokens(표준 OpenAI 인자 — ChatOpenAI 직접 kwargs)
 
-v1 목록(구남님 승인):
+v1 목록(개발자 승인):
 ```
 stream            bool  cap=streaming  wire=disable_streaming  default=True
 enable_thinking   bool  cap=thinking   wire=extra_body         default=False
@@ -56,7 +56,7 @@ repetition_penalty number 0.5~2 step 0.05 wire=extra_body     default=1.0
   요청 도달(raw 스파이로 repetition_penalty가 extra_body, top_p가 top). e2e+make test+codex.
 
 ## OUT
-- presence/frequency_penalty(구남님 미선택) — 서술자 한 줄로 후속 추가 가능(N-확장 실증).
+- presence/frequency_penalty(개발자 미선택) — 서술자 한 줄로 후속 추가 가능(N-확장 실증).
 - 파라미터별 프리셋(창의적/정밀 등 묶음) — 후속.
 - 모델별 지원 파라미터 자동 탐지(모델마다 받는 파라미터 다름) — 지금은 공통 집합 노출.
 

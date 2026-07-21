@@ -9,7 +9,7 @@ const URL = process.env.ADMIN_URL ?? 'http://127.0.0.1:5173'
 const _fx = process.env.ADMIN_EMAIL ? null : (await import('./_fixture.mjs')).provisionSuper()
 const EMAIL = process.env.ADMIN_EMAIL ?? _fx.email
 const PASSWORD = process.env.ADMIN_PASSWORD ?? _fx.password
-const OUT = process.env.OUT ?? '/private/tmp/claude-501/-Users-anthony-Repository-github-loveqoo-my-agents/0f419f54-5016-4410-97ef-deab94d7cbcb/scratchpad'
+const OUT = process.env.OUT ?? '/private/tmp/claude-501/-Users-anthony-Repository-github-{{GITHUB_ORG}}-my-agents/0f419f54-5016-4410-97ef-deab94d7cbcb/scratchpad'
 const NAME = `phaseb-${Date.now().toString(36)}`
 
 const browser = await chromium.launch({ channel: 'chrome', headless: true })

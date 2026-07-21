@@ -70,7 +70,7 @@ export function LongTermMemoryField({
   // 비영속 미선택-잠금(에이전트, codex 238 #1): 새 선택만 막고(옵션별 disabled) 기선택은 해제 가능 —
   // "선택했는데 무동작" 함정과 "해제 불가" 모순을 동시에 피한다. 노드는 ephemeral 없음(무영향).
   const effOptions = ephemeral ? options.map((o) => ({ ...o, disabled: !value.includes(o.value) })) : options
-  // 단일 블록이면 체크박스(스펙 387 후속, 구남님 제안) — 실동작 기억 블록이 "장기 기억 (mem0)"
+  // 단일 블록이면 체크박스(스펙 387 후속, 개발자 제안) — 실동작 기억 블록이 "장기 기억 (mem0)"
   // 하나뿐이라 다중 선택은 과함. 블록이 늘면(어드민 CRUD) 기존 다중 Select로 자동 복귀.
   const single = options.length === 1 ? options[0] : null
   const singleChecked = single !== null && value.includes(single.value)

@@ -2,7 +2,7 @@
 
 > 상태: **완료** · 2026-07-18 (승인 후 P1~P4 실행 → codex 적대 리뷰 P2×2·P3×1 전부 봉합)
 > 발단: 복잡도 스냅샷(리뷰 재료 2026-07-18)에서 chat_stream.py가 이번 주 최대 성장(+260줄, 스펙 388)
-> 지점으로 지목. 구남님 지시: "codex에게 문의하고, 파이썬 리팩토링·디자인패턴을 습득해 개선."
+> 지점으로 지목. 개발자 지시: "codex에게 문의하고, 파이썬 리팩토링·디자인패턴을 습득해 개선."
 > 입력: codex read-only 자문(전문 `.dev/reviews/392-chat-stream/codex-review.md`) + 패턴 리서치
 > (PEP 525 · Introduce Parameter Object · Replace Function with Command · 순환 import 해소).
 

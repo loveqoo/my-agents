@@ -60,7 +60,7 @@ class ParamDescriptor:
     advanced: bool = False  # UI 고급 접기 축(스펙 412) — 핵심 파라미터는 펼치고 나머지는 Collapse.
 
 
-# 정본 목록 — 여기에 한 줄 = 4화면+백엔드 전체 반영. 구남님 승인(411): temperature 흡수(077 은퇴),
+# 정본 목록 — 여기에 한 줄 = 4화면+백엔드 전체 반영. 개발자 승인(411): temperature 흡수(077 은퇴),
 # repetition_penalty·top_p·max_tokens 추가. max_tokens=0/미설정은 "서버 기본"(안 보냄).
 PARAMS: tuple[ParamDescriptor, ...] = (
     ParamDescriptor("stream", "bool", "스트리밍", True, "disable_streaming", cap="streaming"),

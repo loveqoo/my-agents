@@ -1,7 +1,7 @@
 # 344 — build_chat_openai 복잡도 분해(스펙 416)
 
 ## 발단
-구남님 "코드 복잡도 체크" → `make complexity`(xenon 절대 상한 C) 유일 실패: `model.py build_chat_openai`
+개발자 "코드 복잡도 체크" → `make complexity`(xenon 절대 상한 C) 유일 실패: `model.py build_chat_openai`
 CC **31(E)**. 스펙 411에서 wire 기반 파라미터 배선이 한 함수에 누적된 선재 부채. "리팩터하되 과거
 이력·방법을 파악해 복리를 최대한 적용"하라는 지시.
 

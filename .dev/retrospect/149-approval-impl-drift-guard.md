@@ -1,13 +1,13 @@
 # 149 — 승인 재개 impl-drift 명시 가드 (스펙 171)
 
-구남님 "승인 로직 점검" 지시 → deep-reasoner 적대 검토 → 유일 실질 지적(Low) 처치.
+개발자 "승인 로직 점검" 지시 → deep-reasoner 적대 검토 → 유일 실질 지적(Low) 처치.
 
 ## 발단
 승인 로직 전반은 견고(인가 3-way·원자 TOCTOU·열거 오라클 차단·permission 서버 고정 — 다 방어됨).
 단 하나: config-drift 가드 주석 "현 출하엔 HIL 커스텀 구현이 없어 미발생"이 **stale**. 이후 HIL impl
 셋(DefaultUiAgent·orchestrate·orchestrate_ranked) 출하로 조건이 뒤집혀, impl-A→impl-B(둘 다 HIL)
 교체 재개가 **도달 가능**해짐. 심각도 Low(admin 방아쇠·안전방향)지만 현 코드는 위상 불일치가 "예외로
-곱게 흡수될 것"이라 *가정* — 정적 미확정 = **미정의 동작 의존**. 구남님 결정=명시 가드로 닫기.
+곱게 흡수될 것"이라 *가정* — 정적 미확정 = **미정의 동작 의존**. 개발자 결정=명시 가드로 닫기.
 
 ## 한 것
 `Approval.impl` 스냅샷 컬럼 + 생성 시 `ctx.get("impl") or ""` 스탬프 + 재개 시 `_impl_drifted`(순수

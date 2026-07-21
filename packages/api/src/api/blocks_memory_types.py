@@ -31,7 +31,7 @@ async def list_memory_types(session: AsyncSession = Depends(get_session)) -> Any
 async def create_memory_type(
     body: MemoryTypeIn,  # noqa: ARG001 — API 형태 보존(요청 스키마 검증은 유지, 본문은 미사용)
 ) -> Any:
-    # 시스템 정의 봉인(스펙 387 후속, 구남님 결정) — 실동작 기억 기능은 '장기 기억 (mem0)' 하나뿐이라
+    # 시스템 정의 봉인(스펙 387 후속, 개발자 결정) — 실동작 기억 기능은 '장기 기억 (mem0)' 하나뿐이라
     # 새 블록은 "골라도 무동작"인 죽은 옵션이 된다(단기(세션) 재발 방지). UI는 이미 읽기 전용(스펙 016)
     # 이었고, 이 백엔드 라우트가 남은 구멍이었다. 새 기억 메커니즘이 생기면 그 스펙이 이 봉인을 푼다.
     raise HTTPException(

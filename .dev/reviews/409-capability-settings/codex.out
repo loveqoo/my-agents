@@ -2,7 +2,7 @@ Reading additional input from stdin...
 2026-07-19T15:28:40.193651Z ERROR codex_models_manager::cache: failed to load models cache: missing field `supports_reasoning_summaries` at line 88 column 5
 OpenAI Codex v0.144.6
 --------
-workdir: /Users/anthony/Repository/github/loveqoo/my-agents
+workdir: /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
 model: gpt-5.6-sol
 provider: openai
 approval: never
@@ -66,7 +66,7 @@ codex
 codex
 적대적 리뷰의 변경 범위를 좁고 검증 가능하게 유지하기 위해 `karpathy-guidelines` 스킬을 적용합니다. 이 스킬이 요구하는 가정 명시와 실제 호출부 검증을 리뷰 기준에 반영하겠습니다.
 exec
-/bin/zsh -lc "sed -n '1,240p' /Users/anthony/.codex/plugins/cache/karpathy-skills/andrej-karpathy-skills/1.0.0/skills/karpathy-guidelines/SKILL.md && rg -n \"409|capabilit|408\" /Users/anthony/.codex/memories/MEMORY.md | head -80" in /Users/anthony/Repository/github/loveqoo/my-agents
+/bin/zsh -lc "sed -n '1,240p' /Users/anthony/.codex/plugins/cache/karpathy-skills/andrej-karpathy-skills/1.0.0/skills/karpathy-guidelines/SKILL.md && rg -n \"409|capabilit|408\" /Users/anthony/.codex/memories/MEMORY.md | head -80" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
  succeeded in 0ms:
 ---
 name: karpathy-guidelines
@@ -139,9 +139,9 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 52:- The stable behavior traps to preserve in `blocks.py` refactors are: memory-types create/delete/name-change 403 sealing with description edits allowed, auth masking on list/get/aggregate, `auth=\"\"` removing auth, rediscover preserving approval metadata and intersecting enabled tools, 409 guards on active references, non-custom `published=true` returning 400, immutable `source`, and block-version writes on prompt/MCP edits and rediscover [Task 3]
 
 exec
-/bin/zsh -lc "pwd; rg --files -g 'AGENTS.md' -g 'CLAUDE.md' -g '.dev/**/INDEX.md' -g '*409*' -g '*408*' | sort; git status --short; git diff --stat; git diff -- packages/agent/src/agent/capabilities.py packages/agent/src/agent/model.py packages/api/src/api/chat_context_models.py packages/api/src/api/schemas/agents.py packages/api/src/api/schemas/registry.py packages/api/src/api/models/registry.py packages/api/src/api/model_registry.py admin/src/admin/views/agents/CapabilitySettings.tsx admin/src/admin/views/agents/AgentForm.tsx admin/src/admin/views/agents/NodeListEditor.tsx admin/src/admin/views/models/ProviderModelView.tsx admin/src/admin/views/playground/OverridePanel.tsx" in /Users/anthony/Repository/github/loveqoo/my-agents
+/bin/zsh -lc "pwd; rg --files -g 'AGENTS.md' -g 'CLAUDE.md' -g '.dev/**/INDEX.md' -g '*409*' -g '*408*' | sort; git status --short; git diff --stat; git diff -- packages/agent/src/agent/capabilities.py packages/agent/src/agent/model.py packages/api/src/api/chat_context_models.py packages/api/src/api/schemas/agents.py packages/api/src/api/schemas/registry.py packages/api/src/api/models/registry.py packages/api/src/api/model_registry.py admin/src/admin/views/agents/CapabilitySettings.tsx admin/src/admin/views/agents/AgentForm.tsx admin/src/admin/views/agents/NodeListEditor.tsx admin/src/admin/views/models/ProviderModelView.tsx admin/src/admin/views/playground/OverridePanel.tsx" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
  succeeded in 0ms:
-/Users/anthony/Repository/github/loveqoo/my-agents
+/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
 AGENTS.md
 CLAUDE.md
 admin/CLAUDE.md
@@ -530,7 +530,7 @@ index 1481d09..beabe47 100644
          default_factory=dict
 
 exec
-/bin/zsh -lc "sed -n '1,220p' CLAUDE.md; sed -n '1,180p' admin/CLAUDE.md; sed -n '1,180p' docs/spec/CLAUDE.md; sed -n '1,240p' docs/spec/409-capability-settings-unify.md; sed -n '1,220p' packages/agent/src/agent/capabilities.py; rg -n \"409|408|capabilit|modelParams\" .dev/learning/INDEX.md .dev/retrospect/INDEX.md docs/spec/INDEX.md 2>/dev/null" in /Users/anthony/Repository/github/loveqoo/my-agents
+/bin/zsh -lc "sed -n '1,220p' CLAUDE.md; sed -n '1,180p' admin/CLAUDE.md; sed -n '1,180p' docs/spec/CLAUDE.md; sed -n '1,240p' docs/spec/409-capability-settings-unify.md; sed -n '1,220p' packages/agent/src/agent/capabilities.py; rg -n \"409|408|capabilit|modelParams\" .dev/learning/INDEX.md .dev/retrospect/INDEX.md docs/spec/INDEX.md 2>/dev/null" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
  succeeded in 0ms:
 # 작업 방식 (Operating Manual)
 
@@ -751,7 +751,7 @@ uv를 활용하여 여러 모듈을 구조적으로 관리합니다.
 6. **자가-잠금 핀** — 조임이 *정당한 본인 접근*을 막진 않나를 별도 테스트(learning 070).# 409 — 능력→설정 파생 단일화(408 설정 층 재구조화)
 
 > 상태: **초안(승인 대기)** · 2026-07-19
-> 발단: 구남님 408 검토 — "모델 폼에 스트리밍·thinking이 두 번씩 나온다(헷갈림) / 새 메타
+> 발단: 개발자 408 검토 — "모델 폼에 스트리밍·thinking이 두 번씩 나온다(헷갈림) / 새 메타
 > 설정마다 또 구현할 거냐 / 플레이그라운드 오버라이드가 안 된다 / 노드형은 어떻게 하냐 /
 > 그동안 배운 걸 복리로 취하지 않고 바로 작업했다."
 > **진단(근거 확인함)**: 408은 `능력 2층` 개념만 세우고 **설정을 다루는 일반 구조 없이** 키
@@ -791,7 +791,7 @@ CAPABILITY_SETTINGS = [
 
 - 각 층은 **바꿀 키만** 명시, 미명시=상속. 세션은 턴-와이드 최상위(사용자 라이브 의도가 이김).
 - temperature는 **여기 없음** — `AgentConfig.temperature`(077)가 이미 에이전트 층 정본(단일 거처).
-- 노드형: 노드가 자기 설정도 오버라이드(구남님 "노드별 오버라이드까지"). 노드 미명시=에이전트 상속.
+- 노드형: 노드가 자기 설정도 오버라이드(개발자 "노드별 오버라이드까지"). 노드 미명시=에이전트 상속.
 
 ## 구현
 
@@ -965,7 +965,7 @@ codex
 [단계 5 — Verification]
 스펙의 7개 가설을 실제 데이터 흐름별로 추적 중입니다. 특히 세션 오버라이드가 직접형과 노드형에서 갈라지는 지점, 구 모델의 빈/부분 capabilities 처리, 저장 정규화와 UI 실패 모드를 각각 독립적으로 확인하겠습니다.
 exec
-/bin/zsh -lc "rg -n \"def _apply_overrides|_apply_overrides\\(|_resolve_node_models\\(|_resolve_model\\(|modelParams|_graph_fingerprint|model_cfg|build_chat_openai\\(\" packages/api/src packages/agent/src admin/src | head -300; nl -ba packages/agent/src/agent/capabilities.py; nl -ba packages/agent/src/agent/model.py | sed -n '45,135p'; nl -ba packages/api/src/api/chat_context_models.py | sed -n '1,280p'; nl -ba packages/api/src/api/chat_context.py | sed -n '1,280p' 2>/dev/null" in /Users/anthony/Repository/github/loveqoo/my-agents
+/bin/zsh -lc "rg -n \"def _apply_overrides|_apply_overrides\\(|_resolve_node_models\\(|_resolve_model\\(|modelParams|_graph_fingerprint|model_cfg|build_chat_openai\\(\" packages/api/src packages/agent/src admin/src | head -300; nl -ba packages/agent/src/agent/capabilities.py; nl -ba packages/agent/src/agent/model.py | sed -n '45,135p'; nl -ba packages/api/src/api/chat_context_models.py | sed -n '1,280p'; nl -ba packages/api/src/api/chat_context.py | sed -n '1,280p' 2>/dev/null" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
  succeeded in 0ms:
 packages/agent/src/agent/flows/pipeline.py:10:(085 §보안경계). **주입만 읽는다**(085 U2): 노드 모델은 플랫폼이 미리 해석해 `node["model_cfg"]`로 주입,
 packages/agent/src/agent/flows/pipeline.py:48:    """노드별 모델 어댑터(스펙 295) — pipeline은 노드 `model_cfg` 우선·기본 폴백만 정하고, 실제
@@ -1538,7 +1538,7 @@ admin/src/playground/OverridePanel.tsx:563:              onChange={(mp) => set('
     54	)
 
 exec
-/bin/zsh -lc "nl -ba packages/api/src/api/chat_context_overrides.py | sed -n '1,150p'; nl -ba packages/api/src/api/chat_context_loader.py | sed -n '55,175p'; nl -ba packages/api/src/api/chat_graph_build.py | sed -n '105,150p'; nl -ba admin/src/admin/views/agents/CapabilitySettings.tsx; nl -ba admin/src/api.ts | sed -n '1,180p'; nl -ba admin/src/playground/OverridePanel.tsx | sed -n '1,105p;530,585p'; nl -ba admin/src/admin/views/ProviderModelView.tsx | sed -n '1,220p'" in /Users/anthony/Repository/github/loveqoo/my-agents
+/bin/zsh -lc "nl -ba packages/api/src/api/chat_context_overrides.py | sed -n '1,150p'; nl -ba packages/api/src/api/chat_context_loader.py | sed -n '55,175p'; nl -ba packages/api/src/api/chat_graph_build.py | sed -n '105,150p'; nl -ba admin/src/admin/views/agents/CapabilitySettings.tsx; nl -ba admin/src/api.ts | sed -n '1,180p'; nl -ba admin/src/playground/OverridePanel.tsx | sed -n '1,105p;530,585p'; nl -ba admin/src/admin/views/ProviderModelView.tsx | sed -n '1,220p'" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
  succeeded in 0ms:
      1	"""세션 오버라이드·노드 병합 — chat_context.py에서 분할(스펙 394 P1).
      2	
@@ -2490,7 +2490,7 @@ exec
    220	        </Field>
 
 exec
-/bin/zsh -lc "nl -ba admin/src/admin/views/agents/CapabilitySettings.tsx; rg -n \"CapabilitySettings|capabilityDescriptors|capabilities\" admin/src/admin/views/ProviderModelView.tsx; nl -ba admin/src/admin/views/ProviderModelView.tsx | sed -n '300,500p'; rg -n \"getCapabilityDescriptors|CapabilityDescriptor|request<\" admin/src/api.ts | tail -40; nl -ba admin/src/api.ts | sed -n '800,860p'; nl -ba packages/api/src/api/schemas/agents.py | sed -n '1,45p;280,325p'; rg -n \"_OVERRIDE_ALLOWED\" packages/api/src/api/chat_context_loader.py packages/api/src/api -g '*.py'" in /Users/anthony/Repository/github/loveqoo/my-agents
+/bin/zsh -lc "nl -ba admin/src/admin/views/agents/CapabilitySettings.tsx; rg -n \"CapabilitySettings|capabilityDescriptors|capabilities\" admin/src/admin/views/ProviderModelView.tsx; nl -ba admin/src/admin/views/ProviderModelView.tsx | sed -n '300,500p'; rg -n \"getCapabilityDescriptors|CapabilityDescriptor|request<\" admin/src/api.ts | tail -40; nl -ba admin/src/api.ts | sed -n '800,860p'; nl -ba packages/api/src/api/schemas/agents.py | sed -n '1,45p;280,325p'; rg -n \"_OVERRIDE_ALLOWED\" packages/api/src/api/chat_context_loader.py packages/api/src/api -g '*.py'" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
  succeeded in 0ms:
      1	/* 능력→설정 오버라이드 단일 컴포넌트(스펙 409). 에이전트 폼·플레이그라운드 오버라이드·노드
      2	   편집기가 **공유**한다(사본 금지 — 회고 261 "사본이면 드리프트"의 설정 축 교정). 서술자 목록
@@ -2948,7 +2948,7 @@ packages/api/src/api/chat_context_loader.py:30:_OVERRIDE_ALLOWED = {
 packages/api/src/api/chat_context_loader.py:74:        cfg, prompt, overrides, agent, _OVERRIDE_ALLOWED
 
 exec
-/bin/zsh -lc "nl -ba packages/api/src/api/chat_context_loader.py | sed -n '20,58p'; nl -ba admin/src/api.ts | sed -n '640,668p'; nl -ba admin/src/admin/views/ProviderModelView.tsx | sed -n '220,300p'; rg -n \"CapsEditor|useCapabilityDescriptors|descriptors=\" admin/src/admin/views/ProviderModelView.tsx; nl -ba admin/src/admin/views/ProviderModelView.tsx | sed -n '650,760p'; rg -n \"modelParams\" packages/api/src/api -g '*.py' | sort" in /Users/anthony/Repository/github/loveqoo/my-agents
+/bin/zsh -lc "nl -ba packages/api/src/api/chat_context_loader.py | sed -n '20,58p'; nl -ba admin/src/api.ts | sed -n '640,668p'; nl -ba admin/src/admin/views/ProviderModelView.tsx | sed -n '220,300p'; rg -n \"CapsEditor|useCapabilityDescriptors|descriptors=\" admin/src/admin/views/ProviderModelView.tsx; nl -ba admin/src/admin/views/ProviderModelView.tsx | sed -n '650,760p'; rg -n \"modelParams\" packages/api/src/api -g '*.py' | sort" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
  succeeded in 0ms:
     20	from .chat_context_versions import (
     21	    _resolve_exec_pins,
@@ -3232,7 +3232,7 @@ packages/api/src/api/schemas/agents.py:300:    modelParams: dict[str, Any] = Fie
 packages/api/src/api/serializers.py:119:        modelParams=dict(cfg.get("modelParams") or {}),  # 스펙 408 캐스케이드(폼 재로드용)
 
 exec
-/bin/zsh -lc "rg -n \"def llm_cfg_of|capabilities.*m\\.capabilities|ModelIn|update_model|create_model\" packages/api/src/api/model_registry.py packages/api/src/api/mem_config.py packages/api/src/api -g '*.py' | head -100; nl -ba packages/api/src/api/mem_config.py | sed -n '1,75p'; nl -ba packages/api/src/api/model_registry.py | sed -n '200,340p'; nl -ba packages/api/src/api/schemas/registry.py | sed -n '55,92p'; nl -ba packages/api/src/api/schemas/agents.py | sed -n '210,245p'; rg -n \"AgentConfig\\(\" packages/api/src/api/agents.py packages/api/src/api -g '*.py' | head -40" in /Users/anthony/Repository/github/loveqoo/my-agents
+/bin/zsh -lc "rg -n \"def llm_cfg_of|capabilities.*m\\.capabilities|ModelIn|update_model|create_model\" packages/api/src/api/model_registry.py packages/api/src/api/mem_config.py packages/api/src/api -g '*.py' | head -100; nl -ba packages/api/src/api/mem_config.py | sed -n '1,75p'; nl -ba packages/api/src/api/model_registry.py | sed -n '200,340p'; nl -ba packages/api/src/api/schemas/registry.py | sed -n '55,92p'; nl -ba packages/api/src/api/schemas/agents.py | sed -n '210,245p'; rg -n \"AgentConfig\\(\" packages/api/src/api/agents.py packages/api/src/api -g '*.py' | head -40" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
  succeeded in 0ms:
 packages/api/src/api/mem_config.py:32:def llm_cfg_of(cm: ModelConfig) -> dict:
 packages/api/src/api/mem_config.py:41:        "capabilities": dict(cm.capabilities or {}),
@@ -3553,9 +3553,9 @@ codex
 
 요구 계약은 `모델 → 에이전트 → 노드 → 세션`이지만 실제 계산 순서는 노드형에서 `모델 → 에이전트+세션 → 노드`입니다.
 
-- `_apply_overrides()`가 세션 `modelParams`를 에이전트 저장값과 합쳐 `cfg["modelParams"]`에 넣습니다: [chat_context_overrides.py](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat_context_overrides.py:99)
-- 이 합쳐진 `cfg`가 `agent_cfg`로 노드 해석기에 전달됩니다: [chat_context_loader.py](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat_context_loader.py:121)
-- `_resolve_node_models()`는 먼저 `agent_cfg`를 적용한 뒤, 노드 `modelParams`를 다시 적용합니다: [chat_context_models.py](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat_context_models.py:136)
+- `_apply_overrides()`가 세션 `modelParams`를 에이전트 저장값과 합쳐 `cfg["modelParams"]`에 넣습니다: [chat_context_overrides.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_overrides.py:99)
+- 이 합쳐진 `cfg`가 `agent_cfg`로 노드 해석기에 전달됩니다: [chat_context_loader.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_loader.py:121)
+- `_resolve_node_models()`는 먼저 `agent_cfg`를 적용한 뒤, 노드 `modelParams`를 다시 적용합니다: [chat_context_models.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_models.py:136)
 
 깨지는 구체 입력:
 
@@ -3573,9 +3573,9 @@ codex
 
 ### 2. 문자열 `"false"`가 capability false를 true로 바꿔 능력 게이트를 우회한다
 
-모델 입력 스키마가 capability 값을 `Any`로 허용합니다: [registry.py](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/schemas/registry.py:62). 이 값은 검증 없이 그대로 저장됩니다: [model_registry.py](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/model_registry.py:243).
+모델 입력 스키마가 capability 값을 `Any`로 허용합니다: [registry.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/schemas/registry.py:62). 이 값은 검증 없이 그대로 저장됩니다: [model_registry.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/model_registry.py:243).
 
-실행부는 Python `bool()`로 해석합니다: [capabilities.py](/Users/anthony/Repository/github/loveqoo/my-agents/packages/agent/src/agent/capabilities.py:53).
+실행부는 Python `bool()`로 해석합니다: [capabilities.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/agent/src/agent/capabilities.py:53).
 
 깨지는 입력:
 
@@ -3590,15 +3590,15 @@ codex
 
 Python에서 `bool("false")`는 `True`이므로 두 능력이 모두 켜집니다. 특히 `thinking`은 409에서 새로 능력 게이트에 포함됐기 때문에, 선언상 false인 모델에 `enable_thinking=true`를 주면 실제로 활성화됩니다.
 
-동일한 형 문제는 usage에도 있습니다. 에이전트/세션 `modelParams.stream="false"`도 `_apply_agent_model_params()`가 그대로 옮기고, `resolve_effective()`에서 true가 됩니다: [chat_context_models.py](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat_context_models.py:153), [capabilities.py](/Users/anthony/Repository/github/loveqoo/my-agents/packages/agent/src/agent/capabilities.py:63).
+동일한 형 문제는 usage에도 있습니다. 에이전트/세션 `modelParams.stream="false"`도 `_apply_agent_model_params()`가 그대로 옮기고, `resolve_effective()`에서 true가 됩니다: [chat_context_models.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_models.py:153), [capabilities.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/agent/src/agent/capabilities.py:63).
 
-노드만 `isinstance(val, bool)` 검사를 하므로 층별 검증도 비대칭입니다: [agents.py](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/schemas/agents.py:156).
+노드만 `isinstance(val, bool)` 검사를 하므로 층별 검증도 비대칭입니다: [agents.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/schemas/agents.py:156).
 
 ## P2 — 고려
 
 ### 1. descriptor fetch 실패가 영구적인 빈 UI로 고착된다
 
-훅은 빈 배열로 시작하고 오류를 완전히 삼킵니다: [CapabilitySettings.tsx](/Users/anthony/Repository/github/loveqoo/my-agents/admin/src/admin/views/agents/CapabilitySettings.tsx:17).
+훅은 빈 배열로 시작하고 오류를 완전히 삼킵니다: [CapabilitySettings.tsx](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/admin/src/admin/views/agents/CapabilitySettings.tsx:17).
 
 실패한 Promise가 `_inflight`에 계속 남기 때문에 이후 재마운트도 재시도하지 않습니다. 결과:
 
@@ -3610,9 +3610,9 @@ Python에서 `bool("false")`는 `True`이므로 두 능력이 모두 켜집니�
 
 ### 2. 부분/빈 capabilities에 대한 FE와 BE 기본값 해석이 다르다
 
-백엔드는 누락 키를 descriptor의 `cap_default`로 보정합니다: [capabilities.py](/Users/anthony/Repository/github/loveqoo/my-agents/packages/agent/src/agent/capabilities.py:59).
+백엔드는 누락 키를 descriptor의 `cap_default`로 보정합니다: [capabilities.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/agent/src/agent/capabilities.py:59).
 
-공유 FE 컴포넌트는 `capabilities` 객체가 존재하면 `capabilities[d.cap] !== false`로 판정합니다: [CapabilitySettings.tsx](/Users/anthony/Repository/github/loveqoo/my-agents/admin/src/admin/views/agents/CapabilitySettings.tsx:55).
+공유 FE 컴포넌트는 `capabilities` 객체가 존재하면 `capabilities[d.cap] !== false`로 판정합니다: [CapabilitySettings.tsx](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/admin/src/admin/views/agents/CapabilitySettings.tsx:55).
 
 따라서 구 모델이 다음처럼 반환되면:
 
@@ -3623,11 +3623,11 @@ Python에서 `bool("false")`는 `True`이므로 두 능력이 모두 켜집니�
 - FE: `thinking`을 capable=true로 보고 “켬”을 허용
 - BE: 누락 기본값 `thinking=false`로 게이트
 
-UI는 켤 수 있다고 보여주고 저장도 허용하지만 실행에서는 조용히 꺼집니다. `capDefault`를 사용하는 모델 편집기와도 판정이 다릅니다: [ProviderModelView.tsx](/Users/anthony/Repository/github/loveqoo/my-agents/admin/src/admin/views/ProviderModelView.tsx:260).
+UI는 켤 수 있다고 보여주고 저장도 허용하지만 실행에서는 조용히 꺼집니다. `capDefault`를 사용하는 모델 편집기와도 판정이 다릅니다: [ProviderModelView.tsx](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/admin/src/admin/views/ProviderModelView.tsx:260).
 
 ### 3. 에이전트 `modelParams`의 화이트리스트는 저장 경계가 아니라 실행 시에만 적용된다
 
-최상위 `AgentConfig.modelParams`는 제한 없는 `dict[str, Any]`입니다: [agents.py](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/schemas/agents.py:16). 노드와 달리 정규화 validator가 없습니다.
+최상위 `AgentConfig.modelParams`는 제한 없는 `dict[str, Any]`입니다: [agents.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/schemas/agents.py:16). 노드와 달리 정규화 validator가 없습니다.
 
 따라서 다음 값은 그대로 저장·왕복합니다.
 
@@ -3640,18 +3640,18 @@ UI는 켤 수 있다고 보여주고 저장도 허용하지만 실행에서는 �
 }
 ```
 
-실행 시 `_apply_agent_model_params()`가 `SETTING_KEYS`만 복사하므로 현재 temperature 우회는 발생하지 않습니다: [chat_context_models.py](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat_context_models.py:153). 하지만 “백엔드 화이트리스트가 설정을 수용한다”는 계약과 저장 상태가 다르고, 오염된 키가 API 에코와 버전에 계속 남습니다.
+실행 시 `_apply_agent_model_params()`가 `SETTING_KEYS`만 복사하므로 현재 temperature 우회는 발생하지 않습니다: [chat_context_models.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_models.py:153). 하지만 “백엔드 화이트리스트가 설정을 수용한다”는 계약과 저장 상태가 다르고, 오염된 키가 API 에코와 버전에 계속 남습니다.
 
-세션 층도 같은 방식으로 임의 키를 transient `cfg`에 병합한 다음 실행 단계에서만 버립니다: [chat_context_overrides.py](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat_context_overrides.py:101).
+세션 층도 같은 방식으로 임의 키를 transient `cfg`에 병합한 다음 실행 단계에서만 버립니다: [chat_context_overrides.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_overrides.py:101).
 
 ## 확인함 — 문제 없음
 
-- 노드의 명시 모델은 `모델 params → 에이전트 modelParams → 노드 modelParams` 순으로 합쳐집니다. `_apply_agent_model_params()`를 두 번 호출하지만 두 번째 호출은 기존 `params` 사본 위에 노드 키만 덮으므로 중복 적용이나 역전은 없습니다: [chat_context_models.py](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat_context_models.py:136).
+- 노드의 명시 모델은 `모델 params → 에이전트 modelParams → 노드 modelParams` 순으로 합쳐집니다. `_apply_agent_model_params()`를 두 번 호출하지만 두 번째 호출은 기존 `params` 사본 위에 노드 키만 덮으므로 중복 적용이나 역전은 없습니다: [chat_context_models.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_models.py:136).
 - 노드가 모델을 상속할 때는 `default_cfg`에 에이전트 설정이 이미 병합되어 있으므로 에이전트 설정을 두 번 적용하지 않습니다. 같은 위치의 `cfg is not None` 조건으로 분리됩니다.
-- capability 키가 단순히 누락된 정상 dict라면 직접·pin·노드 모두 `resolve_effective()`의 `cap_default`로 수렴합니다. 빈 dict도 백엔드 실행에서는 일관됩니다: [capabilities.py](/Users/anthony/Repository/github/loveqoo/my-agents/packages/agent/src/agent/capabilities.py:59).
-- pin 경로도 현재 모델 행의 live capabilities를 읽고, 행이 없으면 `{}`를 전달해 descriptor 기본값으로 폴백합니다: [chat_context_models.py](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat_context_models.py:47).
-- 직접형 그래프 지문에는 에이전트·세션 설정까지 병합된 `model_cfg.params`와 capabilities가 모두 포함됩니다: [chat_graph_build.py](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat_graph_build.py:133). 노드형은 `nodes_resolved is not None`이면 캐시하지 않습니다.
-- 노드 `modelParams`를 `{}`로 저장하면 정규화 결과에서 키 자체가 빠져 정상적으로 상속 상태로 복귀합니다: [agents.py](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/schemas/agents.py:163).
+- capability 키가 단순히 누락된 정상 dict라면 직접·pin·노드 모두 `resolve_effective()`의 `cap_default`로 수렴합니다. 빈 dict도 백엔드 실행에서는 일관됩니다: [capabilities.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/agent/src/agent/capabilities.py:59).
+- pin 경로도 현재 모델 행의 live capabilities를 읽고, 행이 없으면 `{}`를 전달해 descriptor 기본값으로 폴백합니다: [chat_context_models.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_models.py:47).
+- 직접형 그래프 지문에는 에이전트·세션 설정까지 병합된 `model_cfg.params`와 capabilities가 모두 포함됩니다: [chat_graph_build.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_graph_build.py:133). 노드형은 `nodes_resolved is not None`이면 캐시하지 않습니다.
+- 노드 `modelParams`를 `{}`로 저장하면 정규화 결과에서 키 자체가 빠져 정상적으로 상속 상태로 복귀합니다: [agents.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/schemas/agents.py:163).
 - 에이전트 폼도 빈 `modelParams`를 저장 payload에서 제외하고, 노드 폼은 빈 값이면 `undefined`로 바꿉니다. 세션의 빈 객체는 저장된 에이전트 값을 지우는 의미가 아니라 “세션 변경 없음”, 즉 에이전트 층 상속으로 처리됩니다.
 - `temperature`가 에이전트/세션 `modelParams`에 섞여도 현재 실행값에는 도달하지 않습니다. 다만 위 P2처럼 저장 경계가 오염을 허용합니다.
 
@@ -3670,9 +3670,9 @@ tokens used
 
 요구 계약은 `모델 → 에이전트 → 노드 → 세션`이지만 실제 계산 순서는 노드형에서 `모델 → 에이전트+세션 → 노드`입니다.
 
-- `_apply_overrides()`가 세션 `modelParams`를 에이전트 저장값과 합쳐 `cfg["modelParams"]`에 넣습니다: [chat_context_overrides.py](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat_context_overrides.py:99)
-- 이 합쳐진 `cfg`가 `agent_cfg`로 노드 해석기에 전달됩니다: [chat_context_loader.py](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat_context_loader.py:121)
-- `_resolve_node_models()`는 먼저 `agent_cfg`를 적용한 뒤, 노드 `modelParams`를 다시 적용합니다: [chat_context_models.py](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat_context_models.py:136)
+- `_apply_overrides()`가 세션 `modelParams`를 에이전트 저장값과 합쳐 `cfg["modelParams"]`에 넣습니다: [chat_context_overrides.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_overrides.py:99)
+- 이 합쳐진 `cfg`가 `agent_cfg`로 노드 해석기에 전달됩니다: [chat_context_loader.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_loader.py:121)
+- `_resolve_node_models()`는 먼저 `agent_cfg`를 적용한 뒤, 노드 `modelParams`를 다시 적용합니다: [chat_context_models.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_models.py:136)
 
 깨지는 구체 입력:
 
@@ -3690,9 +3690,9 @@ tokens used
 
 ### 2. 문자열 `"false"`가 capability false를 true로 바꿔 능력 게이트를 우회한다
 
-모델 입력 스키마가 capability 값을 `Any`로 허용합니다: [registry.py](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/schemas/registry.py:62). 이 값은 검증 없이 그대로 저장됩니다: [model_registry.py](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/model_registry.py:243).
+모델 입력 스키마가 capability 값을 `Any`로 허용합니다: [registry.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/schemas/registry.py:62). 이 값은 검증 없이 그대로 저장됩니다: [model_registry.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/model_registry.py:243).
 
-실행부는 Python `bool()`로 해석합니다: [capabilities.py](/Users/anthony/Repository/github/loveqoo/my-agents/packages/agent/src/agent/capabilities.py:53).
+실행부는 Python `bool()`로 해석합니다: [capabilities.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/agent/src/agent/capabilities.py:53).
 
 깨지는 입력:
 
@@ -3707,15 +3707,15 @@ tokens used
 
 Python에서 `bool("false")`는 `True`이므로 두 능력이 모두 켜집니다. 특히 `thinking`은 409에서 새로 능력 게이트에 포함됐기 때문에, 선언상 false인 모델에 `enable_thinking=true`를 주면 실제로 활성화됩니다.
 
-동일한 형 문제는 usage에도 있습니다. 에이전트/세션 `modelParams.stream="false"`도 `_apply_agent_model_params()`가 그대로 옮기고, `resolve_effective()`에서 true가 됩니다: [chat_context_models.py](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat_context_models.py:153), [capabilities.py](/Users/anthony/Repository/github/loveqoo/my-agents/packages/agent/src/agent/capabilities.py:63).
+동일한 형 문제는 usage에도 있습니다. 에이전트/세션 `modelParams.stream="false"`도 `_apply_agent_model_params()`가 그대로 옮기고, `resolve_effective()`에서 true가 됩니다: [chat_context_models.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_models.py:153), [capabilities.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/agent/src/agent/capabilities.py:63).
 
-노드만 `isinstance(val, bool)` 검사를 하므로 층별 검증도 비대칭입니다: [agents.py](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/schemas/agents.py:156).
+노드만 `isinstance(val, bool)` 검사를 하므로 층별 검증도 비대칭입니다: [agents.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/schemas/agents.py:156).
 
 ## P2 — 고려
 
 ### 1. descriptor fetch 실패가 영구적인 빈 UI로 고착된다
 
-훅은 빈 배열로 시작하고 오류를 완전히 삼킵니다: [CapabilitySettings.tsx](/Users/anthony/Repository/github/loveqoo/my-agents/admin/src/admin/views/agents/CapabilitySettings.tsx:17).
+훅은 빈 배열로 시작하고 오류를 완전히 삼킵니다: [CapabilitySettings.tsx](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/admin/src/admin/views/agents/CapabilitySettings.tsx:17).
 
 실패한 Promise가 `_inflight`에 계속 남기 때문에 이후 재마운트도 재시도하지 않습니다. 결과:
 
@@ -3727,9 +3727,9 @@ Python에서 `bool("false")`는 `True`이므로 두 능력이 모두 켜집니�
 
 ### 2. 부분/빈 capabilities에 대한 FE와 BE 기본값 해석이 다르다
 
-백엔드는 누락 키를 descriptor의 `cap_default`로 보정합니다: [capabilities.py](/Users/anthony/Repository/github/loveqoo/my-agents/packages/agent/src/agent/capabilities.py:59).
+백엔드는 누락 키를 descriptor의 `cap_default`로 보정합니다: [capabilities.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/agent/src/agent/capabilities.py:59).
 
-공유 FE 컴포넌트는 `capabilities` 객체가 존재하면 `capabilities[d.cap] !== false`로 판정합니다: [CapabilitySettings.tsx](/Users/anthony/Repository/github/loveqoo/my-agents/admin/src/admin/views/agents/CapabilitySettings.tsx:55).
+공유 FE 컴포넌트는 `capabilities` 객체가 존재하면 `capabilities[d.cap] !== false`로 판정합니다: [CapabilitySettings.tsx](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/admin/src/admin/views/agents/CapabilitySettings.tsx:55).
 
 따라서 구 모델이 다음처럼 반환되면:
 
@@ -3740,11 +3740,11 @@ Python에서 `bool("false")`는 `True`이므로 두 능력이 모두 켜집니�
 - FE: `thinking`을 capable=true로 보고 “켬”을 허용
 - BE: 누락 기본값 `thinking=false`로 게이트
 
-UI는 켤 수 있다고 보여주고 저장도 허용하지만 실행에서는 조용히 꺼집니다. `capDefault`를 사용하는 모델 편집기와도 판정이 다릅니다: [ProviderModelView.tsx](/Users/anthony/Repository/github/loveqoo/my-agents/admin/src/admin/views/ProviderModelView.tsx:260).
+UI는 켤 수 있다고 보여주고 저장도 허용하지만 실행에서는 조용히 꺼집니다. `capDefault`를 사용하는 모델 편집기와도 판정이 다릅니다: [ProviderModelView.tsx](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/admin/src/admin/views/ProviderModelView.tsx:260).
 
 ### 3. 에이전트 `modelParams`의 화이트리스트는 저장 경계가 아니라 실행 시에만 적용된다
 
-최상위 `AgentConfig.modelParams`는 제한 없는 `dict[str, Any]`입니다: [agents.py](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/schemas/agents.py:16). 노드와 달리 정규화 validator가 없습니다.
+최상위 `AgentConfig.modelParams`는 제한 없는 `dict[str, Any]`입니다: [agents.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/schemas/agents.py:16). 노드와 달리 정규화 validator가 없습니다.
 
 따라서 다음 값은 그대로 저장·왕복합니다.
 
@@ -3757,18 +3757,18 @@ UI는 켤 수 있다고 보여주고 저장도 허용하지만 실행에서는 �
 }
 ```
 
-실행 시 `_apply_agent_model_params()`가 `SETTING_KEYS`만 복사하므로 현재 temperature 우회는 발생하지 않습니다: [chat_context_models.py](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat_context_models.py:153). 하지만 “백엔드 화이트리스트가 설정을 수용한다”는 계약과 저장 상태가 다르고, 오염된 키가 API 에코와 버전에 계속 남습니다.
+실행 시 `_apply_agent_model_params()`가 `SETTING_KEYS`만 복사하므로 현재 temperature 우회는 발생하지 않습니다: [chat_context_models.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_models.py:153). 하지만 “백엔드 화이트리스트가 설정을 수용한다”는 계약과 저장 상태가 다르고, 오염된 키가 API 에코와 버전에 계속 남습니다.
 
-세션 층도 같은 방식으로 임의 키를 transient `cfg`에 병합한 다음 실행 단계에서만 버립니다: [chat_context_overrides.py](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat_context_overrides.py:101).
+세션 층도 같은 방식으로 임의 키를 transient `cfg`에 병합한 다음 실행 단계에서만 버립니다: [chat_context_overrides.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_overrides.py:101).
 
 ## 확인함 — 문제 없음
 
-- 노드의 명시 모델은 `모델 params → 에이전트 modelParams → 노드 modelParams` 순으로 합쳐집니다. `_apply_agent_model_params()`를 두 번 호출하지만 두 번째 호출은 기존 `params` 사본 위에 노드 키만 덮으므로 중복 적용이나 역전은 없습니다: [chat_context_models.py](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat_context_models.py:136).
+- 노드의 명시 모델은 `모델 params → 에이전트 modelParams → 노드 modelParams` 순으로 합쳐집니다. `_apply_agent_model_params()`를 두 번 호출하지만 두 번째 호출은 기존 `params` 사본 위에 노드 키만 덮으므로 중복 적용이나 역전은 없습니다: [chat_context_models.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_models.py:136).
 - 노드가 모델을 상속할 때는 `default_cfg`에 에이전트 설정이 이미 병합되어 있으므로 에이전트 설정을 두 번 적용하지 않습니다. 같은 위치의 `cfg is not None` 조건으로 분리됩니다.
-- capability 키가 단순히 누락된 정상 dict라면 직접·pin·노드 모두 `resolve_effective()`의 `cap_default`로 수렴합니다. 빈 dict도 백엔드 실행에서는 일관됩니다: [capabilities.py](/Users/anthony/Repository/github/loveqoo/my-agents/packages/agent/src/agent/capabilities.py:59).
-- pin 경로도 현재 모델 행의 live capabilities를 읽고, 행이 없으면 `{}`를 전달해 descriptor 기본값으로 폴백합니다: [chat_context_models.py](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat_context_models.py:47).
-- 직접형 그래프 지문에는 에이전트·세션 설정까지 병합된 `model_cfg.params`와 capabilities가 모두 포함됩니다: [chat_graph_build.py](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/chat_graph_build.py:133). 노드형은 `nodes_resolved is not None`이면 캐시하지 않습니다.
-- 노드 `modelParams`를 `{}`로 저장하면 정규화 결과에서 키 자체가 빠져 정상적으로 상속 상태로 복귀합니다: [agents.py](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/schemas/agents.py:163).
+- capability 키가 단순히 누락된 정상 dict라면 직접·pin·노드 모두 `resolve_effective()`의 `cap_default`로 수렴합니다. 빈 dict도 백엔드 실행에서는 일관됩니다: [capabilities.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/agent/src/agent/capabilities.py:59).
+- pin 경로도 현재 모델 행의 live capabilities를 읽고, 행이 없으면 `{}`를 전달해 descriptor 기본값으로 폴백합니다: [chat_context_models.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_context_models.py:47).
+- 직접형 그래프 지문에는 에이전트·세션 설정까지 병합된 `model_cfg.params`와 capabilities가 모두 포함됩니다: [chat_graph_build.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/chat_graph_build.py:133). 노드형은 `nodes_resolved is not None`이면 캐시하지 않습니다.
+- 노드 `modelParams`를 `{}`로 저장하면 정규화 결과에서 키 자체가 빠져 정상적으로 상속 상태로 복귀합니다: [agents.py](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/schemas/agents.py:163).
 - 에이전트 폼도 빈 `modelParams`를 저장 payload에서 제외하고, 노드 폼은 빈 값이면 `undefined`로 바꿉니다. 세션의 빈 객체는 저장된 에이전트 값을 지우는 의미가 아니라 “세션 변경 없음”, 즉 에이전트 층 상속으로 처리됩니다.
 - `temperature`가 에이전트/세션 `modelParams`에 섞여도 현재 실행값에는 도달하지 않습니다. 다만 위 P2처럼 저장 경계가 오염을 허용합니다.
 

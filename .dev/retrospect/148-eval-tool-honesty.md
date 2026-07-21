@@ -1,6 +1,6 @@
 # 148 — 평가 도구 정직성 (평가 통과 ≠ 도구 호출) (스펙 170)
 
-구남님 관찰: "평가는 통과하는데 실제 대화에선 도구가 잘 안 불린다." 근인을 코드에서 찾음.
+개발자 관찰: "평가는 통과하는데 실제 대화에선 도구가 잘 안 불린다." 근인을 코드에서 찾음.
 
 ## 근인
 프레임워크엔 `trace_has`/`trace_lacks`(실제 호출 도구 채점)가 **이미 있었고 UI도 노출**했다. 문제는
@@ -37,6 +37,6 @@ Icon name="info-circle"는 맵 키가 없어 fallback(appstore) 아이콘이 뜬
 
 ## OUT
 - 도구 호출 신뢰도 자체(모델 능력·프롬프트 유도)는 별개 축. 저장 차단(비차단 유지). 메모리 vs
-  히스토리 체감(구남님 의문 ①)은 별도. info-circle 아이콘 잔존 버그(AgentsView).
+  히스토리 체감(개발자 의문 ①)은 별도. info-circle 아이콘 잔존 버그(AgentsView).
 
 [eval-tool-honesty,false-green-born-at-authoring,nudge-defaults-toward-honesty,retroactive-signal-from-existing-obs,neutral-not-bug-verdict,iff-verification]

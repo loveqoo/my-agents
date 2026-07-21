@@ -32,7 +32,7 @@ langgraph `AsyncPostgresSaver(conn)`의 `conn`은 커넥션 **또는 풀**을 �
 - **C2** **배치 스윕과 채팅 동시 실행 시 pipeline 에러 0회**(회귀 재현 봉합) — 스윕을 트리거한 상태로
   채팅 N턴, `another command in progress`/`pipeline mode` 0.
 - **C3** HIL 흐름 무회귀 — 승인 게이트 인터럽트→재개가 여전히 durable(verify_041/346).
-- **C4** 전체 기능점검(구남님 지시): `make test` 씨앗 그물 초록 + 실제 채팅 정상 + 배치 스윕 정상.
+- **C4** 전체 기능점검(개발자 지시): `make test` 씨앗 그물 초록 + 실제 채팅 정상 + 배치 스윕 정상.
 
 ## 결과 (2026-07-15)
 
@@ -40,7 +40,7 @@ langgraph `AsyncPostgresSaver(conn)`의 `conn`은 커넥션 **또는 풀**을 �
   풀 kwargs는 langgraph와 동일(autocommit·prepare_threshold=0·row_factory=dict_row).
 - **C2 봉합 확증**: checkpoint-cleanup 스윕을 동시 트리거하며 채팅 5턴 → **pipeline 에러 0/5**(로그도 0).
   수정 전 오래 뜬 서버에선 스윕과 채팅이 충돌해 채팅이 에러였다.
-- **C3/C4 전체 기능점검**(구남님 지시): 씨앗 그물 SUITE_OK · verify_041(HIL 승인) ✅ · verify_346 16건 ✅ ·
+- **C3/C4 전체 기능점검**(개발자 지시): 씨앗 그물 SUITE_OK · verify_041(HIL 승인) ✅ · verify_346 16건 ✅ ·
   lint/typecheck 클린.
 
 ### codex 적대 검증 반영

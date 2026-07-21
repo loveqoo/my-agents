@@ -1,12 +1,12 @@
 # 408 — 모델 능력 관리(capabilities): 스트리밍·thinking·비전
 
 > 상태: **완료** · 2026-07-19 · verify_408 21/21 + e2e(단건 배지) + 기존 e2e 3종 무회귀 + make test SUITE_OK(배타 89/0/격리0) + metrics-fast · codex P1×3+P2 반영
-> 발단: 구남님 "스트리밍 처리 여부 관리 + 대화 표시" → 논의로 확정한 2층 원칙 —
+> 발단: 개발자 "스트리밍 처리 여부 관리 + 대화 표시" → 논의로 확정한 2층 원칙 —
 > **능력(capability)=모델이 선언하는 사실 / 사용(usage)=능력의 부분집합에서 선택**
 > (A2A 카드·MCP enabled_tools와 같은 집 패턴). 실측 근거: MLX 가이드(스트리밍=능력 있음·클라가
 > 켬 / thinking=모드 보유·기본을 클라가 관리 — 후자는 params.enable_thinking으로 이미 배관됨).
 
-## 설계(2층 + 설정 캐스케이드 — 구남님 확장 승인)
+## 설계(2층 + 설정 캐스케이드 — 개발자 확장 승인)
 
 - **능력 층(신설, 오버라이드 불가)**: `ModelConfig.capabilities` JSONB — `{"streaming": true,
   "thinking": false, "vision": false}` 기본. 서버가 자체적으로 껐다면 관리자가 사실을 기록.

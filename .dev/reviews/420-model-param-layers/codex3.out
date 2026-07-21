@@ -2,7 +2,7 @@ Reading additional input from stdin...
 2026-07-20T10:48:22.773349Z ERROR codex_models_manager::cache: failed to load models cache: missing field `supports_reasoning_summaries` at line 88 column 5
 OpenAI Codex v0.144.6
 --------
-workdir: /Users/anthony/Repository/github/loveqoo/my-agents
+workdir: /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
 model: gpt-5.6-sol
 provider: openai
 approval: never
@@ -41,7 +41,7 @@ codex
 [단계 2 — Context]
 `andrej-karpathy-skills:karpathy-guidelines`를 적용해 변경 범위를 좁게 유지하고, 주장된 4개 경계를 실제 저장 호출부·검증 assertion까지 역추적하겠습니다. 읽기 전용으로 진행하며 `참고 자산:`은 스펙 420 관련 인덱스와 과거 보안 리뷰의 “create 외 update/rename 경로를 별도 확인” 교훈을 우선 적용합니다.
 exec
-/bin/zsh -lc "sed -n '1,240p' /Users/anthony/.codex/plugins/cache/karpathy-skills/andrej-karpathy-skills/1.0.0/skills/karpathy-guidelines/SKILL.md && rg -n \"420|model_param|modelParams|pipeline\" /Users/anthony/.codex/memories/MEMORY.md | head -80" in /Users/anthony/Repository/github/loveqoo/my-agents
+/bin/zsh -lc "sed -n '1,240p' /Users/anthony/.codex/plugins/cache/karpathy-skills/andrej-karpathy-skills/1.0.0/skills/karpathy-guidelines/SKILL.md && rg -n \"420|model_param|modelParams|pipeline\" /Users/anthony/.codex/memories/MEMORY.md | head -80" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
  succeeded in 0ms:
 ---
 name: karpathy-guidelines
@@ -114,9 +114,9 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 184:- tests/sweep_debris.py, make sweep-debris, make sweep-debris-apply, approval-demo, cascade delete, SET NULL, pipeline-*, suite-*, test debris
 
 exec
-/bin/zsh -lc "pwd; rg --files -g 'AGENTS.md' -g 'INDEX.md' -g '*420*' -g 'agents/guards.py' -g 'agents/crud_routes.py' -g 'agents/version_routes.py' -g 'chat_context_loader.py' -g 'chat_context_models.py' -g 'model_param_layers.py' -g 'tests/verify_420_model_param_layers.py'; git status --short; git diff -- agents/guards.py agents/crud_routes.py agents/version_routes.py chat_context_loader.py chat_context_models.py model_param_layers.py tests/verify_420_model_param_layers.py" in /Users/anthony/Repository/github/loveqoo/my-agents
+/bin/zsh -lc "pwd; rg --files -g 'AGENTS.md' -g 'INDEX.md' -g '*420*' -g 'agents/guards.py' -g 'agents/crud_routes.py' -g 'agents/version_routes.py' -g 'chat_context_loader.py' -g 'chat_context_models.py' -g 'model_param_layers.py' -g 'tests/verify_420_model_param_layers.py'; git status --short; git diff -- agents/guards.py agents/crud_routes.py agents/version_routes.py chat_context_loader.py chat_context_models.py model_param_layers.py tests/verify_420_model_param_layers.py" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
  succeeded in 0ms:
-/Users/anthony/Repository/github/loveqoo/my-agents
+/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
 AGENTS.md
 packages/api/src/api/model_param_layers.py
 packages/api/src/api/chat_context_loader.py
@@ -152,7 +152,7 @@ codex
 [단계 2 — Context]
 참고 자산: `docs/spec/420-model-param-layer-policy.md`의 저장 경계 계약, `.dev`의 420 검토 기록, 운영 매뉴얼의 닫힌 집합·검증 충실도 체크. 현재 작업트리는 이미 수정 상태이며, 저는 변경하지 않고 실제 DB write 경로와 테스트의 실패 가능성을 독립적으로 확인합니다.
 exec
-/bin/zsh -lc "rg -n \"420|model param|modelParams|모델 파라미터\" .dev/learning/INDEX.md .dev/retrospect/INDEX.md .dev/troubleshooting/INDEX.md .dev/reviews docs/spec/INDEX.md docs/spec/420-model-param-layer-policy.md 2>/dev/null; sed -n '1,260p' docs/spec/420-model-param-layer-policy.md; sed -n '1,240p' packages/api/src/api/agents/guards.py; sed -n '200,430p' packages/api/src/api/agents/crud_routes.py; sed -n '1,180p' packages/api/src/api/agents/version_routes.py" in /Users/anthony/Repository/github/loveqoo/my-agents
+/bin/zsh -lc "rg -n \"420|model param|modelParams|모델 파라미터\" .dev/learning/INDEX.md .dev/retrospect/INDEX.md .dev/troubleshooting/INDEX.md .dev/reviews docs/spec/INDEX.md docs/spec/420-model-param-layer-policy.md 2>/dev/null; sed -n '1,260p' docs/spec/420-model-param-layer-policy.md; sed -n '1,240p' packages/api/src/api/agents/guards.py; sed -n '200,430p' packages/api/src/api/agents/crud_routes.py; sed -n '1,180p' packages/api/src/api/agents/version_routes.py" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
  succeeded in 0ms:
 docs/spec/420-model-param-layer-policy.md:1:# 420 — 모델 파라미터 캐스케이드 층 정책 단일화(원천 차단)
 docs/spec/420-model-param-layer-policy.md:9:modelParams(모델 파라미터)는 캐스케이드 4층으로 적용된다: **model-default → agent → node → session**.
@@ -160,10 +160,10 @@ docs/spec/420-model-param-layer-policy.md:52:modelParams를 심고 실행 → �
 docs/spec/420-model-param-layer-policy.md:58:- [ ] BE: `_resolve_node_models`가 노드형에 agent·session 미적용(계약 핀 테스트 신규 verify_420).
 docs/spec/420-model-param-layer-policy.md:63:- 단기 기억(historyDepth) 층 — modelParams와 별개 축(모델 독립), 이번 범위 밖.
 docs/spec/INDEX.md:411:- 408 모델 능력 관리(capabilities) — **완료**: 2층 원칙(능력=모델 선언 불가침/사용=부분집합 선택, A2A·MCP 동형)+3층 설정 캐스케이드(모델 params→에이전트 modelParams→세션, temperature는 제외=단일거처) — capabilities JSONB+미지원 시 disable_streaming 안전 실행+responseMode 단건 배지(노드 없는 직접경로만)+능력 PUT시 그래프캐시 회전. [model-capabilities,two-layer-capability-usage,settings-cascade,disable-streaming-fallback,response-mode-badge]
-docs/spec/INDEX.md:417:- 419 노드형 오버라이드 세션 모델 설정 숨김 — **완료**: 417(AgentForm)의 자매 표면 누락 — 플레이그라운드 OverridePanel 노드형 세부 탭에 "모델 설정(전 노드 공통)"(세션 캐스케이드층, 411 codex 복원)이 남아 노드별 설정과 중복(구남님 지적). 417 규칙 승계 — CapabilitySettings 제거(단기 기억 유지) + buildOverridePayload가 노드형(!applied.nodes)이면 세션 modelParams 미전송(retrospect 238). 브라우저 SHOT419_OK. [single-source-sweep,sister-surface,codex-vs-user-simplicity,hide-ui-and-contract] → tests/browser/shot-419
-docs/spec/INDEX.md:419:- 417 노드형 세부 탭 모델 파라미터 숨김 — **완료**: 노드형은 에이전트-레벨 모델 *선택*을 이미 숨기는데(566행) 그 짝인 파라미터 오버라이드만 세부 탭에 남아 "선택 못 하는 모델의 파라미터"로 혼란(구남님 지적). 표면 짝 정렬 — 패널 `!isPipeline` 게이팅 + finalizeForm `modelParams:{}`로 캐스케이드 조용한 적용 차단(retrospect 238). 단기 기억은 모델 독립이라 유지. 브라우저 SHOT417_OK(노드형 override 0·단기 1, 직접형 override 1). [align-consumer-surfaces,hide-surface-and-its-data,node-owns-model-and-params,weight-decides-placement]
+docs/spec/INDEX.md:417:- 419 노드형 오버라이드 세션 모델 설정 숨김 — **완료**: 417(AgentForm)의 자매 표면 누락 — 플레이그라운드 OverridePanel 노드형 세부 탭에 "모델 설정(전 노드 공통)"(세션 캐스케이드층, 411 codex 복원)이 남아 노드별 설정과 중복(개발자 지적). 417 규칙 승계 — CapabilitySettings 제거(단기 기억 유지) + buildOverridePayload가 노드형(!applied.nodes)이면 세션 modelParams 미전송(retrospect 238). 브라우저 SHOT419_OK. [single-source-sweep,sister-surface,codex-vs-user-simplicity,hide-ui-and-contract] → tests/browser/shot-419
+docs/spec/INDEX.md:419:- 417 노드형 세부 탭 모델 파라미터 숨김 — **완료**: 노드형은 에이전트-레벨 모델 *선택*을 이미 숨기는데(566행) 그 짝인 파라미터 오버라이드만 세부 탭에 남아 "선택 못 하는 모델의 파라미터"로 혼란(개발자 지적). 표면 짝 정렬 — 패널 `!isPipeline` 게이팅 + finalizeForm `modelParams:{}`로 캐스케이드 조용한 적용 차단(retrospect 238). 단기 기억은 모델 독립이라 유지. 브라우저 SHOT417_OK(노드형 override 0·단기 1, 직접형 override 1). [align-consumer-surfaces,hide-surface-and-its-data,node-owns-model-and-params,weight-decides-placement]
 .dev/retrospect/INDEX.md:347:- 347 노드형 오버라이드 세션 모델 설정 숨김(스펙 419) — 417 바로 다음 턴 같은 부류를 자매 표면(플레이그라운드 OverridePanel)서 재지적. 사용자 지적은 패턴이지 인스턴스 아님(417 때 modelParams 노출 표면 grep 전수했어야)·codex가 복원한 표면도 제품오너 앞엔 재심(완결성 vs 인지 단순성 충돌 시 사용자 최종심, 트레이드오프 명시)·숨김의 짝은 UI+계약(payload 게이트도)·플레이그라운드 위저드 관용구는 화면마다 편차(콤보=.ant-avatar·Steps=다음버튼·드로워) [pattern-not-instance,sweep-sister-surfaces-first-time,codex-vs-user-final-say,hide-ui-and-contract] → 브라우저 SHOT419_OK
-.dev/retrospect/INDEX.md:349:- 345 노드형 세부 탭 모델 파라미터 숨김(스펙 417) — 구남님 "노드마다 셋팅했는데 세부 탭 모델 메타는 이상". 노드형은 모델 *선택*을 이미 숨겼는데 그 짝인 파라미터만 남아 부정합. 표면 숨기면 짝·데이터·모든 소비 표면을 grep 전수(263이 요약만 정렬·세부 패널/저장은 남김)·패널만 숨기면 값이 캐스케이드로 조용히 적용→finalizeForm서도 비움(238)·모델-의존(파라미터=숨김)vs모델-독립(단기=유지) 필드 단위 판정·위저드 검증은 실 네비게이션 관용구(연필=first·삭제 금지·브레드크럼) 먼저 [align-consumer-surfaces,hide-surface-and-its-data,model-dependent-vs-independent-field,read-navigation-idiom-first] → 브라우저 SHOT417_OK
+.dev/retrospect/INDEX.md:349:- 345 노드형 세부 탭 모델 파라미터 숨김(스펙 417) — 개발자 "노드마다 셋팅했는데 세부 탭 모델 메타는 이상". 노드형은 모델 *선택*을 이미 숨겼는데 그 짝인 파라미터만 남아 부정합. 표면 숨기면 짝·데이터·모든 소비 표면을 grep 전수(263이 요약만 정렬·세부 패널/저장은 남김)·패널만 숨기면 값이 캐스케이드로 조용히 적용→finalizeForm서도 비움(238)·모델-의존(파라미터=숨김)vs모델-독립(단기=유지) 필드 단위 판정·위저드 검증은 실 네비게이션 관용구(연필=first·삭제 금지·브레드크럼) 먼저 [align-consumer-surfaces,hide-surface-and-its-data,model-dependent-vs-independent-field,read-navigation-idiom-first] → 브라우저 SHOT417_OK
 .dev/reviews/407-memory-separation/codex.out:2110:   420	
 .dev/reviews/407-memory-separation/codex.out:2983:   420	
 .dev/reviews/420-model-param-layers/codex.out:15:역할: 적대적 코드 리뷰어. 스펙 420(모델 파라미터 캐스케이드 층 정책 단일화)을 공격자·회귀 관점에서 검증하라.
@@ -173,11 +173,11 @@ docs/spec/INDEX.md:419:- 417 노드형 세부 탭 모델 파라미터 숨김 —
 .dev/reviews/420-model-param-layers/codex.out:39:검증됨: verify_420 13/13(정책 매트릭스·쓰기경계 strip/보존·해석 관문 노드형 agent·session 미적용 both
 .dev/reviews/420-model-param-layers/codex.out:47:  자체로 modelParams를 적용해 정책을 우회하나?
 .dev/reviews/420-model-param-layers/codex.out:59:AgentForm.tsx·OverridePanel.tsx·NodeListEditor.tsx(표면), tests/verify_420_model_param_layers.py.
-.dev/reviews/420-model-param-layers/codex.out:73:/bin/zsh -lc "sed -n '1,240p' /Users/anthony/.codex/plugins/cache/karpathy-skills/andrej-karpathy-skills/1.0.0/skills/karpathy-guidelines/SKILL.md && rg -n \"420|modelParams|cascade|캐스케이드|CapabilitySettings\" /Users/anthony/.codex/memories/MEMORY.md .dev/learning/INDEX.md .dev/retrospect/INDEX.md .dev/troubleshooting/INDEX.md 2>/dev/null" in /Users/anthony/Repository/github/loveqoo/my-agents
+.dev/reviews/420-model-param-layers/codex.out:73:/bin/zsh -lc "sed -n '1,240p' /Users/anthony/.codex/plugins/cache/karpathy-skills/andrej-karpathy-skills/1.0.0/skills/karpathy-guidelines/SKILL.md && rg -n \"420|modelParams|cascade|캐스케이드|CapabilitySettings\" /Users/anthony/.codex/memories/MEMORY.md .dev/learning/INDEX.md .dev/retrospect/INDEX.md .dev/troubleshooting/INDEX.md 2>/dev/null" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
 .dev/reviews/420-model-param-layers/codex.out:144:.dev/retrospect/INDEX.md:347:- 347 노드형 오버라이드 세션 모델 설정 숨김(스펙 419) — 417 바로 다음 턴 같은 부류를 자매 표면(플레이그라운드 OverridePanel)서 재지적. 사용자 지적은 패턴이지 인스턴스 아님(417 때 modelParams 노출 표면 grep 전수했어야)·codex가 복원한 표면도 제품오너 앞엔 재심(완결성 vs 인지 단순성 충돌 시 사용자 최종심, 트레이드오프 명시)·숨김의 짝은 UI+계약(payload 게이트도)·플레이그라운드 위저드 관용구는 화면마다 편차(콤보=.ant-avatar·Steps=다음버튼·드로워) [pattern-not-instance,sweep-sister-surfaces-first-time,codex-vs-user-final-say,hide-ui-and-contract] → 브라우저 SHOT419_OK
-.dev/reviews/420-model-param-layers/codex.out:145:.dev/retrospect/INDEX.md:349:- 345 노드형 세부 탭 모델 파라미터 숨김(스펙 417) — 구남님 "노드마다 셋팅했는데 세부 탭 모델 메타는 이상". 노드형은 모델 *선택*을 이미 숨겼는데 그 짝인 파라미터만 남아 부정합. 표면 숨기면 짝·데이터·모든 소비 표면을 grep 전수(263이 요약만 정렬·세부 패널/저장은 남김)·패널만 숨기면 값이 캐스케이드로 조용히 적용→finalizeForm서도 비움(238)·모델-의존(파라미터=숨김)vs모델-독립(단기=유지) 필드 단위 판정·위저드 검증은 실 네비게이션 관용구(연필=first·삭제 금지·브레드크럼) 먼저 [align-consumer-surfaces,hide-surface-and-its-data,model-dependent-vs-independent-field,read-navigation-idiom-first] → 브라우저 SHOT417_OK
+.dev/reviews/420-model-param-layers/codex.out:145:.dev/retrospect/INDEX.md:349:- 345 노드형 세부 탭 모델 파라미터 숨김(스펙 417) — 개발자 "노드마다 셋팅했는데 세부 탭 모델 메타는 이상". 노드형은 모델 *선택*을 이미 숨겼는데 그 짝인 파라미터만 남아 부정합. 표면 숨기면 짝·데이터·모든 소비 표면을 grep 전수(263이 요약만 정렬·세부 패널/저장은 남김)·패널만 숨기면 값이 캐스케이드로 조용히 적용→finalizeForm서도 비움(238)·모델-의존(파라미터=숨김)vs모델-독립(단기=유지) 필드 단위 판정·위저드 검증은 실 네비게이션 관용구(연필=first·삭제 금지·브레드크럼) 먼저 [align-consumer-surfaces,hide-surface-and-its-data,model-dependent-vs-independent-field,read-navigation-idiom-first] → 브라우저 SHOT417_OK
 .dev/reviews/420-model-param-layers/codex.out:153:검토 계약은 세 가지입니다: (1) 정책 판정의 입력·기본값·타입 경계를 공격, (2) `modelParams`의 모든 저장·병합·해석·렌더 입구를 `rg`로 확정해 관문 우회를 추적, (3) `verify_420`의 assertion이 실제 회귀 시나리오를 잡는지 대조합니다. 결과는 P1/P2/확인함만 보고하며 테스트 실행은 읽기 전용 범위에서 가능한 것만 수행합니다.
-.dev/reviews/420-model-param-layers/codex.out:155:/bin/zsh -lc "git status --short && git diff --stat && git diff -- admin/src/admin/views/agents/CapabilitySettings.tsx admin/src/admin/views/agents/AgentForm.tsx admin/src/admin/views/agents/OverridePanel.tsx admin/src/admin/views/agents/NodeListEditor.tsx packages/api/src/api/model_param_layers.py packages/api/src/api/chat_context_models.py packages/api/src/api/schemas/agents.py packages/api/src/api/chat_context_loader.py tests/verify_420_model_param_layers.py && rg -n \"modelParams|_apply_agent_model_params|_resolve_model|_resolve_node_models|CapabilitySettings|ModelParamsField|layer_applies|modelParamLayerApplies\" admin/src packages/api/src tests --glob '"'!**/node_modules/**'"'" in /Users/anthony/Repository/github/loveqoo/my-agents
+.dev/reviews/420-model-param-layers/codex.out:155:/bin/zsh -lc "git status --short && git diff --stat && git diff -- admin/src/admin/views/agents/CapabilitySettings.tsx admin/src/admin/views/agents/AgentForm.tsx admin/src/admin/views/agents/OverridePanel.tsx admin/src/admin/views/agents/NodeListEditor.tsx packages/api/src/api/model_param_layers.py packages/api/src/api/chat_context_models.py packages/api/src/api/schemas/agents.py packages/api/src/api/chat_context_loader.py tests/verify_420_model_param_layers.py && rg -n \"modelParams|_apply_agent_model_params|_resolve_model|_resolve_node_models|CapabilitySettings|ModelParamsField|layer_applies|modelParamLayerApplies\" admin/src packages/api/src tests --glob '"'!**/node_modules/**'"'" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
 .dev/reviews/420-model-param-layers/codex.out:167:?? .dev/reviews/420-model-param-layers/
 .dev/reviews/420-model-param-layers/codex.out:168:?? docs/spec/420-model-param-layer-policy.md
 .dev/reviews/420-model-param-layers/codex.out:170:?? tests/verify_420_model_param_layers.py
@@ -237,7 +237,7 @@ docs/spec/INDEX.md:419:- 417 노드형 세부 탭 모델 파라미터 숨김 —
 .dev/reviews/420-model-param-layers/codex.out:458:admin/src/playground/OverridePanel.tsx:85:  if (!applied.nodes && JSON.stringify(applied.modelParams) !== JSON.stringify(base.modelParams))
 .dev/reviews/420-model-param-layers/codex.out:459:admin/src/playground/OverridePanel.tsx:86:    p.modelParams = applied.modelParams
 .dev/reviews/420-model-param-layers/codex.out:460:admin/src/playground/OverridePanel.tsx:476:               **노드가 소유**(1단계 노드 편집, per-node)로 일원화 — 세션 공통 modelParams는 숨긴다
-.dev/reviews/420-model-param-layers/codex.out:461:admin/src/playground/OverridePanel.tsx:478:               군데"로 혼란, 구남님 지적). 세션 modelParams는 buildOverridePayload가 노드형이면 미전송. */
+.dev/reviews/420-model-param-layers/codex.out:461:admin/src/playground/OverridePanel.tsx:478:               군데"로 혼란, 개발자 지적). 세션 modelParams는 buildOverridePayload가 노드형이면 미전송. */
 .dev/reviews/420-model-param-layers/codex.out:462:admin/src/playground/OverridePanel.tsx:515:          {/* 세션 층 모델 설정(session 층, 스펙 409·411·420) — ModelParamsField 유일한 문. 노드형은
 .dev/reviews/420-model-param-layers/codex.out:463:admin/src/playground/OverridePanel.tsx:517:              세션 modelParams는 buildOverridePayload가 노드형이면 미전송(스펙 419). */}
 .dev/reviews/420-model-param-layers/codex.out:465:admin/src/playground/OverridePanel.tsx:525:            value={draft.modelParams}
@@ -346,7 +346,7 @@ docs/spec/INDEX.md:419:- 417 노드형 세부 탭 모델 파라미터 숨김 —
 .dev/reviews/420-model-param-layers/codex.out:597:admin/src/admin/views/AgentsView.tsx:681:                  modelParams: { ...((c.modelParams as Record<string, boolean>) || a.modelParams || {}) },
 .dev/reviews/420-model-param-layers/codex.out:599:admin/src/admin/views/agents/CapabilitySettings.tsx:153:/** 모델 파라미터 캐스케이드 층(스펙 420) — modelParams가 적용되는 4층. 정책의 판정 대상. */
 .dev/reviews/420-model-param-layers/codex.out:602:admin/src/admin/views/agents/CapabilitySettings.tsx:173:/** 모델 파라미터 오버라이드 **유일한 문**(스펙 420) — 표면은 raw CapabilitySettings를 직접 못 쓴다
-.dev/reviews/420-model-param-layers/codex.out:609:/bin/zsh -lc "nl -ba packages/api/src/api/model_param_layers.py; nl -ba packages/api/src/api/chat_context_models.py | sed -n '90,230p'; nl -ba packages/api/src/api/chat_context_loader.py | sed -n '45,210p'; nl -ba packages/api/src/api/chat_context_overrides.py | sed -n '75,125p'; nl -ba packages/api/src/api/schemas/agents.py | sed -n '1,210p'; nl -ba tests/verify_420_model_param_layers.py | sed -n '1,180p'; rg -n \"_resolve_node_models\\(|_resolve_model\\(|_apply_agent_model_params\\(\" packages/api/src/api --glob '*.py'" in /Users/anthony/Repository/github/loveqoo/my-agents
+.dev/reviews/420-model-param-layers/codex.out:609:/bin/zsh -lc "nl -ba packages/api/src/api/model_param_layers.py; nl -ba packages/api/src/api/chat_context_models.py | sed -n '90,230p'; nl -ba packages/api/src/api/chat_context_loader.py | sed -n '45,210p'; nl -ba packages/api/src/api/chat_context_overrides.py | sed -n '75,125p'; nl -ba packages/api/src/api/schemas/agents.py | sed -n '1,210p'; nl -ba tests/verify_420_model_param_layers.py | sed -n '1,180p'; rg -n \"_resolve_node_models\\(|_resolve_model\\(|_apply_agent_model_params\\(\" packages/api/src/api --glob '*.py'" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
 .dev/reviews/420-model-param-layers/codex.out:611:     1	"""모델 파라미터 캐스케이드 층 정책(스펙 420) — FE `CapabilitySettings.tsx`의 `modelParamLayerApplies`
 .dev/reviews/420-model-param-layers/codex.out:612:     2	BE 형제(대칭). modelParams가 적용되는 4층(model-default → agent → node → session) 중 **어느 층이 어느
 .dev/reviews/420-model-param-layers/codex.out:620:    10	(노드형은 노드가 모델 파라미터를 소유 — 에이전트·세션 층이 노드로 새면 중복/혼란, 스펙 417·419·420).
@@ -451,22 +451,22 @@ docs/spec/INDEX.md:419:- 417 노드형 세부 탭 모델 파라미터 숨김 —
 .dev/reviews/420-model-param-layers/codex.out:3221:   205	          onChange={(mp) => onChange({ modelParams: Object.keys(mp).length ? (mp as Record<string, boolean | number>) : undefined })}
 .dev/reviews/420-model-param-layers/codex.out:3374:정적 호출 그래프로 두 P1을 재현했습니다. 하나는 PUT 경계에서 validator 이후 `impl` 복원이 일어나 불법 상태가 저장되는 순서 역전이고, 다른 하나는 pipeline에서 차단된 `modelParams.temperature`가 `ctx.temperature → AgentBuildContext.params → 각 노드 모델`로 다시 주입되는 관문 우회입니다. 제공된 13개 검증은 두 경로 모두 assertion하지 않습니다.
 .dev/reviews/420-model-param-layers/codex.out:3380:1. 업데이트 경계에서 pipeline `modelParams` 차단을 우회할 수 있습니다.
-.dev/reviews/420-model-param-layers/codex.out:3382:`AgentConfig` validator는 파싱 당시 `impl == "pipeline"`일 때만 비웁니다([schemas/agents.py:34](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/schemas/agents.py:34)). 그런데 PUT 요청에서 `impl`을 생략하면 validator는 기본값 `None`을 보고 `modelParams`를 보존합니다. 이후 라우트가 기존 pipeline impl을 복원합니다([crud_routes.py:335](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/agents/crud_routes.py:335), [crud_routes.py:362](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/agents/crud_routes.py:362)).
+.dev/reviews/420-model-param-layers/codex.out:3382:`AgentConfig` validator는 파싱 당시 `impl == "pipeline"`일 때만 비웁니다([schemas/agents.py:34](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/schemas/agents.py:34)). 그런데 PUT 요청에서 `impl`을 생략하면 validator는 기본값 `None`을 보고 `modelParams`를 보존합니다. 이후 라우트가 기존 pipeline impl을 복원합니다([crud_routes.py:335](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/agents/crud_routes.py:335), [crud_routes.py:362](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/agents/crud_routes.py:362)).
 .dev/reviews/420-model-param-layers/codex.out:3389:    "modelParams": {"temperature": 0.91},
 .dev/reviews/420-model-param-layers/codex.out:3398:2. `model_dump()`에 `modelParams` 생존
-.dev/reviews/420-model-param-layers/codex.out:3402:“illegal state 표현 불가” 보장이 깨집니다. `verify_420`은 처음부터 `impl="pipeline"`인 직접 생성만 검사해 이 순서 역전을 놓칩니다([verify_420_model_param_layers.py:59](/Users/anthony/Repository/github/loveqoo/my-agents/tests/verify_420_model_param_layers.py:59)).
+.dev/reviews/420-model-param-layers/codex.out:3402:“illegal state 표현 불가” 보장이 깨집니다. `verify_420`은 처음부터 `impl="pipeline"`인 직접 생성만 검사해 이 순서 역전을 놓칩니다([verify_420_model_param_layers.py:59](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/tests/verify_420_model_param_layers.py:59)).
 .dev/reviews/420-model-param-layers/codex.out:3421:{"overrides":{"modelParams":{"temperature":0.01}}}
-.dev/reviews/420-model-param-layers/codex.out:3424:레거시·1번 우회로 저장된 agent-layer temperature도 동일하게 샙니다. `verify_420`은 `model_cfg.params`만 검사하고 `ChatContext.temperature`와 실제 `AgentBuildContext.params`는 검사하지 않습니다([verify_420_model_param_layers.py:80](/Users/anthony/Repository/github/loveqoo/my-agents/tests/verify_420_model_param_layers.py:80)).
-.dev/reviews/420-model-param-layers/codex.out:3430:- FE/BE는 “단일 정책”이 아니라 수동 복제된 두 구현입니다. FE 구현은 [CapabilitySettings.tsx:160](/Users/anthony/Repository/github/loveqoo/my-agents/admin/src/admin/views/agents/CapabilitySettings.tsx:160), BE 구현은 [model_param_layers.py:18](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/model_param_layers.py:18)에 따로 있습니다. `verify_420`은 주석과 달리 FE 함수를 실행·파싱하지 않고 BE만 검사합니다([verify_420_model_param_layers.py:42](/Users/anthony/Repository/github/loveqoo/my-agents/tests/verify_420_model_param_layers.py:42)). 한쪽만 수정해도 초록입니다.
+.dev/reviews/420-model-param-layers/codex.out:3424:레거시·1번 우회로 저장된 agent-layer temperature도 동일하게 샙니다. `verify_420`은 `model_cfg.params`만 검사하고 `ChatContext.temperature`와 실제 `AgentBuildContext.params`는 검사하지 않습니다([verify_420_model_param_layers.py:80](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/tests/verify_420_model_param_layers.py:80)).
+.dev/reviews/420-model-param-layers/codex.out:3430:- FE/BE는 “단일 정책”이 아니라 수동 복제된 두 구현입니다. FE 구현은 [CapabilitySettings.tsx:160](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/admin/src/admin/views/agents/CapabilitySettings.tsx:160), BE 구현은 [model_param_layers.py:18](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/model_param_layers.py:18)에 따로 있습니다. `verify_420`은 주석과 달리 FE 함수를 실행·파싱하지 않고 BE만 검사합니다([verify_420_model_param_layers.py:42](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/tests/verify_420_model_param_layers.py:42)). 한쪽만 수정해도 초록입니다.
 .dev/reviews/420-model-param-layers/codex.out:3444:결론: 현재 420은 승인 불가입니다. 특히 P1 #2는 chat/resume/serve/eval 네 입구 모두에서 “막았다고 검증한 값”이 별도 temperature 통로로 실제 모델까지 도달하는 실우회입니다.
 .dev/reviews/420-model-param-layers/codex.out:3455:1. 업데이트 경계에서 pipeline `modelParams` 차단을 우회할 수 있습니다.
-.dev/reviews/420-model-param-layers/codex.out:3457:`AgentConfig` validator는 파싱 당시 `impl == "pipeline"`일 때만 비웁니다([schemas/agents.py:34](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/schemas/agents.py:34)). 그런데 PUT 요청에서 `impl`을 생략하면 validator는 기본값 `None`을 보고 `modelParams`를 보존합니다. 이후 라우트가 기존 pipeline impl을 복원합니다([crud_routes.py:335](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/agents/crud_routes.py:335), [crud_routes.py:362](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/agents/crud_routes.py:362)).
+.dev/reviews/420-model-param-layers/codex.out:3457:`AgentConfig` validator는 파싱 당시 `impl == "pipeline"`일 때만 비웁니다([schemas/agents.py:34](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/schemas/agents.py:34)). 그런데 PUT 요청에서 `impl`을 생략하면 validator는 기본값 `None`을 보고 `modelParams`를 보존합니다. 이후 라우트가 기존 pipeline impl을 복원합니다([crud_routes.py:335](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/agents/crud_routes.py:335), [crud_routes.py:362](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/agents/crud_routes.py:362)).
 .dev/reviews/420-model-param-layers/codex.out:3464:    "modelParams": {"temperature": 0.91},
 .dev/reviews/420-model-param-layers/codex.out:3473:2. `model_dump()`에 `modelParams` 생존
-.dev/reviews/420-model-param-layers/codex.out:3477:“illegal state 표현 불가” 보장이 깨집니다. `verify_420`은 처음부터 `impl="pipeline"`인 직접 생성만 검사해 이 순서 역전을 놓칩니다([verify_420_model_param_layers.py:59](/Users/anthony/Repository/github/loveqoo/my-agents/tests/verify_420_model_param_layers.py:59)).
+.dev/reviews/420-model-param-layers/codex.out:3477:“illegal state 표현 불가” 보장이 깨집니다. `verify_420`은 처음부터 `impl="pipeline"`인 직접 생성만 검사해 이 순서 역전을 놓칩니다([verify_420_model_param_layers.py:59](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/tests/verify_420_model_param_layers.py:59)).
 .dev/reviews/420-model-param-layers/codex.out:3496:{"overrides":{"modelParams":{"temperature":0.01}}}
-.dev/reviews/420-model-param-layers/codex.out:3499:레거시·1번 우회로 저장된 agent-layer temperature도 동일하게 샙니다. `verify_420`은 `model_cfg.params`만 검사하고 `ChatContext.temperature`와 실제 `AgentBuildContext.params`는 검사하지 않습니다([verify_420_model_param_layers.py:80](/Users/anthony/Repository/github/loveqoo/my-agents/tests/verify_420_model_param_layers.py:80)).
-.dev/reviews/420-model-param-layers/codex.out:3505:- FE/BE는 “단일 정책”이 아니라 수동 복제된 두 구현입니다. FE 구현은 [CapabilitySettings.tsx:160](/Users/anthony/Repository/github/loveqoo/my-agents/admin/src/admin/views/agents/CapabilitySettings.tsx:160), BE 구현은 [model_param_layers.py:18](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/model_param_layers.py:18)에 따로 있습니다. `verify_420`은 주석과 달리 FE 함수를 실행·파싱하지 않고 BE만 검사합니다([verify_420_model_param_layers.py:42](/Users/anthony/Repository/github/loveqoo/my-agents/tests/verify_420_model_param_layers.py:42)). 한쪽만 수정해도 초록입니다.
+.dev/reviews/420-model-param-layers/codex.out:3499:레거시·1번 우회로 저장된 agent-layer temperature도 동일하게 샙니다. `verify_420`은 `model_cfg.params`만 검사하고 `ChatContext.temperature`와 실제 `AgentBuildContext.params`는 검사하지 않습니다([verify_420_model_param_layers.py:80](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/tests/verify_420_model_param_layers.py:80)).
+.dev/reviews/420-model-param-layers/codex.out:3505:- FE/BE는 “단일 정책”이 아니라 수동 복제된 두 구현입니다. FE 구현은 [CapabilitySettings.tsx:160](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/admin/src/admin/views/agents/CapabilitySettings.tsx:160), BE 구현은 [model_param_layers.py:18](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/model_param_layers.py:18)에 따로 있습니다. `verify_420`은 주석과 달리 FE 함수를 실행·파싱하지 않고 BE만 검사합니다([verify_420_model_param_layers.py:42](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/tests/verify_420_model_param_layers.py:42)). 한쪽만 수정해도 초록입니다.
 .dev/reviews/420-model-param-layers/codex.out:3519:결론: 현재 420은 승인 불가입니다. 특히 P1 #2는 chat/resume/serve/eval 네 입구 모두에서 “막았다고 검증한 값”이 별도 temperature 통로로 실제 모델까지 도달하는 실우회입니다.
 .dev/reviews/409-capability-settings/prompt-fixes.txt:5:- P1① 세션>노드: 세션 modelParams를 `_load_context`에서 별도로 추출(clean_setting_params)해
 .dev/reviews/409-capability-settings/prompt-fixes.txt:6:  `_resolve_node_models(session_mp=...)`로 넘기고, 노드 modelParams 적용 **뒤에** 재적용.
@@ -506,8 +506,8 @@ docs/spec/INDEX.md:419:- 417 노드형 세부 탭 모델 파라미터 숨김 —
 .dev/reviews/420-model-param-layers/codex3.out:31:- verify_420 21건이 계약을 실제로 핀하나, 아니면 항상 초록인 가짜가 있나?
 .dev/reviews/420-model-param-layers/codex3.out:34:chat_context_loader.py, chat_context_models.py, model_param_layers.py, tests/verify_420_model_param_layers.py.
 .dev/reviews/420-model-param-layers/codex3.out:42:`andrej-karpathy-skills:karpathy-guidelines`를 적용해 변경 범위를 좁게 유지하고, 주장된 4개 경계를 실제 저장 호출부·검증 assertion까지 역추적하겠습니다. 읽기 전용으로 진행하며 `참고 자산:`은 스펙 420 관련 인덱스와 과거 보안 리뷰의 “create 외 update/rename 경로를 별도 확인” 교훈을 우선 적용합니다.
-.dev/reviews/420-model-param-layers/codex3.out:44:/bin/zsh -lc "sed -n '1,240p' /Users/anthony/.codex/plugins/cache/karpathy-skills/andrej-karpathy-skills/1.0.0/skills/karpathy-guidelines/SKILL.md && rg -n \"420|model_param|modelParams|pipeline\" /Users/anthony/.codex/memories/MEMORY.md | head -80" in /Users/anthony/Repository/github/loveqoo/my-agents
-.dev/reviews/420-model-param-layers/codex3.out:117:/bin/zsh -lc "pwd; rg --files -g 'AGENTS.md' -g 'INDEX.md' -g '*420*' -g 'agents/guards.py' -g 'agents/crud_routes.py' -g 'agents/version_routes.py' -g 'chat_context_loader.py' -g 'chat_context_models.py' -g 'model_param_layers.py' -g 'tests/verify_420_model_param_layers.py'; git status --short; git diff -- agents/guards.py agents/crud_routes.py agents/version_routes.py chat_context_loader.py chat_context_models.py model_param_layers.py tests/verify_420_model_param_layers.py" in /Users/anthony/Repository/github/loveqoo/my-agents
+.dev/reviews/420-model-param-layers/codex3.out:44:/bin/zsh -lc "sed -n '1,240p' /Users/anthony/.codex/plugins/cache/karpathy-skills/andrej-karpathy-skills/1.0.0/skills/karpathy-guidelines/SKILL.md && rg -n \"420|model_param|modelParams|pipeline\" /Users/anthony/.codex/memories/MEMORY.md | head -80" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
+.dev/reviews/420-model-param-layers/codex3.out:117:/bin/zsh -lc "pwd; rg --files -g 'AGENTS.md' -g 'INDEX.md' -g '*420*' -g 'agents/guards.py' -g 'agents/crud_routes.py' -g 'agents/version_routes.py' -g 'chat_context_loader.py' -g 'chat_context_models.py' -g 'model_param_layers.py' -g 'tests/verify_420_model_param_layers.py'; git status --short; git diff -- agents/guards.py agents/crud_routes.py agents/version_routes.py chat_context_loader.py chat_context_models.py model_param_layers.py tests/verify_420_model_param_layers.py" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
 .dev/reviews/420-model-param-layers/codex3.out:125:docs/spec/420-model-param-layer-policy.md
 .dev/reviews/420-model-param-layers/codex3.out:126:tests/verify_420_model_param_layers.py
 .dev/reviews/420-model-param-layers/codex3.out:141:?? .dev/reviews/420-model-param-layers/
@@ -524,13 +524,13 @@ docs/spec/INDEX.md:419:- 417 노드형 세부 탭 모델 파라미터 숨김 —
 .dev/reviews/420-model-param-layers/codex2.out:45:- 새 회귀: 비노드형(직접·조율·산출물) temperature/modelParams 캐스케이드 전부 정상? pin 경로?
 .dev/reviews/420-model-param-layers/codex2.out:49:tests/verify_420_model_param_layers.py.
 .dev/reviews/420-model-param-layers/codex2.out:60:참고 자산: 스펙 420 보안성 재검 → 생성·수정 외 저장 입구와 실제 런타임 소비자를 닫힌 집합으로 계수, 기존 SSRF/리팩터 리뷰 교훈 → 가드의 직접 호출부와 우회 경로를 별도 추적.
-.dev/reviews/420-model-param-layers/codex2.out:62:/bin/zsh -lc "sed -n '1,240p' /Users/anthony/.codex/plugins/cache/karpathy-skills/andrej-karpathy-skills/1.0.0/skills/karpathy-guidelines/SKILL.md && rg -n \"420|model.param|temperature|pipeline\" /Users/anthony/.codex/memories/MEMORY.md | head -80 && rg --files .dev | rg 'INDEX\\.md"'$|420|model.param'"' | head -80" in /Users/anthony/Repository/github/loveqoo/my-agents
+.dev/reviews/420-model-param-layers/codex2.out:62:/bin/zsh -lc "sed -n '1,240p' /Users/anthony/.codex/plugins/cache/karpathy-skills/andrej-karpathy-skills/1.0.0/skills/karpathy-guidelines/SKILL.md && rg -n \"420|model.param|temperature|pipeline\" /Users/anthony/.codex/memories/MEMORY.md | head -80 && rg --files .dev | rg 'INDEX\\.md"'$|420|model.param'"' | head -80" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
 .dev/reviews/420-model-param-layers/codex2.out:135:.dev/reviews/420-model-param-layers/codex.out
 .dev/reviews/420-model-param-layers/codex2.out:136:.dev/reviews/420-model-param-layers/codex2.out
 .dev/reviews/420-model-param-layers/codex2.out:137:.dev/reviews/420-model-param-layers/prompt.txt
 .dev/reviews/420-model-param-layers/codex2.out:138:.dev/reviews/420-model-param-layers/prompt2.txt
 .dev/reviews/420-model-param-layers/codex2.out:148:완료 조건은 세 가지입니다: (1) 노드형 temperature의 모든 런타임 유입 통로를 역추적해 agent/session 층 차단과 node 층 보존을 확인, (2) 노드형 `modelParams`의 모든 저장 입구를 계수해 strip 우회를 확인, (3) 비노드형 캐스케이드와 node gate의 여집합 회귀를 코드·검증으로 교차 확인. 결과는 남은 P1/P2/봉합확인으로만 판정합니다.
-.dev/reviews/420-model-param-layers/codex2.out:150:/bin/zsh -lc "git status --short && git diff -- packages/api/src/api/chat_context_loader.py packages/api/src/api/chat_context_models.py packages/api/src/api/agents/crud_routes.py packages/api/src/api/schemas/agents.py packages/api/src/api/model_param_layers.py tests/verify_420_model_param_layers.py && sed -n '1,220p' .dev/learning/INDEX.md && sed -n '1,220p' .dev/retrospect/INDEX.md" in /Users/anthony/Repository/github/loveqoo/my-agents
+.dev/reviews/420-model-param-layers/codex2.out:150:/bin/zsh -lc "git status --short && git diff -- packages/api/src/api/chat_context_loader.py packages/api/src/api/chat_context_models.py packages/api/src/api/agents/crud_routes.py packages/api/src/api/schemas/agents.py packages/api/src/api/model_param_layers.py tests/verify_420_model_param_layers.py && sed -n '1,220p' .dev/learning/INDEX.md && sed -n '1,220p' .dev/retrospect/INDEX.md" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
 .dev/reviews/420-model-param-layers/codex2.out:164:?? .dev/reviews/420-model-param-layers/
 .dev/reviews/420-model-param-layers/codex2.out:165:?? docs/spec/420-model-param-layer-policy.md
 .dev/reviews/420-model-param-layers/codex2.out:167:?? tests/verify_420_model_param_layers.py
@@ -642,7 +642,7 @@ docs/spec/INDEX.md:419:- 417 노드형 세부 탭 모델 파라미터 숨김 —
 # 420 — 모델 파라미터 캐스케이드 층 정책 단일화(원천 차단)
 
 > 상태: **승인·진행** · 2026-07-20 · 발단: 417(AgentForm)→419(OverridePanel) 같은 부류 2연타.
-> 구남님: "말썽 부리는 곳은 원천 차단 안 하면 또 발생." + "미래의 당신이 히스토리 기억하고 예외
+> 개발자: "말썽 부리는 곳은 원천 차단 안 하면 또 발생." + "미래의 당신이 히스토리 기억하고 예외
 > 피할 거라 예상하냐(=아니다)." 설계 기준=[[design-for-amnesiac-future-actor]]: 기억 0 코더가
 > 제일 쉬운 걸 집어도 자동으로 옳게, **틀린 길이 존재하지 않게**.
 
@@ -1070,7 +1070,7 @@ async def activate_version(
         raise HTTPException(status_code=404, detail="version not found")
     if agent.active_version == body.version:
         raise HTTPException(status_code=400, detail="이미 오픈된 버전입니다")
-    # 평가 게이트(스펙 372=367-E) — 스크래치(미오픈) 첫 오픈만. 롤백(ever_opened)은 면제(구남님 확정:
+    # 평가 게이트(스펙 372=367-E) — 스크래치(미오픈) 첫 오픈만. 롤백(ever_opened)은 면제(개발자 확정:
     # 긴급 롤백을 게이트가 막으면 사고 대응이 잠긴다). 우회 플래그 없음 — 급하면 설정에서 임계를
     # 낮추는 명시 행위로만(감사 가능).
     if not target.ever_opened and agent.source == "ui":
@@ -1105,7 +1105,7 @@ async def activate_version(
 async def _eval_gate_reason(session: AsyncSession, agent_pk: uuid.UUID, version: str) -> str | None:
     """평가 게이트 판정(스펙 372) — 통과면 None, 미달이면 사유(긍정형: 무엇이 되면 열리는가).
 
-    회수 = 그 버전의 성공(status=ok·score 보유) 평가 런 수, 점수 = 그 런들의 **평균**(구남님 확정 —
+    회수 = 그 버전의 성공(status=ok·score 보유) 평가 런 수, 점수 = 그 런들의 **평균**(개발자 확정 —
     우연한 1회 고/저점에 안 덩샘). 임계는 전역 설정(app_settings) — 둘 다 0이면 게이트 꺼짐."""
     from sqlalchemy import func, select
 
@@ -1194,7 +1194,7 @@ codex
 [단계 3 — Planning]
 검토 계약은 세 가지입니다: (1) `Agent.config`·`AgentVersion.config`의 모든 생산자를 닫힌 집합으로 세어 4곳 밖 우회를 판정, (2) 공유 guard의 import 그래프와 호출 순서를 정적 확인, (3) `verify_420` 각 assertion을 구현 변이 시 실제 실패하는지 대조하고 가능한 범위에서 실행합니다. 완료 조건은 남은 P1/P2를 파일:줄 근거로 분리하고, 비노드형 보존 및 노드층 양성 핀까지 확인하는 것입니다.
 exec
-/bin/zsh -lc "nl -ba packages/api/src/api/agents/guards.py | sed -n '1,220p'; nl -ba packages/api/src/api/agents/crud_routes.py | sed -n '1,430p'; nl -ba packages/api/src/api/agents/version_routes.py | sed -n '1,130p'; nl -ba tests/verify_420_model_param_layers.py | sed -n '1,360p'" in /Users/anthony/Repository/github/loveqoo/my-agents
+/bin/zsh -lc "nl -ba packages/api/src/api/agents/guards.py | sed -n '1,220p'; nl -ba packages/api/src/api/agents/crud_routes.py | sed -n '1,430p'; nl -ba packages/api/src/api/agents/version_routes.py | sed -n '1,130p'; nl -ba tests/verify_420_model_param_layers.py | sed -n '1,360p'" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
  succeeded in 0ms:
      1	"""저장 시점 게이트 — toolPolicy 완화(스펙 177 P2)·비영속 경계(스펙 237)."""
      2	
@@ -1761,7 +1761,7 @@ exec
     48	        raise HTTPException(status_code=404, detail="version not found")
     49	    if agent.active_version == body.version:
     50	        raise HTTPException(status_code=400, detail="이미 오픈된 버전입니다")
-    51	    # 평가 게이트(스펙 372=367-E) — 스크래치(미오픈) 첫 오픈만. 롤백(ever_opened)은 면제(구남님 확정:
+    51	    # 평가 게이트(스펙 372=367-E) — 스크래치(미오픈) 첫 오픈만. 롤백(ever_opened)은 면제(개발자 확정:
     52	    # 긴급 롤백을 게이트가 막으면 사고 대응이 잠긴다). 우회 플래그 없음 — 급하면 설정에서 임계를
     53	    # 낮추는 명시 행위로만(감사 가능).
     54	    if not target.ever_opened and agent.source == "ui":
@@ -1796,7 +1796,7 @@ exec
     83	async def _eval_gate_reason(session: AsyncSession, agent_pk: uuid.UUID, version: str) -> str | None:
     84	    """평가 게이트 판정(스펙 372) — 통과면 None, 미달이면 사유(긍정형: 무엇이 되면 열리는가).
     85	
-    86	    회수 = 그 버전의 성공(status=ok·score 보유) 평가 런 수, 점수 = 그 런들의 **평균**(구남님 확정 —
+    86	    회수 = 그 버전의 성공(status=ok·score 보유) 평가 런 수, 점수 = 그 런들의 **평균**(개발자 확정 —
     87	    우연한 1회 고/저점에 안 덩샘). 임계는 전역 설정(app_settings) — 둘 다 0이면 게이트 꺼짐."""
     88	    from sqlalchemy import func, select
     89	
@@ -2019,7 +2019,7 @@ exec
 
 2026-07-20T10:48:56.626347Z ERROR codex_models_manager::manager: failed to renew cache TTL: missing field `supports_reasoning_summaries` at line 88 column 5
 exec
-/bin/zsh -lc "rg -n \"\\bAgent\\s*\\(|\\bAgentVersion\\s*\\(|\\.config\\s*=|config\\s*=\\s*cfg|config\\s*=\\s*dict|config=\\{\" packages/api/src/api tests --glob '*.py'; rg -n \"modelParams\" packages/api/src/api --glob '*.py'; rg -n \"session\\.add\\(|session\\.merge\\(|session\\.execute\\((insert|update)|await session\\.commit\\(\\)\" packages/api/src/api --glob '*.py' | rg \"agent|Agent|config|version|register|import|seed|eval|remote\"" in /Users/anthony/Repository/github/loveqoo/my-agents
+/bin/zsh -lc "rg -n \"\\bAgent\\s*\\(|\\bAgentVersion\\s*\\(|\\.config\\s*=|config\\s*=\\s*cfg|config\\s*=\\s*dict|config=\\{\" packages/api/src/api tests --glob '*.py'; rg -n \"modelParams\" packages/api/src/api --glob '*.py'; rg -n \"session\\.add\\(|session\\.merge\\(|session\\.execute\\((insert|update)|await session\\.commit\\(\\)\" packages/api/src/api --glob '*.py' | rg \"agent|Agent|config|version|register|import|seed|eval|remote\"" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
  succeeded in 0ms:
 tests/verify_151_mcp_tool_detail.py:212:        ref_agent = Agent(
 tests/verify_151_mcp_tool_detail.py:215:            config={"capabilities": [f"mcp:{MOCK_MCP_SERVER_NAME}/ghost-tool"]},
@@ -2309,7 +2309,7 @@ packages/api/src/api/agents/exposure_routes.py:91:    await session.commit()
 
 2026-07-20T10:49:02.380578Z ERROR codex_models_manager::manager: failed to renew cache TTL: missing field `supports_reasoning_summaries` at line 88 column 5
 exec
-/bin/zsh -lc "nl -ba packages/api/src/api/agents/version_routes.py | sed -n '135,175p'; nl -ba packages/api/src/api/blocks_prompts.py | sed -n '105,165p'; nl -ba packages/api/src/api/agents/remote_routes.py | sed -n '1,255p'; nl -ba packages/api/src/api/agents/card_builder.py | sed -n '1,180p'; nl -ba packages/api/src/api/seed.py | sed -n '315,575p'; nl -ba packages/api/src/api/batch/jobs_agents.py | sed -n '1,100p'" in /Users/anthony/Repository/github/loveqoo/my-agents
+/bin/zsh -lc "nl -ba packages/api/src/api/agents/version_routes.py | sed -n '135,175p'; nl -ba packages/api/src/api/blocks_prompts.py | sed -n '105,165p'; nl -ba packages/api/src/api/agents/remote_routes.py | sed -n '1,255p'; nl -ba packages/api/src/api/agents/card_builder.py | sed -n '1,180p'; nl -ba packages/api/src/api/seed.py | sed -n '315,575p'; nl -ba packages/api/src/api/batch/jobs_agents.py | sed -n '1,100p'" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
  succeeded in 0ms:
    135	# ----------------------------- 채택 (pins 재freeze — promptStale 후계) -----------------------------
    136	@router.post("/{agent_id}/adopt", response_model=AgentOut)
@@ -3153,7 +3153,7 @@ codex
 [단계 4 — Execution]
 닫힌 집합 스캔에서 “4개 쓰기 경계 모두”라는 주장은 그대로는 성립하지 않습니다. `adopt`와 프롬프트 채택도 `AgentVersion.config`를 복사 저장하며 guard를 거치지 않습니다. 이 경로가 레거시 불법 노드형 config를 새 스크래치로 재생산하는지, 원격·시드 경로는 입력 구조상 해당 상태를 만들 수 없는지 구분해 최종 심각도를 판정하겠습니다.
 exec
-/bin/zsh -lc "nl -ba packages/api/src/api/agents/card_builder.py | sed -n '40,100p'; nl -ba packages/api/src/api/chat_context_models.py | sed -n '1,220p'; nl -ba packages/api/src/api/chat_context_loader.py | sed -n '55,205p'; nl -ba packages/api/src/api/chat_context_models.py | sed -n '125,195p'; nl -ba packages/api/src/api/model_param_layers.py; nl -ba packages/api/src/api/chat_context.py | sed -n '1,100p'; rg -n \"from .*agents|import .*agents|from .*guards|import .*guards\" packages/api/src/api/models packages/api/src/api/ownership.py packages/api/src/api/agents/guards.py packages/api/src/api/agents/*.py" in /Users/anthony/Repository/github/loveqoo/my-agents
+/bin/zsh -lc "nl -ba packages/api/src/api/agents/card_builder.py | sed -n '40,100p'; nl -ba packages/api/src/api/chat_context_models.py | sed -n '1,220p'; nl -ba packages/api/src/api/chat_context_loader.py | sed -n '55,205p'; nl -ba packages/api/src/api/chat_context_models.py | sed -n '125,195p'; nl -ba packages/api/src/api/model_param_layers.py; nl -ba packages/api/src/api/chat_context.py | sed -n '1,100p'; rg -n \"from .*agents|import .*agents|from .*guards|import .*guards\" packages/api/src/api/models packages/api/src/api/ownership.py packages/api/src/api/agents/guards.py packages/api/src/api/agents/*.py" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
  succeeded in 0ms:
     40	def _build_external_agent(
     41	    card: dict, token: str | None, live: bool, card_url: str | None = None
@@ -3750,7 +3750,7 @@ packages/api/src/api/models/__init__.py:7:from .agents import Agent, AgentVersio
 2026-07-20T10:49:20.786160Z ERROR codex_models_manager::manager: failed to renew cache TTL: missing field `supports_reasoning_summaries` at line 88 column 5
 2026-07-20T10:49:25.322519Z ERROR codex_models_manager::manager: failed to renew cache TTL: missing field `supports_reasoning_summaries` at line 88 column 5
 exec
-/bin/zsh -lc "ls -d .venv packages/api/.venv 2>/dev/null; if [ -x .venv/bin/python ]; then PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -c 'from api.agents.guards import _strip_pipeline_model_params; from api.agents.crud_routes import create_agent, clone_agent, update_agent; from api.agents.version_routes import activate_version; print(\"IMPORT_OK\")'; fi" in /Users/anthony/Repository/github/loveqoo/my-agents
+/bin/zsh -lc "ls -d .venv packages/api/.venv 2>/dev/null; if [ -x .venv/bin/python ]; then PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -c 'from api.agents.guards import _strip_pipeline_model_params; from api.agents.crud_routes import create_agent, clone_agent, update_agent; from api.agents.version_routes import activate_version; print(\"IMPORT_OK\")'; fi" in /Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents
 2026-07-20T10:49:38.047862Z ERROR codex_models_manager::manager: failed to renew cache TTL: missing field `supports_reasoning_summaries` at line 88 column 5
  succeeded in 753ms:
 IMPORT_OK
@@ -3770,17 +3770,17 @@ codex
 
   `adopt`도 기존 config를 새 `AgentVersion.config`에 저장하지만 `_strip_pipeline_model_params`를 거치지 않습니다.
 
-  - [version_routes.py:149](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/agents/version_routes.py:149): 활성 버전 또는 head의 raw config 복사
-  - [version_routes.py:154](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/agents/version_routes.py:154): 기존 scratch 덮어쓰기
-  - [version_routes.py:164](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/agents/version_routes.py:164): 새 version 생성
+  - [version_routes.py:149](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/agents/version_routes.py:149): 활성 버전 또는 head의 raw config 복사
+  - [version_routes.py:154](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/agents/version_routes.py:154): 기존 scratch 덮어쓰기
+  - [version_routes.py:164](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/agents/version_routes.py:164): 새 version 생성
 
   따라서 레거시/직접 시드로 `impl="pipeline"`과 agent층 `modelParams`가 같이 저장돼 있으면, 채택이 그 불법 상태를 새 버전에 그대로 복제합니다.
 
   프롬프트 일괄 채택에도 같은 경로가 있습니다.
 
-  - [blocks_prompts.py:140](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/blocks_prompts.py:140)
-  - [blocks_prompts.py:145](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/blocks_prompts.py:145)
-  - [blocks_prompts.py:151](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/blocks_prompts.py:151)
+  - [blocks_prompts.py:140](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/blocks_prompts.py:140)
+  - [blocks_prompts.py:145](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/blocks_prompts.py:145)
+  - [blocks_prompts.py:151](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/blocks_prompts.py:151)
 
   런타임 누출은 `layer_applies`가 막지만, “노드형 agent층 modelParams는 DB에 존재 불가”라는 저장 불변식과 guard 주석의 “모든 쓰기 경계” 주장은 깨집니다.
 
@@ -3790,7 +3790,7 @@ codex
 
 - **P2 — 21/21은 네 라우트의 무회귀를 핀하지 않습니다.**
 
-  [verify_420_model_param_layers.py:64](/Users/anthony/Repository/github/loveqoo/my-agents/tests/verify_420_model_param_layers.py:64)의 쓰기 검증은 `AgentConfig`와 strip helper를 직접 호출할 뿐입니다. create/update/clone/activate 각각에 대해 다음을 검증하지 않습니다.
+  [verify_420_model_param_layers.py:64](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/tests/verify_420_model_param_layers.py:64)의 쓰기 검증은 `AgentConfig`와 strip helper를 직접 호출할 뿐입니다. create/update/clone/activate 각각에 대해 다음을 검증하지 않습니다.
 
   - pipeline top-level `modelParams` 제거
   - `nodes[].modelParams` 보존
@@ -3798,7 +3798,7 @@ codex
   - update에서 `_preserve_impl` 이후 strip
   - clone/activate의 raw-copy 경로
 
-  새 node층 양성 assertion([verify_420_model_param_layers.py:143](/Users/anthony/Repository/github/loveqoo/my-agents/tests/verify_420_model_param_layers.py:143))은 유효합니다. 실제 `model_cfg.params.temperature == 0.42`를 요구하므로 node 적용 코드가 빠지면 실패합니다. 기존 음성 assertion도 단순 상수가 아니라 실제 resolver 결과를 검사합니다. 즉 “항상 초록인 가짜”는 아니지만, **쓰기 경계 회귀에 대한 계약 범위가 부족**합니다.
+  새 node층 양성 assertion([verify_420_model_param_layers.py:143](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/tests/verify_420_model_param_layers.py:143))은 유효합니다. 실제 `model_cfg.params.temperature == 0.42`를 요구하므로 node 적용 코드가 빠지면 실패합니다. 기존 음성 assertion도 단순 상수가 아니라 실제 resolver 결과를 검사합니다. 즉 “항상 초록인 가짜”는 아니지만, **쓰기 경계 회귀에 대한 계약 범위가 부족**합니다.
 
 ### 최종 봉합확인
 
@@ -3828,17 +3828,17 @@ tokens used
 
   `adopt`도 기존 config를 새 `AgentVersion.config`에 저장하지만 `_strip_pipeline_model_params`를 거치지 않습니다.
 
-  - [version_routes.py:149](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/agents/version_routes.py:149): 활성 버전 또는 head의 raw config 복사
-  - [version_routes.py:154](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/agents/version_routes.py:154): 기존 scratch 덮어쓰기
-  - [version_routes.py:164](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/agents/version_routes.py:164): 새 version 생성
+  - [version_routes.py:149](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/agents/version_routes.py:149): 활성 버전 또는 head의 raw config 복사
+  - [version_routes.py:154](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/agents/version_routes.py:154): 기존 scratch 덮어쓰기
+  - [version_routes.py:164](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/agents/version_routes.py:164): 새 version 생성
 
   따라서 레거시/직접 시드로 `impl="pipeline"`과 agent층 `modelParams`가 같이 저장돼 있으면, 채택이 그 불법 상태를 새 버전에 그대로 복제합니다.
 
   프롬프트 일괄 채택에도 같은 경로가 있습니다.
 
-  - [blocks_prompts.py:140](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/blocks_prompts.py:140)
-  - [blocks_prompts.py:145](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/blocks_prompts.py:145)
-  - [blocks_prompts.py:151](/Users/anthony/Repository/github/loveqoo/my-agents/packages/api/src/api/blocks_prompts.py:151)
+  - [blocks_prompts.py:140](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/blocks_prompts.py:140)
+  - [blocks_prompts.py:145](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/blocks_prompts.py:145)
+  - [blocks_prompts.py:151](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/packages/api/src/api/blocks_prompts.py:151)
 
   런타임 누출은 `layer_applies`가 막지만, “노드형 agent층 modelParams는 DB에 존재 불가”라는 저장 불변식과 guard 주석의 “모든 쓰기 경계” 주장은 깨집니다.
 
@@ -3848,7 +3848,7 @@ tokens used
 
 - **P2 — 21/21은 네 라우트의 무회귀를 핀하지 않습니다.**
 
-  [verify_420_model_param_layers.py:64](/Users/anthony/Repository/github/loveqoo/my-agents/tests/verify_420_model_param_layers.py:64)의 쓰기 검증은 `AgentConfig`와 strip helper를 직접 호출할 뿐입니다. create/update/clone/activate 각각에 대해 다음을 검증하지 않습니다.
+  [verify_420_model_param_layers.py:64](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/tests/verify_420_model_param_layers.py:64)의 쓰기 검증은 `AgentConfig`와 strip helper를 직접 호출할 뿐입니다. create/update/clone/activate 각각에 대해 다음을 검증하지 않습니다.
 
   - pipeline top-level `modelParams` 제거
   - `nodes[].modelParams` 보존
@@ -3856,7 +3856,7 @@ tokens used
   - update에서 `_preserve_impl` 이후 strip
   - clone/activate의 raw-copy 경로
 
-  새 node층 양성 assertion([verify_420_model_param_layers.py:143](/Users/anthony/Repository/github/loveqoo/my-agents/tests/verify_420_model_param_layers.py:143))은 유효합니다. 실제 `model_cfg.params.temperature == 0.42`를 요구하므로 node 적용 코드가 빠지면 실패합니다. 기존 음성 assertion도 단순 상수가 아니라 실제 resolver 결과를 검사합니다. 즉 “항상 초록인 가짜”는 아니지만, **쓰기 경계 회귀에 대한 계약 범위가 부족**합니다.
+  새 node층 양성 assertion([verify_420_model_param_layers.py:143](/Users/anthony/Repository/github/{{GITHUB_ORG}}/my-agents/tests/verify_420_model_param_layers.py:143))은 유효합니다. 실제 `model_cfg.params.temperature == 0.42`를 요구하므로 node 적용 코드가 빠지면 실패합니다. 기존 음성 assertion도 단순 상수가 아니라 실제 resolver 결과를 검사합니다. 즉 “항상 초록인 가짜”는 아니지만, **쓰기 경계 회귀에 대한 계약 범위가 부족**합니다.
 
 ### 최종 봉합확인
 

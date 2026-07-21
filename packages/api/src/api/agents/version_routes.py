@@ -48,7 +48,7 @@ async def activate_version(
         raise HTTPException(status_code=404, detail="version not found")
     if agent.active_version == body.version:
         raise HTTPException(status_code=400, detail="이미 오픈된 버전입니다")
-    # 평가 게이트(스펙 372=367-E) — 스크래치(미오픈) 첫 오픈만. 롤백(ever_opened)은 면제(구남님 확정:
+    # 평가 게이트(스펙 372=367-E) — 스크래치(미오픈) 첫 오픈만. 롤백(ever_opened)은 면제(개발자 확정:
     # 긴급 롤백을 게이트가 막으면 사고 대응이 잠긴다). 우회 플래그 없음 — 급하면 설정에서 임계를
     # 낮추는 명시 행위로만(감사 가능).
     if not target.ever_opened and agent.source == "ui":
@@ -82,7 +82,7 @@ async def activate_version(
 async def _eval_gate_reason(session: AsyncSession, agent_pk: uuid.UUID, version: str) -> str | None:
     """평가 게이트 판정(스펙 372) — 통과면 None, 미달이면 사유(긍정형: 무엇이 되면 열리는가).
 
-    회수 = 그 버전의 성공(status=ok·score 보유) 평가 런 수, 점수 = 그 런들의 **평균**(구남님 확정 —
+    회수 = 그 버전의 성공(status=ok·score 보유) 평가 런 수, 점수 = 그 런들의 **평균**(개발자 확정 —
     우연한 1회 고/저점에 안 덩샘). 임계는 전역 설정(app_settings) — 둘 다 0이면 게이트 꺼짐."""
     from sqlalchemy import func, select
 

@@ -3,7 +3,7 @@
 ## 맥락
 
 캠페인 374 Tier2 ②. `_load_context`의 ctx dict(36키)를 `ChatContext` dataclass로 전면 교체 —
-채팅 핫 경로 7파일·~211 접근 사이트. 구남님 선택=전면 DTO(TypedDict 아님, whole-fix). 동작 불변 착지.
+채팅 핫 경로 7파일·~211 접근 사이트. 개발자 선택=전면 DTO(TypedDict 아님, whole-fix). 동작 불변 착지.
 
 ## 교훈
 

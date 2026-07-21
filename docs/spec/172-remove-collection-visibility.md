@@ -1,8 +1,8 @@
 # 172 — RAG 컬렉션에서 공개/비공개(published) 개념 제거 → 전부 공용
 
 ## 배경 (사용자 교정)
-스펙 163이 컬렉션에 **공개 토글(published)**을 추가했다 — 구남님 원 의도는 "public/private를 *수정
-가능*하게"였는데, 구현이 **공개/비공개 상태를 새로 추가**하는 방향으로 어긋났다. 구남님 결정(2026-07-04):
+스펙 163이 컬렉션에 **공개 토글(published)**을 추가했다 — 개발자 원 의도는 "public/private를 *수정
+가능*하게"였는데, 구현이 **공개/비공개 상태를 새로 추가**하는 방향으로 어긋났다. 개발자 결정(2026-07-04):
 **public/private·공개/비공개 개념을 RAG에서 완전히 제외**하고, 컬렉션은 **로그인한 누구나 검색에
 사용**(수정·삭제는 소유자만 유지). 즉 163의 사용-공개 축을 걷어내고 "사용=전부 공용"으로 단순화.
 
@@ -25,7 +25,7 @@
 
 **프론트**
 6. `CollectionsView.tsx` — publish 스위치·"공개" 태그·togglePublish·publishCollection import 제거.
-   **+ `OwnerTag`(public/private 라벨, 스펙 147) 제거** — 육안 확인서 발견: 구남님 "public/private,
+   **+ `OwnerTag`(public/private 라벨, 스펙 147) 제거** — 육안 확인서 발견: 개발자 "public/private,
    공개/비공개 제외"는 163 토글뿐 아니라 이 소유 라벨(public/private)도 대상. RAG 뷰에서만 제거(공유
    컴포넌트라 다른 뷰는 유지). 관리 권한(can_manage=편집/삭제 노출) 로직은 그대로.
 7. `api.ts` — `publishCollection`·`Collection.published` 제거.

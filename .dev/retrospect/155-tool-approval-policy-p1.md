@@ -1,7 +1,7 @@
 # 155 — 도구 승인 정책 P1: 하드코딩→DB + 단일 리졸버 (스펙 177 P1)
 
 ## 맥락
-구남님 지적: "기능에 권한 설정을 하기 어렵다." 승인이 필요한 도구가 코드 상수
+개발자 지적: "기능에 권한 설정을 하기 어렵다." 승인이 필요한 도구가 코드 상수
 `runtime._APPROVAL_ACTIONS`(한 줄, `(local-tools,delete_record)→data.delete`)에만 있어 관리자가 UI로
 도구에 승인을 걸 수 없었다. 게다가 정책이 그래프-tools 경로(`_wrap_mcp_tool`)와 브로커 경로
 (`McpProvider.approval_for`) 두 곳에서 각자 `_APPROVAL_ACTIONS`를 조회 — 소스는 같아도 소비처 둘.

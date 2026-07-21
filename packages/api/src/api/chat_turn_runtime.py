@@ -1,6 +1,6 @@
 """턴 런타임 준비(회상·도구·브로커·그래프 팩토리 캐시) — chat.py에서 분할(스펙 396 P4).
 
-그래프 팩토리 캐시(스펙 371 D3, 구남님 설계)의 정의 모듈. _build_turn_runtime(구 CC 15)은
+그래프 팩토리 캐시(스펙 371 D3, 개발자 설계)의 정의 모듈. _build_turn_runtime(구 CC 15)은
 그래프 획득 3분기(_graph_for_turn — 캐시 적중/promptless 미스/비적격)를 추출해 분해했고,
 반환은 dict → **ChatTurnRuntime dataclass**(스펙 396 명시 개선 — 필드 1:1, mypy 안전망).
 캐시 hit 계약(스펙 371): tools는 재사용·per-turn calls_sink는 config 주입(트레이스 격리).
@@ -32,7 +32,7 @@ from .chat_history import (
 from .models import User
 from .schemas import ChatRequest
 
-# ── 그래프 팩토리 캐시(스펙 371 D3, 구남님 설계) ────────────────────────────────
+# ── 그래프 팩토리 캐시(스펙 371 D3, 개발자 설계) ────────────────────────────────
 # 그래프는 원래 무상태(랭그래프 동시성 안전) — 요청별 상태를 호출 인자로 옮긴 뒤(promptless 빌드 +
 # config sink) 빌드 결정 요소의 지문으로 캐시한다. 호출부는 신규/캐시본 구분을 모른다(팩토리가 은닉).
 # 오버라이드는 우회가 아니라 지문에 흡수: 모델/도구가 다르면 다른 지문=다른 엔트리.

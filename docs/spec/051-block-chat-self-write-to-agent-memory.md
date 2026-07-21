@@ -2,12 +2,12 @@
 
 ## 배경 / 문제
 
-메모리 테스트 중 로직 오류 발견. 사용자가 채팅에서 *"내 이름은 구남이야. 잘 기억해"*라고 하자,
+메모리 테스트 중 로직 오류 발견. 사용자가 채팅에서 *"내 이름은 개발자이야. 잘 기억해"*라고 하자,
 에이전트가 그 사실을 **agent_id 스코프(에이전트 전용·교차사용자)**에 저장했다. 이름은 **사용자
 메모리(user_id)**에 들어가야 하는데, 교차사용자 채널로 샜다.
 
 - DB 확인(`mem0_memories`): 누출 행 `0a6a05d1-17b1-4591-b1c0-e877c2c6d993`
-  (`data: "사용자의 이름은 구남이다.", agent_id: "agt_sec_9d4417"`, user_id 없음).
+  (`data: "사용자의 이름은 개발자이다.", agent_id: "agt_sec_9d4417"`, user_id 없음).
   정상 행 `91e1b821…`(`User's name is Gu Nam`, user_id·run_id)도 **동시에** 존재 — 즉 한 턴이
   두 군데 쓰였다. 사용자 메모리 자동저장(add_scope=user_id+run_id, infer=True)은 **이미 정상 동작**.
 - 근본 원인: 채팅 인-챗 자가기록 도구 `save_agent_knowledge`(`runtime.build_agent_memory_tool`).

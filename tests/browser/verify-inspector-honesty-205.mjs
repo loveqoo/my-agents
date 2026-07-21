@@ -4,7 +4,7 @@ const pwDir = process.env.PLAYWRIGHT_DIR
 const _pw = await import(`${pwDir}/index.js`)
 const chromium = _pw.chromium ?? _pw.default?.chromium
 const _fx = (await import('./_fixture.mjs')).provisionSuper()
-const OUT = '/private/tmp/claude-501/-Users-anthony-Repository-github-loveqoo-my-agents/0f419f54-5016-4410-97ef-deab94d7cbcb/scratchpad'
+const OUT = '/private/tmp/claude-501/-Users-anthony-Repository-github-{{GITHUB_ORG}}-my-agents/0f419f54-5016-4410-97ef-deab94d7cbcb/scratchpad'
 const ok = (c, m) => console.log((c ? '  ok  ' : ' FAIL ') + m)
 const browser = await chromium.launch({ channel: 'chrome', headless: true })
 const page = await (await browser.newContext({ viewport: { width: 1600, height: 1100 } })).newPage()

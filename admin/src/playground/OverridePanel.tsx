@@ -475,7 +475,7 @@ export function OverridePanel({ open, agent, models, blocks, agents, collections
             /* 노드형 세부(스펙 287/419) — 단기 기억(노드 "상속" 원천값, 스펙 270)만. 모델 설정은
                **노드가 소유**(1단계 노드 편집, per-node)로 일원화 — 세션 공통 modelParams는 숨긴다
                (스펙 419: 417과 같은 규칙. per-node 위를 덮는 세션층이 UI에 또 있으면 "모델 설정 두
-               군데"로 혼란, 구남님 지적). 세션 modelParams는 buildOverridePayload가 노드형이면 미전송. */
+               군데"로 혼란, 개발자 지적). 세션 modelParams는 buildOverridePayload가 노드형이면 미전송. */
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <ShortTermMemoryField
                 value={draft.historyDepth}

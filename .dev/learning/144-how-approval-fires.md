@@ -41,10 +41,10 @@ refetch**(DebugChat.tsx:382·Playground.tsx:104, focus/visibility)해 결과를 
 
 ## 데모 자산
 - 시드 아님: 세션 중 `approval-demo`(agt_0574b7, 조율형, memwrite:user) 에이전트를 만들어 실증(DB에 잔존,
-  Gunam 실습용으로 유지). 승인 큐 화면·인자 노출·재개 모두 스크린샷 검증.
+  개발자 실습용으로 유지). 승인 큐 화면·인자 노출·재개 모두 스크린샷 검증.
 - 참고: 스펙 046이 delete_record를 지운 게 아니다(카탈로그 잔존, mock_mcp.py:24) — Mock이 안 부를 뿐.
 
-## 다음 (Gunam 보안 포인트)
+## 다음 (개발자 보안 포인트)
 "도구에 승인을 쉽게 설정할 수 있어야 보안이 튼튼" — **도구(MCP) 승인은 지금 `_APPROVAL_ACTIONS`
 코드 한 곳에 하드코딩(딱 delete_record 1개)**. 도구별 "승인 필요" 토글로 빼는 게 그 요구의 실체.
 [[installed-guard-isnt-covering-guard]]와 결이 같음(설정 가능해야 커버 범위가 는다).

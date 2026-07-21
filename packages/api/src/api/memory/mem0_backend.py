@@ -26,7 +26,7 @@ log = logging.getLogger("api.memory")
 
 # mem0의 엔티티/그래프 메모리(spaCy 기반)는 우리가 **안 쓴다**(_build_config에 graph_store 없음 —
 # llm·embedder·vector_store만). 그런데 mem0는 부팅 시 spaCy 로드를 시도해 "Failed to load spaCy ...
-# install mem0ai[nlp]" WARNING을 뱉는다(구남님이 콘솔에서 '설치 실패'로 본 그 메시지). 우리 사용엔
+# install mem0ai[nlp]" WARNING을 뱉는다(개발자이 콘솔에서 '설치 실패'로 본 그 메시지). 우리 사용엔
 # 무해하므로 이 로거만 정확히 눌러 노이즈를 없앤다 — 다른 mem0 경고는 그대로 둔다(스펙 356).
 logging.getLogger("mem0.utils.spacy_models").setLevel(logging.ERROR)
 

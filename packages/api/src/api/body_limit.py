@@ -8,7 +8,7 @@
 - **raw receive 누적 실측**: 헤더는 스푸핑 가능(learning 041 — 캡은 raw 바이트에서) —
   receive 메시지의 body 길이를 누적해 상한 초과 시점에 413. chunked 전송도 잡는다.
 
-상한(2026-07-20 구남님 승인값 — 사용자 가시 한계): 기본 2MB, 업로드 라우트(/chat/attachments)만
+상한(2026-07-20 개발자 승인값 — 사용자 가시 한계): 기본 2MB, 업로드 라우트(/chat/attachments)만
 6MB(파일 5MB + multipart 오버헤드). 프록시/인프라 층 limit은 배포 미정의라 OUT(앱 층이 1차 방어).
 """
 

@@ -54,9 +54,9 @@ def unit_checks() -> None:
     )
 
     # U2 마스킹 순수 함수 — 이메일·전화(하이픈/점/공백/+82) 결정적
-    masked = mask_pii_text("문의: gunam.jung@gmail.com / 010-1234-5678 / +82 10 9876 5432")
+    masked = mask_pii_text("문의: gildong.hong@gmail.com / 010-1234-5678 / +82 10 9876 5432")
     check(
-        "gunam.jung@gmail.com" not in masked and "g***@gmail.com" in masked,
+        "gildong.hong@gmail.com" not in masked and "g***@gmail.com" in masked,
         f"U2 이메일 마스킹 (got {masked})",
     )
     check(
@@ -265,11 +265,11 @@ async def http_checks() -> None:
         status, text, tr, _err = await _chat(
             c,
             aid,
-            "제 이메일은 gunam.jung@gmail.com 이고 전화는 010-1234-5678 입니다. 기억해 주세요.",
+            "제 이메일은 gildong.hong@gmail.com 이고 전화는 010-1234-5678 입니다. 기억해 주세요.",
         )
         check(status == 200 and bool(text), f"H3 채팅 200+답변 (status={status})")
         check(
-            "gunam.jung@gmail.com" not in text and "g***@gmail.com" in text,
+            "gildong.hong@gmail.com" not in text and "g***@gmail.com" in text,
             f"H3 이메일 마스킹 실측 (got {text[:80]})",
         )
         check("010-1234-5678" not in text and "***-****-5678" in text, "H3 전화 마스킹 실측")
@@ -327,7 +327,7 @@ async def http_checks() -> None:
         from api.eval_runner import eval_run_agent
 
         obs = await eval_run_agent(
-            uuid.UUID(aid), "이메일 gunam.jung@gmail.com 을 기억해", principal="machine"
+            uuid.UUID(aid), "이메일 gildong.hong@gmail.com 을 기억해", principal="machine"
         )
         check(
             not obs.get("error") and "g***@gmail.com" in obs.get("output", ""),

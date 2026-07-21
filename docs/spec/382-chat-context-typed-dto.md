@@ -6,7 +6,7 @@ codex 리뷰 A: `_load_context`가 반환하는 **ctx dict**(36키)가 채팅 �
 관통하는데 타입 안전이 0이다(`dict[str, Any]` — mypy가 키·타입 미검사). `ctx["promt"]` 오타가
 조용히 None을 반환. 계약이 암묵이라 어떤 키가 있는지 코드로 드러나지 않음.
 
-구남님 결정(2026-07-16): **전면 DTO 객체**(TypedDict 아님) — dict를 dataclass로 완전 교체.
+개발자 결정(2026-07-16): **전면 DTO 객체**(TypedDict 아님) — dict를 dataclass로 완전 교체.
 whole-fix-over-minimal-patch.
 
 ## 무엇

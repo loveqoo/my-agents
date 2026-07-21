@@ -2,7 +2,7 @@
 
 ## 무엇을 했나
 
-복잡도 스냅샷이 지목한 최대 성장 지점 chat_stream.py(390줄, 책임 4개)를 구남님 지시대로
+복잡도 스냅샷이 지목한 최대 성장 지점 chat_stream.py(390줄, 책임 4개)를 개발자 지시대로
 **codex 자문 + 패턴 리서치를 먼저** 하고 해체했다. 결과: 4모듈 분리, out-param dict 소멸
 (LocalServeTurn Command), 역방향 지연 import 5곳 소멸, 전 게이트 그린 + suite 51/51.
 
