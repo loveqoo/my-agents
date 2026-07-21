@@ -1,6 +1,6 @@
 # 아키텍처 개요
 
-> 초고(1차). 코드 실측 기준: `packages/api`, `packages/agent`, `admin`.
+> 검증 기준일: 2026-07-21(코드 대조 검증). 코드 실측 기준: `packages/api`, `packages/agent`, `admin`.
 > 데이터 모델 상세는 [docs/db-model.md](./db-model.md)를 참조한다(이 문서는 중복 서술하지 않는다).
 
 ## 1. 개요
@@ -28,12 +28,14 @@ flowchart LR
     ENGINE --> LLM["외부 LLM 프로바이더<br/>(OpenAI 호환 API)"]
     API -->|"MCP 클라이언트"| MCP["MCP 서버들"]
     API -->|"A2A 클라이언트"| EXT["외부 A2A 에이전트"]
-    EXTC["외부 A2A/MCP 클라이언트"] -->|"Agent Card / JSON-RPC"| API
+    EXTA["외부 A2A 클라이언트"] -->|"Agent Card + JSON-RPC"| API
+    EXTM["외부 MCP 클라이언트"] -->|"MCP Streamable HTTP"| API
 ```
 
 - Admin SPA는 REST로 관리하고, 채팅은 SSE(Server-Sent Events) 스트림으로 받는다.
-- API는 우리 에이전트를 A2A 서버로도 노출하고(`a2a_server.py`), 커스텀 MCP를
-  `/_served/mcp/{name}`으로도 서빙한다(`served_mcp`).
+- API는 우리 에이전트를 A2A 서버로도 노출하고(`a2a_server.py` — Agent Card 조회 +
+  `/agents/{id}/a2a` JSON-RPC), 커스텀 MCP를 `/_served/mcp/{name}`의 MCP Streamable HTTP
+  엔드포인트로도 서빙한다(`served_mcp`). 두 프로토콜은 경로·규약이 서로 다르다.
 - mem0의 벡터 저장소도 같은 PostgreSQL(pgvector)을 쓴다.
 
 ## 3. 패키지 구조
@@ -210,7 +212,9 @@ sequenceDiagram
     end
     opt 승인 대기 발생
         AS-->>X: input-required Task (ServeApprovalRequired)
-        X->>AS: 결재 후 resolve_and_resume → 최종 답변 반환
+        X->>AS: POST /a2a message/send (metadata: approvalId + decision)
+        AS->>AS: 승인 확정 후 체크포인트에서 재개 (_a2a_resume)
+        AS-->>X: 최종 답변 반환
     end
 ```
 

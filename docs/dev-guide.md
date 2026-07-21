@@ -56,7 +56,7 @@
 
 | 테이블 | 역할 | 개발자 관점 포인트 |
 |---|---|---|
-| `agents` | 에이전트 정의 | `source`(ui/code/external), `config`(JSONB — **여기의 `impl` 키**가 SDK 구현 선택), `persona`(프롬프트 본문) |
+| `agents` | 에이전트 정의 | `source`(ui/code/external), `config`(JSONB — **여기의 `impl` 키**가 SDK 구현 선택), `prompt`(서빙용으로 해석된 프롬프트 본문 — `config.prompt`는 프롬프트 블록 **이름**이라 서로 다르다) |
 | `agent_versions` | 버전별 config 스냅샷 | 그래프 캐시 지문의 재료 |
 | `providers` / `models` | 모델 레지스트리 | `ctx.model_cfg`의 출처(base_url·model_id·params·capabilities) |
 | `sessions` / `messages` | 대화·트레이스 | `messages.trace`가 Playground 인스펙터의 유일한 저장소 |
@@ -199,10 +199,13 @@ UI의 에이전트 종류와의 대응: impl 미선언=직접 응답, `pipeline`
 `orchestrate`/`orchestrate_ranked`=조율형, `artifact_form`=산출물형
 (`route`·`plan_execute`는 SDK 예제로, 대응하는 UI 종류가 없다).
 
-## 4. 따라 하기: 최소 에이전트
+## 4. RouteAgent 코드 해설(실물 발췌)
 
-가장 단순한 실전 구현인 `RouteAgent`(`packages/agent/src/agent/flows/route.py`)를 단계별로
-따라간다. classify(결정적) → 조건분기 → answer_a/answer_b 구조다.
+가장 단순한 실전 구현인 `RouteAgent`를 단계별로 해설한다. 아래 코드는 전부
+`packages/agent/src/agent/flows/route.py`의 발췌이며, **전체 파일이 정본이다** — 새 impl을 만들
+때는 이 파일을 통째로 복사해 시작하는 것을 권장한다(발췌만으로는 import·노드 함수 등이 빠져
+그대로 실행되지 않는다). 등록(⑤)은 코드 로드 시 1회이므로 코드 변경 후에는 **API 재시작**이
+필요하다. 구조: classify(결정적) → 조건분기 → answer_a/answer_b.
 
 ### ① 클래스 뼈대
 
@@ -312,20 +315,24 @@ Select는 범용 4종(직접 응답·노드형·조율형·산출물형)만 제�
 연결은 **REST API로** 한다. 쿠키 로그인 후 생성·활성화까지:
 
 ```bash
-# 1) 로그인(세션 쿠키 발급)
-curl -s -c /tmp/ck -X POST http://127.0.0.1:8000/auth/login \
+# 1) 로그인(세션 쿠키 발급) — -fsS: HTTP 오류(401 등)면 즉시 비0 종료
+curl -fsS -c /tmp/ck -X POST http://127.0.0.1:8000/auth/login \
   -d 'username=admin@example.com' -d 'password=<비밀번호>'
 
-# 2) impl을 지정해 에이전트 생성 — v1 초안이 만들어진다
-curl -s -b /tmp/ck -X POST http://127.0.0.1:8000/agents \
+# 2) impl을 지정해 에이전트 생성 — v1 초안. 응답에서 id를 추출한다(422면 여기서 멈춘다)
+AGENT_ID=$(curl -fsS -b /tmp/ck -X POST http://127.0.0.1:8000/agents \
   -H 'Content-Type: application/json' \
   -d '{"name": "my-route-agent",
-       "config": {"model": "mock-llm", "prompt": "", "impl": "route"}}'
+       "config": {"model": "mock-llm", "prompt": "", "impl": "route"}}' | jq -r .id)
+[ -n "$AGENT_ID" ] || { echo "에이전트 생성 실패"; exit 1; }
 
-# 3) 반환된 id로 v1 활성화(게시)
-curl -s -b /tmp/ck -X POST http://127.0.0.1:8000/agents/<id>/activate \
+# 3) 추출한 id로 v1 활성화(오픈)
+curl -fsS -b /tmp/ck -X POST "http://127.0.0.1:8000/agents/$AGENT_ID/activate" \
   -H 'Content-Type: application/json' -d '{"version": "v1"}'
 ```
+
+평가 게이트(성공 평가 실적 임계, 관리자 설정)가 켜진 환경에서는 첫 오픈이 400으로 거절될 수
+있다 — 평가 실적을 쌓거나 설정에서 임계를 확인한다.
 
 같은 왕복을 코드로 보고 싶다면 `tests/verify_099_route.py`(route 등록·생성·실행을 끝까지 검증하는
 테스트)가 실증 레시피다.
@@ -468,14 +475,17 @@ classDiagram
         <<ABC>>
         +NAME: str
         +DISCOVER_LIMIT: int
-        +describe()* final
-        +build_graph(ctx)* final
-        +select(query, candidates)* abstract
+        +describe() AgentManifest
+        +build_graph(ctx) CompiledStateGraph
+        +select(query, candidates)*
     }
     class FirstMatchOrchestrateAgent
     class RankedOrchestrateAgent
     class ArtifactAgentBase {
         <<ABC>>
+        +describe() AgentManifest
+        +build_graph(ctx) CompiledStateGraph
+        +produce(ctx)*
     }
     class ConfigDrivenArtifactAgent
     class TrustRegistry {
@@ -509,6 +519,9 @@ classDiagram
     LinearPipelineAgent ..> CustomNode : impl 키로 해석
 ```
 
+`OrchestrationAgentBase`·`ArtifactAgentBase`의 `describe`/`build_graph`는 `@final` 구체 구현이고,
+`*` 표시(`select`·`produce`)가 자식이 구현해야 하는 추상 확장점이다.
+
 ## 7. 확장 포인트
 
 ### ① 새 impl(SDK 에이전트)
@@ -516,7 +529,7 @@ classDiagram
 언제: UI 빌더로 표현할 수 없는 그래프 위상(분기·루프·다단계)이 필요할 때.
 
 1. `packages/agent/src/agent/flows/<key>.py`에 클래스 작성 — `describe()` + `build_graph(ctx)`
-   (4장 워크스루).
+   (4장 해설 — `route.py`를 통째 복사해 시작).
 2. `runtime.py`의 `_bootstrap_builtins`에 `from .flows.<key> import <Cls>` +
    `register_agent("<key>", <Cls>)` 두 줄 추가.
 3. REST API로 에이전트 생성 시 `config.impl = "<key>"` 지정(4장 ⑥의 curl 왕복 — admin 편집
@@ -529,7 +542,9 @@ classDiagram
   `cacheable=False`(기본값)를 유지한다 — 매 요청 새로 빌드되므로 안전하다.
 - `cacheable=True`를 선언하면 프롬프트는 이중 모드(baked or `split_seed_prompt`)로 처리한다.
   캐시 지문에 **프롬프트는 축이 아니다** — promptless 빌드이기 때문이다. 지문 축은 impl 키·모델
-  정체·MCP 집합·도구 필터·정책·RAG·체크포인터 유무·(노드형) nodes 해시·위임 집합이다.
+  정체·MCP 집합·도구 필터·정책·RAG·체크포인터 유무·첨부 컨텍스트·(노드형) nodes 해시·위임
+  집합이다(첨부 여부는 승인 강제 래핑을 바꾸는 보안 축. 정본은
+  `packages/api/src/api/chat_graph_build.py`의 `_fingerprint_blob`).
 - per-turn 핸들이 필요하면 orchestrate의 config-우선 패턴을 따른다: closure 폴백 + `RunnableConfig`
   우선(`packages/agent/src/agent/flows/orchestrate.py`).
 
@@ -570,10 +585,16 @@ class CustomNode(Protocol):
 2. `build_step(node_cfg, ctx)`가 LangGraph 노드 함수(`Mapping state → {"messages": [...]}`)를
    돌려주게 구현. 도구가 필요하면 `ctx.tools`(이미 RBAC 스코프)에서 고른다 — 권한 상승 0.
 3. `_bootstrap_builtin_nodes`에 `register_node("<key>", <Cls>)` 추가.
-4. 부팅 시 API가 `node_manifests()`를 읽어 `node_templates` 테이블에 upsert한다. 같은 버전
-   재선언 = 의도된 덮어쓰기(핀 에이전트 전체에 전파), 새 버전 선언 = 새 행(기존 핀 무영향).
-5. 노드형 에이전트의 `config.nodes` 항목에 `{"impl": "<key>", ...}`로 참조한다. 미등록 키는
-   `AgentConfigError`(폴백 마스킹 없음).
+4. **API를 재시작**한다 — 부팅 시 `sync_code_nodes`(`packages/api/src/api/node_templates.py`)가
+   `node_manifests()`를 읽어 `node_templates` 테이블에 `kind="code"` 행으로 동기화한다. 템플릿
+   이름은 매니페스트의 `name`이다(레지스트리 키가 아니다 — 예: 키 `mask_pii`, 템플릿명
+   `mask-pii`). 같은 버전 재선언 = 의도된 덮어쓰기(핀 에이전트 전체에 전파), 새 버전 선언 =
+   새 행(기존 핀 무영향). 노드 화면(노드 라이브러리)에서 이름·버전을 확인한다.
+5. 노드형 에이전트의 `config.nodes` 항목에서 `{"ref": {"name": "<템플릿명>", "version": <정수>}}`
+   형태로 참조한다 — 예: `{"ref": {"name": "mask-pii", "version": 1}}`. 입력 스키마가 이 형태만
+   허용한다: `ref`와 직접 설정 키(prompt 등)의 혼합은 거부되고, `impl`은 저장 입력이 아니라
+   동기화된 템플릿 `config` 내부 설정으로만 존재한다(로더가 ref를 해석해 내부적으로 사용).
+   미동기화 이름·버전 참조는 저장이 거절되고, 해석 실패는 `AgentConfigError`(폴백 마스킹 없음).
 
 계약: 코드 노드가 든 파이프라인은 그래프 캐시에서 제외된다(`_cache_eligible` —
 `build_step`이 ctx 전체를 받아 per-turn 재료를 임의 포획할 수 있어 캐시 계약을 보증하지 못함).

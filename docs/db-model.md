@@ -5,7 +5,8 @@
 > 감사 컬럼(스펙 343) 반영. 2026-07-14판 이후 드리프트: `personas`→`prompts` 개명(스펙 365) ·
 > `block_versions` 신설(스펙 369) · `messages` 턴/프롬프트 출처 컬럼(스펙 364) · `models.capabilities`
 > (스펙 408) · `batch_config` 보존 잡 노브 확장 — 아래 본문에 반영했다.
-> 스키마의 단일 진실은 **alembic**이다(스펙 330 — `init_db`의 create_all 폴백은 제거됐다).
+> 우리 소유 도메인 스키마의 단일 진실은 **alembic**이다(스펙 330 — `init_db`의 create_all 폴백은
+> 제거됐다). 외부 라이브러리 소유 테이블은 §0의 소유 구분을 따른다.
 
 ## 감사 컬럼 (스펙 343) — 아래 모든 다이어그램에 공통
 
@@ -14,7 +15,7 @@
 
 | 컬럼 | 값 | 규칙 |
 |---|---|---|
-| `created_at` / `updated_at` | timestamptz, NOT NULL | 최초 삽입 시 둘 다 채워짐(created == updated) |
+| `created_at` / `updated_at` | timestamptz, NOT NULL | 최초 삽입 시 둘 다 채워짐(각각 별도 기본 함수 호출이라 동일 시각은 보장되지 않는다) |
 | `created_by` / `updated_by` | varchar(80), NOT NULL | **이메일의 `@` 앞**(`admin@example.com` → `admin`) |
 
 - 사람이 아닌 주체(시드·마이그레이션·배치·**모든 배경 잡**)는 **`system`**. 스펙 343 이전 행은 `unknown`.
@@ -23,12 +24,14 @@
   (사용자 결정: 로직이 DB에 숨는 방식 금지). 배경 잡의 actor는 `background.spawn()` 한 관문에서 `system`.
 - **제외 9개**(외부 라이브러리 소유): checkpoint 4종 · mem0_memories · user · accesstoken · casbin_rule ·
   alembic_version. `user`·`accesstoken`은 원래 있던 `created_at`만 갖는다.
-- ⚠️ `owner_id`(현재 소유자, 인가 판정용)와 `created_by`(최초 생성자, 감사용)는 **다른 개념**이다 — §6 참고.
+- 주의: `owner_id`(현재 소유자, 인가 판정용)와 `created_by`(최초 생성자, 감사용)는 **다른 개념**이다 — §6 참고.
 
 ## 0. 한 장 지도 — 누가 무엇을 소유하나
 
-테이블은 **우리가 소유하는 것**과 **외부 라이브러리가 소유하는 것**으로 갈린다. 후자는 alembic이
-건드리지 않는다(라이브러리가 스스로 만들고 마이그레이션한다).
+테이블은 **우리가 소유하는 것**과 **외부 라이브러리가 소유하는 것**으로 갈린다. 후자 중
+checkpoint 4종·mem0_memories·casbin_rule은 alembic 밖이다(라이브러리가 스스로 만들고
+마이그레이션한다). 단 `user`·`accesstoken`은 중간 범주다 — 모델은 fastapi-users 소유지만
+생성·변경은 우리 alembic 마이그레이션이 수행한다.
 
 ```mermaid
 flowchart TB
@@ -57,7 +60,9 @@ flowchart TB
 
 에이전트는 `source`로 3분기한다: `ui`(관리자가 만든 것) · `code`(코드로 정의) · `external`(A2A 원격).
 `agents.prompt`는 **텍스트 컬럼**이고 `prompts` 테이블과 FK로 묶여 있지 않다(§6 참고 — 구 `persona`/
-`personas`를 스펙 365에서 개명). 레지스트리 블록 5종(prompt · memory-type · mcp-server · model ·
+`personas`를 스펙 365에서 개명). 버전 행에는 상태 컬럼이 없다 — 활성 여부는
+`agents.active_version` 포인터 하나로 표현된다(스펙 370 — 구 draft/active/archived 상태기계 폐기).
+레지스트리 블록 5종(prompt · memory-type · mcp-server · model ·
 provider)은 각자 `version` 정수를 갖고, 편집 이력은 공유 테이블 `block_versions`에 쌓인다(스펙 369).
 
 ```mermaid
@@ -97,7 +102,7 @@ erDiagram
         jsonb config "그래프/노드 구성"
         jsonb exposed "a2a 등 노출 게이트"
         varchar status
-        varchar active_version
+        varchar active_version "오픈(활성) 버전 포인터"
         varchar endpoint "external 전용"
         varchar token "external 전용"
         varchar owner_id
@@ -106,7 +111,9 @@ erDiagram
         uuid id PK
         uuid agent_pk FK
         varchar version
-        varchar status
+        boolean ever_opened "오픈 이력 — 한 번 오픈되면 영구 불변 보호(스펙 370)"
+        jsonb pins "블록 버전 고정"
+        text note
         jsonb config "그 시점 스냅샷"
     }
     prompts {
@@ -155,8 +162,8 @@ erDiagram
     sessions ||--o{ messages : "메시지(CASCADE)"
     messages ||--o| message_feedback : "평가(CASCADE)"
     sessions ||--o{ message_feedback : "세션 스코프(CASCADE)"
-    agents ||--o{ approvals : "HIL 승인(SET NULL)"
-    eval_cases ||--o{ message_feedback : "골든 수확(SET NULL)"
+    agents |o--o{ approvals : "HIL 승인(SET NULL)"
+    eval_cases |o--o{ message_feedback : "골든 수확(SET NULL)"
 
     sessions {
         uuid id PK
@@ -197,10 +204,13 @@ erDiagram
         varchar action
         jsonb args
         varchar checkpoint "= LangGraph thread_id (재개 키)"
-        varchar status "pending | approved | rejected"
+        varchar status "pending | approved | rejected | expired"
         varchar approver
     }
 ```
+
+`approvals.status`의 `expired`는 사람의 결정이 아니다 — 체크포인트 TTL 스윕(스펙 346)이 대기
+시간을 넘긴 `pending` 건을 회수하며 남긴 상태이며, 재개할 수 없다(resolve 시 409).
 
 **한 턴의 쓰기(실측, 2026-07-14)** — 평범한 채팅 1회 기준:
 
@@ -262,7 +272,7 @@ erDiagram
         uuid collection_id FK
         integer ordinal "문서 내 순서(엔티티 편집 좌표)"
         text text
-        vector embedding "pgvector(1024)"
+        vector embedding "pgvector — 차원은 RAG_EMBED_DIMS(기본 1024)"
         jsonb meta
     }
     collection_reindex_events {
@@ -287,9 +297,9 @@ erDiagram
     eval_datasets ||--o{ eval_cases : "케이스(CASCADE)"
     eval_datasets ||--o{ eval_runs : "실행(CASCADE)"
     eval_runs ||--o{ eval_case_results : "케이스별 결과(CASCADE)"
-    agents ||--o{ eval_runs : "대상 에이전트(SET NULL)"
-    agents ||--o{ eval_datasets : "출처 에이전트(SET NULL)"
-    collections ||--o{ eval_datasets : "RAG 데이터셋(SET NULL)"
+    agents |o--o{ eval_runs : "대상 에이전트(SET NULL)"
+    agents |o--o{ eval_datasets : "출처 에이전트(SET NULL)"
+    collections |o--o{ eval_datasets : "RAG 데이터셋(SET NULL)"
 
     eval_datasets {
         uuid id PK
@@ -333,12 +343,12 @@ erDiagram
 
 ```mermaid
 erDiagram
-    batch_runs ||--o{ memory_snapshots : "통합 전 스냅샷(SET NULL)"
+    batch_runs |o--o{ memory_snapshots : "통합 전 스냅샷(SET NULL)"
     user ||--o{ accesstoken : "세션 토큰(CASCADE)"
 
     mem0_memories {
         uuid id PK
-        vector vector "pgvector(1024) — mem0 소유"
+        vector vector "pgvector — mem0 소유, 차원은 MEM0_EMBED_DIMS(기본 1024)"
         jsonb payload "user_id·scope·text 등"
     }
     memory_types {
@@ -452,8 +462,10 @@ ERD에 선이 없다고 관계가 없는 게 아니다. 아래는 코드가 문�
   못 넘긴 잔여(프로세스 사망 등)는 **TTL 배치**(`cleanup_checkpoints`, `batch_config.checkpoint_ttl_hours`
   — NULL/1 미만이면 비활성)가 회수한다. HIL 재개(`approvals.checkpoint`)의 근거라 턴 중엔 필수.
 - **대화 이력은 두 곳에 중복 보관**된다: `messages`(우리) + `checkpoints`(LangGraph 채널 상태).
-- **벡터 차원은 생성 시 고정**된다(`collections.dims`, `mem0_memories.vector`, `rag_chunks.embedding`
-  모두 1024). 차원이 다른 임베딩 모델로 바꾸려면 재인덱싱이 아니라 저장 구조 재설계가 필요하다.
+- **벡터 차원은 생성 시 고정**된다(`collections.dims`, `mem0_memories.vector`, `rag_chunks.embedding`).
+  1024는 코드 기본값이며 불변값이 아니다 — RAG는 `RAG_EMBED_DIMS`, mem0는 `MEM0_EMBED_DIMS` env로
+  독립 변경되므로 실제 값은 라이브 DB에서 확인한다(예: `\d rag_chunks`). 차원이 다른 임베딩 모델로
+  바꾸려면 재인덱싱이 아니라 저장 구조 재설계가 필요하다.
 - **RAG 수정은 전체 교체 → 재인덱싱**이다(부분 행 편집 없음 — 원본 `document_blobs`와의 동기화 때문).
 - **감사 컬럼은 DB가 강제하지 않는다**(트리거 없음 — 스펙 343). 앱을 거치는 모든 경로(ORM·Core
   `insert()`/`update()`)는 자동으로 채워지지만, **raw `text()` SQL이나 `.values(created_by=…)`로
