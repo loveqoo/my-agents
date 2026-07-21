@@ -6,6 +6,7 @@
 import { useEffect, useState } from 'react'
 import { Button, Avatar, Alert, Segmented, Popconfirm, Descriptions } from 'antd'
 import { Page, StatusPill, Drawer, type Column } from '../shared'
+import { collapseAttachmentBlocks } from '../../attachments'
 import { PagedListShell } from './PagedListShell'
 import { Icon } from '../icons'
 import { SESSION_STATUS, type Session } from '../mockData'
@@ -221,7 +222,7 @@ export default function SessionsView() {
                         />
                       ) : null}
                     </div>
-                    <div style={{ fontSize: 13, color: 'var(--color-text-secondary)', whiteSpace: 'pre-wrap' }}>{m.content}</div>
+                    <div style={{ fontSize: 13, color: 'var(--color-text-secondary)', whiteSpace: 'pre-wrap' }}>{collapseAttachmentBlocks(m.content)}</div>
                   </div>
                 ))}
               </div>

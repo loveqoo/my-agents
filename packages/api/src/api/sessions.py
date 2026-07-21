@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from . import audit, authz
 from .auth import current_principal
+from .chat_attachments import strip_attachment_blocks
 from .db import get_session
 from .models import Agent, Message, MessageFeedback, Session, User
 from .schemas import FeedbackOut, MessageFeedbackIn, MessageOut, SessionOut, SessionPage
@@ -83,7 +84,9 @@ async def _session_previews(session: AsyncSession, pks: list) -> dict:
     out: dict = {}
     for pk, content in rows:
         if pk not in out:  # 정렬상 첫 행 = 최초 사용자 메시지
-            text = (content or "").strip().replace("\n", " ")
+            # 첨부 펜스 걷기(스펙 424) — 첨부 턴은 주입본이 영속되므로 미리보기가 선언문으로
+            # 뒤덮인다. 라벨은 사람이 알아볼 실제 질문이어야 하므로 펜스를 걷고 머리를 자른다.
+            text = strip_attachment_blocks(content or "").strip().replace("\n", " ")
             out[pk] = text[:_PREVIEW_LEN] + ("…" if len(text) > _PREVIEW_LEN else "")
     return out
 

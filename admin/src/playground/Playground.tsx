@@ -7,6 +7,7 @@ import { DebugChat } from './DebugChat'
 import { Inspector } from './Inspector'
 import { OverridePanel, overrideDefaults, overridePayload, type Overrides } from './OverridePanel'
 import { Icon } from '../admin/icons'
+import { collapseAttachmentBlocks } from '../attachments'
 import type { ChatMsg, Trace } from './agentData'
 import type { Agent, BlockCategory, Session } from '../admin/mockData'
 import {
@@ -260,7 +261,7 @@ export function Playground({
                 ...c,
                 [convoId]: msgs.map((m) => ({
                   role: m.role === 'assistant' ? 'ai' : 'me',
-                  text: m.content,
+                  text: collapseAttachmentBlocks(m.content), // 첨부 펜스 접기(스펙 424)
                   trace: (m.trace as unknown as Trace) ?? undefined,
                 })),
               }))
@@ -655,7 +656,8 @@ export function Playground({
         }
         const mapped: ChatMsg[] = msgs.map((m) => ({
           role: m.role === 'assistant' ? 'ai' : 'me',
-          text: m.content,
+          // 첨부 펜스 접기(스펙 424) — 영속본은 주입 원문이라 라이브 관례(📎 라인)로 표시만 접는다.
+          text: collapseAttachmentBlocks(m.content),
           trace: (m.trace as unknown as Trace) ?? undefined,
           id: m.id ?? undefined, // 스펙 209 P1.5 — 피드백 부착용(assistant만 서버가 채움)
           feedback: m.feedback ?? null,
