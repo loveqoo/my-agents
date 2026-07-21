@@ -44,7 +44,8 @@ class MessageFeedbackIn(BaseModel):
 class MessageOut(BaseModel):
     id: uuid.UUID | None = None  # 스펙 209 — 피드백 부착 대상(구 응답엔 없어 optional)
     role: str
-    content: str
+    content: str  # 표시용 본문(스펙 426 — 첨부 턴은 펜스를 걷은 값. 원문=DB·인스펙터 trace)
+    attachments: list[str] | None = None  # 스펙 426 — 첨부 파일명(펜스에서 서버가 추출, 표시용)
     trace: dict[str, Any] | None = None
     feedback: FeedbackOut | None = None  # 스펙 209 — 요청 사용자의 이 메시지 피드백(없으면 None)
 

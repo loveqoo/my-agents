@@ -10,7 +10,7 @@ import { Icon } from '../admin/icons'
 import type { ChatMsg, Trace } from './agentData'
 import type { Agent, BlockCategory, Session } from '../admin/mockData'
 import {
-  listAgents, streamChat, streamChatA2A, uploadChatAttachment, getBlocks, listModels, listSessions, getSessionMessages, listCollections,
+  listAgents, streamChat, streamChatA2A, uploadChatAttachment, getBlocks, listModels, listSessions, getSessionMessages, displayMessageText, listCollections,
   createCollection, uploadDocument, listDocuments,
   getApproval, resolveApproval,
   type ChatMessage, type Model, type Collection, type ChatFormFrame, type MessageFeedback, type ChatAttachmentDraft,
@@ -260,7 +260,7 @@ export function Playground({
                 ...c,
                 [convoId]: msgs.map((m) => ({
                   role: m.role === 'assistant' ? 'ai' : 'me',
-                  text: m.content,
+                  text: displayMessageText(m), // 표시 조립(스펙 426 — 서버 산출 content+attachments)
                   trace: (m.trace as unknown as Trace) ?? undefined,
                 })),
               }))
@@ -655,7 +655,7 @@ export function Playground({
         }
         const mapped: ChatMsg[] = msgs.map((m) => ({
           role: m.role === 'assistant' ? 'ai' : 'me',
-          text: m.content,
+          text: displayMessageText(m), // 표시 조립(스펙 426 — 서버 산출 content+attachments)
           trace: (m.trace as unknown as Trace) ?? undefined,
           id: m.id ?? undefined, // 스펙 209 P1.5 — 피드백 부착용(assistant만 서버가 채움)
           feedback: m.feedback ?? null,

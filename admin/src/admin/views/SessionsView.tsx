@@ -10,7 +10,7 @@ import { PagedListShell } from './PagedListShell'
 import { Icon } from '../icons'
 import { SESSION_STATUS, type Session } from '../mockData'
 import { fmtTime } from '../format'
-import { listSessions, getSessionMessages, endSession, type SessionMessage, type MessageFeedback } from '../../api'
+import { listSessions, getSessionMessages, endSession, displayMessageText, type SessionMessage, type MessageFeedback } from '../../api'
 import { FeedbackButtons } from '../../FeedbackButtons'
 import { runWithToast } from '../../hooks'
 
@@ -221,7 +221,7 @@ export default function SessionsView() {
                         />
                       ) : null}
                     </div>
-                    <div style={{ fontSize: 13, color: 'var(--color-text-secondary)', whiteSpace: 'pre-wrap' }}>{m.content}</div>
+                    <div style={{ fontSize: 13, color: 'var(--color-text-secondary)', whiteSpace: 'pre-wrap' }}>{displayMessageText(m)}</div>
                   </div>
                 ))}
               </div>

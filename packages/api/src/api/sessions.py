@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from . import audit, authz
 from .auth import current_principal
+from .chat_attachments import split_display_content
 from .db import get_session
 from .models import Agent, Message, MessageFeedback, Session, User
 from .schemas import FeedbackOut, MessageFeedbackIn, MessageOut, SessionOut, SessionPage
@@ -83,7 +84,9 @@ async def _session_previews(session: AsyncSession, pks: list) -> dict:
     out: dict = {}
     for pk, content in rows:
         if pk not in out:  # 정렬상 첫 행 = 최초 사용자 메시지
-            text = (content or "").strip().replace("\n", " ")
+            # 표시값 산출 관문(스펙 426) — 첨부 턴은 펜스를 걷은 실제 질문이 라벨.
+            disp, _ = split_display_content(content or "")
+            text = disp.strip().replace("\n", " ")
             out[pk] = text[:_PREVIEW_LEN] + ("…" if len(text) > _PREVIEW_LEN else "")
     return out
 
@@ -243,11 +246,15 @@ async def list_session_messages(
     out: list[MessageOut] = []
     for msg in msgs:
         fb = fb_map.get(msg.id)
+        # 표시값 산출 관문(스펙 426) — 첨부 턴 user 메시지는 주입본이 영속(스펙 415 보안 계약)돼
+        # 있으므로, 화면에 줄 값은 여기서 펜스를 걷고 파일명을 분리한다. 클라이언트는 조립만 한다.
+        disp, atts = split_display_content(msg.content or "")
         out.append(
             MessageOut(
                 id=msg.id,
                 role=msg.role,
-                content=msg.content,
+                content=disp,
+                attachments=atts or None,
                 trace=msg.trace,
                 feedback=FeedbackOut(rating=fb.rating, reason=fb.reason) if fb else None,
             )

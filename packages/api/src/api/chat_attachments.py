@@ -43,6 +43,21 @@ def strip_attachment_blocks(text: str) -> str:
     return _FENCE_RE.sub("", text).replace(_PREAMBLE, "").strip()
 
 
+_FENCE_NAME_RE = re.compile(r"⟦첨부 [0-9a-f]{12}: ([^⟧\n]*)⟧\n.*?\n⟦첨부끝 [0-9a-f]{12}⟧", re.S)
+
+
+def split_display_content(text: str) -> tuple[str, list[str]]:
+    """주입 영속본 → (표시용 본문, 첨부 파일명 목록) — 표시값 산출의 **정본**(스펙 426).
+
+    주입·영속은 스펙 415 보안 계약(재생 마커→승인 강제)이라 불변이고, 화면에 내보낼 값은 이 관문
+    한 곳에서 만든다 — 클라이언트는 파싱 없이 받은 대로 그린다(펜스 문법의 FE 이중화 금지).
+    마커가 없으면 (원문, []) 그대로."""
+    if "⟦첨부 " not in (text or ""):
+        return text or "", []
+    names = [m.group(1) for m in _FENCE_NAME_RE.finditer(text)]
+    return strip_attachment_blocks(text), names
+
+
 TEXT_CAP = 30_000  # 파일당 추출 텍스트 3만자(승인값) — 초과는 앞부분+잘림 명시
 COUNT_CAP = 3  # 턴당 첨부 수(승인값) — 총합 상한은 3×3만=9만자(스펙 404 명시 계약)
 PDF_PAGE_CAP = 300  # PDF 페이지 캡(codex 404 P1 — 무제한 파싱은 CPU 폭탄)

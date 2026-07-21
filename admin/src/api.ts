@@ -763,10 +763,17 @@ export interface MessageFeedback {
 export interface SessionMessage {
   id?: string // 스펙 209 — 피드백 부착 대상(구 응답엔 없을 수 있음)
   role: string
-  content: string
+  content: string // 표시용 본문(스펙 426 — 첨부 턴은 서버가 펜스를 걷어 줌)
+  attachments?: string[] | null // 스펙 426 — 첨부 파일명(서버 산출, FE는 조립만)
   trace: Record<string, unknown> | null
   feedback?: MessageFeedback | null // 스펙 209 — 요청 사용자의 이 메시지 피드백
 }
+
+/** 표시용 메시지 텍스트 조립(스펙 426) — 라이브 전송 관례(`본문\n📎 이름 · 이름`)와 동일. */
+export const displayMessageText = (m: SessionMessage): string =>
+  m.attachments && m.attachments.length > 0
+    ? `${m.content}\n📎 ${m.attachments.join(' · ')}`
+    : m.content
 export const getSessionMessages = (sessionId: string) =>
   j<SessionMessage[]>(`/sessions/${sessionId}/messages`)
 // 스펙 209 — 응답 피드백 upsert/취소(세션 소유자만·assistant 메시지만, 서버가 게이트).

@@ -75,8 +75,9 @@ try {
   await input.press('Enter')
   await page.getByText('사고 과정', { exact: false }).first().waitFor({ timeout: 120000 })
   ok(true, '② 사고 과정 패널 표시(thinking 라이브 실증)')
-  // 응답 본문 완료 대기(935 포함 답 또는 스트림 종료 여유)
-  await page.waitForTimeout(12000)
+  // 스트림 완료 대기 — 답(935)이 본문에 실제로 뜬 뒤에야 영속·세션 목록 반영이 끝난다(고정 대기 금지).
+  await page.getByText('935', { exact: false }).first().waitFor({ timeout: 120000 })
+  await page.waitForTimeout(4000)
   await page.screenshot({ path: `${OUT}/v425-live-thinking.png` })
 
   // ③ 재로드 → 세션 재선택 → 접힘 단언(424 결합)
