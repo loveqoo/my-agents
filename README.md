@@ -8,8 +8,16 @@
 - **Admin SPA** — React + TypeScript + Ant Design. 에이전트·MCP·모델 관리 콘솔.
 - **DB** — PostgreSQL + pgvector (Mem0 벡터 스토어).
 
+## 문서
+
+| 문서 | 대상 | 내용 |
+|---|---|---|
+| [유저 가이드](./docs/user-guide.md) | 플랫폼 사용자·관리자 | 전체 기능 개요와 메뉴별 사용법(스크린샷 포함) |
+| [개발 가이드](./docs/dev-guide.md) | 개발자 | SDK(코드) 에이전트 작성·등록·실행, 클래스 다이어그램, 확장 포인트 |
+| [시스템 아키텍처](./docs/architecture.md) | 개발자·아키텍트 | 시스템 컨텍스트, 요청 흐름, 핵심 메커니즘(캐시·브로커·HIL) |
+| [DB 모델](./docs/db-model.md) | 개발자 | ER 다이어그램·테이블 소유·라이프사이클(라이브 스키마 대조) |
+
 > 작업 방식(6단계 루프)·폴더 규약은 [`CLAUDE.md`](./CLAUDE.md), 스펙은 [`docs/spec/`](./docs/spec/) 참고.
-> DB 스키마(ER 다이어그램·테이블 소유·라이프사이클)는 [`docs/db-model.md`](./docs/db-model.md).
 
 ---
 
