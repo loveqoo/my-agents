@@ -197,9 +197,11 @@ Compounding은 "마지막에 느낀 점 쓰기"가 아니다. 다음 작업자�
 
 ### 해야 할 일
 
-- 작업 단위 회고를 `.dev/retrospect/NNN-{name}.md`에 남긴다.
-- 새로 배운 재사용 가능한 교훈이 있으면 `.dev/learning/NNN-{name}.md`로 분리한다.
+- 작업 단위 회고를 `.dev/retrospect/YYYYMMDD-{slug}.md`에 남긴다.
+- 새로 배운 재사용 가능한 교훈이 있으면 `.dev/learning/YYYYMMDD-{slug}.md`로 분리한다.
 - 문제 해결 과정이나 운영 명령은 `.dev/troubleshooting/`에 둔다.
+- 문서 채번은 `YYYYMMDD-{slug}`(팀 규약 20260721-team-covenant — 동시 채번 충돌 방지). 기존
+  3자리 번호 문서는 재명명하지 않고, 같은 날 충돌은 슬러그를 다르게 지어 회피한다.
 - 새 spec/learning/retrospect를 만들면 같은 턴에 해당 `INDEX.md`에 한 줄을 추가한다.
 - 회고를 마치면 작업 단위로 stage하고 커밋까지 한다. push와 merge는 명시 요청이 있을 때만 한다.
 
@@ -216,8 +218,8 @@ Compounding은 "마지막에 느낀 점 쓰기"가 아니다. 다음 작업자�
 
 ### 가시적 강제물
 
-- `.dev/retrospect/NNN-{name}.md` 또는 생략 사유.
-- 필요한 경우 `.dev/learning/NNN-{name}.md`.
+- `.dev/retrospect/YYYYMMDD-{slug}.md` 또는 생략 사유.
+- 필요한 경우 `.dev/learning/YYYYMMDD-{slug}.md`.
 - 해당 `INDEX.md` 한 줄.
 - 작업 단위 커밋.
 
