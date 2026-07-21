@@ -29,8 +29,18 @@ TARGETS = [
     ),
 ]
 
+# 채번 두 형식(팀 규약 20260721-team-covenant): 기존 3자리(NNN)와 신규 날짜형(YYYYMMDD-slug).
+# 고유 키 — NNN형은 번호, 날짜형은 "날짜-슬러그" 전체(같은 날 여러 스펙 허용·같은 슬러그 중복은 실패).
 NNN_FILE = re.compile(r"^(\d{3})-.*\.md$")
 NNN_LINE = re.compile(r"^- (\d{3}) ")
+DATE_FILE = re.compile(r"^(\d{8}-[a-z0-9-]+)\.md$")
+DATE_LINE = re.compile(r"^- (\d{8}-[a-z0-9-]+) ")
+
+
+def _entry_key(line):
+    """인덱스 줄의 고유 키(두 형식) 또는 None."""
+    m = NNN_LINE.match(line) or DATE_LINE.match(line)
+    return m.group(1) if m else None
 
 failures = []
 
@@ -45,7 +55,7 @@ def nnn_files_in(d):
     if not os.path.isdir(d):
         return out
     for fn in os.listdir(d):
-        m = NNN_FILE.match(fn)
+        m = NNN_FILE.match(fn) or DATE_FILE.match(fn)
         if m:
             out[m.group(1)] = fn
     return out
@@ -63,7 +73,7 @@ for d, index_path, archive in TARGETS:
 
     with open(index_path, encoding="utf-8") as f:
         lines = f.readlines()
-    entry_nnns = [NNN_LINE.match(ln).group(1) for ln in lines if NNN_LINE.match(ln)]
+    entry_nnns = [k for k in (_entry_key(ln) for ln in lines) if k]
 
     # (a) 줄 수 == 파일 수
     check(
@@ -83,11 +93,10 @@ for d, index_path, archive in TARGETS:
     if archive:
         arch_nnns = set(nnn_files_in(archive))
         for ln in lines:
-            m = NNN_LINE.match(ln)
-            if not m:
+            n = _entry_key(ln)
+            if not n:
                 continue
             tagged = "[archived]" in ln
-            n = m.group(1)
             if tagged:
                 check(n in arch_nnns, f"[{label}] {n} [archived] 표시인데 archive/ 에 없음")
             else:
