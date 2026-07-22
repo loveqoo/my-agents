@@ -83,14 +83,28 @@ def unit_checks() -> None:
             "api_key": "k",
             "model_id": "m",
             "capabilities": {"streaming": True, "thinking": True},
-            "params": {"temperature": 0.9, "top_p": 0.8, "max_tokens": 2048, "repetition_penalty": 1.15, "enable_thinking": True},
+            # max_tokens는 사고 바닥(8192, 스펙 427) 위 값으로 둔다 — 그래야 wire 경로만 검증되고
+            # bump가 개입 안 한다(bump 자체는 U4e에서 검증). 사고 ON + 바닥 미만은 U4e가 다룬다.
+            "params": {"temperature": 0.9, "top_p": 0.8, "max_tokens": 16384, "repetition_penalty": 1.15, "enable_thinking": True},
         }
     )
     check(cli.temperature == 0.9, f"U4a temperature=top-level (got {cli.temperature})")
-    check(getattr(cli, "top_p", None) == 0.8 and getattr(cli, "max_tokens", None) == 2048, "U4b top_p·max_tokens=top-level")
+    check(getattr(cli, "top_p", None) == 0.8 and getattr(cli, "max_tokens", None) == 16384, "U4b top_p·max_tokens=top-level")
     eb = cli.extra_body or {}
     check(eb.get("repetition_penalty") == 1.15, f"U4c repetition_penalty=extra_body (got {eb.get('repetition_penalty')})")
     check(eb.get("chat_template_kwargs", {}).get("enable_thinking") is True, "U4d enable_thinking=extra_body chat_template_kwargs")
+    # U4e 사고 바닥(스펙 427) — 사고 ON + 명시적으로 작은 max_tokens(512)면 바닥값(8192)으로 대체해
+    # 답 굶김을 막는다. 사고 OFF면 그대로, 미설정(0)이면 미개입(서버 기본)은 thinking_budget_applied 단위로.
+    cli_bump = build_chat_openai(
+        {"base_url": "http://x/v1", "api_key": "k", "model_id": "m",
+         "capabilities": {"thinking": True},
+         "params": {"max_tokens": 512, "enable_thinking": True}}
+    )
+    check(getattr(cli_bump, "max_tokens", None) == 8192, f"U4e 사고 바닥 512→8192 (got {getattr(cli_bump, 'max_tokens', None)})")
+    from agent.model import thinking_budget_applied
+    check(thinking_budget_applied({"thinking": True}, {}, {"enable_thinking": True, "max_tokens": 512}) == 8192, "U4e-2 bump 값 8192")
+    check(thinking_budget_applied({"thinking": True}, {}, {"enable_thinking": True, "max_tokens": 0}) is None, "U4e-3 미설정(0)은 미개입")
+    check(thinking_budget_applied({"thinking": True}, {}, {"enable_thinking": False, "max_tokens": 512}) is None, "U4e-4 사고 OFF 미개입")
 
     # U5 temperature 흡수
     from api.chat_context_loader import _fold_temperature

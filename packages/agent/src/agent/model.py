@@ -19,6 +19,26 @@ from .reasoning_chat import ReasoningChatOpenAI
 
 _MISSING_MSG = "모델 설정이 필요합니다 (base_url/model_id) — 모델을 등록하세요."
 
+# 사고 모드 토큰 바닥(스펙 427) — 사고(reasoning)와 답(answer)이 max_tokens를 공유하므로, 작게
+# 설정하면 사고가 답을 굶긴다. 사고 ON + 명시적으로 작은 max_tokens면 이 값으로 올려 답 공간을 보장.
+# 제품 가시 수치(구남님 승인). 미설정(mt=0=서버 기본)은 제외 — 서버 기본은 보통 크므로 안 깎는다.
+THINKING_MAX_TOKENS_FLOOR = 8192
+
+
+def thinking_budget_applied(caps: dict, params: dict, cfg_params: dict) -> int | None:
+    """사고 바닥이 적용될 값(스펙 427) — 사고 ON이고 유효 max_tokens가 `0 < mt < FLOOR`이면 FLOOR,
+    아니면 None(미적용). 순수 함수 — _resolve_wire_params가 배선 적용에, API가 토스트 고지에 공유(드리프트 0).
+
+    미설정(mt=0)은 제외한다: 0은 "서버 기본"(안 보냄)이고 서버 기본은 보통 문맥 전체라 크므로 8192로
+    올리면 오히려 깎는다. 명시적으로 작게 설정한 경우(굶김이 실제로 발생하는 경우)만 바닥을 올린다.
+    """
+    if not resolve_effective("enable_thinking", caps, params, cfg_params):
+        return None
+    mt = resolve_number("max_tokens", params, cfg_params)
+    if mt is not None and 0 < mt < THINKING_MAX_TOKENS_FLOOR:
+        return THINKING_MAX_TOKENS_FLOOR
+    return None
+
 # 프로바이더별 클라이언트 풀(스펙 371 D2) — 프로세스-로컬, 상한 초과 시 최고령 축출.
 _CLIENT_POOL: dict[tuple, ChatOpenAI] = {}
 _CLIENT_POOL_MAX = 64
@@ -60,8 +80,8 @@ def _resolve_wire_params(
             num = num if explicit else default_temperature
         else:
             num = resolve_number(p.key, params, cfg_params)
-        if p.key == "max_tokens" and (num is None or num <= 0):
-            continue  # 0/미설정=서버 기본(안 보냄)
+        if p.key in ("max_tokens", "top_k") and (num is None or num <= 0):
+            continue  # 0/미설정=서버 기본(안 보냄) — top_k도 동일(0 전송은 서버별 의미가 갈려 위험)
         if num is None:
             continue
         if p.wire == "top":
@@ -70,6 +90,11 @@ def _resolve_wire_params(
             extra_body[p.key] = num
     if chat_template_kwargs:
         extra_body["chat_template_kwargs"] = chat_template_kwargs
+    # 사고 바닥(스펙 427) — 사고 ON + 명시적으로 작은 max_tokens면 답 굶김을 막게 바닥값으로 대체.
+    # 배선 해석의 단일 지점이라 chat·eval·a2a 전 경로에 균일 적용(저장값 무변경 — 이 전송만).
+    bump = thinking_budget_applied(caps, params, cfg_params)
+    if bump is not None:
+        top_kwargs["max_tokens"] = bump
     return top_kwargs, extra_body, disable_streaming
 
 

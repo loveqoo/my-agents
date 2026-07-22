@@ -70,6 +70,9 @@ PARAMS: tuple[ParamDescriptor, ...] = (
     # 고급(스펙 412 — 기본 화면서 접힘): top_p·repetition_penalty는 세밀 튜닝 축.
     ParamDescriptor("top_p", "number", "Top P", 1.0, "top", minimum=0.0, maximum=1.0, step=0.05, advanced=True),
     ParamDescriptor("repetition_penalty", "number", "반복 패널티", 1.0, "extra_body", minimum=0.5, maximum=2.0, step=0.05, advanced=True),
+    # top_k — OpenAI 표준엔 없어 extra_body 배선(ollama·vLLM·MLX 계열 지원, 미지원 서버는 무시).
+    # 미설정(어느 층에도 값 없음)이면 안 보냄. 범위 0~100(관례값 — 사용자 조정 가능 표면).
+    ParamDescriptor("top_k", "number", "Top K", 0, "extra_body", minimum=0, maximum=100, step=1, is_int=True, advanced=True),
 )
 
 _BY_KEY: dict[str, ParamDescriptor] = {p.key: p for p in PARAMS}

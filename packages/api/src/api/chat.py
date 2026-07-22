@@ -340,6 +340,9 @@ async def chat(
         yield f"data: {json.dumps({'session': ctx.session_id}, ensure_ascii=False)}\n\n"
         acc: list[str] = []
         errored = False
+        # 잘림 감지(스펙 427) — 서버가 max_tokens 소진으로 스트림을 끊으면 finish_reason=length가
+        # 마지막 청크의 response_metadata에 실린다. 원인(사고 굶김·긴 답) 무관하게 표면화(안전망).
+        truncated = False
         # updates 발화 레코드 [{node, ms(실측), summary}] — 스펙 085(노드열) + 086(실측·요약).
         observed: list[dict] = []
         t_prev = t0
@@ -358,6 +361,9 @@ async def chat(
             ):
                 if stream_mode == "messages":
                     msg_chunk, _meta = chunk
+                    _rm = getattr(msg_chunk, "response_metadata", None)
+                    if _rm and _rm.get("finish_reason") == "length":
+                        truncated = True
                     # 사고 과정(스펙 410) — 본문과 분리된 side channel. acc(영속·메모리)엔 안 넣고
                     # 별도 프레임으로만(축 분리). 사고 없는 응답이면 빈 문자열이라 프레임 없음.
                     # 노드 태그(스펙 413) — 노드형은 노드마다 사고가 나므로 어느 노드인지 실어(langgraph_node)
@@ -419,6 +425,7 @@ async def chat(
             user_id=user_id,
             history_restore=history_restore,
             thread_id=thread_id,
+            truncated=truncated,
         ):
             yield frame
 

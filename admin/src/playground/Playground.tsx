@@ -99,6 +99,8 @@ export function Playground({
   activeExtRef.current = activeAgent?.agentId
   const activeIdRef = useRef<string>('')
   activeIdRef.current = activeId ?? '' // 지식 잡 toast staleness 가드(스펙 405)
+  // 사고 바닥 토스트를 세션당 1회만(스펙 427) — 이미 고지한 세션 키 집합. 매 턴 반복 고지 방지.
+  const thinkingBumpNotedRef = useRef<Set<string>>(new Set())
 
   // 적용 중 오버라이드 → 변경된 키만 담은 페이로드(코드 에이전트는 무시). 비었으면 미적용.
   const appliedOv = activeAgent ? appliedByAgent[activeAgent.id] ?? null : null
@@ -538,6 +540,18 @@ export function Playground({
               setSelectedTurn(lastIdx)
               return { ...c, [id]: arr }
             })
+            // 잘림 고지(스펙 427) — 원인 무관하게 매 턴 경고(안전망). max_tokens를 늘리라는 행동 지침.
+            if (trace.truncated)
+              message.warning('응답이 최대 토큰(max_tokens)에서 잘렸습니다 — 모델·오버라이드에서 최대 토큰을 늘려 보세요.')
+            // 사고 바닥 고지(스펙 427) — 사고 모드라 이번 요청의 max_tokens를 바닥값으로 올려 보냈음을
+            // 세션당 1회만 알린다(저장값은 무변경 — 고지된 조정). 세션 키=서버 세션id(없으면 convo id).
+            if (trace.thinkingBudgetApplied) {
+              const sessKey = sessions[id] ?? id
+              if (!thinkingBumpNotedRef.current.has(sessKey)) {
+                thinkingBumpNotedRef.current.add(sessKey)
+                message.info(`사고 모드라 이번 세션은 최대 토큰을 ${trace.thinkingBudgetApplied}로 적용합니다(답이 잘리지 않도록). 저장된 설정은 그대로입니다.`)
+              }
+            }
             // trace는 양 백엔드 경로에서 '턴 완료' 직후에만 나온다(바로 뒤 [DONE]). 그러니 여기서
             // 스피너를 멈춘다 — [DONE]/소켓 종료가 늦거나 안 와도(원격 업스트림이 연결을 안 닫는 등)
             // 전송 버튼이 계속 도는 문제를 막는다(사용자 피드백 #7). finally가 다시 false 처리해도 무해.

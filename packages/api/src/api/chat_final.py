@@ -14,6 +14,7 @@ import logging
 import time
 from collections.abc import AsyncIterator
 
+from agent.model import thinking_budget_applied
 from agent.runtime import CustomAgent
 
 from . import memory, trace_capture
@@ -140,6 +141,7 @@ async def _final_frames(
     user_id: str | None,
     history_restore: dict | None,
     thread_id: str | None = None,
+    truncated: bool = False,
 ) -> AsyncIterator[str]:
     """턴 종결 — 브로커 서브스텝 합류·trace 조립·영속·자동 기억·trace/done 프레임."""
     # 브로커 서브스텝 호출을 관측 타임라인에 합류(스펙 100/101 설계결정 7 — broker.invoke가
@@ -167,6 +169,16 @@ async def _final_frames(
         user_text=user_text,
         history_restore=history_restore,
     )
+    # 잘림·사고 바닥 고지(스펙 427) — trace 필드로 실어 FE가 토스트로 표면화(새 프레임 타입 없음).
+    # truncated: 이 턴이 finish_reason=length로 끊겼는가(안전망). thinkingBudgetApplied: 사고 바닥이
+    # 적용됐으면 그 값(세션 1회 토스트). 노드형은 주 모델 기준 best-effort(bump 자체는 노드도 적용).
+    if truncated:
+        trace["truncated"] = True
+    _bump = thinking_budget_applied(
+        ctx.model_cfg.get("capabilities") or {}, {}, ctx.model_cfg.get("params") or {}
+    )
+    if _bump is not None:
+        trace["thinkingBudgetApplied"] = _bump
     # 영속되는 trace에는 memoryPending을 넣지 않는다(codex P1) — 저장을 완료 못 하면(서버 재시작·hang)
     # 영속 pending이 남아 새로고침 스피너가 영영 도는 걸 원천 차단. pending은 라이브 스트림에만 싣는다.
     mid = None

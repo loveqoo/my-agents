@@ -106,6 +106,10 @@ export interface Trace {
   // 완료 결과(트레일링 event: memory / 영속 병합). 둘 다 없으면 이 턴은 자동 저장이 없다(장기 메모리 미사용).
   memoryPending?: boolean
   memorySaved?: MemorySaved
+  // 스펙 427 — 잘림·사고 바닥 고지. truncated=이 턴이 finish_reason=length로 끊김(안전망 경고).
+  // thinkingBudgetApplied=사고 모드라 max_tokens를 이 값으로 올려 보냄(세션 1회 토스트).
+  truncated?: boolean
+  thinkingBudgetApplied?: number
 }
 
 // 스펙 314 — 백그라운드 자동 기억 저장 결과 요약(비밀 마스킹·캡됨). status: ok(1건+)/none(0건)/error.
