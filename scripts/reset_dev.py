@@ -3,7 +3,8 @@
 **왜 스크립트인가**: 수동 초기화가 두 번 같은 함정을 밟았다(2026-07-17):
 - 포트 kill(`lsof -ti :8000`)이 vite 프록시 PID를 딸려 죽임 → **pkill 패턴만** 사용(함정 내장 회피).
 - seed는 mock 모델만 만들어 실모델(MLX)이 사라짐 → 회상·suite가 조용히 죽음(회고 389 3층 근인).
-  **재등록+기본값 지정까지가 초기화다.**
+  **재등록+기본값 지정까지가 초기화다.** atom-spark(vLLM)도 유저 등록분이라 초기화 시 사라진다 →
+  .env `ATOM_SPARK_*`로 함께 복원(키 미설정이면 건너뜀 — 유저가 채우면 다음 초기화부터).
 - 마이그레이션 데이터 시드가 죽은 행을 부활시킬 수 있다(회고 391) → 최종 상태 검증 포함.
 
 안전: 인자 없이 실행하면 **계획만 출력**(무해). 실제 초기화는 `--yes` 필수(파괴적 노브 바닥,
@@ -28,6 +29,7 @@ PLAN = """dev 초기화 계획(순서 고정 — 함정 회피 내장):
   2. DB 초기화: agents drop → create(+pgvector)
   3. api 재기동: 부팅이 alembic head + seed_if_empty 수행(시드 데모 5개 재생성)
   4. 실모델 복원: .env MLX_* 로 provider+chat/embedding 모델 재등록 + 기본값 지정
+     · .env ATOM_SPARK_* 있으면 atom-spark(vLLM, qwen36 thinking) provider+chat 모델도 복원(키 없으면 건너뜀)
      (seed는 mock만 만듦 — 이 단계를 빼먹으면 기억 회상·suite가 조용히 죽는다, 회고 389)
   5. 검증: /docs 200 · 시드 5 에이전트 · 실모델 기본값 · memory_types에 죽은 행 없음(회고 391)
      · vite(5173) 생존 확인(죽었으면 재기동 레시피 안내)
@@ -102,6 +104,27 @@ async def main():
         ]:
             r = await c.post("/models", json={"name": name, "provider_id": pid, "model_id": mid, "kind": kind})
             await c.put(f"/models/{r.json()['id']}/default")
+        # atom-spark(vLLM) 복원 — .env ATOM_SPARK_* 있을 때만. 키 미설정이면 조용히 건너뛴다(무해 —
+        # 유저가 나중에 채우면 다음 초기화부터 복원). MLX(로컬 rapid-mlx)와 별개 실모델 프로바이더.
+        a_base = os.environ.get("ATOM_SPARK_BASE_URL", "").strip()
+        a_key = os.environ.get("ATOM_SPARK_API_KEY", "").strip()
+        a_model = os.environ.get("ATOM_SPARK_MODEL", "qwen36").strip()
+        if a_base and a_key:
+            r = await c.post("/providers", json={
+                "name": "atom-spark", "protocol": "openai-compatible", "base_url": a_base,
+                "api_key": a_key, "kind": "local",
+                "description": "vLLM 서버(atom-spark, .env ATOM_SPARK_*) — thinking 지원 실모델(reset_dev 복원)",
+            })
+            apid = r.json()["id"]
+            # qwen36은 thinking 지원(vLLM). MLX(등록 시 기본 thinking:false)와 달리 명시로 켠다.
+            # 기본값(default)은 지정하지 않는다 — chat 기본은 MLX가 잡음(atom-spark는 병행 선택지).
+            await c.post("/models", json={
+                "name": a_model, "provider_id": apid, "model_id": a_model, "kind": "chat",
+                "capabilities": {"streaming": True, "thinking": True, "vision": False},
+            })
+            print(f"  ✓ atom-spark 복원: {a_model}(thinking 지원)")
+        else:
+            print("  · atom-spark 건너뜀(.env ATOM_SPARK_API_KEY 미설정 — 채우면 다음 초기화부터 복원)")
         ms = (await c.get("/models")).json()
         real = [(m["name"], m["kind"]) for m in ms if m.get("provider_kind") != "mock" and m["is_default"]]
         ags = (await c.get("/agents")).json()
