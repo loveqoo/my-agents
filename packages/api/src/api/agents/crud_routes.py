@@ -12,6 +12,7 @@ from ..auth import current_principal
 from ..block_versions import freeze_pins
 from ..blocks import assert_memory_names_exist
 from ..chat import derive_pipeline_pool
+from ..chat_context_models import _registry_chat_model
 from ..db import get_or_404, get_session
 from ..models import Agent, AgentVersion, User
 from ..naming import assert_valid_name
@@ -231,6 +232,30 @@ async def get_agent(
 
 
 # ----------------------------- 생성 (UI) -----------------------------
+async def assert_model_registered(session: AsyncSession, cfg: dict) -> None:
+    """저장 config의 model이 선언됐는데(비어있지 않음) 등록된 chat 모델이 아니면 거절(스펙 428).
+
+    미설정(빈값/None)은 폴백 정상(092 '미선언'=default)이라 통과 — resolve가 기본 모델로 간다.
+    미등록 모델명을 저장하는 입구를 봉해, 나중에 _resolve_model이 조용히 폴백하던 길(learning 092의
+    '선언-but-broken=거절' 축과 어긋남)을 원천 차단한다. 등록 판정은 _registry_chat_model 단일 출처.
+
+    저장값을 **canonical(strip)로 정규화**한다(codex 428 적대검토) — 공백 패딩(" x ")·공백만("  ")이
+    검증에선 strip돼 통과하는데 저장·런타임은 strip 안 해 "저장 성공 후 런타임 400"이 나던 guard/runtime
+    드리프트를 봉함. 정규화가 저장 dict를 직접 고치므로 column·config·rename가드·런타임이 한 형태를 본다.
+    """
+    raw = cfg.get("model")
+    name = (raw or "").strip()
+    if isinstance(raw, str) and raw != name:
+        cfg["model"] = name  # canonical 저장(strip) — 검증·저장·런타임 단일 형태
+    if not name:
+        return
+    if await _registry_chat_model(session, name) is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"모델 '{name}'이(가) 등록돼 있지 않습니다 — 등록된 채팅 모델을 선택하세요.",
+        )
+
+
 @router.post("", response_model=AgentOut, status_code=201)
 async def create_agent(
     body: AgentCreate,
@@ -248,6 +273,8 @@ async def create_agent(
     await assert_node_refs_exist(session, cfg.get("nodes"))
     # 기억 이름 존재 검증(스펙 387) — 노드 참조와 같은 규칙(dangling name의 조용한 무동작 차단).
     await assert_memory_names_exist(session, cfg)
+    # 모델 등록 검증(스펙 428) — 미등록 모델명 저장 차단(조용한 폴백 입구 봉함). 미설정은 통과.
+    await assert_model_registered(session, cfg)
     await derive_pipeline_pool(
         cfg
     )  # 노드형 풀=노드 합집합 서버 파생(스펙 289 P2 — 폼 밖 입구도 안전)
@@ -256,7 +283,7 @@ async def create_agent(
         name=body.name,
         description=(body.description or "").strip() or None,  # 설명(자유 표기, 스펙 210)
         source="ui",
-        model=body.config.model,
+        model=cfg.get("model"),  # 정규화된 값(assert_model_registered가 strip) — column·config 단일 형태
         prompt=await resolve_prompt(session, body.config.prompt),
         history_depth=body.config.historyDepth,
         config=cfg,
@@ -302,6 +329,9 @@ async def clone_agent(
     _enforce_ephemeral_boundary(
         cfg
     )  # DB 쓰기 능력 금지(스펙 237)  # 완화 정책 복제도 admin만(스펙 177 P2 D4)
+    # 모델 등록 검증(스펙 428, codex 428 적대검토) — clone도 새 저장 config를 만드는 입구라 검증 필수
+    # (원본이 레거시/직접-DB로 broken이어도 broken 복제 재생산 차단). 정규화도 여기서 함께.
+    await assert_model_registered(session, cfg)
     clone = Agent(
         agent_id=_new_agent_id(),
         # 식별 이름은 규칙 준수+유니크로 자동 생성(스펙 217: 영소문자·숫자·대시만 — 접미는 영문 '-copy'),
@@ -370,6 +400,8 @@ async def update_agent(
     await assert_node_refs_exist(session, cfg.get("nodes"))
     # 기억 이름 존재 검증(스펙 387) — 노드 참조와 같은 규칙(dangling name의 조용한 무동작 차단).
     await assert_memory_names_exist(session, cfg)
+    # 모델 등록 검증(스펙 428) — 미등록 모델명 저장 차단(조용한 폴백 입구 봉함). 미설정은 통과.
+    await assert_model_registered(session, cfg)
     # 노드형 풀=노드 합집합 서버 파생(스펙 289 P2) — impl 보존 **뒤**에 호출(미명시 impl이 pipeline로
     # 확정된 뒤라야 파생 게이트가 맞는다).
     await derive_pipeline_pool(cfg)

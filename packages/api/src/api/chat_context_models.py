@@ -188,21 +188,28 @@ async def _resolve_model(
     def _fold(model_cfg: dict) -> dict:
         return _apply_agent_model_params(model_cfg, cfg) if _agent_layer else model_cfg
 
-    model_name = cfg.get("model")
+    # model_name도 strip(codex 428) — 저장은 assert_model_registered가 canonical화하지만, 레거시·직접-DB
+    # 행은 공백 패딩이 남을 수 있어 런타임에서도 정규화해 검증-런타임 형태를 일치(드리프트 방어).
+    model_name = (cfg.get("model") or "").strip()
     if model_name:
         pinned = await _pinned_model_cfg(db, pins, model_name)  # pin 우선(스펙 370)
         if pinned is not None:
             return _fold(pinned)
     m = await _registry_chat_model(db, model_name) if model_name else None
+    if m is None and model_name:
+        # 선언됐는데 미등록이면 **크게 거절**(스펙 428) — 출처(저장 config·오버라이드) 무관. learning 092:
+        # 선언-but-broken은 조용한 폴백 금지(호출자가 다른 모델로 실행된 걸 모른 채 지나가는 걸 막는다).
+        # 스펙 401은 오버라이드에만 적용했으나, config 경로도 같은 축으로 통일. `model_name` truthy로만
+        # 진입하므로 미지정 에이전트+model 없는 오버라이드의 None==None 오폭은 자연히 회피(스펙 401 계약 유지).
+        # P1(스펙 428)이 저장·rename 입구를 봉하므로, config가 여기 오는 건 직접 DB 편집·버전 롤백의 잔여 엣지.
+        from_override = bool(overrides and overrides.get("model") == model_name)
+        where = "오버라이드 모델" if from_override else "에이전트에 저장된 모델"
+        raise HTTPException(
+            status_code=400,
+            detail=f"{where} '{model_name}'이(가) 등록돼 있지 않습니다 — 모델 이름을 확인하세요.",
+        )
     if m is None:
-        # 거절은 **실명을 댄** 오버라이드에만(스펙 401) — 모델 미지정 에이전트(model_name=None)에
-        # model 키 없는(또는 null) 오버라이드가 오면 None==None으로 오폭하던 것을 실명 요구로 봉합.
-        # 미선언은 기본 폴백(learning 092: 선언-but-broken만 거절).
-        if overrides and overrides.get("model") and overrides.get("model") == model_name:
-            raise HTTPException(
-                status_code=400,
-                detail=f"오버라이드 모델 '{model_name}'이(가) 등록돼 있지 않습니다 — 모델 이름을 확인하세요.",
-            )
+        # 미선언(model_name 빈값/None) → 기본 폴백(092 'unset'=default, 무회귀).
         m = await _default_chat_registry(db)
     if m is None:
         raise HTTPException(

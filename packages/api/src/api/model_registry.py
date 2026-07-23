@@ -279,6 +279,22 @@ async def update_model(
 ) -> ModelOut:
     m = await get_or_404(session, ModelConfig, model_id)
     await _require_provider(session, body.provider_id)
+    # 이름 변경 참조 가드(스펙 428) — 에이전트는 모델을 *이름*으로 참조(FK 없음, learning 042). 이름을
+    # 바꾸면 옛 이름을 붙든 에이전트가 고아가 돼 저장 config가 미등록 모델을 가리킨다(삭제는 막으면서
+    # rename은 안 막던 형제-가드 구멍). 삭제 가드의 라이브 검사와 대칭으로 차단(column·config.model 둘 다).
+    if body.name != m.name:
+        refs = (
+            await session.execute(
+                select(func.count())
+                .select_from(Agent)
+                .where(or_(Agent.model == m.name, Agent.config["model"].astext == m.name))
+            )
+        ).scalar_one()
+        if refs:
+            raise HTTPException(
+                status_code=409,
+                detail=f"이 모델을 참조하는 에이전트 {refs}개가 있습니다 — 먼저 에이전트의 모델을 바꾸세요.",
+            )
     m.name = body.name
     m.provider_id = body.provider_id
     m.model_id = body.model_id
