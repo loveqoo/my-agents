@@ -13,6 +13,7 @@ mem_cfg = {"llm": {base_url, api_key, model_id}, "embedder": {base_url, api_key,
 백엔드 선택은 `MEMORY_BACKEND` env(기본 "mem0"). 지배 스펙: 007/008/019/020/040.
 """
 
+import contextlib
 import logging
 import re as _re
 from collections.abc import Iterable
@@ -201,6 +202,30 @@ def _clamp_limit(limit: Any) -> int:  # 브로커 args의 비검증 입력 정�
         return 4
 
 
+# 유저당 기억 상한(스펙 429, 구남님 승인 제품 한계). 초과 시 오래된 것부터 축출 — 살아있는 유저
+# 기억은 회수 캠페인(346~352)이 안 지워 무한 증가하던 축. add() 관문 한 곳에서 유계로 유지.
+MEMORY_CAP_PER_USER = 1000
+
+
+def _evict_over_cap(user_id: str, backend: MemoryBackend) -> int:
+    """유저당 상한 초과분을 **오래된 것부터** 전부 축출(스펙 429). list_page는 최신순(created_at DESC)이라
+    offset=CAP 위치부터가 가장 오래된 것 → total>CAP면 그 초과분을 삭제. total은 같은 호출로 싸게 얻는다
+    (count(*)). limit 내부 캡(100)이라 **이 호출 안에서 페이지(100)씩 반복 삭제해 완전 수렴**한다(codex 429:
+    한 add가 대량 추가하면 첫 100만 지워 +N-100씩 무한 증가하던 것을 봉함 — "다음 add가 수렴"이라는
+    미검증 가정 제거). 삭제 진전이 없으면(모두 실패) 중단해 무한루프 방지. best-effort — 실패가 저장을
+    안 깬다."""
+    evicted = 0
+    for _ in range(1000):  # 안전 상한(최대 ~10만 축출) — 실질 무한루프 backstop
+        page = backend.list_page({"user_id": user_id}, None, 100, MEMORY_CAP_PER_USER)
+        if not page or page.get("total", 0) <= MEMORY_CAP_PER_USER:
+            break
+        deleted = sum(1 for m in page.get("items", []) if backend.delete(m["id"]))
+        evicted += deleted
+        if deleted == 0:  # 삭제가 진행 안 됨(항목 없음·전부 실패) → backstop
+            break
+    return evicted
+
+
 def add(scope: dict, messages: list[dict], mem_cfg: dict | None, infer: bool = True) -> list[dict]:
     """대화 턴/사실을 메모리에 저장. 무력화/실패 시 무시.
 
@@ -211,7 +236,18 @@ def add(scope: dict, messages: list[dict], mem_cfg: dict | None, infer: bool = T
     반환을 무시해도 무방(무회귀).
     """
     backend = resolve_backend(mem_cfg)
-    return backend.add(scope, messages, infer) if backend else []
+    if backend is None:
+        return []
+    result = backend.add(scope, messages, infer)
+    # 유저당 상한(스펙 429) — user_id 스코프 저장이면 초과분 오래된 것부터 축출. user_id 없는 저장
+    # (run/agent-only 세션 기억)은 미적용 — 그 축은 세션 보존(180일)이 담당(축 분리). best-effort.
+    uid = scope.get("user_id")
+    if uid:
+        # 축출 실패(조회·삭제 예외)가 저장을 깨면 안 된다 — best-effort. 저장은 위에서 이미 완료됐고,
+        # 상한 회복은 다음 add가 재시도한다(수렴 자체는 _evict_over_cap이 한 호출서 완결).
+        with contextlib.suppress(Exception):
+            _evict_over_cap(uid, backend)
+    return result
 
 
 def list_memories(scope: dict, mem_cfg: dict | None) -> list[dict]:

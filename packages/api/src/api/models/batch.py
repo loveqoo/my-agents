@@ -53,8 +53,11 @@ class BatchConfig(AuditMixin, Base):
 
     __tablename__ = "batch_config"
     id: Mapped[uuid.UUID] = _pk()
-    session_retention_days: Mapped[int | None] = mapped_column(Integer, default=None)
-    session_cleanup_cron: Mapped[str | None] = mapped_column(String(120), default=None)
+    # 기본 180일 ON(스펙 429, 구남님 승인) — 살아있는 유저 메시지의 무한 증가 차단. NULL=비활성이나
+    # 신규 싱글톤은 이 기본으로 켜져 생성(checkpoint/token/approval 기본 ON 선례와 정합). 기존 싱글톤은
+    # 마이그레이션이 NULL→180 반영(사용자 커스텀 값은 보존). last_activity<cutoff라 활성 세션 자연 보존.
+    session_retention_days: Mapped[int | None] = mapped_column(Integer, default=180)
+    session_cleanup_cron: Mapped[str | None] = mapped_column(String(120), default="0 3 * * *")
     min_session_turns: Mapped[int | None] = mapped_column(Integer, default=None)
     memory_consolidation_threshold: Mapped[int | None] = mapped_column(Integer, default=None)
     memory_consolidation_cron: Mapped[str | None] = mapped_column(String(120), default=None)

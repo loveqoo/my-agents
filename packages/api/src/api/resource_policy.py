@@ -94,7 +94,9 @@ TABLES: dict[str, Policy] = {
     "rag_chunks": Policy("reclaimed", by="cascade:documents"),
     # --- 사용자 자산(임의 삭제 금지 — 보존정책은 관리자 설정) --------------------
     "sessions": Policy(
-        "user_data", by="batch:session-cleanup", note="보존정책=BatchConfig(기본 OFF)"
+        "user_data",
+        by="batch:session-cleanup",
+        note="보존정책=BatchConfig session_retention_days(**기본 180일 ON**, 스펙 429) — last_activity<cutoff라 활성 보존",
     ),
     "messages": Policy("user_data", by="cascade:sessions", note="세션 보존정책에 종속(턴당 2행)"),
     "collections": Policy("user_data", by="route:RAG 컬렉션 삭제"),
@@ -145,13 +147,12 @@ EXTERNAL: dict[str, Policy] = {
     "checkpoint_migrations": Policy("bounded", note="langgraph 스키마 버전 행(유한)"),
     "mem0_memories": Policy(
         "user_data",
-        by="batch:memory-cleanup(도달 불가 고아) · route:메모리 화면에서 유저가 삭제 · "
-        "batch:memory-consolidation(관리자가 임계치를 켜면 통합)",
-        note="살아있는 유저의 기억은 **사용자 자산**이다(messages와 같은 부류) — 나이·개수로 자동 "
-        "삭제하지 않는다. 회수 대상은 **도달 불가한 유령**뿐: 회상은 세 축(user_id·run_id·agent_id)"
-        "으로만 일어나므로 축이 전부 죽은 소유자를 가리키면 영영 회상 불가(스펙 352). 살아있는 유저 "
-        "기억의 **상한은 열린 결정**(제품 가시 한계 = 관리자 승인 사항) — 스코어보드 0은 '분류가 "
-        "정직하다'는 뜻이지 '무한 증가가 없다'는 뜻이 아니다.",
+        by="chokepoint:memory.add 유저당 1000 축출(스펙 429, 오래된 것부터) · batch:memory-cleanup"
+        "(도달 불가 고아) · route:메모리 화면에서 유저가 삭제 · batch:memory-consolidation(관리자 임계치)",
+        note="살아있는 유저의 기억은 **사용자 자산**이다(messages와 같은 부류). 회수 대상은 **도달 불가한 "
+        "유령**뿐: 회상은 세 축(user_id·run_id·agent_id)으로만 일어나므로 축이 전부 죽은 소유자를 "
+        "가리키면 영영 회상 불가(스펙 352). **상한=유저당 1000개**(스펙 429 승인) — add 관문에서 초과 시 "
+        "오래된 것부터 축출해 무한 증가를 막는다(최근 보존).",
     ),
     "casbin_rule": Policy("bounded", note="RBAC 정책 행(관리자 페이스)"),
     "alembic_version": Policy("bounded", note="싱글 행"),
