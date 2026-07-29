@@ -14,6 +14,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from agent import net_policy
+
 from . import crypto
 from .auth import current_principal
 from .block_versions import delete_block_history, record_block_version
@@ -66,7 +68,7 @@ async def _probe(
     t0 = time.perf_counter()
     if kind == "embedding":
         try:
-            async with httpx.AsyncClient(timeout=10) as client:
+            async with httpx.AsyncClient(timeout=net_policy.policy("probe").timeout_s) as client:
                 r = await client.post(
                     base + "/embeddings",
                     headers=headers,
@@ -109,7 +111,7 @@ async def _probe(
 
     # kind == "chat" (기본)
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
+        async with httpx.AsyncClient(timeout=net_policy.policy("probe").timeout_s) as client:
             r = await client.get(base + "/models", headers=headers)
     except Exception:
         ms = int((time.perf_counter() - t0) * 1000)

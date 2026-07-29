@@ -20,6 +20,8 @@ from langchain_mcp_adapters.tools import to_fastmcp
 from mcp.server.fastmcp import FastMCP
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from agent import net_policy as _net_policy
+
 # 서빙 대상 유래(스펙 156) — 우리가 코드로 정의·호스팅하는 MCP만. external은 봉인(152), local은
 # 외부/self-host 등록분이라 서빙 대상 아님(우리 정의가 아님).
 SERVABLE_SOURCE = "custom"
@@ -54,7 +56,8 @@ def echo(text: str) -> str:
 # ---- web-fetch(스펙 201) — "사이트 주소를 조립해 패치"(사용자 설계). 위키피디아 공식 API,
 # 호스트 고정(사용자 입력은 검색어·제목뿐 → SSRF 0), read-only. ----
 _WIKI_LANGS = {"ko", "en"}  # lang이 곧 호스트 — allowlist로 임의 호스트 조립 차단
-_FETCH_TIMEOUT = 8.0
+# 타임아웃 정본=net_policy("web.fetch")(스펙 430 — 종전 8.0 흡수)
+_FETCH_TIMEOUT = _net_policy.policy("web.fetch").timeout_s
 _FETCH_MAX_BYTES = 512 * 1024  # 응답 raw 바이트 캡(cap-the-raw-source)
 _FETCH_UA_DEFAULT = "my-agents/1.0 (web-fetch custom MCP)"  # 위키 API가 UA 명시를 요구
 

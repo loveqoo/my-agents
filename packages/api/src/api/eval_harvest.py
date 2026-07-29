@@ -15,11 +15,14 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from agent import net_policy
+
 from .models import Message, MessageFeedback, Session
 
 log = logging.getLogger("api.eval")
 
-_GEN_TIMEOUT = 30.0
+# 외부호출 정책(스펙 430) — 타임아웃·재시도·회로의 정본은 net_policy.POLICIES["model.eval"](60s·재시도1).
+_NET_KEY = "model.eval"
 
 _SYNTH_SYSTEM = (
     "당신은 AI 답변 품질 평가 기준 작성자입니다. 아래 [질문]에 대한 [답변]과 사용자 평가(좋아요/싫어요"
@@ -39,21 +42,24 @@ async def _synth_criterion(
         f" — 이유: {reason[:500]}" if reason else ""
     )
     try:
-        async with httpx.AsyncClient(timeout=_GEN_TIMEOUT) as client:
-            resp = await client.post(
-                f"{llm_cfg['base_url'].rstrip('/')}/chat/completions",
-                headers={"Authorization": f"Bearer {llm_cfg.get('api_key') or 'sk-noauth'}"},
-                json={
-                    "model": llm_cfg["model_id"],
-                    "temperature": 0.3,  # 기준은 안정적이어야(다양성 불필요)
-                    "messages": [
-                        {"role": "system", "content": _SYNTH_SYSTEM},
-                        {"role": "user", "content": user},
-                    ],
-                },
-            )
-            resp.raise_for_status()
-            raw = resp.json()["choices"][0]["message"]["content"]
+        async def _post() -> str:
+            async with httpx.AsyncClient(timeout=net_policy.policy(_NET_KEY).timeout_s) as client:
+                resp = await client.post(
+                    f"{llm_cfg['base_url'].rstrip('/')}/chat/completions",
+                    headers={"Authorization": f"Bearer {llm_cfg.get('api_key') or 'sk-noauth'}"},
+                    json={
+                        "model": llm_cfg["model_id"],
+                        "temperature": 0.3,  # 기준은 안정적이어야(다양성 불필요)
+                        "messages": [
+                            {"role": "system", "content": _SYNTH_SYSTEM},
+                            {"role": "user", "content": user},
+                        ],
+                    },
+                )
+                resp.raise_for_status()
+                return resp.json()["choices"][0]["message"]["content"]
+
+        raw = await net_policy.call(_NET_KEY, llm_cfg["base_url"], _post)
     except Exception as exc:
         log.warning("수확 기준 합성 실패: %s", exc)
         return None

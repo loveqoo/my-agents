@@ -222,7 +222,9 @@ class McpProvider:
         import asyncio
         import contextlib
 
-        from ...runtime import _TOOL_TIMEOUT_S, _content_text
+        from agent import net_policy
+
+        from ...runtime import _content_text
 
         cap_id = f"{CAP_KIND_MCP}:{row.server}/{row.tool_name}"
         # 직접 경로(runtime._wrap_mcp_tool)와 동일하게 어댑터의 ToolException swallow를 끈다(스펙 320):
@@ -231,11 +233,19 @@ class McpProvider:
         with contextlib.suppress(Exception):
             row.tool.handle_tool_error = False
         try:
-            async with asyncio.timeout(_TOOL_TIMEOUT_S):
+            # 브레이커+타임아웃(스펙 430) — 직접 경로(_wrap_mcp_tool)와 같은 정책·같은 회로 키(서버명)
+            # 공유(형제 입구 규약: 직접이 열면 브로커도 즉시 실패). 열림=CircuitOpenError→아래 except.
+            net_policy.check("mcp.tool", row.server)
+            async with asyncio.timeout(net_policy.policy("mcp.tool").timeout_s):
                 raw = await row.tool.ainvoke(_adapt_args(row.tool, args))
             text = _content_text(raw)  # content-block 리스트 → str 정규화(092 재사용)
             err = None
+            net_policy.record_success("mcp.tool", row.server)
         except Exception as exc:
+            if net_policy._is_transient(exc):  # 전송층 죽음만 회로에 셈
+                net_policy.record_failure("mcp.tool", row.server)
+            elif not isinstance(exc, net_policy.CircuitOpenError):
+                net_policy.release("mcp.tool", row.server)  # 판정 불가 — trial 고착 방지(codex P1)
             text = ""
             # 실제 사유(str(exc))까지 실어 인스펙터 표면화(스펙 320) — 타입만으론 "왜"를 못 본다.
             # 앞 밑줄 제거(어댑터 내부 클래스명 정돈). 마스킹+캡은 _build_frame(_sanitize)에서 백스톱.

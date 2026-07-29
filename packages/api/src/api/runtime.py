@@ -30,7 +30,6 @@ from .runtime_mcp import (  # noqa: F401
     _TOOL_SPEC_CACHE,
     _TOOL_SPEC_CACHE_MAX,
     _TOOL_SPEC_LOCK,
-    _TOOL_TIMEOUT_S,
     _prepare_connections,
     _raw_tools_cached,
     _safe_name,

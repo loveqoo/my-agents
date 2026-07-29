@@ -12,6 +12,8 @@ import os
 import httpx
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
+from agent import net_policy
+
 
 class IngestError(Exception):
     """인제스트 실패 — 메시지를 Document.error에 보존(no silent death)."""
@@ -200,8 +202,12 @@ async def _embed_batch(
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
     url = base_url.rstrip("/") + "/embeddings"
     try:
-        async with httpx.AsyncClient(timeout=60) as client:
-            r = await client.post(url, headers=headers, json={"model": model_id, "input": texts})
+        # 정책(스펙 430): rag.embed 60s + 재시도 1(멱등 — 같은 입력=같은 벡터). 일시 오류만 재시도.
+        async def _post() -> httpx.Response:
+            async with httpx.AsyncClient(timeout=net_policy.policy("rag.embed").timeout_s) as client:
+                return await client.post(url, headers=headers, json={"model": model_id, "input": texts})
+
+        r = await net_policy.call("rag.embed", base_url, _post)
     except Exception as exc:
         raise IngestError("임베딩 서버 연결 실패") from exc
     if r.status_code != 200:

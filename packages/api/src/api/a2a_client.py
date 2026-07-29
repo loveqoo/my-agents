@@ -16,12 +16,13 @@ from collections.abc import AsyncIterator
 
 import httpx
 
+from agent import net_policy
+
 from . import crypto
 from .net_guard import guard_url, normalize_http_url, refresh_allowed_hosts
 
 # A2A 응답 누적 상한 — 악의적/오작동 에이전트가 끝없이 흘려 메모리·시간을 소진하는 걸 막는다.
 MAX_RESPONSE_BYTES = 1024 * 1024
-A2A_TIMEOUT_S = 120
 
 
 def _jsonrpc_request(user_text: str, *, streaming: bool, context_id: str | None = None) -> dict:
@@ -157,6 +158,18 @@ async def a2a_stream(
         yield {"error": str(exc)}
         return
 
+    # 서킷브레이커(스펙 430) — 죽은 원격 에이전트에 요청마다 타임아웃(120s)을 태우는 행 반복 방어.
+    # host 단위 격리. 열림=즉시 에러 프레임(스트림 계약 유지 — 예외 아님).
+    _host = httpx.URL(endpoint).host or endpoint
+    try:
+        net_policy.check("a2a.delegate", _host)
+    except net_policy.CircuitOpenError as exc:
+        yield {"error": str(exc)}
+        return
+    # 3상태(codex 430 P1): True=완주 성공 · False=일시 오류 · None=판정 불가(소비자 조기 이탈 등).
+    # 첫 구현이 True 초기값이라 half-open 중 첫 프레임만 받고 이탈해도 회로가 닫히던 오염을 봉함 —
+    # 완주했을 때만 성공으로 센다.
+    _net_ok: bool | None = None
     body = _jsonrpc_request(user_text, streaming=streaming, context_id=context_id)
     try:
         # 토큰 복호화(키 회전 시 RuntimeError 가능)도 try 안에서 — try 밖이면 미프레임 크래시(적대리뷰 H3).
@@ -167,7 +180,10 @@ async def a2a_stream(
             **_auth_headers(token),
         }
         # redirects 비활성(명시) — 리다이렉트로 SSRF 가드/Authorization 경계를 우회 못 하게.
-        async with httpx.AsyncClient(timeout=A2A_TIMEOUT_S, follow_redirects=False) as client:
+        # timeout 정본=net_policy("a2a.delegate")(스펙 430 — 종전 A2A_TIMEOUT_S 흡수).
+        async with httpx.AsyncClient(
+            timeout=net_policy.policy("a2a.delegate").timeout_s, follow_redirects=False
+        ) as client:
             if streaming:
                 fell_back = False
                 async for frame in _stream_sse(client, endpoint, body, headers):
@@ -184,11 +200,23 @@ async def a2a_stream(
             else:
                 async for frame in _send_single(client, endpoint, body, headers):
                     yield frame
+        _net_ok = True  # 여기 도달 = 스트림/단건 완주(조기 이탈은 못 온다)
     except httpx.HTTPError as exc:
         # 본문/헤더는 보낸 토큰을 에코할 수 있어 메시지에 넣지 않는다 — 예외 타입만.
+        if net_policy._is_transient(exc):  # 전송층 죽음만 회로에 셈(4xx/응답오류 제외)
+            _net_ok = False
         yield {"error": f"외부 에이전트 요청 실패({type(exc).__name__})"}
     except Exception as exc:
         yield {"error": f"외부 에이전트 호출 실패({type(exc).__name__})"}
+    finally:
+        # 3상 기록(스펙 430·codex P1): 완주=성공·일시오류=실패·판정불가(GeneratorExit 등)=release
+        # (trial만 해제 — half-open 고착 방지, 성공/실패 어느 쪽도 오염 안 함).
+        if _net_ok is True:
+            net_policy.record_success("a2a.delegate", _host)
+        elif _net_ok is False:
+            net_policy.record_failure("a2a.delegate", _host)
+        else:
+            net_policy.release("a2a.delegate", _host)
 
 
 async def _capped_lines(resp: httpx.Response) -> AsyncIterator[str | None]:

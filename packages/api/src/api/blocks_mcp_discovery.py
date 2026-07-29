@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING, Any
 
 from fastapi import HTTPException
 
+from agent import net_policy
+
 from .mcp_tool_meta import (
     PARAM_NAME_CAP,
     PARAM_TYPE_CAP,
@@ -123,7 +125,7 @@ async def _live_discover(url: str, token: str | None) -> McpDiscoverResult:
                 }
             }
         )
-        async with asyncio.timeout(15):
+        async with asyncio.timeout(net_policy.policy("mcp.discover").timeout_s):
             tools = await client.get_tools(server_name="probe")
     except Exception:
         ms = int((time.perf_counter() - t0) * 1000)

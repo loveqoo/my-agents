@@ -14,10 +14,13 @@ P2/P3)가 소비할 수 있게 한다.
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from typing import Any
 
 from langchain_core.outputs import ChatGenerationChunk, ChatResult
 from langchain_openai import ChatOpenAI
+
+from . import net_policy
 
 # 서버·버전마다 사고 필드명이 갈린다(스펙 410 연구): vLLM 구버전·SGLang·rapid-mlx=`reasoning_content`,
 # vLLM 최신=`reasoning`, Ollama=`thinking`. 어느 이름으로 와도 읽도록 관대하게(포팅 대비).
@@ -36,7 +39,57 @@ def _reasoning_of(message_dict: object) -> str | None:
 
 
 class ReasoningChatOpenAI(ChatOpenAI):
-    """base가 버리는 reasoning_content를 additional_kwargs로 되살리는 provider 서브클래스."""
+    """base가 버리는 reasoning_content를 additional_kwargs로 되살리는 provider 서브클래스.
+
+    서킷브레이커 관문(스펙 430)도 여기 — build_chat_openai로 만든 **모든** 모델 클라이언트의 호출이
+    이 클래스를 지나므로, 경로별(chat·eval-계열이 이 클래스를 쓸 때·노드형) 재구현 없이 한 곳이다.
+    회로가 열리면(연속 연결실패 3회) 타임아웃을 기다리지 않고 즉시 CircuitOpenError — 행 반복 방어.
+    실패 판정은 net_policy._is_transient(타임아웃·연결만 — 4xx는 안 셈)."""
+
+    _BREAKER_KEY = "model.chat"
+
+    def _breaker_host(self) -> str:
+        # openai SDK 클라이언트 구성 후의 실제 base_url — 회로는 host(서버) 단위 격리.
+        return str(getattr(self, "openai_api_base", None) or "")
+
+    async def _agenerate(self, *args: Any, **kwargs: Any) -> Any:
+        host = self._breaker_host()
+        net_policy.check(self._BREAKER_KEY, host)
+        recorded = False  # codex 430 P1 — 비일시 오류로 미기록 종료 시 finally가 trial 해제(고착 방지)
+        try:
+            result = await super()._agenerate(*args, **kwargs)
+            net_policy.record_success(self._BREAKER_KEY, host)
+            recorded = True
+            return result
+        except Exception as exc:
+            if net_policy._is_transient(exc):
+                net_policy.record_failure(self._BREAKER_KEY, host)
+                recorded = True
+            raise
+        finally:
+            if not recorded:
+                net_policy.release(self._BREAKER_KEY, host)
+
+    async def _astream(self, *args: Any, **kwargs: Any) -> AsyncIterator[ChatGenerationChunk]:
+        host = self._breaker_host()
+        net_policy.check(self._BREAKER_KEY, host)
+        recorded = False
+        try:
+            async for chunk in super()._astream(*args, **kwargs):
+                yield chunk
+            # 완주 = 성공. (소비자 이탈 GeneratorExit·비일시 오류는 판정 불가 — finally의 release가
+            # trial만 해제해 half-open 고착을 막는다. codex 430 P1: 이 경로가 없으면 사용자 이탈 한 번에
+            # 회로가 프로세스 재시작 전까지 remaining≈1s CircuitOpen을 영영 반복했다.)
+            net_policy.record_success(self._BREAKER_KEY, host)
+            recorded = True
+        except Exception as exc:
+            if net_policy._is_transient(exc):
+                net_policy.record_failure(self._BREAKER_KEY, host)
+                recorded = True
+            raise
+        finally:
+            if not recorded:
+                net_policy.release(self._BREAKER_KEY, host)
 
     def _create_chat_result(
         self, response: dict | Any, generation_info: dict | None = None

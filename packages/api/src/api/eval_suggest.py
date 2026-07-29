@@ -13,12 +13,16 @@ import uuid
 
 import httpx
 
+from agent import net_policy
+
 from .chat import ChatContext, _load_context
 from .eval_golden import _gen_question, _parse_question, _sample_chunks
 
 log = logging.getLogger("api.eval")
 
-_GEN_TIMEOUT = 30.0
+# 외부호출 정책(스펙 430) — 정본은 net_policy.POLICIES["model.eval"](60s·재시도1·회로).
+# 종전 _GEN_TIMEOUT*2=60 특례는 정책값 60과 동치라 특례 소멸.
+_NET_KEY = "model.eval"
 
 _PROMPT_SYSTEM = (
     "당신은 AI 에이전트 품질 시험 문제 출제자입니다. 아래 [역할 설명]의 에이전트에게 "
@@ -43,26 +47,29 @@ async def _gen_prompt_questions(prompt: str, n: int, llm_cfg: dict) -> list[str]
     실측). 줄 단위 파싱: 번호 접두 제거 후 142 파서(의문형 정규화 포함)로 건별 검증."""
     user = f"[역할 설명]\n{prompt[:2000]}\n\n서로 다른 주제로 질문 {n}개, 한 줄에 하나씩."
     try:
-        async with httpx.AsyncClient(timeout=_GEN_TIMEOUT * 2) as client:
-            resp = await client.post(
+        async def _post() -> str:
+            async with httpx.AsyncClient(timeout=net_policy.policy(_NET_KEY).timeout_s) as client:
+                resp = await client.post(
                 f"{llm_cfg['base_url'].rstrip('/')}/chat/completions",
-                headers={"Authorization": f"Bearer {llm_cfg.get('api_key') or 'sk-noauth'}"},
-                json={
-                    "model": llm_cfg["model_id"],
-                    "temperature": 0.7,  # 다양성이 목적(중복 회피)
-                    "messages": [
-                        {
-                            "role": "system",
-                            "content": _PROMPT_SYSTEM.replace(
-                                "질문을 1개", f"서로 다른 질문을 {n}개"
-                            ),
-                        },
-                        {"role": "user", "content": user},
-                    ],
-                },
-            )
-            resp.raise_for_status()
-            raw = resp.json()["choices"][0]["message"]["content"]
+                    headers={"Authorization": f"Bearer {llm_cfg.get('api_key') or 'sk-noauth'}"},
+                    json={
+                        "model": llm_cfg["model_id"],
+                        "temperature": 0.7,  # 다양성이 목적(중복 회피)
+                        "messages": [
+                            {
+                                "role": "system",
+                                "content": _PROMPT_SYSTEM.replace(
+                                    "질문을 1개", f"서로 다른 질문을 {n}개"
+                                ),
+                            },
+                            {"role": "user", "content": user},
+                        ],
+                    },
+                )
+                resp.raise_for_status()
+                return resp.json()["choices"][0]["message"]["content"]
+
+        raw = await net_policy.call(_NET_KEY, llm_cfg["base_url"], _post)
     except Exception as exc:
         log.warning("프롬프트 질문 생성 실패: %s", exc)
         return []

@@ -19,6 +19,8 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool, StructuredTool
 from langgraph.types import interrupt
 
+from agent import net_policy
+
 from .runtime_trace_safety import (
     _ERR_CAP,
     _RESULT_CAP,
@@ -102,9 +104,8 @@ def resolve_tool_approval(
     }
 
 
-# 실 도구 호출 전체 deadline(초). per-read 타임아웃은 전체 데드라인이 아니므로(learning 046)
-# asyncio.timeout으로 호출 전체를 감싼다 — 느린/멈춘 서버가 에이전트를 무한 대기시키지 않게.
-_TOOL_TIMEOUT_S = 30
+# 실 도구 호출 전체 deadline — 정본은 net_policy.POLICIES["mcp.tool"](스펙 430, 종전 30s 흡수).
+# per-read 타임아웃은 전체 데드라인이 아니므로(learning 046) asyncio.timeout으로 호출 전체를 감싼다.
 
 
 def _wrap_mcp_tool(
@@ -135,11 +136,20 @@ def _wrap_mcp_tool(
         # 실 부수효과: 실제 MCP 서버 도구를 호출한다. 승인됐거나 비위험 도구일 때만 도달.
         reason: str | None = None  # 실패 사유(스펙 320) — 성공 시 None
         try:
-            async with asyncio.timeout(_TOOL_TIMEOUT_S):
+            # 서킷브레이커(스펙 430) — 죽은 MCP 서버에 도구 호출마다 30s를 태우는 행 반복 방어.
+            # 회로 키=서버명(등록 유일). 열림이면 CircuitOpenError → 아래 except가 graceful 문자열로
+            # 만들어 에이전트가 "회로 열림, N초 후 재시도"를 보고 적응한다(도구 오류 적응 기존 동작).
+            net_policy.check("mcp.tool", server)
+            async with asyncio.timeout(net_policy.policy("mcp.tool").timeout_s):
                 raw = await rt.ainvoke(kwargs)
             text = _content_text(raw)
             status = "ok"
+            net_policy.record_success("mcp.tool", server)
         except Exception as exc:
+            if net_policy._is_transient(exc):  # 전송층 죽음만 회로에 셈(도구 자체 오류는 제외)
+                net_policy.record_failure("mcp.tool", server)
+            elif not isinstance(exc, net_policy.CircuitOpenError):
+                net_policy.release("mcp.tool", server)  # 판정 불가 — half-open trial 고착 방지(codex P1)
             # 예외 타입에서 앞 밑줄 제거 — 어댑터 내부 클래스명(_MCPToolExecutionError)이 그대로
             # UI에 새어 지저분해지지 않게(정돈=신뢰). 밑줄 없는 표준 예외명은 그대로 유지.
             etype = type(exc).__name__.lstrip("_")

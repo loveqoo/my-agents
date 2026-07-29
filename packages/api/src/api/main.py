@@ -29,6 +29,7 @@ from . import (
     mock_remote,
     model_registry,
     net_guard,
+    net_policy_routes,
     node_templates,
     observability,
     providers,
@@ -155,6 +156,7 @@ app.include_router(approvals.router, dependencies=_auth)
 app.include_router(batch_routes.router)  # 자체 보호(admin) — user_admin과 동일 패턴
 app.include_router(eval_routes.router)  # 자체 보호(admin) — 평가 하네스 제품화(스펙 137)
 app.include_router(allowed_hosts.router)  # 자체 보호(admin) — SSRF allowlist 관리(스펙 064)
+app.include_router(net_policy_routes.router)  # 자체 보호(admin) — 외부호출 정책·회로 관측(스펙 430)
 app.include_router(
     app_settings.router, dependencies=_auth
 )  # 앱 설정(스펙 153) — 변이는 자체 특권 게이트

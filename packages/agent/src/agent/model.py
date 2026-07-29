@@ -15,6 +15,7 @@ from typing import Literal, overload
 from langchain_openai import ChatOpenAI
 
 from .capabilities import PARAMS, resolve_effective, resolve_number
+from .net_policy import policy as _net_policy
 from .reasoning_chat import ReasoningChatOpenAI
 
 _MISSING_MSG = "모델 설정이 필요합니다 (base_url/model_id) — 모델을 등록하세요."
@@ -185,6 +186,7 @@ def build_chat_openai(
     # ReasoningChatOpenAI(스펙 410): base가 버리는 reasoning_content를 additional_kwargs로 되살린다
     # (사고 없는 모델·응답엔 무영향 — 항상 써도 안전). 사고 과정 표시(410 P2/P3)가 이를 소비.
     # top_kwargs=temperature/top_p/max_tokens(표준 인자), extra_body=enable_thinking/repetition_penalty(비표준).
+    _pol = _net_policy("model.chat")  # 스펙 430 — 암묵 SDK 기본(600s·재시도2)을 명시 정책으로
     client = ReasoningChatOpenAI(
         base_url=base_url,
         api_key=api_key,
@@ -192,6 +194,10 @@ def build_chat_openai(
         # 능력 없음/사용 끔 → astream이 ainvoke로 접혀 완성문 1회 yield(비스트리밍 안전 실행).
         disable_streaming=disable_streaming,
         extra_body=extra_body,
+        # 외부호출 정책(스펙 430, 구남님 승인): timeout 180s(전체)·재시도 0(비멱등 생성 — SDK 암묵
+        # 재시도 2회는 중복 생성·이중 과금 위험이라 껐다). 값의 정본은 net_policy.POLICIES.
+        timeout=_pol.timeout_s,
+        max_retries=_pol.retries,
         **top_kwargs,
     )
     if loop_id is not None:

@@ -16,6 +16,8 @@ import logging
 import os
 from typing import TYPE_CHECKING
 
+from agent import net_policy as _net_policy
+
 from ..sqlutil import like_escape
 from .backend import scope_axes
 
@@ -109,7 +111,8 @@ def _pg_vector_store() -> dict:
 _native_dims_cache: dict[
     tuple, int
 ] = {}  # (base_url, model_id, api_key) → 네이티브 출력 차원(probe 캐시)
-_PROBE_TIMEOUT_S = 10.0  # probe HTTP 상한(codex 159b Med — cold probe가 루프 블록 방지)
+# probe HTTP 상한 — 정본=net_policy(probe)(스펙 430, 종전 10 흡수. codex 159b Med 취지 승계)
+_PROBE_TIMEOUT_S = _net_policy.policy("probe").timeout_s
 
 
 def _native_embed_dims(emb: dict) -> int | None:

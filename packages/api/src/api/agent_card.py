@@ -12,6 +12,8 @@ from urllib.parse import urljoin, urlparse
 
 import httpx
 
+from agent import net_policy
+
 from .net_guard import guard_url, normalize_http_url, refresh_allowed_hosts
 
 # A2A 카드 관례 위치(신규 → 레거시 순). 베이스 URL만 준 경우 시도한다.
@@ -107,7 +109,8 @@ async def fetch_card(card_url: str) -> dict:
     # 공개 카드 호스트가 302로 내부 IP(127.0.0.1·169.254.169.254 등)를 가리켜 SSRF 가드를 우회할 수
     # 있다(probe_endpoint·a2a_client와 동일 규칙, 적대리뷰 057). 3xx는 카드 JSON이 아니므로 해당 후보를
     # 건너뛰고 다음 well-known 후보로 넘어간다.
-    async with httpx.AsyncClient(timeout=15, follow_redirects=False) as client:
+    # timeout 정본=net_policy(card.fetch)(스펙 430 — 종전 15 흡수). 재시도는 후보 순회가 담당(중복 금지).
+    async with httpx.AsyncClient(timeout=net_policy.policy("card.fetch").timeout_s, follow_redirects=False) as client:
         for candidate in candidates:
             try:
                 body = await _fetch_capped(client, candidate)
@@ -158,7 +161,8 @@ async def probe_endpoint(url: str | None) -> bool:
     except ValueError:
         return False
     try:
-        async with httpx.AsyncClient(timeout=5, follow_redirects=False) as client:
+        # 생존 probe — 정본=net_policy(probe)(스펙 430 — 종전 5 흡수)
+        async with httpx.AsyncClient(timeout=net_policy.policy("probe").timeout_s, follow_redirects=False) as client:
             resp = await client.get(target, headers={"Accept": "application/json"})
             # 404/410은 경로 부재 = 잘못된 endpoint(dead). 그 외 도달은 live(3xx·405·인증 포함).
             return resp.status_code not in (404, 410)

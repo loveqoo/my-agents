@@ -17,6 +17,8 @@ from fastapi import Depends as _Depends
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from agent import net_policy
+
 from . import catalog, crypto
 from .block_versions import delete_block_history, record_block_version
 from .db import get_or_404, get_session
@@ -36,7 +38,7 @@ from .serializers import provider_to_out
 # 메모리 소진 차단. 2MB면 수천 모델 목록도 충분.
 _MAX_MODELS_BYTES = 2 * 1024 * 1024
 
-# GET /models 스트림 전체 벽시계 deadline(초). httpx timeout=10은 per-read 한도라
+# GET /models 스트림 전체 벽시계 deadline(초). httpx 타임아웃(net_policy probe)은 per-read 한도라
 # slow-trickle(바이트당 <10s) 응답을 못 막는다 — 적대 리뷰 047. 상한 도달까지
 # 누적해도 이 deadline 안에서 끝나야 코루틴을 오래 붙잡지 않는다.
 _STREAM_DEADLINE = 20
@@ -105,7 +107,7 @@ async def _list_remote_models(base_url: str, api_key: str | None) -> tuple[bool,
 
     SSRF: base_url은 관리자 입력(신뢰경계 이미 넘음, _probe와 동일 판단 — learning 028). 단
     http(s) 스킴·타임아웃·raw 바이트 상한·data[*].id 타입 검증은 기본값으로 켠다.
-    httpx timeout=10은 per-read(읽기 1회) 한도라, 1바이트씩 9초마다 흘리는 악성 응답이
+    httpx 타임아웃(net_policy probe, per-read 한도)이라 1바이트씩 천천히 흘리는 악성 응답이
     연결을 무한정 붙잡을 수 있다(적대 리뷰 047) → asyncio.timeout으로 스트림 전체에
     벽시계 deadline(_STREAM_DEADLINE)을 따로 건다. 둘 다 있어야 "타임아웃" 주장이 참이 된다.
     반환: (reachable, detail, ids). 비밀은 detail에 미포함.
@@ -119,7 +121,7 @@ async def _list_remote_models(base_url: str, api_key: str | None) -> tuple[bool,
     buf = bytearray()
     try:
         async with asyncio.timeout(_STREAM_DEADLINE):
-            async with httpx.AsyncClient(timeout=10) as client:
+            async with httpx.AsyncClient(timeout=net_policy.policy("probe").timeout_s) as client:
                 async with client.stream("GET", url, headers=headers) as r:
                     if r.status_code != 200:
                         return True, f"HTTP {r.status_code}", []  # 본문은 키 에코 가능 — 미노출

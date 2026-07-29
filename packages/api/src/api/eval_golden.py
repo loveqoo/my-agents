@@ -12,6 +12,8 @@ import uuid
 import httpx
 from sqlalchemy import func, select
 
+from agent import net_policy
+
 from .db import SessionLocal
 from .models import Chunk, Document
 
@@ -19,7 +21,8 @@ log = logging.getLogger("api.eval")
 
 _MIN_CHUNK_CHARS = 80  # 이보다 짧으면 질문 생성 재료로 부적합
 _PER_DOC_CAP = 2  # 문서 다양성 — 한 문서에서 최대 N청크
-_GEN_TIMEOUT = 30.0
+# 외부호출 정책(스펙 430) — 정본은 net_policy.POLICIES["model.eval"](60s·재시도1·회로).
+_NET_KEY = "model.eval"
 
 _SYSTEM = (
     "당신은 검색 품질 시험 문제 출제자입니다. 주어진 문단만으로 답할 수 있는 자연스러운 한국어 "
@@ -91,21 +94,24 @@ async def _sample_chunks(collection_id: uuid.UUID, want: int) -> list[tuple[str,
 async def _gen_question(chunk_text: str, llm_cfg: dict) -> str | None:
     """청크 1개 → 질문 1개(형식 이탈=None). 호출 실패도 None(그 청크 건너뜀)."""
     try:
-        async with httpx.AsyncClient(timeout=_GEN_TIMEOUT) as client:
-            resp = await client.post(
-                f"{llm_cfg['base_url'].rstrip('/')}/chat/completions",
-                headers={"Authorization": f"Bearer {llm_cfg.get('api_key') or 'sk-noauth'}"},
-                json={
-                    "model": llm_cfg["model_id"],
-                    "temperature": 0.3,  # 약간의 다양성(질문 중복 방지) — 판정이 아니라 생성
-                    "messages": [
-                        {"role": "system", "content": _SYSTEM},
-                        {"role": "user", "content": f"[문단]\n{chunk_text[:3000]}"},
-                    ],
-                },
-            )
-            resp.raise_for_status()
-            return _parse_question(resp.json()["choices"][0]["message"]["content"])
+        async def _post() -> str:
+            async with httpx.AsyncClient(timeout=net_policy.policy(_NET_KEY).timeout_s) as client:
+                resp = await client.post(
+                    f"{llm_cfg['base_url'].rstrip('/')}/chat/completions",
+                    headers={"Authorization": f"Bearer {llm_cfg.get('api_key') or 'sk-noauth'}"},
+                    json={
+                        "model": llm_cfg["model_id"],
+                        "temperature": 0.3,  # 약간의 다양성(질문 중복 방지) — 판정이 아니라 생성
+                        "messages": [
+                            {"role": "system", "content": _SYSTEM},
+                            {"role": "user", "content": f"[문단]\n{chunk_text[:3000]}"},
+                        ],
+                    },
+                )
+                resp.raise_for_status()
+                return resp.json()["choices"][0]["message"]["content"]
+
+        return _parse_question(await net_policy.call(_NET_KEY, llm_cfg["base_url"], _post))
     except Exception as exc:
         log.warning("골든 질문 생성 실패: %s", exc)
         return None

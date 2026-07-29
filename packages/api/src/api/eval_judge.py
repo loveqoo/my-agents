@@ -12,10 +12,14 @@ import logging
 
 import httpx
 
+from agent import net_policy
+
 log = logging.getLogger("api.eval")
 
 _REASON_CAP = 300
-_JUDGE_TIMEOUT = 30.0  # 케이스당 judge 시간 폭주 방지(codex 139 #4 — 기준 수 캡과 함께)
+# 외부호출 정책(스펙 430) — 정본은 net_policy.POLICIES["model.eval"](60s·재시도1·회로).
+# 케이스당 judge 시간 폭주 방지 취지(codex 139 #4)는 정책 timeout이 승계.
+_NET_KEY = "model.eval"
 
 _SYSTEM = (
     "당신은 엄격한 평가 심판입니다. 아래 [답변]이 [판정 기준]을 만족하는지만 판정하세요.\n"
@@ -54,21 +58,24 @@ async def run_llm_judge(question: str, output: str, criterion: str, llm_cfg: dic
         f"[판정 기준]\n{safe_crit}"
     )
     try:
-        async with httpx.AsyncClient(timeout=_JUDGE_TIMEOUT) as client:
-            resp = await client.post(
-                f"{llm_cfg['base_url'].rstrip('/')}/chat/completions",
-                headers={"Authorization": f"Bearer {llm_cfg.get('api_key') or 'sk-noauth'}"},
-                json={
-                    "model": llm_cfg["model_id"],
-                    "temperature": 0,
-                    "messages": [
-                        {"role": "system", "content": _SYSTEM},
-                        {"role": "user", "content": user},
-                    ],
-                },
-            )
-            resp.raise_for_status()
-            text = resp.json()["choices"][0]["message"]["content"]
+        async def _post() -> str:
+            async with httpx.AsyncClient(timeout=net_policy.policy(_NET_KEY).timeout_s) as client:
+                resp = await client.post(
+                    f"{llm_cfg['base_url'].rstrip('/')}/chat/completions",
+                    headers={"Authorization": f"Bearer {llm_cfg.get('api_key') or 'sk-noauth'}"},
+                    json={
+                        "model": llm_cfg["model_id"],
+                        "temperature": 0,
+                        "messages": [
+                            {"role": "system", "content": _SYSTEM},
+                            {"role": "user", "content": user},
+                        ],
+                    },
+                )
+                resp.raise_for_status()
+                return resp.json()["choices"][0]["message"]["content"]
+
+        text = await net_policy.call(_NET_KEY, llm_cfg["base_url"], _post)
     except Exception as exc:
         log.warning("llm_judge 호출 실패: %s", exc)
         return {"pass": False, "reason": f"심판 호출 실패: {str(exc)[:150]}"}
