@@ -30,6 +30,7 @@ import pathlib
 import re
 import subprocess
 import sys
+import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))  # tests/ — _dbharness import(스펙 414)
 from _dbharness import fresh_db
@@ -156,9 +157,29 @@ def main() -> None:
     drift_now_passing: list[str] = []
     totals = {"pass": 0, "fail": 0, "error": 0}
 
+    # 진행 노출(스펙 431) — 그룹-후 일괄 출력만 있으면 db 그룹(직렬 수 분)이 도는 동안 로그가
+    # 침묵한다(tail -f 무용). 끝나는 즉시 스트리밍 한 줄 + 진행 파일(/tmp/suite-progress.json) 갱신.
+    from _progress import ProgressWriter
+
+    total_n = sum(len(cats[c]) for c in wanted)
+    prog = ProgressWriter("run_suite", total_n)
+    done_box = [0]  # 클로저 카운터(그룹 가로지름)
+
+    def _stream(res: tuple[str, str, str], sec: float) -> None:
+        done_box[0] += 1
+        name, verdict, _ = res
+        okf = verdict == "pass"
+        prog.finish(name, okf)
+        mark = "ok" if okf else verdict.upper()
+        print(f"  [{done_box[0]}/{total_n}] {name} {mark} ({sec:.1f}s)", flush=True)
+
+    def _timed(f: pathlib.Path, **kw) -> tuple[tuple[str, str, str], float]:
+        t0 = time.perf_counter()
+        return run_one(f, **kw), time.perf_counter() - t0
+
     for c in wanted:
         files = cats[c]
-        print(f"\n=== [{c}] {len(files)}개 실행 ===")
+        print(f"\n=== [{c}] {len(files)}개 실행 ===", flush=True)
         # unit만 병렬 안전(공유 상태 없이 파일만 읽음). db/http는 **같은 DB·서버를 공유**해 병렬로
         # 돌리면 서로 시드·테이블을 밟아 **거짓 실패**를 만든다(스펙 353 실측: verify_038이 단독 exit 0인데
         # 6-병렬 판에선 error). 그래서 db/http는 직렬. asgi도 직렬 — DB는 각자 virgin이지만
@@ -170,17 +191,24 @@ def main() -> None:
             # 스펙 414: db 그룹 전체를 **run당 virgin DB 1개**로 격리(dev DB 잔재·동시활동·상호오염
             # 차단). 부트스트랩(alembic+seed) 1회 상각 후 전 db 테스트가 그 DB를 DATABASE_URL로 공유.
             # _throwaway_db.py 마커 테스트(파괴적 downgrade 등)는 run_one이 여전히 자기 per-test DB로.
-            print("  [db] run당 virgin DB 격리 — dev DB 무접촉(스펙 414)")
+            print("  [db] run당 virgin DB 격리 — dev DB 무접촉(스펙 414)", flush=True)
             with fresh_db(label="run") as (_run_url, run_env):
-                results = [run_one(f, env=run_env) for f in files]
+                results = []
+                for f in files:  # 직렬 — start로 '지금 도는 것'까지 노출(스펙 431)
+                    prog.start(f.name)
+                    res, sec = _timed(f, env=run_env)
+                    results.append(res)
+                    _stream(res, sec)
         else:
             with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
-                results = list(
-                    ex.map(
-                        lambda f, _i=isolate, _s=iso_srv: run_one(f, isolate=_i, isolate_server=_s),
-                        files,
-                    )
-                )
+                futs = [
+                    ex.submit(_timed, f, isolate=isolate, isolate_server=iso_srv) for f in files
+                ]
+                results = []
+                for fut in concurrent.futures.as_completed(futs):  # 끝나는 순서로 스트리밍(431)
+                    res, sec = fut.result()
+                    results.append(res)
+                    _stream(res, sec)
         for name, verdict, detail in sorted(results):
             totals[verdict] += 1
             drift = name in KNOWN_DRIFT

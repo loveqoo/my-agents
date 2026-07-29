@@ -774,20 +774,31 @@ async def main() -> int:
                 tok.strip() in key for tok in args.only.split(",") if tok.strip()
             )
 
-        for sc in SCENARIOS:
-            if not _want(sc["key"], sc):
-                continue
+        # 진행 노출(스펙 431) — 대상을 먼저 확정해 n/N을 알리고, 진행 파일을 갱신한다.
+        import pathlib as _pl
+        import sys as _sys
+
+        _sys.path.insert(0, str(_pl.Path(__file__).resolve().parents[1]))  # tests/ — _progress
+        from _progress import ProgressWriter
+
+        wanted_scen = [sc for sc in SCENARIOS if _want(sc["key"], sc)]
+        wanted_custom = [(key, fn) for key, fn in CUSTOM_SCENARIOS if _want(key)]
+        total_n = len(wanted_scen) + len(wanted_custom)
+        prog = ProgressWriter("suite", total_n)
+        for sc in wanted_scen:
+            prog.start(sc["key"])
             rows.append(
                 await run_one(
                     sc["key"], lambda sc=sc: run_data_scenario(c, fx, sc), retries=args.retries
                 )
             )
-            _print_row(rows[-1])
-        for key, fn in CUSTOM_SCENARIOS:
-            if not _want(key):
-                continue
+            prog.finish(sc["key"], rows[-1][1] != "FAIL")
+            _print_row(rows[-1], len(rows), total_n)
+        for key, fn in wanted_custom:
+            prog.start(key)
             rows.append(await run_one(key, lambda fn=fn: fn(c, fx), retries=args.retries))
-            _print_row(rows[-1])
+            prog.finish(key, rows[-1][1] != "FAIL")
+            _print_row(rows[-1], len(rows), total_n)
 
     await checkpointer.close_checkpointer()
 
@@ -816,10 +827,11 @@ async def main() -> int:
     return 0
 
 
-def _print_row(row: tuple[str, str, list[str], float]) -> None:
+def _print_row(row: tuple[str, str, list[str], float], idx: int = 0, total: int = 0) -> None:
     key, status, fails, sec = row
     mark = {"ok": "  ok  ", "flaky": " flaky", "FAIL": " FAIL "}[status]
-    print(f"{mark} {key} ({sec:.1f}s)" + (f" — {fails[0]}" if fails else ""))
+    prefix = f"[{idx}/{total}]" if total else ""  # 진행 카운터(스펙 431)
+    print(f"{prefix}{mark} {key} ({sec:.1f}s)" + (f" — {fails[0]}" if fails else ""), flush=True)
 
 
 if __name__ == "__main__":
