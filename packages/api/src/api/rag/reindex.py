@@ -1,14 +1,16 @@
 """rag.reindex — 라우트 핸들러(스펙 381 분할). 서비스/헬퍼는 shared."""
 
+import asyncio
+import contextlib
 import uuid
 
 from fastapi import Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import rag_ingest
 from ..auth import current_principal
-from ..db import get_or_404, get_session
+from ..db import SessionLocal, get_or_404, get_session
 from ..models import (
     Collection,
     CollectionReindexEvent,
@@ -70,6 +72,18 @@ async def reindex_collection(
         raise HTTPException(
             status_code=409, detail="다른 재인덱싱이 진행 중이거나 컬렉션이 사용 중입니다."
         )
+    # 취소 해제용 스칼라 박제(스펙 434) — ORM 객체는 세션이 죽으면 못 읽는다(발자국 소실 실측).
+    _cancel_snap = {
+        "from_model_id": from_model.id if from_model else None,
+        "from_model_name": from_model.name if from_model else None,
+        "to_model_id": target_model.id if target_model else None,
+        "to_model_name": target_model.name if target_model else None,
+        "from_size": from_size,
+        "from_overlap": from_overlap,
+        "new_size": new_size,
+        "new_overlap": new_overlap,
+        "owner": owner_of(principal),
+    }
     try:
         count = await _do_reindex(
             session, c, target_model, target_model_id, chunk_change, new_size, new_overlap
@@ -97,6 +111,15 @@ async def reindex_collection(
             owner_of(principal),
         )
         raise HTTPException(status_code=500, detail=detail) from exc
+    except BaseException:
+        # 취소(CancelledError)·기타 BaseException — **잠금은 어떤 종료 경로로도 반드시 푼다**(스펙 434,
+        # codex 433 P2). 종전엔 except Exception만 있어 클라이언트 이탈·종료 신호가 오면 status가
+        # 'reindexing'에 갇혀 그 컬렉션의 편집·업로드·재인덱싱이 **재기동 전까지 409**였다.
+        # 데이터는 미커밋 스왑이라 롤백으로 원 상태 온전(스펙 312 원자성) → 상태는 ready가 정확
+        # (부팅 스윕 _recover_stale_reindex와 같은 근거). 취소 컨텍스트에선 현재 세션이 이미 죽었을 수
+        # 있어 **새 세션 + shield**로 해제한다(스펙 403 shielded_release 선례). 원래 예외는 재전파.
+        await asyncio.shield(_release_lock_after_cancel(cid, _cancel_snap))
+        raise
     await _set_collection_status(session, cid, "ready")
     await _record_reindex_event(
         session,
@@ -115,6 +138,47 @@ async def reindex_collection(
     updated = await _load_collection(session, cid)
     assert updated is not None
     return collection_to_out(updated)
+
+
+async def _release_lock_after_cancel(
+    cid: uuid.UUID,
+    snap: dict,
+) -> None:
+    """취소 시 잠금 해제 + 발자국(스펙 434) — **새 세션**으로(요청 세션은 취소로 죽었을 수 있음).
+
+    `snap`은 **잠금 시점에 박제한 스칼라**(모델 id·name·청크 파라미터·owner) — ORM 객체를 넘기면
+    죽은 세션에 묶여 속성 접근이 터지고(그 예외를 suppress가 삼켜) 발자국이 조용히 사라진다
+    (실측으로 잡음: 이력 0건 → 스칼라 박제로 교정. 스펙 331 "세션 만료 전 스칼라 박제"와 같은 결).
+
+    best-effort: 해제·기록이 실패해도 원래 예외 전파를 막지 않는다(부팅 스윕이 마지막 그물).
+    status는 아직 reindexing일 때만 되돌린다(다른 주체가 이미 정리했으면 덮지 않음)."""
+    with contextlib.suppress(Exception):
+        async with SessionLocal() as s2:
+            res = await s2.execute(
+                update(Collection)
+                .where(Collection.id == cid, Collection.status == "reindexing")
+                .values(status="ready")
+            )
+            await s2.commit()
+            if res.rowcount:  # 우리가 실제로 푼 경우만 이력 기록(중복 발자국 방지)
+                s2.add(
+                    CollectionReindexEvent(
+                        collection_id=cid,
+                        from_model_id=snap["from_model_id"],
+                        from_model_name=snap["from_model_name"],
+                        to_model_id=snap["to_model_id"],
+                        to_model_name=snap["to_model_name"],
+                        from_chunk_size=snap["from_size"],
+                        from_chunk_overlap=snap["from_overlap"],
+                        to_chunk_size=snap["new_size"],
+                        to_chunk_overlap=snap["new_overlap"],
+                        chunk_count=0,
+                        status="error",
+                        error="취소됨(클라이언트 이탈·서버 종료) — 데이터는 원 상태 유지, 잠금 해제됨",
+                        owner_id=snap["owner"],
+                    )
+                )
+                await s2.commit()
 
 
 @router.get("/{cid}/reindex-events", response_model=list[ReindexEventOut])
