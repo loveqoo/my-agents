@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .. import rag_ingest
 from ..auth import current_principal
 from ..background import spawn
-from ..db import get_or_404, get_session
+from ..db import SessionLocal, get_or_404, get_session
 from ..models import (
     Chunk,
     Collection,
@@ -241,25 +241,19 @@ async def update_document_content(
 
     # 부분 재임베딩 — 기존 청크 text→벡터 맵을 만들고, 텍스트가 같은 청크는 벡터 재사용.
     # 재청킹은 결정적(같은 텍스트→같은 청크)이라 수정 지점 주변(경계 밀림 포함)만 임베딩 비용 발생.
-    old_rows = (
-        await session.execute(
-            select(Chunk.text, Chunk.embedding).where(Chunk.document_id == doc.id)
-        )
-    ).all()
-    old_map = dict(old_rows)  # (text → 기존 벡터)
+    # 재사용 판정은 **텍스트 집합만으로**(스펙 433 — 벡터 컬럼 미조회): 종전엔 문서 전 청크의
+    # text→벡터 맵을 메모리에 올려 피크가 문서 규모에 비례했다(업로드 캡 25MB면 인제스트급).
+    # 벡터는 아래 스왑 루프가 **배치별로 DB에서** 가져온다(상주 유계).
+    # 재사용 판정은 **텍스트 집합만**(스펙 433 — 벡터 컬럼 미조회로 문서 전 벡터 상주 소멸).
+    old_texts = set(
+        (await session.execute(select(Chunk.text).where(Chunk.document_id == doc.id))).scalars()
+    )
     # 통계는 **청크(occurrence) 기준**(codex 331 P2 — reused+reembedded==chunks 불변식): 같은 새
-    # 텍스트가 문서 안에 두 번 나와도 둘 다 "재임베딩된 청크"다. 임베딩 *호출*은 유일화해 1회.
-    reembedded = sum(1 for t in new_chunks if t not in old_map)
+    # 텍스트가 문서 안에 두 번 나와도 둘 다 "재임베딩된 청크"다.
+    reembedded = sum(1 for t in new_chunks if t not in old_texts)
     reused = len(new_chunks) - reembedded
-    missing = list(dict.fromkeys(t for t in new_chunks if t not in old_map))  # 호출용 유일화
-    # 무중단(스펙 313): HTTP 임베딩은 트랜잭션 밖에서 끝내고 쓰기는 아래 스왑 한 번만.
+    # 무중단(스펙 313): 읽기 스냅샷을 닫고, 쓰기는 아래 스왑 한 트랜잭션·커밋 1회.
     await session.commit()
-    if missing:
-        try:
-            new_vectors = await _embed_chunks(col, missing)
-        except rag_ingest.IngestError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        old_map.update(zip(missing, new_vectors, strict=True))
 
     # 원자 스왑 — 조건부 UPDATE를 먼저(재인덱싱 CAS 직렬화 + 시작됐으면 취소, 312 codex F1). 이
     # UPDATE가 컬렉션 행을 잠근 뒤, 집계 증분은 스냅샷의 doc.chunk_count가 아니라 **실제 delete
@@ -275,25 +269,63 @@ async def update_document_content(
             status_code=409,
             detail="재인덱싱이 진행 중이라 수정을 취소했습니다 — 완료 후 다시 시도하세요.",
         )
+    # 옛 청크 삭제는 **문서 단위·선행 그대로**(codex 433 P1 교정): id 지정 삭제로 바꾸면 동시 편집
+    # last-write-wins가 깨진다(대기하던 B가 A의 청크를 못 지워 A+B 공존·집계 과대). 문서 단위 DELETE는
+    # 잠금을 얻은 쪽이 상대 청크까지 치워 LWW를 보존한다(스펙 331 경계 유지).
     deleted = (await session.execute(delete(Chunk).where(Chunk.document_id == doc.id))).rowcount
     await session.execute(
         update(Collection)
         .where(Collection.id == cid)
         .values(chunk_count=func.greatest(Collection.chunk_count - deleted + len(new_chunks), 0))
     )
-    for i, (t, m) in enumerate(zip(new_chunks, new_metas, strict=True)):
-        session.add(
+    # 배치 스왑(스펙 433): 배치마다 ①재사용 텍스트의 옛 벡터를 **별도 읽기 세션**에서 조회 — 우리
+    # DELETE는 아직 미커밋이라 다른 세션 스냅샷엔 옛 행이 그대로 보인다(같은 text=같은 벡터라 값 동일)
+    # ②미보유 텍스트만 임베딩 ③insert→flush→expunge → 벡터 상주가 배치 1개(문서 전 벡터 맵 소멸).
+    # **정직한 변경**: 임베딩 호출 유일화가 "문서 전체"→"배치 내"로 축소(배치를 가로지르는 동일 신규
+    # 텍스트는 재임베딩 가능 — 같은 텍스트=같은 벡터라 정합성 무영향, 비용만 미미 증가).
+    # 재인덱싱 F1 가드(위 조건부 UPDATE)는 **선행 유지** — 편집은 문서 1개(유계)라 잠금 시간이 짧고
+    # 안전 시맨틱(스펙 331/312)을 건드리지 않는 쪽을 택했다(432 인제스트와 다른 판단·의도적).
+    for start in range(0, len(new_chunks), rag_ingest.EMBED_BATCH):
+        bt = new_chunks[start : start + rag_ingest.EMBED_BATCH]
+        bm = new_metas[start : start + rag_ingest.EMBED_BATCH]
+        reuse_texts = [t for t in dict.fromkeys(bt) if t in old_texts]
+        vec_map: dict[str, list] = {}
+        if reuse_texts:
+            async with SessionLocal() as rs:  # 읽기 전용 스냅샷 — 우리 미커밋 DELETE 무영향
+                for _t, _v in (
+                    await rs.execute(
+                        select(Chunk.text, Chunk.embedding).where(
+                            Chunk.document_id == doc.id, Chunk.text.in_(reuse_texts)
+                        )
+                    )
+                ).all():
+                    vec_map.setdefault(_t, _v)
+        need = list(dict.fromkeys(t for t in bt if t not in vec_map))
+        if need:
+            try:
+                fresh = await _embed_chunks(col, need)
+            except rag_ingest.IngestError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            vec_map.update(zip(need, fresh, strict=True))
+            del fresh
+        added = [
             Chunk(
                 document_id=doc.id,
                 collection_id=cid,
-                ordinal=i,
+                ordinal=start + j,
                 text=t,
                 # 엔티티=행 metadata(스펙 332 — 텍스트 동일·meta만 변경이어도 여기서 갱신됨,
                 # 벡터는 재사용). 문서형은 None.
                 meta=m,
-                embedding=old_map[t],
+                embedding=vec_map[t],
             )
-        )
+            for j, (t, m) in enumerate(zip(bt, bm, strict=True))
+        ]
+        session.add_all(added)
+        await session.flush()
+        for row in added:  # identity map 해제(432 패턴) — flush된 ORM 상주 방지
+            session.expunge(row)
+        del added, vec_map
     doc.chunk_count = len(new_chunks)
     doc.byte_size = len(data)
     doc.status = "ready"

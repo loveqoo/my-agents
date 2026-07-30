@@ -27,14 +27,21 @@ sys.path.insert(
     ),
 )
 
-from fastapi import HTTPException, UploadFile  # noqa: E402
-from sqlalchemy import func, select  # noqa: E402
-from starlette.datastructures import Headers  # noqa: E402
+from fastapi import HTTPException, UploadFile
+from sqlalchemy import func, select, update
+from starlette.datastructures import Headers
 
-from api import rag as RAG  # noqa: E402
-from api.db import SessionLocal  # noqa: E402
-from api.models import RAG_EMBED_DIMS, Chunk, Collection, Document, DocumentBlob, ModelConfig  # noqa: E402
-from api.schemas import CollectionSearchIn, DocumentEditIn  # noqa: E402
+from api import rag as RAG
+from api.db import SessionLocal
+from api.models import (
+    RAG_EMBED_DIMS,
+    Chunk,
+    Collection,
+    Document,
+    DocumentBlob,
+    ModelConfig,
+)
+from api.schemas import CollectionSearchIn, DocumentEditIn
 
 _fails = []
 passed = 0
@@ -198,7 +205,7 @@ async def main():
             top is not None and top.text == PARA3_NEW and top.score > 0.99,
             f"G7a 새 청크가 동일질의 1.0 최상위 (got score={top.score if top else '없음'})",
         )
-        check(all(PARA3 != h.text for h in sr.results), "G7b 삭제된 구 청크는 검색에 없음")
+        check(all(h.text != PARA3 for h in sr.results), "G7b 삭제된 구 청크는 검색에 없음")
 
         # ── G4f 중복 신규 청크(codex 331 P2): 통계는 occurrence 기준 — 같은 텍스트 2청크면
         # reembedded=2·임베딩 호출은 유일화 1건. G4g 집계=실측(codex P1 — delete rowcount 기반). ──
@@ -234,6 +241,43 @@ async def main():
             col_cnt == actual_chunks == 2,
             f"G4g 집계==실측 청크 수 (집계 {col_cnt}·실측 {actual_chunks})",
         )
+
+        # ── G4h last-write-wins 보존(codex 433 P1 회귀 핀) — 스펙 433이 편집 스왑을 배치화하며 옛 청크
+        # 삭제를 "id 지정"으로 바꿨다가 **우리 스냅샷이 모르는 청크**(동시 편집 A가 넣은 행)를 못 지워
+        # A+B 공존·집계 과대가 됐다. 문서 단위 DELETE 복원의 핀: 팬텀 청크를 심고 편집하면 사라져야.
+        s.add(
+            Chunk(
+                document_id=doc_id,
+                collection_id=cid,
+                ordinal=999,
+                text="팬텀-동시편집이-넣은-청크",
+                meta=None,
+                embedding=[0.0] * 1024,
+            )
+        )
+        # 동시 편집 A가 **집계까지 커밋한** 상태를 충실히 재현(팬텀 1개 → chunk_count +1).
+        await s.execute(
+            update(Collection)
+            .where(Collection.id == cid)
+            .values(chunk_count=Collection.chunk_count + 1)
+        )
+        await s.commit()
+        await RAG.update_document_content(cid, doc_id, DocumentEditIn(text="최종 본문"), s, sup)
+        left = (
+            await s.execute(
+                select(func.count(Chunk.id)).where(
+                    Chunk.document_id == doc_id, Chunk.text == "팬텀-동시편집이-넣은-청크"
+                )
+            )
+        ).scalar_one()
+        actual_h = (
+            await s.execute(select(func.count(Chunk.id)).where(Chunk.collection_id == cid))
+        ).scalar_one()
+        col_h = (
+            await s.execute(select(Collection.chunk_count).where(Collection.id == cid))
+        ).scalar_one()
+        check(left == 0, f"G4h LWW: 스냅샷 밖 팬텀 청크도 삭제됨 (남은 {left})")
+        check(col_h == actual_h, f"G4h 집계==실측 유지 (집계 {col_h}·실측 {actual_h})")
 
         # ── G2 PDF — editable=false + PUT 400 ──
         pdf_doc = Document(

@@ -128,10 +128,15 @@ async def _do_reindex(
         # 무중단(스펙 313): 읽기 스냅샷을 먼저 닫고(commit) HTTP 임베딩을 트랜잭션 밖에서 수행 →
         # 뒤이은 UPDATE+커밋만 짧은 쓰기 트랜잭션. MVCC상 동시 검색은 이 커밋 전까지 옛 임베딩을 본다.
         await session.commit()
-        if rows:
-            vectors = await _embed_with_model(target_model, [t for _id, t in rows])
-            for (chunk_id, _t), v in zip(rows, vectors, strict=True):
+        # 배치 임베딩(스펙 433 — 432 패턴 이식): 종전엔 컬렉션 전 벡터를 리스트로 쌓아 피크가 규모에
+        # 비례했다. EMBED_BATCH(128)마다 임베딩→UPDATE→참조 해제로 벡터 상주를 배치 1개로 유계화.
+        # 커밋은 아래 스왑 1회 그대로(무중단·원자성 유지 — 스펙 313/312).
+        for start in range(0, len(rows), rag_ingest.EMBED_BATCH):
+            batch = rows[start : start + rag_ingest.EMBED_BATCH]
+            vectors = await _embed_with_model(target_model, [t for _id, t in batch])
+            for (chunk_id, _t), v in zip(batch, vectors, strict=True):
                 await session.execute(update(Chunk).where(Chunk.id == chunk_id).values(embedding=v))
+            del vectors  # 다음 배치 임베딩 전에 해제(피크는 배치 1개)
         await session.execute(
             update(Collection)
             .where(Collection.id == c.id)
@@ -146,8 +151,17 @@ async def _do_reindex(
         .scalars()
         .all()
     )
-    rebuilt: list[tuple[Document, list[str], list]] = []
     total = 0
+    # 원자 스왑(무중단 스펙 313 유지 — 커밋은 말미 1회): 기존 청크 전량 삭제 → **문서마다** 재청킹·
+    # 배치 임베딩·insert·flush·expunge → 컬렉션 갱신 → 1회 커밋. 동시 검색은 이 커밋 전까지 옛 청크를,
+    # 커밋 순간부터 새 청크를 본다(MVCC — flush분은 커밋 전 불가시라 반쪽 노출 불가).
+    #
+    # 스펙 433 변경: 종전엔 `rebuilt`에 **전 문서의 청크+벡터**를 모아 컬렉션 규모에 비례한 피크를
+    # 만들었다(인제스트보다 큰 부류 — 432 OUT 씨앗). 이제 문서 단위로 흘려보내 상주를 문서 1개(그 안
+    # 배치 1개 벡터)로 유계화.
+    # **정직한 대가**: DELETE가 임베딩보다 먼저라, 계산 중 실패 시 종전의 "쓰기 자체가 없음" 대신
+    # **롤백에 의존**한다(결과 동일: 원 상태 온전·반쪽 없음 — 커밋이 1회뿐이므로).
+    await session.execute(delete(Chunk).where(Chunk.collection_id == c.id))
     for doc in docs:
         blob = await session.get(DocumentBlob, doc.id)
         if blob is None:  # 사전 가드에서 걸러지지만 방어(경합 삭제 등)
@@ -156,26 +170,28 @@ async def _do_reindex(
         new_chunks = rag_ingest.chunk_text(text, new_size, new_overlap)
         if not new_chunks:
             raise rag_ingest.IngestError(f"문서 '{doc.filename}' 재청킹 결과가 비었습니다.")
-        vectors = await _embed_with_model(target_model, new_chunks)
-        rebuilt.append((doc, new_chunks, vectors))
-        total += len(new_chunks)
-    # 원자 스왑: 기존 청크 전량 삭제 → 새 청크 삽입 → 문서/컬렉션 갱신 → 1회 커밋. 무중단(스펙 313):
-    # HTTP 임베딩은 위 루프에서 이미 끝났고 여기서 처음 쓰기 락을 잡으므로, 동시 검색은 이 커밋
-    # 전까지 옛 청크를, 커밋 순간부터 새 청크를 본다(MVCC 스냅샷 — 반쪽 불가·리더 블로킹 없음).
-    await session.execute(delete(Chunk).where(Chunk.collection_id == c.id))
-    for doc, new_chunks, vectors in rebuilt:
-        for i, (t, v) in enumerate(zip(new_chunks, vectors, strict=True)):
-            session.add(
+        for start in range(0, len(new_chunks), rag_ingest.EMBED_BATCH):
+            bc = new_chunks[start : start + rag_ingest.EMBED_BATCH]
+            vectors = await _embed_with_model(target_model, bc)
+            added = [
                 Chunk(
                     document_id=doc.id,
                     collection_id=c.id,
-                    ordinal=i,
+                    ordinal=start + j,
                     text=t,
                     meta=None,  # 재청킹은 문서형만 — 엔티티 meta 없음
                     embedding=v,
                 )
-            )
+                for j, (t, v) in enumerate(zip(bc, vectors, strict=True))
+            ]
+            session.add_all(added)
+            await session.flush()
+            for row in added:  # identity map 해제 — flush된 ORM 상주 방지(432와 같은 반쪽)
+                session.expunge(row)
+            del vectors, added
         doc.chunk_count = len(new_chunks)
+        total += len(new_chunks)
+        del new_chunks, text, blob
     await session.execute(
         update(Collection)
         .where(Collection.id == c.id)
