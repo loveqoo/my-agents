@@ -208,14 +208,15 @@ async def main() -> None:
         check(r.status_code == 409, f"잠금 중 재인덱싱 → 409({r.status_code})")
 
         # CAS 이중 획득 방지: reindexing 상태에선 획득 실패
-        from api.rag import _acquire_reindex_lock, _persist_chunks
+        from api.rag import _acquire_reindex_lock, _finalize_ingest
 
         async with SessionLocal() as s:
             got = await _acquire_reindex_lock(s, uuid.UUID(cid))
         check(not got, "reindexing 상태에서 CAS 재획득 실패(이중 재인덱싱 방지)")
 
-        # F1 회귀(codex): 인제스트가 시작 가드를 지난 뒤라도 _persist_chunks가 재인덱싱 잠금을 존중 —
-        # 청크를 넣지 않고 취소(IngestError)하고 status='reindexing'을 안 덮는다(데이터 손실·잠금해제 봉인).
+        # F1 회귀(codex 312 → 스펙 432 이식): 배치 흘려보내기에선 청크가 flush(커밋 전 불가시)된 뒤
+        # 말미 _finalize_ingest의 조건부 UPDATE가 재인덱싱 잠금을 존중 — raise가 커밋을 막아 flush분까지
+        # 전체 롤백(스왑 밖 청크 커밋=P0 데이터 손실 불가 불변식은 메커니즘만 바뀌고 유지).
         from api.rag_ingest import IngestError as _IngestError
 
         async with SessionLocal() as s:
@@ -226,17 +227,60 @@ async def main() -> None:
             s.add(d)
             await s.commit()
             doc_pk = d.id  # 롤백 후 d는 expire → lazy load 회피 위해 미리 박제
+            # 배치 flush 시뮬레이션 — 커밋 전 불가시 상태의 청크
+            s.add(
+                Chunk(
+                    document_id=d.id,
+                    collection_id=col_obj.id,
+                    ordinal=0,
+                    text="race",
+                    meta=None,
+                    embedding=[0.0] * 1024,
+                )
+            )
+            await s.flush()
             raised = False
             try:
-                await _persist_chunks(s, col_obj, d, ["race"], [None], [[0.0] * 1024])
+                await _finalize_ingest(
+                    s,
+                    col_obj,
+                    d,
+                    1,
+                    used_model_id=col_obj.embedding_model_id,
+                    used_chunk_size=col_obj.chunk_size,
+                    used_chunk_overlap=col_obj.chunk_overlap,
+                )
             except _IngestError:
                 raised = True
             await s.rollback()
-            check(raised, "F1: 재인덱싱 중 _persist_chunks가 취소(IngestError — 청크·잠금 존중)")
+            check(raised, "F1: 재인덱싱 중 _finalize_ingest가 취소(IngestError — 커밋 차단)")
             st = (
                 await s.execute(select(Collection.status).where(Collection.id == uuid.UUID(cid)))
             ).scalar_one()
-            check(st == "reindexing", "F1: _persist_chunks가 잠금을 안 덮음(status 유지)")
+            check(st == "reindexing", "F1: _finalize_ingest가 잠금을 안 덮음(status 유지)")
+            # F1b(codex 432 P0 회귀): 재인덱싱이 그새 **완주**(status=ready 복귀)했어도, 임베딩에 쓴
+            # 재료(모델·청킹)가 컬렉션 현재값과 다르면 취소 — 옛 재료 청크가 새 스왑에 섞이는 창 봉인.
+            fresh = (
+                await s.execute(select(Collection).where(Collection.id == uuid.UUID(cid)))
+            ).scalar_one()
+            d2 = Document(collection_id=fresh.id, filename="race2.txt", status="parsing")
+            s.add(d2)
+            await s.flush()
+            raised2 = False
+            try:
+                await _finalize_ingest(
+                    s,
+                    fresh,
+                    d2,
+                    1,
+                    used_model_id=uuid.uuid4(),  # 재인덱싱이 모델을 갈아치운 상황 재현(불일치)
+                    used_chunk_size=fresh.chunk_size,
+                    used_chunk_overlap=fresh.chunk_overlap,
+                )
+            except _IngestError:
+                raised2 = True
+            await s.rollback()
+            check(raised2, "F1b: 재료(모델) 불일치 시 finalize 취소(재인덱싱 완주 창 봉인 — codex 432 P0)")
             nchunk = (
                 await s.execute(
                     select(func.count()).select_from(Chunk).where(Chunk.document_id == doc_pk)

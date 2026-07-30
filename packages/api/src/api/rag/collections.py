@@ -193,7 +193,7 @@ async def collection_health(
 # ----------------------------- 재인덱싱·재청킹(스펙 312) -----------------------------
 # 배타 잠금: 재인덱싱 중 컬렉션 status='reindexing' → 검색·인제스트·수정·삭제·재인덱싱 전부 차단.
 # 'reindexing'은 lockable에서 제외돼 이중 재인덱싱을 CAS가 원자적으로 막는다. 인제스트는 커밋 시점
-# 조건부 UPDATE(_persist_chunks, status!='reindexing')로 경합을 닫는다(codex F1).
+# 조건부 UPDATE(_finalize_ingest, status!='reindexing')로 경합을 닫는다(codex F1, 스펙 432서 말미 이동).
 #
 # 알려진 경계(codex 적대 리뷰 — 안전 위반 아닌 미문서 경계, 개인 단일 워커 배포 전제, 스펙 312 OUT):
 #   F4: update/delete_collection의 _reject_if_reindexing은 point-in-time 가드(TOCTOU 창 존재).

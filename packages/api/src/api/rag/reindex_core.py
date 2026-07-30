@@ -221,7 +221,7 @@ def _resolve_rechunk(c: Collection, body: ReindexIn) -> tuple[bool, int, int]:
 async def _reject_inflight_ingest(session: AsyncSession, cid: uuid.UUID) -> None:
     """인제스트 진행 중(parsing **또는 embedding** — 스펙 334 배경 잡, codex 334 P1)이면 409.
     embedding을 빼면: 배경 잡이 임베딩하는 동안 재인덱싱이 시작·완료(락 해제)된 뒤 늦은
-    _persist_chunks가 조건부 UPDATE(status != reindexing)를 통과해 옛 모델 벡터/중복 청크가
+    _finalize_ingest가 조건부 UPDATE(status != reindexing)를 통과해 옛 모델 벡터/중복 청크가
     스왑 밖에 커밋된다. (사전 검사~CAS 사이 미시 경합 창은 정직 경계 — 단일 프로세스 dev 도구.)"""
     in_flight = await session.scalar(
         select(func.count())
