@@ -8,7 +8,7 @@ from fastapi import Depends, HTTPException
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .. import rag_ingest
+from .. import events, rag_ingest
 from ..auth import current_principal
 from ..db import SessionLocal, get_or_404, get_session
 from ..models import (
@@ -74,6 +74,7 @@ async def reindex_collection(
         )
     # 취소 해제용 스칼라 박제(스펙 434) — ORM 객체는 세션이 죽으면 못 읽는다(발자국 소실 실측).
     _cancel_snap = {
+        "collection": c.name,  # 취소 알림용(스펙 436) — 세션 밖 ORM 접근 금지라 스칼라 박제
         "from_model_id": from_model.id if from_model else None,
         "from_model_name": from_model.name if from_model else None,
         "to_model_id": target_model.id if target_model else None,
@@ -96,19 +97,30 @@ async def reindex_collection(
             if isinstance(exc, rag_ingest.IngestError)
             else f"재인덱싱 실패: {type(exc).__name__}"
         )
-        await _record_reindex_event(
-            session,
-            cid,
-            from_model,
-            target_model,
-            from_size,
-            from_overlap,
-            new_size,
-            new_overlap,
-            0,
-            "error",
-            detail,
-            owner_of(principal),
+        # 이력·알림은 **_cancel_snap의 스칼라로**(스펙 436에서 실측한 선재 결함 수리): rollback이 ORM
+        # 객체(from_model·target_model·c)를 만료시켜 속성 접근이 MissingGreenlet으로 터졌다 — 이력이
+        # 누락되고 500 대신 내부 오류가 새던 경로(스펙 434 "정리 경로에 ORM 금지"와 같은 부류).
+        session.add(
+            CollectionReindexEvent(
+                collection_id=cid,
+                from_model_id=_cancel_snap["from_model_id"],
+                from_model_name=_cancel_snap["from_model_name"],
+                to_model_id=_cancel_snap["to_model_id"],
+                to_model_name=_cancel_snap["to_model_name"],
+                from_chunk_size=_cancel_snap["from_size"],
+                from_chunk_overlap=_cancel_snap["from_overlap"],
+                to_chunk_size=_cancel_snap["new_size"],
+                to_chunk_overlap=_cancel_snap["new_overlap"],
+                chunk_count=0,
+                status="error",
+                error=detail,
+                owner_id=_cancel_snap["owner"],
+            )
+        )
+        await session.commit()
+        events.publish(  # 스펙 436 — 실패 알림(스칼라만)
+            {"type": "reindex", "status": "error", "collection": _cancel_snap["collection"],
+             "collection_id": str(cid), "error": detail}
         )
         raise HTTPException(status_code=500, detail=detail) from exc
     except BaseException:
@@ -121,6 +133,10 @@ async def reindex_collection(
         await asyncio.shield(_release_lock_after_cancel(cid, _cancel_snap))
         raise
     await _set_collection_status(session, cid, "ready")
+    events.publish(  # 스펙 436 — 완료 알림(이력과 같은 사실을 우하단 알림으로도, best-effort)
+        {"type": "reindex", "status": "ready", "collection": _cancel_snap["collection"], "collection_id": str(cid),
+         "chunks": count}
+    )
     await _record_reindex_event(
         session,
         cid,
@@ -179,6 +195,11 @@ async def _release_lock_after_cancel(
                     )
                 )
                 await s2.commit()
+                events.publish(  # 스펙 436 — 취소 알림(잠금을 실제로 푼 경우만)
+                    {"type": "reindex", "status": "error", "collection": snap.get("collection", ""),
+                     "collection_id": str(cid),
+                     "error": "취소됨(클라이언트 이탈·서버 종료) — 데이터는 원 상태 유지"}
+                )
 
 
 @router.get("/{cid}/reindex-events", response_model=list[ReindexEventOut])

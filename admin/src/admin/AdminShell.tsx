@@ -109,6 +109,45 @@ export default function AdminShell({ user, onLogout }: { user: Me; onLogout: () 
   // 이벤트=알림(진실은 문서 status·드로어 폴링). EventSource가 자동 재연결.
   useEffect(() => {
     return openEventStream((ev) => {
+      // 스펙 436 — 재인덱싱·평가 런도 같은 알림 채널(key 병합 규칙은 인제스트와 동일 결).
+      if (ev.type === 'reindex') {
+        if (ev.status === 'ready') {
+          notification.success({
+            key: `reindex-ok-${ev.collection_id}`,
+            title: '재인덱싱 완료',
+            description: `${ev.collection} — 청크 ${ev.chunks ?? 0}개 재적재`,
+            placement: 'bottomRight',
+          })
+        } else {
+          notification.error({
+            key: `reindex-err-${ev.collection_id}`,
+            title: '재인덱싱 실패',
+            description: `${ev.collection} — ${ev.error ?? '사유 미상'}`,
+            placement: 'bottomRight',
+            duration: 0,
+          })
+        }
+        return
+      }
+      if (ev.type === 'eval') {
+        if (ev.status === 'ok') {
+          notification.success({
+            key: `eval-ok-${ev.run_id}`,
+            title: '평가 완료',
+            description: `${ev.dataset} — ${ev.passed ?? 0}/${ev.total ?? 0} 통과 (점수 ${(ev.score ?? 0).toFixed(2)})`,
+            placement: 'bottomRight',
+          })
+        } else {
+          notification.error({
+            key: `eval-err-${ev.run_id}`,
+            title: '평가 실패',
+            description: `${ev.dataset} — ${ev.error ?? '사유 미상'}`,
+            placement: 'bottomRight',
+            duration: 0,
+          })
+        }
+        return
+      }
       if (ev.type !== 'ingest') return
       // key=컬렉션+상태(codex 335 P2) — 대량 업로드 N건이 알림 N개로 폭주하지 않게 같은
       // 컬렉션의 연속 알림은 최신 것으로 병합(안 닫은 실패 알림도 쌓이지 않음).

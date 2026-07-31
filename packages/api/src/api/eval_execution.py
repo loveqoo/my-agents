@@ -10,11 +10,12 @@ from datetime import UTC, datetime
 
 from sqlalchemy import select
 
+from . import events
 from .db import SessionLocal
 from .eval_harness import EvalCase as HarnessCase
 from .eval_harness import build_asserts, run_eval
 from .eval_runner import eval_run_agent
-from .models import EvalCase, EvalCaseResult, EvalRun, User
+from .models import EvalCase, EvalCaseResult, EvalDataset, EvalRun, User
 
 
 async def _load_harness_cases(dataset_id: uuid.UUID) -> list[HarnessCase]:
@@ -76,7 +77,15 @@ async def _persist_report(run_id: uuid.UUID, report) -> None:  # noqa: ANN001 �
         run.total = report.total
         run.summary = {"summary": report.summary()}
         run.finished_at = datetime.now(UTC)
+        # 알림용 dataset 이름 박제(스펙 436) — 세션 밖 ORM 금지(스펙 434 교훈), 커밋 전에 스칼라로.
+        _ds_name = (
+            await s.execute(select(EvalDataset.name).where(EvalDataset.id == run.dataset_id))
+        ).scalar_one_or_none() or "(문제집 미상)"
         await s.commit()
+        events.publish(  # 스펙 436 — 평가 완료 알림(best-effort, 알림이지 진실 아님)
+            {"type": "eval", "status": "ok", "dataset": _ds_name, "run_id": str(run_id),
+             "score": report.score, "passed": report.passed, "total": report.total}
+        )
 
 
 async def _mark_run_error(run_id: uuid.UUID, exc: Exception) -> None:
@@ -88,7 +97,16 @@ async def _mark_run_error(run_id: uuid.UUID, exc: Exception) -> None:
                 run.status = "error"
                 run.error = str(exc)[:1000]
                 run.finished_at = datetime.now(UTC)
+                _ds_name = (
+                    await s.execute(
+                        select(EvalDataset.name).where(EvalDataset.id == run.dataset_id)
+                    )
+                ).scalar_one_or_none() or "(문제집 미상)"
                 await s.commit()
+                events.publish(  # 스펙 436 — 실패 알림
+                    {"type": "eval", "status": "error", "dataset": _ds_name,
+                     "run_id": str(run_id), "error": str(exc)[:300]}
+                )
     except Exception:
         pass
 
