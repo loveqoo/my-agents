@@ -73,14 +73,44 @@ MEMORY_TYPES = [
 # 시드 에이전트 vectorTables가 참조하는 3종만 유지(스펙 303) — support-tickets는 참조 0 고아라 걷어냄.
 COLLECTIONS = [
     # 이름은 규칙 준수(스펙 148 — `_` 금지→`-`). AGENTS vectorTables 참조와 일치 유지.
+    # 설명 정직화(스펙 437): 종전 docs-kb "샘플 적재됨"은 화석(적재는 수동 스크립트 몫이었고 시드는
+    # 빈 껍데기만 만듦 — 초기화 후 검색이 조용히 0건이라 "기능 고장"으로 읽힘). 이제 시드가 세 컬렉션
+    # 모두 소형 샘플을 직접 적재한다(SAMPLE_DOCS) — 문구도 사실과 일치.
     (
         "docs-kb",
-        "헬프센터 문서 본문 지식베이스 — RAG 답변에 사용(샘플 적재됨, 스펙 048).",
+        "헬프센터 문서 본문 지식베이스 — RAG 답변에 사용(샘플 1건 적재됨 — 교체·추가 업로드 가능).",
         "mock-embed",
     ),
-    ("product-titles", "상품 title 임베딩 — 상품 의미 검색·추천. 문서를 업로드해 채웁니다.", None),
-    ("team-notes", "팀 노션 노트 — 내부 지식 의미 검색. 문서를 업로드해 채웁니다.", None),
+    ("product-titles", "상품 title 임베딩 — 상품 의미 검색·추천(샘플 1건 적재됨 — 교체·추가 업로드 가능).", None),
+    ("team-notes", "팀 노션 노트 — 내부 지식 의미 검색(샘플 1건 적재됨 — 교체·추가 업로드 가능).", None),
 ]
+
+# 데모 샘플 문서(스펙 437) — 초기화 직후에도 문서 검색이 바로 동작하는 첫 경험. 컬렉션 3종 전부
+# mock-embed 바인딩이라 _det_embedding(결정적)으로 시드 시 직접 적재(부팅 중 자기 HTTP 호출 불가 제약
+# 회피). 원본 blob도 함께 보존해 편집(331)·재청킹(312)·재시도(435) 계약이 샘플에도 성립.
+SAMPLE_DOCS: dict[str, tuple[str, str]] = {
+    "docs-kb": (
+        "helpcenter-sample.md",
+        "# 헬프센터 샘플 문서\n\n"
+        "이 문서는 데모용 샘플입니다. 실제 문서를 업로드하면 함께 검색됩니다.\n\n"
+        "## 계정\n비밀번호 재설정은 설정 > 보안에서 할 수 있습니다. 2단계 인증을 권장합니다.\n\n"
+        "## 요금\n요금제는 매월 1일에 갱신되며, 영수증은 이메일로 발송됩니다.\n\n"
+        "## 지원\n지원팀 응답 시간은 영업일 기준 24시간 이내입니다.",
+    ),
+    "team-notes": (
+        "team-notes-sample.md",
+        "# 팀 노트 샘플\n\n"
+        "이 문서는 데모용 샘플입니다.\n\n"
+        "## 배포 절차\n1. main 브랜치에 머지 2. CI 통과 확인 3. 스테이징 배포 후 스모크 테스트 "
+        "4. 프로덕션 배포는 화요일·목요일 오전에만 진행합니다.\n\n"
+        "## 회의\n주간 회의는 월요일 10시, 회고는 금요일 오후에 진행합니다.",
+    ),
+    "product-titles": (
+        "product-titles-sample.txt",
+        "무선 블루투스 이어폰 프로 화이트\n스테인리스 보온 텀블러 500ml\n"
+        "접이식 노트북 거치대 알루미늄\n무소음 기계식 키보드 갈축\nUSB-C 멀티 허브 7in1",
+    ),
+}
 
 
 def _collection_seed_specs(
@@ -296,18 +326,65 @@ async def _seed_collections(session: AsyncSession) -> None:
         .all()
     )
     # 게이트(스펙 048)는 _collection_seed_specs로 분리 — DB 없이 단위 테스트 가능.
-    session.add_all(
-        [
-            Collection(
-                name=n,
-                description=d,
-                embedding_model_id=mid,
-                dims=RAG_EMBED_DIMS,
-                status="empty",
-            )
-            for n, d, mid in _collection_seed_specs(embs)
-        ]
+    cols = [
+        Collection(
+            name=n,
+            description=d,
+            embedding_model_id=mid,
+            dims=RAG_EMBED_DIMS,
+            status="empty",
+        )
+        for n, d, mid in _collection_seed_specs(embs)
+    ]
+    session.add_all(cols)
+    await session.flush()  # 컬렉션 id 확보(샘플 문서 FK)
+    for col in cols:
+        await _seed_sample_doc(session, col)
+
+
+async def _seed_sample_doc(session: AsyncSession, col: Collection) -> None:
+    """데모 샘플 1문서 적재(스펙 437) — 청킹(컬렉션 파라미터)+결정적 임베딩+원본 blob 보존.
+
+    mock-embed 공간(_det_embedding)이라 질의 임베딩(mock 라우트)과 정합 — 검색이 결정적으로 동작.
+    blob까지 보존해 편집(331)·재청킹(312)·재시도(435) 계약이 샘플에도 성립. SAMPLE_DOCS에 없는
+    컬렉션(향후 추가분)은 빈 채로 두던 종전과 동일(무해)."""
+    entry = SAMPLE_DOCS.get(col.name)
+    if entry is None:
+        return
+    from . import rag_ingest
+    from .mock_remote import _det_embedding
+    from .models import Chunk, Document, DocumentBlob
+
+    filename, text = entry
+    data = text.encode("utf-8")
+    chunks = rag_ingest.chunk_text(text, col.chunk_size, col.chunk_overlap)
+    if not chunks:
+        return
+    doc = Document(
+        collection_id=col.id,
+        filename=filename,
+        content_type="text/plain",
+        byte_size=len(data),
+        status="ready",
+        chunk_count=len(chunks),
     )
+    session.add(doc)
+    await session.flush()  # doc.id 확보(DocumentBlob은 관계 속성이 없어 FK 직접 지정)
+    session.add(DocumentBlob(document_id=doc.id, data=data))
+    for i, t in enumerate(chunks):
+        session.add(
+            Chunk(
+                document_id=doc.id,
+                collection_id=col.id,
+                ordinal=i,
+                text=t,
+                meta=None,
+                embedding=_det_embedding(t, RAG_EMBED_DIMS),
+            )
+        )
+    col.status = "ready"
+    col.doc_count = (col.doc_count or 0) + 1
+    col.chunk_count = (col.chunk_count or 0) + len(chunks)
 
 
 def _seed_ui_agents(session: AsyncSession, prompt_body: dict[str, str]) -> None:

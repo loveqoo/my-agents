@@ -253,7 +253,8 @@ export function AgentForm({
     {
       key: '문서',
       title: '문서',
-      items: collections.map((c) => ({ id: `rag:${c.name}`, label: c.name })),
+      // 빈 컬렉션 표면화(스펙 437) — 문서 0건이면 라벨에 명시(배선해도 검색이 빈다는 사실을 선택 시점에).
+      items: collections.map((c) => ({ id: `rag:${c.name}`, label: c.chunk_count ? c.name : `${c.name} (비어 있음)` })),
     },
     {
       key: '사용자 기억',
@@ -394,7 +395,7 @@ export function AgentForm({
   // 백엔드가 계속 해석(무회귀) — 새 저작은 컬렉션별만 노출.
   // 도구/문서 분리(스펙 272) — 노드가 둘을 별개 컨트롤로(도구=ToolTree 스펙 277, 문서=Select). 저장은
   // 여전히 n.tools 한 배열(문서=search_documents__<컬렉션>, 268 P1 무회귀) — UI만 나눈다.
-  const nodeDocOptions = collections.map((c) => ({ label: c.name, value: safeToolName('search_documents', c.name) }))
+  const nodeDocOptions = collections.map((c) => ({ label: c.chunk_count ? c.name : `${c.name} (비어 있음)`, value: safeToolName('search_documents', c.name) }))
   // 노드별 기억 선택지(스펙 268 P2) — 직접형 "기억" 그룹과 같은 원천(blocks.memory). 노드 회상은
   // 장기 기억(mem0)만 대상(단기는 historyDepth가 별도 소유).
   const nodeMemoryOptions = (blocks.memory?.items ?? [])
@@ -747,8 +748,9 @@ export function AgentForm({
                               >
                                 <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                                   <span style={{ fontSize: 13 }}>{c.name}</span>
-                                  <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-                                    {c.embedding_model_name} · 청크 {c.chunk_count}개
+                                  <span style={{ fontSize: 12, color: c.chunk_count ? 'var(--color-text-tertiary)' : 'var(--color-warning, #d48806)' }}>
+                                    {/* 빈 컬렉션 표면화(스펙 437) — 배선해도 검색이 빈다는 사실을 선택 시점에 경고색으로 */}
+                                    {c.embedding_model_name} · {c.chunk_count ? `청크 ${c.chunk_count}개` : '비어 있음 — 문서를 업로드해야 검색됩니다'}
                                   </span>
                                 </span>
                               </Checkbox>

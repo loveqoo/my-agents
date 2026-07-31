@@ -173,6 +173,29 @@ def used_hits(annotated: list[dict]) -> list[dict]:
     return [h for h in annotated if not h.get("belowCutoff")]
 
 
+async def _all_collections_empty(collections: list[dict]) -> bool:
+    """배선된 컬렉션이 **전부** 문서 0건인가(스펙 437) — 무히트 시에만 호출(비용 국소화).
+    조회 실패는 False(기존 메시지로 폴백 — 표면화가 본업을 깨지 않게)."""
+    ids = [c.get("id") for c in collections if c.get("id")]
+    if not ids:
+        return False
+    try:
+        from sqlalchemy import func, select
+
+        from .db import SessionLocal
+        from .models import Document
+
+        async with SessionLocal() as s:
+            n = (
+                await s.execute(
+                    select(func.count(Document.id)).where(Document.collection_id.in_(ids))
+                )
+            ).scalar_one()
+        return n == 0
+    except Exception:
+        return False
+
+
 def format_rag_hits(results: list[dict]) -> str:
     """검색 hit 리스트 → 사람이 읽을 텍스트 블록(스펙 103 공유 포맷터).
 
@@ -328,6 +351,17 @@ def build_rag_tool(
         # 스펙 192: 에이전트가 **실제로 보는 것은 used(커트라인 통과분)** — 미달 문서는 안 넘긴다(필터 의미
         # 유지). trace(hitsDetail)에는 전부 싣는다(used+dropped, 플래그) — 인스펙터가 "못 쓴 문서"를 보이게.
         used = used_hits(results)
+        # 빈 컬렉션 표면화(스펙 437) — 무히트가 "관련 없음"이 아니라 **컬렉션이 비어서**라면 정직하게
+        # 알린다(전수 조사: 빈 컬렉션의 조용한 "찾지 못함"이 기능 고장으로 읽혔다). 판정은 무히트일
+        # 때만 count 1회(히트 경로 비용 0). 일부만 비면 기존 메시지(관련 없음이 맞을 수 있음).
+        if not used and await _all_collections_empty(collections):
+            names_ = ", ".join(c["name"] for c in collections)
+            msg = (
+                f"검색 대상 컬렉션({names_})에 문서가 없습니다 — 컬렉션에 문서를 업로드해야 "
+                "검색할 수 있습니다. 이 사실을 사용자에게 알려주세요."
+            )
+            _record("ok", msg, 0, [])
+            return msg
         # 결과 본문 스니펫(스펙 131) — "N건 반환" 카운트 대신 실제 구절(_record가 _RESULT_CAP 캡).
         _record(
             "ok",
