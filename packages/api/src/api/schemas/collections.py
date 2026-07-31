@@ -94,6 +94,9 @@ class DocumentOut(AuditOut):
     # 스펙 331 — 런타임 수정 가능 여부(문서형·비PDF·원본 blob 보존). ORM 속성이 아니라 라우트가
     # 계산해 채운다(ORM 직렬화 경로는 False 기본 — list_documents가 정본).
     editable: bool = False
+    # 스펙 435 — 인제스트 진행률 {done, total}(청크 단위). 진행 중일 때만 채워지고(프로세스-로컬 맵),
+    # 대기·완료·오류면 None. editable과 같이 **라우트가 계산해 채우는** 필드(ORM 속성 아님).
+    progress: dict[str, int] | None = None
     model_config = ORM
 
 

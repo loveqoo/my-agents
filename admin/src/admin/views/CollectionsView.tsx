@@ -36,6 +36,7 @@ import {
   listDocuments,
   uploadDocument,
   deleteDocument,
+  reingestDocument,
   listModels,
   searchCollection,
   reindexCollection,
@@ -599,6 +600,19 @@ function DocsDrawer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [processing, id])
 
+  // 스펙 435 — 실패 문서 재시도(보존 원본 재인제스트). 성공 시 목록 새로고침해 진행 상태를 잇는다.
+  const doRetryDoc = async (ctl: ListController, docId: string) => {
+    if (!id) return
+    const ok = await runWithToast(() => reingestDocument(id, docId), {
+      success: '재시도를 시작했습니다 — 진행 상태는 목록에서 확인하세요',
+      errorPrefix: '재시도 실패',
+    })
+    if (ok) {
+      await ctl.reload()
+      onChanged()
+    }
+  }
+
   const doDeleteDoc = async (ctl: ListController, docId: string) => {
     if (!id) return
     const ok = await runWithToast(() => deleteDocument(id, docId))
@@ -650,14 +664,22 @@ function DocsDrawer({
     {
       key: 'status',
       title: '상태',
-      width: 110,
+      width: 150,
       render: (d) =>
         d.status === 'error' && d.error ? (
           <Tooltip title={d.error}>
             <span>{docStatusTag(d.status)}</span>
           </Tooltip>
         ) : (
-          docStatusTag(d.status)
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            {docStatusTag(d.status)}
+            {/* 스펙 435 — 진행률(청크 단위). 진행 중일 때만 서버가 채운다(완료 후 사라짐). */}
+            {d.progress ? (
+              <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)', whiteSpace: 'nowrap' }}>
+                {d.progress.done.toLocaleString()}/{d.progress.total.toLocaleString()}
+              </span>
+            ) : null}
+          </span>
         ),
     },
     // audit '수정' 컬럼은 드로워(size=640)에선 뺀다(스펙 355). hideBelow는 **뷰포트** 브레이크포인트
@@ -688,6 +710,18 @@ function DocsDrawer({
                 disabled={!d.editable}
                 icon={<Icon name="edit" />}
                 onClick={() => setEditingDoc(d)}
+              />
+            </Tooltip>
+          )}
+          {/* 스펙 435 — 실패 문서 재시도: 원본이 보존돼 있어 재업로드 없이 다시 인제스트. 비파괴라
+              Popconfirm 없음. 실패(error) 상태에서만 노출. */}
+          {collection?.can_manage !== false && d.status === 'error' && (
+            <Tooltip title="보존된 원본으로 다시 인제스트합니다 — 파일을 다시 올릴 필요가 없습니다">
+              <Button
+                type="text"
+                size="small"
+                icon={<Icon name="reload" />}
+                onClick={() => void doRetryDoc(ctl, d.id)}
               />
             </Tooltip>
           )}

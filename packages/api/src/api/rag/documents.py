@@ -35,6 +35,7 @@ from .ingest_core import (
     _execute_ingest,
     _load_editable_doc,
     _parse_entity_rows,
+    ingest_progress,
 )
 from .limits import MAX_UPLOAD_BYTES, _content_length_guard
 from .reindex_core import _reject_if_reindexing
@@ -75,7 +76,10 @@ async def list_documents(
     ).all()
     items = [
         DocumentOut.model_validate(doc).model_copy(
-            update={"editable": _doc_editable(col, doc, has_blob)[0]}
+            update={
+                "editable": _doc_editable(col, doc, has_blob)[0],
+                "progress": ingest_progress(doc.id),  # 스펙 435 — 진행 중이면 {done,total}
+            }
         )
         for doc, has_blob in rows
     ]
@@ -137,6 +141,45 @@ async def ingest_document(
     # 임베딩+적재는 배경(스펙 334) — 접수 즉시 반환. 잡은 자기 세션을 연다(요청 세션은 곧 닫힘).
     spawn(_execute_ingest(doc_id, cid, data, entity_rows))
     return doc
+
+
+@router.post("/{cid}/documents/{doc_id}/reingest", response_model=DocumentOut)
+async def reingest_document(
+    cid: uuid.UUID,
+    doc_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    principal: User | str = Depends(current_principal),
+) -> DocumentOut:
+    """실패한 문서를 **보존된 원본으로** 다시 인제스트(스펙 435 A) — 재업로드 불요.
+
+    원본 blob은 재청킹·편집 근거로 이미 영속돼 있다(스펙 312) → 실패 원인이 일시적(모델 서버 재기동·
+    회로 열림 등)일 때 파일을 다시 올리게 하는 건 불필요한 마찰이었다.
+
+    게이트: status=='error'만(성공·진행 중 재시도는 중복 적재라 400) · blob 존재 · 재인덱싱 중 409 ·
+    관리 권한. 실행은 **업로드와 같은 경로**(_execute_ingest spawn)라 세마포어·배치 흘려보내기·재료
+    관문(스펙 432/433)을 그대로 승계한다. 엔티티 컬렉션은 업로드와 동일하게 행 파싱을 재수행(위반=400).
+    """
+    col, doc, blob = await _load_editable_doc(session, cid, doc_id, principal)
+    _reject_if_reindexing(col)  # 재인덱싱 중 인제스트 차단(스펙 312 배타 잠금)
+    if doc.status != "error":
+        raise HTTPException(
+            status_code=400,
+            detail=f"실패한 문서만 재시도할 수 있습니다(현재 상태: {doc.status}).",
+        )
+    if blob is None:
+        raise HTTPException(status_code=400, detail="원본이 없어 재시도할 수 없습니다 — 다시 업로드하세요.")
+
+    data = blob.data
+    # 엔티티 형식 위반은 여기서 400(업로드와 같은 계약 — 배경으로 밀면 400을 줄 수 없다).
+    entity_rows = await asyncio.to_thread(_parse_entity_rows, col, data)
+    # 방어적 멱등: 실패분 청크가 남아 있으면 지우고 시작(432가 전체 롤백이라 보통 0건).
+    await session.execute(delete(Chunk).where(Chunk.document_id == doc.id))
+    doc.status = "parsing"
+    doc.error = None
+    await session.commit()
+    await session.refresh(doc)
+    spawn(_execute_ingest(doc.id, cid, data, entity_rows))
+    return DocumentOut.model_validate(doc).model_copy(update={"editable": True})
 
 
 @router.delete("/{cid}/documents/{doc_id}", status_code=204)

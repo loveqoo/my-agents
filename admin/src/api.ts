@@ -359,6 +359,8 @@ export interface RagDocument extends Audit {
   status: string // parsing|embedding|ready|error
   error: string | null
   editable?: boolean // 스펙 331 — 런타임 수정 가능(문서형·비PDF·원본 보존)
+  // 스펙 435 — 인제스트 진행률(청크 단위). 진행 중일 때만 채워지고 완료·오류면 없음(휘발).
+  progress?: { done: number; total: number } | null
 }
 export interface CollectionHealth {
   collection_id: string
@@ -459,6 +461,10 @@ export const getDocumentContent = (id: string, docId: string) =>
 export const updateDocumentContent = (id: string, docId: string, text: string) =>
   put(`/collections/${id}/documents/${docId}/content`, { text }) as Promise<DocumentEditResult>
 /** 문서 업로드(멀티파트). FormData는 Content-Type을 브라우저가 boundary와 함께 자동 설정 — 직접 넣지 않는다. */
+// 스펙 435 — 실패 문서 재시도(보존된 원본으로 재인제스트, 재업로드 불요). 성공/진행 중=400, 재인덱싱 중=409.
+export const reingestDocument = (id: string, docId: string) =>
+  post(`/collections/${id}/documents/${docId}/reingest`, {}) as Promise<RagDocument>
+
 export async function uploadDocument(id: string, file: File): Promise<RagDocument> {
   const fd = new FormData()
   fd.append('file', file)

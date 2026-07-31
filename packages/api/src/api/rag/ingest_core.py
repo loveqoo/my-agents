@@ -165,6 +165,7 @@ async def _embed_persist_batched(
     # 사용 재료 박제(codex 432 P0) — 임베딩 시작 시점의 모델·청킹. finalize가 이 값 그대로일 때만 커밋.
     used_model_pk = c.embedding_model_id
     used_chunk_size, used_chunk_overlap = c.chunk_size, c.chunk_overlap
+    _PROGRESS[doc.id] = (0, len(chunks))  # 진행률 시작(스펙 435) — 종료는 _execute_ingest finally가 정리
     for start in range(0, len(chunks), rag_ingest.EMBED_BATCH):
         bc = chunks[start : start + rag_ingest.EMBED_BATCH]
         bm = metas[start : start + rag_ingest.EMBED_BATCH]
@@ -190,6 +191,7 @@ async def _embed_persist_batched(
         await session.flush()
         for row in rows:  # identity map 참조 해제 — flush된 ORM이 상주하지 않게(메모리 유계의 반쪽)
             session.expunge(row)
+        _PROGRESS[doc.id] = (min(start + len(bc), len(chunks)), len(chunks))  # 배치 단위 진행(435)
     await _finalize_ingest(
         session,
         c,
@@ -220,6 +222,18 @@ async def _mark_ingest_error(
         await session.commit()
         await session.refresh(doc)
     return doc
+
+
+# 인제스트 진행률(스펙 435 B) — 프로세스-로컬 {doc_id: (done, total)}. **DB 컬럼을 안 쓰는 이유**:
+# 인제스트는 단일 트랜잭션이라 진행 중 상태를 커밋할 수 없고(별도 세션 쓰기는 락·복잡도만 늘림),
+# 진행률은 재시작하면 무의미한 휘발 정보다(스펙 431 진행 파일과 같은 성격). 종료 시 삭제.
+_PROGRESS: dict[uuid.UUID, tuple[int, int]] = {}
+
+
+def ingest_progress(doc_id: uuid.UUID) -> dict | None:
+    """문서의 인제스트 진행률 {done, total} 또는 None(진행 중 아님) — list_documents가 응답에 싣는다."""
+    p = _PROGRESS.get(doc_id)
+    return {"done": p[0], "total": p[1]} if p else None
 
 
 # 동시 인제스트 상한(스펙 432 B, 구남님 승인 기본 2) — spawn 무상한이라 동시 업로드 N개의 피크가
@@ -281,6 +295,8 @@ async def _execute_ingest(
         with contextlib.suppress(Exception):  # best-effort 박제(그마저 실패면 부팅 스윕이 그물)
             async with SessionLocal() as s2:
                 await _mark_ingest_error(s2, doc_id, exc)
+    finally:
+        _PROGRESS.pop(doc_id, None)  # 진행률 정리(성공·실패·취소 전부 — 스펙 435)
 
 
 async def sweep_zombie_ingests() -> int:
