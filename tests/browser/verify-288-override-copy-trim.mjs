@@ -25,7 +25,7 @@ const LABEL = '프롬프트·모델·도구를 이 대화에서만 변경'
 const HINT = '노드 추가·삭제·순서는 여기서 바꿀 수 없습니다'
 
 try {
-  await page.goto(URL, { waitUntil: 'networkidle', timeout: 30000 })
+  await page.goto(URL, { waitUntil: 'domcontentloaded', timeout: 30000 })
   await page.getByPlaceholder('you@example.com').fill(EMAIL)
   await page.getByPlaceholder('비밀번호').fill(PASSWORD)
   await page.getByRole('button', { name: '로그인' }).click()

@@ -53,7 +53,7 @@ const openInspector = async () => {
 let idA = null
 let idB = null
 try {
-  await page.goto(URL, { waitUntil: 'networkidle', timeout: 30000 })
+  await page.goto(URL, { waitUntil: 'domcontentloaded', timeout: 30000 })
   await page.getByPlaceholder('you@example.com').fill(_fx.email)
   await page.getByPlaceholder('비밀번호').fill(_fx.password)
   await page.getByRole('button', { name: '로그인' }).click()
@@ -124,7 +124,7 @@ try {
   idB = bJson?.id
   ok(!!idB, `R2a min=0 에이전트 생성(${NAME}-b)`)
   // 플레이그라운드 에이전트 목록은 페이지 로드 시 캐시됨 — API로 만든 B를 보려면 리로드.
-  await page.reload({ waitUntil: 'networkidle' })
+  await page.reload({ waitUntil: 'domcontentloaded' })
   await page.getByText('에이전트', { exact: true }).first().waitFor({ timeout: 10000 })
   await page.getByText('Playground', { exact: true }).first().click()
   await page.waitForTimeout(1000)

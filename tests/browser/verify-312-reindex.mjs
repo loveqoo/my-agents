@@ -42,7 +42,7 @@ const api = (path, opts) => page.evaluate(async ({ path, opts }) => {
 let cid = null
 try {
   // ── 로그인 ──
-  await page.goto(URL, { waitUntil: 'networkidle', timeout: 30000 })
+  await page.goto(URL, { waitUntil: 'domcontentloaded', timeout: 30000 })
   await page.getByText('my-agents 로그인', { exact: true }).waitFor({ timeout: 10000 })
   await page.getByPlaceholder('you@example.com').fill(EMAIL)
   await page.getByPlaceholder('비밀번호').fill(PASSWORD)
@@ -82,7 +82,7 @@ try {
   check(before.embedding_model_name === 'mock-embed', `초기 모델=mock-embed`)
 
   // ── ② UI 구동: RAG 컬렉션 → 재인덱싱 모달 ──
-  await page.reload({ waitUntil: 'networkidle' })
+  await page.reload({ waitUntil: 'domcontentloaded' })
   await page.getByRole('menuitem', { name: 'RAG 컬렉션', exact: true }).first().click()
     .catch(async () => { await page.getByText('RAG 컬렉션', { exact: true }).first().click() })
   await page.waitForTimeout(800)

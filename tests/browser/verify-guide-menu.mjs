@@ -15,7 +15,7 @@ const context = await browser.newContext({ viewport: { width: 1400, height: 950 
 const page = await context.newPage()
 
 try {
-  await page.goto(URL, { waitUntil: 'networkidle', timeout: 30000 })
+  await page.goto(URL, { waitUntil: 'domcontentloaded', timeout: 30000 })
   await page.getByPlaceholder('you@example.com').fill(_fx.email)
   await page.getByPlaceholder('비밀번호').fill(_fx.password)
   await page.getByRole('button', { name: '로그인' }).click()

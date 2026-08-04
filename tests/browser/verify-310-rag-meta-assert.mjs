@@ -44,7 +44,7 @@ let dsId = null
 
 try {
   // ---------- 로그인 ----------
-  await page.goto(URL, { waitUntil: 'networkidle', timeout: 30000 })
+  await page.goto(URL, { waitUntil: 'domcontentloaded', timeout: 30000 })
   await page.getByText('my-agents 로그인', { exact: true }).waitFor({ timeout: 10000 })
   await page.getByPlaceholder('you@example.com').fill(EMAIL)
   await page.getByPlaceholder('비밀번호').fill(PASSWORD)
@@ -90,7 +90,7 @@ try {
   check(badCase.status >= 400 && badCase.status < 500, `malformed arg(등호 없음) → 4xx 거부(${badCase.status})`)
 
   // ---------- ② UI에서 문제집 열기 → 케이스 Tag가 assertLabel로 렌더 ----------
-  await page.reload({ waitUntil: 'networkidle' })
+  await page.reload({ waitUntil: 'domcontentloaded' })
   await page.waitForTimeout(500)
   await page.getByRole('menuitem', { name: '평가', exact: true }).first().click()
     .catch(async () => { await page.getByText('평가', { exact: true }).first().click() })

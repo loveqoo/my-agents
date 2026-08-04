@@ -16,7 +16,7 @@ const codes = () => page.evaluate(() =>
 
 const R = {}
 try {
-  await page.goto('http://127.0.0.1:5173', { waitUntil: 'networkidle', timeout: 30000 })
+  await page.goto('http://127.0.0.1:5173', { waitUntil: 'domcontentloaded', timeout: 30000 })
   await page.getByPlaceholder('you@example.com').fill(_fx.email)
   await page.getByPlaceholder('비밀번호').fill(_fx.password)
   await page.getByRole('button', { name: '로그인' }).click()

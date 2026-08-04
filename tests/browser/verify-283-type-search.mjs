@@ -18,7 +18,7 @@ const D = 'ts283-direct-' + rand, P = 'ts283-pipe-' + rand, O = 'ts283-orch-' + 
 const cleanup = { agents: [] }
 
 try {
-  await page.goto(URL, { waitUntil: 'networkidle', timeout: 30000 })
+  await page.goto(URL, { waitUntil: 'domcontentloaded', timeout: 30000 })
   await page.getByPlaceholder('you@example.com').fill(EMAIL)
   await page.getByPlaceholder('비밀번호').fill(PASSWORD)
   await page.getByRole('button', { name: '로그인' }).click()
@@ -37,7 +37,7 @@ try {
   }, { D, P, O })
   for (const id of Object.values(made)) if (id) cleanup.agents.push(id)
   check(made.d && made.p && made.o, `픽스처 생성 (${JSON.stringify(made)})`)
-  await page.reload({ waitUntil: 'networkidle' }); await page.waitForTimeout(800)
+  await page.reload({ waitUntil: 'domcontentloaded' }); await page.waitForTimeout(800)
 
   // 종류 필터는 텍스트 검색이 아니라 명시 Select(스펙 284 후속3 — 283의 텍스트 축을 대체).
   const search = page.getByPlaceholder('이름 검색').first()

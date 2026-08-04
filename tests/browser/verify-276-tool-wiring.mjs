@@ -64,7 +64,7 @@ async function closeModal() {
 }
 
 try {
-  await page.goto(URL, { waitUntil: 'networkidle', timeout: 30000 })
+  await page.goto(URL, { waitUntil: 'domcontentloaded', timeout: 30000 })
   await page.getByPlaceholder('you@example.com').fill(EMAIL)
   await page.getByPlaceholder('비밀번호').fill(PASSWORD)
   await page.getByRole('button', { name: '로그인' }).click()
@@ -183,7 +183,7 @@ try {
     `④b pipeline 게이트: agent-level tools 있어도 노드 web_search 호출됨(풀 미축소) (got ${JSON.stringify(pipeChat.mcp)})`)
 
   // ── ⑤ 하이드레이션: 구저장(mcps만) 편집 열람 → 도구 피커 체크 확장 ──
-  await page.reload({ waitUntil: 'networkidle' })
+  await page.reload({ waitUntil: 'domcontentloaded' })
   await page.waitForTimeout(800)
   await page.getByText('tw276-ctl-' + rand, { exact: false }).first().click()
   await page.waitForTimeout(700)

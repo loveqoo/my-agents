@@ -57,17 +57,30 @@ const openDataset = async (name) => {
 }
 
 try {
-  await page.goto(URL, { waitUntil: 'networkidle', timeout: 30000 })
+  await page.goto(URL, { waitUntil: 'domcontentloaded', timeout: 30000 })  // 438: SSE 상시연결(335)로 networkidle 불가
   await page.getByPlaceholder('you@example.com').fill(_fx.email)
   await page.getByPlaceholder('비밀번호').fill(_fx.password)
   await page.getByRole('button', { name: '로그인' }).click()
   await page.getByText('에이전트', { exact: true }).first().waitFor({ timeout: 10000 })
   await page.getByText('평가', { exact: true }).first().click()
   await page.waitForTimeout(1000)
-  ok(await waitFor(new RegExp(`ev193-pin-${S}`)), '평가 목록에 문제집 노출')
+  // 스펙 212 현행화(438 드리프트 수리): 문제집 목록이 에이전트/RAG kind 탭으로 갈림 — rag 문제집은
+  // "RAG 평가" 탭에서만 보인다(구 스크립트는 기본 탭에서 찾아 4건 연쇄 실패).
+  await page.getByRole('tab', { name: 'RAG 평가' }).click().catch(async () => {
+    await page.getByText('RAG 평가', { exact: true }).first().click()
+  })
+  await page.waitForTimeout(800)
+  ok(await waitFor(new RegExp(`ev193-pin-${S}`)), '평가 목록에 문제집 노출(RAG 탭)')
 
   // ── P1: 컬렉션 고정 드로어 ──
   await openDataset(`ev193-pin-${S}`)
+  // 스펙 252 현행화(438): 드로어가 문제/실행·성적 두 탭 — 대상 컬렉션 칩·실행 버튼·성적 추이는
+  // '실행 · 성적' 탭에 있다(기본은 '문제' 탭이라 구 스크립트가 못 봄).
+  const gotoRunTab = async () => {
+    await page.getByRole('tab', { name: /실행 · 성적/ }).click().catch(() => {})
+    await page.waitForTimeout(600)
+  }
+  await gotoRunTab()
   const dt = await bodyText()
   ok(/대상 컬렉션/.test(dt), 'P1a 드로어에 "대상 컬렉션" 칩(고정)')
   ok(new RegExp(col.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).test(dt), 'P1b 고정 컬렉션 이름 표시')
@@ -85,6 +98,7 @@ try {
   for (let i = 0; i < 8; i++) {
     await goDatasetsTab()
     await openDataset(`ev193-pin-${S}`)
+    await gotoRunTab()
     if (/성적 추이/.test(await bodyText())) { trend = true; break }
     await page.waitForTimeout(3000)
   }
@@ -105,9 +119,12 @@ try {
   await closeDrawer()
   dsG = await (await api('/eval/datasets', { method: 'POST', body: JSON.stringify({ name: `ev193-gen-${S}`, kind: 'rag', description: 'AI 출제 중…', collection_id: col?.id }) })).json()
   ok(dsG?.generating === true, `P3준비 generating=true (got ${dsG?.generating})`)
-  await page.reload({ waitUntil: 'networkidle' })
+  await page.reload({ waitUntil: 'domcontentloaded' })  // 438: SSE 상시연결(335)로 networkidle 불가
   await page.getByText('평가', { exact: true }).first().click()
   await page.waitForTimeout(1200)
+  // 438: reload로 kind 탭이 기본(에이전트)으로 초기화 — rag 문제집은 RAG 탭 재진입 후에만 보인다.
+  await page.getByRole('tab', { name: 'RAG 평가' }).click().catch(() => {})
+  await page.waitForTimeout(800)
   ok(await waitFor(/문제 생성 중/, 8000), 'P3a 목록에 "문제 생성 중…" 배지')
   await page.screenshot({ path: `${OUT}/ev193-list.png` })
   await openDataset(`ev193-gen-${S}`)

@@ -33,7 +33,7 @@ async function closeModal() {
 }
 
 try {
-  await page.goto(URL, { waitUntil: 'networkidle', timeout: 30000 })
+  await page.goto(URL, { waitUntil: 'domcontentloaded', timeout: 30000 })
   await page.getByPlaceholder('you@example.com').fill(EMAIL)
   await page.getByPlaceholder('비밀번호').fill(PASSWORD)
   await page.getByRole('button', { name: '로그인' }).click()
@@ -59,7 +59,7 @@ try {
   if (pfxJ?.id) cleanup.prompts.push(pfxJ.id)
   log(`  ..  prompt fixture: ${pfx.status()}`)
   // blocks는 뷰 mount 시 로드 — 픽스처 반영 위해 리로드.
-  await page.reload({ waitUntil: 'networkidle' })
+  await page.reload({ waitUntil: 'domcontentloaded' })
   await page.waitForTimeout(800)
   const blocksDbg = await page.evaluate(async () => {
     const r = await fetch('/api/blocks', { credentials: 'include' })
@@ -133,7 +133,7 @@ try {
   })
   const g = await gr.json(); if (g?.id) cleanup.agents.push(g.id)
   if (gr.ok()) {
-    await page.reload({ waitUntil: 'networkidle' })
+    await page.reload({ waitUntil: 'domcontentloaded' })
     await page.waitForTimeout(800)
     // 행 아이콘 편집은 접근명이 없어(037 선례) 행 열기 → 라벨 '편집' 버튼으로 진입.
     await page.getByText(gname, { exact: false }).first().click()

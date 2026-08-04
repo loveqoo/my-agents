@@ -9,7 +9,7 @@ const fails = []
 const ok = (c, m) => { console.log((c ? '  ok  ' : ' FAIL ') + m); if (!c) fails.push(m) }
 const browser = await chromium.launch({ channel: 'chrome', headless: true })
 const login = async (p) => {
-  await p.goto(URL, { waitUntil: 'networkidle', timeout: 30000 })
+  await p.goto(URL, { waitUntil: 'domcontentloaded', timeout: 30000 })
   await p.getByPlaceholder('you@example.com').fill(_fx.email)
   await p.getByPlaceholder('비밀번호').fill(_fx.password)
   await p.getByRole('button', { name: '로그인' }).click()

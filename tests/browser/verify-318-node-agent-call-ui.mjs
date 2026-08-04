@@ -51,7 +51,7 @@ try {
   check(!!g2.activeVersion, `① expert 활성 버전 보유 (got ${g2.activeVersion})`)
 
   // ── 로그인 + 노드형 에이전트 폼 ──
-  await page.goto(URL, { waitUntil: 'networkidle', timeout: 30000 })
+  await page.goto(URL, { waitUntil: 'domcontentloaded', timeout: 30000 })
   await page.getByPlaceholder('you@example.com').fill(_fx.email)
   await page.getByPlaceholder('비밀번호').fill(_fx.password)
   await page.getByRole('button', { name: '로그인' }).click()

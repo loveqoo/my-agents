@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import { execFileSync } from 'node:child_process'
 
 const pwDir = process.env.PLAYWRIGHT_DIR
-const _pw = await import(pwDir ? `${process.cwd()}/${pwDir}/index.js` : 'playwright')
+const _pw = await import(pwDir ? `${pwDir}/index.js` : 'playwright')
 const chromium = _pw.chromium ?? _pw.default?.chromium
 const URL = process.env.ADMIN_URL ?? 'http://127.0.0.1:5173'
 const _fx = process.env.ADMIN_EMAIL ? null : (await import('./_fixture.mjs')).provisionSuper()

@@ -23,7 +23,7 @@ const MINE = 'al284-mine-' + rand
 const cleanup = { agents: [] }
 
 try {
-  await page.goto(URL, { waitUntil: 'networkidle', timeout: 30000 })
+  await page.goto(URL, { waitUntil: 'domcontentloaded', timeout: 30000 })
   await page.getByPlaceholder('you@example.com').fill(EMAIL)
   await page.getByPlaceholder('비밀번호').fill(PASSWORD)
   await page.getByRole('button', { name: '로그인' }).click()
@@ -37,7 +37,7 @@ try {
     return r.ok ? (await r.json()).id : null
   }, MINE)
   if (made) cleanup.agents.push(made)
-  await page.reload({ waitUntil: 'networkidle' }); await page.waitForTimeout(800)
+  await page.reload({ waitUntil: 'domcontentloaded' }); await page.waitForTimeout(800)
 
   // ── ① 탭 3개 + 기본 UI ──
   for (const t of ['내부 (UI)', '내부 (Code)', '외부']) {

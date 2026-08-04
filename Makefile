@@ -45,6 +45,8 @@ test-unit:          # 순수층만(무의존·병렬·최속)
 	uv run python tests/run_suite.py unit
 test-all:           # 전층(http 포함 — dev 서버 8000 전제. http는 상태 오염 취약, 참고용)
 	uv run python tests/run_suite.py all
+test-browser:       # 브라우저 verify 그물(스펙 438) — vite+api+playwright 전제, 수십 분. 격리 목록은 러너 안.
+	uv run python tests/run_browser_suite.py
 
 perf-build:         # 빌드 핫패스 베이스라인(스펙 368) — 전제: 실서버 8000(계측 포함 코드).
 	uv run python tests/measure_build_hotpath.py

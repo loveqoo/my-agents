@@ -74,7 +74,7 @@ try {
   check(!!g2.activeVersion, `② 활성 버전 보유 (${g2.activeVersion})`)
 
   // ── ③ 플레이그라운드 → 전송("실패" 트리거) → 인스펙터 "실패 사유" 노출 ──
-  await page.goto(URL, { waitUntil: 'networkidle', timeout: 30000 })
+  await page.goto(URL, { waitUntil: 'domcontentloaded', timeout: 30000 })
   await page.getByPlaceholder('you@example.com').fill(_fx.email)
   await page.getByPlaceholder('비밀번호').fill(_fx.password)
   await page.getByRole('button', { name: '로그인' }).click()

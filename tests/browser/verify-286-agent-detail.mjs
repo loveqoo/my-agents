@@ -33,7 +33,7 @@ const openDetail = async (name) => {
 }
 
 try {
-  await page.goto(URL, { waitUntil: 'networkidle', timeout: 30000 })
+  await page.goto(URL, { waitUntil: 'domcontentloaded', timeout: 30000 })
   await page.getByPlaceholder('you@example.com').fill(EMAIL)
   await page.getByPlaceholder('비밀번호').fill(PASSWORD)
   await page.getByRole('button', { name: '로그인' }).click()
@@ -53,7 +53,7 @@ try {
   }, { D, P, O })
   for (const id of Object.values(made)) if (id) cleanup.agents.push(id)
   check(!!(made.d && made.p && made.o), `픽스처 생성 (${JSON.stringify(made)})`)
-  await page.reload({ waitUntil: 'networkidle' }); await page.waitForTimeout(800)
+  await page.reload({ waitUntil: 'domcontentloaded' }); await page.waitForTimeout(800)
 
   // ── 직접형 상세 ──
   await openDetail(D)

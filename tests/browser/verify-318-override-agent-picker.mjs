@@ -29,7 +29,7 @@ const apiGet = (path) => page.request.get(`${URL}/api${path}`)
 const apiDel = (path) => page.request.delete(`${URL}/api${path}`)
 
 try {
-  await page.goto(URL, { waitUntil: 'networkidle', timeout: 30000 })
+  await page.goto(URL, { waitUntil: 'domcontentloaded', timeout: 30000 })
   await page.getByPlaceholder('you@example.com').fill(EMAIL)
   await page.getByPlaceholder('비밀번호').fill(PASSWORD)
   await page.getByRole('button', { name: '로그인' }).click()
